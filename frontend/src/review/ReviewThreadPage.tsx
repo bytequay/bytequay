@@ -416,9 +416,11 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
               : 'next';
           return (
             <li key={phase.id} style={flowRowStyle}>
-              <span style={flowGlyphStyle(state)} aria-hidden>
-                {state === 'done' ? '✓' : state === 'current' ? '●' : '○'}
-              </span>
+              <span
+                style={flowGlyphStyle(state)}
+                className={state === 'current' ? 'review-agenda-glyph--active' : undefined}
+                aria-hidden
+              />
               <span style={flowLabelStyle(state)}>{phase.label}</span>
             </li>
           );
@@ -432,7 +434,6 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
 function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
   const round = detail.pass.round;
   const roundCap = detail.pass.roundCap;
-  const roundPct = roundCap > 0 ? Math.min(100, Math.round((round / roundCap) * 100)) : 0;
   const costPct = detail.pass.costCapMilli > 0
       ? Math.min(100, Math.round((detail.pass.costUsdMilli / detail.pass.costCapMilli) * 100))
       : 0;
@@ -445,8 +446,10 @@ function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
             <span style={budgetLabelStyle}>Debate rounds</span>
             <span style={budgetValueStyle}>{round} / {roundCap}</span>
           </div>
-          <div style={progressTrackStyle}>
-            <div style={progressFillStyle(roundPct, 'var(--accent, #7c3aed)')} />
+          <div style={pipsRowStyle} aria-hidden>
+            {Array.from({ length: roundCap }, (_, i) => (
+              <span key={i} style={i < round ? pipOnStyle : pipOffStyle} />
+            ))}
           </div>
         </div>
       )}
@@ -499,7 +502,10 @@ function FindingsByStatusSection({
         <span style={countBadgeStyle(accent)}>{findings.length}</span>
       </h2>
       {findings.length === 0 ? (
-        <div style={emptyInlineStyle}>{emptyHint}</div>
+        <div style={emptyStateStyle}>
+          <div style={emptyGlyphStyle} aria-hidden>◇</div>
+          <div style={emptyLabelStyle}>{emptyHint}</div>
+        </div>
       ) : (
         <ul style={checklistStyle}>
           {findings.map(f => {
@@ -564,12 +570,15 @@ function SteerComposerPlaceholder({
 }) {
   return (
     <div style={composerCardStyle}>
-      <textarea
-        placeholder="Steer the panel, @mention a reviewer, or arbitrate the open item…"
-        disabled
-        rows={2}
-        style={composerTextareaStyle}
-      />
+      <div style={composerInboxStyle}>
+        <span style={composerPromptStyle} aria-hidden>›</span>
+        <textarea
+          placeholder="Steer the panel, @mention a reviewer, or arbitrate the open item…"
+          disabled
+          rows={1}
+          style={composerTextareaStyle}
+        />
+      </div>
       <div style={composerFooterStyle}>
         <span style={composerHintStyle}>
           {published
@@ -1640,10 +1649,10 @@ const flowListStyle: React.CSSProperties = {
 // from the centre of the first glyph to the centre of the last.
 const flowConnectorStyle: React.CSSProperties = {
   position: 'absolute',
-  left: 7,
+  left: 6,
   top: 12,
   bottom: 12,
-  width: 2,
+  width: 1.5,
   background: 'var(--border)',
   zIndex: 0,
 };
@@ -1657,32 +1666,31 @@ const flowRowStyle: React.CSSProperties = {
 };
 
 function flowGlyphStyle(state: 'done' | 'current' | 'next'): React.CSSProperties {
-  const color = state === 'done' ? '#16a34a'
-      : state === 'current' ? '#7c3aed'
-      : 'var(--text-4)';
-  return {
-    width: 16,
-    height: 16,
+  const base: React.CSSProperties = {
+    width: 13,
+    height: 13,
     borderRadius: 999,
-    border: state === 'current' ? '2px solid #7c3aed' : '1px solid var(--border)',
-    color,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 9,
-    fontWeight: 700,
     flexShrink: 0,
-    // Opaque so the connector line behind the column is hidden under the
-    // glyph and only shows in the gaps between steps.
-    background: state === 'current' ? '#f3eefe' : 'var(--bg-1)',
+    boxSizing: 'border-box',
+    // Opaque so the connector line behind the column only shows in the
+    // gaps between the markers.
+    marginTop: 1,
   };
+  if (state === 'done') {
+    return { ...base, background: '#10b981', border: '2px solid #10b981', boxShadow: 'inset 0 0 0 2px #fff' };
+  }
+  if (state === 'current') {
+    return { ...base, background: '#7c5cff', border: '2px solid #7c5cff', boxShadow: '0 0 0 3px rgba(124,92,255,0.22)' };
+  }
+  return { ...base, background: 'var(--bg-elevated, #fff)', border: '2px solid var(--border-mid, var(--border))' };
 }
 
 function flowLabelStyle(state: 'done' | 'current' | 'next'): React.CSSProperties {
   return {
-    fontSize: 12,
-    color: state === 'next' ? 'var(--text-3)' : 'var(--text-1)',
-    fontWeight: state === 'current' ? 600 : 400,
+    fontSize: 11.5,
+    color: state === 'current' ? '#5b21b6'
+        : state === 'next' ? 'var(--text-3)' : 'var(--text-2)',
+    fontWeight: state === 'current' ? 800 : 400,
   };
 }
 
@@ -1703,15 +1711,35 @@ const budgetLabelStyle: React.CSSProperties = {
 };
 
 const budgetValueStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
+  fontSize: 13,
+  fontWeight: 800,
   color: 'var(--text-1)',
   fontVariantNumeric: 'tabular-nums',
+  letterSpacing: '-0.01em',
+};
+const pipsRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 4,
+  marginTop: 2,
+};
+const pipBaseStyle: React.CSSProperties = {
+  flex: 1,
+  height: 6,
+  borderRadius: 999,
+};
+const pipOffStyle: React.CSSProperties = {
+  ...pipBaseStyle,
+  background: 'rgba(124,92,255,0.14)',
+};
+const pipOnStyle: React.CSSProperties = {
+  ...pipBaseStyle,
+  background: 'linear-gradient(90deg,#34d399,#7c5cff)',
+  boxShadow: '0 1px 4px rgba(124,92,255,0.3)',
 };
 
 const progressTrackStyle: React.CSSProperties = {
-  height: 4,
-  background: 'rgba(0,0,0,0.06)',
+  height: 7,
+  background: 'rgba(124,92,255,0.14)',
   borderRadius: 999,
   overflow: 'hidden',
 };
@@ -1727,23 +1755,41 @@ function progressFillStyle(pct: number, color: string): React.CSSProperties {
 
 const composerCardStyle: React.CSSProperties = {
   marginTop: 6,
-  padding: 12,
-  background: '#fff',
+  padding: '11px 14px 12px',
+  borderTop: '1px solid rgba(124,92,255,0.12)',
+  background: 'rgba(255,255,255,0.62)',
+  backdropFilter: 'blur(10px)',
+  WebkitBackdropFilter: 'blur(10px)',
+  borderRadius: '0 0 14px 14px',
+};
+const composerInboxStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 10,
+  background: 'rgba(255,255,255,0.92)',
   border: '1px solid var(--border)',
-  borderRadius: 12,
-  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+  borderRadius: 13,
+  padding: '10px 14px',
+  boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+};
+const composerPromptStyle: React.CSSProperties = {
+  color: '#7c5cff',
+  fontWeight: 800,
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+  fontSize: 14,
+  lineHeight: 1.45,
 };
 
 const composerTextareaStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  fontSize: 13,
-  lineHeight: 1.45,
-  border: '1px solid var(--border)',
-  borderRadius: 8,
+  flex: 1,
+  padding: 0,
+  fontSize: 12.5,
+  lineHeight: 1.5,
+  border: 0,
+  outline: 'none',
   resize: 'none',
   fontFamily: 'inherit',
-  background: 'rgba(0,0,0,0.02)',
+  background: 'transparent',
   color: 'var(--text-2)',
   boxSizing: 'border-box',
 };
@@ -2490,6 +2536,20 @@ const emptyStyle: React.CSSProperties = {
 
 const emptyInlineStyle: React.CSSProperties = {
   fontSize: 13,
+  color: 'var(--text-3)',
+};
+const emptyStateStyle: React.CSSProperties = {
+  padding: '14px 8px 16px',
+  textAlign: 'center',
+};
+const emptyGlyphStyle: React.CSSProperties = {
+  fontSize: 18,
+  color: 'var(--border-mid, var(--border))',
+  marginBottom: 5,
+};
+const emptyLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontStyle: 'italic',
   color: 'var(--text-3)',
 };
 

@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
@@ -124,6 +125,19 @@ class SqliteTaskStore
         tasks.save(entity);
     }
 
+    /** Load a task entity, apply {@code mutator}, and save it — a no-op
+     *  when the id is unknown. Backs the column-level updates that
+     *  {@code saveTask} deliberately doesn't map (phase, links, pushed_at,
+     *  …), so a later full-row save can't clobber them. Callers carry the
+     *  {@code @Transactional} boundary. */
+    private void mutate(String taskId, Consumer<TaskEntity> mutator)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            mutator.accept(entity);
+            tasks.save(entity);
+        });
+    }
+
     @Override
     @Transactional
     public void markPushed(String taskId, Instant pushedAt)
@@ -131,23 +145,19 @@ class SqliteTaskStore
         // Load-set-save like setAcceptEdits: saveTask deliberately never
         // maps pushed_at_ms, so editing the live entity is the only path
         // that writes it and no later full-row save can clobber it.
-        tasks.findById(taskId).ifPresent(entity -> {
-            entity.setPushedAtMs(pushedAt == null ? null : pushedAt.toEpochMilli());
-            tasks.save(entity);
-        });
+        mutate(taskId, entity -> entity.setPushedAtMs(pushedAt == null ? null : pushedAt.toEpochMilli()));
     }
 
     @Override
     @Transactional
     public void linkPullRequest(String taskId, int prNumber, String prState)
     {
-        tasks.findById(taskId).ifPresent(entity -> {
+        mutate(taskId, entity -> {
             entity.setPrNumber(prNumber);
             entity.setLinkedPrNumber(prNumber);
             if (prState != null && !prState.isBlank()) {
                 entity.setPrState(prState);
             }
-            tasks.save(entity);
         });
     }
 
@@ -163,10 +173,9 @@ class SqliteTaskStore
     @Transactional
     public void completeTask(String taskId, Instant endedAt)
     {
-        tasks.findById(taskId).ifPresent(entity -> {
+        mutate(taskId, entity -> {
             entity.setStatus(TaskStatus.COMPLETED.name());
             entity.setEndedAtMs(endedAt == null ? null : endedAt.toEpochMilli());
-            tasks.save(entity);
         });
     }
 
@@ -174,10 +183,9 @@ class SqliteTaskStore
     @Transactional
     public void cancelTask(String taskId, Instant endedAt)
     {
-        tasks.findById(taskId).ifPresent(entity -> {
+        mutate(taskId, entity -> {
             entity.setStatus(TaskStatus.CANCELED.name());
             entity.setEndedAtMs(endedAt == null ? null : endedAt.toEpochMilli());
-            tasks.save(entity);
         });
     }
 
@@ -185,20 +193,14 @@ class SqliteTaskStore
     @Transactional
     public void updatePhase(String taskId, TaskPhase phase)
     {
-        tasks.findById(taskId).ifPresent(entity -> {
-            entity.setPhase(phase.name());
-            tasks.save(entity);
-        });
+        mutate(taskId, entity -> entity.setPhase(phase.name()));
     }
 
     @Override
     @Transactional
     public void setOpeningPrompt(String taskId, String openingPrompt)
     {
-        tasks.findById(taskId).ifPresent(entity -> {
-            entity.setOpeningPrompt(openingPrompt);
-            tasks.save(entity);
-        });
+        mutate(taskId, entity -> entity.setOpeningPrompt(openingPrompt));
     }
 
     @Override
@@ -234,10 +236,7 @@ class SqliteTaskStore
     @Transactional
     public void setConsecutiveAutoPushes(String taskId, int value)
     {
-        tasks.findById(taskId).ifPresent(entity -> {
-            entity.setConsecutiveAutoPushes(value);
-            tasks.save(entity);
-        });
+        mutate(taskId, entity -> entity.setConsecutiveAutoPushes(value));
     }
 
     @Override
@@ -251,10 +250,7 @@ class SqliteTaskStore
     @Transactional
     public void linkTaskToPr(String taskId, String prRef)
     {
-        tasks.findById(taskId).ifPresent(entity -> {
-            entity.setLinkedPrRef(prRef);
-            tasks.save(entity);
-        });
+        mutate(taskId, entity -> entity.setLinkedPrRef(prRef));
     }
 
     @Override

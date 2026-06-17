@@ -3417,6 +3417,14 @@ export type Bridge = {
     findingId: string,
     resolution: 'include' | 'drop',
   ) => Promise<ReviewPassDetailDto>;
+  /** Steer the panel: inject a human message addressed to a reviewer or
+   *  the lead and run that seat's reply unbudgeted. Returns the updated
+   *  detail (the new human message + the seat's reply on the transcript). */
+  steerReview: (
+    passId: string,
+    targetParticipantId: string,
+    message: string,
+  ) => Promise<ReviewPassDetailDto>;
   /** Post the pass to GitHub as a PR review. {@code findingIds} is
    *  the subset of findings the user has confirmed for posting; the
    *  rest stay on the pass as AGREED but never reach GitHub.

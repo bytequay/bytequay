@@ -199,9 +199,12 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
               focusParticipantId={focusParticipantId}
               onMentionClick={toggleFocus}
             />
-            <SteerComposerPlaceholder
-              prNumber={detail.pass.prNumber}
+            <SteerComposer
+              passId={detail.pass.id}
+              participants={detail.participants}
+              leadId={leadId}
               published={detail.pass.phase === 'PUBLISHED'}
+              onSent={(next) => setDetail(next)}
             />
           </main>
           <aside style={rightRailStyle}>
@@ -603,32 +606,128 @@ function FindingsByStatusSection({
   );
 }
 
-/** Bottom composer placeholder — surfaces the "steer the panel"
- *  affordance from the mockup. The backend hook for sending a user
- *  message into the panel isn't wired yet, so the textarea is
- *  disabled with a "decision pending" cue. */
-function SteerComposerPlaceholder({
-  prNumber, published,
+/** Bottom composer — send a human message into the panel addressed to a
+ *  reviewer or the lead via @mention. The addressed seat replies
+ *  unbudgeted (the steer endpoint); a plain message defaults to the lead. */
+function SteerComposer({
+  passId, participants, leadId, published, onSent,
 }: {
-  prNumber: number;
+  passId: string;
+  participants: ReviewParticipantDto[];
+  leadId: string | null;
   published: boolean;
+  onSent: (next: ReviewPassDetailDto) => void;
 }) {
+  const [text, setText] = useState('');
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Addressable seats: reviewers + the lead, never the human "You".
+  const addressable = useMemo(
+    () => participants.filter(p => p.kind !== 'HUMAN'),
+    [participants]);
+  // The active @token at the end of the text drives the autocomplete.
+  const mentionQuery = /@([^\s@]*)$/.exec(text)?.[1] ?? null;
+  const suggestions = mentionQuery === null ? [] : addressable.filter(p =>
+    p.personaLabel.toLowerCase().includes(mentionQuery.toLowerCase()));
+  // Send target: the explicitly @mentioned seat, else the lead.
+  const effectiveTarget = targetId
+    ?? addressable.find(p => p.id === leadId)?.id
+    ?? addressable[0]?.id
+    ?? null;
+  const targetLabel = addressable.find(p => p.id === effectiveTarget)?.personaLabel ?? null;
+
+  const pick = (p: ReviewParticipantDto) => {
+    setText(t => t.replace(/@[^\s@]*$/, `@${p.personaLabel} `));
+    setTargetId(p.id);
+  };
+
+  const send = async () => {
+    const body = text.trim();
+    if (body.length === 0 || effectiveTarget === null || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const next = await window.bridge.steerReview(passId, effectiveTarget, body);
+      setText('');
+      setTargetId(null);
+      onSent(next);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setSending(false);
+    }
+  };
+
+  if (published) {
+    return (
+      <div style={composerCardStyle}>
+        <div style={composerFooterStyle}>
+          <span style={composerHintStyle}>This pass is published — the conversation is closed.</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={composerCardStyle}>
+      {suggestions.length > 0 && (
+        <div style={mentionMenuStyle} role="listbox">
+          {suggestions.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              role="option"
+              aria-selected={p.id === targetId}
+              style={mentionOptionStyle}
+              onClick={() => pick(p)}
+            >
+              <span style={mentionOptionLabelStyle}>@{p.personaLabel}</span>
+              <span style={mentionOptionKindStyle}>{p.kind === 'LEAD' ? 'lead' : 'reviewer'}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div style={composerInboxStyle}>
         <span style={composerPromptStyle} aria-hidden>›</span>
         <textarea
-          placeholder="Steer the panel, @mention a reviewer, or arbitrate the open item…"
-          disabled
+          placeholder="Message the panel — @mention a reviewer or the lead…"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if (suggestions.length > 0) {
+                pick(suggestions[0]);
+              }
+              else {
+                void send();
+              }
+            }
+          }}
           rows={1}
           style={composerTextareaStyle}
+          disabled={sending}
         />
+        <button
+          type="button"
+          style={(sending || text.trim().length === 0) ? { ...steerSendStyle, opacity: 0.5 } : steerSendStyle}
+          onClick={() => void send()}
+          disabled={sending || text.trim().length === 0}
+        >
+          {sending ? '…' : 'Send'}
+        </button>
       </div>
       <div style={composerFooterStyle}>
-        <span style={composerHintStyle}>
-          {published
-            ? `Posted to PR #${prNumber}.`
-            : 'Steering the panel from the UI is a follow-up; arbitrate from the ballot for now.'}
+        <span style={error !== null ? { ...composerHintStyle, color: '#cf1322' } : composerHintStyle}>
+          {error !== null
+            ? error
+            : targetLabel !== null
+              ? `↵ sends to @${targetLabel} (unbudgeted) · ⇧↵ newline`
+              : 'Type @ to address a reviewer or the lead.'}
         </span>
       </div>
     </div>
@@ -2011,6 +2110,55 @@ const composerCardStyle: React.CSSProperties = {
   backdropFilter: 'blur(10px)',
   WebkitBackdropFilter: 'blur(10px)',
   borderRadius: '0 0 14px 14px',
+};
+const mentionMenuStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  marginBottom: 8,
+  padding: 4,
+  background: 'rgba(255,255,255,0.97)',
+  border: '1px solid var(--border)',
+  borderRadius: 10,
+  boxShadow: '0 6px 20px rgba(15,23,42,0.12)',
+  maxHeight: 180,
+  overflowY: 'auto',
+};
+const mentionOptionStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  padding: '6px 10px',
+  borderRadius: 7,
+  border: 0,
+  background: 'transparent',
+  cursor: 'pointer',
+  textAlign: 'left',
+  width: '100%',
+};
+const mentionOptionLabelStyle: React.CSSProperties = {
+  fontSize: 12.5,
+  fontWeight: 700,
+  color: '#5b21b6',
+};
+const mentionOptionKindStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: 'var(--text-3)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+};
+const steerSendStyle: React.CSSProperties = {
+  flexShrink: 0,
+  alignSelf: 'flex-start',
+  padding: '6px 14px',
+  border: 0,
+  borderRadius: 9,
+  background: 'linear-gradient(135deg,#8b6dff,#7c5cff)',
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
 };
 const composerInboxStyle: React.CSSProperties = {
   display: 'flex',

@@ -3710,6 +3710,34 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:steer', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:steer args must be an object');
+    }
+    const a = args as { passId?: unknown; targetParticipantId?: unknown; message?: unknown };
+    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    if (typeof a.targetParticipantId !== 'string' || a.targetParticipantId.trim().length === 0) {
+      throw new Error('targetParticipantId must be a non-empty string');
+    }
+    if (typeof a.message !== 'string' || a.message.trim().length === 0) {
+      throw new Error('message must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/steer`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetParticipantId: a.targetParticipantId, message: a.message }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST steer returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:spawnBuild', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:spawnBuild args must be an object');

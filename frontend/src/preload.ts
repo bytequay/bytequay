@@ -687,6 +687,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:spawnBuild', { passId, ...(opts ?? {}) }),
   arbitrateReviewFinding: (passId: string, findingId: string, resolution: 'include' | 'drop') =>
     ipcRenderer.invoke('reviews:arbitrate', { passId, findingId, resolution }),
+  steerReview: (passId: string, targetParticipantId: string, message: string) =>
+    ipcRenderer.invoke('reviews:steer', { passId, targetParticipantId, message }),
   getScheduledReviewSettings: () =>
     ipcRenderer.invoke('reviews:scheduled:get'),
   setScheduledReviewSettings: (enabled: boolean) =>

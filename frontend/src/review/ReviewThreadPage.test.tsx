@@ -621,6 +621,35 @@ describe('ReviewThreadPage', () => {
     expect(onOpenPr).toHaveBeenCalledWith('acme', 'widget', 42);
   });
 
+  it('steers a reviewer: @ autocomplete picks a seat and Send posts the steer message', async () => {
+    const detail = buildDetail({});
+    const steerReview = vi.fn(
+        async (_passId: string, _targetId: string, _message: string): Promise<ReviewPassDetailDto> => detail);
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+      steerReview,
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByPlaceholderText(/Message the panel/));
+
+    const box = screen.getByPlaceholderText(/Message the panel/);
+    // Typing @ opens the autocomplete with the addressable seats.
+    await act(async () => { fireEvent.change(box, { target: { value: '@' } }); });
+    const option = await screen.findByRole('option', { name: /Claude/ });
+    await act(async () => { fireEvent.click(option); });
+    // Type the rest of the message, then send.
+    await act(async () => {
+      fireEvent.change(box, { target: { value: '@Claude (Anthropic) please recheck the null path' } });
+    });
+    await act(async () => { fireEvent.click(screen.getByText('Send')); });
+
+    expect(steerReview).toHaveBeenCalledTimes(1);
+    const [passId, targetId, message] = steerReview.mock.calls[0];
+    expect(passId).toBe('pass-1');
+    expect(targetId).toBe('p-rev');             // the reviewer seat, not the human
+    expect(message).toContain('please recheck the null path');
+  });
+
   it('renders leaked DSML tool-call tokens as clean tool cards, not raw markup', async () => {
     const base = buildDetail({});
     const claude = participant({ id: 'p-c', kind: 'REVIEWER', personaLabel: 'Claude' });

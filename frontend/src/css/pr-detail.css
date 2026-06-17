@@ -378,6 +378,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-timeline__entries > .prc-comment-card,
 .prc-timeline__entries > .prc-event-row,
 .prc-timeline__entries > .prc-approved-row,
+.prc-timeline__entries > .prc-review-event,
 .prc-timeline__entries > .prc-review-thread,
 .prc-timeline__entries > .prc-event-group,
 .prc-timeline__entries > .merge-card {
@@ -637,17 +638,16 @@ button.prc-branches__ref--clickable:hover {
   position: relative;
 }
 
-/* Approved / changes-requested compact row — see
-   docs/mockups/v2/codereview/approved.png. Used when a review event has
-   no body and no inline threads, so it reads as one tidy line in the
-   timeline. Avatar at far-left, colored verdict circle on the rail,
-   actor + verb + relative-time after. Reviews WITH content keep the
-   expandable card via ReviewActivityRow. */
+/* Approved / changes-requested verdict row — the compact one-line header
+   for every review event. Avatar at far-left, colored verdict circle on
+   the rail, actor + verb + relative-time after. When the review carried a
+   body or inline threads they render in .prc-review-event__detail beneath
+   this line (a nested comment card + threads), matching github.com. */
 .prc-approved-row {
   position: relative;
-  /* 16 (pad) + 32 (avatar) + ~20 gap to rail + 24 (marker) + 12 (gap) = 104. */
   padding: 6px 0 6px 104px;
-  min-height: 32px;
+  /* 40px avatar (matching top-level comment avatars) sets the row height. */
+  min-height: 40px;
   display: flex;
   align-items: center;
   font-size: var(--font-size-lg);
@@ -658,26 +658,25 @@ button.prc-branches__ref--clickable:hover {
   left: 16px;
   top: 50%;
   transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
 }
 .prc-approved-row__check {
   position: absolute;
-  /* Center on the rail (x=80, marker 24px wide → 68-92). The rail still
-     draws above and below; the colored circle reads as the verdict
-     marker for this event. */
-  left: 68px;
+  /* Centered on the rail (x=80) — left = 80 - 28/2 = 66. The colored
+     circle reads as the verdict marker; the rail still draws above/below. */
+  left: 66px;
   top: 50%;
   transform: translateY(-50%);
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-weight: 700;
   line-height: 1;
   z-index: 1;
@@ -702,6 +701,44 @@ button.prc-branches__ref--clickable:hover {
   text-decoration: underline;
   text-decoration-color: var(--text-4);
   text-underline-offset: 2px;
+}
+
+/* A review event's inline threads sit indented beneath the verdict row +
+   comment bubble, aligned with the verdict text (past the avatar + rail
+   marker). The review body itself renders as a normal .prc-comment-card
+   speech bubble above this. */
+.prc-review-event__detail {
+  margin: 4px 0 4px 104px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* Review-summary bubble: the verdict row above already shows the avatar,
+   so this comment card drops its own. Pad the body to where the avatar +
+   gap would have placed it (16 + 40 + 16) so it stays aligned with the
+   timeline's other comment bubbles, tail still pointing up toward the
+   verdict. */
+.prc-review-comment-card {
+  padding-left: 72px;
+  /* Nudge the bubble down so its up-pointing tail clears the verdict row
+     above instead of crowding it. */
+  margin-top: 10px;
+}
+/* This card has no avatar to its left, so its tail points UP at the
+   verdict's green check above (centred on the rail at ~80px) instead of
+   left. ::after is the border edge; ::before is the header-matching fill
+   drawn 1px inside it. */
+.prc-review-comment-card .prc-comment-card-body::after {
+  left: 0;
+  top: -8px;
+  border-width: 0 8px 8px 8px;
+  border-color: transparent transparent var(--border) transparent;
+}
+.prc-review-comment-card .prc-comment-card-body::before {
+  left: 1px;
+  top: -7px;
+  border-width: 0 7px 7px 7px;
+  border-color: transparent transparent var(--bg-elevated) transparent;
 }
 .prc-event-row b { color: var(--text-1); font-weight: 600; }
 /* GitHub-style "bot" tag next to an automated actor's name. */

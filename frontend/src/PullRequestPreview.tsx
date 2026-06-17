@@ -45,7 +45,6 @@ import { CiChecksRow, CiSummary } from './pr/Ci';
 import LogoLoading from './LogoLoading';
 import { DescriptionCard } from './pr/DescriptionCard';
 import { PrCommentBox, type PrCommentBoxHandle } from './pr/PrCommentBox';
-import { ReviewActivityRow } from './pr/ReviewActivityRow';
 import { ReviewerEditor } from './pr/ReviewerEditor';
 import { ReviewThreadCard } from './pr/ReviewThreadCard';
 import { RelativeTime } from './pr/RelativeTime';
@@ -2679,34 +2678,31 @@ function PullRequestPreview({
     const stateBadge = item.eventType === 'reviewed' && item.state
       ? item.state.replace(/_/g, ' ').toLowerCase()
       : null;
-    // Reviewed events live on the timeline rail as compact rows (like
-    // committed/force-pushed) — see ReviewActivityRow. Comments still
-    // render as full speech-bubble cards.
+    // Reviewed events render as a compact verdict row on the rail; a
+    // review body (if any) and its inline threads sit in nested blocks
+    // beneath it. Plain issue comments still render as speech-bubble cards.
     if (item.eventType === 'reviewed') {
-      const verb = item.state === 'APPROVED'
+      // GitHub-style review event: a compact verdict line on the rail
+      // ("<actor> approved these changes · <time>"), then — only when the
+      // review carried a body — a separate bordered "left a comment" card
+      // indented beneath it, and finally the inline threads. github.com
+      // keeps the verdict line and the comment dialog as distinct blocks
+      // rather than merging them into one card.
+      const variant = item.state === 'APPROVED'
         ? 'approved'
+        : item.state === 'CHANGES_REQUESTED'
+          ? 'changes-requested'
+          : 'commented';
+      const phrase = item.state === 'APPROVED'
+        ? 'approved these changes'
         : item.state === 'CHANGES_REQUESTED'
           ? 'requested changes'
           : 'left a review';
-      // No body + no inline threads = compact one-line row matching
-      // docs/mockups/v2/codereview/approved.png. Avatar, colored check/×
-      // marker, "<actor> approved these changes <time>". Reviews with
-      // content keep the expandable card shape so the body is reachable.
-      if (!hasBody && !hasThreads) {
-        const variant = item.state === 'APPROVED'
-          ? 'approved'
-          : item.state === 'CHANGES_REQUESTED'
-            ? 'changes-requested'
-            : 'commented';
-        const phrase = item.state === 'APPROVED'
-          ? 'approved these changes'
-          : item.state === 'CHANGES_REQUESTED'
-            ? 'requested changes'
-            : 'left a review';
-        const glyph = item.state === 'APPROVED' ? '✓' : item.state === 'CHANGES_REQUESTED' ? '✕' : '◐';
-        return (
-          <div key={`a-${key}`} className={`prc-approved-row prc-approved-row--${variant}`}>
-            <Avatar login={item.actor} size={32} className="prc-approved-row__avatar" />
+      const glyph = item.state === 'APPROVED' ? '✓' : item.state === 'CHANGES_REQUESTED' ? '✕' : '◐';
+      return (
+        <div key={`a-${key}`} className="prc-review-event">
+          <div className={`prc-approved-row prc-approved-row--${variant}`}>
+            <Avatar login={item.actor} size={40} className="prc-approved-row__avatar" />
             <span className={`prc-approved-row__check prc-approved-row__check--${variant}`} aria-hidden>
               {glyph}
             </span>
@@ -2725,65 +2721,59 @@ function PullRequestPreview({
               )}
             </span>
           </div>
-        );
-      }
-      // State-specific marker glyph + color variant so a "requested
-      // changes" review reads as a red ✕ badge rather than the same
-      // neutral eye every other review event uses. Mirrors github.com
-      // where each review verdict has its own obvious icon on the
-      // timeline.
-      const reviewMarker = item.state === 'APPROVED'
-        ? '✓'
-        : item.state === 'CHANGES_REQUESTED'
-          ? '✕'
-          : '💬';
-      const reviewMarkerVariant = item.state === 'APPROVED'
-        ? 'approved'
-        : item.state === 'CHANGES_REQUESTED'
-          ? 'changes-requested'
-          : 'commented';
-      return (
-        <ReviewActivityRow
-          key={`a-${key}`}
-          actor={item.actor}
-          verb={verb}
-          state={item.state ?? null}
-          timestamp={item.timestamp}
-          isAuthor={pr.author === item.actor}
-          authorAssociation={item.authorAssociation}
-          marker={reviewMarker}
-          markerVariant={reviewMarkerVariant}
-          hasContent={hasBody || hasThreads}
-        >
           {hasBody && (
-            <EditableMarkdownBody
-              body={item.body!}
-              canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
-              onSave={(b) => handleEditIssueComment(item.githubId!, b)}
-              repoContext={repoContext}
-            />
-          )}
-          {hasThreads && (
-            <div className="prc-comment-threads">
-              {attachedThreads!.map(thread => (
-                <ReviewThreadCard
-                  key={thread.rootGithubId}
-                  thread={thread}
-                  prAuthor={pr.author}
-                  prHtmlUrl={pr.htmlUrl}
-                  onReply={(body) => handleReply(thread.rootGithubId, body)}
-                  onReact={handleReact}
-                  onSetResolved={handleSetThreadResolved}
-                  currentUserLogin={currentUserLogin}
-                  onEditMessage={handleEditReviewComment}
-                  onDeleteMessage={handleDeleteReviewComment}
-                  canDeleteMessage={canDeleteComment}
+            <article className="prc-comment-card prc-review-comment-card">
+              <div className="prc-comment-card-body">
+                <header className="prc-comment-head">
+                  <a
+                    href={`https://github.com/${item.actor}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="prc-comment-author"
+                  >
+                    {item.actor}
+                  </a>
+                  <span className="prc-comment-verb">left a comment</span>
+                  {pr.author === item.actor
+                    ? <span className="prc-comment-role">AUTHOR</span>
+                    : authorAssociationLabel(item.authorAssociation) && (
+                      <span className="prc-comment-role prc-comment-role--association">
+                        {authorAssociationLabel(item.authorAssociation)}
+                      </span>
+                    )}
+                </header>
+                <EditableMarkdownBody
+                  body={item.body!}
+                  canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
+                  onSave={(b) => handleEditIssueComment(item.githubId!, b)}
                   repoContext={repoContext}
                 />
-              ))}
+              </div>
+            </article>
+          )}
+          {hasThreads && (
+            <div className="prc-review-event__detail">
+              <div className="prc-comment-threads">
+                {attachedThreads!.map(thread => (
+                  <ReviewThreadCard
+                    key={thread.rootGithubId}
+                    thread={thread}
+                    prAuthor={pr.author}
+                    prHtmlUrl={pr.htmlUrl}
+                    onReply={(body) => handleReply(thread.rootGithubId, body)}
+                    onReact={handleReact}
+                    onSetResolved={handleSetThreadResolved}
+                    currentUserLogin={currentUserLogin}
+                    onEditMessage={handleEditReviewComment}
+                    onDeleteMessage={handleDeleteReviewComment}
+                    canDeleteMessage={canDeleteComment}
+                    repoContext={repoContext}
+                  />
+                ))}
+              </div>
             </div>
           )}
-        </ReviewActivityRow>
+        </div>
       );
     }
     const isStructural = !hasBody && item.eventType !== 'reviewed';

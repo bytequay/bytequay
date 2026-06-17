@@ -54,8 +54,8 @@ class SqliteThreadTurnStore
         entity.setInput(turn.input());
         entity.setCreatedAtMs(turn.createdAt().toEpochMilli());
         entity.setUpdatedAtMs(turn.updatedAt().toEpochMilli());
-        entity.setStartedAtMs(turn.startedAt() == null ? null : turn.startedAt().toEpochMilli());
-        entity.setFinishedAtMs(turn.finishedAt() == null ? null : turn.finishedAt().toEpochMilli());
+        entity.setStartedAtMs(Timestamps.epochMilli(turn.startedAt()));
+        entity.setFinishedAtMs(Timestamps.epochMilli(turn.finishedAt()));
         entity.setErrorMessage(turn.errorMessage());
         TurnInitiator initiator = turn.initiator() == null ? TurnInitiator.user() : turn.initiator();
         entity.setInitiatorAttended(initiator.attended());
@@ -145,8 +145,8 @@ class SqliteThreadTurnStore
                 e.getInput(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
-                e.getStartedAtMs() == null ? null : Instant.ofEpochMilli(e.getStartedAtMs()),
-                e.getFinishedAtMs() == null ? null : Instant.ofEpochMilli(e.getFinishedAtMs()),
+                Timestamps.instant(e.getStartedAtMs()),
+                Timestamps.instant(e.getFinishedAtMs()),
                 e.getErrorMessage(),
                 new TurnInitiator(e.isInitiatorAttended(), e.getInitiatorSource()));
     }

@@ -50,7 +50,7 @@ class SqliteNotificationStore
         entity.setStatus(notification.status().name());
         entity.setPayloadJson(notification.payloadJson() == null ? "{}" : notification.payloadJson());
         entity.setCreatedAtMs(notification.createdAt().toEpochMilli());
-        entity.setReadAtMs(notification.readAt() == null ? null : notification.readAt().toEpochMilli());
+        entity.setReadAtMs(Timestamps.epochMilli(notification.readAt()));
         notifications.save(entity);
     }
 
@@ -139,6 +139,6 @@ class SqliteNotificationStore
                 NotificationStatus.valueOf(e.getStatus()),
                 e.getPayloadJson(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                e.getReadAtMs() == null ? null : Instant.ofEpochMilli(e.getReadAtMs()));
+                Timestamps.instant(e.getReadAtMs()));
     }
 }

@@ -105,7 +105,7 @@ class SqliteThreadStore
         entity.setTokensOut(thread.tokensOut());
         entity.setCreatedAtMs(thread.createdAt().toEpochMilli());
         entity.setUpdatedAtMs(thread.updatedAt().toEpochMilli());
-        entity.setEndedAtMs(thread.endedAt() == null ? null : thread.endedAt().toEpochMilli());
+        entity.setEndedAtMs(Timestamps.epochMilli(thread.endedAt()));
         entity.setErrorMessage(thread.errorMessage());
         // Honour the caller's workspace assignment when set. Existing
         // rows keep their stored workspaceId — the create path is what
@@ -393,7 +393,7 @@ class SqliteThreadStore
                 e.getTokensOut(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
-                e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
+                Timestamps.instant(e.getEndedAtMs()),
                 e.getErrorMessage(),
                 ThreadFlow.fromDbValue(e.getFlow()),
                 e.getWorkspaceId(),

@@ -83,7 +83,7 @@ class SqliteReviewStore
         entity.setCostUsdMilli(pass.costUsdMilli());
         entity.setVerdict(pass.verdict() == null ? null : pass.verdict().dbValue());
         entity.setCreatedAtMs(pass.createdAt().toEpochMilli());
-        entity.setEndedAtMs(pass.endedAt() == null ? null : pass.endedAt().toEpochMilli());
+        entity.setEndedAtMs(Timestamps.epochMilli(pass.endedAt()));
         entity.setSpawnedBuildThreadId(pass.spawnedBuildThreadId());
         entity.setAgendaJson(pass.agendaJson());
         // host_kind / host_id / kind are written once via setPassHost, not
@@ -289,7 +289,7 @@ class SqliteReviewStore
                 e.getCostUsdMilli(),
                 ReviewVerdict.fromDbValue(e.getVerdict()),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
+                Timestamps.instant(e.getEndedAtMs()),
                 e.getSpawnedBuildThreadId(),
                 e.getAgendaJson(),
                 ReviewPassHostKind.valueOf(e.getHostKind()),

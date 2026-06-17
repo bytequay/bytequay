@@ -47,7 +47,7 @@ class SqliteWorktreeLeaseStore
         entity.setAgentKind(lease.agentKind().name());
         entity.setHolderPid(lease.holderPid());
         entity.setAcquiredAtMs(lease.acquiredAt().toEpochMilli());
-        entity.setExpiresAtMs(lease.expiresAt() == null ? null : lease.expiresAt().toEpochMilli());
+        entity.setExpiresAtMs(Timestamps.epochMilli(lease.expiresAt()));
         leases.save(entity);
     }
 
@@ -90,6 +90,6 @@ class SqliteWorktreeLeaseStore
                 ThreadKind.valueOf(e.getAgentKind()),
                 e.getHolderPid(),
                 Instant.ofEpochMilli(e.getAcquiredAtMs()),
-                e.getExpiresAtMs() == null ? null : Instant.ofEpochMilli(e.getExpiresAtMs()));
+                Timestamps.instant(e.getExpiresAtMs()));
     }
 }

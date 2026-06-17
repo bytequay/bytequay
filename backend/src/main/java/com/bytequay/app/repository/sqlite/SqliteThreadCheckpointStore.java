@@ -201,7 +201,7 @@ class SqliteThreadCheckpointStore
         e.setCompletionTokens(c.completionTokens());
         e.setCostUsdMilli(c.costUsdMilli());
         e.setGeneratedAtMs(c.generatedAt().toEpochMilli());
-        e.setSupersededAtMs(c.supersededAt() == null ? null : c.supersededAt().toEpochMilli());
+        e.setSupersededAtMs(Timestamps.epochMilli(c.supersededAt()));
         e.setWorkUnitTaskId(c.taskId());
         return e;
     }
@@ -223,7 +223,7 @@ class SqliteThreadCheckpointStore
                 e.getCompletionTokens(),
                 e.getCostUsdMilli(),
                 Instant.ofEpochMilli(e.getGeneratedAtMs()),
-                e.getSupersededAtMs() == null ? null : Instant.ofEpochMilli(e.getSupersededAtMs()),
+                Timestamps.instant(e.getSupersededAtMs()),
                 e.getWorkUnitTaskId());
     }
 

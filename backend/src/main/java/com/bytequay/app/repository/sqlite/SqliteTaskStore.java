@@ -85,7 +85,7 @@ class SqliteTaskStore
         entity.setRoleSkill(task.roleSkill());
         entity.setWorkModelJson(serialiseWorkModel(task.workModel()));
         entity.setCreatedAtMs(task.createdAt().toEpochMilli());
-        entity.setEndedAtMs(task.endedAt() == null ? null : task.endedAt().toEpochMilli());
+        entity.setEndedAtMs(Timestamps.epochMilli(task.endedAt()));
         entity.setErrorMessage(task.errorMessage());
         tasks.save(entity);
     }
@@ -145,7 +145,7 @@ class SqliteTaskStore
         // Load-set-save like setAcceptEdits: saveTask deliberately never
         // maps pushed_at_ms, so editing the live entity is the only path
         // that writes it and no later full-row save can clobber it.
-        mutate(taskId, entity -> entity.setPushedAtMs(pushedAt == null ? null : pushedAt.toEpochMilli()));
+        mutate(taskId, entity -> entity.setPushedAtMs(Timestamps.epochMilli(pushedAt)));
     }
 
     @Override
@@ -175,7 +175,7 @@ class SqliteTaskStore
     {
         mutate(taskId, entity -> {
             entity.setStatus(TaskStatus.COMPLETED.name());
-            entity.setEndedAtMs(endedAt == null ? null : endedAt.toEpochMilli());
+            entity.setEndedAtMs(Timestamps.epochMilli(endedAt));
         });
     }
 
@@ -185,7 +185,7 @@ class SqliteTaskStore
     {
         mutate(taskId, entity -> {
             entity.setStatus(TaskStatus.CANCELED.name());
-            entity.setEndedAtMs(endedAt == null ? null : endedAt.toEpochMilli());
+            entity.setEndedAtMs(Timestamps.epochMilli(endedAt));
         });
     }
 
@@ -407,12 +407,12 @@ class SqliteTaskStore
                 e.getTokensOut(),
                 e.getAgentSessionId(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
+                Timestamps.instant(e.getEndedAtMs()),
                 e.getErrorMessage(),
                 e.getName(),
                 e.getRoleSkill(),
                 deserialiseWorkModel(e.getWorkModelJson()),
-                e.getPushedAtMs() == null ? null : Instant.ofEpochMilli(e.getPushedAtMs()),
+                Timestamps.instant(e.getPushedAtMs()),
                 parsePhase(e.getPhase()),
                 e.getAgendaJson(),
                 e.getConsecutiveAutoPushes(),

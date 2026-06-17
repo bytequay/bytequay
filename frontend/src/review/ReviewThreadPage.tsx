@@ -1530,7 +1530,9 @@ const pageStyle: React.CSSProperties = {
 // verbatim from the polished design source so the React surface and the
 // mockup read identically.
 const meshBgStyle: React.CSSProperties = {
-  position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+  // Absolute (contained to the page), not fixed — a fixed mesh inside the
+  // z-indexed page paints over the app's GlobalTopbar and blanks it out.
+  position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
   background:
     'radial-gradient(40% 50% at 8% 12%, rgba(124,92,255,0.18), transparent 70%),'
     + 'radial-gradient(38% 46% at 92% 6%, rgba(56,189,248,0.14), transparent 70%),'
@@ -1539,7 +1541,7 @@ const meshBgStyle: React.CSSProperties = {
     + '#fafafe',
 };
 const noiseBgStyle: React.CSSProperties = {
-  position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+  position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
   opacity: 0.045, mixBlendMode: 'overlay',
   backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'"
     + " width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise'"
@@ -1660,6 +1662,11 @@ const centerColStyle: React.CSSProperties = {
   gap: 10,
   minWidth: 0,
   minHeight: 0,
+  // Claim the grid row's full height explicitly. Relying on grid stretch
+  // alone left the flex:1 transcript with no height to grow into, so the
+  // conversation collapsed to nothing. height:100% pins it to the row.
+  height: '100%',
+  overflow: 'hidden',
   // Soft translucent surface so the transcript bubbles read as a panel
   // floating on the mesh, matching the design's center column.
   background: 'rgba(255,255,255,0.34)',

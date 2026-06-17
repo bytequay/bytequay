@@ -33,14 +33,6 @@ import static java.util.Objects.requireNonNull;
 public class AutoGatingStep
         implements ApprovalStep
 {
-    /** Claude Code prefixes MCP tool names with {@code mcp__<server>__}
-     *  when passing them to the permission-prompt tool. Stripping it
-     *  lets us look the target tool up in the registry by its short
-     *  name. Built-in Claude tools (Bash / Edit / Read) come through
-     *  unprefixed and miss the registry lookup, which is the safe
-     *  fall-through to the normal prompt path. */
-    private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
-
     private final AgentToolRegistry registry;
     private final McpResponses responses;
 
@@ -53,18 +45,11 @@ public class AutoGatingStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
-        ToolSpec target = registry.byName(stripMcpServerPrefix(ctx.toolName())).orElse(null);
+        ToolSpec target = registry.byName(ctx.shortToolName()).orElse(null);
         if (target == null || target.gating() != Gating.AUTO) {
             return ApprovalStepResult.cont();
         }
         return ApprovalStepResult.resolve(
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
-    }
-
-    private static String stripMcpServerPrefix(String toolName)
-    {
-        return toolName != null && toolName.startsWith(MCP_TOOL_PREFIX)
-                ? toolName.substring(MCP_TOOL_PREFIX.length())
-                : toolName;
     }
 }

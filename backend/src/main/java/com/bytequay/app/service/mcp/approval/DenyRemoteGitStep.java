@@ -14,11 +14,8 @@
 package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.service.mcp.McpResponses;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-
-import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -46,9 +43,6 @@ import static java.util.Objects.requireNonNull;
 public class DenyRemoteGitStep
         implements ApprovalStep
 {
-    private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
-    private static final Set<String> SHELL_TOOLS = Set.of("run_shell", "Bash");
-
     private final McpResponses responses;
 
     public DenyRemoteGitStep(McpResponses responses)
@@ -59,10 +53,10 @@ public class DenyRemoteGitStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
-        if (!SHELL_TOOLS.contains(stripMcpServerPrefix(ctx.toolName()))) {
+        if (!ctx.isShellTool()) {
             return ApprovalStepResult.cont();
         }
-        return RemoteGitClassifier.findRemoteMutation(commandOf(ctx.toolInput()))
+        return RemoteGitClassifier.findRemoteMutation(ctx.shellCommand())
                 .map(match -> ApprovalStepResult.resolve(
                         responses.toolResponse(ctx.id(), responses.deny(denyMessage(match)))))
                 .orElseGet(ApprovalStepResult::cont);
@@ -74,21 +68,5 @@ public class DenyRemoteGitStep
                 + "its own tools, not raw git/gh — use " + match.useInstead() + ". These tools "
                 + "park a proposal the user approves; direct pushes and GitHub API writes never "
                 + "reach the remote, so this call would be a dead end.";
-    }
-
-    private static String commandOf(JsonNode input)
-    {
-        if (input == null) {
-            return "";
-        }
-        JsonNode command = input.get("command");
-        return command != null && command.isTextual() ? command.asText() : "";
-    }
-
-    private static String stripMcpServerPrefix(String toolName)
-    {
-        return toolName != null && toolName.startsWith(MCP_TOOL_PREFIX)
-                ? toolName.substring(MCP_TOOL_PREFIX.length())
-                : toolName;
     }
 }

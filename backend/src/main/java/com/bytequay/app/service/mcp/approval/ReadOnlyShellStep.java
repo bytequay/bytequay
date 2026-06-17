@@ -14,11 +14,8 @@
 package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.service.mcp.McpResponses;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-
-import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -41,9 +38,6 @@ import static java.util.Objects.requireNonNull;
 public class ReadOnlyShellStep
         implements ApprovalStep
 {
-    private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
-    private static final Set<String> SHELL_TOOLS = Set.of("run_shell", "Bash");
-
     private final McpResponses responses;
 
     public ReadOnlyShellStep(McpResponses responses)
@@ -54,29 +48,13 @@ public class ReadOnlyShellStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
-        if (!SHELL_TOOLS.contains(stripMcpServerPrefix(ctx.toolName()))) {
+        if (!ctx.isShellTool()) {
             return ApprovalStepResult.cont();
         }
-        if (!ReadOnlyShellClassifier.isReadOnly(commandOf(ctx.toolInput()))) {
+        if (!ReadOnlyShellClassifier.isReadOnly(ctx.shellCommand())) {
             return ApprovalStepResult.cont();
         }
         return ApprovalStepResult.resolve(
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
-    }
-
-    private static String commandOf(JsonNode input)
-    {
-        if (input == null) {
-            return "";
-        }
-        JsonNode command = input.get("command");
-        return command != null && command.isTextual() ? command.asText() : "";
-    }
-
-    private static String stripMcpServerPrefix(String toolName)
-    {
-        return toolName != null && toolName.startsWith(MCP_TOOL_PREFIX)
-                ? toolName.substring(MCP_TOOL_PREFIX.length())
-                : toolName;
     }
 }

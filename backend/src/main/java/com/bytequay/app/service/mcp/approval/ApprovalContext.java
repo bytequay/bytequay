@@ -31,4 +31,39 @@ public record ApprovalContext(
         String toolName,
         String callId,
         JsonNode toolInput,
-        Set<SecurityType> grants) {}
+        Set<SecurityType> grants)
+{
+    /** Claude Code prefixes MCP tool names with {@code mcp__<server>__};
+     *  the registry and gating logic key off the short name. */
+    private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
+
+    /** The CLI shell built-ins the gate special-cases. */
+    private static final Set<String> SHELL_TOOLS = Set.of("run_shell", "Bash");
+
+    /** The tool name with the {@code mcp__<server>__} prefix stripped —
+     *  the form the {@code AgentToolRegistry} and gating steps look up. */
+    public String shortToolName()
+    {
+        return toolName != null && toolName.startsWith(MCP_TOOL_PREFIX)
+                ? toolName.substring(MCP_TOOL_PREFIX.length())
+                : toolName;
+    }
+
+    /** True when this call targets a shell tool ({@code run_shell} /
+     *  {@code Bash}), the only tools that carry a {@code command}. */
+    public boolean isShellTool()
+    {
+        return SHELL_TOOLS.contains(shortToolName());
+    }
+
+    /** The shell {@code command} string from the tool input, or {@code ""}
+     *  when absent / non-textual. */
+    public String shellCommand()
+    {
+        if (toolInput == null) {
+            return "";
+        }
+        JsonNode command = toolInput.get("command");
+        return command != null && command.isTextual() ? command.asText() : "";
+    }
+}

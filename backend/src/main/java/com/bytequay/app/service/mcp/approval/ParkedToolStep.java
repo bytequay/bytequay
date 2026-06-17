@@ -50,8 +50,6 @@ import static java.util.Objects.requireNonNull;
 public class ParkedToolStep
         implements ApprovalStep
 {
-    private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
-
     private final AgentToolRegistry registry;
     private final McpResponses responses;
 
@@ -64,18 +62,11 @@ public class ParkedToolStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
-        ToolSpec target = registry.byName(stripMcpServerPrefix(ctx.toolName())).orElse(null);
+        ToolSpec target = registry.byName(ctx.shortToolName()).orElse(null);
         if (target == null || target.gating() != Gating.PARKED) {
             return ApprovalStepResult.cont();
         }
         return ApprovalStepResult.resolve(
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
-    }
-
-    private static String stripMcpServerPrefix(String toolName)
-    {
-        return toolName != null && toolName.startsWith(MCP_TOOL_PREFIX)
-                ? toolName.substring(MCP_TOOL_PREFIX.length())
-                : toolName;
     }
 }

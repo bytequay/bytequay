@@ -1,0 +1,1018 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.threads;
+
+import com.bytequay.app.domain.AgentMetrics;
+import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.OptionalInt;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import static java.util.Objects.requireNonNull;
+
+/**
+ * Shared machinery for wrapping a one-shot streaming CLI agent (Claude
+ * Code's {@code claude -p}, OpenAI's {@code codex exec}) as a
+ * {@link ThreadAgent}.
+ *
+ * <p>One <em>logical</em> session spans many subprocess invocations:
+ * each {@link #send} spawns a fresh provider process, reads its
+ * streaming-JSON stdout through a {@link CliStreamParser}, and the
+ * process exits when the turn finishes. Between turns the session is
+ * just a row in the database and an in-memory state machine.
+ *
+ * <p>Everything provider-agnostic lives here: the lifecycle state
+ * machine, stdout draining, {@link StreamEvent} persistence + fan-out,
+ * metrics, the permission/tool-budget gate, and the
+ * thread/task-snapshot bookkeeping. Subclasses supply only the three
+ * things that actually differ between CLIs:
+ * <ul>
+ *   <li>{@link #buildCommand(String)} — the argv for one turn,</li>
+ *   <li>{@link #deliverPrompt(Process, String)} — how the user's input
+ *       reaches the process (stdin vs. an argv arg),</li>
+ *   <li>{@link #cleanupProviderResources()} — tearing down any
+ *       per-session temp files on {@link #stop}.</li>
+ * </ul>
+ *
+ * <p>Concurrency: the public lifecycle methods are thread-safe; a
+ * single worker thread per session reads stdout so subscriber
+ * delivery is serialized in source order. Send is rejected while a
+ * turn is already in flight.
+ */
+public abstract class AbstractCliThreadAgent
+        implements ThreadAgent
+{
+    private static final Logger log = LoggerFactory.getLogger(AbstractCliThreadAgent.class);
+
+    /** Lifts the {@code callId} out of a permission_* row's content JSON.
+     *  The value is a tool-use id (no quotes), so a simple capture is
+     *  safe — and avoids a full parse on a hot constructor path. */
+    private static final Pattern CALL_ID_PATTERN =
+            Pattern.compile("\"callId\"\\s*:\\s*\"([^\"]*)\"");
+
+    private static final int BUDGET_ALWAYS = -1;
+
+    /** Thread id this agent serves. Protected so a subclass's
+     *  {@link #buildCommand} can name per-thread temp files. */
+    protected final String threadId;
+    /** Working directory the subprocess runs in. */
+    protected final String workingDir;
+    /** Resolved CLI binary name (overridable for tests). */
+    protected final String binary;
+
+    private final ThreadKind kind;
+    private final String provider;
+    private final String branchName;
+    private final ThreadStore store;
+    /** Retained from the ctor so resume() can flip the latest task's
+     *  status alongside the thread's. */
+    private final TaskStore taskStore;
+    private final CliStreamParser parser;
+    private final ToolFileOps fileOps;
+    private final McpPermissionGate gate;
+    private final ExecutorService executor;
+    private final CheckpointTrigger checkpointTrigger;
+    private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
+
+    private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
+    private final AtomicReference<String> agentSessionId = new AtomicReference<>();
+    /** Id of the Task this agent is bound to (= the foreground task at
+     *  spawn time). Every persisted ThreadMessage and every captured
+     *  session-id flow back to this task, so jumping back to a parked
+     *  sibling — which creates a fresh agent against the other task —
+     *  never mixes histories. */
+    private final String activeTaskId;
+    private final AtomicReference<String> model = new AtomicReference<>("");
+    private final AtomicReference<Process> currentProcess = new AtomicReference<>();
+    /** Set true by {@link #interrupt} just before {@code destroy()} so
+     *  {@link #runTurn} can tell a user-initiated cancellation from a
+     *  real crash. */
+    private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
+    private final AtomicLong nextSeq = new AtomicLong();
+
+    private final AtomicLong runningCostUsdMilli = new AtomicLong();
+    private final AtomicLong runningTokensIn = new AtomicLong();
+    private final AtomicLong runningTokensOut = new AtomicLong();
+    private final AtomicLong runningToolCallCount = new AtomicLong();
+    private final long sessionStartedMs;
+
+    /** Per-tool auto-approval budget the user granted via "Allow next
+     *  N". The value counts remaining auto-allows; {@link #BUDGET_ALWAYS}
+     *  is the sentinel for "always for this tool". */
+    private final Map<String, Integer> toolBudget = new ConcurrentHashMap<>();
+
+    protected AbstractCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CliStreamParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            String binary,
+            String trunkCwd)
+    {
+        requireNonNull(thread, "thread is null");
+        if (thread.kind() != ThreadKind.CLI_AGENT) {
+            throw new IllegalArgumentException(getClass().getSimpleName()
+                    + " only handles CLI_AGENT threads");
+        }
+        this.threadId = thread.id();
+        this.kind = thread.kind();
+        this.provider = thread.provider();
+        this.model.set(thread.model() == null ? "" : thread.model());
+        this.store = requireNonNull(store, "store is null");
+        this.parser = requireNonNull(parser, "parser is null");
+        this.fileOps = new ToolFileOps(requireNonNull(mapper, "mapper is null"));
+        this.gate = requireNonNull(gate, "gate is null");
+        this.executor = requireNonNull(executor, "executor is null");
+        this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.binary = requireNonNull(binary, "binary is null");
+        // Trunk-mode short-circuit: no focused Task, no worktree lease.
+        // cwd is a watched-repo clone root supplied by the registry so
+        // the CLI still has a sane place to read files from. The Thread
+        // carries the trunk planning session id (threads.agent_session_id);
+        // captured ids flow back to that column, not a task row.
+        //
+        // The trunk session is independent of the thread's task
+        // lifecycle: a COMPLETED / ERRORED thread (its last task shipped
+        // or errored) must still accept trunk planning turns. Normalise a
+        // terminal inherited status to IDLE so send() doesn't refuse the
+        // very first turn.
+        if (trunkCwd != null) {
+            this.workingDir = trunkCwd;
+            this.branchName = null;
+            this.activeTaskId = null;
+            ThreadStatus inherited = thread.status();
+            this.status.set(
+                    inherited == ThreadStatus.COMPLETED
+                            || inherited == ThreadStatus.ERRORED
+                            ? ThreadStatus.IDLE : inherited);
+            this.agentSessionId.set(thread.agentSessionId());
+        }
+        else {
+            // Look up the active task directly from TaskStore so the ctor
+            // works whether the caller built the Thread via the store
+            // (activeTask projected) or hand-assembled it (may be null).
+            // The fallback to findLatestTaskForThread covers the resume-
+            // from-terminal path: a COMPLETED thread's most-recent task
+            // is terminal, so the active lookup returns empty, but we
+            // still need that task's worktree + branch when the user picks
+            // the conversation back up.
+            Task active = taskStore.findActiveTaskForThread(thread.id())
+                    .or(() -> taskStore.findLatestTaskForThread(thread.id()))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "thread " + thread.id()
+                                    + " has no task; cannot spawn CLI agent"));
+            this.workingDir = requireNonNull(active.agentCwd(),
+                    "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
+            this.branchName = active.branchName();
+            this.activeTaskId = active.id();
+            this.status.set(thread.status());
+            // Resume from the focused task's session, not the thread's.
+            // Each Task owns its own forked session that --resume must hit
+            // so we land back in this Task's worktree conversation.
+            this.agentSessionId.set(active.agentSessionId());
+        }
+        this.runningCostUsdMilli.set(thread.costUsdMilli());
+        this.runningTokensIn.set(thread.tokensIn());
+        this.runningTokensOut.set(thread.tokensOut());
+        this.sessionStartedMs = thread.createdAt().toEpochMilli();
+        // Seed the seq counter from any existing rows so a restart
+        // doesn't collide with prior persisted messages.
+        List<ThreadMessage> existing = store.listMessages(threadId);
+        long highest = existing.stream()
+                .mapToLong(ThreadMessage::seq)
+                .max()
+                .orElse(-1L);
+        this.nextSeq.set(highest + 1L);
+        resolveStalePermissions(existing);
+    }
+
+    // ---- Provider-specific hooks -------------------------------------
+
+    /**
+     * Build the argv + environment for one turn. {@code userInput} is
+     * the user's prompt for this turn — a stdin-fed CLI (Claude) ignores
+     * it here and writes it in {@link #deliverPrompt}; an argv-fed CLI
+     * (Codex) appends it to the command.
+     */
+    protected abstract ProcessBuilder buildCommand(String userInput);
+
+    /**
+     * Deliver the prompt to the freshly-spawned process. Default writes
+     * {@code userInput} to stdin and closes it (Claude's {@code -p}
+     * contract). A CLI that takes the prompt as an argv arg overrides
+     * this to just close stdin without writing.
+     */
+    protected void deliverPrompt(Process process, String userInput)
+            throws IOException
+    {
+        try (OutputStream stdin = process.getOutputStream()) {
+            stdin.write(userInput.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    /** Tear down any per-session temp resources on {@link #stop}.
+     *  Default no-op; a subclass with on-disk session state (MCP config,
+     *  materialized skills) overrides. */
+    protected void cleanupProviderResources()
+    {
+    }
+
+    /** The current {@code --resume} session id (null/blank on the first
+     *  turn). Subclasses read this when assembling their resume argv. */
+    protected final String resumeSessionId()
+    {
+        return agentSessionId.get();
+    }
+
+    // ---- ThreadAgent --------------------------------------------------
+
+    @Override
+    public final String id()
+    {
+        return threadId;
+    }
+
+    @Override
+    public final ThreadKind kind()
+    {
+        return kind;
+    }
+
+    @Override
+    public final String provider()
+    {
+        return provider;
+    }
+
+    @Override
+    public final String model()
+    {
+        return model.get();
+    }
+
+    @Override
+    public final String workingDir()
+    {
+        return workingDir;
+    }
+
+    @Override
+    public final String branchName()
+    {
+        return branchName;
+    }
+
+    @Override
+    public final ThreadStatus status()
+    {
+        return status.get();
+    }
+
+    @Override
+    public final AgentMetrics metrics()
+    {
+        long runtimeMs = Math.max(0L, System.currentTimeMillis() - sessionStartedMs);
+        return new AgentMetrics(
+                runtimeMs,
+                runningCostUsdMilli.get(),
+                runningTokensIn.get(),
+                runningTokensOut.get(),
+                (int) Math.min(Integer.MAX_VALUE, runningToolCallCount.get()),
+                store.listFiles(threadId).size());
+    }
+
+    @Override
+    public final List<ThreadMessage> history()
+    {
+        return store.listMessages(threadId);
+    }
+
+    @Override
+    public final CompletableFuture<Void> send(String userInput)
+    {
+        requireNonNull(userInput, "userInput is null");
+        ThreadStatus current = status.get();
+        if (current == ThreadStatus.COMPLETED || current == ThreadStatus.ERRORED) {
+            throw new IllegalStateException(
+                    "thread is in terminal status " + current + "; cannot send more input");
+        }
+        if (current == ThreadStatus.RUNNING) {
+            throw new IllegalStateException("a turn is already in flight");
+        }
+        transition(ThreadStatus.RUNNING);
+        // Echo the user input so subscribers see the full conversation
+        // and the row lands in thread_messages — polling readers work off
+        // the persisted log, not the listener fan-out.
+        Instant now = Instant.now();
+        handle(new StreamEvent.UserMessage(now, userInput));
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        try {
+            executor.execute(() -> {
+                try {
+                    runTurn(userInput);
+                    completion.complete(null);
+                }
+                catch (RuntimeException | Error e) {
+                    completion.completeExceptionally(e);
+                    throw e;
+                }
+            });
+        }
+        catch (RejectedExecutionException e) {
+            transition(ThreadStatus.ERRORED);
+            completion.completeExceptionally(e);
+        }
+        return completion;
+    }
+
+    @Override
+    public final void interrupt()
+    {
+        Process p = currentProcess.get();
+        if (p != null && p.isAlive()) {
+            log.info("Interrupting thread {} subprocess pid={}", threadId, p.pid());
+            // Set the flag before destroy() so the runTurn() exit handler
+            // observes it before the process's non-zero exit gets
+            // classified — otherwise the documented Interrupt contract
+            // ("back to IDLE, ready for the next turn") would route
+            // through ERRORED and force the user to click Resume.
+            userInterrupted.set(true);
+            p.destroy();
+        }
+    }
+
+    @Override
+    public final void pause()
+    {
+        // The CLI runs one shot per turn; there is no persistent loop to
+        // suspend. "Pause" for the CLI kind means: stop accepting new
+        // turns until resume. Model that as AWAITING; resume() → IDLE.
+        if (status.compareAndSet(ThreadStatus.IDLE, ThreadStatus.AWAITING)) {
+            persistThreadSnapshot(null);
+        }
+    }
+
+    @Override
+    public final void resume()
+    {
+        if (status.compareAndSet(ThreadStatus.AWAITING, ThreadStatus.IDLE)) {
+            persistThreadSnapshot(null);
+            return;
+        }
+        // ERRORED → IDLE: continue the conversation after a failed turn.
+        // COMPLETED → IDLE: follow up on a thread the agent marked done.
+        // Both keep agentSessionId on the row so the next send() resumes
+        // exactly where the previous turn left off. Clear endedAt +
+        // errorMessage so the runtime ticker restarts and the failure
+        // banner doesn't hover over the new conversation.
+        if (status.compareAndSet(ThreadStatus.ERRORED, ThreadStatus.IDLE)
+                || status.compareAndSet(ThreadStatus.COMPLETED, ThreadStatus.IDLE)) {
+            Thread current = store.findThreadById(threadId).orElse(null);
+            if (current == null) {
+                return;
+            }
+            // Flip the latest task back to IDLE first so the thread-side
+            // saveThread cascade sees a non-terminal active task and the
+            // two stay in sync.
+            taskStore.findLatestTaskForThread(threadId).ifPresent(task -> {
+                if (task.status() == TaskStatus.COMPLETED
+                        || task.status() == TaskStatus.ERRORED) {
+                    taskStore.saveTask(new Task(
+                            task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
+                            task.branchName(), task.worktreePath(), task.baseBranch(),
+                            task.workingDir(), task.processPid(), task.logPath(),
+                            task.prNumber(), task.prState(), task.ciState(),
+                            task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
+                            task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
+                            agentSessionId.get(),
+                            task.createdAt(), /* endedAt */ null,
+                            /* errorMessage */ null,
+                            task.name(), task.roleSkill(), task.workModel()));
+                }
+            });
+            store.saveThread(new Thread(
+                    current.id(), current.kind(), current.provider(), current.agentSessionId(),
+                    current.title(), ThreadStatus.IDLE,
+                    model.get(),
+                    runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
+                    current.createdAt(), Instant.now(),
+                    /* endedAt */ null, /* errorMessage */ null,
+                    current.flow(),
+                    current.workspaceId(),
+                    current.workModel(),
+                    current.activeTask()));
+        }
+    }
+
+    @Override
+    public final void stop()
+    {
+        interrupt();
+        if (status.getAndSet(ThreadStatus.COMPLETED) != ThreadStatus.COMPLETED) {
+            persistThreadSnapshot(Instant.now());
+            handle(new StreamEvent.SessionEnded(Instant.now(), 0, null));
+        }
+        cleanupProviderResources();
+    }
+
+    @Override
+    public final void notifyPermissionRequested(String callId, String toolName, String summary)
+    {
+        requireNonNull(callId, "callId is null");
+        handle(new StreamEvent.PermissionRequested(
+                Instant.now(),
+                callId,
+                toolName == null ? "tool" : toolName,
+                summary == null ? "" : summary));
+    }
+
+    @Override
+    public final void decide(String callId, PermissionDecision decision)
+    {
+        requireNonNull(callId, "callId is null");
+        requireNonNull(decision, "decision is null");
+        // Hand the decision to the MCP gate first — that unblocks the
+        // subprocess waiting on its tools/call response. Then route the
+        // event through handle() so it persists for replay.
+        gate.decide(callId, decision);
+        handle(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
+    }
+
+    @Override
+    public final void grantToolBudget(String toolName, int count)
+    {
+        requireNonNull(toolName, "toolName is null");
+        if (count == BUDGET_ALWAYS) {
+            toolBudget.put(toolName, BUDGET_ALWAYS);
+        }
+        else if (count > 0) {
+            // Finite grants accumulate, but "always" wins and stays sticky.
+            toolBudget.merge(toolName, count, (prev, add) ->
+                    prev == BUDGET_ALWAYS ? BUDGET_ALWAYS : prev + add);
+        }
+        else {
+            return;
+        }
+        // Drain newly-granted slots against any callIds already sitting in
+        // the MCP gate for this tool, so one "Allow next 5" click can
+        // sweep up to five already-queued prompts.
+        for (String pendingCallId : gate.pendingCallIdsFor(toolName)) {
+            OptionalInt remaining = tryConsumeToolBudget(toolName);
+            if (remaining.isEmpty()) {
+                break;
+            }
+            decide(pendingCallId, PermissionDecision.ALLOW);
+        }
+    }
+
+    @Override
+    public final OptionalInt tryConsumeToolBudget(String toolName)
+    {
+        if (toolName == null) {
+            return OptionalInt.empty();
+        }
+        // Atomic decrement with floor 0 — concurrent MCP requests for the
+        // same tool can race, but the remapping hands out only remaining
+        // slots. Capture the pre-decrement value so we can return the
+        // post-decrement remainder (or -1 for an ALWAYS grant).
+        int[] before = {0};
+        toolBudget.computeIfPresent(toolName, (k, v) -> {
+            before[0] = v;
+            if (v == BUDGET_ALWAYS) {
+                return BUDGET_ALWAYS;
+            }
+            return v > 1 ? v - 1 : null;
+        });
+        if (before[0] == 0) {
+            return OptionalInt.empty();
+        }
+        if (before[0] == BUDGET_ALWAYS) {
+            return OptionalInt.of(BUDGET_ALWAYS);
+        }
+        return OptionalInt.of(before[0] - 1);
+    }
+
+    @Override
+    public final void notifyPermissionAutoAllowed(String callId, String toolName, int remaining)
+    {
+        requireNonNull(callId, "callId is null");
+        handle(new StreamEvent.PermissionAutoAllowed(
+                Instant.now(),
+                callId,
+                toolName == null ? "tool" : toolName,
+                remaining));
+    }
+
+    @Override
+    public final Runnable subscribeToEvents(Consumer<StreamEvent> listener)
+    {
+        requireNonNull(listener, "listener is null");
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
+    // ---- Turn execution ----------------------------------------------
+
+    private void runTurn(String userInput)
+    {
+        ProcessBuilder pb = buildCommand(userInput);
+        // Clear any stale interrupt flag from a prior turn so a fresh
+        // turn's non-zero exit isn't misread as a user cancellation.
+        userInterrupted.set(false);
+        Process process;
+        try {
+            process = pb.start();
+        }
+        catch (IOException e) {
+            log.warn("Failed to spawn {} for thread {}: {}", binary, threadId, e.getMessage());
+            transition(ThreadStatus.ERRORED);
+            publish(new StreamEvent.ErrorOccurred(Instant.now(),
+                    "failed to spawn " + binary + ": " + e.getMessage(), false));
+            publish(new StreamEvent.SessionEnded(Instant.now(), -1, e.getMessage()));
+            persistThreadSnapshot(Instant.now());
+            return;
+        }
+        currentProcess.set(process);
+        // The worktree lease is held by the registry for the lifetime of
+        // this session, so the per-turn subprocess doesn't manage it.
+        try {
+            deliverPrompt(process, userInput);
+            drainStderr(process);
+            consumeStdout(process);
+            int exit = process.waitFor();
+            if (exit != 0) {
+                // p.destroy() from interrupt() always lands here with a
+                // non-zero exit. Treat the user-initiated path as a clean
+                // cancel: back to IDLE, no error banner, no failure event.
+                if (userInterrupted.compareAndSet(true, false)) {
+                    transition(ThreadStatus.IDLE);
+                    publish(new StreamEvent.SessionEnded(Instant.now(), exit, "interrupted by user"));
+                }
+                else {
+                    publish(new StreamEvent.ErrorOccurred(Instant.now(),
+                            binary + " exited with code " + exit, true));
+                    transition(ThreadStatus.ERRORED);
+                    publish(new StreamEvent.SessionEnded(Instant.now(), exit, "non-zero exit"));
+                }
+            }
+            else {
+                transition(ThreadStatus.IDLE);
+            }
+        }
+        catch (IOException e) {
+            // A user interrupt closes the stdin pipe before the CLI
+            // finishes reading it, surfacing here as "Broken pipe". Same
+            // treatment as the non-zero-exit interrupt path.
+            if (userInterrupted.compareAndSet(true, false)) {
+                transition(ThreadStatus.IDLE);
+                publish(new StreamEvent.SessionEnded(Instant.now(), -1, "interrupted by user"));
+            }
+            else {
+                log.warn("I/O error talking to {} for thread {}: {}", binary, threadId, e.getMessage());
+                transition(ThreadStatus.ERRORED);
+                publish(new StreamEvent.ErrorOccurred(Instant.now(), e.getMessage(), false));
+            }
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            transition(ThreadStatus.IDLE);
+        }
+        finally {
+            currentProcess.set(null);
+            persistThreadSnapshot(null);
+        }
+    }
+
+    private void consumeStdout(Process process)
+            throws IOException
+    {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                List<StreamEvent> events = parser.parse(line, Instant.now());
+                for (StreamEvent event : events) {
+                    handle(event);
+                }
+            }
+        }
+    }
+
+    private void drainStderr(Process process)
+    {
+        java.lang.Thread t = new java.lang.Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.debug("[{} stderr] {}", binary, line);
+                }
+            }
+            catch (IOException ignored) {
+                // Process exited; pipe is closed.
+            }
+        }, "thread-" + threadId + "-stderr");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void handle(StreamEvent event)
+    {
+        if (event instanceof StreamEvent.SessionStarted s) {
+            if (agentSessionId.get() == null) {
+                agentSessionId.set(s.sessionId());
+            }
+            captureReportedModel(s.model());
+        }
+        if (event instanceof StreamEvent.ToolCallStarted call) {
+            runningToolCallCount.incrementAndGet();
+            recordFileOps(call);
+        }
+        boolean turnDone = event instanceof StreamEvent.TurnDone;
+        if (event instanceof StreamEvent.TurnDone t) {
+            runningCostUsdMilli.addAndGet(t.costUsdMilli());
+            runningTokensIn.addAndGet(t.tokensIn());
+            runningTokensOut.addAndGet(t.tokensOut());
+        }
+        persistMessage(event);
+        publish(event);
+        if (turnDone) {
+            // Fire-and-forget — the trigger schedules background work and
+            // returns immediately, so a slow Anthropic call can't back up
+            // the session's event thread.
+            try {
+                checkpointTrigger.onTurnDone(threadId);
+            }
+            catch (RuntimeException e) {
+                log.warn("checkpoint trigger failed for thread {}: {}", threadId, e.getMessage());
+            }
+        }
+    }
+
+    /** Pull any file ops out of a tool call's input and upsert them into
+     *  {@code thread_files}. {@code count} accumulates so the Files tab
+     *  can render "touched 3 times" without a join. */
+    private void recordFileOps(StreamEvent.ToolCallStarted call)
+    {
+        List<ToolFileOps.FileOp> parsed = fileOps.parse(call.toolName(), call.inputJson());
+        if (parsed.isEmpty()) {
+            return;
+        }
+        Map<String, ThreadFile> existing = new HashMap<>();
+        for (ThreadFile f : store.listFiles(threadId)) {
+            existing.put(f.path(), f);
+        }
+        for (ToolFileOps.FileOp op : parsed) {
+            ThreadFile prior = existing.get(op.path());
+            int count = (prior == null ? 0 : prior.count()) + 1;
+            int linesAdded = (prior == null ? 0 : prior.linesAdded()) + op.linesAdded();
+            int linesRemoved = (prior == null ? 0 : prior.linesRemoved()) + op.linesRemoved();
+            try {
+                store.recordFile(new ThreadFile(
+                        threadId, op.path(), op.operation(),
+                        count, linesAdded, linesRemoved, call.timestamp()));
+            }
+            catch (RuntimeException e) {
+                log.warn("Failed to record file op for thread {}: {}", threadId, e.getMessage());
+            }
+        }
+    }
+
+    private void captureReportedModel(String reportedModel)
+    {
+        String nextModel = reportedModel == null ? "" : reportedModel.trim();
+        if (nextModel.isEmpty()) {
+            return;
+        }
+        String currentModel = model.get();
+        if (!currentModel.isBlank()) {
+            return;
+        }
+        if (model.compareAndSet(currentModel, nextModel)) {
+            persistThreadSnapshot(null);
+        }
+    }
+
+    private void persistMessage(StreamEvent event)
+    {
+        ThreadMessage msg = toMessage(event);
+        if (msg == null) {
+            return;
+        }
+        try {
+            store.appendMessage(msg);
+        }
+        catch (RuntimeException e) {
+            log.warn("Failed to persist message for thread {}: {}", threadId, e.getMessage());
+        }
+    }
+
+    private ThreadMessage toMessage(StreamEvent event)
+    {
+        long seq = nextSeq.getAndIncrement();
+        String id = UUID.randomUUID().toString();
+        Instant ts = event.timestamp();
+        return switch (event) {
+            case StreamEvent.SessionStarted e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "system", "session_started",
+                    String.format("{\"sessionId\":\"%s\",\"cwd\":\"%s\",\"model\":\"%s\"}",
+                            jsonEscape(e.sessionId()), jsonEscape(e.cwd()), jsonEscape(e.model())),
+                    null, null, null, null, ts);
+            case StreamEvent.UserMessage e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "user", "text",
+                    "{\"text\":\"" + jsonEscape(e.text()) + "\"}",
+                    null, null, null, null, ts);
+            case StreamEvent.AssistantText e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "assistant", "text",
+                    "{\"text\":\"" + jsonEscape(e.text()) + "\"}",
+                    null, null, null, null, ts);
+            // Live-only — deltas reach SSE subscribers and feed the
+            // in-flight assistant card; the assembled AssistantText is the
+            // durable form. Persisting deltas would inflate the table by
+            // ~1 row per token.
+            case StreamEvent.AssistantTextDelta ignored -> null;
+            case StreamEvent.ThinkingStarted e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "assistant", "thinking",
+                    "{\"summary\":\"" + jsonEscape(e.summary()) + "\"}",
+                    null, null, null, null, ts);
+            case StreamEvent.ThinkingDone ignored -> null;
+            case StreamEvent.ToolCallStarted e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "tool", "tool_call",
+                    String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"input\":%s}",
+                            jsonEscape(e.callId()),
+                            jsonEscape(e.toolName()),
+                            e.inputJson().isEmpty() ? "null" : e.inputJson()),
+                    null, null, null, null, ts);
+            case StreamEvent.ToolCallDone e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "tool", "tool_result",
+                    String.format("{\"callId\":\"%s\",\"isError\":%s,\"output\":%s}",
+                            jsonEscape(e.callId()),
+                            e.isError(),
+                            e.outputJson().isEmpty() ? "null" : e.outputJson()),
+                    null, null, null, null, ts);
+            case StreamEvent.PermissionRequested e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "system", "permission_request",
+                    String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"summary\":\"%s\"}",
+                            jsonEscape(e.callId()),
+                            jsonEscape(e.toolName()),
+                            jsonEscape(e.summary())),
+                    null, null, null, null, ts);
+            case StreamEvent.PermissionDecided e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "system", "permission_decision",
+                    String.format("{\"callId\":\"%s\",\"decision\":\"%s\"}",
+                            jsonEscape(e.callId()), e.decision().name()),
+                    null, null, null, null, ts);
+            case StreamEvent.PermissionAutoAllowed e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "system", "permission_auto_allowed",
+                    String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"remaining\":%d}",
+                            jsonEscape(e.callId()),
+                            jsonEscape(e.toolName()),
+                            e.remaining()),
+                    null, null, null, null, ts);
+            // Live-only — in-flight token counters reach SSE subscribers
+            // and overlay the metrics panel; TurnDone is the durable row.
+            case StreamEvent.UsageUpdated ignored -> null;
+            case StreamEvent.TurnDone e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "system", "turn_done", "{}",
+                    e.durationMs(), e.tokensIn(), e.tokensOut(), e.costUsdMilli(), ts);
+            case StreamEvent.ErrorOccurred e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "system", "error",
+                    String.format("{\"message\":\"%s\",\"recoverable\":%s}",
+                            jsonEscape(e.message()), e.recoverable()),
+                    null, null, null, null, ts);
+            case StreamEvent.SessionEnded e -> new ThreadMessage(
+                    id, threadId, activeTaskId, seq, "system", "session_ended",
+                    String.format("{\"exitCode\":%d,\"errorMessage\":%s}",
+                            e.exitCode(),
+                            e.errorMessage() == null
+                                    ? "null"
+                                    : "\"" + jsonEscape(e.errorMessage()) + "\""),
+                    null, null, null, null, ts);
+        };
+    }
+
+    private void publish(StreamEvent event)
+    {
+        for (Consumer<StreamEvent> listener : listeners) {
+            try {
+                listener.accept(event);
+            }
+            catch (RuntimeException e) {
+                log.warn("Subscriber for thread {} threw: {}", threadId, e.getMessage());
+            }
+        }
+    }
+
+    private void transition(ThreadStatus next)
+    {
+        ThreadStatus prev = status.getAndSet(next);
+        if (prev != next) {
+            persistThreadSnapshot(next == ThreadStatus.COMPLETED || next == ThreadStatus.ERRORED
+                    ? Instant.now()
+                    : null);
+        }
+    }
+
+    private void persistThreadSnapshot(Instant endedAt)
+    {
+        Thread current = store.findThreadById(threadId).orElse(null);
+        if (current == null) {
+            return;
+        }
+        String capturedSession = agentSessionId.get();
+        // Task mode: push the captured session id down to the active task
+        // and keep the Thread row's trunk session id untouched. Trunk
+        // mode: the captured session IS the trunk session, so it lands on
+        // threads.agent_session_id directly.
+        if (activeTaskId != null
+                && capturedSession != null
+                && !capturedSession.isBlank()) {
+            taskStore.findTaskById(activeTaskId).ifPresent(task -> {
+                if (!capturedSession.equals(task.agentSessionId())) {
+                    taskStore.saveTask(new Task(
+                            task.id(), task.threadId(), task.seq(), task.status(),
+                            task.branchName(), task.worktreePath(), task.baseBranch(),
+                            task.workingDir(), task.processPid(), task.logPath(),
+                            task.prNumber(), task.prState(), task.ciState(),
+                            task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
+                            task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
+                            capturedSession,
+                            task.createdAt(), task.endedAt(), task.errorMessage(),
+                            task.name(), task.roleSkill(), task.workModel()));
+                }
+            });
+        }
+        String threadSessionId = activeTaskId == null
+                && capturedSession != null
+                && !capturedSession.isBlank()
+                ? capturedSession
+                : current.agentSessionId();
+        Thread next = new Thread(
+                current.id(), current.kind(), current.provider(), threadSessionId,
+                current.title(), status.get(),
+                model.get(),
+                runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
+                current.createdAt(), Instant.now(),
+                endedAt != null ? endedAt : current.endedAt(),
+                current.errorMessage(),
+                current.flow(),
+                current.workspaceId(),
+                current.workModel(),
+                current.activeTask());
+        store.saveThread(next);
+    }
+
+    // ---- Shared helpers ----------------------------------------------
+
+    /**
+     * Resolve approval prompts left unanswered by a prior session. The
+     * permission gate is in-memory, so once that session is gone any
+     * {@code permission_request} without a matching decision can never be
+     * answered — it would show as a forever-pending card. Building a fresh
+     * agent is exactly when the old gate is known dead, so we record a
+     * denial for each, clearing the backlog.
+     */
+    private void resolveStalePermissions(List<ThreadMessage> messages)
+    {
+        List<String> stale = unresolvedPermissionCallIds(messages);
+        for (String callId : stale) {
+            persistMessage(new StreamEvent.PermissionDecided(
+                    Instant.now(), callId, PermissionDecision.DENY));
+        }
+        if (!stale.isEmpty()) {
+            log.info("Resolved {} stale permission prompt(s) for thread {}", stale.size(), threadId);
+        }
+    }
+
+    /** The callIds of {@code permission_request} rows that never received
+     *  a decision — the prompts a dead session left dangling. Each callId
+     *  is returned at most once even if its request row appears twice. */
+    static List<String> unresolvedPermissionCallIds(List<ThreadMessage> messages)
+    {
+        Set<String> resolved = new HashSet<>();
+        for (ThreadMessage m : messages) {
+            if ("permission_decision".equals(m.type()) || "permission_auto_allowed".equals(m.type())) {
+                String callId = extractCallId(m.contentJson());
+                if (callId != null) {
+                    resolved.add(callId);
+                }
+            }
+        }
+        List<String> out = new ArrayList<>();
+        for (ThreadMessage m : messages) {
+            if (!"permission_request".equals(m.type())) {
+                continue;
+            }
+            String callId = extractCallId(m.contentJson());
+            // resolved doubles as a dedupe guard: a callId is emitted once
+            // even if its request row somehow appears twice.
+            if (callId == null || !resolved.add(callId)) {
+                continue;
+            }
+            out.add(callId);
+        }
+        return out;
+    }
+
+    private static String extractCallId(String contentJson)
+    {
+        if (contentJson == null) {
+            return null;
+        }
+        Matcher matcher = CALL_ID_PATTERN.matcher(contentJson);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    protected static String jsonEscape(String s)
+    {
+        if (s == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                case '\b' -> sb.append("\\b");
+                case '\f' -> sb.append("\\f");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    }
+                    else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Default executor for production use — daemon threads named per
+     *  thread so jstack output is readable. */
+    public static ExecutorService defaultExecutor()
+    {
+        return Executors.newCachedThreadPool(r -> {
+            java.lang.Thread t = new java.lang.Thread(r, "thread-runner");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+}

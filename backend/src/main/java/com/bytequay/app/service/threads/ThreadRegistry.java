@@ -80,6 +80,10 @@ public class ThreadRegistry
     private final ThreadStore store;
     private final TaskStore taskStore;
     private final StreamJsonParser parser;
+    /** Codex's JSONL stdout parser, derived from the same mapper. The
+     *  {@code codex} work model dispatches to it instead of {@link
+     *  #parser}. */
+    private final CodexJsonParser codexParser;
     private final ObjectMapper mapper;
     private final McpPermissionGate gate;
     private final ExecutorService executor;
@@ -257,6 +261,7 @@ public class ThreadRegistry
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.codexParser = new CodexJsonParser(mapper);
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
@@ -388,10 +393,15 @@ public class ThreadRegistry
     private ThreadAgent build(Thread thread)
     {
         return switch (thread.kind()) {
-            case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
-                    thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider, skillMaterializer,
-                    resolveTaskRoleSkill(thread));
+            case CLI_AGENT -> isCodex(thread)
+                    ? new CodexCliThreadAgent(
+                            thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                            workspaceMemoryProvider,
+                            resolveTaskRoleSkill(thread))
+                    : new ClaudeCodeCliThreadAgent(
+                            thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                            workspaceMemoryProvider, skillMaterializer,
+                            resolveTaskRoleSkill(thread));
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
                 String workingDir = taskStore.findActiveTaskForThread(thread.id())
@@ -409,12 +419,19 @@ public class ThreadRegistry
     private ThreadAgent buildTrunk(Thread thread)
     {
         return switch (thread.kind()) {
-            case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
-                    thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider, skillMaterializer,
-                    roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                    trunkCwdResolver.apply(thread),
-                    ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+            case CLI_AGENT -> isCodex(thread)
+                    ? new CodexCliThreadAgent(
+                            thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                            workspaceMemoryProvider,
+                            roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                            trunkCwdResolver.apply(thread),
+                            CodexCliThreadAgent.TrunkMode.ENABLED)
+                    : new ClaudeCodeCliThreadAgent(
+                            thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                            workspaceMemoryProvider, skillMaterializer,
+                            roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                            trunkCwdResolver.apply(thread),
+                            ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
                 yield new LogicLoopThreadAgent(
@@ -424,6 +441,15 @@ public class ThreadRegistry
                         toolRegistry, ds4, ds4Instrumentation, gate);
             }
         };
+    }
+
+    /** Whether a CLI-agent thread should run the {@code codex} binary
+     *  rather than {@code claude}. Keyed on the provider stored at thread
+     *  creation ({@code "codex"} vs {@code "claude-code"}), so it doesn't
+     *  need the work-model resolver. */
+    private static boolean isCodex(Thread thread)
+    {
+        return "codex".equals(thread.provider());
     }
 
     private WorkModel resolveWorkModel(String threadId)

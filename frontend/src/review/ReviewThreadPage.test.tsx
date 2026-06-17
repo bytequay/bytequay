@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import ReviewThreadPage from './ReviewThreadPage';
 import type {
   Bridge,
+  PullRequestCommitDto,
   ReviewFindingDto,
   ReviewPanelMessageDto,
   ReviewParticipantDto,
@@ -648,6 +649,25 @@ describe('ReviewThreadPage', () => {
     expect(passId).toBe('pass-1');
     expect(targetId).toBe('p-rev');             // the reviewer seat, not the human
     expect(message).toContain('please recheck the null path');
+  });
+
+  it('shows the PR commits (subject only) in the Reviewing card', async () => {
+    const detail = buildDetail({});
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+      fetchPrCommits: vi.fn(async (): Promise<PullRequestCommitDto[]> => [
+        { sha: 'abc1234567', authorLogin: 'maria-l', authorName: 'Maria',
+          authoredAt: null, message: 'Wire the retry backoff\n\nlong body text' },
+        { sha: 'def7654321', authorLogin: 'maria-l', authorName: 'Maria',
+          authoredAt: null, message: 'Fix the flake' },
+      ]),
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    await waitFor(() => screen.getByText('abc1234'));   // 7-char short sha
+    expect(screen.getByText('Wire the retry backoff')).toBeTruthy();  // subject only
+    expect(screen.getByText('Fix the flake')).toBeTruthy();
+    expect(screen.queryByText(/long body text/)).toBeNull();          // body dropped
   });
 
   it('renders leaked DSML tool-call tokens as clean tool cards, not raw markup', async () => {

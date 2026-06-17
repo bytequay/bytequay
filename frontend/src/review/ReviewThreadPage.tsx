@@ -16,6 +16,7 @@ import { MarkdownProse } from '../threads/MarkdownProse';
 import type {
   AgendaPhaseDto,
   AgendaPhaseStatusDto,
+  PullRequestCommitDto,
   ReviewFindingDto,
   ReviewFindingSeverityDto,
   ReviewFindingStatusDto,
@@ -419,23 +420,59 @@ function ReviewingCard({ detail, onOpenPr }: {
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
 }) {
   const open = prOpener(detail, onOpenPr);
+  const repo = detail.pass.repoFullName;
+  const prNumber = detail.pass.prNumber;
+  const [commits, setCommits] = useState<PullRequestCommitDto[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const pending = window.bridge.fetchPrCommits?.(repo, prNumber);
+    if (pending === undefined) {
+      setCommits([]);
+      return;
+    }
+    void pending
+      .then(c => { if (!cancelled) setCommits(c); })
+      .catch(() => { if (!cancelled) setCommits([]); });
+    return () => { cancelled = true; };
+  }, [repo, prNumber]);
+
   return (
     <section style={cardStyle} aria-label="Reviewing">
       <h2 style={cardTitleStyle}>Reviewing</h2>
       {open !== undefined ? (
         <button type="button" style={prNumLinkStyle} onClick={open} title="Open this PR">
-          #{detail.pass.prNumber}
+          #{prNumber}
         </button>
       ) : (
-        <div style={prNumStyle}>#{detail.pass.prNumber}</div>
+        <div style={prNumStyle}>#{prNumber}</div>
       )}
       {detail.prTitle && <div style={reviewingTitleStyle}>{detail.prTitle}</div>}
       <div style={reviewingMetaStyle}>
-        <span style={reviewingRepoStyle}>{detail.pass.repoFullName}</span>
-        <span style={shaChipStyle}>{detail.pass.headSha.slice(0, 8)}</span>
+        <span style={reviewingRepoStyle}>{repo}</span>
       </div>
+      <div style={commitsHeadStyle}>
+        Commits{commits !== null && commits.length > 0 ? ` · ${commits.length}` : ''}
+      </div>
+      <ul style={commitsListStyle}>
+        {commits === null ? (
+          <li style={commitsEmptyStyle}>Loading commits…</li>
+        ) : commits.length === 0 ? (
+          <li style={commitsEmptyStyle}>No commits found.</li>
+        ) : commits.map(c => (
+          <li key={c.sha} style={commitRowStyle} title={c.message ?? c.sha}>
+            <span style={commitShaStyle}>{c.sha.slice(0, 7)}</span>
+            <span style={commitMsgStyle}>{firstLine(c.message)}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
+}
+
+/** First line of a commit message (the subject), or a placeholder. */
+function firstLine(message: string | null): string {
+  const line = (message ?? '').split('\n', 1)[0].trim();
+  return line.length > 0 ? line : '(no message)';
 }
 
 /** Left-rail "Flow" stepper — visualises the panel's phase machine.
@@ -1973,14 +2010,52 @@ const budgetHintStyle: React.CSSProperties = {
   color: 'var(--text-3)',
 };
 
-const shaChipStyle: React.CSSProperties = {
+const commitsHeadStyle: React.CSSProperties = {
+  marginTop: 10,
   fontSize: 10,
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  padding: '2px 6px',
-  border: '1px solid var(--border)',
-  borderRadius: 4,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
   color: 'var(--text-3)',
-  background: 'rgba(0,0,0,0.02)',
+};
+const commitsListStyle: React.CSSProperties = {
+  margin: '6px 0 0',
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 5,
+  maxHeight: 220,
+  overflowY: 'auto',
+};
+const commitsEmptyStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+  fontStyle: 'italic',
+};
+const commitRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 7,
+  fontSize: 11.5,
+  minWidth: 0,
+};
+const commitShaStyle: React.CSSProperties = {
+  flexShrink: 0,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 10.5,
+  color: '#5b21b6',
+  background: 'rgba(124,92,255,0.08)',
+  border: '1px solid rgba(124,92,255,0.18)',
+  borderRadius: 4,
+  padding: '0 5px',
+};
+const commitMsgStyle: React.CSSProperties = {
+  minWidth: 0,
+  color: 'var(--text-2)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const flowListStyle: React.CSSProperties = {

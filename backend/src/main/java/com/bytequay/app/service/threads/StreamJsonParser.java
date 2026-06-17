@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableList;
 import java.time.Instant;
 import java.util.List;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -42,6 +43,7 @@ import static java.util.Objects.requireNonNull;
  * on a benign variant instead of throwing.
  */
 public class StreamJsonParser
+        implements CliStreamParser
 {
     private final ObjectMapper mapper;
 
@@ -55,6 +57,7 @@ public class StreamJsonParser
      * stamp on emitted events — the source format does not include
      * timestamps, so we anchor against parse time.
      */
+    @Override
     public List<StreamEvent> parse(String line, Instant now)
     {
         requireNonNull(line, "line is null");
@@ -221,10 +224,5 @@ public class StreamJsonParser
                 ? "turn failed"
                 : result.error();
         return ImmutableList.of(turn, new StreamEvent.ErrorOccurred(now, message, true));
-    }
-
-    private static String nullToEmpty(String s)
-    {
-        return s == null ? "" : s;
     }
 }

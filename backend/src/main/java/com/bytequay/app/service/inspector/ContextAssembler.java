@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -382,11 +383,6 @@ public class ContextAssembler
     private static int estimateTokens(String body)
     {
         return body == null || body.isEmpty() ? 0 : body.length() / CHARS_PER_TOKEN;
-    }
-
-    private static String nullToEmpty(String s)
-    {
-        return s == null ? "" : s;
     }
 
     private String safeMemory(String workspaceId)

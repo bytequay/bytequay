@@ -53,6 +53,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -337,7 +338,7 @@ public class PublishService
             case ParkedProposal.CreateReviewComment c -> {
                 requirePrRef(c.pr(), "create_review_comment");
                 requireEditableBody(c.body(), editedBody, "review comment body is blank — nothing to post");
-                if (orEmpty(c.filePath()).isBlank() || c.line() <= 0 || orEmpty(c.commitId()).isBlank()) {
+                if (nullToEmpty(c.filePath()).isBlank() || c.line() <= 0 || nullToEmpty(c.commitId()).isBlank()) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "parked create_review_comment notification is missing filePath / line / commitId");
                 }
@@ -348,7 +349,7 @@ public class PublishService
             }
             case ParkedProposal.RequestReviewer r -> {
                 requirePrRef(r.pr(), "request_reviewer");
-                if (orEmpty(r.reviewer()).trim().isBlank()) {
+                if (nullToEmpty(r.reviewer()).trim().isBlank()) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "parked request_reviewer notification has no reviewer login");
                 }
@@ -376,7 +377,7 @@ public class PublishService
 
     private static void preflightPush(ParkedProposal.Push p)
     {
-        String worktreePath = orEmpty(p.worktreePath());
+        String worktreePath = nullToEmpty(p.worktreePath());
         if (worktreePath.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked push notification has no worktreePath");
@@ -396,7 +397,7 @@ public class PublishService
     private static void requireEditableBody(String parkedBody, String editedBody, String message)
     {
         String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? orEmpty(parkedBody)
+                ? nullToEmpty(parkedBody)
                 : editedBody;
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), message);
@@ -407,14 +408,14 @@ public class PublishService
     {
         ParkedProposal.RepoRef repo = o.repo();
         if (repo == null
-                || orEmpty(repo.owner()).isBlank()
-                || orEmpty(repo.repo()).isBlank()) {
+                || nullToEmpty(repo.owner()).isBlank()
+                || nullToEmpty(repo.repo()).isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification has incomplete repo ref");
         }
-        if (orEmpty(o.title()).isBlank()
-                || orEmpty(o.head()).isBlank()
-                || orEmpty(o.base()).isBlank()) {
+        if (nullToEmpty(o.title()).isBlank()
+                || nullToEmpty(o.head()).isBlank()
+                || nullToEmpty(o.base()).isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification is missing title / head / base");
         }
@@ -428,9 +429,9 @@ public class PublishService
             return;
         }
         for (ParkedProposal.PublishReview.InlineComment comment : comments) {
-            if (orEmpty(comment.filePath()).isBlank()
+            if (nullToEmpty(comment.filePath()).isBlank()
                     || comment.line() <= 0
-                    || orEmpty(comment.body()).isBlank()) {
+                    || nullToEmpty(comment.body()).isBlank()) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                         "publish_review comment is missing file_path / line / body");
             }
@@ -612,7 +613,7 @@ public class PublishService
 
     private PublishResult doPush(ParkedProposal.Push p, Notification original)
     {
-        String worktreePath = orEmpty(p.worktreePath());
+        String worktreePath = nullToEmpty(p.worktreePath());
         if (worktreePath.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked push notification has no worktreePath");
@@ -699,7 +700,7 @@ public class PublishService
         // honour the user's blank — the gate's editable textarea
         // makes clearing a real intent, not an indication to fall
         // back to the agent's suggestion.
-        String effectiveBody = editedBody == null ? orEmpty(a.body()) : editedBody;
+        String effectiveBody = editedBody == null ? nullToEmpty(a.body()) : editedBody;
         String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         // GitHub's review-create endpoint accepts an empty body for
         // an APPROVE; the SDK uses Optional<String> so pass empty
@@ -743,15 +744,15 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "review comment body is blank — nothing to post");
         }
-        String filePath = orEmpty(c.filePath());
+        String filePath = nullToEmpty(c.filePath());
         int line = c.line();
-        String commitId = orEmpty(c.commitId());
+        String commitId = nullToEmpty(c.commitId());
         if (filePath.isBlank() || line <= 0 || commitId.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked create_review_comment notification is missing filePath / line / commitId");
         }
         String side = orElse(c.side(), "RIGHT");
-        String startSide = orEmpty(c.startSide());
+        String startSide = nullToEmpty(c.startSide());
         String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         pullRequests.createInlineReviewComment(
                 pat, toPullRequestRef(pr),
@@ -788,7 +789,7 @@ public class PublishService
     private PublishResult doRequestReviewer(ParkedProposal.RequestReviewer r)
     {
         ParkedProposal.PrRef pr = requirePrRef(r.pr(), "request_reviewer");
-        String reviewer = orEmpty(r.reviewer()).trim();
+        String reviewer = nullToEmpty(r.reviewer()).trim();
         if (reviewer.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked request_reviewer notification has no reviewer login");
@@ -826,7 +827,7 @@ public class PublishService
     private PublishResult doSetIssueState(ParkedProposal.SetIssueState s)
     {
         ParkedProposal.IssueRef issue = requireIssueRef(s.issue(), "set_issue_state");
-        String state = orEmpty(s.state());
+        String state = nullToEmpty(s.state());
         if (!"open".equals(state) && !"closed".equals(state)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked set_issue_state notification has invalid state: " + state);
@@ -846,15 +847,15 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification has no repo ref");
         }
-        String owner = orEmpty(repo.owner());
-        String repoName = orEmpty(repo.repo());
+        String owner = nullToEmpty(repo.owner());
+        String repoName = nullToEmpty(repo.repo());
         if (owner.isBlank() || repoName.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification has incomplete repo ref");
         }
-        String title = orEmpty(o.title());
-        String head = orEmpty(o.head());
-        String base = orEmpty(o.base());
+        String title = nullToEmpty(o.title());
+        String head = nullToEmpty(o.head());
+        String base = nullToEmpty(o.base());
         if (title.isBlank() || head.isBlank() || base.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification is missing title / head / base");
@@ -882,7 +883,7 @@ public class PublishService
         // open_pr's body is optional. null = no override (use the
         // agent's parked body); "" = user explicitly cleared the
         // textarea and wants a blank PR description.
-        String effectiveBody = editedBody == null ? orEmpty(o.body()) : editedBody;
+        String effectiveBody = editedBody == null ? nullToEmpty(o.body()) : editedBody;
         boolean draft = o.draft();
         CreatePullRequestCommand command = new CreatePullRequestCommand(
                 head,
@@ -947,28 +948,28 @@ public class PublishService
     private PublishResult doPublishReview(ParkedProposal.PublishReview review, String editedBody)
     {
         ParkedProposal.PrRef pr = requirePrRef(review.pr(), "publish_review");
-        String event = orEmpty(review.event());
+        String event = nullToEmpty(review.event());
         if (!"APPROVE".equals(event) && !"REQUEST_CHANGES".equals(event) && !"COMMENT".equals(event)) {
             event = "COMMENT";
         }
         // publish_review's review-level body is optional. null = no
         // override; "" = user explicitly cleared (APPROVE/REQUEST_CHANGES
         // can land without any review-level text).
-        String effectiveBody = editedBody == null ? orEmpty(review.body()) : editedBody;
+        String effectiveBody = editedBody == null ? nullToEmpty(review.body()) : editedBody;
         List<ParkedProposal.PublishReview.InlineComment> reviewComments = review.comments();
         ImmutableList.Builder<CreateReviewCommand.ReviewLineComment> commentsBuilder = ImmutableList.builder();
         if (reviewComments != null) {
             for (ParkedProposal.PublishReview.InlineComment c : reviewComments) {
-                String filePath = orEmpty(c.filePath());
+                String filePath = nullToEmpty(c.filePath());
                 int line = c.line();
-                String body = orEmpty(c.body());
+                String body = nullToEmpty(c.body());
                 if (filePath.isBlank() || line <= 0 || body.isBlank()) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "publish_review comment is missing file_path / line / body");
                 }
                 String side = orElse(c.side(), "RIGHT");
                 Optional<Integer> startLine = Optional.ofNullable(c.startLine());
-                String startSideRaw = orEmpty(c.startSide());
+                String startSideRaw = nullToEmpty(c.startSide());
                 Optional<String> startSide = startSideRaw.isBlank()
                         ? Optional.empty()
                         : Optional.of(startSideRaw);
@@ -1036,7 +1037,7 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "parked " + action + " target " + taskId + " is no longer awaiting approval");
         }
-        String nextTitle = orEmpty(nextTitleRaw);
+        String nextTitle = nullToEmpty(nextTitleRaw);
         String baseMode = baseModeRaw == null ? "main" : baseModeRaw;
         if (!"main".equals(baseMode) && !"stacked".equals(baseMode)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -1060,7 +1061,7 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has no pr ref");
         }
-        if (orEmpty(pr.owner()).isBlank() || orEmpty(pr.repo()).isBlank() || pr.number() <= 0) {
+        if (nullToEmpty(pr.owner()).isBlank() || nullToEmpty(pr.repo()).isBlank() || pr.number() <= 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has incomplete pr ref");
         }
@@ -1073,7 +1074,7 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has no issue ref");
         }
-        if (orEmpty(issue.owner()).isBlank() || orEmpty(issue.repo()).isBlank() || issue.number() <= 0) {
+        if (nullToEmpty(issue.owner()).isBlank() || nullToEmpty(issue.repo()).isBlank() || issue.number() <= 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has incomplete issue ref");
         }
@@ -1091,13 +1092,8 @@ public class PublishService
     private static String effectiveBody(String parkedBody, String editedBody)
     {
         return (editedBody == null || editedBody.isBlank())
-                ? orEmpty(parkedBody)
+                ? nullToEmpty(parkedBody)
                 : editedBody;
-    }
-
-    private static String orEmpty(String s)
-    {
-        return s == null ? "" : s;
     }
 
     private static String orElse(String s, String fallback)

@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -108,8 +109,8 @@ public class PublishToolHandlers
             relatedConcepts = {"task", "awaiting_review", "ship"})
     public ToolOutcome requestReview(RequestReviewArgs args, ToolCall call)
     {
-        String summary = orEmpty(args.summary());
-        String draftReply = orEmpty(args.draftReply());
+        String summary = nullToEmpty(args.summary());
+        String draftReply = nullToEmpty(args.draftReply());
         Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to request review for");
@@ -147,7 +148,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome postComment(PostCommentArgs args, ToolCall call)
     {
-        String body = orEmpty(args.body());
+        String body = nullToEmpty(args.body());
         if (body.isBlank()) {
             return ToolOutcome.Completed.ok("body is required");
         }
@@ -219,7 +220,7 @@ public class PublishToolHandlers
     public ToolOutcome replyReviewThread(ReplyReviewThreadArgs args, ToolCall call)
     {
         long rootCommentId = args.rootCommentId() == null ? 0L : args.rootCommentId();
-        String body = orEmpty(args.body());
+        String body = nullToEmpty(args.body());
         if (rootCommentId <= 0L) {
             return ToolOutcome.Completed.ok("root_comment_id is required");
         }
@@ -265,7 +266,7 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
         return park(active.get(),
-                new ParkedProposal.ApprovePr(orEmpty(args.body()), toPrRef(prRef.get())),
+                new ParkedProposal.ApprovePr(nullToEmpty(args.body()), toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will review the approval and "
                         + "approve, edit, or discard from the thread.");
     }
@@ -341,15 +342,15 @@ public class PublishToolHandlers
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
-        String filePath = orEmpty(args.filePath());
-        String body = orEmpty(args.body());
-        String commitId = orEmpty(args.commitId());
+        String filePath = nullToEmpty(args.filePath());
+        String body = nullToEmpty(args.body());
+        String commitId = nullToEmpty(args.commitId());
         int line = args.line() == null ? 0 : args.line();
         if (filePath.isBlank() || body.isBlank() || commitId.isBlank() || line <= 0) {
             return ToolOutcome.Completed.ok("file_path, line, body, commit_id are required");
         }
         String side = args.side() == null || args.side().isBlank() ? "RIGHT" : args.side();
-        String startSide = orEmpty(args.startSide());
+        String startSide = nullToEmpty(args.startSide());
         return park(active.get(),
                 new ParkedProposal.CreateReviewComment(
                         body,
@@ -388,7 +389,7 @@ public class PublishToolHandlers
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
-        String body = orEmpty(args.body());
+        String body = nullToEmpty(args.body());
         if (body.isBlank()) {
             return ToolOutcome.Completed.ok("body is required");
         }
@@ -422,7 +423,7 @@ public class PublishToolHandlers
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
-        String reviewer = orEmpty(args.reviewer()).trim();
+        String reviewer = nullToEmpty(args.reviewer()).trim();
         if (reviewer.isBlank()) {
             return ToolOutcome.Completed.ok("reviewer (GitHub login) is required");
         }
@@ -459,7 +460,7 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("active task's workingDir doesn't match any watched repo");
         }
         int issueNumber = args.issueNumber() == null ? 0 : args.issueNumber();
-        String body = orEmpty(args.body());
+        String body = nullToEmpty(args.body());
         if (issueNumber <= 0) {
             return ToolOutcome.Completed.ok("issue_number is required");
         }
@@ -498,7 +499,7 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("active task's workingDir doesn't match any watched repo");
         }
         int issueNumber = args.issueNumber() == null ? 0 : args.issueNumber();
-        String state = orEmpty(args.state()).trim().toLowerCase(Locale.ROOT);
+        String state = nullToEmpty(args.state()).trim().toLowerCase(Locale.ROOT);
         if (issueNumber <= 0) {
             return ToolOutcome.Completed.ok("issue_number is required");
         }
@@ -546,22 +547,22 @@ public class PublishToolHandlers
         if (repo.isEmpty()) {
             return ToolOutcome.Completed.ok("active task's workingDir doesn't match any watched repo");
         }
-        String title = orEmpty(args.title()).trim();
+        String title = nullToEmpty(args.title()).trim();
         if (title.isBlank()) {
             return ToolOutcome.Completed.ok("title is required");
         }
-        String head = orEmpty(args.head()).trim();
+        String head = nullToEmpty(args.head()).trim();
         if (head.isBlank()) {
             head = active.get().branchName() == null ? "" : active.get().branchName();
         }
-        String base = orEmpty(args.base()).trim();
+        String base = nullToEmpty(args.base()).trim();
         if (base.isBlank()) {
             base = active.get().baseBranch() == null ? "main" : active.get().baseBranch();
         }
         if (head.isBlank()) {
             return ToolOutcome.Completed.ok("head branch could not be resolved — pass head explicitly");
         }
-        String body = orEmpty(args.body());
+        String body = nullToEmpty(args.body());
         boolean draft = args.draft() != null && args.draft();
         return park(active.get(),
                 new ParkedProposal.OpenPr(
@@ -609,14 +610,14 @@ public class PublishToolHandlers
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
-        String event = orEmpty(args.event()).trim().toUpperCase(Locale.ROOT);
+        String event = nullToEmpty(args.event()).trim().toUpperCase(Locale.ROOT);
         if (event.isEmpty()) {
             event = "COMMENT";
         }
         if (!event.equals("APPROVE") && !event.equals("REQUEST_CHANGES") && !event.equals("COMMENT")) {
             event = "COMMENT";
         }
-        String body = orEmpty(args.body());
+        String body = nullToEmpty(args.body());
         JsonNode commentsRaw = args.comments();
         List<ParkedProposal.PublishReview.InlineComment> comments;
         if (commentsRaw == null || commentsRaw.isNull()) {
@@ -677,7 +678,7 @@ public class PublishToolHandlers
                         task.branchName(),
                         task.baseBranch(),
                         task.worktreePath(),
-                        orEmpty(args.nextTitle()).trim(),
+                        nullToEmpty(args.nextTitle()).trim(),
                         normaliseBaseMode(args.baseMode()),
                         bundle.diffBase(),
                         bundle.diff(),
@@ -722,7 +723,7 @@ public class PublishToolHandlers
                         task.branchName(),
                         task.baseBranch(),
                         task.worktreePath(),
-                        orEmpty(args.nextTitle()).trim(),
+                        nullToEmpty(args.nextTitle()).trim(),
                         normaliseBaseMode(args.baseMode()),
                         bundle.diffBase(),
                         bundle.diff(),
@@ -760,11 +761,6 @@ public class PublishToolHandlers
     private static ParkedProposal.IssueRef toIssueRef(WatchedRepo repo, int number)
     {
         return new ParkedProposal.IssueRef(repo.owner(), repo.repo(), number);
-    }
-
-    private static String orEmpty(String s)
-    {
-        return s == null ? "" : s;
     }
 
     private static String normaliseMergeStrategy(String raw)

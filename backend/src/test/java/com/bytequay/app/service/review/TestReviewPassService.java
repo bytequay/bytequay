@@ -533,6 +533,30 @@ class TestReviewPassService
     }
 
     @Test
+    void steeringAReviewerPersistsTheHumanMessageAndRunsAnUnbudgetedReply()
+    {
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
+        String passId = passId();
+        ReviewParticipant reviewer = reviewStore.listParticipantsForPass(passId).stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
+                .findFirst().orElseThrow();
+
+        service.steerPass(passId, reviewer.id(), "Please double-check the null path.");
+
+        // The human's message landed, addressed to the reviewer.
+        assertThat(reviewStore.listMessagesForPass(passId))
+                .anyMatch(m -> "Please double-check the null path.".equals(m.body())
+                        && m.mentions().contains(reviewer.id()));
+        // The reviewer reply ran UNBUDGETED (enforceBudget=false).
+        verify(reviewerSeat).runDispatchedTurn(
+                any(), any(), eq(reviewer.id()), anyString(), any(), anyInt(), any(), eq(false));
+    }
+
+    @Test
     void everySeatFailingParksThePassAndSurfacesA502()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))

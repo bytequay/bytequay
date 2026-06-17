@@ -196,6 +196,23 @@ public class ReviewController
         return reviews.arbitrateFinding(passId, findingId, body.resolution());
     }
 
+    /** Steer the panel from the review page: inject a human message
+     *  addressed to a reviewer or the lead and run that seat's reply
+     *  unbudgeted. */
+    @PostMapping("/{passId}/steer")
+    public ReviewPassDetail steer(
+            @PathVariable String passId,
+            @RequestBody SteerRequest body)
+    {
+        if (body == null
+                || body.targetParticipantId() == null || body.targetParticipantId().isBlank()
+                || body.message() == null || body.message().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "targetParticipantId and message are required");
+        }
+        return reviews.steerPass(passId, body.targetParticipantId(), body.message());
+    }
+
     /** Read the scheduled-reviews opt-in toggle. The settings UI
      *  polls this to render the on/off state. */
     @GetMapping("/scheduled-settings")
@@ -274,6 +291,8 @@ public class ReviewController
     public record PublishReviewRequest(String verdict, List<String> findingIds) {}
 
     public record ArbitrateFindingRequest(String resolution) {}
+
+    public record SteerRequest(String targetParticipantId, String message) {}
 
     public record ScheduledSettingsRequest(boolean enabled) {}
 }

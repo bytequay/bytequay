@@ -117,10 +117,30 @@ public class ReviewerSeat
             int round,
             String excludeMessageId)
     {
+        return runDispatchedTurn(pass, roster, participantId, directive, phase, round,
+                excludeMessageId, /* enforceBudget */ true);
+    }
+
+    /**
+     * Variant that can run UNBUDGETED ({@code enforceBudget=false}): the
+     * seat-slice gate and the cost-cap abort are skipped so a human-steered
+     * turn still answers even after the pass spent its cap. The spend is
+     * still metered, so the overage surfaces in the budget meter.
+     */
+    public ReviewMessage runDispatchedTurn(
+            ReviewPass pass,
+            PanelSeatConfig roster,
+            String participantId,
+            String directive,
+            ReviewPhase phase,
+            int round,
+            String excludeMessageId,
+            boolean enforceBudget)
+    {
         requireNonNull(pass, "pass is null");
         requireNonNull(roster, "roster is null");
         requireNonNull(directive, "directive is null");
-        if (!budget.seatHasBudget(participantId)) {
+        if (enforceBudget && !budget.seatHasBudget(participantId)) {
             throw new SeatBudgetExhaustedException(
                     "Seat " + participantId + " has exhausted its budget slice.");
         }
@@ -134,7 +154,9 @@ public class ReviewerSeat
                 pass, participantId, directive, excludeMessageId);
 
         ToolExecutor executor = toolset.executorFor(pass, participantId, seat.displayLabel());
-        TurnHooks hooks = budgetHooks(pass.id(), participantId);
+        TurnHooks hooks = enforceBudget
+                ? budgetHooks(pass.id(), participantId)
+                : new TurnHooks() { };
 
         TurnResult result = runner.runTurn(
                 new TurnSpec(

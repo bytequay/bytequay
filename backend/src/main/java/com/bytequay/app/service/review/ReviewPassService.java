@@ -864,6 +864,97 @@ public class ReviewPassService
         return findPassWithDetail(passId).orElseThrow();
     }
 
+    /**
+     * Inject a human-authored steer message into a pass and run the
+     * addressed seat's reply UNBUDGETED — the review-page composer's
+     * "@mention a reviewer/lead and send" action. The roster is rebuilt
+     * from the persisted participants (model-only: a steered reviewer
+     * answers in its base voice, not its original persona). The reply's
+     * spend is still metered, so any overage surfaces in the budget meter.
+     */
+    @Transactional
+    public ReviewPassDetail steerPass(String passId, String targetParticipantId, String message)
+    {
+        requireNonNull(passId, "passId is null");
+        requireNonNull(targetParticipantId, "targetParticipantId is null");
+        requireNonNull(message, "message is null");
+        if (message.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "Steer message is empty.");
+        }
+        ReviewPass pass = reload(passId);
+        List<ReviewParticipant> participants = reviewStore.listParticipantsForPass(passId);
+        ReviewParticipant target = participants.stream()
+                .filter(p -> p.id().equals(targetParticipantId))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "No such participant on this pass."));
+        if (target.kind() == ReviewParticipantKind.HUMAN) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "Address a reviewer or the lead, not the human seat.");
+        }
+        ReviewParticipant human = participants.stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.HUMAN)
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(500), "Pass has no human seat."));
+
+        // Persist the human's message, addressed to the target.
+        reviewStore.saveMessage(new ReviewMessage(
+                UUID.randomUUID().toString(), passId, human.id(),
+                pass.phase(), /* round */ 0, message.strip(),
+                List.of(target.id()), List.of(), /* costUsdMilli */ 0L, Instant.now()));
+
+        PanelSeatConfig roster = reconstructRoster(participants);
+        // Seed an empty diff so a seat tool that probes it returns empty
+        // rather than erroring — the original diff isn't cached post-run.
+        diffCache.seed(passId, "");
+        try {
+            if (target.kind() == ReviewParticipantKind.LEAD) {
+                LeadToolset.Session session = leadToolset.sessionFor(passId, roster, target.id());
+                leadOrchestrator.runRound(reload(passId), session, roster,
+                        pass.phase(), /* round */ 0, steerDirective(message),
+                        /* enforceBudget */ false);
+            }
+            else {
+                reviewerSeat.runDispatchedTurn(reload(passId), roster, target.id(),
+                        steerDirective(message), pass.phase(), /* round */ 0,
+                        /* excludeMessageId */ null, /* enforceBudget */ false);
+            }
+        }
+        finally {
+            diffCache.drop(passId);
+        }
+        return findPassWithDetail(passId).orElseThrow();
+    }
+
+    private static String steerDirective(String message)
+    {
+        return "A human reviewer sent this message into the panel:\n\n"
+                + message.strip()
+                + "\n\nRespond to it directly and concisely.";
+    }
+
+    /** Rebuild the in-memory roster from the persisted participants — the
+     *  lead + each reviewer as a model-only seat. Persona prompts aren't
+     *  persisted, so a reconstructed seat carries none. */
+    private PanelSeatConfig reconstructRoster(List<ReviewParticipant> participants)
+    {
+        List<PanelSeatConfig.Seat> seats = new ArrayList<>();
+        for (ReviewParticipant p : participants) {
+            if (p.kind() == ReviewParticipantKind.LEAD) {
+                seats.add(new PanelSeatConfig.Seat(
+                        p.id(), p.credentialId(), /* personaPrompt */ null,
+                        p.personaLabel(), /* lead */ true));
+            }
+            else if (p.kind() == ReviewParticipantKind.REVIEWER) {
+                seats.add(new PanelSeatConfig.Seat(
+                        p.id(), p.credentialId(), /* personaPrompt */ null,
+                        p.personaLabel(), /* lead */ false));
+            }
+        }
+        return new PanelSeatConfig(seats);
+    }
+
     /** Configured reviewers form the panel. No hard size cap — the
      *  Lead-driven agenda and the per-seat budget slices keep large
      *  panels bounded (cost scales with the pass cap, not the panel

@@ -624,6 +624,39 @@ class TestReviewPassService
     }
 
     @Test
+    void steeringRefetchesThePrDiffSoTheSeatReviewsActualChangesNotEmpty()
+    {
+        // The PR diff isn't persisted after the initial run, so a steered
+        // turn must re-fetch it; seeding empty made the continued reviewer
+        // report "no files changed".
+        ReviewDiffCache diffCache = mock(ReviewDiffCache.class);
+        List<Runnable> deferred = new ArrayList<>();
+        ReviewPassService svc = new ReviewPassService(
+                threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
+                appSettings, deferred::add,
+                leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
+                diffCache, scheduler, skillStore);
+        svc.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
+        String passId = passId();
+        ReviewParticipant reviewer = reviewStore.listParticipantsForPass(passId).stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
+                .findFirst().orElseThrow();
+        deferred.clear();
+        when(pullRequests.fetchPrDiff(eq("ghp_secret"), any(PullRequestRef.class)))
+                .thenReturn("diff --git a/F b/F\n+changed");
+
+        svc.steerPass(passId, reviewer.id(), "continue the review");
+        deferred.get(0).run();
+
+        // The steered turn seeds the re-fetched diff, not an empty placeholder.
+        verify(diffCache).seed(passId, "diff --git a/F b/F\n+changed");
+    }
+
+    @Test
     void everySeatFailingParksThePassAndSurfacesA502()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))

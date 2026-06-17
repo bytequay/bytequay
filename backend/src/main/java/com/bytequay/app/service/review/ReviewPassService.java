@@ -916,9 +916,13 @@ public class ReviewPassService
         // launchReviewBody. The method is deliberately NOT @Transactional for
         // the same reason: no DB connection is held across the model turn.
         reviewExecutor.execute(() -> {
-            // Seed an empty diff so a seat tool that probes it returns empty
-            // rather than erroring — the original diff isn't cached post-run.
-            diffCache.seed(passId, "");
+            // Re-fetch the PR diff so a steered seat reviews the actual
+            // changes. The diff isn't persisted after the initial run, so
+            // without this the seat's diff tool returns empty and the
+            // reviewer reports "no files changed". Fetched here (on the
+            // executor) so the GitHub call stays off the request thread;
+            // falls back to empty only if the fetch fails.
+            diffCache.seed(passId, bestEffortPrDiff(pass.repoFullName(), pass.prNumber()));
             try {
                 if (target.kind() == ReviewParticipantKind.LEAD) {
                     LeadToolset.Session session = leadToolset.sessionFor(passId, roster, target.id());
@@ -1314,6 +1318,24 @@ public class ReviewPassService
         }
         catch (RuntimeException e) {
             return null;
+        }
+    }
+
+    /** Best-effort current PR diff for a steered/continued review turn,
+     *  since the original diff isn't persisted after the initial run.
+     *  Empty string on failure so a probing seat tool degrades to "no
+     *  diff" rather than erroring. */
+    private String bestEffortPrDiff(String repoFullName, int prNumber)
+    {
+        try {
+            String diff = pullRequests.fetchPrDiff(
+                    patResolver.resolve(repoFullName),
+                    parseRef(repoFullName, prNumber));
+            return diff == null ? "" : diff;
+        }
+        catch (RuntimeException e) {
+            log.warn("Re-fetching PR diff for {}#{} failed: {}", repoFullName, prNumber, e.getMessage());
+            return "";
         }
     }
 

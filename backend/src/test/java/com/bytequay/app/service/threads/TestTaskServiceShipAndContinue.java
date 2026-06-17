@@ -263,7 +263,7 @@ class TestTaskServiceShipAndContinue
         // Phase driven terminal so the reconciler stops polling it.
         verify(taskStore).updatePhase("t1.k1", TaskPhase.COMPLETED);
         // Worktree + branch reaped.
-        verify(worktreeService).remove(Path.of("/clone"), "/wt", "dev/x");
+        verify(worktreeService).reap(t);
     }
 
     @Test
@@ -277,7 +277,7 @@ class TestTaskServiceShipAndContinue
 
         // No session to interrupt, but the task is still sealed + reaped.
         verify(taskStore).cancelTask(eq("t1.k1"), any());
-        verify(worktreeService).remove(Path.of("/clone"), "/wt", "dev/x");
+        verify(worktreeService).reap(t);
     }
 
     private static Task task(

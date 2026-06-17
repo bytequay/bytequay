@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.service.local.GitRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -181,6 +182,25 @@ public class WorktreeService
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("Branch delete interrupted for {}", localBranch);
+        }
+    }
+
+    /**
+     * Reap a finished task's worktree and branch. No-op for a task that
+     * has no worktree (already shipped/reaped) or whose clone root is
+     * unknown. Best-effort — failures are logged and never propagate, so
+     * a completion or cancel path never fails on a dead worktree.
+     */
+    public void reap(Task task)
+    {
+        if (task.worktreePath() == null || task.workingDir() == null) {
+            return;
+        }
+        try {
+            remove(Path.of(task.workingDir()), task.worktreePath(), task.branchName());
+        }
+        catch (RuntimeException e) {
+            log.warn("worktree reap for completed task {} failed: {}", task.id(), e.getMessage());
         }
     }
 

@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Optional;
@@ -154,20 +153,7 @@ public class TaskLifecycleDriver
         // local commits the user hasn't landed, so deleting its branch
         // would lose work.
         if (merged) {
-            reapWorktree(task);
-        }
-    }
-
-    private void reapWorktree(Task task)
-    {
-        if (task.worktreePath() == null || task.workingDir() == null) {
-            return;
-        }
-        try {
-            worktrees.remove(Path.of(task.workingDir()), task.worktreePath(), task.branchName());
-        }
-        catch (RuntimeException e) {
-            log.warn("worktree reap for completed task {} failed: {}", task.id(), e.getMessage());
+            worktrees.reap(task);
         }
     }
 }

@@ -22,7 +22,6 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 
@@ -73,7 +72,7 @@ class TestTaskLifecycleDriver
         // off the spine, and reap the now-dead worktree + branch.
         verify(taskStore).completeTask(eq("t1.k2"), any());
         verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_merged_observed");
-        verify(worktrees).remove(Path.of("/clone"), "/wt", "dev/x");
+        verify(worktrees).reap(task);
     }
 
     @Test
@@ -92,7 +91,7 @@ class TestTaskLifecycleDriver
         // worktree alone rather than delete the work.
         verify(taskStore).completeTask(eq("t1.k2"), any());
         verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_closed_observed");
-        verify(worktrees, never()).remove(any(), any(), any());
+        verify(worktrees, never()).reap(any());
     }
 
     @Test

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MarkdownProse } from '../threads/MarkdownProse';
 import type {
   AgendaPhaseDto,
@@ -781,6 +781,18 @@ function SteerComposer({
   const [targetId, setTargetId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Auto-grow the input as the user types newlines (Shift+Enter), up to a
+  // cap after which it scrolls — so earlier lines stay visible instead of
+  // a single clipped row.
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (el === null) {
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text]);
 
   // Addressable seats: reviewers + the lead, never the human "You".
   const addressable = useMemo(
@@ -853,6 +865,7 @@ function SteerComposer({
       <div style={composerInboxStyle}>
         <span style={composerPromptStyle} aria-hidden>›</span>
         <textarea
+          ref={textareaRef}
           placeholder="Message the panel — @mention a reviewer or the lead…"
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -2401,6 +2414,10 @@ const composerTextareaStyle: React.CSSProperties = {
   background: 'transparent',
   color: 'var(--text-2)',
   boxSizing: 'border-box',
+  // Auto-grown by the effect up to this cap, then scrolls so earlier
+  // lines stay reachable.
+  maxHeight: 160,
+  overflowY: 'auto',
 };
 
 const composerFooterStyle: React.CSSProperties = {

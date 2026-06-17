@@ -34,42 +34,6 @@
   font-size: var(--font-size-sm);
   overflow-y: auto;
 }
-.kanban-sidenav__brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-2) var(--space-5);
-}
-.kanban-sidenav__logo {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: #fff;
-  font-size: 18px;
-  flex-shrink: 0;
-}
-.kanban-sidenav__brand-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.1;
-}
-.kanban-sidenav__brand-name {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--text-0);
-}
-.kanban-sidenav__brand-sub {
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
 .kanban-sidenav__nav {
   display: flex;
   flex-direction: column;

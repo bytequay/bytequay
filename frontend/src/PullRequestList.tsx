@@ -597,13 +597,6 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
    *  pins to the bottom and routes out via the App callback. */
   const sideNav = (
     <aside className="kanban-sidenav">
-      <div className="kanban-sidenav__brand">
-        <span className="kanban-sidenav__logo" aria-hidden="true">◆</span>
-        <span className="kanban-sidenav__brand-text">
-          <span className="kanban-sidenav__brand-name">BYTEQUAY</span>
-          <span className="kanban-sidenav__brand-sub">Dashboard</span>
-        </span>
-      </div>
       <nav className="kanban-sidenav__nav">
         <span className="kanban-sidenav__section">Overview</span>
         <button

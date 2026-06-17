@@ -737,6 +737,24 @@ function personaGradient(personaLabel: string): string | null {
   return PERSONA_GRADIENTS[key] ?? null;
 }
 
+/** Solid identity colour for a seat — used for the bubble's tinted
+ *  border and the author name in the transcript head (a gradient can't
+ *  paint a 1px border or text). Mirrors the avatar gradient's lead hue. */
+const PERSONA_SOLID: Record<string, string> = {
+  lead: '#d97706',
+  claude: '#d97706',
+  gpt5: '#10b981',
+  deepseek: '#2563eb',
+  sonnet: '#7c3aed',
+  gemini: '#34d399',
+  you: '#0d9488',
+};
+function personaSolid(participant: ReviewParticipantDto): string | null {
+  if (participant.color !== null && participant.color.startsWith('#')) return participant.color;
+  const key = participant.personaLabel.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return PERSONA_SOLID[key] ?? null;
+}
+
 /** The avatar background for a roster/dispatch seat: an explicit DTO
  *  colour first, then the persona gradient for a known seat, then the
  *  by-kind fallback. */
@@ -1094,8 +1112,14 @@ function MessageBubble({
   const name = author?.personaLabel ?? '?';
   const color = author?.color ?? 'var(--text-muted)';
   const avatarBg = author !== null ? seatColor(author) : rosterFallbackColor(kind);
+  const solid = author !== null ? personaSolid(author) : null;
   const isYou = kind === 'HUMAN';
   const isLeadKind = kind === 'LEAD';
+  // Reviewer bubbles take a faint border in the seat's own colour (8-digit
+  // hex alpha); lead + you keep their dedicated variants.
+  const reviewerBubbleStyle = solid !== null
+      ? { ...bubbleStyle, borderColor: `${solid}33` }
+      : bubbleStyle;
   const showLeadTag = isLeadKind || isLead;
   const filtering = focusParticipantId !== null;
 
@@ -1109,9 +1133,9 @@ function MessageBubble({
           {name.slice(0, 1).toUpperCase()}
         </span>
       )}
-      <div style={isLeadKind ? bubbleLeadStyle : isYou ? bubbleYouStyle : bubbleStyle}>
+      <div style={isLeadKind ? bubbleLeadStyle : isYou ? bubbleYouStyle : reviewerBubbleStyle}>
         <div style={bubbleHeadStyle}>
-          <strong style={isYou ? undefined : { color }}>{name}</strong>
+          <strong style={isYou ? undefined : { color: solid ?? color }}>{name}</strong>
           {showLeadTag && <span style={roleTagStyle}>lead</span>}
           {message.mentions.map(id => {
             const mentioned = participantsById.get(id);
@@ -1359,7 +1383,12 @@ function PublishedBadge() {
 }
 
 function PhasePill({ phase }: { phase: string }) {
-  return <span style={pillStyle('#0066cc')}>◆ {phase.toLowerCase()}</span>;
+  return (
+    <span style={pillStyle('#0066cc')}>
+      <span style={phaseDotStyle} className="review-live-dot" aria-hidden />
+      {phase.toLowerCase()}
+    </span>
+  );
 }
 
 function VerdictPill({ verdict }: { verdict: ReviewVerdictDto }) {
@@ -2603,6 +2632,9 @@ const emptyLabelStyle: React.CSSProperties = {
 
 function pillStyle(color: string): React.CSSProperties {
   return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
     fontSize: 11,
     fontWeight: 600,
     textTransform: 'uppercase',
@@ -2614,6 +2646,13 @@ function pillStyle(color: string): React.CSSProperties {
     background: 'transparent',
   };
 }
+const phaseDotStyle: React.CSSProperties = {
+  width: 5,
+  height: 5,
+  borderRadius: '50%',
+  background: 'currentColor',
+  flexShrink: 0,
+};
 
 function severityChipStyle(color: string): React.CSSProperties {
   return {

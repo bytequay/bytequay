@@ -98,7 +98,11 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
   // DISPUTED are still in flight for the right rail's "Open" pane.
   const agreedFindings = useMemo(
     () => (detail?.findings ?? []).filter(f =>
-        f.status === 'AGREED' || f.status === 'RESOLVED' || f.status === 'POSTED'),
+        f.status === 'AGREED' || f.status === 'RESOLVED' || f.status === 'POSTED'
+        // ARBITRATED = a disputed finding the human chose "Include" for; it's
+        // locked in and will publish, so it belongs in the Agreed list rather
+        // than vanishing once it leaves the arbitration ballot.
+        || f.status === 'ARBITRATED'),
     [detail]);
   const openFindings = useMemo(
     () => (detail?.findings ?? []).filter(f =>
@@ -314,9 +318,9 @@ function SpawnBuildSection(
   // isn't worth a build thread). Zero eligible → disabled + a tooltip
   // that says why.
   const eligible = detail.findings.some(
-      f => f.status === 'AGREED' && isMajorOrHigher(f.severity));
-  const disabledReason = 'Spawn build needs at least one AGREED finding with '
-      + 'severity Major or higher.';
+      f => (f.status === 'AGREED' || f.status === 'ARBITRATED') && isMajorOrHigher(f.severity));
+  const disabledReason = 'Spawn build needs at least one agreed or arbitrated-in finding '
+      + 'with severity Major or higher.';
 
   const onSpawn = async () => {
     setBusy(true);
@@ -389,7 +393,8 @@ function TopBar({ detail, onBack, onOpenPr }: {
   const costPct = costCapMilli > 0 ? Math.min(100, (costMilli / costCapMilli) * 100) : 0;
   const findings = detail?.findings ?? [];
   const agreedCount = findings.filter(
-      f => f.status === 'AGREED' || f.status === 'RESOLVED' || f.status === 'POSTED').length;
+      f => f.status === 'AGREED' || f.status === 'RESOLVED' || f.status === 'POSTED'
+          || f.status === 'ARBITRATED').length;
   const openCount = findings.filter(
       f => f.status === 'DISPUTED' || f.status === 'REPORTED').length;
   return (
@@ -1747,12 +1752,13 @@ function PublishSection({
   const alreadyPublished = detail.pass.phase === 'PUBLISHED';
   const suggested: ReviewVerdictDto = detail.pass.verdict ?? 'COMMENT';
   const [verdict, setVerdict] = useState<ReviewVerdictDto>(suggested);
-  // Default to including AGREED findings only — DISPUTED findings
-  // start un-checked since the panel didn't reach consensus on them.
-  // The user can still tick them in if they want to surface them.
+  // Default to including findings the panel (or the human ballot) kept:
+  // AGREED / ARBITRATED-in / RESOLVED / POSTED. DISPUTED + REPORTED start
+  // un-checked (no consensus), and DROPPED stays out (the human or panel
+  // discarded it) — the user can still tick any of them in manually.
   const [includedIds, setIncludedIds] = useState<Set<string>>(
       () => new Set(detail.findings
-          .filter(f => f.status !== 'DISPUTED' && f.status !== 'REPORTED')
+          .filter(f => f.status !== 'DISPUTED' && f.status !== 'REPORTED' && f.status !== 'DROPPED')
           .map(f => f.id)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

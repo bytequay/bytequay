@@ -145,6 +145,33 @@ describe('ReviewThreadPage', () => {
     expect(disputedBox.checked).toBe(false);
   });
 
+  it('keeps an Included (ARBITRATED) finding visible and default-checked to post', async () => {
+    // Clicking "Include" on a disputed finding sets status ARBITRATED.
+    // Before the fix that matched neither the agreed nor the open filter, so
+    // the finding vanished from every list.
+    const detail = buildDetail({
+      verdict: 'COMMENT',
+      findings: [
+        finding({ id: 'f-arb', severity: 'BLOCKER', status: 'ARBITRATED',
+            body: 'Human kept this disputed blocker.', path: 'src/foo.ts', line: 9 }),
+        finding({ id: 'f-drop', severity: 'NIT', status: 'DROPPED',
+            body: 'Human discarded this.', path: 'src/bar.ts', line: 3 }),
+      ],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    // It renders (in the Agreed list + the publish list) rather than
+    // disappearing — before the fix it matched no list and showed nowhere.
+    await waitFor(() =>
+        expect(screen.getAllByText('Human kept this disputed blocker.').length).toBeGreaterThan(0));
+    // Default post selection: the arbitrated-in finding is checked, the
+    // dropped one is not (1 of 2).
+    expect(screen.getByText(/Findings to post \(1\/2\)/)).toBeTruthy();
+  });
+
   it('surfaces a backend error inline without rendering the panel sections', async () => {
     installBridge({
       getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => {

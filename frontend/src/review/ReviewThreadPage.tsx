@@ -459,9 +459,17 @@ function ReviewingCard({ detail, onOpenPr }: {
         ) : commits.length === 0 ? (
           <li style={commitsEmptyStyle}>No commits found.</li>
         ) : commits.map(c => (
-          <li key={c.sha} style={commitRowStyle} title={c.message ?? c.sha}>
-            <span style={commitShaStyle}>{c.sha.slice(0, 7)}</span>
-            <span style={commitMsgStyle}>{firstLine(c.message)}</span>
+          <li key={c.sha} style={commitItemStyle} title={c.message ?? c.sha}>
+            <div style={commitRowStyle}>
+              <span style={commitShaStyle}>{c.sha.slice(0, 7)}</span>
+              <span style={commitMsgStyle}>{firstLine(c.message)}</span>
+            </div>
+            {(commitAuthorLabel(c) !== '' || c.authoredAt !== null) && (
+              <div style={commitSubRowStyle}>
+                {[commitAuthorLabel(c), commitTimeAgo(c.authoredAt)]
+                    .filter(s => s !== '').join(' · ')}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -473,6 +481,28 @@ function ReviewingCard({ detail, onOpenPr }: {
 function firstLine(message: string | null): string {
   const line = (message ?? '').split('\n', 1)[0].trim();
   return line.length > 0 ? line : '(no message)';
+}
+
+/** A commit's author — login first, then the git name, else blank. */
+function commitAuthorLabel(c: PullRequestCommitDto): string {
+  return c.authorLogin ?? c.authorName ?? '';
+}
+
+/** Compact relative time for a commit's authored timestamp. */
+function commitTimeAgo(iso: string | null): string {
+  if (iso === null) return '';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const sec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.floor(day / 30);
+  return mo < 12 ? `${mo}mo ago` : `${Math.floor(mo / 12)}y ago`;
 }
 
 /** Left-rail "Flow" stepper — visualises the panel's phase machine.
@@ -2033,12 +2063,24 @@ const commitsEmptyStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   fontStyle: 'italic',
 };
+const commitItemStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  minWidth: 0,
+};
 const commitRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
   gap: 7,
   fontSize: 11.5,
   minWidth: 0,
+};
+const commitSubRowStyle: React.CSSProperties = {
+  fontSize: 10.5,
+  color: 'var(--text-3)',
+  paddingLeft: 2,
+  fontVariantNumeric: 'tabular-nums',
 };
 const commitShaStyle: React.CSSProperties = {
   flexShrink: 0,

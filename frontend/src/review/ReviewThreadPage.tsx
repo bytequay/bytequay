@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { MarkdownProse } from '../threads/MarkdownProse';
 import type {
   AgendaPhaseDto,
   AgendaPhaseStatusDto,
@@ -209,15 +210,20 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
               spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
               emptyHint="Nothing locked in yet."
             />
-            <FindingsByStatusSection
-              label="Open"
-              tone="open"
-              findings={openFindings}
-              dissentsByFinding={dissentsByFinding}
-              sourceMsgIdByFinding={sourceMsgIdByFinding}
-              spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
-              emptyHint="All disagreements resolved or arbitrated."
-            />
+            {/* During ARBITRATE the ballot below lists the same disputed
+                findings with actions, so the read-only Open panel would
+                just duplicate it — hide it then. */}
+            {detail.pass.phase !== 'ARBITRATE' && (
+              <FindingsByStatusSection
+                label="Open"
+                tone="open"
+                findings={openFindings}
+                dissentsByFinding={dissentsByFinding}
+                sourceMsgIdByFinding={sourceMsgIdByFinding}
+                spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
+                emptyHint="All disagreements resolved or arbitrated."
+              />
+            )}
             {detail.pass.phase === 'ARBITRATE' ? (
               <ArbitrationBallotSection
                 detail={detail}
@@ -633,21 +639,26 @@ function ArbitrationBallotSection({
         <div style={errorStyle} role="alert">{error}</div>
       )}
       <ul style={findingsListStyle}>
-        {disputed.map(f => (
-          <li key={f.id} style={findingRowStyle}>
-            <SeverityChip severity={f.severity} />
-            <StatusChip status={f.status} />
-            <div style={findingBodyStyle}>
-              <div style={findingAnchorStyle}>
+        {disputed.map(f => {
+          const { reviewer, rest } = splitReviewerPrefix(f.body);
+          return (
+            <li key={f.id} style={ballotItemStyle}>
+              <div style={ballotHeadStyle}>
+                <SeverityChip severity={f.severity} />
+                {reviewer !== null && <span style={ballotReviewerStyle}>{reviewer}</span>}
+              </div>
+              <div style={ballotAnchorStyle}>
                 {f.path !== null
                     ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
                     : 'Whole PR'}
               </div>
-              <div>{f.body}</div>
-              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <div style={ballotBodyStyle}>
+                <MarkdownProse text={rest} />
+              </div>
+              <div style={ballotActionsStyle}>
                 <button
                   type="button"
-                  className="button button--primary"
+                  style={busyId !== null ? { ...ballotIncludeStyle, opacity: 0.5 } : ballotIncludeStyle}
                   onClick={() => { void resolve(f.id, 'include'); }}
                   disabled={busyId !== null}
                 >
@@ -655,19 +666,29 @@ function ArbitrationBallotSection({
                 </button>
                 <button
                   type="button"
-                  className="button button--secondary"
+                  style={busyId !== null ? { ...ballotDropStyle, opacity: 0.5 } : ballotDropStyle}
                   onClick={() => { void resolve(f.id, 'drop'); }}
                   disabled={busyId !== null}
                 >
                   Drop
                 </button>
               </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
+}
+
+/** Split a leading "[Reviewer name] " tag off a finding body so the
+ *  ballot can chip the author and markdown-render the rest. */
+function splitReviewerPrefix(body: string): { reviewer: string | null; rest: string } {
+  const m = /^\s*\[([^\]]+)\]\s*/.exec(body);
+  if (m !== null) {
+    return { reviewer: m[1], rest: body.slice(m[0].length) };
+  }
+  return { reviewer: null, rest: body };
 }
 
 function RosterSection({
@@ -1530,9 +1551,11 @@ const pageStyle: React.CSSProperties = {
 // verbatim from the polished design source so the React surface and the
 // mockup read identically.
 const meshBgStyle: React.CSSProperties = {
-  // Absolute (contained to the page), not fixed — a fixed mesh inside the
-  // z-indexed page paints over the app's GlobalTopbar and blanks it out.
-  position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+  // Absolute + z-index:-1 so the opaque mesh sits BEHIND every in-flow
+  // element. With z-index:0 it painted over plain static content (the
+  // transcript bubbles have no stacking context, unlike the glass cards),
+  // hiding the whole conversation under opaque off-white.
+  position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none',
   background:
     'radial-gradient(40% 50% at 8% 12%, rgba(124,92,255,0.18), transparent 70%),'
     + 'radial-gradient(38% 46% at 92% 6%, rgba(56,189,248,0.14), transparent 70%),'
@@ -1541,7 +1564,7 @@ const meshBgStyle: React.CSSProperties = {
     + '#fafafe',
 };
 const noiseBgStyle: React.CSSProperties = {
-  position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+  position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none',
   opacity: 0.045, mixBlendMode: 'overlay',
   backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'"
     + " width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise'"
@@ -1631,23 +1654,23 @@ const panelBadgeStyle: React.CSSProperties = {
 
 
 const bodyGridStyle: React.CSSProperties = {
-  display: 'grid',
-  // Right rail is wider than the left: it carries the findings lists +
-  // publish/arbitration cards, which need room for file paths + bodies.
-  gridTemplateColumns: '260px minmax(0, 1fr) 400px',
-  // Pin the single row to fill the grid's height with a 0 floor. Without
-  // this the row is `auto` and the center column's flex:1 transcript
-  // (an internal scroll area) collapses to ~0, leaving the conversation
-  // invisible even though the bubbles are in the DOM.
-  gridTemplateRows: 'minmax(0, 1fr)',
+  // Flex row, not grid: a flex item stretched on the cross axis gets a
+  // definite height its own flex:1 children (the transcript scroll) can
+  // resolve against. Grid's auto row left the center column with no
+  // definite height, so the transcript collapsed to ~0 and the
+  // conversation never showed even though the messages were in the DOM.
+  display: 'flex',
   gap: 14,
   flex: 1,
   minHeight: 0,
+  alignItems: 'stretch',
 };
 
 // The rails scroll on their own so a tall panel never pushes the page —
 // the whole review surface stays one fixed-height window.
 const leftRailStyle: React.CSSProperties = {
+  width: 252,
+  flexShrink: 0,
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
@@ -1657,15 +1680,12 @@ const leftRailStyle: React.CSSProperties = {
 };
 
 const centerColStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
-  minWidth: 0,
-  minHeight: 0,
-  // Claim the grid row's full height explicitly. Relying on grid stretch
-  // alone left the flex:1 transcript with no height to grow into, so the
-  // conversation collapsed to nothing. height:100% pins it to the row.
-  height: '100%',
   overflow: 'hidden',
   // Soft translucent surface so the transcript bubbles read as a panel
   // floating on the mesh, matching the design's center column.
@@ -1674,6 +1694,8 @@ const centerColStyle: React.CSSProperties = {
 };
 
 const rightRailStyle: React.CSSProperties = {
+  width: 440,
+  flexShrink: 0,
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
@@ -2401,6 +2423,75 @@ const findingBodyStyle: React.CSSProperties = {
   lineHeight: 1.5,
   overflowWrap: 'anywhere',
   wordBreak: 'break-word',
+};
+// Arbitration ballot item — compact vertical card: a head row with the
+// severity badge + reviewer chip, the file anchor, the markdown body,
+// then the Include / Drop actions.
+const ballotItemStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 7,
+  padding: 12,
+  background: 'rgba(255,255,255,0.72)',
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+};
+const ballotHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: 7,
+};
+const ballotReviewerStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#5b21b6',
+  background: 'rgba(124,92,255,0.12)',
+  border: '1px solid rgba(124,92,255,0.22)',
+  borderRadius: 999,
+  padding: '1px 9px',
+};
+const ballotAnchorStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 11,
+  color: 'var(--text-3)',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-all',
+};
+const ballotBodyStyle: React.CSSProperties = {
+  fontSize: 12.5,
+  lineHeight: 1.55,
+  color: 'var(--text-1)',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+};
+const ballotActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  marginTop: 2,
+};
+const ballotIncludeStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '7px 10px',
+  border: 0,
+  borderRadius: 9,
+  background: 'linear-gradient(135deg,#8b6dff,#7c5cff)',
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+  boxShadow: '0 2px 8px rgba(124,92,255,0.28)',
+};
+const ballotDropStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '7px 10px',
+  border: '1px solid var(--border)',
+  borderRadius: 9,
+  background: 'var(--bg-elevated, #fff)',
+  color: 'var(--text-2)',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
 };
 
 const findingAnchorStyle: React.CSSProperties = {

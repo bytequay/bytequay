@@ -1630,7 +1630,9 @@ const panelBadgeStyle: React.CSSProperties = {
 
 const bodyGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '272px minmax(0, 1fr) 308px',
+  // Right rail is wider than the left: it carries the findings lists +
+  // publish/arbitration cards, which need room for file paths + bodies.
+  gridTemplateColumns: '260px minmax(0, 1fr) 400px',
   // Pin the single row to fill the grid's height with a 0 floor. Without
   // this the row is `auto` and the center column's flex:1 transcript
   // (an internal scroll area) collapses to ~0, leaving the conversation

@@ -183,7 +183,6 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
                     </div>
                     <div style={threadRightStyle}>
                       <div>{relativeTime(t.updatedAt)}</div>
-                      <div style={threadCostStyle}>{formatMilliUsd(t.costUsdMilli)}</div>
                     </div>
                   </button>
                 </li>
@@ -621,10 +620,6 @@ const threadRightStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-const threadCostStyle: React.CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  marginTop: 2,
-};
 
 const taskBodyStyle: React.CSSProperties = {
   flex: 1,

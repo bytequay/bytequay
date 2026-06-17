@@ -189,12 +189,6 @@ function WorkspaceLeftRail({
           );
         })}
       </nav>
-
-      <div className="workspace-rail__user">
-        <span className="workspace-rail__user-avatar" aria-hidden>JC</span>
-        <span className="workspace-rail__user-name">jian</span>
-        <span className="workspace-rail__user-menu" aria-hidden>…</span>
-      </div>
     </aside>
   );
 }

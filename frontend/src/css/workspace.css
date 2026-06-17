@@ -371,38 +371,6 @@
   flex-shrink: 0;
 }
 
-.workspace-rail__user {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 6px 2px;
-}
-
-.workspace-rail__user-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ec4899, #f97316);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.workspace-rail__user-name {
-  flex: 1;
-  font-size: 12px;
-  color: var(--ws-text-2);
-}
-
-.workspace-rail__user-menu {
-  color: var(--ws-text-3);
-  font-size: 12px;
-}
-
 /* ── Content area ──────────────────────────────────────────────── */
 
 .workspace-content {
@@ -745,37 +713,6 @@
 .workspace-landing__search:focus {
   border-color: var(--ws-accent);
   box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.18);
-}
-
-.workspace-landing__account {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.66);
-  backdrop-filter: blur(10px);
-  color: var(--ws-text-2);
-  font-size: 13px;
-}
-
-.workspace-landing__account-avatar {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #f472b6 0%, #fb7185 100%);
-  color: #fff;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 11px;
-}
-
-.workspace-landing__account-chevron {
-  color: var(--ws-text-3);
-  font-size: 10px;
 }
 
 .workspace-landing__hero {

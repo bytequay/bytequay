@@ -68,11 +68,6 @@ function WorkspacesLandingPage({
           onChange={e => setFilter(e.target.value)}
           aria-label="Filter workspaces"
         />
-        <span className="workspace-landing__account" aria-hidden>
-          <span className="workspace-landing__account-avatar">JC</span>
-          <span className="workspace-landing__account-name">Jian</span>
-          <span className="workspace-landing__account-chevron">▾</span>
-        </span>
       </header>
 
       <div className="workspace-landing__hero">

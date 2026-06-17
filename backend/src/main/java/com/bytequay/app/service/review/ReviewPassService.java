@@ -695,9 +695,24 @@ public class ReviewPassService
                 }
             });
         }
+        int findingsBefore = reviewStore.listFindingsForPass(passId).size();
         List<ReviewMessage> results = scheduler.invokeAll(work);
         if (!results.isEmpty() && results.stream().allMatch(Objects::isNull)) {
             throw new IllegalStateException("every reviewer seat failed its independent turn");
+        }
+        int recorded = reviewStore.listFindingsForPass(passId).size() - findingsBefore;
+        if (recorded == 0) {
+            // Diagnostic: the reviewers replied but called no report_finding,
+            // so there are no structured findings for the lead to classify
+            // (mark_consensus 404s on an unreported finding) and the findings
+            // rail + publish form stay empty. Almost always a model that
+            // summarized in prose instead of using its tools.
+            log.warn("Independent phase for pass {} recorded 0 structured findings — "
+                    + "reviewers emitted no report_finding; the findings rail will be empty.", passId);
+        }
+        else {
+            log.info("Independent phase for pass {} recorded {} structured finding(s).",
+                    passId, recorded);
         }
     }
 

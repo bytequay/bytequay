@@ -367,7 +367,7 @@ class TestLogicLoopThreadAgentCharacterization
                 + "\"stream_options\":{\"include_usage\":true},"
                 + "\"messages\":[{\"role\":\"system\",\"content\":\"" + SYSTEM_PROMPT + "\"},"
                 + "{\"role\":\"user\",\"content\":\"" + userInput + "\"}],"
-                + "\"tools\":" + expectedToolsArray() + "}";
+                + "\"tools\":" + expectedToolsArray() + ",\"tool_choice\":\"auto\"}";
     }
 
     private String expectedSecondRequest(String userInput)
@@ -381,7 +381,7 @@ class TestLogicLoopThreadAgentCharacterization
                 + "\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}]},"
                 + "{\"role\":\"tool\",\"tool_call_id\":\"call_1\","
                 + "\"content\":\"FILE a.txt: hello\"}],"
-                + "\"tools\":" + expectedToolsArray() + "}";
+                + "\"tools\":" + expectedToolsArray() + ",\"tool_choice\":\"auto\"}";
     }
 
     private String expectedToolsArray()

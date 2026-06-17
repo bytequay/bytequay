@@ -331,6 +331,11 @@ public final class TurnRunner
         requestBody.set("messages", spec.messages());
         if (includeTools && spec.tools() != null && !spec.tools().isEmpty()) {
             requestBody.set("tools", spec.tools());
+            // Pin tool_choice explicitly. It defaults to "auto" on most
+            // OpenAI-compatible providers, but some only surface tools when
+            // it's set — without it a tool-capable model (e.g. deepseek-chat)
+            // can quietly never emit a tool call.
+            requestBody.put("tool_choice", "auto");
         }
 
         String payload = encode(requestBody, "OpenAI-compatible");

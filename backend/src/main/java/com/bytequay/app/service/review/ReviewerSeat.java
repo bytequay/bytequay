@@ -25,6 +25,8 @@ import com.bytequay.app.service.agents.TurnSpec;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -49,6 +51,8 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class ReviewerSeat
 {
+    private static final Logger log = LoggerFactory.getLogger(ReviewerSeat.class);
+
     /** Bound on one seat turn's tool-use loop. */
     private static final int MAX_TOOL_ITERATIONS = 8;
     private static final int MAX_OUTPUT_TOKENS = 4_096;
@@ -185,6 +189,20 @@ public class ReviewerSeat
                 Instant.now());
         reviewStore.saveMessage(message);
         budget.chargeSeat(pass.id(), participantId, result.costMilliUsd());
+        // Diagnostic: a seat that never enters a tool round (rounds <= 1)
+        // emitted no tool calls — so during INDEPENDENT it recorded no
+        // report_finding and contributes nothing to the structured findings
+        // the right rail + publish read. Surfaces a model replying in prose
+        // instead of using its tools (the empty-findings failure mode).
+        if (result.rounds() <= 1) {
+            log.info("Reviewer seat {} ({} via {}) finished {} in one round with no tool "
+                            + "calls — no report_finding emitted.",
+                    seat.displayLabel(), endpoint.modelId(), endpoint.transport(), phase);
+        }
+        else {
+            log.debug("Reviewer seat {} ({}) {}: {} rounds.",
+                    seat.displayLabel(), endpoint.modelId(), phase, result.rounds());
+        }
         return message;
     }
 

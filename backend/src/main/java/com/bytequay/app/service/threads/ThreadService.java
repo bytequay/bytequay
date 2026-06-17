@@ -799,26 +799,45 @@ public class ThreadService
     // and the underlying tree mutates as the AI session writes files.
     // Wrap the checked IO/Interrupted exceptions so callers stay clean.
 
+    /** A git-backed call that may throw the checked exceptions
+     *  {@link GitRunner} surfaces. */
+    @FunctionalInterface
+    private interface GitCall<T>
+    {
+        T run()
+                throws IOException, InterruptedException;
+    }
+
+    /** Run a git-backed call, mapping its checked IO / Interrupted
+     *  failures to a uniform unchecked error (restoring the interrupt
+     *  flag) so the read surfaces stay one-liners. {@code action} reads
+     *  into the message, e.g. {@code "list commits for t-1"}. */
+    private static <T> T runGit(String action, GitCall<T> call)
+    {
+        try {
+            return call.run();
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to " + action, e);
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while trying to " + action, e);
+        }
+    }
+
     /** Files the AI session has modified but not yet committed —
      *  feeds the "Files" tab. Mirrors {@code git status --porcelain}. */
     public List<GitRunner.WorkingTreeFile> listWorkingChanges(String threadId)
     {
         Thread thread = requireTask(threadId);
-        try {
-            // Hide the app's own per-worktree hook dir — it's ByteQuay
-            // infrastructure (the BQ-Task commit-trailer hook), not the
-            // user's work, so it has no business in the Changed-files list.
-            return git.workingTreeFiles(agentCwd(thread)).stream()
-                    .filter(f -> !isHookDirPath(f.path()))
-                    .toList();
-        }
-        catch (IOException e) {
-            throw new RuntimeException("Failed to list working-tree changes for " + threadId, e);
-        }
-        catch (InterruptedException e) {
-            java.lang.Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted listing working-tree changes for " + threadId, e);
-        }
+        // Hide the app's own per-worktree hook dir — it's ByteQuay
+        // infrastructure (the BQ-Task commit-trailer hook), not the
+        // user's work, so it has no business in the Changed-files list.
+        return runGit("list working-tree changes for " + threadId,
+                () -> git.workingTreeFiles(agentCwd(thread)).stream()
+                        .filter(f -> !isHookDirPath(f.path()))
+                        .toList());
     }
 
     /** True for the app's hook dir, reported by porcelain as the bare
@@ -839,16 +858,8 @@ public class ThreadService
         if (cwd.isEmpty()) {
             return "";
         }
-        try {
-            return git.workingTreeFileDiff(cwd.get(), path, DIFF_MAX_BYTES);
-        }
-        catch (IOException e) {
-            throw new RuntimeException("Failed to diff " + path + " for " + threadId, e);
-        }
-        catch (InterruptedException e) {
-            java.lang.Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted diffing " + path + " for " + threadId, e);
-        }
+        return runGit("diff " + path + " for " + threadId,
+                () -> git.workingTreeFileDiff(cwd.get(), path, DIFF_MAX_BYTES));
     }
 
     /** Commits authored during the thread's lifetime. Time-based filter
@@ -865,16 +876,8 @@ public class ThreadService
         if (cwd.isEmpty()) {
             return List.of();
         }
-        try {
-            return git.listCommitsSince(cwd.get(), thread.createdAt(), COMMITS_LIMIT);
-        }
-        catch (IOException e) {
-            throw new RuntimeException("Failed to list commits for " + threadId, e);
-        }
-        catch (InterruptedException e) {
-            java.lang.Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted listing commits for " + threadId, e);
-        }
+        return runGit("list commits for " + threadId,
+                () -> git.listCommitsSince(cwd.get(), thread.createdAt(), COMMITS_LIMIT));
     }
 
     /** Per-file rollup for one commit (path + status + +/-) so the
@@ -883,16 +886,8 @@ public class ThreadService
     {
         requireNonNull(sha, "sha is null");
         Thread thread = requireTask(threadId);
-        try {
-            return git.commitFiles(agentCwd(thread), sha);
-        }
-        catch (IOException e) {
-            throw new RuntimeException("Failed to list files for commit " + sha + " (thread " + threadId + ")", e);
-        }
-        catch (InterruptedException e) {
-            java.lang.Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted listing files for commit " + sha, e);
-        }
+        return runGit("list files for commit " + sha + " (thread " + threadId + ")",
+                () -> git.commitFiles(agentCwd(thread), sha));
     }
 
     /** Unified diff for one file at one commit. */
@@ -901,16 +896,8 @@ public class ThreadService
         requireNonNull(sha, "sha is null");
         requireNonNull(path, "path is null");
         Thread thread = requireTask(threadId);
-        try {
-            return git.commitFileDiff(agentCwd(thread), sha, path, DIFF_MAX_BYTES);
-        }
-        catch (IOException e) {
-            throw new RuntimeException("Failed to diff " + path + " at " + sha + " (thread " + threadId + ")", e);
-        }
-        catch (InterruptedException e) {
-            java.lang.Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted diffing " + path + " at " + sha, e);
-        }
+        return runGit("diff " + path + " at " + sha + " (thread " + threadId + ")",
+                () -> git.commitFileDiff(agentCwd(thread), sha, path, DIFF_MAX_BYTES));
     }
 
     private Thread requireTask(String threadId)

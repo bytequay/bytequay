@@ -603,6 +603,11 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
   }
   // ── Status-row content (mirrors github.com's merge card) ──────────────
   const totalChecks = detail.checkRuns.length;
+  // A check with no conclusion yet is still running; the rest (minus the
+  // failing ones) have passed. Counting running checks as "passing" is
+  // what made an in-progress PR read "110 checks running".
+  const runningChecks = detail.checkRuns.filter(c => c.conclusion === null).length;
+  const successfulChecks = Math.max(0, totalChecks - failingChecks.length - runningChecks);
   const passingChecks = totalChecks - failingChecks.length;
   // Review-row copy: combines approvals, requested changes, and pending
   // requests into a single "what's the human signal here" line.
@@ -645,7 +650,9 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
     : ciState === 'pass'
       ? `${totalChecks} successful check${totalChecks === 1 ? '' : 's'}`
       : ciState === 'pending'
-        ? `${totalChecks} check${totalChecks === 1 ? '' : 's'} running`
+        ? (successfulChecks > 0
+            ? `${successfulChecks} passed, ${runningChecks} running`
+            : `${runningChecks} check${runningChecks === 1 ? '' : 's'} running`)
         : 'No CI configured for this branch.';
 
   const conflictRow = hasConflict

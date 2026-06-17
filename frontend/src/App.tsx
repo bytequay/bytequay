@@ -52,7 +52,7 @@ type Nav =
   /** `back` carries the parent screen so the PR-detail breadcrumb
    *  returns the user where they came from — Repository home, Local
    *  repo, Team kanban, or just Home. Defaults to Home when unset. */
-  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; diffCommitSha?: string; back?: Nav }
+  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; diffCommitSha?: string; openDiff?: boolean; back?: Nav }
   | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
@@ -651,6 +651,7 @@ function App() {
             initialPrNumber={nav.prNumber}
             initialTab={nav.initialTab}
             initialDiffCommitSha={nav.diffCommitSha}
+            initialOpenDiff={nav.openDiff}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
             // PR → thread jump. The linked-thread chip in the PR header
@@ -739,6 +740,9 @@ function App() {
             onBack={() => setNav(nav.back ?? { view: 'home' })}
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber, back: nav,
+            })}
+            onOpenDiff={(owner, repo, prNumber) => setNav({
+              view: 'repo', owner, repo, prNumber, openDiff: true, back: nav,
             })}
           />
         )}

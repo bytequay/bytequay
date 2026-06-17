@@ -32,6 +32,9 @@ type Props = {
   /** Open the reviewed PR in the app's PR detail view. Optional so the
    *  page still renders standalone (the PR ref just isn't clickable). */
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
+  /** Open the reviewed PR straight into the code-diff view, where the
+   *  agreed findings overlay the diff as inline comments. */
+  onOpenDiff?: (owner: string, repo: string, prNumber: number) => void;
 };
 
 /** Read-only view of a review pass: the panel roster, the
@@ -40,7 +43,7 @@ type Props = {
  *  reviewer + suggested verdict; the gated "Post review to PR"
  *  affordance is a disabled placeholder here and lands in a follow-up
  *  commit. */
-function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
+function ReviewThreadPage({ threadId, onBack, onOpenPr, onOpenDiff }: Props) {
   const [detail, setDetail] = useState<ReviewPassDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -252,6 +255,19 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
               spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
               emptyHint="Nothing locked in yet."
             />
+            {onOpenDiff !== undefined && agreedFindings.length > 0 && (() => {
+              const [owner, repo] = detail.pass.repoFullName.split('/');
+              return (
+                <button
+                  type="button"
+                  style={viewOnDiffStyle}
+                  onClick={() => onOpenDiff(owner, repo, detail.pass.prNumber)}
+                  title="Open the PR's code diff with these agreed findings overlaid inline at their lines"
+                >
+                  ⌖ View findings on the diff
+                </button>
+              );
+            })()}
             {/* During ARBITRATE the ballot below lists the same disputed
                 findings with actions, so the read-only Open panel would
                 just duplicate it — hide it then. */}
@@ -2160,6 +2176,18 @@ const rightRailStyle: React.CSSProperties = {
   overflowY: 'auto',
   minHeight: 0,
   paddingRight: 2,
+};
+
+const viewOnDiffStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 10px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#15803d',
+  background: 'rgba(22,163,74,0.08)',
+  border: '1px solid rgba(22,163,74,0.30)',
+  borderRadius: 9,
+  cursor: 'pointer',
 };
 
 const reviewingTitleStyle: React.CSSProperties = {

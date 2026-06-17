@@ -649,6 +649,32 @@ describe('ReviewThreadPage', () => {
     expect(onOpenPr).toHaveBeenCalledWith('acme', 'widget', 42);
   });
 
+  it('"View findings on the diff" opens the PR code diff for the overlay', async () => {
+    const detail = buildDetail({
+      findings: [finding({ id: 'f-agreed', status: 'AGREED', severity: 'MAJOR',
+          body: 'Locked in.', path: 'src/a.ts', line: 4 })],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+    const onOpenDiff = vi.fn();
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} onOpenDiff={onOpenDiff} />);
+
+    await waitFor(() => screen.getByText('⌖ View findings on the diff'));
+    await act(async () => { fireEvent.click(screen.getByText('⌖ View findings on the diff')); });
+    expect(onOpenDiff).toHaveBeenCalledWith('acme', 'widget', 42);
+  });
+
+  it('hides "View findings on the diff" when there are no agreed findings', async () => {
+    const detail = buildDetail({ findings: [] });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} onOpenDiff={vi.fn()} />);
+    await waitFor(() => screen.getByText('Nothing locked in yet.'));
+    expect(screen.queryByText('⌖ View findings on the diff')).toBeNull();
+  });
+
   it('steers a reviewer: @ autocomplete picks a seat and Send posts the steer message', async () => {
     const detail = buildDetail({});
     const steerReview = vi.fn(

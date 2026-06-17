@@ -2042,7 +2042,10 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
       .then(detail => {
         if (cancelled || detail === null) return;
         setPanelFindings(
-          (detail.findings ?? []).filter(f => f.status === 'AGREED' && f.path !== null));
+          // AGREED (panel consensus) + ARBITRATED (a disputed finding the
+          // human chose "Include" for) both publish, so both overlay here.
+          (detail.findings ?? []).filter(f =>
+            (f.status === 'AGREED' || f.status === 'ARBITRATED') && f.path !== null));
       })
       .catch(() => { /* best-effort: no overlay if the lookup fails */ });
     return () => { cancelled = true; };

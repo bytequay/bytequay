@@ -81,6 +81,12 @@ type Props = {
    *  the given commit SHA. Email-injected "↗ ByteQuay" buttons use
    *  this so the user lands on the code diff page they care about. */
   initialDiffCommitSha?: string;
+  /** When set with {@link #initialPrNumber}, jump straight into the
+   *  full-PR DiffViewer (no single-commit filter) on landing — used by
+   *  the review panel's "View findings on diff" affordance so the agreed
+   *  findings overlay the code. Distinct from {@link #initialDiffCommitSha},
+   *  which opens one commit's diff. */
+  initialOpenDiff?: boolean;
   /** Reverse nav from a PR back to its head branch's local-repo
    *  Commits tab. PullRequestPreview surfaces a button next to the
    *  head ref that calls this. App-level so the nav target lines up
@@ -115,7 +121,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, onOpenLocalBranch, onOpenThread, onStartReview }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, initialOpenDiff, onOpenLocalBranch, onOpenThread, onStartReview }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -299,7 +305,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
   const diffOpenedRef = useRef<string | null>(null);
   useEffect(() => {
     diffOpenedRef.current = null;
-  }, [initialPrNumber, initialDiffCommitSha, owner, repo]);
+  }, [initialPrNumber, initialDiffCommitSha, initialOpenDiff, owner, repo]);
   useEffect(() => {
     if (!initialDiffCommitSha) return;
     if (initialPrNumber == null) return;
@@ -310,6 +316,19 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
     setDiffViewerCommitSha(initialDiffCommitSha);
     setDiffViewerPr(selectedPr);
   }, [selectedPr, initialPrNumber, initialDiffCommitSha, owner, repo]);
+  // Jump straight to the full-PR diff (no commit filter) when asked — the
+  // review panel's "View findings on diff" lands here so its agreed
+  // findings overlay the code.
+  useEffect(() => {
+    if (!initialOpenDiff) return;
+    if (initialPrNumber == null) return;
+    if (!selectedPr || selectedPr.number !== initialPrNumber) return;
+    const key = `${owner}/${repo}#${initialPrNumber}@fulldiff`;
+    if (diffOpenedRef.current === key) return;
+    diffOpenedRef.current = key;
+    setDiffViewerCommitSha(null);
+    setDiffViewerPr(selectedPr);
+  }, [selectedPr, initialPrNumber, initialOpenDiff, owner, repo]);
 
   // Lazy-load the closed-issues bucket on first toggle. Skips re-fetch
   // when we already have a cached result (per-repo, per-state cache).

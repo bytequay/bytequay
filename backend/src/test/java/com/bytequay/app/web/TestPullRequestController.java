@@ -20,6 +20,7 @@ import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.filters.PullRequestFilters;
 import com.bytequay.app.service.threads.PrTaskLinkService;
+import com.bytequay.app.service.threads.PublishService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +60,9 @@ class TestPullRequestController
 
     @MockitoBean
     private PrTaskLinkService prTaskLink;
+
+    @MockitoBean
+    private PublishService publishService;
 
     @Test
     void testListReturns200()

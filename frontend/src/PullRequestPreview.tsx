@@ -381,6 +381,9 @@ type MergeBarProps = {
    *  refresh button on the CI pill bypasses the focus poll's cadence. */
   onRefreshCi: () => void | Promise<void>;
   ciRefreshing: boolean;
+  /** Whether the PR has an active task worktree we can push an empty
+   *  commit from (enables the empty-commit CI fallback). */
+  canEmptyCommit: boolean;
 };
 
 /** Humanises GitHub's merge-queue entry state into the small chip on
@@ -405,7 +408,7 @@ function queueStateLabel(state: string | null): string | null {
  *  button to read why. Mirrors the merge-bar GitHub puts on its
  *  Conversation page. Clicking the button opens a confirm dialog —
  *  Yes fires the merge, No closes the dialog with no side effects. */
-function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMerge, onEnableAutoMerge, onDequeue, onRefreshCi, ciRefreshing }: MergeBarProps) {
+function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMerge, onEnableAutoMerge, onDequeue, onRefreshCi, ciRefreshing, canEmptyCommit }: MergeBarProps) {
   // Failing-check list is folded by default — the red "CI failing"
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
@@ -431,6 +434,29 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
     catch {
       setRerunState('error');
       window.setTimeout(() => setRerunState('idle'), 4000);
+    }
+  };
+  // Fallback for push-driven CI: push an empty commit to the PR's branch
+  // via its task worktree. 'unavailable' = no pushable worktree (the
+  // backend's reason).
+  const [emptyCommitState, setEmptyCommitState] =
+    useState<'idle' | 'running' | 'pushed' | 'unavailable' | 'error'>('idle');
+  const handleEmptyCommit = async () => {
+    if (emptyCommitState === 'running') {
+      return;
+    }
+    setEmptyCommitState('running');
+    try {
+      const { triggered } = await window.bridge.triggerCi(pr.repo, pr.number);
+      setEmptyCommitState(triggered ? 'pushed' : 'unavailable');
+      if (triggered) {
+        void onRefreshCi();
+      }
+      window.setTimeout(() => setEmptyCommitState('idle'), 4000);
+    }
+    catch {
+      setEmptyCommitState('error');
+      window.setTimeout(() => setEmptyCommitState('idle'), 4000);
     }
   };
   // Selected merge strategy. Persisted in localStorage so the user's
@@ -769,6 +795,21 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
                     : rerunState === 'empty' ? 'Nothing to re-run'
                       : rerunState === 'error' ? 'Re-run failed'
                         : '↻ Re-run failed checks'}
+              </button>
+            )}
+            {failingChecks.length > 0 && canEmptyCommit && (
+              <button
+                type="button"
+                className="merge-card__rerun"
+                onClick={(e) => { e.stopPropagation(); void handleEmptyCommit(); }}
+                disabled={emptyCommitState === 'running'}
+                title="Push an empty commit to this PR's branch to re-trigger CI (for repos whose CI only runs on push)"
+              >
+                {emptyCommitState === 'running' ? 'Pushing…'
+                  : emptyCommitState === 'pushed' ? '✓ Pushed'
+                    : emptyCommitState === 'unavailable' ? 'No local branch'
+                      : emptyCommitState === 'error' ? 'Push failed'
+                        : 'Empty commit'}
               </button>
             )}
             <button
@@ -1158,6 +1199,9 @@ function PullRequestPreview({
   // PR whose task already COMPLETED (its thread has no active task) — so
   // a finished task's PR showed no link back at all.
   const [linkedTasks, setLinkedTasks] = useState<TaskRefDto[]>([]);
+  // An active linked task means there's a worktree we can push an empty
+  // commit from, so the "trigger CI via empty commit" fallback is enabled.
+  const [canEmptyCommit, setCanEmptyCommit] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1168,6 +1212,7 @@ function PullRequestPreview({
           ? [links.linkedActiveTask, ...links.linkedCompletedTasks]
           : links.linkedCompletedTasks;
         setLinkedTasks(refs);
+        setCanEmptyCommit(links.linkedActiveTask !== null);
       }
       catch { /* non-fatal — no chip shown */ }
     })();
@@ -1768,6 +1813,7 @@ function PullRequestPreview({
                     onDequeue={() => { void handleDequeue(); }}
                     onRefreshCi={refreshCi}
                     ciRefreshing={ciRefreshing}
+                    canEmptyCommit={canEmptyCommit}
                   />
                 )}
                 <PrCommentBox
@@ -2332,6 +2378,7 @@ function PullRequestPreview({
                   onDequeue={() => { void handleDequeue(); }}
                   onRefreshCi={refreshCi}
                   ciRefreshing={ciRefreshing}
+                    canEmptyCommit={canEmptyCommit}
                 />
               )}
             </div>

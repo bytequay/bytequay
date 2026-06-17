@@ -29,6 +29,7 @@ import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.filters.PullRequestFilters;
 import com.bytequay.app.service.threads.PrTaskLinkService;
+import com.bytequay.app.service.threads.PublishService;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -55,19 +56,22 @@ public class PullRequestController
     private final MyActivityService myActivityService;
     private final PullRequestFilters prFilters;
     private final PrTaskLinkService prTaskLink;
+    private final PublishService publishService;
 
     public PullRequestController(
             PullRequestService pullRequestService,
             PrAnalyticsService prAnalyticsService,
             MyActivityService myActivityService,
             PullRequestFilters prFilters,
-            PrTaskLinkService prTaskLink)
+            PrTaskLinkService prTaskLink,
+            PublishService publishService)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.prAnalyticsService = requireNonNull(prAnalyticsService, "prAnalyticsService is null");
         this.myActivityService = requireNonNull(myActivityService, "myActivityService is null");
         this.prFilters = requireNonNull(prFilters, "prFilters is null");
         this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
+        this.publishService = requireNonNull(publishService, "publishService is null");
     }
 
     /**
@@ -203,6 +207,21 @@ public class PullRequestController
             @RequestParam("number") int number)
     {
         return ImmutableMap.of("rerunCount", pullRequestService.rerunFailedChecks(repo, number));
+    }
+
+    /**
+     * Pushes an empty commit to the PR's branch to re-trigger a
+     * push-driven CI run — the fallback to re-run-failed-jobs. Only works
+     * when the PR has an active task worktree to commit on; otherwise
+     * {@code triggered} is false with a {@code reason}.
+     * POST /prs/trigger-ci?repo=&number=
+     */
+    @PostMapping("/prs/trigger-ci")
+    public PublishService.EmptyCommitResult triggerCi(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        return publishService.triggerCiViaEmptyCommit(repo, number);
     }
 
     /**

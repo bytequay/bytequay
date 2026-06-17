@@ -174,6 +174,21 @@ public class GitRunner
     }
 
     /**
+     * Creates an empty commit ({@code git commit --allow-empty}) and
+     * returns its SHA. Used to re-trigger a push-driven CI run (e.g. to
+     * shake out a flaky failure) without changing any files.
+     */
+    public String commitEmpty(Path workingDir, String message)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(message, "message is null");
+        run(List.of("git", "commit", "--allow-empty", "-m", message), workingDir).requireSuccess();
+        GitResult head = run(List.of("git", "rev-parse", "HEAD"), workingDir);
+        head.requireSuccess();
+        return head.stdout().strip();
+    }
+
+    /**
      * Returns the current branch name, or null if HEAD is detached
      * (e.g. the user checked out a tag or specific commit). Powers
      * the branch chip on the repo detail header.

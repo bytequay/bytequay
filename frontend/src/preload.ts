@@ -188,6 +188,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:mergePr', prId, repo, number, strategy),
   rerunChecks: (repo: string, number: number): Promise<{ rerunCount: number }> =>
     ipcRenderer.invoke('backend:rerunChecks', repo, number),
+  triggerCi: (repo: string, number: number): Promise<{ triggered: boolean; reason: string | null }> =>
+    ipcRenderer.invoke('backend:triggerCi', repo, number),
   enableAutoMerge: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ result: string }> =>
     ipcRenderer.invoke('backend:enableAutoMerge', prId, repo, number, strategy),
   disableAutoMerge: (prId: number, repo: string, number: number): Promise<{ result: string }> =>

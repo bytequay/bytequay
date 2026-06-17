@@ -46,6 +46,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -1139,4 +1140,44 @@ public class PublishService
      * "interrupted", or "recovered".
      */
     public record PublishResult(boolean ok, String resolution, String message, String action) {}
+
+    /**
+     * Re-triggers a push-driven CI run by pushing an empty commit to the
+     * PR's branch — the fallback to GitHub's "re-run failed jobs" for
+     * repos whose CI only fires on push. Runs in the PR's active task
+     * worktree (the one place we have the branch checked out with a push
+     * path); with no such worktree it returns a reason instead of throwing
+     * so the UI can explain why. The push is user-initiated (a button), so
+     * — like the {@code push} tool — it's server-side and not subject to
+     * the agent's deny-git gate.
+     */
+    public EmptyCommitResult triggerCiViaEmptyCommit(String repoFullName, int number)
+    {
+        String prRef = repoFullName + "#" + number;
+        Task task = taskStore.findActiveTaskByPrRef(prRef).orElse(null);
+        if (task == null || task.worktreePath() == null || task.worktreePath().isBlank()) {
+            return new EmptyCommitResult(false, "No active task worktree for this PR to commit on.");
+        }
+        Path worktree = Path.of(task.worktreePath());
+        if (!Files.isDirectory(worktree)) {
+            return new EmptyCommitResult(false, "This task's worktree is no longer on disk.");
+        }
+        try {
+            git.commitEmpty(worktree, "Re-trigger CI");
+            git.push(worktree);
+            return new EmptyCommitResult(true, null);
+        }
+        catch (IOException e) {
+            return new EmptyCommitResult(false, "git push failed: " + e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new EmptyCommitResult(false, "Interrupted while pushing the empty commit.");
+        }
+    }
+
+    /** Outcome of {@link #triggerCiViaEmptyCommit}: {@code triggered} is
+     *  true when the empty commit was pushed; {@code reason} explains a
+     *  no-op so the UI can surface it. */
+    public record EmptyCommitResult(boolean triggered, String reason) {}
 }

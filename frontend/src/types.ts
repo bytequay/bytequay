@@ -2655,6 +2655,10 @@ export type Bridge = {
   /** Re-run the PR's failed CI jobs (GitHub "re-run failed jobs").
    *  Resolves with how many workflow runs were re-triggered. */
   rerunChecks: (repo: string, number: number) => Promise<{ rerunCount: number }>;
+  /** Push an empty commit to the PR's branch to re-trigger push-driven CI.
+   *  {@code triggered} is false (with a reason) when there's no local task
+   *  worktree to commit on. */
+  triggerCi: (repo: string, number: number) => Promise<{ triggered: boolean; reason: string | null }>;
   /** Enables GitHub's auto-merge — the PR merges automatically once
    *  required checks pass and approvals are in place. Mirrors
    *  github.com's "Merge when ready" button. Goes through a GraphQL

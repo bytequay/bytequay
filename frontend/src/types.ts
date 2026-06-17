@@ -3444,6 +3444,11 @@ export type Bridge = {
     addCostMilli: number,
     addRounds: number,
   ) => Promise<ReviewPassDetailDto>;
+  /** Re-run the full review loop (independent reviews → cross-review →
+   *  consensus → debate → wrap-up) on an existing pass — the proper
+   *  "continue reviewing". Returns the current detail; progress streams
+   *  via the transcript poll. */
+  resumeReview: (passId: string) => Promise<ReviewPassDetailDto>;
   /** Light PR title + author per review thread, for labelling review
    *  threads in thread lists without loading the transcript. */
   getReviewThreadPrSummaries: (

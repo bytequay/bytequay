@@ -65,6 +65,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -654,6 +655,29 @@ class TestReviewPassService
 
         // The steered turn seeds the re-fetched diff, not an empty placeholder.
         verify(diffCache).seed(passId, "diff --git a/F b/F\n+changed");
+    }
+
+    @Test
+    void resumingReRunsTheReviewerSeatsNotJustOneLeadTurn()
+    {
+        when(pullRequests.fetchPrDiff(eq("ghp_secret"), any(PullRequestRef.class)))
+                .thenReturn("diff --git a/F b/F\n+x");
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
+        String passId = passId();
+        clearInvocations(reviewerSeat);   // ignore the initial run's turns
+
+        service.resumePass(passId);
+
+        // Resume re-runs the reviewer seat's INDEPENDENT turn — the thing a
+        // single-turn lead steer never does — so the panel actually keeps
+        // reviewing instead of stalling after the lead speaks.
+        verify(reviewerSeat, atLeastOnce()).runDispatchedTurn(
+                any(), any(), anyString(), anyString(),
+                eq(ReviewPhase.INDEPENDENT), anyInt(), any());
     }
 
     @Test

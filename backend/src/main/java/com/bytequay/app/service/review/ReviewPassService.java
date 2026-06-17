@@ -544,13 +544,20 @@ public class ReviewPassService
                     "Review panel run failed: " + e.getMessage(), e);
         }
         diffCache.drop(pass.id());
+        return finalizePass(pass.id());
+    }
 
-        // Final phase. Findings the panel didn't settle — REPORTED
-        // (never classified) or DISPUTED (split) — park the pass at
-        // ARBITRATE for the human ballot; otherwise it terminates and
-        // the publish form unlocks.
-        ReviewPass fresh = reload(pass.id());
-        List<ReviewFinding> findings = reviewStore.listFindingsForPass(pass.id());
+    /**
+     * Park a pass at its terminal phase after the working loop. Findings
+     * the panel didn't settle — REPORTED (never classified) or DISPUTED
+     * (split) — send it to ARBITRATE for the human ballot; otherwise it
+     * TERMINATEs and the publish form unlocks. Stamps the suggested
+     * verdict either way. Shared by the initial run and {@link #resumePass}.
+     */
+    private ReviewPassDetail finalizePass(String passId)
+    {
+        ReviewPass fresh = reload(passId);
+        List<ReviewFinding> findings = reviewStore.listFindingsForPass(passId);
         boolean needsBallot = findings.stream().anyMatch(ReviewPassService::needsArbitration);
         ReviewPass finalPass = new ReviewPass(
                 fresh.id(), fresh.threadId(), fresh.repoFullName(), fresh.prNumber(),
@@ -980,6 +987,75 @@ public class ReviewPassService
                 pass.spawnedBuildThreadId(), pass.agendaJson()));
         log.info("Review pass {} budget raised: cost cap +{} -> {}, rounds +{} -> {}",
                 passId, addCostMilli, newCostCap, addRounds, newRoundCap);
+        return findPassWithDetail(passId).orElseThrow();
+    }
+
+    /**
+     * Resume a stopped review: re-run the full working loop (independent
+     * reviews → cross-review → consensus → debate → wrap-up) on an existing
+     * pass, then re-finalize. Unlike a single-turn steer, this actually
+     * runs the reviewer seats again — the right "continue reviewing" after
+     * raising the budget, or to recover a pass whose reviewers produced
+     * nothing (e.g. the earlier empty-diff bug).
+     *
+     * <p>The roster is reconstructed model-only (personas aren't
+     * persisted, so reviewers reply in their base voice) and the PR diff is
+     * re-fetched. Runs off the request thread on the review executor — the
+     * polling UI surfaces the panel picking back up — and returns the
+     * current detail immediately.
+     */
+    public ReviewPassDetail resumePass(String passId)
+    {
+        requireNonNull(passId, "passId is null");
+        ReviewPass pass = reload(passId);
+        List<ReviewParticipant> participants = reviewStore.listParticipantsForPass(passId);
+        ReviewParticipant lead = participants.stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.LEAD)
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(409), "This review has no lead seat to resume."));
+        PanelSeatConfig roster = reconstructRoster(participants);
+
+        reviewExecutor.execute(() -> {
+            diffCache.seed(passId, bestEffortPrDiff(pass.repoFullName(), pass.prNumber()));
+            try {
+                // Re-derive seat budgets from the (possibly raised) cap so a
+                // seat that spent its prior slice gets headroom again; spend
+                // carries over. Lead turns gate on the pass cap, lifted by
+                // the raise.
+                budgetMeter.initSeatSlices(reload(passId), reviewStore.listParticipantsForPass(passId));
+                LeadToolset.Session session = leadToolset.sessionFor(passId, roster, lead.id());
+                String leadBrief = latestLeadBrief(passId, lead.id());
+
+                transition(passId, ReviewPhase.INDEPENDENT);
+                markAgenda(passId, AGENDA_INDEPENDENT, AgendaPhaseStatus.IN_PROGRESS);
+                runIndependentParallel(passId, roster, leadBrief);
+                markAgenda(passId, AGENDA_INDEPENDENT, AgendaPhaseStatus.DONE);
+
+                transition(passId, ReviewPhase.CROSS_REVIEW);
+                runLeadDriven(passId, session, roster, ReviewPhase.CROSS_REVIEW,
+                        AGENDA_CROSS_REVIEW, CROSS_REVIEW_GUIDANCE);
+
+                transition(passId, ReviewPhase.CONSENSUS);
+                runLeadDriven(passId, session, roster, ReviewPhase.CONSENSUS,
+                        AGENDA_CONSENSUS, CONSENSUS_GUIDANCE);
+
+                transition(passId, ReviewPhase.DEBATE);
+                runLeadDriven(passId, session, roster, ReviewPhase.DEBATE,
+                        AGENDA_DEBATE, DEBATE_GUIDANCE);
+
+                runWrapUp(passId, session, roster);
+                finalizePass(passId);
+            }
+            catch (RuntimeException e) {
+                log.warn("Resumed review for pass {} failed: {}", passId, e.getMessage());
+                reviewStore.savePass(withPhase(reload(passId), ReviewPhase.TERMINATE, Instant.now()));
+            }
+            finally {
+                diffCache.drop(passId);
+            }
+        });
+
         return findPassWithDetail(passId).orElseThrow();
     }
 

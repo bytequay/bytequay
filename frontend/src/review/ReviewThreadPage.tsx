@@ -184,7 +184,17 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
             <ReviewingCard detail={detail} onOpenPr={onOpenPr} />
             <RosterSection participants={detail.participants} leadId={leadId} />
             <FlowStepper currentPhase={detail.pass.phase} />
-            <BudgetCard detail={detail} onRaised={(next) => setDetail(next)} />
+            <BudgetCard
+              detail={detail}
+              onRaised={(next) => setDetail(next)}
+              onResumed={(next) => {
+                setDetail(next);
+                // The pass transitions out of its terminal phase once the
+                // executor starts; keep polling until that's observed (then
+                // the normal non-terminal poll takes over).
+                setSteerPollUntil(Date.now() + 180_000);
+              }}
+            />
           </aside>
           <main style={centerColStyle}>
             <AgendaSection agenda={detail.agenda} passPhase={detail.pass.phase} />
@@ -573,9 +583,11 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
 function BudgetCard({
   detail,
   onRaised,
+  onResumed,
 }: {
   detail: ReviewPassDetailDto;
   onRaised: (next: ReviewPassDetailDto) => void;
+  onResumed: (next: ReviewPassDetailDto) => void;
 }) {
   const round = detail.pass.round;
   const roundCap = detail.pass.roundCap;
@@ -598,6 +610,21 @@ function BudgetCard({
       console.error('raise review budget failed', err);
     } finally {
       setRaising(false);
+    }
+  };
+  const [resuming, setResuming] = useState(false);
+  const resume = async () => {
+    if (resuming) {
+      return;
+    }
+    setResuming(true);
+    try {
+      const next = await window.bridge.resumeReview(detail.pass.id);
+      onResumed(next);
+    } catch (err) {
+      console.error('resume review failed', err);
+    } finally {
+      setResuming(false);
     }
   };
   return (
@@ -649,10 +676,32 @@ function BudgetCard({
           + 1 round
         </button>
       </div>
-      <p style={budgetHintStyle}>✦ stops early on convergence — raise to keep reviewing</p>
+      <button
+        type="button"
+        style={resuming ? { ...resumeBtnStyle, opacity: 0.6 } : resumeBtnStyle}
+        disabled={resuming}
+        onClick={() => void resume()}
+        title="Re-run the panel: reviewers re-review, then cross-review, consensus, debate, and wrap-up"
+      >
+        {resuming ? 'Resuming…' : '▶ Resume review'}
+      </button>
+      <p style={budgetHintStyle}>✦ stops early on convergence — raise, then resume to keep reviewing</p>
     </section>
   );
 }
+
+const resumeBtnStyle: React.CSSProperties = {
+  width: '100%',
+  marginTop: 6,
+  padding: '7px 8px',
+  fontSize: 11.5,
+  fontWeight: 700,
+  color: '#fff',
+  background: 'linear-gradient(180deg, #7c3aed, #6d28d9)',
+  border: '1px solid #6d28d9',
+  borderRadius: 8,
+  cursor: 'pointer',
+};
 
 const raiseRowStyle: React.CSSProperties = {
   display: 'flex',

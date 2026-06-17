@@ -225,6 +225,12 @@ public class ReviewController
         return reviews.raiseBudget(passId, body.addCostMilli(), body.addRounds());
     }
 
+    @PostMapping("/{passId}/resume")
+    public ReviewPassDetail resume(@PathVariable String passId)
+    {
+        return reviews.resumePass(passId);
+    }
+
     /** Batch PR title + author for review threads, so a thread list can
      *  label each review thread with the reviewed PR cheaply. */
     @PostMapping("/pr-summaries")

@@ -3762,6 +3762,20 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:resume', async (_event, passId: unknown) => {
+    if (typeof passId !== 'string' || passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(passId)}/resume`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST resume returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:prSummaries', async (_event, threadIds: unknown) => {
     if (!Array.isArray(threadIds) || threadIds.some(id => typeof id !== 'string')) {
       throw new Error('threadIds must be an array of strings');

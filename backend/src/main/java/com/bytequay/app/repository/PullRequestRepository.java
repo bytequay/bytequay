@@ -664,6 +664,16 @@ public interface PullRequestRepository
     }
 
     /**
+     * Re-runs the failed jobs of every failed workflow run on {@code
+     * headSha} (GitHub's "re-run failed jobs"). Returns how many runs were
+     * re-triggered — 0 when nothing on the head had failed.
+     */
+    default int rerunFailedChecks(String pat, RepoRef repo, String headSha)
+    {
+        throw new UnsupportedOperationException("rerunFailedChecks not implemented");
+    }
+
+    /**
      * Posts a new comment on an issue and returns the GitHub-side
      * payload as a normalised {@link IssueDetail.Comment} so the
      * caller can append it directly to its rendered timeline.

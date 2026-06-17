@@ -410,6 +410,29 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Re-run the failed CI jobs on GitHub — the one-click flaky-failure
+  // fix. Self-contained: hits the bridge directly and refreshes CI so the
+  // re-running jobs flip to in-progress. 'empty' = nothing on the head had
+  // failed (so there was nothing to re-run).
+  const [rerunState, setRerunState] = useState<'idle' | 'running' | 'queued' | 'empty' | 'error'>('idle');
+  const handleRerunChecks = async () => {
+    if (rerunState === 'running') {
+      return;
+    }
+    setRerunState('running');
+    try {
+      const { rerunCount } = await window.bridge.rerunChecks(pr.repo, pr.number);
+      setRerunState(rerunCount > 0 ? 'queued' : 'empty');
+      if (rerunCount > 0) {
+        void onRefreshCi();
+      }
+      window.setTimeout(() => setRerunState('idle'), 4000);
+    }
+    catch {
+      setRerunState('error');
+      window.setTimeout(() => setRerunState('idle'), 4000);
+    }
+  };
   // Selected merge strategy. Persisted in localStorage so the user's
   // last choice (e.g. "Squash and merge" for repos with non-linear
   // feature branches) is the default next time. The split-button
@@ -733,6 +756,21 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
             <div className="merge-card__row-desc">{ciDesc}</div>
           </div>
           <span className="merge-card__row-actions">
+            {failingChecks.length > 0 && (
+              <button
+                type="button"
+                className="merge-card__rerun"
+                onClick={(e) => { e.stopPropagation(); void handleRerunChecks(); }}
+                disabled={rerunState === 'running'}
+                title="Re-run the failed CI jobs on GitHub — fixes a flaky failure without a new commit"
+              >
+                {rerunState === 'running' ? 'Re-running…'
+                  : rerunState === 'queued' ? '✓ Re-running'
+                    : rerunState === 'empty' ? 'Nothing to re-run'
+                      : rerunState === 'error' ? 'Re-run failed'
+                        : '↻ Re-run failed checks'}
+              </button>
+            )}
             <button
               type="button"
               className="merge-card__refresh"

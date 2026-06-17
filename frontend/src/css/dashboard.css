@@ -1552,6 +1552,24 @@
 .merge-card__refresh:hover:not(:disabled) {
   background: var(--bg-elevated);
 }
+/* Re-run failed checks — shown only when CI is failing. Text button
+   sitting before the refresh icon in the CI row's actions. */
+.merge-card__rerun {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  margin-right: 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.merge-card__rerun:hover:not(:disabled) { background: var(--bg-elevated); }
+.merge-card__rerun:disabled { opacity: 0.65; cursor: default; }
 .merge-card__refresh-icon--spin {
   animation: merge-card-spin 0.9s linear infinite;
   display: inline-block;

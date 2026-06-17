@@ -497,6 +497,21 @@ public class PullRequestService
                 .orElse("");
     }
 
+    /**
+     * Re-runs the failed CI jobs on the PR's head commit — GitHub's
+     * built-in flaky-failure fix. Returns how many workflow runs were
+     * re-triggered (0 when nothing on the head had failed). One PR fetch
+     * resolves the head SHA the Actions API keys off.
+     */
+    public int rerunFailedChecks(String repo, int number)
+    {
+        String pat = patResolver.resolve(repo);
+        PullRequestRef ref = parseRef(repo, number);
+        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
+        String headSha = raw == null ? null : raw.headSha();
+        return gitHub.rerunFailedChecks(pat, RepoRef.of(ref.owner(), ref.repo()), headSha);
+    }
+
     /** Logs from CI runs are appended chronologically; the *end* of the
      *  log is almost always the failure context. Cap at 200 KB tail —
      *  large enough for a deep stack trace, small enough to ship over

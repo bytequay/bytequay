@@ -2652,6 +2652,9 @@ export type Bridge = {
    *  caller can roll back any optimistic "merged" state and show a
    *  queue indicator. */
   mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ merged: boolean; message: string; queued: boolean }>;
+  /** Re-run the PR's failed CI jobs (GitHub "re-run failed jobs").
+   *  Resolves with how many workflow runs were re-triggered. */
+  rerunChecks: (repo: string, number: number) => Promise<{ rerunCount: number }>;
   /** Enables GitHub's auto-merge — the PR merges automatically once
    *  required checks pass and approvals are in place. Mirrors
    *  github.com's "Merge when ready" button. Goes through a GraphQL

@@ -1001,6 +1001,65 @@ public class GitHubClient
         }
     }
 
+    /**
+     * Re-run the failed jobs of every completed-but-unsuccessful workflow
+     * run on {@code headSha} — GitHub's purpose-built fix for a flaky
+     * failure. Returns the number of runs re-triggered (0 when nothing on
+     * the head failed, so the caller can say "nothing to re-run").
+     */
+    @Override
+    public int rerunFailedChecks(String pat, RepoRef repo, String headSha)
+    {
+        if (headSha == null || headSha.isBlank()) {
+            return 0;
+        }
+        try {
+            GitHubWorkflowRunsResponse runs = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/actions/runs")
+                            .queryParam("head_sha", headSha)
+                            .queryParam("per_page", 30)
+                            .build(repo.owner(), repo.repo()))
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(GitHubWorkflowRunsResponse.class);
+            if (runs == null || runs.workflowRuns() == null) {
+                return 0;
+            }
+            int reRun = 0;
+            for (GitHubWorkflowRunsResponse.Run run : runs.workflowRuns()) {
+                if (!"completed".equals(run.status()) || !isFailedConclusion(run.conclusion())) {
+                    continue;
+                }
+                gitHubRestClient.post()
+                        .uri("/repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs",
+                                repo.owner(), repo.repo(), run.id())
+                        .header("Authorization", "Bearer " + pat)
+                        .retrieve()
+                        .toBodilessEntity();
+                reRun++;
+            }
+            return reRun;
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private static boolean isFailedConclusion(String conclusion)
+    {
+        return "failure".equals(conclusion)
+                || "cancelled".equals(conclusion)
+                || "timed_out".equals(conclusion)
+                || "startup_failure".equals(conclusion);
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitHubWorkflowRunsResponse(@JsonProperty("workflow_runs") List<Run> workflowRuns)
+    {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        record Run(long id, String status, String conclusion) {}
+    }
+
     @Override
     public void removeRequestedReviewers(String pat, PullRequestRef pr, RequestReviewersCommand command)
     {

@@ -186,6 +186,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:approvePr', prId, repo, number),
   mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ merged: boolean; message: string; queued: boolean }> =>
     ipcRenderer.invoke('backend:mergePr', prId, repo, number, strategy),
+  rerunChecks: (repo: string, number: number): Promise<{ rerunCount: number }> =>
+    ipcRenderer.invoke('backend:rerunChecks', repo, number),
   enableAutoMerge: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ result: string }> =>
     ipcRenderer.invoke('backend:enableAutoMerge', prId, repo, number, strategy),
   disableAutoMerge: (prId: number, repo: string, number: number): Promise<{ result: string }> =>

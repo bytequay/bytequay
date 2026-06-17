@@ -192,6 +192,20 @@ public class PullRequestController
     }
 
     /**
+     * Re-runs the PR's failed CI jobs (GitHub "re-run failed jobs") — the
+     * one-click flaky-failure fix. {@code rerunCount} is how many workflow
+     * runs were re-triggered; 0 means nothing on the head had failed.
+     * POST /prs/rerun-checks?repo=&number=
+     */
+    @PostMapping("/prs/rerun-checks")
+    public Map<String, Integer> rerunChecks(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        return ImmutableMap.of("rerunCount", pullRequestService.rerunFailedChecks(repo, number));
+    }
+
+    /**
      * Returns just the CI status, per-check breakdown, and the viewer's
      * write permission for the PR. Polled by the detail page while the
      * window is focused so a CI flip and the merge button's enable/disable

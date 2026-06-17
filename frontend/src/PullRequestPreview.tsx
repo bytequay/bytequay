@@ -427,7 +427,11 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
       const { rerunCount } = await window.bridge.rerunChecks(pr.repo, pr.number);
       setRerunState(rerunCount > 0 ? 'queued' : 'empty');
       if (rerunCount > 0) {
-        void onRefreshCi();
+        // GitHub re-runs asynchronously — an immediate fetch races the
+        // propagation and catches the stale "failed" attempts. Refresh
+        // after a beat (and again) so the checks read as in-progress.
+        window.setTimeout(() => { void onRefreshCi(); }, 2500);
+        window.setTimeout(() => { void onRefreshCi(); }, 8000);
       }
       window.setTimeout(() => setRerunState('idle'), 4000);
     }
@@ -450,7 +454,11 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
       const { triggered } = await window.bridge.triggerCi(pr.repo, pr.number);
       setEmptyCommitState(triggered ? 'pushed' : 'unavailable');
       if (triggered) {
-        void onRefreshCi();
+        // The push moves the head SHA and CI re-registers on it — slower
+        // than a job re-run, so refresh later (and again) to catch the
+        // new run instead of the prior head's stale checks.
+        window.setTimeout(() => { void onRefreshCi(); }, 5000);
+        window.setTimeout(() => { void onRefreshCi(); }, 15000);
       }
       window.setTimeout(() => setEmptyCommitState('idle'), 4000);
     }

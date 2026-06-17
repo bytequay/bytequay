@@ -25,7 +25,6 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -140,7 +139,7 @@ class SqliteThreadStore
                     "thread.flow is set-once; cannot flip thread " + thread.id()
                             + " from " + entity.getFlow() + " to " + thread.flow().dbValue());
         }
-        entity.setWorkModelJson(serialiseWorkModel(thread.workModel()));
+        entity.setWorkModelJson(WorkModelJson.serialise(objectMapper, thread.workModel()));
         entity.setParentReviewPassId(thread.parentReviewPassId());
         threads.save(entity);
 
@@ -398,7 +397,7 @@ class SqliteThreadStore
                 e.getErrorMessage(),
                 ThreadFlow.fromDbValue(e.getFlow()),
                 e.getWorkspaceId(),
-                deserialiseWorkModel(e.getWorkModelJson()),
+                WorkModelJson.deserialise(objectMapper, e.getWorkModelJson()),
                 active,
                 e.getParentReviewPassId(),
                 deserialiseQueue(e.getQueueJson()),
@@ -499,37 +498,6 @@ class SqliteThreadStore
                     QueuedTaskStatus.fromWire(status),
                     materializedTaskId,
                     Instant.ofEpochMilli(createdAtMs));
-        }
-    }
-
-    private String serialiseWorkModel(WorkModel m)
-    {
-        if (m == null) {
-            return null;
-        }
-        try {
-            return objectMapper.writeValueAsString(m);
-        }
-        catch (JsonProcessingException e) {
-            // The record is plain-object-mapper-friendly, so a failure
-            // here means a programming error — surface it loudly.
-            throw new IllegalStateException("WorkModel JSON serialise failed", e);
-        }
-    }
-
-    private WorkModel deserialiseWorkModel(String json)
-    {
-        if (json == null || json.isBlank()) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, WorkModel.class);
-        }
-        catch (JsonProcessingException e) {
-            // Bad row → treat as "no override". The resolver falls back
-            // to the workspace pick. Don't break the whole thread load
-            // because of a stale JSON shape.
-            return null;
         }
     }
 

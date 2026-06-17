@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { CSSProperties } from 'react';
-import type { ReactionsDto } from '../types';
+import type { CheckRunDto, ReactionsDto } from '../types';
 
 /** GitHub's reaction-content enum — what the API expects in the
  *  {@code content} field of the reactions endpoint. */
@@ -184,6 +184,30 @@ export function conclusionLabel(conclusion: string | null): string {
 
 export function isCheckFailing(conclusion: string | null): boolean {
   return conclusion === 'failure' || conclusion === 'cancelled' || conclusion === 'timed_out' || conclusion === 'action_required';
+}
+
+export function isCheckPassing(conclusion: string | null): boolean {
+  return conclusion === 'success' || conclusion === 'neutral' || conclusion === 'skipped';
+}
+
+/** Splits check runs into failing / passing / pending in a single pass.
+ *  "pending" is everything not yet conclusive (queued / in-progress). The
+ *  three buckets were each derived with a separate `.filter` over the same
+ *  array; partitioning once keeps them mutually exclusive and exhaustive. */
+export function partitionCheckRuns(checkRuns: CheckRunDto[]): {
+  failing: CheckRunDto[];
+  passing: CheckRunDto[];
+  pending: CheckRunDto[];
+} {
+  const failing: CheckRunDto[] = [];
+  const passing: CheckRunDto[] = [];
+  const pending: CheckRunDto[] = [];
+  for (const c of checkRuns) {
+    if (isCheckFailing(c.conclusion)) failing.push(c);
+    else if (isCheckPassing(c.conclusion)) passing.push(c);
+    else pending.push(c);
+  }
+  return { failing, passing, pending };
 }
 
 /** Returns the last non-context line of a diff hunk — the line a reviewer

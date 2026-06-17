@@ -13,11 +13,8 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
-import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 import java.util.List;
@@ -29,36 +26,16 @@ import java.util.List;
  */
 @Converter
 class StringListConverter
-        implements AttributeConverter<List<String>, String>
+        extends JsonColumnConverter<List<String>>
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final TypeReference<List<String>> LIST_TYPE = new TypeReference<>() {};
-
-    @Override
-    public String convertToDatabaseColumn(List<String> list)
+    StringListConverter()
     {
-        if (list == null || list.isEmpty()) {
-            return "[]";
-        }
-        try {
-            return MAPPER.writeValueAsString(list);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Failed to serialize string list", e);
-        }
+        super(new TypeReference<>() {}, "string list", "[]", ImmutableList.of());
     }
 
     @Override
-    public List<String> convertToEntityAttribute(String json)
+    protected boolean isEmpty(List<String> value)
     {
-        if (json == null || json.isBlank()) {
-            return ImmutableList.of();
-        }
-        try {
-            return MAPPER.readValue(json, LIST_TYPE);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Failed to deserialize string list", e);
-        }
+        return value.isEmpty();
     }
 }

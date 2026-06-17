@@ -13,11 +13,8 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
-import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 import java.util.Map;
@@ -29,36 +26,16 @@ import java.util.Map;
  */
 @Converter
 class StringMapConverter
-        implements AttributeConverter<Map<String, String>, String>
+        extends JsonColumnConverter<Map<String, String>>
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final TypeReference<Map<String, String>> MAP_TYPE = new TypeReference<>() {};
-
-    @Override
-    public String convertToDatabaseColumn(Map<String, String> map)
+    StringMapConverter()
     {
-        if (map == null || map.isEmpty()) {
-            return null;
-        }
-        try {
-            return MAPPER.writeValueAsString(map);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Failed to serialize string map", e);
-        }
+        super(new TypeReference<>() {}, "string map", null, ImmutableMap.of());
     }
 
     @Override
-    public Map<String, String> convertToEntityAttribute(String json)
+    protected boolean isEmpty(Map<String, String> value)
     {
-        if (json == null || json.isBlank()) {
-            return ImmutableMap.of();
-        }
-        try {
-            return MAPPER.readValue(json, MAP_TYPE);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Failed to deserialize string map", e);
-        }
+        return value.isEmpty();
     }
 }

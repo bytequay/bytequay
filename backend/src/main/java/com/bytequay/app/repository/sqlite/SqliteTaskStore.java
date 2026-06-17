@@ -19,9 +19,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -83,7 +81,7 @@ class SqliteTaskStore
         entity.setAgentSessionId(task.agentSessionId());
         entity.setName(task.name());
         entity.setRoleSkill(task.roleSkill());
-        entity.setWorkModelJson(serialiseWorkModel(task.workModel()));
+        entity.setWorkModelJson(WorkModelJson.serialise(objectMapper, task.workModel()));
         entity.setCreatedAtMs(task.createdAt().toEpochMilli());
         entity.setEndedAtMs(Timestamps.epochMilli(task.endedAt()));
         entity.setErrorMessage(task.errorMessage());
@@ -411,7 +409,7 @@ class SqliteTaskStore
                 e.getErrorMessage(),
                 e.getName(),
                 e.getRoleSkill(),
-                deserialiseWorkModel(e.getWorkModelJson()),
+                WorkModelJson.deserialise(objectMapper, e.getWorkModelJson()),
                 Timestamps.instant(e.getPushedAtMs()),
                 parsePhase(e.getPhase()),
                 e.getAgendaJson(),
@@ -432,34 +430,6 @@ class SqliteTaskStore
         }
         catch (IllegalArgumentException e) {
             return TaskPhase.IMPLEMENTING;
-        }
-    }
-
-    private String serialiseWorkModel(WorkModel m)
-    {
-        if (m == null) {
-            return null;
-        }
-        try {
-            return objectMapper.writeValueAsString(m);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("WorkModel JSON serialise failed", e);
-        }
-    }
-
-    private WorkModel deserialiseWorkModel(String json)
-    {
-        if (json == null || json.isBlank()) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, WorkModel.class);
-        }
-        catch (JsonProcessingException e) {
-            // Bad row → treat as "no override"; the resolver falls back
-            // to the thread / workspace pick. Don't break task load.
-            return null;
         }
     }
 

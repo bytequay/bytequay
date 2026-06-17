@@ -13,10 +13,7 @@
  */
 import { useState } from 'react';
 import type { CheckRunDto, CiStatus, PullRequestDetailDto } from '../types';
-import { conclusionLabel, isCheckFailing } from './utils';
-
-const isCheckPassing = (conclusion: string | null): boolean =>
-  conclusion === 'success' || conclusion === 'neutral' || conclusion === 'skipped';
+import { conclusionLabel, isCheckFailing, partitionCheckRuns } from './utils';
 
 type CiDotProps = { status: CiStatus };
 
@@ -124,9 +121,7 @@ export function CiSummary({ ciStatus, checkRuns, onRefresh, refreshing }: CiSumm
  */
 export function CiChecksRow({ ciStatus, checkRuns }: { ciStatus: CiStatus; checkRuns: CheckRunDto[] }) {
   const [open, setOpen] = useState(false);
-  const failing = checkRuns.filter(c => isCheckFailing(c.conclusion));
-  const passing = checkRuns.filter(c => isCheckPassing(c.conclusion));
-  const pending = checkRuns.filter(c => !isCheckFailing(c.conclusion) && !isCheckPassing(c.conclusion));
+  const { failing, passing, pending } = partitionCheckRuns(checkRuns);
   // Anything that's not green is foldable. Successful check names stay
   // hidden — once a check is green its name rarely matters.
   const canExpand = failing.length > 0 || pending.length > 0;

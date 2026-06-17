@@ -723,11 +723,13 @@ function rosterFallbackColor(kind: ReviewParticipantDto['kind']): string {
  *  own {@code color} still wins when the backend sends one; this is the
  *  fallback that paints the well-known seats. */
 const PERSONA_GRADIENTS: Record<string, string> = {
+  lead: 'linear-gradient(135deg,#fbbf24,#d97706)',
   claude: 'linear-gradient(135deg,#d97706,#92400e)',
   gpt5: 'linear-gradient(135deg,#10b981,#0d9488)',
   deepseek: 'linear-gradient(135deg,#2563eb,#1e3a8a)',
   sonnet: 'linear-gradient(135deg,#a78bfa,#7c3aed)',
   gemini: 'linear-gradient(135deg,#34d399,#0d9488)',
+  you: 'linear-gradient(135deg,#34d399,#0d9488)',
 };
 
 function personaGradient(personaLabel: string): string | null {
@@ -963,7 +965,9 @@ function TranscriptSection({
               <Fragment key={item.kind === 'message' ? item.message.id : item.messages[0].id}>
                 {showDivider && (
                   <div style={phaseDividerStyle}>
+                    <span style={phaseLineStyle} aria-hidden />
                     <span style={phaseDividerLabelStyle}>{phaseDividerText(phaseSource)}</span>
+                    <span style={phaseLineStyle} aria-hidden />
                   </div>
                 )}
                 {item.kind === 'dispatch' ? (
@@ -1014,9 +1018,11 @@ function DispatchGroupBubble({
   onJumpToResponse: (reviewerId: string) => void;
 }) {
   const firstId = dispatches[0].id;
+  const lead = participantsById.get(dispatches[0].participantId);
+  const leadBg = lead !== undefined ? seatColor(lead) : 'linear-gradient(135deg,#fbbf24,#d97706)';
   return (
     <div style={bubbleRowStyle} data-review-msg-id={firstId}>
-      <span style={{ ...avatarStyle, background: rosterFallbackColor('LEAD') }} aria-hidden>
+      <span style={{ ...avatarStyle, background: leadBg }} aria-hidden>
         L
       </span>
       <div style={bubbleLeadStyle}>
@@ -1087,6 +1093,7 @@ function MessageBubble({
   const kind = author?.kind ?? 'REVIEWER';
   const name = author?.personaLabel ?? '?';
   const color = author?.color ?? 'var(--text-muted)';
+  const avatarBg = author !== null ? seatColor(author) : rosterFallbackColor(kind);
   const isYou = kind === 'HUMAN';
   const isLeadKind = kind === 'LEAD';
   const showLeadTag = isLeadKind || isLead;
@@ -1098,7 +1105,7 @@ function MessageBubble({
       data-review-msg-id={message.id}
     >
       {!isYou && (
-        <span style={{ ...avatarStyle, background: color }} aria-hidden>
+        <span style={{ ...avatarStyle, background: avatarBg }} aria-hidden>
           {name.slice(0, 1).toUpperCase()}
         </span>
       )}
@@ -2085,19 +2092,28 @@ const transcriptScrollStyle: React.CSSProperties = {
 const phaseDividerStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'center',
+  gap: 12,
   margin: '6px 0 2px',
+};
+const phaseLineStyle: React.CSSProperties = {
+  flex: 1,
+  height: 1,
+  background:
+    'linear-gradient(90deg, transparent, rgba(124,92,255,0.28) 30%,'
+    + ' rgba(124,92,255,0.28) 70%, transparent)',
 };
 
 const phaseDividerLabelStyle: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 10.5,
+  fontWeight: 800,
   textTransform: 'uppercase',
-  letterSpacing: '0.06em',
-  color: 'var(--text-3)',
-  background: 'var(--bg-1)',
-  border: '1px solid var(--border)',
+  letterSpacing: '0.04em',
+  color: '#5b21b6',
+  background: 'rgba(124,92,255,0.08)',
+  border: '1px solid rgba(124,92,255,0.22)',
   borderRadius: 999,
-  padding: '2px 10px',
+  padding: '3px 12px',
+  whiteSpace: 'nowrap',
 };
 
 const bubbleRowStyle: React.CSSProperties = {
@@ -2113,39 +2129,43 @@ const bubbleRowYouStyle: React.CSSProperties = {
 
 const avatarStyle: React.CSSProperties = {
   flex: '0 0 auto',
-  width: 24,
-  height: 24,
-  borderRadius: '50%',
+  width: 32,
+  height: 32,
+  borderRadius: 10,
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   color: '#fff',
-  fontSize: 12,
-  fontWeight: 600,
-  marginTop: 2,
+  fontSize: 12.5,
+  fontWeight: 800,
+  boxShadow: '0 1px 3px rgba(15,23,42,0.12)',
 };
 
 const bubbleStyle: React.CSSProperties = {
   maxWidth: '88%',
-  padding: '8px 11px',
-  background: 'var(--bg-2)',
-  borderRadius: 10,
-  border: '1px solid var(--border)',
+  padding: '10px 14px',
+  background: 'rgba(255,255,255,0.92)',
+  borderRadius: '4px 14px 14px 14px',
+  border: '1px solid rgba(124,92,255,0.10)',
+  boxShadow: '0 2px 10px rgba(15,23,42,0.05)',
+  minWidth: 0,
 };
 
 const bubbleLeadStyle: React.CSSProperties = {
   ...bubbleStyle,
   maxWidth: '100%',
   width: '100%',
-  background: 'rgba(124, 58, 237, 0.04)',
+  background: 'rgba(245,158,11,0.06)',
   borderStyle: 'dashed',
-  borderColor: 'rgba(124, 58, 237, 0.28)',
+  borderColor: 'rgba(245,158,11,0.32)',
 };
 
 const bubbleYouStyle: React.CSSProperties = {
   ...bubbleStyle,
-  background: 'rgba(16, 185, 129, 0.14)',
-  border: '1px solid rgba(16, 185, 129, 0.4)',
+  background: '#95ec69',
+  borderRadius: '14px 4px 14px 14px',
+  border: '1px solid #7fd957',
+  boxShadow: '0 2px 8px rgba(127,217,87,0.18)',
 };
 
 const bubbleHeadStyle: React.CSSProperties = {
@@ -2158,13 +2178,15 @@ const bubbleHeadStyle: React.CSSProperties = {
 };
 
 const roleTagStyle: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 9.5,
+  fontWeight: 800,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
-  color: 'var(--text-3)',
-  border: '1px solid var(--border)',
-  borderRadius: 4,
-  padding: '0 5px',
+  color: '#92400e',
+  background: 'rgba(245,158,11,0.16)',
+  border: '1px solid rgba(245,158,11,0.34)',
+  borderRadius: 999,
+  padding: '1px 8px',
 };
 
 /** A mention chip tinted with the addressed reviewer's persona color.
@@ -2174,16 +2196,16 @@ function mentionChipStyleFor(
   color: string, selected: boolean, dimmed: boolean,
 ): React.CSSProperties {
   return {
-    fontSize: 11,
-    fontWeight: 600,
+    fontSize: 10.5,
+    fontWeight: 800,
     color: selected ? '#fff' : color,
-    background: selected ? color : `${color}1f`,
-    border: `1px solid ${selected ? color : 'transparent'}`,
-    borderRadius: 5,
-    padding: '0 6px',
+    background: selected ? color : `${color}22`,
+    border: `1px solid ${selected ? color : `${color}55`}`,
+    borderRadius: 999,
+    padding: '1px 7px',
     cursor: 'pointer',
     opacity: dimmed ? 0.45 : 1,
-    transition: 'opacity 140ms ease, background 140ms ease',
+    transition: 'opacity 140ms ease, background 140ms ease, transform 120ms ease',
   };
 }
 

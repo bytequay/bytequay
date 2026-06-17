@@ -25,7 +25,6 @@ import com.bytequay.app.domain.ReviewPassKind;
 import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.repository.ReviewStore;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -351,28 +350,14 @@ class SqliteReviewStore
         if (values == null || values.isEmpty()) {
             return null;
         }
-        try {
-            return mapper.writeValueAsString(values);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException(
-                    "review-message string list could not be serialised", e);
-        }
+        return JsonText.write(mapper, values, "review-message string list could not be serialised");
     }
 
     private List<String> readStringList(String raw)
     {
-        if (raw == null || raw.isBlank()) {
-            return List.of();
-        }
-        try {
-            return mapper.readValue(raw, STRING_LIST);
-        }
-        catch (JsonProcessingException e) {
-            // Don't surface a parse failure as a 500 from a listMessages
-            // call — log-and-fall-back keeps the transcript readable even
-            // if one row's JSON column got truncated by hand.
-            return List.of();
-        }
+        // Don't surface a parse failure as a 500 from a listMessages call —
+        // fall back to empty so the transcript stays readable even if one
+        // row's JSON column got truncated by hand.
+        return JsonText.readOrDefault(mapper, raw, STRING_LIST, List.of());
     }
 }

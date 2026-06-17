@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.repository.UserConceptStore;
 import com.bytequay.app.service.concepts.ConceptKind;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -94,13 +93,7 @@ public class SqliteUserConceptStore
         requireNonNull(kind, "kind is null");
         requireNonNull(definition, "definition is null");
         long now = Instant.now().toEpochMilli();
-        String akaJson;
-        try {
-            akaJson = mapper.writeValueAsString(aka == null ? List.of() : aka);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("failed to serialise aka list", e);
-        }
+        String akaJson = JsonText.write(mapper, aka == null ? List.of() : aka, "failed to serialise aka list");
         UserConceptRow row = jdbc.queryForObject(
                 UPSERT_SQL,
                 rowMapper(),
@@ -128,15 +121,9 @@ public class SqliteUserConceptStore
     {
         return (rs, n) -> {
             String akaJson = rs.getString("aka_json");
-            List<String> aka;
-            try {
-                aka = akaJson == null || akaJson.isBlank()
-                        ? List.of()
-                        : mapper.readValue(akaJson, STRING_LIST);
-            }
-            catch (JsonProcessingException e) {
-                throw new IllegalStateException("invalid aka_json on row " + rs.getString("name"), e);
-            }
+            List<String> aka = JsonText.read(
+                    mapper, akaJson, STRING_LIST, List.of(),
+                    "invalid aka_json on row " + rs.getString("name"));
             return new UserConceptRow(
                     rs.getString("name"),
                     ConceptKind.valueOf(rs.getString("kind")),

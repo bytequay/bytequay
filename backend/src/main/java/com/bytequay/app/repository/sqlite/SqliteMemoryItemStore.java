@@ -20,7 +20,6 @@ import com.bytequay.app.domain.MemoryItemOrigin;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
 import com.bytequay.app.repository.MemoryItemStore;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -203,37 +202,16 @@ public class SqliteMemoryItemStore
 
     private List<MemoryItemSource> readSources(String json)
     {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            return mapper.readValue(json, SOURCES_TYPE);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("invalid sources_json", e);
-        }
+        return JsonText.read(mapper, json, SOURCES_TYPE, List.of(), "invalid sources_json");
     }
 
     private List<String> readStrings(String json)
     {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            return mapper.readValue(json, STRINGS_TYPE);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("invalid tags_json", e);
-        }
+        return JsonText.read(mapper, json, STRINGS_TYPE, List.of(), "invalid tags_json");
     }
 
     private String writeJson(Object value)
     {
-        try {
-            return mapper.writeValueAsString(value);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("failed to serialise memory_item JSON column", e);
-        }
+        return JsonText.write(mapper, value, "failed to serialise memory_item JSON column");
     }
 }

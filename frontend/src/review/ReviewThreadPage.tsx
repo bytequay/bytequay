@@ -324,33 +324,39 @@ function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack
   const costMilli = detail?.pass.costUsdMilli ?? 0;
   const costCapMilli = detail?.pass.costCapMilli ?? 0;
   const costPct = costCapMilli > 0 ? Math.min(100, (costMilli / costCapMilli) * 100) : 0;
+  const findings = detail?.findings ?? [];
+  const agreedCount = findings.filter(
+      f => f.status === 'AGREED' || f.status === 'RESOLVED' || f.status === 'POSTED').length;
+  const openCount = findings.filter(
+      f => f.status === 'DISPUTED' || f.status === 'REPORTED').length;
   return (
     <header style={topBarStyle}>
       <button type="button" className="button button--secondary" onClick={onBack} style={backBtnStyle}>← Back</button>
-      <span style={panelBadgeStyle}>Review panel</span>
-      <div style={titleColStyle}>
-        <h1 style={titleStyle}>
-          {detail
-              ? (detail.prTitle ?? `${detail.pass.repoFullName}#${detail.pass.prNumber}`)
-              : 'Review thread'}
-        </h1>
-        {detail && (
-          <span style={titleRefStyle}>
-            {detail.pass.repoFullName} · PR #{detail.pass.prNumber}
-          </span>
+      <span style={panelBadgeStyle}>⚖ Review panel</span>
+      <div style={breadcrumbStyle}>
+        {detail ? (
+          <>
+            <span style={breadcrumbLeadStyle}>
+              {detail.pass.repoFullName} · PR #{detail.pass.prNumber} ·{' '}
+            </span>
+            <span style={breadcrumbTitleStyle}>
+              {detail.prTitle ?? `${detail.pass.repoFullName}#${detail.pass.prNumber}`}
+            </span>
+          </>
+        ) : (
+          <span style={breadcrumbTitleStyle}>Review thread</span>
         )}
       </div>
       {detail && (
         <div style={metaStyle}>
-          <Meter label="Phase">
-            <PhasePill phase={detail.pass.phase} />
-          </Meter>
+          <PhasePill phase={detail.pass.phase} />
+          <span style={countMetaStyle}>
+            {agreedCount} agreed · {openCount} open
+          </span>
           {costCapMilli > 0 && (
-            <Meter label="Cost">
-              <span style={{ ...meterValueStyle, color: costColor(costPct) }}>
-                ${(costMilli / 1000).toFixed(2)} / ${(costCapMilli / 1000).toFixed(2)}
-              </span>
-            </Meter>
+            <span style={{ ...costMetaStyle, color: costColor(costPct) }}>
+              ${(costMilli / 1000).toFixed(2)} / ${(costCapMilli / 1000).toFixed(2)}
+            </span>
           )}
           {detail.pass.verdict && <VerdictPill verdict={detail.pass.verdict} />}
         </div>
@@ -365,15 +371,6 @@ function costColor(pct: number): string {
   if (pct >= 95) return '#cf1322';
   if (pct >= 80) return '#d97706';
   return '#0d9488';
-}
-
-function Meter({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <span style={meterCellStyle}>
-      <span style={meterLabelStyle}>{label}</span>
-      {children}
-    </span>
-  );
 }
 
 /** Left-rail "Reviewing" card — a compact PR summary so the user can
@@ -802,17 +799,12 @@ function AgendaSection({ agenda, passPhase }: { agenda: AgendaPhaseDto[]; passPh
       <div style={agendaHeadStyle}>{summary}</div>
       <ol style={agendaListStyle}>
         {agenda.map(phase => (
-          <li key={phase.id} style={agendaRowStyle}>
-            <span
-              style={agendaGlyphStyle(phase.status)}
-              className={phase.status === 'IN_PROGRESS' ? 'review-agenda-glyph--active' : undefined}
-              aria-hidden
-            >
-              {phase.status === 'DONE' ? '✓' : phase.status === 'IN_PROGRESS' ? '◼' : '◻'}
-            </span>
-            <span style={phase.status === 'DONE' ? agendaTitleDoneStyle : agendaTitleStyle}>
-              {phase.title}
-            </span>
+          <li
+            key={phase.id}
+            style={agendaPhaseStyle(phase.status)}
+            className={phase.status === 'IN_PROGRESS' ? 'review-agenda-glyph--active' : undefined}
+          >
+            {phase.title}
           </li>
         ))}
       </ol>
@@ -1276,19 +1268,24 @@ function PublishSection({
 
           <fieldset style={fieldsetStyle} aria-label="Verdict">
             <legend style={legendStyle}>Verdict</legend>
-            {(['APPROVE', 'COMMENT', 'REQUEST_CHANGES'] as ReviewVerdictDto[]).map(v => (
-              <label key={v} style={radioLabelStyle}>
-                <input
-                  type="radio"
-                  name="review-verdict"
-                  value={v}
-                  checked={verdict === v}
-                  onChange={() => setVerdict(v)}
-                  disabled={busy}
-                />
-                <span>{v}</span>
-              </label>
-            ))}
+            <div style={verdictRowStyle}>
+              {(['APPROVE', 'COMMENT', 'REQUEST_CHANGES'] as ReviewVerdictDto[]).map(v => (
+                <label key={v} style={verdictPillStyle(v, verdict === v)}>
+                  <input
+                    type="radio"
+                    name="review-verdict"
+                    value={v}
+                    aria-label={v}
+                    checked={verdict === v}
+                    onChange={() => setVerdict(v)}
+                    disabled={busy}
+                    style={srOnlyStyle}
+                  />
+                  <span aria-hidden>{verdictGlyph(v)}</span>
+                  {verdictLabel(v)}
+                </label>
+              ))}
+            </div>
           </fieldset>
 
           {detail.findings.length > 0 && (
@@ -1325,7 +1322,7 @@ function PublishSection({
 
           <button
             type="button"
-            className="button button--primary"
+            style={busy ? { ...btnPubStyle, ...btnPubDisabledStyle } : btnPubStyle}
             onClick={() => { void handlePublish(); }}
             disabled={busy}
           >
@@ -1346,7 +1343,7 @@ function PublishedBadge() {
 }
 
 function PhasePill({ phase }: { phase: string }) {
-  return <span style={pillStyle('#0066cc')}>{phase.toLowerCase()}</span>;
+  return <span style={pillStyle('#0066cc')}>◆ {phase.toLowerCase()}</span>;
 }
 
 function VerdictPill({ verdict }: { verdict: ReviewVerdictDto }) {
@@ -1354,6 +1351,48 @@ function VerdictPill({ verdict }: { verdict: ReviewVerdictDto }) {
       : verdict === 'REQUEST_CHANGES' ? '#cf1322'
       : '#737373';
   return <span style={pillStyle(color)}>{verdict.toLowerCase()}</span>;
+}
+
+/** Friendly label + leading glyph for a verdict pill. The radio keeps
+ *  its raw value as the accessible name (aria-label), so these are
+ *  presentation-only. */
+function verdictLabel(v: ReviewVerdictDto): string {
+  return v === 'REQUEST_CHANGES' ? 'REQUEST CHANGES' : v;
+}
+function verdictGlyph(v: ReviewVerdictDto): string {
+  return v === 'APPROVE' ? '✓' : v === 'REQUEST_CHANGES' ? '⚑' : '◆';
+}
+
+/** Verdict picker pill — green / amber / red per the design. The
+ *  selected pill fills with its color's gradient; the rest stay tinted. */
+function verdictPillStyle(v: ReviewVerdictDto, selected: boolean): React.CSSProperties {
+  const base: React.CSSProperties = {
+    flex: 1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    padding: '7px 6px',
+    borderRadius: 9,
+    fontSize: 10.5,
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    border: '1.5px solid transparent',
+    cursor: 'pointer',
+  };
+  const tone = v === 'APPROVE'
+      ? { tint: 'rgba(16,185,129,0.06)', fg: '#047857', bd: 'rgba(16,185,129,0.20)',
+          grad: 'linear-gradient(135deg,#d1fae5,#a7f3d0)', glow: 'rgba(16,185,129,0.22)' }
+      : v === 'REQUEST_CHANGES'
+      ? { tint: 'rgba(239,68,68,0.06)', fg: '#b91c1c', bd: 'rgba(239,68,68,0.20)',
+          grad: 'linear-gradient(135deg,#fee2e2,#fecaca)', glow: 'rgba(239,68,68,0.22)' }
+      : { tint: 'rgba(245,158,11,0.10)', fg: '#92400e', bd: '#fcd34d',
+          grad: 'linear-gradient(135deg,#fef3c7,#fde68a)', glow: 'rgba(245,158,11,0.22)' };
+  if (selected) {
+    return { ...base, background: tone.grad, color: tone.fg, borderColor: tone.bd,
+        boxShadow: `0 2px 8px ${tone.glow}` };
+  }
+  return { ...base, background: tone.tint, color: tone.fg, borderColor: tone.bd };
 }
 
 function SeverityChip({ severity }: { severity: ReviewFindingSeverityDto }) {
@@ -1416,13 +1455,13 @@ const pageStyle: React.CSSProperties = {
   padding: '20px 24px',
   background: 'transparent',
   margin: '0 auto',
-  maxWidth: 1280,
+  maxWidth: 1320,
   boxSizing: 'border-box',
 };
 
-// Atmospheric backdrop: a soft multi-hue mesh + a faint noise overlay
-// behind the glass surfaces, so the panel reads as a polished surface
-// rather than a flat wireframe.
+// Atmospheric mesh + grain — "this is an app, not a form". Values lifted
+// verbatim from the polished design source so the React surface and the
+// mockup read identically.
 const meshBgStyle: React.CSSProperties = {
   position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
   background:
@@ -1440,6 +1479,10 @@ const noiseBgStyle: React.CSSProperties = {
     + " baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect"
     + " width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
 };
+
+// Atmospheric backdrop: a soft multi-hue mesh + a faint noise overlay
+// behind the glass surfaces, so the panel reads as a polished surface
+// rather than a flat wireframe.
 
 const spawnSectionStyle: React.CSSProperties = {
   marginTop: 12,
@@ -1469,13 +1512,13 @@ const topBarStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 12,
   marginBottom: 16,
-  padding: '10px 14px',
-  background: 'rgba(255,255,255,0.62)',
-  backdropFilter: 'blur(15px) saturate(128%)',
-  WebkitBackdropFilter: 'blur(15px) saturate(128%)',
-  border: '1px solid rgba(255,255,255,0.7)',
-  borderRadius: 12,
-  boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 10px 34px rgba(99,102,241,0.07)',
+  padding: '11px 22px',
+  background: 'rgba(255,255,255,0.72)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  border: '1px solid rgba(124,92,255,0.12)',
+  borderRadius: 14,
+  boxShadow: '0 2px 10px rgba(15,23,42,0.04)',
 };
 
 const backBtnStyle: React.CSSProperties = {
@@ -1484,44 +1527,22 @@ const backBtnStyle: React.CSSProperties = {
 };
 
 const panelBadgeStyle: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '0.08em',
+  fontSize: 10.5,
+  fontWeight: 800,
+  letterSpacing: '0.04em',
   textTransform: 'uppercase',
+  whiteSpace: 'nowrap',
   color: '#5b21b6',
-  background: 'rgba(124, 58, 237, 0.12)',
-  border: '1px solid rgba(124, 58, 237, 0.22)',
+  background: 'linear-gradient(135deg, rgba(56,189,248,0.18), rgba(124,92,255,0.14))',
+  border: '1px solid rgba(124,92,255,0.22)',
   borderRadius: 999,
-  padding: '3px 10px',
+  padding: '4px 11px',
 };
 
-const meterCellStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  flexDirection: 'column',
-  alignItems: 'flex-end',
-  gap: 2,
-  paddingLeft: 12,
-  borderLeft: '1px solid var(--border)',
-};
-
-const meterLabelStyle: React.CSSProperties = {
-  fontSize: 9,
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--text-3)',
-};
-
-const meterValueStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 600,
-  color: 'var(--text-1)',
-  fontVariantNumeric: 'tabular-nums',
-};
 
 const bodyGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '240px minmax(0, 1fr) 320px',
+  gridTemplateColumns: '272px minmax(0, 1fr) 308px',
   gap: 14,
   flex: 1,
   minHeight: 0,
@@ -1545,10 +1566,10 @@ const centerColStyle: React.CSSProperties = {
   gap: 10,
   minWidth: 0,
   minHeight: 0,
-  // Soft white surface so the message bubbles sit on it cleanly against
-  // the mesh backdrop.
+  // Soft translucent surface so the transcript bubbles read as a panel
+  // floating on the mesh, matching the design's center column.
   background: 'rgba(255,255,255,0.34)',
-  borderRadius: 12,
+  borderRadius: 14,
 };
 
 const rightRailStyle: React.CSSProperties = {
@@ -1747,45 +1768,93 @@ const headerStyle: React.CSSProperties = {
   marginBottom: 16,
 };
 
-const titleColStyle: React.CSSProperties = {
+
+const metaStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  flexShrink: 0,
+};
+const breadcrumbStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 1,
-};
-
-const titleStyle: React.CSSProperties = {
-  fontSize: 18,
-  fontWeight: 600,
-  letterSpacing: '-0.01em',
-  color: 'var(--text-1)',
-  margin: 0,
+  fontSize: 13,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 };
-
-const titleRefStyle: React.CSSProperties = {
-  fontSize: 11,
+const breadcrumbLeadStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   fontVariantNumeric: 'tabular-nums',
 };
+const breadcrumbTitleStyle: React.CSSProperties = {
+  color: 'var(--text-1)',
+  fontWeight: 600,
+};
+const countMetaStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--text-3)',
+  fontVariantNumeric: 'tabular-nums',
+  whiteSpace: 'nowrap',
+};
+const costMetaStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  fontVariantNumeric: 'tabular-nums',
+  whiteSpace: 'nowrap',
+};
 
-const metaStyle: React.CSSProperties = {
+// Visually-hidden radio: the pill label carries the look, the input keeps
+// the role + accessible name so keyboard + tests still drive it.
+const srOnlyStyle: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clipPath: 'inset(50%)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
+const verdictRowStyle: React.CSSProperties = {
   display: 'flex',
+  gap: 5,
+  marginTop: 4,
+};
+// Publish CTA — the design's purple gradient button.
+const btnPubStyle: React.CSSProperties = {
+  width: '100%',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
   gap: 8,
+  padding: 10,
+  border: 0,
+  borderRadius: 11,
+  background: 'linear-gradient(135deg,#8b6dff,#7c5cff)',
+  color: '#fff',
+  fontSize: 12.5,
+  fontWeight: 800,
+  letterSpacing: '0.02em',
+  cursor: 'pointer',
+  boxShadow: '0 4px 14px rgba(124,92,255,0.34)',
+};
+const btnPubDisabledStyle: React.CSSProperties = {
+  background: 'linear-gradient(135deg,#cbd5e1,#94a3b8)',
+  cursor: 'not-allowed',
+  boxShadow: 'none',
 };
 
 const cardStyle: React.CSSProperties = {
   marginBottom: 14,
-  padding: 16,
-  background: 'rgba(255,255,255,0.6)',
+  padding: '13px 14px',
+  background: 'rgba(255,255,255,0.72)',
   backdropFilter: 'blur(14px) saturate(125%)',
   WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  border: '1px solid rgba(255,255,255,0.7)',
-  borderRadius: 12,
-  boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 6px 20px rgba(99,102,241,0.05)',
+  border: '1px solid rgba(124,92,255,0.14)',
+  borderRadius: 14,
+  boxShadow: '0 2px 10px rgba(15,23,42,0.04)',
 };
 
 const cardTitleStyle: React.CSSProperties = {
@@ -2258,16 +2327,17 @@ function severityDotStyle(color: string): React.CSSProperties {
 }
 
 const agendaCardStyle: React.CSSProperties = {
-  border: '1px solid var(--border)',
-  borderRadius: 10,
-  background: 'var(--bg-1)',
-  padding: '10px 14px',
+  borderRadius: '14px 14px 0 0',
+  // Gold-tinted gradient that fades into the transcript — the lead's
+  // agenda owns the top of the column, per the design.
+  background: 'linear-gradient(180deg, rgba(245,158,11,0.10), rgba(255,255,255,0))',
+  borderBottom: '1px solid rgba(245,158,11,0.28)',
+  padding: '10px 18px 11px',
   position: 'sticky',
   top: 0,
   zIndex: 5,
-  // The sticky strip floats over scrolling transcript bubbles, so it
-  // needs an opaque-ish backdrop + a soft shadow to stay legible.
-  boxShadow: '0 4px 10px rgba(15, 23, 42, 0.05)',
+  backdropFilter: 'blur(10px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(10px) saturate(125%)',
 };
 
 const agendaPlaceholderStyle: React.CSSProperties = {
@@ -2292,36 +2362,22 @@ const agendaListStyle: React.CSSProperties = {
   margin: 0,
   padding: 0,
   listStyle: 'none',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: '6px 18px',
 };
 
-const agendaRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  fontSize: 13,
-};
-
-function agendaGlyphStyle(status: AgendaPhaseStatusDto): React.CSSProperties {
-  return {
-    flexShrink: 0,
-    width: 14,
-    textAlign: 'center',
-    fontWeight: 700,
-    color: status === 'DONE' ? '#16a34a' : status === 'IN_PROGRESS' ? '#d97706' : 'var(--text-3)',
-  };
+/** Phase cell in the 2-column agenda grid: the active phase reads gold,
+ *  done phases mute out with a strike, pending phases sit grey. */
+function agendaPhaseStyle(status: AgendaPhaseStatusDto): React.CSSProperties {
+  if (status === 'IN_PROGRESS') {
+    return { fontSize: 13, lineHeight: 1.35, fontWeight: 600, color: '#b45309' };
+  }
+  if (status === 'DONE') {
+    return { fontSize: 13, lineHeight: 1.35, color: 'var(--text-3)', textDecoration: 'line-through' };
+  }
+  return { fontSize: 13, lineHeight: 1.35, color: 'var(--text-2)' };
 }
-
-const agendaTitleStyle: React.CSSProperties = {
-  color: 'var(--text-1)',
-};
-
-const agendaTitleDoneStyle: React.CSSProperties = {
-  color: 'var(--text-3)',
-  textDecoration: 'line-through',
-};
 
 const focusPillRowStyle: React.CSSProperties = {
   alignSelf: 'flex-start',
@@ -2387,13 +2443,6 @@ const legendStyle: React.CSSProperties = {
   padding: '0 6px',
 };
 
-const radioLabelStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  marginRight: 16,
-  fontSize: 13,
-};
 
 const findingChoiceStyle: React.CSSProperties = {
   display: 'flex',

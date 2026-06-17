@@ -3434,6 +3434,14 @@ export type Bridge = {
     targetParticipantId: string,
     message: string,
   ) => Promise<ReviewPassDetailDto>;
+  /** Raise a running pass's budget so the panel keeps reviewing: bumps the
+   *  cost cap by addCostMilli and the debate-round cap by addRounds. Returns
+   *  the updated detail. */
+  raiseReviewBudget: (
+    passId: string,
+    addCostMilli: number,
+    addRounds: number,
+  ) => Promise<ReviewPassDetailDto>;
   /** Light PR title + author per review thread, for labelling review
    *  threads in thread lists without loading the transcript. */
   getReviewThreadPrSummaries: (

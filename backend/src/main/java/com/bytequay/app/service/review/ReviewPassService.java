@@ -928,6 +928,37 @@ public class ReviewPassService
         return findPassWithDetail(passId).orElseThrow();
     }
 
+    /**
+     * Raise a pass's budget so the panel can keep reviewing: bumps the
+     * cost cap by {@code addCostMilli} and the debate-round cap by
+     * {@code addRounds} (both clamped to non-negative). Mid-review this
+     * lifts the cost-cap that would otherwise trigger an early finalize;
+     * on a finished pass it just gives headroom for further steering.
+     */
+    /** Hard ceiling on a pass's cost cap, in milli-USD ($10). The raise
+     *  control lifts the cap toward this but never past it, so repeated
+     *  clicks can't commit the user to an unbounded review spend. */
+    private static final long MAX_COST_CAP_MILLI = 10_000L;
+
+    @Transactional
+    public ReviewPassDetail raiseBudget(String passId, long addCostMilli, int addRounds)
+    {
+        requireNonNull(passId, "passId is null");
+        ReviewPass pass = reload(passId);
+        long newCostCap = Math.min(MAX_COST_CAP_MILLI,
+                pass.costCapMilli() + Math.max(0L, addCostMilli));
+        int newRoundCap = pass.roundCap() + Math.max(0, addRounds);
+        reviewStore.savePass(new ReviewPass(
+                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
+                pass.headSha(), pass.phase(), pass.round(), newRoundCap,
+                newCostCap, pass.costUsdMilli(), pass.verdict(),
+                pass.createdAt(), pass.endedAt(),
+                pass.spawnedBuildThreadId(), pass.agendaJson()));
+        log.info("Review pass {} budget raised: cost cap +{} -> {}, rounds +{} -> {}",
+                passId, addCostMilli, newCostCap, addRounds, newRoundCap);
+        return findPassWithDetail(passId).orElseThrow();
+    }
+
     private static String steerDirective(String message)
     {
         return "A human reviewer sent this message into the panel:\n\n"

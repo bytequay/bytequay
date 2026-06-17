@@ -689,6 +689,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:arbitrate', { passId, findingId, resolution }),
   steerReview: (passId: string, targetParticipantId: string, message: string) =>
     ipcRenderer.invoke('reviews:steer', { passId, targetParticipantId, message }),
+  raiseReviewBudget: (passId: string, addCostMilli: number, addRounds: number) =>
+    ipcRenderer.invoke('reviews:raiseBudget', { passId, addCostMilli, addRounds }),
   getReviewThreadPrSummaries: (threadIds: string[]) =>
     ipcRenderer.invoke('reviews:prSummaries', threadIds),
   getScheduledReviewSettings: () =>

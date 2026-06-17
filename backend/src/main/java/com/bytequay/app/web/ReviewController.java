@@ -213,6 +213,18 @@ public class ReviewController
         return reviews.steerPass(passId, body.targetParticipantId(), body.message());
     }
 
+    @PostMapping("/{passId}/raise-budget")
+    public ReviewPassDetail raiseBudget(
+            @PathVariable String passId,
+            @RequestBody RaiseBudgetRequest body)
+    {
+        if (body == null || (body.addCostMilli() <= 0 && body.addRounds() <= 0)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "addCostMilli or addRounds must be positive");
+        }
+        return reviews.raiseBudget(passId, body.addCostMilli(), body.addRounds());
+    }
+
     /** Batch PR title + author for review threads, so a thread list can
      *  label each review thread with the reviewed PR cheaply. */
     @PostMapping("/pr-summaries")
@@ -302,6 +314,8 @@ public class ReviewController
     public record ArbitrateFindingRequest(String resolution) {}
 
     public record SteerRequest(String targetParticipantId, String message) {}
+
+    public record RaiseBudgetRequest(long addCostMilli, int addRounds) {}
 
     public record PrSummariesRequest(List<String> threadIds) {}
 

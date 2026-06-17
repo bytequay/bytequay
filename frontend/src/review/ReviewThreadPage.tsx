@@ -169,7 +169,7 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
             <ReviewingCard detail={detail} onOpenPr={onOpenPr} />
             <RosterSection participants={detail.participants} leadId={leadId} />
             <FlowStepper currentPhase={detail.pass.phase} />
-            <BudgetCard detail={detail} />
+            <BudgetCard detail={detail} onRaised={(next) => setDetail(next)} />
           </aside>
           <main style={centerColStyle}>
             <AgendaSection agenda={detail.agenda} passPhase={detail.pass.phase} />
@@ -546,12 +546,36 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
 }
 
 /** Left-rail "Budget" card — debate-round + cost progress bars. */
-function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
+function BudgetCard({
+  detail,
+  onRaised,
+}: {
+  detail: ReviewPassDetailDto;
+  onRaised: (next: ReviewPassDetailDto) => void;
+}) {
   const round = detail.pass.round;
   const roundCap = detail.pass.roundCap;
   const costPct = detail.pass.costCapMilli > 0
       ? Math.min(100, Math.round((detail.pass.costUsdMilli / detail.pass.costCapMilli) * 100))
       : 0;
+  // Mirror the backend's $10 ceiling so the cost button greys out once
+  // the cap can't go any higher.
+  const costCapMaxed = detail.pass.costCapMilli >= 10_000;
+  const [raising, setRaising] = useState(false);
+  const raise = async (addCostMilli: number, addRounds: number) => {
+    if (raising) {
+      return;
+    }
+    setRaising(true);
+    try {
+      const next = await window.bridge.raiseReviewBudget(detail.pass.id, addCostMilli, addRounds);
+      onRaised(next);
+    } catch (err) {
+      console.error('raise review budget failed', err);
+    } finally {
+      setRaising(false);
+    }
+  };
   return (
     <section style={cardStyle} aria-label="Budget">
       <h2 style={cardTitleStyle}>Budget</h2>
@@ -579,10 +603,58 @@ function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
           <div style={progressFillStyle(costPct, costColor(costPct))} />
         </div>
       </div>
-      <p style={budgetHintStyle}>✦ stops early on convergence</p>
+      <div style={raiseRowStyle}>
+        <button
+          type="button"
+          style={costCapMaxed ? raiseBtnDisabledStyle : raiseBtnStyle}
+          disabled={raising || costCapMaxed}
+          onClick={() => raise(500, 0)}
+          title={costCapMaxed
+            ? 'Cost cap is at the $10 maximum'
+            : 'Raise the cost cap by $0.50 so the panel keeps reviewing'}
+        >
+          {costCapMaxed ? '$10 max' : '+ $0.50'}
+        </button>
+        <button
+          type="button"
+          style={raiseBtnStyle}
+          disabled={raising}
+          onClick={() => raise(0, 1)}
+          title="Add one debate round so disputed findings get more discussion"
+        >
+          + 1 round
+        </button>
+      </div>
+      <p style={budgetHintStyle}>✦ stops early on convergence — raise to keep reviewing</p>
     </section>
   );
 }
+
+const raiseRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  marginTop: 4,
+};
+
+const raiseBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '5px 8px',
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#15803d',
+  background: 'rgba(22,163,74,0.08)',
+  border: '1px solid rgba(22,163,74,0.28)',
+  borderRadius: 7,
+  cursor: 'pointer',
+};
+
+const raiseBtnDisabledStyle: React.CSSProperties = {
+  ...raiseBtnStyle,
+  color: '#9ca3af',
+  background: 'rgba(148,163,184,0.10)',
+  border: '1px solid rgba(148,163,184,0.28)',
+  cursor: 'default',
+};
 
 /** Right-rail findings list partitioned by status. Same shape as
  *  the legacy FindingsSection but rendered twice — Agreed (locked-in)

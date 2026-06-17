@@ -3738,6 +3738,30 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:raiseBudget', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:raiseBudget args must be an object');
+    }
+    const a = args as { passId?: unknown; addCostMilli?: unknown; addRounds?: unknown };
+    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    const addCostMilli = typeof a.addCostMilli === 'number' ? a.addCostMilli : 0;
+    const addRounds = typeof a.addRounds === 'number' ? a.addRounds : 0;
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/raise-budget`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addCostMilli, addRounds }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST raise-budget returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:prSummaries', async (_event, threadIds: unknown) => {
     if (!Array.isArray(threadIds) || threadIds.some(id => typeof id !== 'string')) {
       throw new Error('threadIds must be an array of strings');

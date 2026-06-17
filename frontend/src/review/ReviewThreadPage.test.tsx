@@ -651,6 +651,35 @@ describe('ReviewThreadPage', () => {
     expect(message).toContain('please recheck the null path');
   });
 
+  it('raises the budget: "+ $0.50" posts a cost bump and "+ 1 round" a debate-round bump', async () => {
+    const detail = buildDetail({});
+    const raiseReviewBudget = vi.fn(
+        async (_passId: string, _addCostMilli: number, _addRounds: number): Promise<ReviewPassDetailDto> => detail);
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+      raiseReviewBudget,
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('+ $0.50'));
+
+    await act(async () => { fireEvent.click(screen.getByText('+ $0.50')); });
+    expect(raiseReviewBudget).toHaveBeenLastCalledWith('pass-1', 500, 0);
+
+    await act(async () => { fireEvent.click(screen.getByText('+ 1 round')); });
+    expect(raiseReviewBudget).toHaveBeenLastCalledWith('pass-1', 0, 1);
+  });
+
+  it('caps the cost raise at $10: the button greys out and reads "$10 max"', async () => {
+    const detail = buildDetail({});
+    detail.pass.costCapMilli = 10_000;          // already at the ceiling
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('$10 max'));
+    expect((screen.getByText('$10 max') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('shows the PR commits (subject only) in the Reviewing card', async () => {
     const detail = buildDetail({});
     installBridge({

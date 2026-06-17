@@ -291,7 +291,7 @@ function SpawnBuildSection(
     <div style={spawnSectionStyle}>
       <button
         type="button"
-        className="button button--secondary"
+        style={(busy || !eligible) ? { ...btnApplyStyle, ...btnApplyDisabledStyle } : btnApplyStyle}
         disabled={busy || !eligible}
         title={eligible ? undefined : disabledReason}
         onClick={() => void onSpawn()}
@@ -1498,6 +1498,27 @@ const spawnSectionStyle: React.CSSProperties = {
   paddingTop: 12,
   borderTop: '1px solid var(--border-subtle)',
 };
+// Dashed-purple "apply findings to the diff" CTA from the design.
+const btnApplyStyle: React.CSSProperties = {
+  width: '100%',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  padding: 9,
+  border: '1.5px dashed rgba(124,92,255,0.4)',
+  background: 'linear-gradient(135deg, rgba(124,92,255,0.04), rgba(56,189,248,0.06))',
+  color: '#5b21b6',
+  borderRadius: 11,
+  fontSize: 11.5,
+  fontWeight: 800,
+  letterSpacing: '0.03em',
+  cursor: 'pointer',
+};
+const btnApplyDisabledStyle: React.CSSProperties = {
+  opacity: 0.5,
+  cursor: 'not-allowed',
+};
 
 const spawnHintStyle: React.CSSProperties = {
   margin: '8px 0 0',
@@ -1924,21 +1945,26 @@ const rosterListStyle: React.CSSProperties = {
 const rosterRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
+  gap: 9,
   fontSize: 13,
+  padding: '7px 9px',
+  borderRadius: 11,
+  background: 'rgba(255,255,255,0.62)',
+  border: '1px solid rgba(124,92,255,0.08)',
 };
 
 const rosterAvatarStyle: React.CSSProperties = {
   flex: '0 0 auto',
-  width: 26,
-  height: 26,
-  borderRadius: '50%',
+  width: 28,
+  height: 28,
+  borderRadius: 9,
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   color: '#fff',
-  fontSize: 12,
-  fontWeight: 700,
+  fontSize: 11.5,
+  fontWeight: 800,
+  boxShadow: '0 1px 3px rgba(15,23,42,0.12)',
 };
 
 const rosterIdentityStyle: React.CSSProperties = {

@@ -828,12 +828,15 @@ function AgendaSection({ agenda, passPhase }: { agenda: AgendaPhaseDto[]; passPh
       <div style={agendaHeadStyle}>{summary}</div>
       <ol style={agendaListStyle}>
         {agenda.map(phase => (
-          <li
-            key={phase.id}
-            style={agendaPhaseStyle(phase.status)}
-            className={phase.status === 'IN_PROGRESS' ? 'review-agenda-glyph--active' : undefined}
-          >
-            {phase.title}
+          <li key={phase.id} style={agendaItemStyle}>
+            <span
+              style={agendaCheckStyle(phase.status)}
+              className={phase.status === 'IN_PROGRESS' ? 'review-agenda-glyph--active' : undefined}
+              aria-hidden
+            >
+              {phase.status === 'DONE' ? '✓' : ''}
+            </span>
+            <span style={agendaPhaseStyle(phase.status)}>{phase.title}</span>
           </li>
         ))}
       </ol>
@@ -973,7 +976,16 @@ function TranscriptSection({
         </button>
       </div>
       {collapsed ? null : items.length === 0 ? (
-        <div style={emptyInlineStyle}>The panel is warming up…</div>
+        <div style={transcriptEmptyStyle}>
+          {running ? (
+            <>
+              <span style={livePulseStyle} className="review-live-dot" aria-hidden />
+              {' '}The panel is warming up…
+            </>
+          ) : (
+            'No panel conversation was recorded for this pass.'
+          )}
+        </div>
       ) : (
         <div style={transcriptScrollStyle}>
           {items.map((item, i) => {
@@ -2371,8 +2383,11 @@ const findingRowStyle: React.CSSProperties = {
 
 const findingBodyStyle: React.CSSProperties = {
   flex: 1,
+  minWidth: 0,
   fontSize: 13,
   lineHeight: 1.5,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
 };
 
 const findingAnchorStyle: React.CSSProperties = {
@@ -2380,6 +2395,8 @@ const findingAnchorStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--text-3)',
   marginBottom: 4,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-all',
 };
 
 const checklistHeadStyle: React.CSSProperties = {
@@ -2452,15 +2469,22 @@ function checklistGlyphStyle(color: string): React.CSSProperties {
 
 const checklistBodyStyle: React.CSSProperties = {
   flex: 1,
+  minWidth: 0,
   fontSize: 12.5,
   lineHeight: 1.5,
   color: 'var(--text-1)',
+  // Long code identifiers + file paths have no natural break points;
+  // let them wrap anywhere so nothing spills past the rail edge.
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
 };
 
 const findingAnchorInlineStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
   fontSize: 11,
   color: 'var(--text-3)',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-all',
 };
 
 function severityDotStyle(color: string): React.CSSProperties {
@@ -2516,6 +2540,35 @@ const agendaListStyle: React.CSSProperties = {
   gap: '6px 18px',
 };
 
+const agendaItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 7,
+};
+/** Checkbox glyph for a phase: filled-green check when done, a gold
+ *  box while in progress, an empty box when still pending. */
+function agendaCheckStyle(status: AgendaPhaseStatusDto): React.CSSProperties {
+  const base: React.CSSProperties = {
+    flexShrink: 0,
+    width: 14,
+    height: 14,
+    marginTop: 1,
+    borderRadius: 4,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 9,
+    fontWeight: 800,
+    boxSizing: 'border-box',
+  };
+  if (status === 'DONE') {
+    return { ...base, background: '#10b981', color: '#fff', border: '1px solid #10b981' };
+  }
+  if (status === 'IN_PROGRESS') {
+    return { ...base, background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.5)' };
+  }
+  return { ...base, background: 'transparent', border: '1px solid var(--border-mid, var(--border))' };
+}
 /** Phase cell in the 2-column agenda grid: the active phase reads gold,
  *  done phases mute out with a strike, pending phases sit grey. */
 function agendaPhaseStyle(status: AgendaPhaseStatusDto): React.CSSProperties {
@@ -2640,6 +2693,17 @@ const emptyStyle: React.CSSProperties = {
 const emptyInlineStyle: React.CSSProperties = {
   fontSize: 13,
   color: 'var(--text-3)',
+};
+const transcriptEmptyStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 7,
+  padding: '40px 16px',
+  fontSize: 12.5,
+  fontStyle: 'italic',
+  color: 'var(--text-3)',
+  textAlign: 'center',
 };
 const emptyStateStyle: React.CSSProperties = {
   padding: '14px 8px 16px',

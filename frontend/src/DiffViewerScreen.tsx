@@ -2600,6 +2600,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
         <AiReviewSidebar
           ref={aiSidebarRef}
           pr={pr}
+          panelFindings={panelFindings}
           collapsed={aiCollapsed}
           onToggleCollapsed={() => {
             setAiCollapsed(prev => {

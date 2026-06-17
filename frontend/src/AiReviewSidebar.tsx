@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties } from 'react';
 import { renderMarkdown } from './markdown';
-import type { AiReviewCommentDto, AiReviewDraftDto, PullRequestDto } from './types';
+import type { AiReviewCommentDto, AiReviewDraftDto, PullRequestDto, ReviewFindingDto } from './types';
 
 type FindingCardProps = {
   c: AiReviewCommentDto;
@@ -49,6 +49,11 @@ type Props = {
    *  {@code undefined} to opt out and let the sidebar own its draft
    *  state alone. */
   draftSnapshot?: AiReviewDraftDto | null;
+  /** Agreed/included findings from the multi-agent review panel, listed at
+   *  the top of the sidebar as a navigable summary (click jumps to the
+   *  finding on the diff, where it can be edited). Separate from the
+   *  single-AI-review draft this sidebar otherwise manages. */
+  panelFindings?: ReviewFindingDto[];
 };
 
 export type AiReviewSidebarHandle = {
@@ -219,7 +224,7 @@ function FindingCard({ c, draftId, draftPublished, onJump, onDraftUpdated }: Fin
 }
 
 const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiReviewSidebar(
-  { pr, onJumpToFile, collapsed, onToggleCollapsed, onDraftChange, draftSnapshot },
+  { pr, onJumpToFile, collapsed, onToggleCollapsed, onDraftChange, draftSnapshot, panelFindings },
   ref,
 ) {
   const [state, setState] = useState<RunState>('idle');
@@ -443,6 +448,31 @@ const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiRevi
       </header>
 
       <div className="ai-sidebar__body">
+        {panelFindings !== undefined && panelFindings.length > 0 && (
+          <div style={panelSectionStyle}>
+            <div style={panelSectionHeadStyle}>
+              ⚖ Panel findings <span style={panelSectionCountStyle}>{panelFindings.length}</span>
+            </div>
+            {panelFindings.map(f => {
+              const loc = f.path != null
+                ? `${f.path.split('/').pop()}${f.line != null ? `:${f.line}` : ''}`
+                : 'whole PR';
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  style={panelRowStyle}
+                  onClick={() => { if (f.path != null) onJumpToFile?.(f.path, f.line ?? undefined, 'RIGHT'); }}
+                  title={f.path != null ? `Jump to ${f.path}${f.line != null ? `:${f.line}` : ''} on the diff` : undefined}
+                >
+                  <span style={panelRowSevStyle(f.severity)}>{f.severity.toLowerCase()}</span>
+                  <span style={panelRowLocStyle}>{loc}</span>
+                  <span style={panelRowTextStyle}>{firstLine(f.body)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         {state === 'running' && !draft && (
           <div className="ai-sidebar__placeholder">
             {activeProviderName} is reading the diff. Findings will appear here when the run finishes.
@@ -472,5 +502,46 @@ const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiRevi
     </aside>
   );
 });
+
+function firstLine(body: string): string {
+  const line = body.split('\n').find(l => l.trim().length > 0) ?? body;
+  return line.trim();
+}
+
+const panelSectionStyle: CSSProperties = {
+  marginBottom: 10,
+  paddingBottom: 8,
+  borderBottom: '1px solid var(--border)',
+};
+const panelSectionHeadStyle: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+  letterSpacing: '0.04em', color: 'var(--text-2)', marginBottom: 6,
+};
+const panelSectionCountStyle: CSSProperties = {
+  fontSize: 10, fontWeight: 700, color: '#6d28d9',
+  background: 'rgba(139,92,246,0.12)', borderRadius: 8, padding: '1px 7px',
+};
+const panelRowStyle: CSSProperties = {
+  display: 'flex', alignItems: 'baseline', gap: 7, width: '100%',
+  textAlign: 'left', background: 'none', border: 'none',
+  padding: '5px 2px', cursor: 'pointer', borderRadius: 6,
+};
+const panelRowLocStyle: CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 10.5, color: 'var(--text-3)', flexShrink: 0,
+};
+const panelRowTextStyle: CSSProperties = {
+  fontSize: 12, color: 'var(--text-1)', overflow: 'hidden',
+  textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0,
+};
+function panelRowSevStyle(severity: string): CSSProperties {
+  const s = severity.toLowerCase();
+  const color = s === 'blocker' ? '#dc2626'
+    : s === 'major' ? '#ea580c'
+    : s === 'question' ? '#2563eb'
+    : '#737373';
+  return { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', color, flexShrink: 0 };
+}
 
 export default AiReviewSidebar;

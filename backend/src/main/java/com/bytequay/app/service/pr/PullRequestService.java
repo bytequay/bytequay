@@ -16,6 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
@@ -1206,8 +1207,8 @@ public class PullRequestService
         Map<String, String> verdicts = pr.reviewerVerdicts();
         if (verdicts != null) {
             for (String v : verdicts.values()) {
-                if ("CHANGES_REQUESTED".equals(v)) {
-                    return "CHANGES_REQUESTED";
+                if (GithubReviewState.CHANGES_REQUESTED.equals(v)) {
+                    return GithubReviewState.CHANGES_REQUESTED;
                 }
             }
         }
@@ -1388,10 +1389,10 @@ public class PullRequestService
             if (r == null || !currentLogin.equalsIgnoreCase(r.login())) {
                 continue;
             }
-            if ("APPROVED".equals(r.state())) {
+            if (GithubReviewState.APPROVED.equals(r.state())) {
                 derived = HandledAction.APPROVED;
             }
-            else if ("CHANGES_REQUESTED".equals(r.state())) {
+            else if (GithubReviewState.CHANGES_REQUESTED.equals(r.state())) {
                 derived = HandledAction.CHANGES_REQUESTED;
             }
             else if ("DISMISSED".equals(r.state())) {

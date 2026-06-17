@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.teams;
 
+import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MyPrColumn;
 import com.bytequay.app.domain.PullRequest;
@@ -86,8 +87,8 @@ final class TeamPullCategorizer
         Map<String, String> verdicts = pr.reviewerVerdicts() == null
                 ? Map.of()
                 : pr.reviewerVerdicts();
-        boolean hasApproval = verdicts.containsValue("APPROVED");
-        boolean hasChangesRequested = verdicts.containsValue("CHANGES_REQUESTED");
+        boolean hasApproval = verdicts.containsValue(GithubReviewState.APPROVED);
+        boolean hasChangesRequested = verdicts.containsValue(GithubReviewState.CHANGES_REQUESTED);
 
         if (hasApproval
                 && !hasChangesRequested

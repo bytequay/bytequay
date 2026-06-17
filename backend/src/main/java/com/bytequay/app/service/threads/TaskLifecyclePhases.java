@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
@@ -106,6 +107,6 @@ final class TaskLifecyclePhases
         Map<String, String> verdicts = pr.reviewerVerdicts();
         return verdicts != null
                 && verdicts.values().stream()
-                        .anyMatch(v -> "CHANGES_REQUESTED".equalsIgnoreCase(v));
+                        .anyMatch(v -> GithubReviewState.CHANGES_REQUESTED.equalsIgnoreCase(v));
     }
 }

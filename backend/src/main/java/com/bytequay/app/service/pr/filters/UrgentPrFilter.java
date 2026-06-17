@@ -14,6 +14,7 @@
 package com.bytequay.app.service.pr.filters;
 
 import com.bytequay.app.domain.AttentionReason;
+import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
@@ -122,10 +123,10 @@ public class UrgentPrFilter
             return false;
         }
         Map<String, String> verdicts = pr.reviewerVerdicts();
-        if (verdicts == null || !verdicts.containsValue("APPROVED")) {
+        if (verdicts == null || !verdicts.containsValue(GithubReviewState.APPROVED)) {
             return false;
         }
-        if (verdicts.containsValue("CHANGES_REQUESTED")) {
+        if (verdicts.containsValue(GithubReviewState.CHANGES_REQUESTED)) {
             return false;
         }
         return pr.ciStatus() == PullRequestDetail.CiStatus.PASSING
@@ -136,7 +137,7 @@ public class UrgentPrFilter
     {
         return pr.origin() == PullRequest.Origin.AUTHORED
                 && pr.reviewerVerdicts() != null
-                && pr.reviewerVerdicts().containsValue("CHANGES_REQUESTED");
+                && pr.reviewerVerdicts().containsValue(GithubReviewState.CHANGES_REQUESTED);
     }
 
     private static boolean ciFailing(PullRequest pr)

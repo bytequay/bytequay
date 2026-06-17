@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.PrAnalyticsSummary;
 import com.bytequay.app.domain.PrAnalyticsSummary.CoReviewer;
 import com.bytequay.app.domain.PrAnalyticsSummary.DailyActivity;
@@ -82,7 +83,8 @@ public class PrAnalyticsService
     private static final int DAILY_MAX_DAYS_ALL = 90;
     private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final List<String> OUTCOME_ORDER = ImmutableList.of(
-            "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED");
+            GithubReviewState.APPROVED, GithubReviewState.CHANGES_REQUESTED,
+            GithubReviewState.COMMENTED, GithubReviewState.DISMISSED);
     // Tuned to land most everyday changes in Small / Medium and reserve
     // the tail buckets for "this PR needs a meeting" outliers. Edges
     // inclusive on the upper bound — a 99-line PR lands in Small.
@@ -244,7 +246,7 @@ public class PrAnalyticsService
                 continue;
             }
             prCount++;
-            if ("APPROVED".equalsIgnoreCase(latestVerdict)) {
+            if (GithubReviewState.APPROVED.equalsIgnoreCase(latestVerdict)) {
                 approved++;
             }
             outcomeCounts.merge(latestVerdict.toUpperCase(Locale.ROOT), 1, Integer::sum);
@@ -427,10 +429,10 @@ public class PrAnalyticsService
             return -1;
         }
         return switch (state.toUpperCase(Locale.ROOT)) {
-            case "APPROVED" -> 0;
-            case "CHANGES_REQUESTED" -> 1;
-            case "COMMENTED" -> 2;
-            case "DISMISSED" -> 3;
+            case GithubReviewState.APPROVED -> 0;
+            case GithubReviewState.CHANGES_REQUESTED -> 1;
+            case GithubReviewState.COMMENTED -> 2;
+            case GithubReviewState.DISMISSED -> 3;
             default -> -1;
         };
     }

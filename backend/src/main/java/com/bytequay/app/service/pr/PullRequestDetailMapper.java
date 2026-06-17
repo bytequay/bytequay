@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
@@ -181,12 +182,12 @@ final class PullRequestDetailMapper
 
     static int countApprovals(List<PrReviewState> reviews)
     {
-        return (int) reviews.stream().filter(review -> "APPROVED".equals(review.state())).count();
+        return (int) reviews.stream().filter(review -> GithubReviewState.APPROVED.equals(review.state())).count();
     }
 
     static int countChangesRequested(List<PrReviewState> reviews)
     {
-        return (int) reviews.stream().filter(review -> "CHANGES_REQUESTED".equals(review.state())).count();
+        return (int) reviews.stream().filter(review -> GithubReviewState.CHANGES_REQUESTED.equals(review.state())).count();
     }
 
     static PullRequestDetail.CiStatus aggregateCiStatus(List<PrCheckRunState> checkRuns)
@@ -274,8 +275,8 @@ final class PullRequestDetailMapper
 
     private static boolean isStickyVerdict(String state)
     {
-        return "APPROVED".equals(state)
-                || "CHANGES_REQUESTED".equals(state)
-                || "DISMISSED".equals(state);
+        return GithubReviewState.APPROVED.equals(state)
+                || GithubReviewState.CHANGES_REQUESTED.equals(state)
+                || GithubReviewState.DISMISSED.equals(state);
     }
 }

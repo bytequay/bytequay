@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.pr.filters;
 
+import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
@@ -51,6 +52,6 @@ public class BlockedPrFilter
             return false;
         }
         return pr.reviewerVerdicts() != null
-                && pr.reviewerVerdicts().containsValue("CHANGES_REQUESTED");
+                && pr.reviewerVerdicts().containsValue(GithubReviewState.CHANGES_REQUESTED);
     }
 }

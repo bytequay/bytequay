@@ -13,7 +13,8 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -50,49 +51,36 @@ public class ToolFileOps
         if (toolName == null || inputJson == null || inputJson.isEmpty()) {
             return ImmutableList.of();
         }
-        JsonNode input;
+        ToolInput input;
         try {
-            input = mapper.readTree(inputJson);
+            input = mapper.readValue(inputJson, ToolInput.class);
         }
         catch (Exception ignored) {
             return ImmutableList.of();
         }
-        if (!input.isObject()) {
-            return ImmutableList.of();
-        }
+        // countLines is null-safe, so the optional string fields can be
+        // passed straight through.
         return switch (toolName) {
-            case "Read" -> singleton(textOrNull(input, "file_path"), "read", 0, 0);
-            case "Write" -> {
-                String path = textOrNull(input, "file_path");
-                int lines = countLines(textOrEmpty(input, "content"));
-                yield singleton(path, "write", lines, 0);
-            }
+            case "Read" -> singleton(input.filePath(), "read", 0, 0);
+            case "Write" -> singleton(input.filePath(), "write", countLines(input.content()), 0);
             case "Edit", "NotebookEdit" -> {
-                String path = textOrNull(input, "file_path");
-                String oldStr = textOrEmpty(input, "old_string");
-                String newStr = textOrEmpty(input, "new_string");
-                int added = Math.max(0, countLines(newStr) - countLines(oldStr));
-                int removed = Math.max(0, countLines(oldStr) - countLines(newStr));
-                yield singleton(path, "edit", added, removed);
+                int added = Math.max(0, countLines(input.newString()) - countLines(input.oldString()));
+                int removed = Math.max(0, countLines(input.oldString()) - countLines(input.newString()));
+                yield singleton(input.filePath(), "edit", added, removed);
             }
             case "MultiEdit" -> {
-                String path = textOrNull(input, "file_path");
-                if (path == null) {
-                    yield ImmutableList.of();
-                }
-                JsonNode edits = input.path("edits");
-                if (!edits.isArray()) {
+                if (input.filePath() == null || input.edits() == null) {
                     yield ImmutableList.of();
                 }
                 int added = 0;
                 int removed = 0;
-                for (JsonNode edit : edits) {
-                    int o = countLines(textOrEmpty(edit, "old_string"));
-                    int n = countLines(textOrEmpty(edit, "new_string"));
+                for (ToolInput.Edit edit : input.edits()) {
+                    int o = countLines(edit.oldString());
+                    int n = countLines(edit.newString());
                     added += Math.max(0, n - o);
                     removed += Math.max(0, o - n);
                 }
-                yield ImmutableList.of(new FileOp(path, "edit", added, removed));
+                yield ImmutableList.of(new FileOp(input.filePath(), "edit", added, removed));
             }
             default -> ImmutableList.of();
         };
@@ -106,16 +94,24 @@ public class ToolFileOps
         return ImmutableList.of(new FileOp(path, op, added, removed));
     }
 
-    private static String textOrNull(JsonNode node, String field)
+    /**
+     * The union of the file-touching Claude Code tool inputs we read —
+     * {@code file_path} plus the {@code Write}/{@code Edit} payload fields
+     * and the {@code MultiEdit} {@code edits} array. Binding to this record
+     * (unknown keys ignored) replaces poking at a raw JSON tree.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ToolInput(
+            @JsonProperty("file_path") String filePath,
+            @JsonProperty("content") String content,
+            @JsonProperty("old_string") String oldString,
+            @JsonProperty("new_string") String newString,
+            @JsonProperty("edits") List<Edit> edits)
     {
-        JsonNode v = node.path(field);
-        return v.isTextual() ? v.asText() : null;
-    }
-
-    private static String textOrEmpty(JsonNode node, String field)
-    {
-        JsonNode v = node.path(field);
-        return v.isTextual() ? v.asText() : "";
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Edit(
+                @JsonProperty("old_string") String oldString,
+                @JsonProperty("new_string") String newString) {}
     }
 
     private static int countLines(String s)

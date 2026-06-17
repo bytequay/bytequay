@@ -1519,10 +1519,10 @@ const pageStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
-  padding: '20px 24px',
+  // Fill the window — no centered max-width cap, so wide displays use
+  // the full width instead of leaving large side gutters.
+  padding: '14px 20px 16px',
   background: 'transparent',
-  margin: '0 auto',
-  maxWidth: 1320,
   boxSizing: 'border-box',
 };
 
@@ -1631,10 +1631,14 @@ const panelBadgeStyle: React.CSSProperties = {
 const bodyGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '272px minmax(0, 1fr) 308px',
+  // Pin the single row to fill the grid's height with a 0 floor. Without
+  // this the row is `auto` and the center column's flex:1 transcript
+  // (an internal scroll area) collapses to ~0, leaving the conversation
+  // invisible even though the bubbles are in the DOM.
+  gridTemplateRows: 'minmax(0, 1fr)',
   gap: 14,
   flex: 1,
   minHeight: 0,
-  alignItems: 'stretch',
 };
 
 // The rails scroll on their own so a tall panel never pushes the page —

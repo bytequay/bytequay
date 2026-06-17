@@ -277,9 +277,10 @@ public class Ds4LifecycleService
     {
         Ds4Config cfg = loadConfig();
         if (!cfg.enabled()) {
-            // Local AI switched off — never spawn, attach, or hold any
-            // Metal/GPU resources. Shutdown stays a no-op.
-            transition(Ds4Status.disabled(endpointFor(cfg)));
+            // Local AI is off (the experimental default). The constructor
+            // already parked us at DISABLED, so do nothing at all here:
+            // never spawn or attach, hold no Metal/GPU resources, and
+            // print no boot info — the feature is invisible until opted in.
             return;
         }
         if (!cfg.canStart()) {
@@ -305,6 +306,13 @@ public class Ds4LifecycleService
     @PreDestroy
     void shutdown()
     {
+        if (status.get().state() == Ds4State.DISABLED) {
+            // Local AI off — nothing was ever spawned, so skip the
+            // teardown path entirely: no SIGTERM, no PID-file churn, no
+            // shutdown logging. Just drop the idle supervisor thread.
+            supervisor.shutdownNow();
+            return;
+        }
         try {
             stopBlocking(SHUTDOWN_GRACE);
         }

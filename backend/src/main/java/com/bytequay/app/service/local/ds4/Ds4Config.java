@@ -68,9 +68,11 @@ import java.util.Locale;
  *                          rather than abort.
  * @param enabled           master switch for local AI. When false the
  *                          lifecycle service never spawns, attaches, or
- *                          restarts, holds no Metal/GPU resources, and
- *                          tears down as a no-op. Defaults true so
- *                          existing installs keep their behaviour.
+ *                          restarts, holds no Metal/GPU resources, logs
+ *                          nothing, and tears down as a no-op. Local AI
+ *                          is an experimental feature, so this defaults
+ *                          <strong>false</strong>: a fresh install holds
+ *                          no GPU state until the user opts in.
  */
 public record Ds4Config(
         String binaryPath,
@@ -118,7 +120,10 @@ public record Ds4Config(
                 /* autoRestartOnCrash */ true,
                 /* autoStartOnBoot */ true,
                 /* attachIfRunning */ true,
-                /* enabled */ true);
+                // Experimental feature — off until the user explicitly
+                // opts in, so a fresh install never spawns ds4 or holds
+                // any Metal/GPU resources behind their back.
+                /* enabled */ false);
     }
 
     /** Persistent path under {@code ~/Library/Application Support/ds4/kv}

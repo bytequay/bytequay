@@ -58,11 +58,13 @@ export default function LocalAiPage() {
   return (
     <div style={pageStyle}>
       <header style={headerWrapStyle}>
-        <h1 style={titleStyle}>Local AI (ds4)</h1>
+        <h1 style={titleStyle}>Local AI (ds4) · Experimental</h1>
         <p style={subtitleStyle}>
-          Run and manage the local DeepSeek V4 Flash inference server.
-          The server is shared with external clients that may already
-          be connected; Stop and Restart affect every consumer at once.
+          Experimental: run a local DeepSeek V4 Flash inference server on
+          your own machine. It's off by default and needs real GPU memory
+          to run, so treat it as a preview that may change or break. The
+          server is shared with external clients that may already be
+          connected; Stop and Restart affect every consumer at once.
         </p>
       </header>
 
@@ -299,17 +301,19 @@ function Ds4ManagementTab({
   return (
     <div style={tabBodyStyle}>
       {config !== null && (
-        <Card title="Local AI">
+        <Card title="Local AI · Experimental">
           <p style={mutedStyle}>
-            Master switch. When off, ByteQuay never spawns or attaches the
-            local ds4 model server, holds no GPU resources, and shuts down
-            instantly. The lifecycle options below have no effect until
-            this is on.
+            Experimental master switch, off by default. While off, ByteQuay
+            never spawns or attaches the local ds4 model server, holds no
+            GPU resources, logs nothing about it, and shuts down instantly —
+            the feature stays completely dormant. Turn it on only if you
+            want to try the local inference preview; the lifecycle options
+            below have no effect until then.
           </p>
           <div style={toggleListStyle}>
             <Toggle
-              label="Enable local AI (ds4)"
-              hint="Turn the local DeepSeek inference server on or off entirely."
+              label="Enable local AI (ds4) — experimental"
+              hint="Opt in to the local DeepSeek inference server. Off by default."
               value={config.enabled}
               onChange={(v) => persistFlag(config, setConfig, 'enabled', v)}
             />

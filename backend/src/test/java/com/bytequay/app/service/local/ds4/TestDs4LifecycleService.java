@@ -38,9 +38,25 @@ import static org.mockito.Mockito.mock;
 class TestDs4LifecycleService
 {
     @Test
-    void freshInstallStaysInNotConfiguredUntilBinaryPathIsSet()
+    void freshInstallIsDisabledByDefault()
+    {
+        // Local AI is experimental, so an untouched install holds no GPU
+        // state: with nothing in app_settings the master switch resolves
+        // to its baked-off default and the supervisor parks at DISABLED.
+        InMemorySettings settings = new InMemorySettings();
+        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+
+        Ds4Status snap = service.status();
+        assertThat(snap.state()).isEqualTo(Ds4State.DISABLED);
+        assertThat(snap.pid()).isEqualTo(-1L);
+        assertThat(snap.spawnedByUs()).isFalse();
+    }
+
+    @Test
+    void enabledWithoutBinaryStaysInNotConfiguredUntilBinaryPathIsSet()
     {
         InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_ENABLED, "true");
         Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
 
         Ds4Status snap = service.status();
@@ -88,6 +104,7 @@ class TestDs4LifecycleService
     void togglingEnabledOffParksDisabledAndBackOnRestoresStopped()
     {
         InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_ENABLED, "true");
         settings.set(Key.DS4_BINARY_PATH, "/usr/local/bin/ds4-server");
         Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
         assertThat(service.status().state()).isEqualTo(Ds4State.STOPPED);
@@ -125,7 +142,7 @@ class TestDs4LifecycleService
                 cfg.thinkingDefault(), cfg.trace(),
                 cfg.repoDir(), cfg.modelVariant(), cfg.installUrl(),
                 cfg.autoRestartOnCrash(), cfg.autoStartOnBoot(), cfg.attachIfRunning(),
-                cfg.enabled());
+                /* enabled */ true);
         service.setConfig(withPath);
 
         Ds4Status snap = service.status();
@@ -139,6 +156,7 @@ class TestDs4LifecycleService
             throws InterruptedException
     {
         InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_ENABLED, "true");
         settings.set(Key.DS4_BINARY_PATH, ""); // explicit blank
         Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
 
@@ -155,6 +173,7 @@ class TestDs4LifecycleService
             throws InterruptedException
     {
         InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_ENABLED, "true");
         settings.set(Key.DS4_BINARY_PATH, workingDir.resolve("does-not-exist").toString());
         Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
 
@@ -229,6 +248,7 @@ class TestDs4LifecycleService
         Path fakeBinary = writeFakeServer(workingDir, port);
 
         InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_ENABLED, "true");
         settings.set(Key.DS4_BINARY_PATH, fakeBinary.toString());
         settings.set(Key.DS4_PORT, Integer.toString(port));
         // The fake server doesn't understand the real CLI flags

@@ -1311,7 +1311,9 @@ function DispatchGroupBubble({
                 >
                   @{reviewer?.personaLabel ?? reviewerId}
                 </button>
-                <span style={dispatchBodyStyle}>{stripLeadingMention(d.body, reviewer?.personaLabel)}</span>
+                <div style={dispatchBodyStyle}>
+                  <MarkdownProse text={stripLeadingMention(d.body, reviewer?.personaLabel)} />
+                </div>
                 {reviewerId !== '' && (
                   <span style={hasResponse(reviewerId) ? dispatchGotDoneStyle : dispatchGotWaitStyle}>
                     {hasResponse(reviewerId) ? '✓ responded' : '· waiting'}
@@ -2713,7 +2715,7 @@ const dispatchListStyle: React.CSSProperties = {
 
 const dispatchRowStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'baseline',
+  alignItems: 'flex-start',
   gap: 6,
   fontSize: 12.5,
   lineHeight: 1.45,

@@ -28,17 +28,18 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -428,26 +429,15 @@ class SqliteThreadStore
      *  jsr310 module being registered on the ambient ObjectMapper. */
     private String serialiseQueue(List<QueuedTask> queue)
     {
-        ArrayNode arr = objectMapper.createArrayNode();
-        if (queue != null) {
-            for (QueuedTask q : queue) {
-                ObjectNode node = objectMapper.createObjectNode();
-                node.put("position", q.position());
-                node.put("title", q.title());
-                node.put("branch_base", q.branchBase().wire());
-                if (q.initialPrompt() != null) {
-                    node.put("initial_prompt", q.initialPrompt());
-                }
-                node.put("status", q.status().name());
-                if (q.materializedTaskId() != null) {
-                    node.put("materialized_task_id", q.materializedTaskId());
-                }
-                node.put("created_at_ms",
-                        q.createdAt() == null ? 0L : q.createdAt().toEpochMilli());
-                arr.add(node);
-            }
+        List<QueuedTaskRow> rows = (queue == null ? List.<QueuedTask>of() : queue).stream()
+                .map(QueuedTaskRow::from)
+                .toList();
+        try {
+            return objectMapper.writeValueAsString(rows);
         }
-        return arr.toString();
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialise task queue", e);
+        }
     }
 
     private List<QueuedTask> deserialiseQueue(String json)
@@ -456,29 +446,59 @@ class SqliteThreadStore
             return List.of();
         }
         try {
-            JsonNode root = objectMapper.readTree(json);
-            if (!root.isArray()) {
-                return List.of();
-            }
-            List<QueuedTask> out = new ArrayList<>(root.size());
-            for (JsonNode node : root) {
-                long createdMs = node.path("created_at_ms").asLong(0L);
-                out.add(new QueuedTask(
-                        node.path("position").asInt(),
-                        node.path("title").asText(""),
-                        BranchBase.fromWire(node.path("branch_base").asText(null)),
-                        node.hasNonNull("initial_prompt") ? node.get("initial_prompt").asText() : null,
-                        QueuedTaskStatus.fromWire(node.path("status").asText(null)),
-                        node.hasNonNull("materialized_task_id")
-                                ? node.get("materialized_task_id").asText() : null,
-                        Instant.ofEpochMilli(createdMs)));
-            }
-            return List.copyOf(out);
+            return Arrays.stream(objectMapper.readValue(json, QueuedTaskRow[].class))
+                    .map(QueuedTaskRow::toDomain)
+                    .toList();
         }
         catch (JsonProcessingException e) {
             // A malformed queue row shouldn't break the whole thread
             // load — treat as an empty queue.
             return List.of();
+        }
+    }
+
+    /**
+     * The persisted wire shape of one queue entry — shared with the
+     * frontend's {@code GET /threads/{id}} read. Owning the snake_case
+     * field names plus the {@code Instant}↔epoch-ms and enum↔wire
+     * conversions here means the store binds through this record instead
+     * of poking at a raw JSON tree. {@code NON_NULL} keeps the optional
+     * fields omitted (matching the original output; {@code title} is
+     * always present in practice), and unknown keys are tolerated.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record QueuedTaskRow(
+            @JsonProperty("position") int position,
+            @JsonProperty("title") String title,
+            @JsonProperty("branch_base") String branchBase,
+            @JsonProperty("initial_prompt") String initialPrompt,
+            @JsonProperty("status") String status,
+            @JsonProperty("materialized_task_id") String materializedTaskId,
+            @JsonProperty("created_at_ms") long createdAtMs)
+    {
+        static QueuedTaskRow from(QueuedTask q)
+        {
+            return new QueuedTaskRow(
+                    q.position(),
+                    q.title(),
+                    q.branchBase().wire(),
+                    q.initialPrompt(),
+                    q.status().name(),
+                    q.materializedTaskId(),
+                    q.createdAt() == null ? 0L : q.createdAt().toEpochMilli());
+        }
+
+        QueuedTask toDomain()
+        {
+            return new QueuedTask(
+                    position,
+                    title == null ? "" : title,
+                    BranchBase.fromWire(branchBase),
+                    initialPrompt,
+                    QueuedTaskStatus.fromWire(status),
+                    materializedTaskId,
+                    Instant.ofEpochMilli(createdAtMs));
         }
     }
 

@@ -782,7 +782,11 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
             onOpenThread={onOpenThread}
             onStartReview={onStartReview}
           />
-        ) : deepLinkPending && initialPrNumber != null ? (
+        ) : (deepLinkPending || initialOpenDiff) && initialPrNumber != null ? (
+          // While a PR deep-link (incl. the review panel's "View findings on
+          // the diff") is still resolving, show the loading state rather than
+          // flashing the "pick a PR" placeholder for the seconds it takes to
+          // fetch the PR and open the diff.
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />
         ) : (
           <NoSelectionPlaceholder tab={tab} repo={`${owner}/${repo}`} />

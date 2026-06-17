@@ -28,6 +28,9 @@ import type {
 type Props = {
   threadId: string;
   onBack: () => void;
+  /** Open the reviewed PR in the app's PR detail view. Optional so the
+   *  page still renders standalone (the PR ref just isn't clickable). */
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
 };
 
 /** Read-only view of a review pass: the panel roster, the
@@ -36,7 +39,7 @@ type Props = {
  *  reviewer + suggested verdict; the gated "Post review to PR"
  *  affordance is a disabled placeholder here and lands in a follow-up
  *  commit. */
-function ReviewThreadPage({ threadId, onBack }: Props) {
+function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
   const [detail, setDetail] = useState<ReviewPassDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +145,7 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
       <TopBar
         detail={detail}
         onBack={onBack}
+        onOpenPr={onOpenPr}
       />
 
       {error !== null && (
@@ -161,7 +165,7 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
       {detail !== null && (
         <div style={bodyGridStyle}>
           <aside style={leftRailStyle}>
-            <ReviewingCard detail={detail} />
+            <ReviewingCard detail={detail} onOpenPr={onOpenPr} />
             <RosterSection participants={detail.participants} leadId={leadId} />
             <FlowStepper currentPhase={detail.pass.phase} />
             <BudgetCard detail={detail} />
@@ -326,7 +330,26 @@ function isMajorOrHigher(severity: ReviewFindingSeverityDto): boolean {
  *  meters on the right. The mockup's round meter is gone: the lead
  *  drives phases against the agenda now, so the agenda widget carries
  *  in-pass progress and the cost cap is the budget signal. */
-function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack: () => void }) {
+/** Build a click handler that opens the reviewed PR in-app, or undefined
+ *  when there's no navigation callback / a malformed repo slug. */
+function prOpener(
+  detail: ReviewPassDetailDto,
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void,
+): (() => void) | undefined {
+  if (onOpenPr === undefined) return undefined;
+  const slash = detail.pass.repoFullName.indexOf('/');
+  if (slash <= 0) return undefined;
+  const owner = detail.pass.repoFullName.slice(0, slash);
+  const repo = detail.pass.repoFullName.slice(slash + 1);
+  return () => onOpenPr(owner, repo, detail.pass.prNumber);
+}
+
+function TopBar({ detail, onBack, onOpenPr }: {
+  detail: ReviewPassDetailDto | null;
+  onBack: () => void;
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
+}) {
+  const open = detail !== null ? prOpener(detail, onOpenPr) : undefined;
   const costMilli = detail?.pass.costUsdMilli ?? 0;
   const costCapMilli = detail?.pass.costCapMilli ?? 0;
   const costPct = costCapMilli > 0 ? Math.min(100, (costMilli / costCapMilli) * 100) : 0;
@@ -342,9 +365,15 @@ function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack
       <div style={breadcrumbStyle}>
         {detail ? (
           <>
-            <span style={breadcrumbLeadStyle}>
-              {detail.pass.repoFullName} · PR #{detail.pass.prNumber} ·{' '}
-            </span>
+            <span style={breadcrumbLeadStyle}>{detail.pass.repoFullName} · </span>
+            {open !== undefined ? (
+              <button type="button" style={prLinkStyle} onClick={open} title="Open this PR">
+                PR #{detail.pass.prNumber}
+              </button>
+            ) : (
+              <span style={breadcrumbLeadStyle}>PR #{detail.pass.prNumber}</span>
+            )}
+            <span style={breadcrumbLeadStyle}> · </span>
             <span style={breadcrumbTitleStyle}>
               {detail.prTitle ?? `${detail.pass.repoFullName}#${detail.pass.prNumber}`}
             </span>
@@ -382,11 +411,21 @@ function costColor(pct: number): string {
 /** Left-rail "Reviewing" card — a compact PR summary so the user can
  *  see which PR the panel is working on without scrolling away to
  *  the PR detail page. */
-function ReviewingCard({ detail }: { detail: ReviewPassDetailDto }) {
+function ReviewingCard({ detail, onOpenPr }: {
+  detail: ReviewPassDetailDto;
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
+}) {
+  const open = prOpener(detail, onOpenPr);
   return (
     <section style={cardStyle} aria-label="Reviewing">
       <h2 style={cardTitleStyle}>Reviewing</h2>
-      <div style={prNumStyle}>#{detail.pass.prNumber}</div>
+      {open !== undefined ? (
+        <button type="button" style={prNumLinkStyle} onClick={open} title="Open this PR">
+          #{detail.pass.prNumber}
+        </button>
+      ) : (
+        <div style={prNumStyle}>#{detail.pass.prNumber}</div>
+      )}
       {detail.prTitle && <div style={reviewingTitleStyle}>{detail.prTitle}</div>}
       <div style={reviewingMetaStyle}>
         <span style={reviewingRepoStyle}>{detail.pass.repoFullName}</span>
@@ -1791,6 +1830,29 @@ const prNumStyle: React.CSSProperties = {
   fontWeight: 600,
   color: 'var(--accent, #2563eb)',
   fontVariantNumeric: 'tabular-nums',
+};
+// Clickable PR number (left-rail) — same look as prNumStyle, button reset.
+const prNumLinkStyle: React.CSSProperties = {
+  ...prNumStyle,
+  background: 'none',
+  border: 0,
+  padding: 0,
+  cursor: 'pointer',
+  textDecoration: 'underline',
+  textUnderlineOffset: 2,
+};
+// Clickable "PR #N" in the top-bar breadcrumb — GitHub-green link.
+const prLinkStyle: React.CSSProperties = {
+  font: 'inherit',
+  color: '#16a34a',
+  fontWeight: 700,
+  background: 'none',
+  border: 0,
+  padding: 0,
+  cursor: 'pointer',
+  textDecoration: 'underline',
+  textUnderlineOffset: 2,
+  whiteSpace: 'nowrap',
 };
 
 const reviewingMetaStyle: React.CSSProperties = {

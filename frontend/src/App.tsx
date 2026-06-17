@@ -737,6 +737,9 @@ function App() {
           <ReviewThreadPage
             threadId={nav.threadId}
             onBack={() => setNav(nav.back ?? { view: 'home' })}
+            onOpenPr={(owner, repo, prNumber) => setNav({
+              view: 'repo', owner, repo, prNumber, back: nav,
+            })}
           />
         )}
         {nav.view === 'workspaces-landing' && (

@@ -49,7 +49,10 @@ describe('ReviewThreadPage', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Add retry logic').length).toBeGreaterThanOrEqual(1);
     });
-    expect(screen.getByText(/acme\/widget · PR #42/)).toBeTruthy();
+    // The breadcrumb shows the repo + PR ref (split across elements now
+    // that the PR ref can be a link).
+    expect(screen.getAllByText(/acme\/widget/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('PR #42')).toBeTruthy();
     expect(screen.getByText('comment')).toBeTruthy();
 
     // Each persona label can appear in multiple places: the roster
@@ -603,6 +606,19 @@ describe('ReviewThreadPage', () => {
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
     await waitFor(() => screen.getByText('Nothing locked in yet.'));
     expect(screen.getByText('All disagreements resolved or arbitrated.')).toBeTruthy();
+  });
+
+  it('opens the PR in-app when the PR ref is clicked (repo split into owner/repo)', async () => {
+    const detail = buildDetail({});
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+    const onOpenPr = vi.fn();
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} onOpenPr={onOpenPr} />);
+
+    await waitFor(() => screen.getByRole('button', { name: 'PR #42' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'PR #42' })); });
+    expect(onOpenPr).toHaveBeenCalledWith('acme', 'widget', 42);
   });
 
   it('renders leaked DSML tool-call tokens as clean tool cards, not raw markup', async () => {

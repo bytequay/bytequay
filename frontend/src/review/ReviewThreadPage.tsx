@@ -534,6 +534,10 @@ const FLOW_PHASES: { id: string; label: string }[] = [
   { id: 'CROSS_REVIEW', label: 'Cross-review' },
   { id: 'CONSENSUS', label: 'Consensus' },
   { id: 'DEBATE', label: 'Debate' },
+  // TERMINATE is the post-debate "results finalized" state in the backend
+  // ReviewPhase enum. Without it here, a finished pass (phase=TERMINATE)
+  // matched no row and the whole stepper rendered greyed-out.
+  { id: 'TERMINATE', label: 'Wrap-up' },
   { id: 'ARBITRATE', label: 'Arbitrate' },
   { id: 'PUBLISHED', label: 'Publish' },
 ];

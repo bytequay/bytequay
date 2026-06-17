@@ -689,6 +689,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:spawnBuild', { passId, ...(opts ?? {}) }),
   arbitrateReviewFinding: (passId: string, findingId: string, resolution: 'include' | 'drop') =>
     ipcRenderer.invoke('reviews:arbitrate', { passId, findingId, resolution }),
+  editReviewFinding: (passId: string, findingId: string, comment: string) =>
+    ipcRenderer.invoke('reviews:editFinding', { passId, findingId, comment }),
   steerReview: (passId: string, targetParticipantId: string, message: string) =>
     ipcRenderer.invoke('reviews:steer', { passId, targetParticipantId, message }),
   raiseReviewBudget: (passId: string, addCostMilli: number, addRounds: number) =>

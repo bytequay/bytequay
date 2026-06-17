@@ -681,6 +681,23 @@ class TestReviewPassService
     }
 
     @Test
+    void editingAFindingReplacesItsBodyAndLeavesEverythingElse()
+    {
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        ReviewFinding f = seedFinding(pass, "src/A.java", 12,
+                ReviewFindingSeverity.MAJOR, ReviewFindingStatus.AGREED, "[DeepSeek] original text");
+
+        service.editFindingBody(pass.id(), f.id(), "Polished comment for GitHub.");
+
+        ReviewFinding edited = reviewStore.findFindingById(f.id()).orElseThrow();
+        assertThat(edited.body()).isEqualTo("Polished comment for GitHub.");
+        // Only the body changes — severity, status, and line stay put.
+        assertThat(edited.severity()).isEqualTo(ReviewFindingSeverity.MAJOR);
+        assertThat(edited.status()).isEqualTo(ReviewFindingStatus.AGREED);
+        assertThat(edited.line()).isEqualTo(12);
+    }
+
+    @Test
     void everySeatFailingParksThePassAndSurfacesA502()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))

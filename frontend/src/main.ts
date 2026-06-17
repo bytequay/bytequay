@@ -3727,6 +3727,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:editFinding', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:editFinding args must be an object');
+    }
+    const a = args as { passId?: unknown; findingId?: unknown; comment?: unknown };
+    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    if (typeof a.findingId !== 'string' || a.findingId.trim().length === 0) {
+      throw new Error('findingId must be a non-empty string');
+    }
+    if (typeof a.comment !== 'string' || a.comment.trim().length === 0) {
+      throw new Error('comment must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}`
+      + `/findings/${encodeURIComponent(a.findingId)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: a.comment }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT editFinding returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:steer', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:steer args must be an object');

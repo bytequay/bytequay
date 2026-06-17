@@ -888,6 +888,43 @@ public class ReviewPassService
     }
 
     /**
+     * Replace a finding's comment body — the human polishing the text
+     * before it publishes to GitHub as an inline review comment. Only the
+     * body changes; severity, status, and line stay put. Returns the
+     * updated detail.
+     */
+    public ReviewPassDetail editFindingBody(String passId, String findingId, String body)
+    {
+        requireNonNull(passId, "passId is null");
+        requireNonNull(findingId, "findingId is null");
+        requireNonNull(body, "body is null");
+        if (body.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "Finding comment cannot be empty.");
+        }
+        if (reviewStore.findPassById(passId).isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(404), "no review pass: " + passId);
+        }
+        ReviewFinding finding = reviewStore.findFindingById(findingId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no finding: " + findingId));
+        if (!finding.reviewPassId().equals(passId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "finding " + findingId + " does not belong to pass " + passId);
+        }
+        reviewStore.saveFinding(new ReviewFinding(
+                finding.id(), finding.reviewPassId(),
+                finding.path(), finding.line(),
+                finding.severity(), finding.status(),
+                body.strip(),
+                finding.resolution(), finding.postedCommentId(),
+                finding.createdAt(),
+                finding.debateStatus(), finding.debateRounds()));
+        return findPassWithDetail(passId).orElseThrow();
+    }
+
+    /**
      * Inject a human-authored steer message into a pass and run the
      * addressed seat's reply UNBUDGETED — the review-page composer's
      * "@mention a reviewer/lead and send" action. The roster is rebuilt

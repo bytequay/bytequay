@@ -3432,6 +3432,13 @@ export type Bridge = {
     findingId: string,
     resolution: 'include' | 'drop',
   ) => Promise<ReviewPassDetailDto>;
+  /** Edit a finding's comment body before it publishes to GitHub. Returns
+   *  the updated pass detail. */
+  editReviewFinding: (
+    passId: string,
+    findingId: string,
+    comment: string,
+  ) => Promise<ReviewPassDetailDto>;
   /** Steer the panel: inject a human message addressed to a reviewer or
    *  the lead and run that seat's reply unbudgeted. Returns the updated
    *  detail (the new human message + the seat's reply on the transcript). */

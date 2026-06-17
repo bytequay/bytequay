@@ -211,6 +211,21 @@ public class ReviewController
         return reviews.arbitrateFinding(passId, findingId, body.resolution());
     }
 
+    @PutMapping("/{passId}/findings/{findingId}")
+    public ReviewPassDetail editFinding(
+            @PathVariable String passId,
+            @PathVariable String findingId,
+            @RequestBody EditFindingRequest body)
+    {
+        if (body == null || body.comment() == null || body.comment().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "comment is required");
+        }
+        return reviews.editFindingBody(passId, findingId, body.comment());
+    }
+
+    public record EditFindingRequest(String comment) {}
+
     /** Steer the panel from the review page: inject a human message
      *  addressed to a reviewer or the lead and run that seat's reply
      *  unbudgeted. */

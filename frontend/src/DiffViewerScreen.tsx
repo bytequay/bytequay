@@ -37,6 +37,7 @@ import { DiffFileTreePane } from './diff/DiffFileTreePane';
 import { CommitsSelector } from './diff/CommitsSelector';
 import { unionCommitFiles } from './diff/unionCommitFiles';
 import { commitSubject } from './diff/commitDisplay';
+import { MarkdownProse } from './threads/MarkdownProse';
 
 type FilesMode = 'tree' | 'flat';
 type ReviewVerdict = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
@@ -135,17 +136,39 @@ function panelSeverityKey(s: ReviewFindingSeverityDto): string {
 }
 
 /**
- * Read-only inline finding from the multi-agent review panel. Reuses the
- * AI-finding visual (severity dot + collapsible card) so it sits naturally
- * among the AI-draft findings, but carries no edit/dismiss actions — these
- * findings are owned by the review pass, the diff page only surfaces them.
+ * Inline finding from the multi-agent review panel, overlaid on the diff.
+ * Reuses the AI-finding visual (severity dot + collapsible card) so it sits
+ * naturally among the AI-draft findings. The comment renders as markdown,
+ * and the human can edit it before it publishes to GitHub — the edit
+ * persists on the review-pass finding via {@link Bridge.editReviewFinding}.
  */
 function PanelFinding({ finding }: { finding: ReviewFindingDto }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [body, setBody] = useState(finding.body);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(finding.body);
+  const [saving, setSaving] = useState(false);
   const sevKey = panelSeverityKey(finding.severity);
   const loc = finding.path != null
     ? `${finding.path}${finding.line != null ? `:${finding.line}` : ''}`
     : null;
+
+  const save = async () => {
+    if (saving || draft.trim().length === 0) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await window.bridge.editReviewFinding(finding.reviewPassId, finding.id, draft);
+      setBody(draft.trim());
+      setEditing(false);
+    } catch (err) {
+      console.error('edit review finding failed', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (collapsed) {
     return (
       <div className="diff-row diff-row--inline-finding">
@@ -179,8 +202,51 @@ function PanelFinding({ finding }: { finding: ReviewFindingDto }) {
             </button>
             <span className="inline-finding__source">⚖ Panel · {finding.severity.toLowerCase()}</span>
             {loc !== null && <span className="inline-finding__loc">{loc}</span>}
+            {!editing && (
+              <button
+                type="button"
+                className="inline-finding__edit-btn"
+                onClick={() => { setDraft(body); setEditing(true); }}
+                title="Edit this comment before it publishes to GitHub"
+              >
+                ✎ Edit
+              </button>
+            )}
           </div>
-          <div className="inline-finding__text">{finding.body}</div>
+          {editing ? (
+            <>
+              <textarea
+                className="inline-finding__textarea"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={Math.min(12, Math.max(3, draft.split('\n').length))}
+                disabled={saving}
+                autoFocus
+              />
+              <div className="inline-finding__actions">
+                <button
+                  type="button"
+                  className="inline-finding__action inline-finding__action--primary"
+                  onClick={() => void save()}
+                  disabled={saving || draft.trim().length === 0}
+                >
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className="inline-finding__action"
+                  onClick={() => { setEditing(false); setDraft(body); }}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="inline-finding__text">
+              <MarkdownProse text={body} variant="card" />
+            </div>
+          )}
         </div>
       </div>
     </div>

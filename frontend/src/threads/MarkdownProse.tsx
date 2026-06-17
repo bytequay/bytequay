@@ -277,7 +277,11 @@ const cardStyles: StyleBundle = {
   tableCell: {
     border: '1px solid var(--border)',
     padding: '4px 8px',
-    verticalAlign: 'top', overflowWrap: 'anywhere',
+    // break-word (not anywhere) only breaks a token when it can't fit, so a
+    // column never collapses to a single character — short cells like
+    // "F2" / "Question" stay whole and on one line, while long prose still
+    // wraps at spaces.
+    verticalAlign: 'top', overflowWrap: 'break-word', wordBreak: 'normal',
   },
   hr: { border: 'none', borderTop: '1px dashed var(--border)', margin: '10px 0' },
   strong: { fontWeight: 700 },

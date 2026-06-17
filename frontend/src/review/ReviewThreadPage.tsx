@@ -993,6 +993,8 @@ function TranscriptSection({
                     dispatches={item.messages}
                     participantsById={participantsById}
                     onMentionClick={onMentionClick}
+                    hasResponse={(reviewerId) => responseAfter(
+                        item.messages[item.messages.length - 1].id, reviewerId) !== null}
                     onJumpToResponse={(reviewerId) => {
                       const target = responseAfter(
                           item.messages[item.messages.length - 1].id, reviewerId);
@@ -1028,12 +1030,15 @@ function TranscriptSection({
  *  that reviewer's response below (they land in completion order as the
  *  page polls). One utterance, many addressees — not N bubbles. */
 function DispatchGroupBubble({
-  dispatches, participantsById, onMentionClick, onJumpToResponse,
+  dispatches, participantsById, onMentionClick, onJumpToResponse, hasResponse,
 }: {
   dispatches: ReviewPanelMessageDto[];
   participantsById: Map<string, ReviewParticipantDto>;
   onMentionClick: (participantId: string) => void;
   onJumpToResponse: (reviewerId: string) => void;
+  /** Whether the addressed reviewer has already posted a reply below —
+   *  drives the per-chip responded / waiting status. */
+  hasResponse: (reviewerId: string) => boolean;
 }) {
   const firstId = dispatches[0].id;
   const lead = participantsById.get(dispatches[0].participantId);
@@ -1069,6 +1074,11 @@ function DispatchGroupBubble({
                   @{reviewer?.personaLabel ?? reviewerId}
                 </button>
                 <span style={dispatchBodyStyle}>{stripLeadingMention(d.body, reviewer?.personaLabel)}</span>
+                {reviewerId !== '' && (
+                  <span style={hasResponse(reviewerId) ? dispatchGotDoneStyle : dispatchGotWaitStyle}>
+                    {hasResponse(reviewerId) ? '✓ responded' : '· waiting'}
+                  </span>
+                )}
                 {reviewerId !== '' && (
                   <button
                     type="button"
@@ -2270,6 +2280,22 @@ const dispatchBodyStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
   color: 'var(--text-2)',
+};
+const dispatchGotBaseStyle: React.CSSProperties = {
+  flexShrink: 0,
+  fontSize: 10,
+  fontWeight: 800,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  whiteSpace: 'nowrap',
+};
+const dispatchGotDoneStyle: React.CSSProperties = {
+  ...dispatchGotBaseStyle,
+  color: '#22c55e',
+};
+const dispatchGotWaitStyle: React.CSSProperties = {
+  ...dispatchGotBaseStyle,
+  color: 'var(--text-3)',
+  fontWeight: 600,
 };
 
 const dispatchFilterBtnStyle: React.CSSProperties = {

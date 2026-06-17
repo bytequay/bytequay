@@ -62,6 +62,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
@@ -97,6 +98,7 @@ class TestReviewPassService
     private ReviewerSeat reviewerSeat;
     private LeadToolset leadToolset;
     private AgentScheduler scheduler;
+    private ReviewBudgetMeter budgetMeter;
     private ReviewPassService service;
 
     @BeforeEach
@@ -157,12 +159,13 @@ class TestReviewPassService
 
         // Same-thread executor: the async 3-arg overload runs its body
         // inline so tests stay deterministic.
+        budgetMeter = new ReviewBudgetMeter(reviewStore);
         service = new ReviewPassService(
                 threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
                 appSettings,
                 Runnable::run,
                 leadOrchestrator, reviewerSeat, leadToolset,
-                new ReviewBudgetMeter(reviewStore),
+                budgetMeter,
                 mock(ReviewDiffCache.class),
                 scheduler,
                 skillStore);
@@ -489,6 +492,27 @@ class TestReviewPassService
         assertThat(AgendaJsonCodec.parse(detail.pass().agendaJson()))
                 .allMatch(p -> p.status() == AgendaPhaseStatus.DONE);
         assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+    }
+
+    @Test
+    void aBudgetExhaustedPassStillFinalizesWithAnUnbudgetedClosingTurn()
+    {
+        // Every lead round spends the whole budget, so the pass is
+        // exhausted long before the panel converges.
+        doAnswer(inv -> {
+            ReviewPass p = inv.getArgument(0);
+            budgetMeter.chargePass(p.id(), 1_000_000L);
+            return new TurnResult("", 0, 0, 0L, 1, TurnResult.End.COMPLETED);
+        }).when(leadOrchestrator).runRound(any(), any(), any(), any(), anyInt(), anyString());
+
+        service.startReviewOnPr("acme/widget", 42);
+
+        // The closing summary still runs — but via the UNBUDGETED overload
+        // (enforceBudget=false) with the budget-aware directive — so a
+        // capped pass gets a finalized result instead of stalling with none.
+        verify(leadOrchestrator).runRound(
+                any(), any(), any(), eq(ReviewPhase.TERMINATE), anyInt(),
+                argThat(d -> d != null && d.contains("budget")), eq(false));
     }
 
     @Test

@@ -91,6 +91,25 @@ public class LeadOrchestrator
             int round,
             String directive)
     {
+        return runRound(pass, session, roster, phase, round, directive, /* enforceBudget */ true);
+    }
+
+    /**
+     * Run one Lead round. When {@code enforceBudget} is false the turn is
+     * allowed to finish even after the pass cost cap is hit — used for the
+     * closing summary so a budget-exhausted pass still gets a finalized
+     * result instead of stalling mid-stream. The spend is still metered
+     * onto the pass, so the overage shows in the budget meter.
+     */
+    public TurnResult runRound(
+            ReviewPass pass,
+            LeadToolset.Session session,
+            PanelSeatConfig roster,
+            ReviewPhase phase,
+            int round,
+            String directive,
+            boolean enforceBudget)
+    {
         requireNonNull(pass, "pass is null");
         requireNonNull(directive, "directive is null");
         PanelSeatConfig.Seat leadSeat = roster.leadSeat()
@@ -114,7 +133,7 @@ public class LeadOrchestrator
             @Override
             public boolean abortTurn(long costSoFarMilliUsd)
             {
-                return costSoFarMilliUsd >= budget.passRemaining(pass.id());
+                return enforceBudget && costSoFarMilliUsd >= budget.passRemaining(pass.id());
             }
         };
 

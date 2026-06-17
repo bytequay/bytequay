@@ -568,6 +568,15 @@ public class ReviewPassService
             left for the human to arbitrate. This is your final summary — do not \
             dispatch reviewers or open new lines of inquiry.""";
 
+    private static final String WRAP_UP_BUDGET_DIRECTIVE = """
+            The review budget has been reached before the panel fully converged. Do \
+            NOT dispatch reviewers or open new lines of inquiry — finalize now with \
+            what the panel has. In ONE message, open by noting the budget is reached \
+            (e.g. "The review budget is reached — summarizing and finalizing with the \
+            current findings."), then give your recommended verdict (approve / comment \
+            / request changes) and why, the agreed findings to address, and any \
+            unresolved or disputed items left for the human to arbitrate.""";
+
     private static final String CROSS_REVIEW_GUIDANCE = """
             Cross-examine the independent findings: for each substantive finding, \
             dispatch the OTHER reviewers to react — quote the specific claim in \
@@ -721,11 +730,19 @@ public class ReviewPassService
     }
 
     /** One closing Lead round that records the consolidated result for
-     *  the human (verdict + agreed findings + open disputes), skipped
-     *  when the pass has already spent its cost cap. */
+     *  the human (verdict + agreed findings + open disputes). Always runs
+     *  — when the pass has already spent its cost cap the turn runs
+     *  UNBUDGETED with a budget-aware directive, so a pass that hit the
+     *  cap still gets a finalized summary instead of stalling mid-stream
+     *  with no result. */
     private void runWrapUp(String passId, LeadToolset.Session session, PanelSeatConfig roster)
     {
         if (budgetMeter.passExhausted(passId)) {
+            // Cost cap hit before convergence: run ONE unbudgeted closing
+            // turn so the lead still finalizes with what the panel has,
+            // rather than stalling mid-stream with no result.
+            leadOrchestrator.runRound(reload(passId), session, roster,
+                    ReviewPhase.TERMINATE, 0, WRAP_UP_BUDGET_DIRECTIVE, /* enforceBudget */ false);
             return;
         }
         leadOrchestrator.runRound(reload(passId), session, roster,

@@ -557,6 +557,31 @@ class TestReviewPassService
     }
 
     @Test
+    void prSummariesCarryTheReviewersAndBestEffortPrTitleWhenNotCached()
+    {
+        // The reviewed PR isn't in the local cache (mock store returns
+        // empty), so the title falls back to the best-effort GitHub fetch.
+        when(pullRequests.fetchPrTitle(eq("ghp_secret"), any(PullRequestRef.class)))
+                .thenReturn("Add coordinator retry logic");
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
+        String threadId = reviewStore.passHistory.get(0).threadId();
+
+        List<ReviewPassService.ReviewThreadPrSummary> summaries =
+                service.prSummariesForThreads(List.of(threadId));
+
+        assertThat(summaries).hasSize(1);
+        ReviewPassService.ReviewThreadPrSummary s = summaries.get(0);
+        assertThat(s.prTitle()).isEqualTo("Add coordinator retry logic");
+        // The panel seats (lead + reviewer) are listed for the row; the
+        // human "You" seat is excluded.
+        assertThat(s.reviewers()).isNotEmpty();
+    }
+
+    @Test
     void steeringDefersTheReplyToTheExecutorRatherThanTheRequestThread()
     {
         // A capturing executor records the turn instead of running it. The

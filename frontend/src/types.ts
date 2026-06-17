@@ -2193,6 +2193,8 @@ export type ReviewThreadPrSummaryDto = {
   prNumber: number;
   prTitle: string | null;
   prAuthor: string | null;
+  /** Panel seat labels (lead + reviewers) for the review-thread row. */
+  reviewers: string[];
 };
 
 export type ReviewPassDetailDto = {

@@ -197,13 +197,31 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
                           />
                         )}
                       </div>
-                      {prSummaries.get(t.id)?.prTitle != null && (
-                        <div style={threadPrTitleStyle}>{prSummaries.get(t.id)!.prTitle}</div>
-                      )}
-                      <ThreadMetaLine
-                        task={t.activeTask}
-                        author={prSummaries.get(t.id)?.prAuthor ?? null}
-                      />
+                      {(() => {
+                        const summary = prSummaries.get(t.id);
+                        if (summary) {
+                          // Review thread: the PR title plus the panel
+                          // seats, in place of the generic "discussion ·
+                          // no task yet" line. The reviewer line clips
+                          // with an ellipsis when the roster is long.
+                          return (
+                            <>
+                              {summary.prTitle != null && summary.prTitle !== '' && (
+                                <div style={threadPrTitleStyle}>{summary.prTitle}</div>
+                              )}
+                              <div
+                                style={reviewersLineStyle}
+                                title={summary.reviewers.join(', ')}
+                              >
+                                {summary.reviewers.length > 0
+                                  ? summary.reviewers.join(' · ')
+                                  : 'review panel'}
+                              </div>
+                            </>
+                          );
+                        }
+                        return <ThreadMetaLine task={t.activeTask} />;
+                      })()}
                     </div>
                     <div style={threadRightStyle}>
                       <div>{relativeTime(t.updatedAt)}</div>
@@ -622,6 +640,17 @@ const threadPrTitleStyle: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--ws-text-2, var(--text-2))',
   marginTop: 1,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+// The review-thread roster line: single line, clipped with an ellipsis
+// when the seat labels overflow the row.
+const reviewersLineStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+  marginTop: 2,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',

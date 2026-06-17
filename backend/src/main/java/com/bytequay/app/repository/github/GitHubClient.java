@@ -268,6 +268,22 @@ public class GitHubClient
     }
 
     @Override
+    public String fetchPrTitle(String pat, PullRequestRef pr)
+    {
+        try {
+            GitHubPullRequestDetailResponse r = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(GitHubPullRequestDetailResponse.class);
+            return r == null ? null : r.title();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public List<PrReviewState> fetchPrReviews(String pat, PullRequestRef pr)
     {
         try {

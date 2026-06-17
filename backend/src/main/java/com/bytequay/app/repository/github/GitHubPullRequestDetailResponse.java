@@ -20,6 +20,7 @@ import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubPullRequestDetailResponse(
+        String title,
         String body,
         List<Label> labels,
         boolean draft,

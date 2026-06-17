@@ -1278,14 +1278,51 @@ public class ReviewPassService
             Optional<PullRequest> pr = pullRequestStore
                     .findIdByRepoAndNumber(pass.repoFullName(), pass.prNumber())
                     .flatMap(pullRequestStore::findById);
+            String prTitle = pr.map(PullRequest::title).orElse(null);
+            if (prTitle == null) {
+                // The reviewed PR isn't in the local cache (the dashboard
+                // only holds the user's own / review-requested PRs), so
+                // best-effort fetch its title rather than leave the row a
+                // bare "repo#number". Null on any failure.
+                prTitle = bestEffortPrTitle(pass.repoFullName(), pass.prNumber());
+            }
+            List<String> reviewers = reviewStore.listParticipantsForPass(pass.id()).stream()
+                    .filter(p -> p.kind() != ReviewParticipantKind.HUMAN)
+                    .map(ReviewPassService::participantLabel)
+                    .filter(s -> s != null && !s.isBlank())
+                    .toList();
             out.add(new ReviewThreadPrSummary(
                     threadId,
                     pass.repoFullName(),
                     pass.prNumber(),
-                    pr.map(PullRequest::title).orElse(null),
-                    pr.map(PullRequest::author).orElse(null)));
+                    prTitle,
+                    pr.map(PullRequest::author).orElse(null),
+                    reviewers));
         }
         return out;
+    }
+
+    /** Best-effort PR title for a review row whose PR isn't cached
+     *  locally. Swallows fetch failures (auth, rate limit, deleted PR) —
+     *  a missing label just falls back to "repo#number" in the UI. */
+    private String bestEffortPrTitle(String repoFullName, int prNumber)
+    {
+        try {
+            return pullRequests.fetchPrTitle(
+                    patResolver.resolve(repoFullName),
+                    parseRef(repoFullName, prNumber));
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Display label for a panel seat on a review-thread row: the persona
+     *  label, falling back to the bare model id. */
+    private static String participantLabel(ReviewParticipant p)
+    {
+        String label = p.personaLabel();
+        return label == null || label.isBlank() ? p.model() : label;
     }
 
     /** A review thread's reviewed-PR label: repo + number + (cached) title
@@ -1295,7 +1332,8 @@ public class ReviewPassService
             String repoFullName,
             int prNumber,
             String prTitle,
-            String prAuthor)
+            String prAuthor,
+            List<String> reviewers)
     {
     }
 

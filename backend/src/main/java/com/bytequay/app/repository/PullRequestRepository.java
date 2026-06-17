@@ -100,6 +100,17 @@ public interface PullRequestRepository
     }
 
     /**
+     * Fetches just a pull request's title — a cheap label for surfaces
+     * (review-thread rows) that show a PR not in the local cache. Returns
+     * null when the title can't be resolved. Maps to:
+     * GET /repos/{owner}/{repo}/pulls/{number}
+     */
+    default String fetchPrTitle(String pat, PullRequestRef pr)
+    {
+        return null;
+    }
+
+    /**
      * Cheap "is anything new?" probe via HTTP conditional GET. Sends
      * {@code If-None-Match: <etag>} to {@code /pulls/{number}}; GitHub
      * answers 304 (no body) when the resource hasn't changed since

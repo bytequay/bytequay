@@ -2186,6 +2186,15 @@ export type ReviewFindingDto = {
 
 /** Aggregated panel state — what the controller hands back to the
  *  page in one round-trip. */
+/** A review thread's reviewed-PR label (repo + number + cached title/author). */
+export type ReviewThreadPrSummaryDto = {
+  threadId: string;
+  repoFullName: string;
+  prNumber: number;
+  prTitle: string | null;
+  prAuthor: string | null;
+};
+
 export type ReviewPassDetailDto = {
   pass: ReviewPassDto;
   /** The reviewed PR's title, resolved from the local PR cache; null
@@ -3425,6 +3434,11 @@ export type Bridge = {
     targetParticipantId: string,
     message: string,
   ) => Promise<ReviewPassDetailDto>;
+  /** Light PR title + author per review thread, for labelling review
+   *  threads in thread lists without loading the transcript. */
+  getReviewThreadPrSummaries: (
+    threadIds: string[],
+  ) => Promise<ReviewThreadPrSummaryDto[]>;
   /** Post the pass to GitHub as a PR review. {@code findingIds} is
    *  the subset of findings the user has confirmed for posting; the
    *  rest stay on the pass as AGREED but never reach GitHub.

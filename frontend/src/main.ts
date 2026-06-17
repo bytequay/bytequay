@@ -3738,6 +3738,22 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:prSummaries', async (_event, threadIds: unknown) => {
+    if (!Array.isArray(threadIds) || threadIds.some(id => typeof id !== 'string')) {
+      throw new Error('threadIds must be an array of strings');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/reviews/pr-summaries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadIds }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST pr-summaries returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:spawnBuild', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:spawnBuild args must be an object');

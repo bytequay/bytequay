@@ -213,6 +213,15 @@ public class ReviewController
         return reviews.steerPass(passId, body.targetParticipantId(), body.message());
     }
 
+    /** Batch PR title + author for review threads, so a thread list can
+     *  label each review thread with the reviewed PR cheaply. */
+    @PostMapping("/pr-summaries")
+    public List<ReviewPassService.ReviewThreadPrSummary> prSummaries(@RequestBody PrSummariesRequest body)
+    {
+        return reviews.prSummariesForThreads(
+                body == null || body.threadIds() == null ? List.of() : body.threadIds());
+    }
+
     /** Read the scheduled-reviews opt-in toggle. The settings UI
      *  polls this to render the on/off state. */
     @GetMapping("/scheduled-settings")
@@ -293,6 +302,8 @@ public class ReviewController
     public record ArbitrateFindingRequest(String resolution) {}
 
     public record SteerRequest(String targetParticipantId, String message) {}
+
+    public record PrSummariesRequest(List<String> threadIds) {}
 
     public record ScheduledSettingsRequest(boolean enabled) {}
 }

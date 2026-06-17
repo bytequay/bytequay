@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import type { ThreadDto, WorkUnitTaskDto } from '../types';
+import type { ReviewThreadPrSummaryDto, ThreadDto, WorkUnitTaskDto } from '../types';
 import type { WorkspaceSection } from './WorkspaceShell';
 
 type Props = {
@@ -57,6 +57,8 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
   const [memoryMd, setMemoryMd] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // PR title + author per review thread, for labelling review rows.
+  const [prSummaries, setPrSummaries] = useState<Map<string, ReviewThreadPrSummaryDto>>(new Map());
 
   const refresh = useCallback(async () => {
     try {
@@ -77,6 +79,22 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
   }, [workspaceId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Best-effort PR labels for the review threads on the page.
+  useEffect(() => {
+    const reviewIds = threads.filter(t => t.flow === 'review').map(t => t.id);
+    if (reviewIds.length === 0) {
+      setPrSummaries(new Map());
+      return;
+    }
+    let cancelled = false;
+    void window.bridge.getReviewThreadPrSummaries(reviewIds)
+      .then(list => {
+        if (!cancelled) setPrSummaries(new Map(list.map(s => [s.threadId, s])));
+      })
+      .catch(() => { /* labelling is best-effort */ });
+    return () => { cancelled = true; };
+  }, [threads]);
 
   const activeThreads = threads.filter(isActiveThread);
   const tasksInFlight = threads
@@ -179,7 +197,13 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
                           />
                         )}
                       </div>
-                      <ThreadMetaLine task={t.activeTask} />
+                      {prSummaries.get(t.id)?.prTitle != null && (
+                        <div style={threadPrTitleStyle}>{prSummaries.get(t.id)!.prTitle}</div>
+                      )}
+                      <ThreadMetaLine
+                        task={t.activeTask}
+                        author={prSummaries.get(t.id)?.prAuthor ?? null}
+                      />
                     </div>
                     <div style={threadRightStyle}>
                       <div>{relativeTime(t.updatedAt)}</div>
@@ -281,9 +305,15 @@ function MemoryBudgetBar({ charLength }: { charLength: number }) {
  *  Task-progression hint ("task N of N") shows once the thread has rolled
  *  through ship-&-continue at least once (seq ≥ 2); a single-task thread
  *  doesn't surface the count since it adds no information. */
-function ThreadMetaLine({ task }: { task: WorkUnitTaskDto | null }) {
+function ThreadMetaLine(
+  { task, author }: { task: WorkUnitTaskDto | null; author?: string | null },
+) {
   if (task === null) {
-    return <div style={threadMetaStyle}>discussion · no task yet</div>;
+    return (
+      <div style={threadMetaStyle}>
+        {author != null && author !== '' ? `by ${author} · ` : ''}discussion · no task yet
+      </div>
+    );
   }
 
   const segs: { key: string; node: React.ReactNode }[] = [];
@@ -587,6 +617,14 @@ const threadMetaStyle: React.CSSProperties = {
   flexWrap: 'wrap',
   alignItems: 'center',
   gap: 0,
+};
+const threadPrTitleStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--ws-text-2, var(--text-2))',
+  marginTop: 1,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const branchChipStyle: React.CSSProperties = {

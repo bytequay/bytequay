@@ -1210,6 +1210,43 @@ public class ReviewPassService
         return Optional.of(buildDetail(passes.get(passes.size() - 1)));
     }
 
+    /** Light per-thread PR title + author, resolved from the latest review
+     *  pass's PR cache row. Lets the thread lists (e.g. the home active
+     *  threads) label a review thread with the reviewed PR without loading
+     *  the whole transcript. Threads with no pass are skipped. */
+    public List<ReviewThreadPrSummary> prSummariesForThreads(List<String> threadIds)
+    {
+        List<ReviewThreadPrSummary> out = new ArrayList<>();
+        for (String threadId : threadIds) {
+            List<ReviewPass> passes = reviewStore.listPassesByThread(threadId);
+            if (passes.isEmpty()) {
+                continue;
+            }
+            ReviewPass pass = passes.get(passes.size() - 1);
+            Optional<PullRequest> pr = pullRequestStore
+                    .findIdByRepoAndNumber(pass.repoFullName(), pass.prNumber())
+                    .flatMap(pullRequestStore::findById);
+            out.add(new ReviewThreadPrSummary(
+                    threadId,
+                    pass.repoFullName(),
+                    pass.prNumber(),
+                    pr.map(PullRequest::title).orElse(null),
+                    pr.map(PullRequest::author).orElse(null)));
+        }
+        return out;
+    }
+
+    /** A review thread's reviewed-PR label: repo + number + (cached) title
+     *  and author. Title/author are null when the PR isn't cached. */
+    public record ReviewThreadPrSummary(
+            String threadId,
+            String repoFullName,
+            int prNumber,
+            String prTitle,
+            String prAuthor)
+    {
+    }
+
     /**
      * Publish a terminated review pass to the PR as a GitHub review.
      * The user picks the verdict + which findings to include via the

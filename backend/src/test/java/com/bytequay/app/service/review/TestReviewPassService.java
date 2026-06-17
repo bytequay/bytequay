@@ -557,6 +557,48 @@ class TestReviewPassService
     }
 
     @Test
+    void steeringDefersTheReplyToTheExecutorRatherThanTheRequestThread()
+    {
+        // A capturing executor records the turn instead of running it. The
+        // steered reply is unbudgeted and can run for many seconds; running
+        // it on the request thread (and, before the fix, under an open
+        // transaction holding the single SQLite connection) starved every
+        // other request into pool-timeout 500s. steerPass must dispatch it
+        // and return immediately.
+        List<Runnable> deferred = new ArrayList<>();
+        ReviewPassService async = new ReviewPassService(
+                threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
+                appSettings, deferred::add,
+                leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
+                mock(ReviewDiffCache.class), scheduler, skillStore);
+        async.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
+        String passId = passId();
+        ReviewParticipant reviewer = reviewStore.listParticipantsForPass(passId).stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
+                .findFirst().orElseThrow();
+        deferred.clear();   // drop the initial review body; assert only on the steer
+
+        async.steerPass(passId, reviewer.id(), "Please double-check the null path.");
+
+        // The human message lands synchronously...
+        assertThat(reviewStore.listMessagesForPass(passId))
+                .anyMatch(m -> "Please double-check the null path.".equals(m.body()));
+        // ...but the reply is deferred to the executor, not run inline.
+        assertThat(deferred).hasSize(1);
+        verify(reviewerSeat, never()).runDispatchedTurn(
+                any(), any(), eq(reviewer.id()), anyString(), any(), anyInt(), any(), eq(false));
+
+        // Draining the executor runs the unbudgeted reply.
+        deferred.get(0).run();
+        verify(reviewerSeat).runDispatchedTurn(
+                any(), any(), eq(reviewer.id()), anyString(), any(), anyInt(), any(), eq(false));
+    }
+
+    @Test
     void everySeatFailingParksThePassAndSurfacesA502()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))

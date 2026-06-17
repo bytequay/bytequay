@@ -44,6 +44,11 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
   const [detail, setDetail] = useState<ReviewPassDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Wall-clock until which we keep polling even on a terminal pass: a
+  // steer runs its reply asynchronously on the backend, so a "continue
+  // reviewing" on a finished pass needs the transcript poll alive long
+  // enough for the lead/reviewer reply to land. Each steer extends it.
+  const [steerPollUntil, setSteerPollUntil] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -67,10 +72,20 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
   const phase = detail?.pass.phase;
   useEffect(() => {
     if (phase === undefined) return;
-    if (phase === 'TERMINATE' || phase === 'ARBITRATE' || phase === 'PUBLISHED') return;
+    const terminal = phase === 'TERMINATE' || phase === 'ARBITRATE' || phase === 'PUBLISHED';
+    const steering = Date.now() < steerPollUntil;
+    if (terminal && !steering) return;
     const timer = window.setInterval(() => { void refresh(); }, 5_000);
-    return () => window.clearInterval(timer);
-  }, [phase, refresh]);
+    // When the only reason we're polling is a pending steer, stop once
+    // the window elapses so an idle terminal page costs nothing again.
+    const stop = terminal && steering
+      ? window.setTimeout(() => setSteerPollUntil(0), steerPollUntil - Date.now())
+      : undefined;
+    return () => {
+      window.clearInterval(timer);
+      if (stop !== undefined) window.clearTimeout(stop);
+    };
+  }, [phase, refresh, steerPollUntil]);
 
   const participantsById = useMemo(() => {
     const map = new Map<string, ReviewParticipantDto>();
@@ -205,7 +220,12 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr }: Props) {
               participants={detail.participants}
               leadId={leadId}
               published={detail.pass.phase === 'PUBLISHED'}
-              onSent={(next) => setDetail(next)}
+              onSent={(next) => {
+                setDetail(next);
+                // The reply runs async on the backend; keep the transcript
+                // poll alive (even on a terminal pass) so it lands.
+                setSteerPollUntil(Date.now() + 180_000);
+              }}
             />
           </main>
           <aside style={rightRailStyle}>

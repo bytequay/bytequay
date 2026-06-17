@@ -873,7 +873,6 @@ public class ReviewPassService
      * answers in its base voice, not its original persona). The reply's
      * spend is still metered, so any overage surfaces in the budget meter.
      */
-    @Transactional
     public ReviewPassDetail steerPass(String passId, String targetParticipantId, String message)
     {
         requireNonNull(passId, "passId is null");
@@ -899,32 +898,53 @@ public class ReviewPassService
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(500), "Pass has no human seat."));
 
-        // Persist the human's message, addressed to the target.
+        // Persist the human's message, addressed to the target. Short and
+        // synchronous so the echo lands immediately.
         reviewStore.saveMessage(new ReviewMessage(
                 UUID.randomUUID().toString(), passId, human.id(),
                 pass.phase(), /* round */ 0, message.strip(),
                 List.of(target.id()), List.of(), /* costUsdMilli */ 0L, Instant.now()));
 
         PanelSeatConfig roster = reconstructRoster(participants);
-        // Seed an empty diff so a seat tool that probes it returns empty
-        // rather than erroring — the original diff isn't cached post-run.
-        diffCache.seed(passId, "");
-        try {
-            if (target.kind() == ReviewParticipantKind.LEAD) {
-                LeadToolset.Session session = leadToolset.sessionFor(passId, roster, target.id());
-                leadOrchestrator.runRound(reload(passId), session, roster,
-                        pass.phase(), /* round */ 0, steerDirective(message),
-                        /* enforceBudget */ false);
+        ReviewPhase phase = pass.phase();
+        // Run the steered turn off the request thread. An unbudgeted reply
+        // can take far longer than the HTTP headers / connection budget, and
+        // holding the single-connection SQLite pool across a model turn
+        // starves every other request (notifications, the transcript poll)
+        // into pool-timeout 500s. Dispatch to the review executor and let the
+        // polling UI surface the reply as it lands — the same contract as
+        // launchReviewBody. The method is deliberately NOT @Transactional for
+        // the same reason: no DB connection is held across the model turn.
+        reviewExecutor.execute(() -> {
+            // Seed an empty diff so a seat tool that probes it returns empty
+            // rather than erroring — the original diff isn't cached post-run.
+            diffCache.seed(passId, "");
+            try {
+                if (target.kind() == ReviewParticipantKind.LEAD) {
+                    LeadToolset.Session session = leadToolset.sessionFor(passId, roster, target.id());
+                    leadOrchestrator.runRound(reload(passId), session, roster,
+                            phase, /* round */ 0, steerDirective(message),
+                            /* enforceBudget */ false);
+                }
+                else {
+                    reviewerSeat.runDispatchedTurn(reload(passId), roster, target.id(),
+                            steerDirective(message), phase, /* round */ 0,
+                            /* excludeMessageId */ null, /* enforceBudget */ false);
+                }
             }
-            else {
-                reviewerSeat.runDispatchedTurn(reload(passId), roster, target.id(),
-                        steerDirective(message), pass.phase(), /* round */ 0,
-                        /* excludeMessageId */ null, /* enforceBudget */ false);
+            catch (RuntimeException e) {
+                // No HTTP caller is left to receive the error; log it and let
+                // the polling UI show the unchanged transcript so the user
+                // can re-steer.
+                log.warn("Steered turn for pass {} failed: {}", passId, e.getMessage());
             }
-        }
-        finally {
-            diffCache.drop(passId);
-        }
+            finally {
+                diffCache.drop(passId);
+            }
+        });
+
+        // Return immediately with the human message echoed; the lead /
+        // reviewer reply arrives via the transcript poll.
         return findPassWithDetail(passId).orElseThrow();
     }
 

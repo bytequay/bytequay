@@ -178,7 +178,8 @@ public class Ds4InstallerService
                     cfg.contextTokens(), cfg.kvCacheDir(), cfg.kvDiskBudgetMb(),
                     cfg.thinkingDefault(), cfg.trace(),
                     repoDir.toString(), modelVariant, cfg.installUrl(),
-                    cfg.autoRestartOnCrash(), cfg.autoStartOnBoot(), cfg.attachIfRunning());
+                    cfg.autoRestartOnCrash(), cfg.autoStartOnBoot(), cfg.attachIfRunning(),
+                    cfg.enabled());
             lifecycle.setConfig(next);
             status.set(InstallStatus.ready(repoDir, modelVariant));
             log.info("ds4 ready: {} (model variant {})", repoDir, modelVariant);

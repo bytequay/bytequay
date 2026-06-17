@@ -66,6 +66,11 @@ import java.util.Locale;
  * @param attachIfRunning   whether the boot probe should attach to a
  *                          healthy server an external client started
  *                          rather than abort.
+ * @param enabled           master switch for local AI. When false the
+ *                          lifecycle service never spawns, attaches, or
+ *                          restarts, holds no Metal/GPU resources, and
+ *                          tears down as a no-op. Defaults true so
+ *                          existing installs keep their behaviour.
  */
 public record Ds4Config(
         String binaryPath,
@@ -82,7 +87,8 @@ public record Ds4Config(
         String installUrl,
         boolean autoRestartOnCrash,
         boolean autoStartOnBoot,
-        boolean attachIfRunning)
+        boolean attachIfRunning,
+        boolean enabled)
 {
     /** Defaults baked into the app for a fresh install. Binary path
      *  is intentionally null — the design calls for an explicit
@@ -111,7 +117,8 @@ public record Ds4Config(
                 /* installUrl */ defaultInstallUrl(),
                 /* autoRestartOnCrash */ true,
                 /* autoStartOnBoot */ true,
-                /* attachIfRunning */ true);
+                /* attachIfRunning */ true,
+                /* enabled */ true);
     }
 
     /** Persistent path under {@code ~/Library/Application Support/ds4/kv}

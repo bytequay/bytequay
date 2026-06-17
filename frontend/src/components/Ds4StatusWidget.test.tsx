@@ -150,6 +150,15 @@ describe('Ds4StatusWidget', () => {
     await act(async () => { await Promise.resolve(); });
     expect(container.firstChild).toBeNull();
   });
+
+  it('renders nothing when local AI is disabled', async () => {
+    installBridge({ getDs4Status: vi.fn(async () => status('DISABLED')) });
+    const { container } = render(<Ds4StatusWidget onOpenManagement={() => {}} />);
+    // Let the status poll resolve, then confirm the chip stayed hidden.
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(container.firstChild).toBeNull();
+  });
 });
 
 function installBridge(overrides: Partial<Bridge>) {

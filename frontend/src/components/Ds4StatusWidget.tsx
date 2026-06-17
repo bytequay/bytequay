@@ -96,7 +96,9 @@ export function Ds4StatusWidget({ onOpenManagement, hidden }: Props) {
     };
   }, [open, menuAnchor]);
 
-  if (hidden || status === null) {
+  // Local AI switched off — don't float a chip for a subsystem the
+  // user deliberately turned off; the re-enable lives in Settings.
+  if (hidden || status === null || status.state === 'DISABLED') {
     return null;
   }
 

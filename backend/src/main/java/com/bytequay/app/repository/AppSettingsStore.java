@@ -86,6 +86,7 @@ public interface AppSettingsStore
         public static final String DS4_AUTO_RESTART_ON_CRASH = "ds4.auto_restart_on_crash";
         public static final String DS4_AUTO_START_ON_BOOT = "ds4.auto_start_on_boot";
         public static final String DS4_ATTACH_IF_RUNNING = "ds4.attach_if_running";
+        public static final String DS4_ENABLED = "ds4.enabled";
     }
 
     /**

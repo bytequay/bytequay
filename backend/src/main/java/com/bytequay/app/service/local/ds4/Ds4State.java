@@ -16,16 +16,26 @@ package com.bytequay.app.service.local.ds4;
 /**
  * Coarse lifecycle state for the local ds4-server subprocess.
  *
- * <p>Six values rather than five: {@link #NOT_CONFIGURED} sits ahead
+ * <p>Seven values rather than five: {@link #NOT_CONFIGURED} sits ahead
  * of the design doc's classic Stopped → Starting → Running → Stopping
  * + Crashed because a fresh install has no binary path on file and we
  * want the UI to tell the user "configure or download ds4" rather
  * than show a Start button that silently fails. The lifecycle service
  * refuses to leave NOT_CONFIGURED until {@code ds4.binary_path}
- * resolves to an executable file.
+ * resolves to an executable file. {@link #DISABLED} sits even further
+ * ahead: when local AI is switched off in settings the service never
+ * spawns, attaches, or restarts, so no Metal/GPU resources are held
+ * and shutdown is a no-op.
  */
 public enum Ds4State
 {
+    /** Local AI is switched off in settings. The supervisor refuses
+     *  to spawn, attach, or auto-restart, and {@code @PreDestroy}
+     *  teardown is a no-op. The UI greys the widget out with a
+     *  re-enable affordance. Master switch — wins over every other
+     *  state at boot. */
+    DISABLED,
+
     /** No binary path is configured (or it doesn't resolve to an
      *  executable file). The Management tab surfaces a configure /
      *  download affordance; Start is disabled. */

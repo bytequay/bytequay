@@ -1087,6 +1087,7 @@ export type WorkModelDto = {
 /** Lifecycle state of the local ds4 inference subprocess. Mirrors
  *  com.bytequay.app.service.local.ds4.Ds4State. */
 export type Ds4StateDto =
+  | 'DISABLED'
   | 'NOT_CONFIGURED'
   | 'STOPPED'
   | 'STARTING'
@@ -1128,6 +1129,9 @@ export type Ds4ConfigDto = {
   autoRestartOnCrash: boolean;
   autoStartOnBoot: boolean;
   attachIfRunning: boolean;
+  /** Master switch for local AI. When false the backend never spawns,
+   *  attaches, or restarts the ds4 server, and holds no GPU resources. */
+  enabled: boolean;
 };
 
 /** Body of POST /api/ds4/install — drives clone+build, model

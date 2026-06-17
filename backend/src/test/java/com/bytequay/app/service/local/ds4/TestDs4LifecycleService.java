@@ -51,6 +51,68 @@ class TestDs4LifecycleService
     }
 
     @Test
+    void disabledLocalAiParksAtDisabledAndNeverSpawnsOnBoot()
+    {
+        InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_ENABLED, "false");
+        // A binary path on file would normally auto-start at boot — the
+        // master switch has to win over it.
+        settings.set(Key.DS4_BINARY_PATH, "/usr/local/bin/ds4-server");
+        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+
+        assertThat(service.status().state()).isEqualTo(Ds4State.DISABLED);
+
+        service.onApplicationReady();
+        assertThat(service.status().state()).isEqualTo(Ds4State.DISABLED);
+        assertThat(service.status().pid()).isEqualTo(-1L);
+    }
+
+    @Test
+    void startBlockingRefusesWhenDisabled()
+            throws InterruptedException
+    {
+        InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_ENABLED, "false");
+        settings.set(Key.DS4_BINARY_PATH, "/usr/local/bin/ds4-server");
+        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+
+        // A manual Start must not bring the subprocess up behind the
+        // user's back while local AI is switched off.
+        service.startBlocking();
+        service.awaitQuiet(Duration.ofSeconds(2));
+
+        assertThat(service.status().state()).isEqualTo(Ds4State.DISABLED);
+    }
+
+    @Test
+    void togglingEnabledOffParksDisabledAndBackOnRestoresStopped()
+    {
+        InMemorySettings settings = new InMemorySettings();
+        settings.set(Key.DS4_BINARY_PATH, "/usr/local/bin/ds4-server");
+        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        assertThat(service.status().state()).isEqualTo(Ds4State.STOPPED);
+
+        service.setConfig(withEnabled(service.getConfig(), false));
+        assertThat(service.status().state()).isEqualTo(Ds4State.DISABLED);
+
+        // Re-enabling drops back to the normal resting state (Start
+        // available) without auto-spawning.
+        service.setConfig(withEnabled(service.getConfig(), true));
+        assertThat(service.status().state()).isEqualTo(Ds4State.STOPPED);
+    }
+
+    private static Ds4Config withEnabled(Ds4Config c, boolean enabled)
+    {
+        return new Ds4Config(
+                c.binaryPath(), c.port(), c.model(), c.quant(),
+                c.contextTokens(), c.kvCacheDir(), c.kvDiskBudgetMb(),
+                c.thinkingDefault(), c.trace(),
+                c.repoDir(), c.modelVariant(), c.installUrl(),
+                c.autoRestartOnCrash(), c.autoStartOnBoot(), c.attachIfRunning(),
+                enabled);
+    }
+
+    @Test
     void settingBinaryPathThroughSetConfigDropsFromNotConfiguredToStopped()
     {
         InMemorySettings settings = new InMemorySettings();
@@ -62,7 +124,8 @@ class TestDs4LifecycleService
                 cfg.contextTokens(), cfg.kvCacheDir(), cfg.kvDiskBudgetMb(),
                 cfg.thinkingDefault(), cfg.trace(),
                 cfg.repoDir(), cfg.modelVariant(), cfg.installUrl(),
-                cfg.autoRestartOnCrash(), cfg.autoStartOnBoot(), cfg.attachIfRunning());
+                cfg.autoRestartOnCrash(), cfg.autoStartOnBoot(), cfg.attachIfRunning(),
+                cfg.enabled());
         service.setConfig(withPath);
 
         Ds4Status snap = service.status();
@@ -113,7 +176,7 @@ class TestDs4LifecycleService
                 65_536, "/var/kv", 50_000,
                 /* thinkingDefault */ true, /* trace */ true,
                 /* repoDir */ "/opt/ds4", /* modelVariant */ "q2-imatrix",
-                /* installUrl */ "", true, true, true);
+                /* installUrl */ "", true, true, true, /* enabled */ true);
 
         List<String> args = Ds4LifecycleService.buildArgs(cfg);
 
@@ -138,7 +201,7 @@ class TestDs4LifecycleService
                 32_768, "/var/kv", 40_000,
                 /* thinkingDefault */ false, /* trace */ false,
                 /* repoDir */ "/opt/ds4", /* modelVariant */ "q2-imatrix",
-                /* installUrl */ "", true, true, true);
+                /* installUrl */ "", true, true, true, /* enabled */ true);
 
         List<String> args = Ds4LifecycleService.buildArgs(cfg);
 

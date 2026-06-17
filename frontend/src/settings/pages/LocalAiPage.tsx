@@ -298,6 +298,25 @@ function Ds4ManagementTab({
 
   return (
     <div style={tabBodyStyle}>
+      {config !== null && (
+        <Card title="Local AI">
+          <p style={mutedStyle}>
+            Master switch. When off, ByteQuay never spawns or attaches the
+            local ds4 model server, holds no GPU resources, and shuts down
+            instantly. The lifecycle options below have no effect until
+            this is on.
+          </p>
+          <div style={toggleListStyle}>
+            <Toggle
+              label="Enable local AI (ds4)"
+              hint="Turn the local DeepSeek inference server on or off entirely."
+              value={config.enabled}
+              onChange={(v) => persistFlag(config, setConfig, 'enabled', v)}
+            />
+          </div>
+        </Card>
+      )}
+
       <Card title="Lifecycle">
         <p style={mutedStyle}>
           Start / Stop / Restart drive the supervisor in the same way the
@@ -311,18 +330,21 @@ function Ds4ManagementTab({
               label="Auto-restart on crash"
               hint="1s / 2s / 5s / 15s back-off; gives up after 5 attempts."
               value={config.autoRestartOnCrash}
+              disabled={!config.enabled}
               onChange={(v) => persistFlag(config, setConfig, 'autoRestartOnCrash', v)}
             />
             <Toggle
               label="Attach to a running server"
               hint="Skip spawning a duplicate when another client is already serving on the port."
               value={config.attachIfRunning}
+              disabled={!config.enabled}
               onChange={(v) => persistFlag(config, setConfig, 'attachIfRunning', v)}
             />
             <Toggle
               label="Start ds4 with ByteQuay"
               hint="Auto-Start when the app boots and no healthy server is attached."
               value={config.autoStartOnBoot}
+              disabled={!config.enabled}
               onChange={(v) => persistFlag(config, setConfig, 'autoStartOnBoot', v)}
             />
           </div>
@@ -620,16 +642,22 @@ function Card({ title, right, children }: {
 }
 
 function Toggle({
-  label, hint, value, onChange,
+  label, hint, value, onChange, disabled = false,
 }: {
   label: string;
   hint: string;
   value: boolean;
   onChange: (next: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <label style={toggleRowStyle}>
-      <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+    <label style={disabled ? { ...toggleRowStyle, opacity: 0.5 } : toggleRowStyle}>
+      <input
+        type="checkbox"
+        checked={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         <span style={{ fontWeight: 600 }}>{label}</span>
         <span style={mutedStyle}>{hint}</span>

@@ -81,4 +81,14 @@ public record Ds4Status(
                 endpoint,
                 -1L, null, false, 0, null);
     }
+
+    /** Resting snapshot when local AI is switched off. No process,
+     *  no error — the supervisor simply won't act until re-enabled. */
+    public static Ds4Status disabled(String endpoint)
+    {
+        return new Ds4Status(
+                Ds4State.DISABLED,
+                endpoint,
+                -1L, null, false, 0, null);
+    }
 }

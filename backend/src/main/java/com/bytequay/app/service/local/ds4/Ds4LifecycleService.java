@@ -176,10 +176,33 @@ public class Ds4LifecycleService
     {
         requireNonNull(config, "config is null");
         persistConfig(config);
+        Ds4Status snap = status.get();
+        if (!config.enabled()) {
+            // Master switch turned off. Stop a live server so its
+            // Metal/GPU resources are released now, then park DISABLED.
+            if (snap.state() == Ds4State.RUNNING || snap.state() == Ds4State.STARTING) {
+                supervisor.submit(() -> {
+                    stopBlocking();
+                    transition(Ds4Status.disabled(endpointFor(config)));
+                });
+            }
+            else {
+                transition(Ds4Status.disabled(endpointFor(config)));
+            }
+            return;
+        }
+        // Switched back on: leave DISABLED for the normal resting
+        // state so Start becomes available, but never auto-spawn here —
+        // apply-on-restart stays the contract.
+        if (snap.state() == Ds4State.DISABLED) {
+            transition(config.canStart()
+                    ? Ds4Status.stopped(endpointFor(config))
+                    : Ds4Status.notConfigured(endpointFor(config)));
+            return;
+        }
         // A config write that newly satisfies canStart() should
         // immediately drop us out of NOT_CONFIGURED so the UI can
         // enable the Start button without a refresh.
-        Ds4Status snap = status.get();
         if (snap.state() == Ds4State.NOT_CONFIGURED && config.canStart()) {
             transition(Ds4Status.stopped(endpointFor(config)));
         }
@@ -253,6 +276,12 @@ public class Ds4LifecycleService
     public void onApplicationReady()
     {
         Ds4Config cfg = loadConfig();
+        if (!cfg.enabled()) {
+            // Local AI switched off — never spawn, attach, or hold any
+            // Metal/GPU resources. Shutdown stays a no-op.
+            transition(Ds4Status.disabled(endpointFor(cfg)));
+            return;
+        }
         if (!cfg.canStart()) {
             // No binary path — keep NOT_CONFIGURED and let the UI
             // surface the configure / download affordance.
@@ -293,6 +322,12 @@ public class Ds4LifecycleService
     void startBlocking()
     {
         Ds4Config cfg = loadConfig();
+        if (!cfg.enabled()) {
+            // Master switch off — a manual Start (or a queued restart)
+            // must not bring the subprocess up behind the user's back.
+            transition(Ds4Status.disabled(endpointFor(cfg)));
+            return;
+        }
         if (!cfg.canStart()) {
             transition(new Ds4Status(
                     Ds4State.NOT_CONFIGURED, endpointFor(cfg),
@@ -342,7 +377,11 @@ public class Ds4LifecycleService
     {
         Process p = this.process;
         Ds4Status snap = status.get();
-        if (snap.state() == Ds4State.STOPPED || snap.state() == Ds4State.NOT_CONFIGURED) {
+        if (snap.state() == Ds4State.STOPPED
+                || snap.state() == Ds4State.NOT_CONFIGURED
+                || snap.state() == Ds4State.DISABLED) {
+            // Nothing was ever spawned — teardown is a no-op, so the
+            // @PreDestroy path costs nothing and holds no GPU state.
             removePidFile();
             return;
         }
@@ -401,7 +440,7 @@ public class Ds4LifecycleService
     private void maybeScheduleRestart(Ds4Config cfg)
     {
         Ds4Status snap = status.get();
-        if (!cfg.autoRestartOnCrash()) {
+        if (!cfg.enabled() || !cfg.autoRestartOnCrash()) {
             return;
         }
         if (snap.restartAttempts() >= MAX_RESTART_ATTEMPTS) {
@@ -621,6 +660,9 @@ public class Ds4LifecycleService
 
     private Ds4Status initialStatusFor(Ds4Config cfg)
     {
+        if (!cfg.enabled()) {
+            return Ds4Status.disabled(endpointFor(cfg));
+        }
         if (!cfg.canStart()) {
             return Ds4Status.notConfigured(endpointFor(cfg));
         }
@@ -696,7 +738,8 @@ public class Ds4LifecycleService
                 settings.get(Key.DS4_INSTALL_URL).filter(s -> !s.isBlank()).orElse(d.installUrl()),
                 settings.get(Key.DS4_AUTO_RESTART_ON_CRASH).map(Ds4LifecycleService::parseBool).orElse(d.autoRestartOnCrash()),
                 settings.get(Key.DS4_AUTO_START_ON_BOOT).map(Ds4LifecycleService::parseBool).orElse(d.autoStartOnBoot()),
-                settings.get(Key.DS4_ATTACH_IF_RUNNING).map(Ds4LifecycleService::parseBool).orElse(d.attachIfRunning()));
+                settings.get(Key.DS4_ATTACH_IF_RUNNING).map(Ds4LifecycleService::parseBool).orElse(d.attachIfRunning()),
+                settings.get(Key.DS4_ENABLED).map(Ds4LifecycleService::parseBool).orElse(d.enabled()));
     }
 
     private void persistConfig(Ds4Config c)
@@ -716,6 +759,7 @@ public class Ds4LifecycleService
         settings.set(Key.DS4_AUTO_RESTART_ON_CRASH, Boolean.toString(c.autoRestartOnCrash()));
         settings.set(Key.DS4_AUTO_START_ON_BOOT, Boolean.toString(c.autoStartOnBoot()));
         settings.set(Key.DS4_ATTACH_IF_RUNNING, Boolean.toString(c.attachIfRunning()));
+        settings.set(Key.DS4_ENABLED, Boolean.toString(c.enabled()));
     }
 
     private static int parseInt(String s)

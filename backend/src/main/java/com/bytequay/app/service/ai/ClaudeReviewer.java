@@ -552,7 +552,9 @@ public class ClaudeReviewer
                 .reduce("", String::concat);
     }
 
-    private ReviewOutput parseReviewOutput(String text, String model)
+    // Package-private for unit tests — parsing the model's free-form
+    // output is the fragile part worth pinning directly.
+    ReviewOutput parseReviewOutput(String text, String model)
     {
         String json = extractJsonObject(text);
         try {
@@ -575,7 +577,7 @@ public class ClaudeReviewer
     /**
      * Grab the first top-level {...} block; models occasionally wrap in fences despite instructions.
      */
-    private static String extractJsonObject(String text)
+    static String extractJsonObject(String text)
     {
         int start = text.indexOf('{');
         int end = text.lastIndexOf('}');

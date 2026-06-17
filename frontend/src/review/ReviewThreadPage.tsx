@@ -1201,7 +1201,7 @@ function MessageBubble({
             );
           })}
         </div>
-        <div style={bubbleBodyStyle}>{renderMessageBody(message)}</div>
+        <div style={bubbleBodyStyle}><MarkdownProse text={renderMessageBody(message)} /></div>
         {message.refs.length > 0 && (
           <div style={refRowStyle}>
             {message.refs.map(r => (
@@ -1219,9 +1219,25 @@ function MessageBubble({
  *  prose body verbatim. */
 function renderMessageBody(m: ReviewPanelMessageDto): string {
   if (m.payloadKind === 'cross_review') {
-    return crossReviewSummary(m.payloadJson) ?? m.body;
+    return crossReviewSummary(m.payloadJson) ?? stripToolMarkup(m.body);
   }
-  return m.body;
+  return stripToolMarkup(m.body);
+}
+
+/** Some models leak raw tool-call tokens into the prose (e.g.
+ *  {@code "< | DSML | invoke name=search_code>…"}). They're noise in the
+ *  conversation view — strip the markup tags and front the remainder with
+ *  a wrench so it reads as "ran a tool", not garbled XML. */
+function stripToolMarkup(body: string): string {
+  if (!/DSML/.test(body)) {
+    return body;
+  }
+  const cleaned = body
+    .replace(/<\s*\/?\s*[|｜]\s*DSML\s*[|｜][^>]*>/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return cleaned.length > 0 ? `🔧 *ran a tool* — ${cleaned}` : '🔧 *ran a tool*';
 }
 
 function crossReviewSummary(payloadJson: string | null): string | null {
@@ -2362,7 +2378,7 @@ const bubbleBodyStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.55,
   color: 'var(--text-1)',
-  whiteSpace: 'pre-wrap',
+  overflowWrap: 'anywhere',
 };
 
 const refRowStyle: React.CSSProperties = {

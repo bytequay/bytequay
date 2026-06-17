@@ -604,6 +604,34 @@ describe('ReviewThreadPage', () => {
     await waitFor(() => screen.getByText('Nothing locked in yet.'));
     expect(screen.getByText('All disagreements resolved or arbitrated.')).toBeTruthy();
   });
+
+  it('renders leaked DSML tool-call tokens as clean tool cards, not raw markup', async () => {
+    const base = buildDetail({});
+    const claude = participant({ id: 'p-c', kind: 'REVIEWER', personaLabel: 'Claude' });
+    const detail: ReviewPassDetailDto = {
+      ...base,
+      participants: [claude, participant({ id: 'p-you', kind: 'HUMAN', personaLabel: 'You' })],
+      messages: [
+        message({
+          id: 'tc', participantId: 'p-c', phase: 'INDEPENDENT',
+          body: '<｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="search_code"> '
+            + '<｜｜DSML｜｜parameter name="query" string="true">requireColumnSize'
+            + '</｜｜DSML｜｜parameter> </｜｜DSML｜｜invoke> </｜｜DSML｜｜tool_calls>',
+        }),
+      ],
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('search_code'));
+    // The tool name + parameter render as structured fields.
+    expect(screen.getByText('query')).toBeTruthy();
+    expect(screen.getByText('requireColumnSize')).toBeTruthy();
+    // The raw DSML markup never reaches the DOM.
+    expect(screen.queryByText(/DSML/)).toBeNull();
+  });
 });
 
 function buildDetail(

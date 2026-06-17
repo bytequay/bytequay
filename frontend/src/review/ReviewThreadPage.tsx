@@ -1201,7 +1201,7 @@ function MessageBubble({
             );
           })}
         </div>
-        <div style={bubbleBodyStyle}><MarkdownProse text={renderMessageBody(message)} /></div>
+        <div style={bubbleBodyStyle}><MessageBody message={message} /></div>
         {message.refs.length > 0 && (
           <div style={refRowStyle}>
             {message.refs.map(r => (
@@ -1217,27 +1217,85 @@ function MessageBubble({
 /** Cross-review messages carry a raw JSON envelope as their body;
  *  surface a readable one-liner instead. Everything else shows its
  *  prose body verbatim. */
-function renderMessageBody(m: ReviewPanelMessageDto): string {
-  if (m.payloadKind === 'cross_review') {
-    return crossReviewSummary(m.payloadJson) ?? stripToolMarkup(m.body);
+/** A bubble's body: the prose (markdown) plus any tool-call invocations
+ *  the model emitted, rendered as clean cards rather than raw tokens. */
+function MessageBody({ message }: { message: ReviewPanelMessageDto }) {
+  if (message.payloadKind === 'cross_review') {
+    const summary = crossReviewSummary(message.payloadJson);
+    if (summary !== null) {
+      return <MarkdownProse text={summary} />;
+    }
   }
-  return stripToolMarkup(m.body);
+  const { prose, toolCalls } = parseToolCalls(message.body);
+  return (
+    <>
+      {prose.trim().length > 0 && <MarkdownProse text={prose} />}
+      {toolCalls.length > 0 && <ToolCallList calls={toolCalls} />}
+    </>
+  );
 }
 
-/** Some models leak raw tool-call tokens into the prose (e.g.
- *  {@code "< | DSML | invoke name=search_code>…"}). They're noise in the
- *  conversation view — strip the markup tags and front the remainder with
- *  a wrench so it reads as "ran a tool", not garbled XML. */
-function stripToolMarkup(body: string): string {
-  if (!/DSML/.test(body)) {
-    return body;
+type ToolCall = { name: string; params: { name: string; value: string }[] };
+
+// DSML tool-call tokens use fullwidth bars; tolerate one-or-more of either
+// bar character around the "DSML" marker so a normalised "|" still matches.
+const BAR = '[｜|]+';
+const TOOL_BLOCK_RE = new RegExp(`<${BAR}DSML${BAR}tool_calls>([\\s\\S]*?)</${BAR}DSML${BAR}tool_calls>`, 'g');
+const INVOKE_RE = new RegExp(`<${BAR}DSML${BAR}invoke name="([^"]*)">([\\s\\S]*?)</${BAR}DSML${BAR}invoke>`, 'g');
+const PARAM_RE = new RegExp(`<${BAR}DSML${BAR}parameter name="([^"]*)"[^>]*>([\\s\\S]*?)</${BAR}DSML${BAR}parameter>`, 'g');
+
+/** Split a message body into its prose and the structured tool calls the
+ *  model emitted (DeepSeek-style {@code <｜｜DSML｜｜invoke …>} tokens). */
+function parseToolCalls(body: string): { prose: string; toolCalls: ToolCall[] } {
+  if (!body.includes('DSML')) {
+    return { prose: body, toolCalls: [] };
   }
-  const cleaned = body
-    .replace(/<\s*\/?\s*[|｜]\s*DSML\s*[|｜][^>]*>/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+  const toolCalls: ToolCall[] = [];
+  TOOL_BLOCK_RE.lastIndex = 0;
+  let blockMatch: RegExpExecArray | null;
+  while ((blockMatch = TOOL_BLOCK_RE.exec(body)) !== null) {
+    const inner = blockMatch[1];
+    INVOKE_RE.lastIndex = 0;
+    let invokeMatch: RegExpExecArray | null;
+    while ((invokeMatch = INVOKE_RE.exec(inner)) !== null) {
+      const params: { name: string; value: string }[] = [];
+      PARAM_RE.lastIndex = 0;
+      let paramMatch: RegExpExecArray | null;
+      while ((paramMatch = PARAM_RE.exec(invokeMatch[2])) !== null) {
+        params.push({ name: paramMatch[1], value: paramMatch[2].trim() });
+      }
+      toolCalls.push({ name: invokeMatch[1], params });
+    }
+  }
+  // Prose is whatever's left once the tool-call blocks are removed. Also
+  // sweep any stray DSML tags so a malformed block never leaks raw tokens.
+  const prose = body
+    .replace(TOOL_BLOCK_RE, '')
+    .replace(new RegExp(`</?${BAR}DSML${BAR}[^>]*>`, 'g'), '')
     .trim();
-  return cleaned.length > 0 ? `🔧 *ran a tool* — ${cleaned}` : '🔧 *ran a tool*';
+  return { prose, toolCalls };
+}
+
+/** Renders parsed tool invocations as compact wrench cards. */
+function ToolCallList({ calls }: { calls: ToolCall[] }) {
+  return (
+    <div style={toolCallListStyle}>
+      {calls.map((call, i) => (
+        <div key={i} style={toolCallRowStyle}>
+          <span style={toolCallIconStyle} aria-hidden>🔧</span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <span style={toolCallNameStyle}>{call.name}</span>
+            {call.params.map((p, j) => (
+              <div key={j} style={toolCallParamStyle}>
+                <span style={toolCallParamNameStyle}>{p.name}</span>
+                <span style={toolCallParamValStyle}>{p.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function crossReviewSummary(payloadJson: string | null): string | null {
@@ -2379,6 +2437,51 @@ const bubbleBodyStyle: React.CSSProperties = {
   lineHeight: 1.55,
   color: 'var(--text-1)',
   overflowWrap: 'anywhere',
+};
+const toolCallListStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  marginTop: 6,
+};
+const toolCallRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  padding: '7px 10px',
+  background: 'rgba(124,92,255,0.06)',
+  border: '1px solid rgba(124,92,255,0.18)',
+  borderRadius: 9,
+};
+const toolCallIconStyle: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: 1.5,
+  flexShrink: 0,
+};
+const toolCallNameStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 12,
+  fontWeight: 700,
+  color: '#5b21b6',
+};
+const toolCallParamStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  fontSize: 11,
+  marginTop: 3,
+  alignItems: 'baseline',
+};
+const toolCallParamNameStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  color: 'var(--text-3)',
+  flexShrink: 0,
+};
+const toolCallParamValStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  color: 'var(--text-1)',
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-all',
 };
 
 const refRowStyle: React.CSSProperties = {

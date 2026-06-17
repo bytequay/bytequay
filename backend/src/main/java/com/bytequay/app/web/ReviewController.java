@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -148,6 +149,20 @@ public class ReviewController
     public ResponseEntity<ReviewPassDetail> latestForThread(@PathVariable String threadId)
     {
         return reviews.findLatestPassForThread(threadId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** The active review pass for a PR (by {@code owner/repo} + number),
+     *  with its findings. The code-diff page calls this to overlay the
+     *  panel's AGREED findings on the diff at their line positions; 404
+     *  when the PR has no review pass. */
+    @GetMapping("/for-pr")
+    public ResponseEntity<ReviewPassDetail> activeForPr(
+            @RequestParam("repo") String repoFullName,
+            @RequestParam("number") int prNumber)
+    {
+        return reviews.findActivePrReviewDetail(repoFullName, prNumber)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

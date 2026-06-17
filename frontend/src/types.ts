@@ -3396,6 +3396,10 @@ export type Bridge = {
   /** Read the latest pass on a review thread — the URL the panel UI
    *  lives on uses the thread id, this resolves the pass for it. */
   getReviewPassByThread: (threadId: string) => Promise<ReviewPassDetailDto | null>;
+  /** Read the active review pass for a PR (by {@code owner/repo} + number)
+   *  so the code-diff page can overlay its AGREED findings at their line
+   *  positions. Null when the PR has no review pass. */
+  getReviewPassForPr: (repo: string, number: number) => Promise<ReviewPassDetailDto | null>;
   /** Read the scheduled-reviews opt-in toggle. */
   getScheduledReviewSettings: () => Promise<{ enabled: boolean }>;
   /** Flip the scheduled-reviews opt-in toggle. The backend reads

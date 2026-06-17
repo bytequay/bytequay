@@ -156,6 +156,7 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
     listAiProviders: vi.fn().mockResolvedValue([]),
     getLatestAiReview: vi.fn().mockResolvedValue(null),
     getAiReviewStatus: vi.fn().mockResolvedValue({ state: 'IDLE', error: null }),
+    getReviewPassForPr: vi.fn().mockResolvedValue(null),
   };
 }
 

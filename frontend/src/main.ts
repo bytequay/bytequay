@@ -3588,6 +3588,23 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:forPr', async (_event, repo: unknown, number: unknown) => {
+    if (typeof repo !== 'string' || repo.trim().length === 0) {
+      throw new Error('repo must be a non-empty string');
+    }
+    if (typeof number !== 'number') {
+      throw new Error('number must be a number');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/for-pr?repo=${encodeURIComponent(repo)}&number=${number}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/reviews/for-pr ${repo}#${number} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:scheduled:get', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/reviews/scheduled-settings`);
     if (!res.ok) {

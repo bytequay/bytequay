@@ -681,6 +681,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:get', passId),
   getReviewPassByThread: (threadId: string) =>
     ipcRenderer.invoke('reviews:byThread', threadId),
+  getReviewPassForPr: (repo: string, number: number) =>
+    ipcRenderer.invoke('reviews:forPr', repo, number),
   publishReviewPass: (passId: string, verdict: string, findingIds: string[]) =>
     ipcRenderer.invoke('reviews:publish', { passId, verdict, findingIds }),
   spawnBuildFromReview: (passId: string, opts?: { workspaceId?: string; openingTitle?: string }) =>

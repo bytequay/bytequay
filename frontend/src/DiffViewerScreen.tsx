@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
-import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
+import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewFindingDto, ReviewFindingSeverityDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached } from './dataCache';
 import Avatar from './Avatar';
 import { parseUnifiedDiff } from './diffParse';
@@ -120,6 +120,71 @@ function severityGlyph(s: string): string {
   if (k === 'blocker' || k === 'warning') return '!';
   if (k === 'info') return 'i';
   return '·';
+}
+
+/** Map a panel finding's severity onto the AI-comment severity vocabulary
+ *  so {@link severityClass} / {@link severityGlyph} colour it consistently
+ *  with the AI findings rendered on the same diff. */
+function panelSeverityKey(s: ReviewFindingSeverityDto): string {
+  switch (s) {
+    case 'BLOCKER': return 'blocker';
+    case 'MAJOR': return 'warning';
+    case 'QUESTION': return 'info';
+    default: return 'suggestion'; // NIT
+  }
+}
+
+/**
+ * Read-only inline finding from the multi-agent review panel. Reuses the
+ * AI-finding visual (severity dot + collapsible card) so it sits naturally
+ * among the AI-draft findings, but carries no edit/dismiss actions — these
+ * findings are owned by the review pass, the diff page only surfaces them.
+ */
+function PanelFinding({ finding }: { finding: ReviewFindingDto }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const sevKey = panelSeverityKey(finding.severity);
+  const loc = finding.path != null
+    ? `${finding.path}${finding.line != null ? `:${finding.line}` : ''}`
+    : null;
+  if (collapsed) {
+    return (
+      <div className="diff-row diff-row--inline-finding">
+        <button
+          type="button"
+          className="inline-finding-folded"
+          onClick={() => setCollapsed(false)}
+          title={`Expand panel finding · ${finding.severity.toLowerCase()}`}
+          aria-expanded="false"
+        >
+          <span className={`inline-finding__sev ${severityClass(sevKey)}`}>{severityGlyph(sevKey)}</span>
+          <span className="inline-finding-folded__hint">▸</span>
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="diff-row diff-row--inline-finding">
+      <div className="inline-finding">
+        <span className={`inline-finding__sev ${severityClass(sevKey)}`}>{severityGlyph(sevKey)}</span>
+        <div className="inline-finding__body">
+          <div className="inline-finding__head">
+            <button
+              type="button"
+              className="inline-finding__fold-btn"
+              onClick={() => setCollapsed(true)}
+              title="Collapse"
+              aria-expanded="true"
+            >
+              ▾
+            </button>
+            <span className="inline-finding__source">⚖ Panel · {finding.severity.toLowerCase()}</span>
+            {loc !== null && <span className="inline-finding__loc">{loc}</span>}
+          </div>
+          <div className="inline-finding__text">{finding.body}</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type InlineFindingProps = {
@@ -851,6 +916,7 @@ function ContinuousFilesPane({
   selectedPath,
   onActiveFileChange,
   aiComments,
+  panelFindings,
   draftId,
   draftPublished,
   onDraftUpdated,
@@ -866,6 +932,7 @@ function ContinuousFilesPane({
   selectedPath: string | null;
   onActiveFileChange: (path: string) => void;
   aiComments: AiReviewCommentDto[];
+  panelFindings: ReviewFindingDto[];
   draftId: number | null;
   draftPublished: boolean;
   onDraftUpdated: (draft: AiReviewDraftDto) => void;
@@ -991,6 +1058,7 @@ function ContinuousFilesPane({
             <FileDiff
               file={file}
               comments={aiComments}
+              panelFindings={panelFindings}
               draftId={draftId}
               draftPublished={draftPublished}
               onDraftUpdated={onDraftUpdated}
@@ -1012,6 +1080,8 @@ function ContinuousFilesPane({
 type FileDiffProps = {
   file: DiffFileDto;
   comments: AiReviewCommentDto[];
+  /** AGREED review-pass findings for this PR, rendered read-only inline. */
+  panelFindings: ReviewFindingDto[];
   draftId: number | null;
   draftPublished: boolean;
   onDraftUpdated: (draft: AiReviewDraftDto) => void;
@@ -1146,7 +1216,7 @@ function ExpandControls({
   );
 }
 
-function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prId, repo, prNumber, headSha, threads, onThreadReplied, prAuthor }: FileDiffProps) {
+function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDraftUpdated, prId, repo, prNumber, headSha, threads, onThreadReplied, prAuthor }: FileDiffProps) {
   const hunks = useMemo(() => parseUnifiedDiff(file.patch), [file.patch]);
   // Expanded gap state — Map<gapIndex, Map<newLine, content>>. Gap g is
   // the region BEFORE hunks[g]; hunks.length is the after-last gap.
@@ -1477,6 +1547,29 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
     [comments, file.filename, visibleLineKeys],
   );
 
+  // Panel findings anchor to the new file, so they slot under RIGHT-side
+  // rows by line number — same contract as AI findings. Keyed "RIGHT:line"
+  // so the row lookups below can share the key shape.
+  const panelFindingsByLine = useMemo(() => {
+    const map = new Map<string, ReviewFindingDto[]>();
+    for (const f of panelFindings) {
+      if (f.path !== file.filename || f.line === null) continue;
+      const key = `RIGHT:${f.line}`;
+      const list = map.get(key) ?? [];
+      list.push(f);
+      map.set(key, list);
+    }
+    return map;
+  }, [panelFindings, file.filename]);
+  // Panel findings for this file with no line, or a line outside the
+  // visible diff — surfaced in the orphan block so they're still readable.
+  const orphanPanelFindings = useMemo(
+    () => panelFindings.filter(f =>
+      f.path === file.filename
+      && (f.line === null || !visibleLineKeys.has(`RIGHT:${f.line}`))),
+    [panelFindings, file.filename, visibleLineKeys],
+  );
+
   if (file.patch === null || file.patch === undefined) {
     return (
       <div className="diff-file-empty">
@@ -1496,10 +1589,10 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
           diff page and only show in the sidebar; surface them here so
           a click on the sidebar card has somewhere to land and the
           comment is at least readable. */}
-      {orphanFindings.length > 0 && (
+      {(orphanFindings.length > 0 || orphanPanelFindings.length > 0) && (
         <div className="diff-orphan-findings">
           <div className="diff-orphan-findings__label">
-            {orphanFindings.length} comment{orphanFindings.length === 1 ? '' : 's'} on lines outside the visible diff
+            {orphanFindings.length + orphanPanelFindings.length} comment{(orphanFindings.length + orphanPanelFindings.length) === 1 ? '' : 's'} on lines outside the visible diff
           </div>
           {orphanFindings.map(c => (
             <InlineFinding
@@ -1509,6 +1602,9 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
               draftPublished={draftPublished}
               onDraftUpdated={onDraftUpdated}
             />
+          ))}
+          {orphanPanelFindings.map(f => (
+            <PanelFinding key={f.id} finding={f} />
           ))}
         </div>
       )}
@@ -1584,6 +1680,9 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
                       draftPublished={draftPublished}
                       onDraftUpdated={onDraftUpdated}
                     />
+                  ))}
+                  {panelFindingsByLine.get(`RIGHT:${newLine}`)?.map(f => (
+                    <PanelFinding key={f.id} finding={f} />
                   ))}
                   {threadsByAnchor.get(`RIGHT:${newLine}`)?.map(thread => (
                     <InlineExistingThread
@@ -1698,6 +1797,9 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
                     draftPublished={draftPublished}
                     onDraftUpdated={onDraftUpdated}
                   />
+                ))}
+                {anchorLine != null && panelFindingsByLine.get(`${anchorSide}:${anchorLine}`)?.map(f => (
+                  <PanelFinding key={f.id} finding={f} />
                 ))}
                 {anchorLine != null && threadsByAnchor.get(`${anchorSide}:${anchorLine}`)?.map(thread => (
                   <InlineExistingThread
@@ -1815,6 +1917,9 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
                       onDraftUpdated={onDraftUpdated}
                     />
                   ))}
+                  {panelFindingsByLine.get(`RIGHT:${newLine}`)?.map(f => (
+                    <PanelFinding key={f.id} finding={f} />
+                  ))}
                   {threadsByAnchor.get(`RIGHT:${newLine}`)?.map(thread => (
                     <InlineExistingThread
                       key={thread.rootGithubId}
@@ -1925,6 +2030,23 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
     }
   };
   useEffect(() => { void refreshReviewThreads(); }, [pr.id]);
+
+  // AGREED findings from this PR's multi-agent review pass, overlaid on
+  // the diff at their line positions. Read-only — owned by the review
+  // pass; the diff page just surfaces them. Best-effort: an empty list
+  // (no pass, or the lookup failed) simply means no panel markers.
+  const [panelFindings, setPanelFindings] = useState<ReviewFindingDto[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    window.bridge.getReviewPassForPr(pr.repo, pr.number)
+      .then(detail => {
+        if (cancelled || detail === null) return;
+        setPanelFindings(
+          (detail.findings ?? []).filter(f => f.status === 'AGREED' && f.path !== null));
+      })
+      .catch(() => { /* best-effort: no overlay if the lookup fails */ });
+    return () => { cancelled = true; };
+  }, [pr.repo, pr.number]);
 
   const handleApprove = async () => {
     if (!onApprove || approveState === 'running') return;
@@ -2373,6 +2495,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
               selectedPath={selectedPath}
               onActiveFileChange={(path) => setSelectedPath(path)}
               aiComments={aiDraft?.comments ?? []}
+              panelFindings={panelFindings}
               draftId={aiDraft?.id ?? null}
               draftPublished={aiDraft?.status === 'PUBLISHED'}
               onDraftUpdated={setAiDraft}

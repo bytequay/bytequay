@@ -1331,6 +1331,17 @@ public class ReviewPassService
         return reviewStore.findPassById(passId).map(this::buildDetail);
     }
 
+    /** Latest non-published review pass for a PR, with its full detail.
+     *  Powers the code-diff page's inline panel-findings overlay: it looks
+     *  the pass up by {@code owner/repo} + number so the diff viewer can
+     *  surface the AGREED findings at their line positions regardless of
+     *  how the user opened the diff. Empty when the PR was never reviewed. */
+    public Optional<ReviewPassDetail> findActivePrReviewDetail(String repoFullName, int prNumber)
+    {
+        return reviewStore.findActivePrReview(repoFullName, prNumber)
+                .map(this::buildDetail);
+    }
+
     public Optional<ReviewPassDetail> findLatestPassForThread(String threadId)
     {
         List<ReviewPass> passes = reviewStore.listPassesByThread(threadId);

@@ -3439,6 +3439,13 @@ export type Bridge = {
     findingId: string,
     comment: string,
   ) => Promise<ReviewPassDetailDto>;
+  /** Drop a finding (soft-remove → DROPPED): takes it off the diff overlay,
+   *  the findings rail, and the publish selection. Returns the updated
+   *  detail. */
+  dropReviewFinding: (
+    passId: string,
+    findingId: string,
+  ) => Promise<ReviewPassDetailDto>;
   /** Steer the panel: inject a human message addressed to a reviewer or
    *  the lead and run that seat's reply unbudgeted. Returns the updated
    *  detail (the new human message + the seat's reply on the transcript). */

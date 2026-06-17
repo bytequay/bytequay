@@ -925,6 +925,38 @@ public class ReviewPassService
     }
 
     /**
+     * Drop a finding — the human removing an inline comment they don't want
+     * to keep. Soft-removes it (status → DROPPED) so it leaves the diff
+     * overlay, the findings rail, and the publish selection while staying
+     * on the record. Works on a settled finding regardless of phase,
+     * unlike {@link #arbitrateFinding} which only resolves open disputes.
+     */
+    public ReviewPassDetail dropFinding(String passId, String findingId)
+    {
+        requireNonNull(passId, "passId is null");
+        requireNonNull(findingId, "findingId is null");
+        if (reviewStore.findPassById(passId).isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(404), "no review pass: " + passId);
+        }
+        ReviewFinding finding = reviewStore.findFindingById(findingId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no finding: " + findingId));
+        if (!finding.reviewPassId().equals(passId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "finding " + findingId + " does not belong to pass " + passId);
+        }
+        reviewStore.saveFinding(new ReviewFinding(
+                finding.id(), finding.reviewPassId(),
+                finding.path(), finding.line(),
+                finding.severity(), ReviewFindingStatus.DROPPED,
+                finding.body(), finding.resolution(), finding.postedCommentId(),
+                finding.createdAt(),
+                finding.debateStatus(), finding.debateRounds()));
+        return findPassWithDetail(passId).orElseThrow();
+    }
+
+    /**
      * Inject a human-authored steer message into a pass and run the
      * addressed seat's reply UNBUDGETED — the review-page composer's
      * "@mention a reviewer/lead and send" action. The roster is rebuilt

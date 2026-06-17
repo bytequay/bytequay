@@ -148,6 +148,8 @@ function PanelFinding({ finding }: { finding: ReviewFindingDto }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(finding.body);
   const [saving, setSaving] = useState(false);
+  const [dropped, setDropped] = useState(false);
+  const [dropping, setDropping] = useState(false);
   const sevKey = panelSeverityKey(finding.severity);
   const loc = finding.path != null
     ? `${finding.path}${finding.line != null ? `:${finding.line}` : ''}`
@@ -168,6 +170,26 @@ function PanelFinding({ finding }: { finding: ReviewFindingDto }) {
       setSaving(false);
     }
   };
+
+  const drop = async () => {
+    if (dropping) {
+      return;
+    }
+    setDropping(true);
+    try {
+      await window.bridge.dropReviewFinding(finding.reviewPassId, finding.id);
+      setDropped(true);   // optimistic: hide the card; the backend marked it DROPPED
+    } catch (err) {
+      console.error('drop review finding failed', err);
+      setDropping(false);
+    }
+  };
+
+  // Dropped findings leave the diff entirely — DROPPED is excluded from the
+  // overlay on the next fetch; hide it now so the removal is immediate.
+  if (dropped) {
+    return null;
+  }
 
   if (collapsed) {
     return (
@@ -203,14 +225,25 @@ function PanelFinding({ finding }: { finding: ReviewFindingDto }) {
             <span className="inline-finding__source">⚖ Panel · {finding.severity.toLowerCase()}</span>
             {loc !== null && <span className="inline-finding__loc">{loc}</span>}
             {!editing && (
-              <button
-                type="button"
-                className="inline-finding__edit-btn"
-                onClick={() => { setDraft(body); setEditing(true); }}
-                title="Edit this comment before it publishes to GitHub"
-              >
-                ✎ Edit
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="inline-finding__edit-btn"
+                  onClick={() => { setDraft(body); setEditing(true); }}
+                  title="Edit this comment before it publishes to GitHub"
+                >
+                  ✎ Edit
+                </button>
+                <button
+                  type="button"
+                  className="inline-finding__edit-btn inline-finding__edit-btn--danger"
+                  onClick={() => void drop()}
+                  disabled={dropping}
+                  title="Remove this finding — it won't be published"
+                >
+                  {dropping ? '…' : '✕ Remove'}
+                </button>
+              </>
             )}
           </div>
           {editing ? (

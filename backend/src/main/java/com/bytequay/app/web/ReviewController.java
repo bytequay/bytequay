@@ -226,6 +226,14 @@ public class ReviewController
 
     public record EditFindingRequest(String comment) {}
 
+    @PostMapping("/{passId}/findings/{findingId}/drop")
+    public ReviewPassDetail dropFinding(
+            @PathVariable String passId,
+            @PathVariable String findingId)
+    {
+        return reviews.dropFinding(passId, findingId);
+    }
+
     /** Steer the panel from the review page: inject a human message
      *  addressed to a reviewer or the lead and run that seat's reply
      *  unbudgeted. */

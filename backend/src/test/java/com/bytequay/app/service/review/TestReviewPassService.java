@@ -698,6 +698,19 @@ class TestReviewPassService
     }
 
     @Test
+    void droppingAFindingSoftRemovesItAsDropped()
+    {
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        ReviewFinding f = seedFinding(pass, "src/A.java", 12,
+                ReviewFindingSeverity.MAJOR, ReviewFindingStatus.AGREED, "[DeepSeek] body");
+
+        service.dropFinding(pass.id(), f.id());
+
+        assertThat(reviewStore.findFindingById(f.id()).orElseThrow().status())
+                .isEqualTo(ReviewFindingStatus.DROPPED);
+    }
+
+    @Test
     void everySeatFailingParksThePassAndSurfacesA502()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))

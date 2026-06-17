@@ -375,13 +375,22 @@ public class PublishService
         }
     }
 
-    private static void preflightPush(ParkedProposal.Push p)
+    /** The parked push's worktree path, or 400 when it's missing. Shared
+     *  by the preflight check and the approved push so the guard and its
+     *  message live in one place. */
+    private static String requireWorktreePath(ParkedProposal.Push p)
     {
         String worktreePath = nullToEmpty(p.worktreePath());
         if (worktreePath.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked push notification has no worktreePath");
         }
+        return worktreePath;
+    }
+
+    private static void preflightPush(ParkedProposal.Push p)
+    {
+        String worktreePath = requireWorktreePath(p);
         try {
             if (!Path.of(worktreePath).isAbsolute()) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -438,7 +447,14 @@ public class PublishService
         }
     }
 
-    private void preflightAdvance(String baseMode, Notification original, String action)
+    /**
+     * Resolves and validates the parked task an advance (next / ship)
+     * targets: the notification must carry both ids, the task must still
+     * exist, and it must still be sitting at AWAITING_REVIEW. Returns the
+     * parked task so {@link #preflightAdvance} and {@link #runApprovedAdvance}
+     * share one guard instead of repeating it.
+     */
+    private Task resolveParkedAdvanceTarget(Notification original, String action)
     {
         String threadId = original.threadId();
         String taskId = original.taskId();
@@ -453,22 +469,17 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "parked " + action + " target " + taskId + " is no longer awaiting approval");
         }
-        if (taskStore.findActiveTaskForThread(threadId).isPresent()) {
+        return parked;
+    }
+
+    private void preflightAdvance(String baseMode, Notification original, String action)
+    {
+        Task parked = resolveParkedAdvanceTarget(original, action);
+        if (taskStore.findActiveTaskForThread(parked.threadId()).isPresent()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "thread " + threadId + " already has an active successor");
+                    "thread " + parked.threadId() + " already has an active successor");
         }
-        if (parked.workingDir() == null || parked.workingDir().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " has no working dir; nothing to ship");
-        }
-        if (parked.worktreePath() == null || parked.worktreePath().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " has no worktree; nothing to ship");
-        }
-        if (parked.branchName() == null || parked.branchName().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " has no branch name; nothing to ship");
-        }
+        TaskPreconditions.requireShippable(parked);
         // The original nextTitle JsonNode type check (textual-or-absent)
         // is now enforced by Jackson at deserialisation — a non-string
         // value lands the same 400 via parseProposal.
@@ -613,11 +624,7 @@ public class PublishService
 
     private PublishResult doPush(ParkedProposal.Push p, Notification original)
     {
-        String worktreePath = nullToEmpty(p.worktreePath());
-        if (worktreePath.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked push notification has no worktreePath");
-        }
+        String worktreePath = requireWorktreePath(p);
         Path worktree = Path.of(worktreePath);
         String branch = orElse(p.branch(), "the branch");
         try {
@@ -1024,19 +1031,9 @@ public class PublishService
      */
     private Task runApprovedAdvance(String nextTitleRaw, String baseModeRaw, Notification original, String action)
     {
-        String threadId = original.threadId();
-        String taskId = original.taskId();
-        if (threadId == null || taskId == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked " + action + " notification has no thread / task id");
-        }
-        Task parked = taskStore.findTaskById(taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(400),
-                        "parked " + action + " target " + taskId + " not found"));
-        if (parked.status() != TaskStatus.AWAITING_REVIEW) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "parked " + action + " target " + taskId + " is no longer awaiting approval");
-        }
+        Task parked = resolveParkedAdvanceTarget(original, action);
+        String threadId = parked.threadId();
+        String taskId = parked.id();
         String nextTitle = nullToEmpty(nextTitleRaw);
         String baseMode = baseModeRaw == null ? "main" : baseModeRaw;
         if (!"main".equals(baseMode) && !"stacked".equals(baseMode)) {

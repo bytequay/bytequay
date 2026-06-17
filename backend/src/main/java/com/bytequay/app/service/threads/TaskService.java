@@ -206,17 +206,7 @@ public class TaskService
     public Task setWorkModel(String threadId, String taskId, WorkModel workModel)
     {
         Task current = requireTask(threadId, taskId);
-        Task next = new Task(
-                current.id(), current.threadId(), current.seq(), current.status(),
-                current.branchName(), current.worktreePath(), current.baseBranch(),
-                current.workingDir(),
-                current.processPid(), current.logPath(),
-                current.prNumber(), current.prState(), current.ciState(),
-                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
-                current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
-                current.agentSessionId(),
-                current.createdAt(), current.endedAt(), current.errorMessage(),
-                current.name(), current.roleSkill(), workModel);
+        Task next = current.withWorkModel(workModel);
         taskStore.saveTask(next);
         return next;
     }
@@ -231,17 +221,7 @@ public class TaskService
         Task current = requireTask(threadId, taskId);
         String trimmed = newName == null ? null : newName.trim();
         String stored = (trimmed == null || trimmed.isEmpty()) ? null : trimmed;
-        Task next = new Task(
-                current.id(), current.threadId(), current.seq(), current.status(),
-                current.branchName(), current.worktreePath(), current.baseBranch(),
-                current.workingDir(),
-                current.processPid(), current.logPath(),
-                current.prNumber(), current.prState(), current.ciState(),
-                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
-                current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
-                current.agentSessionId(),
-                current.createdAt(), current.endedAt(), current.errorMessage(),
-                stored, current.roleSkill(), current.workModel());
+        Task next = current.withName(stored);
         taskStore.saveTask(next);
         return next;
     }
@@ -313,18 +293,7 @@ public class TaskService
                         "task " + taskId + " is not the active task for thread " + threadId);
             }
         }
-        if (current.workingDir() == null || current.workingDir().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " has no working dir; nothing to ship");
-        }
-        if (current.worktreePath() == null || current.worktreePath().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " has no worktree; nothing to ship");
-        }
-        if (current.branchName() == null || current.branchName().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " has no branch name; nothing to ship");
-        }
+        TaskPreconditions.requireShippable(current);
 
         Path workingDir = Path.of(current.workingDir());
         Path worktreePath = Path.of(current.worktreePath());
@@ -389,22 +358,15 @@ public class TaskService
             // finished until its PR merges, at which point completion
             // stamps endedAt.
             Instant parkedEndedAt = null;
-            taskStore.saveTask(new Task(
-                    current.id(), current.threadId(), current.seq(), parkedStatus,
-                    current.branchName(),
-                    parkedWorktreePath,
-                    current.baseBranch(),
-                    current.workingDir(),
-                    /* processPid */ null,
-                    current.logPath(),
-                    prNumber, current.prState(), current.ciState(),
-                    current.taskType(),
-                    /* linkedPrNumber */ prNumber != null ? prNumber : current.linkedPrNumber(),
-                    current.linkedIssueNumber(),
-                    current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
-                    current.agentSessionId(),
-                    current.createdAt(), parkedEndedAt, current.errorMessage(),
-                    current.name(), current.roleSkill(), current.workModel()));
+            Integer parkedLinkedPrNumber = prNumber != null ? prNumber : current.linkedPrNumber();
+            Task parked = current
+                    .withStatus(parkedStatus)
+                    .withWorktreePath(parkedWorktreePath)
+                    .withProcessPid(null)
+                    .withPrNumber(prNumber)
+                    .withLinkedPrNumber(parkedLinkedPrNumber)
+                    .withEndedAt(parkedEndedAt);
+            taskStore.saveTask(parked);
 
             // 5. Resolve next base + cut a new worktree. MAIN mode
             //    uses the same per-repo merge-target as the PR base;
@@ -427,18 +389,29 @@ public class TaskService
             String nextRoleSkill = roleSkillService.generateForTask(
                     repoFullName, nextBranchName, nextTaskId, nextBase);
             Task next = new Task(
-                    nextTaskId, threadId, nextSeq, TaskStatus.PENDING,
+                    nextTaskId,
+                    threadId,
+                    nextSeq,
+                    TaskStatus.PENDING,
                     nextBranchName,
-                    nextHandle.map(h -> h.worktreePath().toString()).orElse(null),
+                    nextHandle.map(handle -> handle.worktreePath().toString()).orElse(null),
                     nextBase,
                     current.workingDir(),
-                    /* processPid */ null, /* logPath */ null,
-                    /* prNumber */ null, /* prState */ null, /* ciState */ null,
+                    /* processPid */ null,
+                    /* logPath */ null,
+                    /* prNumber */ null,
+                    /* prState */ null,
+                    /* ciState */ null,
                     current.taskType(),
-                    /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
-                    /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
+                    /* linkedPrNumber */ null,
+                    /* linkedIssueNumber */ null,
+                    /* costUsdMilli */ 0L,
+                    /* tokensIn */ 0L,
+                    /* tokensOut */ 0L,
                     /* agentSessionId — captured on the new task's first turn */ null,
-                    now, /* endedAt */ null, /* errorMessage */ null,
+                    now,
+                    /* endedAt */ null,
+                    /* errorMessage */ null,
                     /* name */ null,
                     nextRoleSkill,
                     /* workModel — inherited from the thread by default */ null);

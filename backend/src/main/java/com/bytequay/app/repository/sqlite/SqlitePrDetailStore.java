@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
@@ -200,25 +202,10 @@ public class SqlitePrDetailStore
                 detailRepo.findById(prId).orElseGet(PrDetailEntity::new),
                 prId, detail.raw(), detail.mergeQueueState(), now));
 
-        reviewRepo.deleteByPrId(prId);
-        reviewRepo.saveAll(detail.reviews().stream()
-                .map(r -> toReview(prId, r))
-                .collect(toImmutableList()));
-
-        fileRepo.deleteByPrId(prId);
-        fileRepo.saveAll(detail.files().stream()
-                .map(f -> toFile(prId, f))
-                .collect(toImmutableList()));
-
-        timelineRepo.deleteByPrId(prId);
-        timelineRepo.saveAll(detail.timeline().stream()
-                .map(t -> toTimeline(prId, t))
-                .collect(toImmutableList()));
-
-        checkRunRepo.deleteByPrId(prId);
-        checkRunRepo.saveAll(detail.checkRuns().stream()
-                .map(c -> toCheckRun(prId, c))
-                .collect(toImmutableList()));
+        replaceChildren(prId, detail.reviews(), reviewRepo::deleteByPrId, reviewRepo::saveAll, SqlitePrDetailStore::toReview);
+        replaceChildren(prId, detail.files(), fileRepo::deleteByPrId, fileRepo::saveAll, SqlitePrDetailStore::toFile);
+        replaceChildren(prId, detail.timeline(), timelineRepo::deleteByPrId, timelineRepo::saveAll, SqlitePrDetailStore::toTimeline);
+        replaceChildren(prId, detail.checkRuns(), checkRunRepo::deleteByPrId, checkRunRepo::saveAll, SqlitePrDetailStore::toCheckRun);
 
         // Defensive dedupe: GitHub's /pulls/:n/comments occasionally
         // returns the same comment id on adjacent pages when comments
@@ -233,12 +220,9 @@ public class SqlitePrDetailStore
                 .map(m -> toReviewComment(prId, m))
                 .collect(toImmutableList()));
 
-        linkedIssueRepo.deleteByPrId(prId);
         List<PullRequestDetail.LinkedIssue> linkedIssues = detail.linkedIssues() != null
                 ? detail.linkedIssues() : ImmutableList.of();
-        linkedIssueRepo.saveAll(linkedIssues.stream()
-                .map(li -> toLinkedIssue(prId, li))
-                .collect(toImmutableList()));
+        replaceChildren(prId, linkedIssues, linkedIssueRepo::deleteByPrId, linkedIssueRepo::saveAll, SqlitePrDetailStore::toLinkedIssue);
     }
 
     /**
@@ -262,27 +246,13 @@ public class SqlitePrDetailStore
                 detailRepo.findById(prId).orElseGet(PrDetailEntity::new),
                 prId, detail.raw(), detail.mergeQueueState(), now));
 
-        reviewRepo.deleteByPrId(prId);
-        reviewRepo.saveAll(detail.reviews().stream()
-                .map(r -> toReview(prId, r))
-                .collect(toImmutableList()));
+        replaceChildren(prId, detail.reviews(), reviewRepo::deleteByPrId, reviewRepo::saveAll, SqlitePrDetailStore::toReview);
+        replaceChildren(prId, detail.files(), fileRepo::deleteByPrId, fileRepo::saveAll, SqlitePrDetailStore::toFile);
+        replaceChildren(prId, detail.checkRuns(), checkRunRepo::deleteByPrId, checkRunRepo::saveAll, SqlitePrDetailStore::toCheckRun);
 
-        fileRepo.deleteByPrId(prId);
-        fileRepo.saveAll(detail.files().stream()
-                .map(f -> toFile(prId, f))
-                .collect(toImmutableList()));
-
-        checkRunRepo.deleteByPrId(prId);
-        checkRunRepo.saveAll(detail.checkRuns().stream()
-                .map(c -> toCheckRun(prId, c))
-                .collect(toImmutableList()));
-
-        linkedIssueRepo.deleteByPrId(prId);
         List<PullRequestDetail.LinkedIssue> linkedIssues = detail.linkedIssues() != null
                 ? detail.linkedIssues() : ImmutableList.of();
-        linkedIssueRepo.saveAll(linkedIssues.stream()
-                .map(li -> toLinkedIssue(prId, li))
-                .collect(toImmutableList()));
+        replaceChildren(prId, linkedIssues, linkedIssueRepo::deleteByPrId, linkedIssueRepo::saveAll, SqlitePrDetailStore::toLinkedIssue);
 
         // 2. Append-only for timeline events. Read existing github_ids,
         //    filter the fresh list to genuinely-new rows, insert.
@@ -301,6 +271,28 @@ public class SqlitePrDetailStore
                 .filter(m -> seenInBatch.add(m.githubId()))
                 .filter(m -> !existingThreadIds.contains(m.githubId()))
                 .map(m -> toReviewComment(prId, m))
+                .collect(toImmutableList()));
+    }
+
+    /**
+     * Wholesale-replace a PR's child rows: delete every existing row for
+     * {@code prId}, then map {@code items} to entities and insert them.
+     * Both {@link #save} and {@link #saveIncremental} replace reviews,
+     * files, check-runs and linked-issues the same way; this captures that
+     * delete-then-saveAll shape once. The deleter / saver are passed as
+     * method refs because the per-child JPA repositories share no common
+     * super-interface for {@code deleteByPrId}.
+     */
+    private static <D, E> void replaceChildren(
+            long prId,
+            List<D> items,
+            Consumer<Long> deleteByPrId,
+            Consumer<List<E>> saveAll,
+            BiFunction<Long, D, E> toEntity)
+    {
+        deleteByPrId.accept(prId);
+        saveAll.accept(items.stream()
+                .map(item -> toEntity.apply(prId, item))
                 .collect(toImmutableList()));
     }
 

@@ -93,7 +93,7 @@ public class ParkedProposalService
             throw new IllegalStateException("failed to serialise parked proposal", e);
         }
 
-        taskStore.saveTask(withStatus(task, TaskStatus.AWAITING_REVIEW));
+        taskStore.saveTask(task.withStatus(TaskStatus.AWAITING_REVIEW));
         return notifications.notifyAwaitingReview(task.threadId(), task.id(), payloadJson);
     }
 
@@ -190,7 +190,7 @@ public class ParkedProposalService
         }
         taskStore.findTaskById(taskId).ifPresent(task -> {
             if (task.status() == TaskStatus.AWAITING_REVIEW) {
-                taskStore.saveTask(withStatus(task, TaskStatus.COMPLETED));
+                taskStore.saveTask(task.withStatus(TaskStatus.COMPLETED));
             }
         });
     }
@@ -219,29 +219,9 @@ public class ParkedProposalService
         // stays intact: a successful push during an interrupted advance
         // is real history, and the next sync pass refreshes the cached
         // PR / CI state from GitHub.
-        return new Task(
-                task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
-                task.branchName(), task.worktreePath(), task.baseBranch(), task.workingDir(),
-                /* processPid */ null, task.logPath(),
-                task.prNumber(), task.prState(), task.ciState(),
-                task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
-                task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
-                /* agentSessionId */ null,
-                task.createdAt(), task.endedAt(), task.errorMessage(),
-                task.name(), task.roleSkill(), task.workModel());
-    }
-
-    private static Task withStatus(Task task, TaskStatus status)
-    {
-        return new Task(
-                task.id(), task.threadId(), task.seq(), status,
-                task.branchName(), task.worktreePath(), task.baseBranch(), task.workingDir(),
-                task.processPid(), task.logPath(),
-                task.prNumber(), task.prState(), task.ciState(),
-                task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
-                task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
-                task.agentSessionId(),
-                task.createdAt(), task.endedAt(), task.errorMessage(),
-                task.name(), task.roleSkill(), task.workModel());
+        return task
+                .withStatus(TaskStatus.IDLE)
+                .withProcessPid(null)
+                .withAgentSessionId(null);
     }
 }

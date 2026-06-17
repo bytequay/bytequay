@@ -238,4 +238,392 @@ public record Task(
         }
         return workingDir;
     }
+
+    // ── Copy-with helpers ─────────────────────────────────────────────
+    // A record has no built-in "copy with one field changed", so callers
+    // that only want to flip a single field had to re-list all 32 fields
+    // in a fresh constructor — verbose and easy to get wrong (and the old
+    // back-compat constructor silently reset the entity-managed columns).
+    // These withers copy every field through the canonical constructor and
+    // change exactly one, so call sites read as the intent: task.withStatus(IDLE).
+
+    /** Copy with a new {@code status}; all other fields unchanged. */
+    public Task withStatus(TaskStatus status)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new user-supplied {@code name}; all other fields unchanged. */
+    public Task withName(String name)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code workModel} override; all other fields unchanged. */
+    public Task withWorkModel(WorkModel workModel)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code worktreePath}; all other fields unchanged. */
+    public Task withWorktreePath(String worktreePath)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code processPid}; all other fields unchanged. */
+    public Task withProcessPid(Integer processPid)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code prNumber}; all other fields unchanged. */
+    public Task withPrNumber(Integer prNumber)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code linkedPrNumber}; all other fields unchanged. */
+    public Task withLinkedPrNumber(Integer linkedPrNumber)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code endedAt}; all other fields unchanged. */
+    public Task withEndedAt(Instant endedAt)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code errorMessage}; all other fields unchanged. */
+    public Task withErrorMessage(String errorMessage)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
+    /** Copy with a new {@code agentSessionId}; all other fields unchanged. */
+    public Task withAgentSessionId(String agentSessionId)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
 }

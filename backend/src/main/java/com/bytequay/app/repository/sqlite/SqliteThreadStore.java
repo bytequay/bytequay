@@ -151,20 +151,34 @@ class SqliteThreadStore
         // callers that want to change them go through TaskStore
         // directly. ThreadService.create materialises the first task
         // explicitly; this method no longer auto-creates one.
-        taskStore.findActiveTaskForThread(thread.id()).ifPresent(t -> {
+        taskStore.findActiveTaskForThread(thread.id()).ifPresent(task -> {
             Task next = new Task(
-                    t.id(), t.threadId(), t.seq(),
+                    task.id(),
+                    task.threadId(),
+                    task.seq(),
                     mapStatus(thread.status()),
-                    t.branchName(), t.worktreePath(), t.baseBranch(), t.workingDir(),
-                    t.processPid(), t.logPath(),
-                    t.prNumber(), t.prState(), t.ciState(),
-                    t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
-                    thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
-                    t.agentSessionId(),
-                    t.createdAt(),
-                    thread.endedAt() != null ? thread.endedAt() : t.endedAt(),
-                    thread.errorMessage() != null ? thread.errorMessage() : t.errorMessage(),
-                    t.name(), t.roleSkill(), t.workModel());
+                    task.branchName(),
+                    task.worktreePath(),
+                    task.baseBranch(),
+                    task.workingDir(),
+                    task.processPid(),
+                    task.logPath(),
+                    task.prNumber(),
+                    task.prState(),
+                    task.ciState(),
+                    task.taskType(),
+                    task.linkedPrNumber(),
+                    task.linkedIssueNumber(),
+                    thread.costUsdMilli(),
+                    thread.tokensIn(),
+                    thread.tokensOut(),
+                    task.agentSessionId(),
+                    task.createdAt(),
+                    thread.endedAt() != null ? thread.endedAt() : task.endedAt(),
+                    thread.errorMessage() != null ? thread.errorMessage() : task.errorMessage(),
+                    task.name(),
+                    task.roleSkill(),
+                    task.workModel());
             taskStore.saveTask(next);
         });
     }

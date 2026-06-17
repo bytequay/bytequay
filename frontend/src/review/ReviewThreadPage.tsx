@@ -2480,8 +2480,10 @@ const composerTextareaStyle: React.CSSProperties = {
   background: 'transparent',
   color: 'var(--text-2)',
   boxSizing: 'border-box',
-  // Auto-grown by the effect up to this cap, then scrolls so earlier
-  // lines stay reachable.
+  // Open at a couple of lines so it reads as a real message box, not a
+  // one-line field. The effect auto-grows from here up to the cap, then
+  // scrolls so earlier lines stay reachable.
+  minHeight: 44,
   maxHeight: 160,
   overflowY: 'auto',
 };

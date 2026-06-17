@@ -262,16 +262,22 @@ const cardStyles: StyleBundle = {
   table: {
     margin: '8px 0', borderCollapse: 'collapse',
     fontSize: 12.5,
+    width: '100%', tableLayout: 'auto',
   },
   tableHeader: {
     border: '1px solid var(--border)',
     padding: '4px 8px',
     background: 'var(--bg-elevated)',
     fontWeight: 600, textAlign: 'left',
+    // Short column labels stay on one line; long code tokens in the body
+    // cells wrap instead of stretching the table past the bubble and
+    // squeezing the headers into char-by-char breaks ("Seve rity").
+    whiteSpace: 'nowrap', verticalAlign: 'top',
   },
   tableCell: {
     border: '1px solid var(--border)',
     padding: '4px 8px',
+    verticalAlign: 'top', overflowWrap: 'anywhere',
   },
   hr: { border: 'none', borderTop: '1px dashed var(--border)', margin: '10px 0' },
   strong: { fontWeight: 700 },
@@ -339,6 +345,7 @@ const terminalStyles: StyleBundle = {
   table: {
     margin: '8px 0', borderCollapse: 'collapse',
     fontSize: 12.5,
+    width: '100%', tableLayout: 'auto',
   },
   tableHeader: {
     border: '1px solid var(--term-border)',
@@ -346,10 +353,12 @@ const terminalStyles: StyleBundle = {
     background: 'var(--term-user-bg)',
     fontWeight: 600, textAlign: 'left',
     color: 'var(--term-text-bright)',
+    whiteSpace: 'nowrap', verticalAlign: 'top',
   },
   tableCell: {
     border: '1px solid var(--term-border)',
     padding: '4px 8px',
+    verticalAlign: 'top', overflowWrap: 'anywhere',
   },
   hr: { border: 'none', borderTop: '1px dashed var(--term-border)', margin: '10px 0' },
   strong: { color: 'var(--term-text-bright)', fontWeight: 700 },

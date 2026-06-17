@@ -329,8 +329,19 @@ public class ReviewPassService
                 "Lead",
                 /* model */ null, /* color */ null, now);
         reviewStore.saveParticipant(moderator);
+        // The lead is seated as the moderator above — it coordinates and
+        // dispatches rather than reviewing, so it is NOT also a reviewer
+        // seat (that double-seated the lead's model, e.g. a phantom extra
+        // "DeepSeek" reviewer). The sole exception is a panel-of-1, where
+        // the single member both leads and reviews.
+        List<PanelMember> reviewerMembers = panel.stream()
+                .filter(m -> !m.lead())
+                .toList();
+        if (reviewerMembers.isEmpty()) {
+            reviewerMembers = panel;
+        }
         List<ReviewParticipant> reviewerSeats = new ArrayList<>();
-        for (PanelMember m : panel) {
+        for (PanelMember m : reviewerMembers) {
             ReviewParticipant seat = new ReviewParticipant(
                     UUID.randomUUID().toString(), pass.id(),
                     ReviewParticipantKind.REVIEWER,
@@ -348,10 +359,12 @@ public class ReviewPassService
                 /* model */ null, /* color */ null, now);
         reviewStore.saveParticipant(human);
 
-        // 5. Kickoff message — broadcast announcement.
-        String kickoffMention = panel.size() == 1
-                ? panel.get(0).displayLabel()
-                : "a panel of " + panel.size() + " reviewers (" + panelDisplayNames(panel) + ")";
+        // 5. Kickoff message — broadcast announcement. Counts the actual
+        //    reviewer seats (the lead coordinates, it isn't a reviewer).
+        String kickoffMention = reviewerMembers.size() == 1
+                ? reviewerMembers.get(0).displayLabel()
+                : "a panel of " + reviewerMembers.size() + " reviewers ("
+                        + panelDisplayNames(reviewerMembers) + ")";
         reviewStore.saveMessage(new ReviewMessage(
                 UUID.randomUUID().toString(),
                 pass.id(),
@@ -399,12 +412,14 @@ public class ReviewPassService
         seatConfigs.add(new PanelSeatConfig.Seat(
                 moderator.id(), leadMember.reviewer().providerId(),
                 /* personaPrompt */ null, "Lead", /* lead */ true));
-        for (int i = 0; i < panel.size(); i++) {
+        // reviewerSeats was built 1:1 from reviewerMembers (lead excluded),
+        // so pair against that — not the full panel — or the indices skew.
+        for (int i = 0; i < reviewerMembers.size(); i++) {
             seatConfigs.add(new PanelSeatConfig.Seat(
                     reviewerSeats.get(i).id(),
-                    panel.get(i).reviewer().providerId(),
-                    renderSeatTemplate(panel.get(i).personaPrompt(), prSummary),
-                    panel.get(i).displayLabel(),
+                    reviewerMembers.get(i).reviewer().providerId(),
+                    renderSeatTemplate(reviewerMembers.get(i).personaPrompt(), prSummary),
+                    reviewerMembers.get(i).displayLabel(),
                     /* lead */ false));
         }
         return new Seat(pass, new PanelSeatConfig(seatConfigs), moderator, reviewerSeats, request);

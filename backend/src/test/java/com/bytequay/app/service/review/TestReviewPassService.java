@@ -311,6 +311,23 @@ class TestReviewPassService
     }
 
     @Test
+    void aFlaggedLeadIsNotDoubleSeatedAsAReviewer()
+    {
+        // A lead seat + one reviewer seat must yield exactly one LEAD and
+        // one REVIEWER — the lead coordinates, it is never also seated as a
+        // reviewer (which produced the phantom extra reviewer).
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
+
+        List<ReviewParticipant> roster = reviewStore.listParticipantsForPass(passId());
+        assertThat(roster).filteredOn(p -> p.kind() == ReviewParticipantKind.LEAD).hasSize(1);
+        assertThat(roster).filteredOn(p -> p.kind() == ReviewParticipantKind.REVIEWER).hasSize(1);
+    }
+
+    @Test
     void reviewerSeatPromptRendersThePrSummaryPlaceholder()
     {
         when(skillStore.byId(11L)).thenReturn(Optional.of(new Skill(

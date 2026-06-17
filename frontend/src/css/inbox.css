@@ -1724,7 +1724,9 @@
   padding: var(--space-3) var(--space-4);
   min-height: 48px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
+  /* Slight blue tint (over the elevated base) so a file header clearly
+     reads as the boundary of a new file, not just another toolbar. */
+  background: linear-gradient(rgba(64, 148, 255, 0.22), rgba(64, 148, 255, 0.22)), var(--bg-elevated);
   /* Match the card's rounded top so the sticky header doesn't square off
      the corners. */
   border-top-left-radius: var(--radius-md);

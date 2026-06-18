@@ -2987,12 +2987,18 @@ const toolCallParamStyle: React.CSSProperties = {
   gap: 1,
 };
 const toolCallParamNameStyle: React.CSSProperties = {
+  // A blue label chip that hugs its text (doesn't stretch the flex column).
+  alignSelf: 'flex-start',
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  fontSize: 10.5,
-  fontWeight: 600,
+  fontSize: 10,
+  fontWeight: 700,
   textTransform: 'uppercase',
   letterSpacing: '0.03em',
-  color: 'var(--text-3)',
+  color: '#1d4ed8',
+  background: 'rgba(37,99,235,0.12)',
+  border: '1px solid rgba(37,99,235,0.25)',
+  borderRadius: 4,
+  padding: '1px 6px',
 };
 const toolCallParamValStyle: React.CSSProperties = {
   fontSize: 12.5,

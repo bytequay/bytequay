@@ -1840,15 +1840,15 @@ function PublishSection({
               </legend>
               {detail.findings.map(f => (
                 <label key={f.id} style={findingChoiceStyle}>
-                  <input
-                    type="checkbox"
-                    checked={includedIds.has(f.id)}
-                    onChange={() => toggle(f.id)}
-                    disabled={busy}
-                  />
-                  <SeverityChip severity={f.severity} />
-                  <StatusChip status={f.status} />
-                  <span style={findingChoiceBodyStyle}>
+                  <div style={findingChoiceTopRowStyle}>
+                    <input
+                      type="checkbox"
+                      checked={includedIds.has(f.id)}
+                      onChange={() => toggle(f.id)}
+                      disabled={busy}
+                    />
+                    <SeverityChip severity={f.severity} />
+                    <StatusChip status={f.status} />
                     <span
                       style={findingAnchorStyle}
                       title={f.path !== null
@@ -1859,10 +1859,13 @@ function PublishSection({
                           ? `${f.path.split('/').pop()}${f.line !== null ? `:${f.line}` : ''}`
                           : 'Whole PR'}
                     </span>
-                    <div style={findingChoiceTextStyle}>
-                      <MarkdownProse text={f.body} variant="card" />
-                    </div>
-                  </span>
+                  </div>
+                  {/* Body drops to its own full-width line beneath the
+                      chips, left-aligned, so long code tokens wrap inside
+                      the form instead of spilling past its edge. */}
+                  <div style={findingChoiceTextStyle}>
+                    <MarkdownProse text={f.body} variant="card" />
+                  </div>
                 </label>
               ))}
             </fieldset>
@@ -3134,6 +3137,8 @@ const findingChoiceTextStyle: React.CSSProperties = {
   fontSize: 12.5,
   color: 'var(--text-1)',
   minWidth: 0,
+  overflowWrap: 'break-word',
+  wordBreak: 'break-word',
 };
 
 const checklistHeadStyle: React.CSSProperties = {
@@ -3385,16 +3390,18 @@ const legendStyle: React.CSSProperties = {
 
 const findingChoiceStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'flex-start',
-  gap: 8,
-  padding: '6px 0',
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: 3,
+  padding: '7px 0',
   fontSize: 13,
 };
 
-const findingChoiceBodyStyle: React.CSSProperties = {
+const findingChoiceTopRowStyle: React.CSSProperties = {
   display: 'flex',
-  flexDirection: 'column',
-  gap: 2,
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
 };
 
 const publishedBadgeStyle: React.CSSProperties = {

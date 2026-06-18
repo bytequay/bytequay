@@ -235,6 +235,8 @@ const cardStyles: StyleBundle = {
     background: 'var(--bg-elevated)',
     padding: '1px 5px', borderRadius: 3,
     color: 'var(--text-1)',
+    // Long identifiers/calls break instead of overflowing a narrow card.
+    overflowWrap: 'break-word',
   },
   codeInBlock: {
     fontFamily: monoFont, fontSize: 12,

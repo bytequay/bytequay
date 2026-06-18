@@ -412,14 +412,20 @@ function CardFoldToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 }
 
 const cardFoldToggleStyle: React.CSSProperties = {
-  marginLeft: 'auto',
+  // Sits inline right after the timestamp, inside the message header —
+  // no `marginLeft: auto`, which used to fling it to the far-right column
+  // edge (the full-width header), leaving it floating in the margin
+  // detached from the 90%-width bubble below.
   flexShrink: 0,
-  width: 20,
-  height: 20,
+  // Nudge down so the 16px control reads as centred against the
+  // baseline-aligned header text rather than riding above it.
+  alignSelf: 'center',
+  width: 16,
+  height: 16,
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 11,
+  fontSize: 10,
   color: '#475569',
   background: 'rgba(15,23,42,0.05)',
   border: '1px solid rgba(15,23,42,0.08)',

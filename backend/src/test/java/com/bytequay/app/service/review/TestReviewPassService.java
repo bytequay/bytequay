@@ -711,6 +711,36 @@ class TestReviewPassService
     }
 
     @Test
+    void aBudgetExhaustedRunStillTransitionsToATerminalPhase()
+    {
+        // The lead's first round blows past the cost cap and does NOT mark
+        // the phase done, so the lead-driven phases (cross-review, consensus,
+        // debate) all rely on the budget break rather than convergence.
+        when(leadOrchestrator.runRound(any(), any(), any(), any(), anyInt(), anyString()))
+                .thenAnswer(inv -> {
+                    ReviewPass p = inv.getArgument(0);
+                    budgetMeter.chargePass(p.id(), 100_000);   // far over the 500 cap
+                    return new TurnResult("", 0, 0, 100_000L, 1, TurnResult.End.ABORTED);
+                });
+
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
+
+        // Despite hitting the cap, the spine walked every phase to its break
+        // and finalized — the pass lands on a terminal phase, never stalling
+        // mid-flow.
+        ReviewPass pass = reviewStore.findPassById(passId()).orElseThrow();
+        assertThat(pass.phase()).isIn(ReviewPhase.TERMINATE, ReviewPhase.ARBITRATE);
+        // And every work-phase agenda item is marked done, not left in
+        // progress.
+        assertThat(reviewStore.findPassById(passId()).orElseThrow().agendaJson())
+                .doesNotContain("IN_PROGRESS");
+    }
+
+    @Test
     void everySeatFailingParksThePassAndSurfacesA502()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))

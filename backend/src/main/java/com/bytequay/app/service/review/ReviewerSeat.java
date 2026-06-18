@@ -62,6 +62,9 @@ public class ReviewerSeat
     /** Diff slice inlined into the seat's first user message. The
      *  seat can pull more via get_pr_diff / get_file_content. */
     private static final int MAX_INLINE_DIFF_CHARS = 60_000;
+    /** Smaller slice for a CLI seat wired to the review MCP server: it has
+     *  a real get_pr_diff, so the inline copy only needs to orient it. */
+    private static final int MCP_INLINE_DIFF_CHARS = 8_000;
 
     private final TurnRunner runner;
     private final SeatContextAssembler contextAssembler;
@@ -306,7 +309,9 @@ public class ReviewerSeat
         StringBuilder sb = new StringBuilder();
         if (!resuming) {
             sb.append(systemPrompt(seat)).append("\n\n");
-            sb.append(diffHeader(pass)).append("\n\n");
+            // An MCP seat has a real get_pr_diff, so it only needs a small
+            // orienting slice; a no-tool seat (Codex) gets the full inline.
+            sb.append(mcp ? diffHeader(pass, MCP_INLINE_DIFF_CHARS) : diffHeader(pass)).append("\n\n");
         }
         sb.append(directive);
         if (!mcp) {
@@ -463,9 +468,14 @@ public class ReviewerSeat
 
     private String diffHeader(ReviewPass pass)
     {
+        return diffHeader(pass, MAX_INLINE_DIFF_CHARS);
+    }
+
+    private String diffHeader(ReviewPass pass, int maxChars)
+    {
         String diff = diffCache.diffFor(pass);
-        if (diff.length() > MAX_INLINE_DIFF_CHARS) {
-            diff = diff.substring(0, MAX_INLINE_DIFF_CHARS)
+        if (diff.length() > maxChars) {
+            diff = diff.substring(0, maxChars)
                     + "\n… [diff truncated — use get_pr_diff(path) for specific files]";
         }
         return "Reviewing " + pass.repoFullName() + "#" + pass.prNumber()

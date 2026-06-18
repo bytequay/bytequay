@@ -693,6 +693,9 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:editFinding', { passId, findingId, comment }),
   dropReviewFinding: (passId: string, findingId: string) =>
     ipcRenderer.invoke('reviews:dropFinding', { passId, findingId }),
+  addReviewFinding: (
+    passId: string, severity: string, path: string | null, line: number | null, comment: string,
+  ) => ipcRenderer.invoke('reviews:addFinding', { passId, severity, path, line, comment }),
   steerReview: (passId: string, targetParticipantId: string, message: string) =>
     ipcRenderer.invoke('reviews:steer', { passId, targetParticipantId, message }),
   raiseReviewBudget: (passId: string, addCostMilli: number, addRounds: number) =>

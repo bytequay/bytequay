@@ -3727,6 +3727,38 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:addFinding', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:addFinding args must be an object');
+    }
+    const a = args as {
+      passId?: unknown; severity?: unknown; path?: unknown; line?: unknown; comment?: unknown;
+    };
+    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    if (typeof a.comment !== 'string' || a.comment.trim().length === 0) {
+      throw new Error('comment must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/findings`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          severity: typeof a.severity === 'string' ? a.severity : 'MAJOR',
+          path: typeof a.path === 'string' && a.path.trim().length > 0 ? a.path : null,
+          line: typeof a.line === 'number' ? a.line : null,
+          comment: a.comment,
+        }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST addFinding returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:dropFinding', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:dropFinding args must be an object');

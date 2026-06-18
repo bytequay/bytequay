@@ -234,6 +234,19 @@ public class ReviewController
         return reviews.dropFinding(passId, findingId);
     }
 
+    @PostMapping("/{passId}/findings")
+    public ReviewPassDetail addFinding(
+            @PathVariable String passId,
+            @RequestBody AddFindingRequest body)
+    {
+        if (body == null || body.comment() == null || body.comment().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "comment is required");
+        }
+        return reviews.addFinding(passId, body.severity(), body.path(), body.line(), body.comment());
+    }
+
+    public record AddFindingRequest(String severity, String path, Integer line, String comment) {}
+
     /** Steer the panel from the review page: inject a human message
      *  addressed to a reviewer or the lead and run that seat's reply
      *  unbudgeted. */

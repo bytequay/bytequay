@@ -255,6 +255,7 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr, onOpenDiff }: Props) {
               spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
               emptyHint="Nothing locked in yet."
             />
+            <AddFindingPanel passId={detail.pass.id} onAdded={(next) => setDetail(next)} />
             {onOpenDiff !== undefined && agreedFindings.length > 0 && (() => {
               const [owner, repo] = detail.pass.repoFullName.split('/');
               return (
@@ -771,6 +772,185 @@ const raiseBtnDisabledStyle: React.CSSProperties = {
 /** Right-rail findings list partitioned by status. Same shape as
  *  the legacy FindingsSection but rendered twice — Agreed (locked-in)
  *  and Open (still in flight). */
+/** Manually add a finding the panel described but never recorded — a
+ *  collapsed "+ Add finding" that expands to a small form (severity,
+ *  optional file:line, markdown comment). The created finding is AGREED so
+ *  it joins the rail + publish set immediately. */
+function AddFindingPanel({
+  passId, onAdded,
+}: {
+  passId: string;
+  onAdded: (next: ReviewPassDetailDto) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [severity, setSeverity] = useState('MAJOR');
+  const [path, setPath] = useState('');
+  const [line, setLine] = useState('');
+  const [body, setBody] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (saving || body.trim().length === 0) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const lineNum = line.trim() === '' ? null : Number(line);
+      const next = await window.bridge.addReviewFinding(
+        passId, severity,
+        path.trim() === '' ? null : path.trim(),
+        lineNum !== null && Number.isFinite(lineNum) ? lineNum : null,
+        body);
+      onAdded(next);
+      setOpen(false);
+      setPath(''); setLine(''); setBody(''); setSeverity('MAJOR');
+    } catch (err) {
+      console.error('add review finding failed', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button type="button" style={addFindingBtnStyle} onClick={() => setOpen(true)}>
+        + Add finding
+      </button>
+    );
+  }
+  return (
+    <div style={addFindingFormStyle}>
+      <div style={addFindingRowStyle}>
+        <select value={severity} onChange={(e) => setSeverity(e.target.value)} style={addFindingSelectStyle}>
+          <option value="BLOCKER">Blocker</option>
+          <option value="MAJOR">Major</option>
+          <option value="NIT">Nit</option>
+          <option value="QUESTION">Question</option>
+        </select>
+        <input
+          placeholder="path (optional)"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          style={addFindingInputStyle}
+        />
+        <input
+          placeholder="line"
+          value={line}
+          onChange={(e) => setLine(e.target.value.replace(/[^0-9]/g, ''))}
+          inputMode="numeric"
+          style={addFindingLineStyle}
+        />
+      </div>
+      <textarea
+        placeholder="Finding comment (markdown)…"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={3}
+        style={addFindingTextareaStyle}
+      />
+      <div style={addFindingActionsStyle}>
+        <button
+          type="button"
+          style={addFindingSaveStyle}
+          onClick={() => void submit()}
+          disabled={saving || body.trim().length === 0}
+        >
+          {saving ? 'Adding…' : 'Add finding'}
+        </button>
+        <button
+          type="button"
+          style={addFindingCancelStyle}
+          onClick={() => { setOpen(false); }}
+          disabled={saving}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const addFindingBtnStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--text-2)',
+  background: 'rgba(124,92,255,0.05)',
+  border: '1px dashed rgba(124,92,255,0.35)',
+  borderRadius: 9,
+  cursor: 'pointer',
+};
+const addFindingFormStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: 10,
+  background: 'rgba(124,92,255,0.04)',
+  border: '1px solid rgba(124,92,255,0.20)',
+  borderRadius: 10,
+};
+const addFindingRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+};
+const addFindingSelectStyle: React.CSSProperties = {
+  fontSize: 12,
+  padding: '4px 6px',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  flexShrink: 0,
+};
+const addFindingInputStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: 12,
+  padding: '4px 7px',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+};
+const addFindingLineStyle: React.CSSProperties = {
+  width: 52,
+  fontSize: 12,
+  padding: '4px 7px',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+};
+const addFindingTextareaStyle: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  fontFamily: 'inherit',
+  fontSize: 12.5,
+  lineHeight: 1.5,
+  padding: '6px 8px',
+  border: '1px solid var(--border)',
+  borderRadius: 7,
+  resize: 'vertical',
+};
+const addFindingActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+};
+const addFindingSaveStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#fff',
+  background: 'linear-gradient(180deg, #7c3aed, #6d28d9)',
+  border: '1px solid #6d28d9',
+  borderRadius: 7,
+  cursor: 'pointer',
+};
+const addFindingCancelStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  fontSize: 12,
+  color: 'var(--text-2)',
+  background: 'none',
+  border: '1px solid var(--border)',
+  borderRadius: 7,
+  cursor: 'pointer',
+};
+
 /** Right-rail findings as a clean checklist (mockup): a count badge in
  *  the header, then one row per finding led by a status glyph — a green
  *  check for locked-in (Agreed) items, an amber dot for in-flight (Open)

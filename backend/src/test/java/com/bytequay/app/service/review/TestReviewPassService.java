@@ -711,6 +711,21 @@ class TestReviewPassService
     }
 
     @Test
+    void addingAFindingByHandCreatesItAgreed()
+    {
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+
+        service.addFinding(pass.id(), "BLOCKER", "src/A.java", 7, "Manually captured finding.");
+
+        assertThat(reviewStore.listFindingsForPass(pass.id())).anyMatch(f ->
+                f.status() == ReviewFindingStatus.AGREED
+                        && f.severity() == ReviewFindingSeverity.BLOCKER
+                        && "Manually captured finding.".equals(f.body())
+                        && "src/A.java".equals(f.path())
+                        && Integer.valueOf(7).equals(f.line()));
+    }
+
+    @Test
     void aBudgetExhaustedRunStillTransitionsToATerminalPhase()
     {
         // The lead's first round blows past the cost cap and does NOT mark

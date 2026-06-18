@@ -3446,6 +3446,15 @@ export type Bridge = {
     passId: string,
     findingId: string,
   ) => Promise<ReviewPassDetailDto>;
+  /** Add a finding by hand (created AGREED) — to capture one the panel
+   *  described in prose but never recorded. Returns the updated detail. */
+  addReviewFinding: (
+    passId: string,
+    severity: string,
+    path: string | null,
+    line: number | null,
+    comment: string,
+  ) => Promise<ReviewPassDetailDto>;
   /** Steer the panel: inject a human message addressed to a reviewer or
    *  the lead and run that seat's reply unbudgeted. Returns the updated
    *  detail (the new human message + the seat's reply on the transcript). */

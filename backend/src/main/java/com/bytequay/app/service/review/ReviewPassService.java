@@ -960,6 +960,34 @@ public class ReviewPassService
     }
 
     /**
+     * Add a finding by hand — the human capturing one the panel described
+     * in prose but never recorded structurally. Created AGREED so it lands
+     * in the findings rail and the publish selection straight away.
+     */
+    public ReviewPassDetail addFinding(
+            String passId, String severity, String path, Integer line, String body)
+    {
+        requireNonNull(passId, "passId is null");
+        requireNonNull(body, "body is null");
+        if (body.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "Finding comment cannot be empty.");
+        }
+        if (reviewStore.findPassById(passId).isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(404), "no review pass: " + passId);
+        }
+        reviewStore.saveFinding(new ReviewFinding(
+                UUID.randomUUID().toString(), passId,
+                path == null || path.isBlank() ? null : path.strip(),
+                line != null && line > 0 ? line : null,
+                SeatToolset.severityFrom(severity), ReviewFindingStatus.AGREED,
+                body.strip(), /* resolution */ null, /* postedCommentId */ null,
+                Instant.now(), /* debateStatus */ null, /* debateRounds */ 0));
+        return findPassWithDetail(passId).orElseThrow();
+    }
+
+    /**
      * Inject a human-authored steer message into a pass and run the
      * addressed seat's reply UNBUDGETED — the review-page composer's
      * "@mention a reviewer/lead and send" action. The roster is rebuilt

@@ -649,6 +649,29 @@ describe('ReviewThreadPage', () => {
     expect(onOpenPr).toHaveBeenCalledWith('acme', 'widget', 42);
   });
 
+  it('"+ Add finding" opens a form and creates a finding', async () => {
+    const detail = buildDetail({});
+    const addReviewFinding = vi.fn(
+        async (_p: string, _s: string, _path: string | null, _line: number | null,
+               _c: string): Promise<ReviewPassDetailDto> => detail);
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+      addReviewFinding,
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    await waitFor(() => screen.getByText('+ Add finding'));
+    await act(async () => { fireEvent.click(screen.getByText('+ Add finding')); });
+    const box = screen.getByPlaceholderText(/Finding comment/);
+    await act(async () => { fireEvent.change(box, { target: { value: 'TOCTOU race in getTableCredentials' } }); });
+    await act(async () => { fireEvent.click(screen.getByText('Add finding')); });
+
+    expect(addReviewFinding).toHaveBeenCalledTimes(1);
+    const [passId, , , , comment] = addReviewFinding.mock.calls[0];
+    expect(passId).toBe('pass-1');
+    expect(comment).toContain('TOCTOU race');
+  });
+
   it('"View findings on the diff" opens the PR code diff for the overlay', async () => {
     const detail = buildDetail({
       findings: [finding({ id: 'f-agreed', status: 'AGREED', severity: 'MAJOR',

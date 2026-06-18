@@ -32,11 +32,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class OAuthDiscoveryController
 {
     @GetMapping({
+            // Root forms + RFC 8414/9728 path-insertion (…/{resource path}).
             "/.well-known/oauth-authorization-server",
             "/.well-known/oauth-authorization-server/**",
             "/.well-known/oauth-protected-resource",
             "/.well-known/oauth-protected-resource/**",
-            "/.well-known/openid-configuration"})
+            "/.well-known/openid-configuration",
+            "/.well-known/openid-configuration/**",
+            // Codex also probes the metadata APPENDED to the MCP URL itself.
+            "/api/threads/*/mcp/.well-known/**",
+            "/api/reviews/*/seats/*/mcp/.well-known/**"})
     public ResponseEntity<Void> noOauth()
     {
         return ResponseEntity.notFound().build();

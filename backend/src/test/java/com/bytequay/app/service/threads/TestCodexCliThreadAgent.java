@@ -91,17 +91,40 @@ class TestCodexCliThreadAgent
     void wiresTheThreadMcpServerOnEveryTurn()
     {
         // Both a fresh and a resumed turn must carry the -c overrides that
-        // point Codex at our per-thread MCP server AND enable the rmcp client
-        // (which actually enumerates the server's tools), so a Codex trunk
-        // gets create_task / read_task / … the same as the Claude agent.
+        // point Codex at our per-thread MCP server, auto-approve its tool
+        // calls (non-interactive exec can't answer the approval prompt), AND
+        // enable the rmcp client (which actually enumerates the server's
+        // tools), so a Codex trunk gets create_task / read_task / … the same
+        // as the Claude agent.
         String url = "mcp_servers.bytequay.url=\"http://127.0.0.1:53123/api/threads/thread-1/mcp\"";
+        String approval = "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"";
         String rmcp = "experimental_use_rmcp_client=true";
 
         List<String> fresh = agent("gpt-5", null, "").buildCommand("go").command();
-        assertThat(fresh).containsSubsequence("codex", "-c", url, "-c", rmcp, "exec");
+        assertThat(fresh).containsSubsequence("codex", "-c", url, "-c", approval, "-c", rmcp, "exec");
 
         List<String> resumed = agent("gpt-5", "sess-abc", "").buildCommand("go").command();
-        assertThat(resumed).containsSubsequence("codex", "-c", url, "-c", rmcp, "exec", "resume");
+        assertThat(resumed).containsSubsequence(
+                "codex", "-c", url, "-c", approval, "-c", rmcp, "exec", "resume");
+    }
+
+    @Test
+    void autoApprovesOurMcpToolsWithApproveNotAuto()
+    {
+        // The per-server approval override MUST be "approve" (unconditional
+        // skip). "auto" only skips the prompt when Codex has full-disk-write;
+        // our --sandbox workspace-write turn lacks it, so "auto" falls back to
+        // prompting, hits EOF on the closed stdin of non-interactive `exec`,
+        // and Codex cancels the call ("cancelled by the user") — which
+        // silently killed every create_task. Guard the exact value so a
+        // regression to "auto" can't quietly strand the Codex trunk again.
+        List<String> cmd = agent("gpt-5", /* sessionId */ null, /* role */ null)
+                .buildCommand("go").command();
+
+        assertThat(cmd).containsSubsequence(
+                "-c", "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
+        assertThat(cmd).doesNotContain(
+                "mcp_servers.bytequay.default_tools_approval_mode=\"auto\"");
     }
 
     @Test

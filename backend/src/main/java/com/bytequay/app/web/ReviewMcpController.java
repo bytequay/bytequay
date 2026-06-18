@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.review.ReviewMcpService;
 import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,6 +35,10 @@ import static java.util.Objects.requireNonNull;
 @RequestMapping("/api/reviews/{passId}/seats/{participantId}/mcp")
 public class ReviewMcpController
 {
+    /** See {@code McpController.SESSION_HEADER}: the Streamable-HTTP session id
+     *  a strict client carries forward after {@code initialize}. */
+    private static final String SESSION_HEADER = "Mcp-Session-Id";
+
     private final ReviewMcpService service;
 
     public ReviewMcpController(ReviewMcpService service)
@@ -45,7 +50,8 @@ public class ReviewMcpController
     public JsonNode handle(
             @PathVariable String passId,
             @PathVariable String participantId,
-            @RequestBody JsonNode request)
+            @RequestBody JsonNode request,
+            HttpServletResponse response)
     {
         if (passId == null || passId.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "passId is required");
@@ -56,6 +62,14 @@ public class ReviewMcpController
         if (request == null || request.isMissingNode() || request.isNull() || !request.isObject()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "request body must be a JSON-RPC object");
+        }
+        // Streamable-HTTP framing a strict client (e.g. Codex's rmcp client)
+        // requires — a session id, and 202-with-no-body for notifications.
+        // See McpController for the full rationale. Returning null body for a
+        // notification leaves an empty 202; a real request keeps the 200 + JSON.
+        response.setHeader(SESSION_HEADER, passId);
+        if (request.path("method").asText("").startsWith("notifications/")) {
+            response.setStatus(HttpServletResponse.SC_ACCEPTED);
         }
         return service.handle(passId, participantId, request);
     }

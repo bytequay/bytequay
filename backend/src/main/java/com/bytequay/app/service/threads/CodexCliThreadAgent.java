@@ -152,6 +152,18 @@ public class CodexCliThreadAgent
                 // if a turn errors with an MCP/config complaint, the surfaced
                 // stderr will say so and this key/transport may need tuning.
                 .add("-c", "mcp_servers.bytequay.url=\"" + mcpServerUrl() + "\"")
+                // Auto-approve this server's tool calls. `codex exec` is
+                // non-interactive and we close its stdin, so the per-MCP-call
+                // approval prompt reads EOF and Codex records it as "cancelled
+                // by the user" — which silently killed every create_task. The
+                // value must be "approve" (unconditional skip), NOT "auto":
+                // "auto" only skips the prompt when Codex has full-disk-write,
+                // which our --sandbox workspace-write turn deliberately lacks,
+                // so it falls back to prompting → EOF → cancel. "approve" lets
+                // our tools run without an approver while leaving Codex's own
+                // filesystem sandbox untouched; we only trust our own
+                // localhost sidecar, not a blanket approvals/sandbox bypass.
+                .add("-c", "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"")
                 // Use the rmcp client. Codex's default MCP client connects to
                 // an HTTP server (we see `initialize`) but never enumerates its
                 // tools (no `tools/list`), so the model never sees create_task

@@ -16,15 +16,18 @@ package com.bytequay.app.web;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Set;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler
@@ -63,6 +66,31 @@ public class GlobalExceptionHandler
     {
         log.debug("Client disconnected before response was flushed: {} ({})",
                 request.getRequestURI(), exception.getMessage());
+    }
+
+    /**
+     * A request hit a known route with the wrong HTTP verb. The most common
+     * source is a Streamable-HTTP MCP client (notably Codex's {@code rmcp}
+     * client) opening a {@code GET} on the POST-only MCP endpoint to probe for
+     * a server→client SSE stream. The transport spec lets us decline that GET,
+     * but it MUST be answered with {@code 405 Method Not Allowed} (plus an
+     * {@code Allow} header) — NOT the {@code 500} the catch-all below would
+     * otherwise produce. A 500 makes the client treat the whole MCP session as
+     * broken and discard the tools it just enumerated via {@code tools/list},
+     * which is exactly what stranded Codex on its built-in sub-agent fallback.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException exception, HttpServletRequest request)
+    {
+        log.debug("Method {} not supported for {}", exception.getMethod(), request.getRequestURI());
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);
+        Set<HttpMethod> allowed = exception.getSupportedHttpMethods();
+        if (allowed != null && !allowed.isEmpty()) {
+            builder.allow(allowed.toArray(new HttpMethod[0]));
+        }
+        return builder.body(new ErrorResponse(Instant.now(), HttpStatus.METHOD_NOT_ALLOWED.value(),
+                "Method not allowed", request.getRequestURI()));
     }
 
     @ExceptionHandler(Exception.class)

@@ -91,7 +91,7 @@ function parsePrRef(input: string, defaultRepo: string | null): PrRef | null {
  * hands the new thread id to the parent.
  */
 const COST_MIN_CENTS = 10; // 0.10 USD
-const COST_MAX_CENTS = 200; // 2.00 USD
+const COST_MAX_CENTS = 1000; // 10.00 USD — matches the in-review raise ceiling
 const COST_STEP_CENTS = 5;
 
 function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {

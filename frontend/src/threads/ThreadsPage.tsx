@@ -745,6 +745,7 @@ function subtitleFor(filter: StatusFilter): string {
     case 'PENDING':   return 'Queued to start — usually a few seconds before the agent picks them up.';
     case 'IDLE':      return 'Open but no recent activity · waiting on your next reply.';
     case 'COMPLETED': return 'Finished runs you can re-open, re-prompt, or archive.';
+    case 'ARCHIVED':  return 'Auto-archived for inactivity — not finished. Open one to resume where it left off.';
     case 'ERRORED':   return "Failed runs · open one to see logs and resume from a checkpoint.";
     default:          return '';
   }
@@ -768,6 +769,7 @@ function FilterStatusPill({ filter, count }: { filter: StatusFilter; count: numb
     : filter === 'AWAITING' ? 'AWAITING'
     : filter === 'ERRORED' ? 'ERRORED'
     : filter === 'COMPLETED' ? 'DONE'
+    : filter === 'ARCHIVED' ? 'ARCHIVED'
     : filter === 'PENDING' ? 'QUEUED'
     : 'IDLE';
   return (
@@ -823,7 +825,7 @@ function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, hasUnrea
   onStop: () => void;
   onToggleGroup: (threadId: string, groupId: string, present: boolean) => void | Promise<void>;
 }) {
-  const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ERRORED';
+  const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ARCHIVED' || thread.status === 'ERRORED';
   const repoName = repoKey(thread.activeTask?.workingDir ?? '');
   const provider = (thread.provider || '').toLowerCase();
   const glyph = provider.startsWith('codex') ? 'X' : 'C';
@@ -930,6 +932,7 @@ function RowStatusPill({ status, queued }: { status: SchedulerDisplayStatus; que
     QUEUED:          { fg: '#92400e', bg: '#fef3c7', label: 'QUEUED',           pulse: false },
     IDLE:            { fg: '#57606a', bg: '#f0f1f3', label: 'IDLE',             pulse: false },
     COMPLETED:       { fg: '#047857', bg: '#dcfce7', label: 'DONE',             pulse: false },
+    ARCHIVED:        { fg: '#57606a', bg: '#eef0f2', label: 'ARCHIVED',         pulse: false },
     ERRORED:         { fg: '#991b1b', bg: '#fee2e2', label: 'ERRORED',          pulse: false },
   };
   const p = palette[status];
@@ -959,6 +962,7 @@ function stripeColor(status: SchedulerDisplayStatus): string {
     case 'QUEUED':    return '#d97706';
     case 'IDLE':      return '#cbd5e0';
     case 'COMPLETED': return '#10b981';
+    case 'ARCHIVED':  return '#94a3b8';
     case 'ERRORED':   return '#dc2626';
   }
 }

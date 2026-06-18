@@ -63,7 +63,7 @@ export function displayStatusForTask(
   if (summary?.status === 'RUNNING') {
     return 'RUNNING';
   }
-  if (summary?.status === 'QUEUED' && thread.status !== 'COMPLETED' && thread.status !== 'ERRORED') {
+  if (summary?.status === 'QUEUED' && thread.status !== 'COMPLETED' && thread.status !== 'ARCHIVED' && thread.status !== 'ERRORED') {
     return 'QUEUED';
   }
   return thread.status;

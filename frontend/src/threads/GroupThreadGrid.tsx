@@ -301,7 +301,7 @@ function ThreadTile({
   onDragEnd: () => void;
   onDrop: () => void;
 }) {
-  const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ERRORED';
+  const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ARCHIVED' || thread.status === 'ERRORED';
   const displayStatus = displayStatusForTask(thread, scheduler);
   const isRunning = displayStatus === 'RUNNING';
   // Shared key with ThreadDetailPage's reply box — text typed in a tile

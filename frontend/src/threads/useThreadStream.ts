@@ -50,7 +50,7 @@ export function useThreadStream(
   refreshRef.current = onCanonicalRefresh;
 
   useEffect(() => {
-    if (!status || status === 'COMPLETED' || status === 'ERRORED') return;
+    if (!status || status === 'COMPLETED' || status === 'ARCHIVED' || status === 'ERRORED') return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const flush = () => {

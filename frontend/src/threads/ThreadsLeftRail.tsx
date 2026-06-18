@@ -131,6 +131,7 @@ const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> =
   { filter: 'RUNNING',     label: 'Running',        dot: '#047857' },
   { filter: 'IDLE',        label: 'Alive',          dot: '#d97706' },
   { filter: 'COMPLETED',   label: 'Completed',      dot: '#9ca3af' },
+  { filter: 'ARCHIVED',    label: 'Archived',       dot: '#94a3b8' },
 ];
 
 /**

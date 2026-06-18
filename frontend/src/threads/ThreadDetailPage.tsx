@@ -434,7 +434,7 @@ export default function ThreadDetailPage({
   const status = thread?.status;
   useEffect(() => {
     if (!status) return;
-    if (status === 'COMPLETED' || status === 'ERRORED') return;
+    if (status === 'COMPLETED' || status === 'ARCHIVED' || status === 'ERRORED') return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     const flushBuffer = () => {
@@ -632,7 +632,7 @@ export default function ThreadDetailPage({
     );
   }
 
-  const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ERRORED';
+  const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ARCHIVED' || thread.status === 'ERRORED';
   const modelName = resolvedModelName(thread.model, messages);
 
   return (
@@ -1196,9 +1196,9 @@ function StructuredView({
           variants reuse the persisted agentSessionId, so the next turn
           spawns `claude --resume <id>` and the model picks up with its
           prior context. */}
-      {isTerminal && (thread.status === 'ERRORED' || thread.status === 'COMPLETED') && (
+      {isTerminal && (thread.status === 'ERRORED' || thread.status === 'COMPLETED' || thread.status === 'ARCHIVED') && (
         <ResumeBanner
-          variant={thread.status === 'ERRORED' ? 'errored' : 'completed'}
+          variant={thread.status === 'ERRORED' ? 'errored' : thread.status === 'ARCHIVED' ? 'archived' : 'completed'}
           message={thread.errorMessage}
           onResume={onResume}
         />
@@ -1212,26 +1212,37 @@ function ResumeBanner({
 }: {
   /** {@code errored} surfaces the failure message + "Resume" copy;
    *  {@code completed} treats the thread as just-finished-but-the-
-   *  user-has-more-to-say and uses "Continue" copy with no error
-   *  body. Both reuse the persisted agentSessionId on resume so the
-   *  next turn spawns `claude --resume <id>`. */
-  variant: 'errored' | 'completed';
+   *  user-has-more-to-say and uses "Continue" copy with no error body;
+   *  {@code archived} means auto-archived for inactivity (not finished)
+   *  and uses "Resume" copy. All reuse the persisted agentSessionId on
+   *  resume so the next turn spawns `claude --resume <id>`. */
+  variant: 'errored' | 'completed' | 'archived';
   message: string | null | undefined;
   onResume: () => void;
 }) {
   const isErr = variant === 'errored';
+  const title = variant === 'errored'
+    ? 'Turn ended in error'
+    : variant === 'archived'
+      ? 'Archived for inactivity'
+      : 'Conversation closed';
   return (
     <div style={resumeBannerStyle}>
       <div style={resumeBannerCopyStyle}>
-        <span style={resumeBannerTitleStyle}>
-          {isErr ? 'Turn ended in error' : 'Conversation closed'}
-        </span>
+        <span style={resumeBannerTitleStyle}>{title}</span>
         {isErr && message && message.length > 0 && (
           <span style={resumeBannerMsgStyle} title={message}>
             {message.length > 180 ? message.slice(0, 177) + '…' : message}
           </span>
         )}
-        {!isErr && (
+        {variant === 'archived' && (
+          <span style={resumeBannerMsgStyle}>
+            This thread was auto-archived after sitting idle — the work
+            isn’t finished. Resume picks up where it left off with the
+            same <code>claude --resume</code> session.
+          </span>
+        )}
+        {variant === 'completed' && (
           <span style={resumeBannerMsgStyle}>
             The agent marked this thread complete. Resume picks up where
             it left off with the same{' '}
@@ -1240,7 +1251,7 @@ function ResumeBanner({
         )}
       </div>
       <button type="button" onClick={onResume} style={resumeBannerBtnStyle}>
-        {isErr ? '↻ Resume conversation' : '↻ Continue conversation'}
+        {variant === 'completed' ? '↻ Continue conversation' : '↻ Resume conversation'}
       </button>
     </div>
   );
@@ -1938,9 +1949,9 @@ function TerminalWrap({
           status={thread.status}
         />
       )}
-      {isTerminal && (thread.status === 'ERRORED' || thread.status === 'COMPLETED') && (
+      {isTerminal && (thread.status === 'ERRORED' || thread.status === 'COMPLETED' || thread.status === 'ARCHIVED') && (
         <ResumeBanner
-          variant={thread.status === 'ERRORED' ? 'errored' : 'completed'}
+          variant={thread.status === 'ERRORED' ? 'errored' : thread.status === 'ARCHIVED' ? 'archived' : 'completed'}
           message={thread.errorMessage}
           onResume={onResume}
         />
@@ -2605,7 +2616,7 @@ function pollInterval(status: ThreadStatusDto | undefined, hasActiveTurn: boolea
   if (hasActiveTurn) return POLL_MS_RUNNING;
   if (!status) return POLL_MS_IDLE;
   if (status === 'RUNNING') return POLL_MS_RUNNING;
-  if (status === 'COMPLETED' || status === 'ERRORED') return POLL_MS_TERMINAL;
+  if (status === 'COMPLETED' || status === 'ARCHIVED' || status === 'ERRORED') return POLL_MS_TERMINAL;
   return POLL_MS_IDLE;
 }
 

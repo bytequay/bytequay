@@ -1488,6 +1488,10 @@ export type ThreadStatusDto =
    *  judgment-call comment and needs the human to weigh in. */
   | 'NEEDS_ATTENTION'
   | 'COMPLETED'
+  /** Auto-archived for inactivity (IdleThreadArchiver). Hidden from the
+   *  default list like COMPLETED, but shown as "Archived" — dormant, not
+   *  finished — and resumable. */
+  | 'ARCHIVED'
   | 'ERRORED';
 
 export type ThreadResourceLaneDto = 'CLI' | 'API';

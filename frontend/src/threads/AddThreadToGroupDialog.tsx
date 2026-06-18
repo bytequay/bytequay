@@ -202,6 +202,7 @@ const STATUS_TONES: Record<ThreadDto['status'], { fg: string; bg: string; border
   PENDING:         { fg: 'var(--text-2)', bg: 'var(--bg-card)', border: 'var(--border-hairline)' },
   IDLE:            { fg: 'var(--text-2)', bg: 'var(--bg-card)', border: 'var(--border-hairline)' },
   COMPLETED:       { fg: '#1d4ed8', bg: 'rgba(29,78,216,0.08)', border: 'rgba(29,78,216,0.22)' },
+  ARCHIVED:        { fg: 'var(--text-3)', bg: 'var(--bg-card)', border: 'var(--border-hairline)' },
   ERRORED:         { fg: '#b91c1c', bg: 'rgba(185,28,28,0.08)', border: 'rgba(185,28,28,0.22)' },
 };
 

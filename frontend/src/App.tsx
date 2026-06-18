@@ -664,6 +664,7 @@ function App() {
             onStartReview={threadId => setNav({
               view: 'review-thread', threadId, back: nav,
             })}
+            workspaceId={activeWorkspaceId}
           />
         )}
         {nav.view === 'email' && (

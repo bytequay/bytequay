@@ -39,6 +39,7 @@ import { CommitsSelector } from './diff/CommitsSelector';
 import { unionCommitFiles } from './diff/unionCommitFiles';
 import { commitSubject } from './diff/commitDisplay';
 import { MarkdownProse } from './threads/MarkdownProse';
+import AssignReviewTaskDialog from './workspace/AssignReviewTaskDialog';
 
 type FilesMode = 'tree' | 'flat';
 type ReviewVerdict = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
@@ -88,6 +89,12 @@ type Props = {
   /** When set, the viewer opens on this single commit's diff instead of
    *  the cumulative PR diff — used by the timeline's clickable SHA chips. */
   initialCommitSha?: string | null;
+  /** Active workspace — the review panel a "Run AI review" launches lands
+   *  in it. Null falls back to ws-default on the backend. */
+  workspaceId?: string | null;
+  /** Navigate to a freshly-started review thread (its threadId). When
+   *  absent, the "Run AI review" panel affordance is hidden. */
+  onStartReview?: (threadId: string) => void;
 };
 
 /** Minimal CSS attribute-selector escaper. Browsers ship CSS.escape but
@@ -2063,7 +2070,8 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
   );
 }
 
-function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
+function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId, onStartReview }: Props) {
+  const [assignReviewOpen, setAssignReviewOpen] = useState(false);
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [commits, setCommits] = useState<PullRequestCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2425,8 +2433,10 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
         <button
           className="button button--ai"
           type="button"
-          onClick={handleRunAi}
-          title="Ask Claude to draft a review — summary plus line-anchored comments. Stored locally until you publish."
+          onClick={() => { if (onStartReview) setAssignReviewOpen(true); else handleRunAi(); }}
+          title={onStartReview
+            ? 'Spin up a multi-agent review panel on this PR — pick the reviewers and lead, then watch them review.'
+            : 'Ask Claude to draft a review — summary plus line-anchored comments. Stored locally until you publish.'}
         >
           ✨ Run AI review
         </button>
@@ -2714,6 +2724,14 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
           draftSnapshot={aiDraft}
         />
       </div>
+      {assignReviewOpen && onStartReview && (
+        <AssignReviewTaskDialog
+          workspaceId={workspaceId ?? 'ws-default'}
+          initialPr={pr}
+          onClose={() => setAssignReviewOpen(false)}
+          onStarted={(threadId) => { setAssignReviewOpen(false); onStartReview(threadId); }}
+        />
+      )}
     </div>
   );
 }

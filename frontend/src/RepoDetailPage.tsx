@@ -100,6 +100,9 @@ type Props = {
    *  app shell routes the returned threadId into the review-thread
    *  page. */
   onStartReview?: (threadId: string) => void;
+  /** Active workspace — a review panel started from a PR/diff lands in
+   *  it. Null falls back to ws-default on the backend. */
+  workspaceId?: string | null;
 };
 
 /** Right-pane placeholder shown while a deep-link's PR fetch is in
@@ -121,7 +124,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, initialOpenDiff, onOpenLocalBranch, onOpenThread, onStartReview }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, initialOpenDiff, onOpenLocalBranch, onOpenThread, onStartReview, workspaceId }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -759,6 +762,8 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
             onBack={() => { setDiffViewerPr(null); setDiffViewerCommitSha(null); }}
             onApprove={handleApprove}
             initialCommitSha={diffViewerCommitSha}
+            workspaceId={workspaceId}
+            onStartReview={onStartReview}
           />
         ) : tab === 'issues' && selectedIssueNumber != null ? (
           <IssueDetailScreen

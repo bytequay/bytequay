@@ -161,6 +161,11 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
     editReviewFinding: vi.fn().mockResolvedValue(options.reviewDetail ?? { pass: { id: 'pass-1' }, findings: [] }),
     dropReviewFinding: vi.fn().mockResolvedValue({ pass: { id: 'pass-1' }, findings: [] }),
     addReviewFinding: vi.fn().mockResolvedValue(options.reviewDetail ?? { pass: { id: 'pass-1' }, findings: [] }),
+    // Used by AssignReviewTaskDialog when "Run AI review" opens the panel.
+    fetchPrs: vi.fn().mockResolvedValue([]),
+    listReviewRoster: vi.fn().mockResolvedValue([]),
+    listWorkspaceRepos: vi.fn().mockResolvedValue([]),
+    listSkills: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -205,6 +210,7 @@ async function render(detail = makeDetail(), props: {
   files?: DiffFileDto[];
   commits?: PullRequestCommitDto[];
   reviewDetail?: unknown;
+  onStartReview?: (threadId: string) => void;
 } = {}) {
   const bridge = bridgeStub(detail, {
     files: props.files, commits: props.commits, reviewDetail: props.reviewDetail,
@@ -216,6 +222,8 @@ async function render(detail = makeDetail(), props: {
         pr={makePr()}
         onBack={props.onBack ?? vi.fn()}
         onApprove={props.onApprove}
+        workspaceId="ws-1"
+        onStartReview={props.onStartReview}
       />,
     );
   });
@@ -430,6 +438,29 @@ describe('DiffViewerScreen panel-findings overlay', () => {
     expect(bridge.dropReviewFinding).toHaveBeenCalledWith('pass-1', 'f-keep');
     // The drop returns an empty finding set, so the card is gone.
     expect(container.textContent).not.toContain('Drop me from the sidebar.');
+  });
+
+  it('opens the assign-review panel dialog (scoped to this PR) from "Run AI review"', async () => {
+    await render(makeDetail(), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+      onStartReview: vi.fn(),
+    });
+
+    const runBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('Run AI review'));
+    expect(runBtn).toBeTruthy();
+
+    await act(async () => {
+      runBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    // The assign-review dialog opens, pre-scoped to this PR (its number
+    // shows in the fixed header rather than a searchable list).
+    const dialog = container.querySelector('[aria-label="Assign review task"]');
+    expect(dialog).toBeTruthy();
+    expect(dialog!.textContent).toContain('#42');
   });
 
   it('exposes an Add-finding affordance even when there are no findings yet', async () => {

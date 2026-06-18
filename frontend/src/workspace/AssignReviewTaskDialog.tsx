@@ -24,6 +24,10 @@ type Props = {
   /** Fires after the review pass kicks off — parent owns navigation
    *  to the freshly-created review thread. */
   onStarted: (threadId: string) => void;
+  /** When opened against a specific PR (e.g. from the diff page), the PR
+   *  is fixed: it's pre-selected and the search/picker is hidden in favour
+   *  of a compact header. Omit for the workspace-home "pick a PR" flow. */
+  initialPr?: PullRequestDto;
 };
 
 /** State of the on-demand PR lookup — what happens when the user types
@@ -94,10 +98,11 @@ const COST_MIN_CENTS = 10; // 0.10 USD
 const COST_MAX_CENTS = 1000; // 10.00 USD — matches the in-review raise ceiling
 const COST_STEP_CENTS = 5;
 
-function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
+function AssignReviewTaskDialog({ workspaceId, onClose, onStarted, initialPr }: Props) {
   const [prs, setPrs] = useState<PullRequestDto[] | null>(null);
   const [roster, setRoster] = useState<ReviewRosterEntryDto[] | null>(null);
-  const [selectedPr, setSelectedPr] = useState<PullRequestDto | null>(null);
+  // Pre-selected when the dialog is scoped to a specific PR (diff page).
+  const [selectedPr, setSelectedPr] = useState<PullRequestDto | null>(initialPr ?? null);
   const [search, setSearch] = useState('');
   // The workspace's default repo — a bare typed number resolves here.
   const [defaultRepo, setDefaultRepo] = useState<string | null>(null);
@@ -312,67 +317,82 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
         )}
 
         <form onSubmit={onSubmit}>
-          <div style={sectionHeadStyle}>
-            <span style={sectionLabelStyle}>Pull request</span>
-            <span style={sectionMetaStyle}>
-              awaiting my review · {prs === null ? '…' : prs.length}
-            </span>
-          </div>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search, or type a PR number / owner/repo#123 / paste a URL…"
-            style={searchInputStyle}
-          />
-          <div style={prListStyle}>
-            {prs === null ? (
-              <div style={mutedRowStyle}>Loading PRs…</div>
-            ) : (
-              <>
-                {lookup.status === 'loading' && (
-                  <div style={mutedRowStyle}>
-                    Looking up {lookup.ref.repo}#{lookup.ref.number}…
-                  </div>
+          {initialPr !== undefined ? (
+            <>
+              <div style={sectionHeadStyle}>
+                <span style={sectionLabelStyle}>Pull request</span>
+              </div>
+              <div style={fixedPrRowStyle}>
+                <span style={prRowNumStyle}>#{initialPr.number}</span>
+                <span style={fixedPrTitleStyle}>{initialPr.title}</span>
+                <span style={prRowRepoStyle}>{initialPr.repo}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={sectionHeadStyle}>
+                <span style={sectionLabelStyle}>Pull request</span>
+                <span style={sectionMetaStyle}>
+                  awaiting my review · {prs === null ? '…' : prs.length}
+                </span>
+              </div>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search, or type a PR number / owner/repo#123 / paste a URL…"
+                style={searchInputStyle}
+              />
+              <div style={prListStyle}>
+                {prs === null ? (
+                  <div style={mutedRowStyle}>Loading PRs…</div>
+                ) : (
+                  <>
+                    {lookup.status === 'loading' && (
+                      <div style={mutedRowStyle}>
+                        Looking up {lookup.ref.repo}#{lookup.ref.number}…
+                      </div>
+                    )}
+                    {lookup.status === 'found' && (
+                      <PrRow
+                        pr={lookup.pr}
+                        selected={selectedPr?.repo === lookup.pr.repo
+                          && selectedPr?.number === lookup.pr.number}
+                        onSelect={() => setSelectedPr(lookup.pr)}
+                        fromGitHub
+                      />
+                    )}
+                    {lookup.status === 'notfound' && (
+                      <div style={mutedRowStyle}>
+                        No PR found at {lookup.ref.repo}#{lookup.ref.number} — check the
+                        number, or paste the full PR URL.
+                      </div>
+                    )}
+                    {lookup.status === 'error' && (
+                      <div style={mutedRowStyle}>
+                        Couldn't load {lookup.ref.repo}#{lookup.ref.number}: {lookup.message}
+                      </div>
+                    )}
+                    {filteredPrs.map(pr => (
+                      <PrRow
+                        key={pr.id}
+                        pr={pr}
+                        selected={selectedPr?.id === pr.id}
+                        onSelect={() => setSelectedPr(pr)}
+                      />
+                    ))}
+                    {filteredPrs.length === 0 && lookup.status === 'idle' && (
+                      <div style={mutedRowStyle}>
+                        {prs.length === 0
+                          ? 'No PRs awaiting your review right now.'
+                          : 'No PRs match this search.'}
+                      </div>
+                    )}
+                  </>
                 )}
-                {lookup.status === 'found' && (
-                  <PrRow
-                    pr={lookup.pr}
-                    selected={selectedPr?.repo === lookup.pr.repo
-                      && selectedPr?.number === lookup.pr.number}
-                    onSelect={() => setSelectedPr(lookup.pr)}
-                    fromGitHub
-                  />
-                )}
-                {lookup.status === 'notfound' && (
-                  <div style={mutedRowStyle}>
-                    No PR found at {lookup.ref.repo}#{lookup.ref.number} — check the
-                    number, or paste the full PR URL.
-                  </div>
-                )}
-                {lookup.status === 'error' && (
-                  <div style={mutedRowStyle}>
-                    Couldn't load {lookup.ref.repo}#{lookup.ref.number}: {lookup.message}
-                  </div>
-                )}
-                {filteredPrs.map(pr => (
-                  <PrRow
-                    key={pr.id}
-                    pr={pr}
-                    selected={selectedPr?.id === pr.id}
-                    onSelect={() => setSelectedPr(pr)}
-                  />
-                ))}
-                {filteredPrs.length === 0 && lookup.status === 'idle' && (
-                  <div style={mutedRowStyle}>
-                    {prs.length === 0
-                      ? 'No PRs awaiting your review right now.'
-                      : 'No PRs match this search.'}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              </div>
+            </>
+          )}
 
           <div style={sectionHeadStyle}>
             <span style={sectionLabelStyle}>Panel</span>
@@ -813,6 +833,27 @@ const prRowTitleStyle: React.CSSProperties = {
 const prRowNumStyle: React.CSSProperties = {
   color: 'var(--ws-accent, #7c3aed)',
   fontVariantNumeric: 'tabular-nums',
+};
+
+const fixedPrRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 8,
+  padding: '10px 12px',
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 10,
+  background: 'linear-gradient(180deg, rgba(124,58,237,0.06), rgba(124,58,237,0.02))',
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--ws-text-1)',
+};
+
+const fixedPrTitleStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const prRowMetaStyle: React.CSSProperties = {

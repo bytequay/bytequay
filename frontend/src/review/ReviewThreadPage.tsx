@@ -575,6 +575,11 @@ const FLOW_PHASES: { id: string; label: string }[] = [
 
 function FlowStepper({ currentPhase }: { currentPhase: string }) {
   const currentIdx = FLOW_PHASES.findIndex(p => p.id === currentPhase);
+  // TERMINATE (Wrap-up) and PUBLISHED (Publish) are completed terminal
+  // states — the matched step is DONE, not in-progress, so the flow reads
+  // as concluded. ARBITRATE is a live wait for the human ballot, so it
+  // stays "current".
+  const matchedIsDone = currentPhase === 'TERMINATE' || currentPhase === 'PUBLISHED';
   return (
     <section style={cardStyle} aria-label="Flow">
       <h2 style={cardTitleStyle}>Flow</h2>
@@ -582,7 +587,7 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
         <span style={flowConnectorStyle} aria-hidden />
         {FLOW_PHASES.map((phase, idx) => {
           const state: 'done' | 'current' | 'next' = idx < currentIdx ? 'done'
-              : idx === currentIdx ? 'current'
+              : idx === currentIdx ? (matchedIsDone ? 'done' : 'current')
               : 'next';
           return (
             <li key={phase.id} style={flowRowStyle}>

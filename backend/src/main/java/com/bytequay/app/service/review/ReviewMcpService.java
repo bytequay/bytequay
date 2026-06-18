@@ -85,7 +85,8 @@ public class ReviewMcpService
             JsonNode id = rpc.id();
             return switch (method) {
                 case "initialize" -> responses.ok(id, new InitializeResult(
-                        PROTOCOL_VERSION, Capabilities.empty(), new ServerInfo("bytequay-review", "1.0.0")));
+                        protocolVersion(rpc.params()), Capabilities.empty(),
+                        new ServerInfo("bytequay-review", "1.0.0")));
                 case "tools/list" -> listTools(id);
                 case "tools/call" -> callTool(passId, participantId, id, rpc.params());
                 // Notifications carry no id and want no response body.
@@ -101,6 +102,13 @@ public class ReviewMcpService
                     passId, participantId, e.getMessage());
             return responses.error(rawId, -32603, e.getMessage());
         }
+    }
+
+    /** Echo the client's requested protocol version, else our baseline. */
+    private static String protocolVersion(JsonNode params)
+    {
+        String requested = params == null ? null : params.path("protocolVersion").asText(null);
+        return requested == null || requested.isBlank() ? PROTOCOL_VERSION : requested;
     }
 
     private JsonNode listTools(JsonNode id)

@@ -135,7 +135,7 @@ public class McpServiceImpl
             log.info("MCP request received: thread={} method={}{}", threadId, method,
                     callTool.isEmpty() ? "" : " tool=" + callTool);
             switch (method) {
-                case "initialize" -> deferred.setResult(initialize(id));
+                case "initialize" -> deferred.setResult(initialize(id, paramsNode));
                 case "tools/list" -> deferred.setResult(listTools(threadId, id));
                 case "tools/call" -> handleToolCall(threadId, id, paramsNode, deferred);
                 case "notifications/initialized", "notifications/cancelled" ->
@@ -156,10 +156,16 @@ public class McpServiceImpl
         return deferred;
     }
 
-    private JsonNode initialize(JsonNode id)
+    private JsonNode initialize(JsonNode id, JsonNode params)
     {
+        // Echo the protocol version the client asked for when it sent one —
+        // a strict client (e.g. Codex's MCP client) may decline to use a
+        // server that answers with a different version than it requested.
+        // Fall back to our baseline when the request omits it.
+        String requested = params == null ? null : params.path("protocolVersion").asText(null);
+        String version = requested == null || requested.isBlank() ? PROTOCOL_VERSION : requested;
         return responses.ok(id, new InitializeResult(
-                PROTOCOL_VERSION,
+                version,
                 Capabilities.empty(),
                 new ServerInfo("bytequay", "1.0.0")));
     }

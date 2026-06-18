@@ -1663,22 +1663,26 @@ function parseToolCalls(body: string): { prose: string; toolCalls: ToolCall[] } 
   return { prose, toolCalls };
 }
 
-/** Renders parsed tool invocations as compact wrench cards. */
+/** Renders parsed tool invocations as compact wrench cards. The tool name
+ *  heads the card; each parameter's value renders as markdown, both the
+ *  label and the value flush to the card's left edge. */
 function ToolCallList({ calls }: { calls: ToolCall[] }) {
   return (
     <div style={toolCallListStyle}>
       {calls.map((call, i) => (
         <div key={i} style={toolCallRowStyle}>
-          <span style={toolCallIconStyle} aria-hidden>🔧</span>
-          <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={toolCallHeadStyle}>
+            <span style={toolCallIconStyle} aria-hidden>🔧</span>
             <span style={toolCallNameStyle}>{call.name}</span>
-            {call.params.map((p, j) => (
-              <div key={j} style={toolCallParamStyle}>
-                <span style={toolCallParamNameStyle}>{p.name}</span>
-                <span style={toolCallParamValStyle}>{p.value}</span>
-              </div>
-            ))}
           </div>
+          {call.params.map((p, j) => (
+            <div key={j} style={toolCallParamStyle}>
+              <span style={toolCallParamNameStyle}>{p.name}</span>
+              <div style={toolCallParamValStyle}>
+                <MarkdownProse text={p.value} variant="card" />
+              </div>
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -2954,12 +2958,17 @@ const toolCallListStyle: React.CSSProperties = {
 };
 const toolCallRowStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'flex-start',
-  gap: 8,
+  flexDirection: 'column',
+  gap: 5,
   padding: '7px 10px',
   background: 'rgba(124,92,255,0.06)',
   border: '1px solid rgba(124,92,255,0.18)',
   borderRadius: 9,
+};
+const toolCallHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
 };
 const toolCallIconStyle: React.CSSProperties = {
   fontSize: 12,
@@ -2974,22 +2983,22 @@ const toolCallNameStyle: React.CSSProperties = {
 };
 const toolCallParamStyle: React.CSSProperties = {
   display: 'flex',
-  gap: 6,
-  fontSize: 11,
-  marginTop: 3,
-  alignItems: 'baseline',
+  flexDirection: 'column',
+  gap: 1,
 };
 const toolCallParamNameStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 10.5,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.03em',
   color: 'var(--text-3)',
-  flexShrink: 0,
 };
 const toolCallParamValStyle: React.CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 12.5,
   color: 'var(--text-1)',
   minWidth: 0,
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-all',
+  overflowWrap: 'break-word',
 };
 
 const refRowStyle: React.CSSProperties = {

@@ -82,7 +82,7 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
 
   // Best-effort PR labels for the review threads on the page.
   useEffect(() => {
-    const reviewIds = threads.filter(t => t.flow === 'review').map(t => t.id);
+    const reviewIds = threads.filter(isReviewThread).map(t => t.id);
     if (reviewIds.length === 0) {
       setPrSummaries(new Map());
       return;
@@ -189,7 +189,23 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
                     <span style={statusDotStyle(t.status)} aria-hidden />
                     <div style={threadBodyStyle}>
                       <div style={threadTitleRowStyle}>
-                        <div style={threadTitleStyle}>{t.title}</div>
+                        {isReviewThread(t) && (() => {
+                          const owner = (prSummaries.get(t.id)?.repoFullName
+                              ?? reviewRepoFromTitle(t.title))?.split('/')[0];
+                          return owner != null && owner !== '' ? (
+                            <img
+                              src={`https://github.com/${owner}.png?size=40`}
+                              alt=""
+                              style={repoLogoStyle}
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          ) : null;
+                        })()}
+                        <div style={threadTitleStyle}>
+                          {isReviewThread(t)
+                            ? (prSummaries.get(t.id)?.prTitle ?? t.title)
+                            : t.title}
+                        </div>
                         {needsAttention(t) && (
                           <span
                             style={attentionDotStyle}
@@ -198,26 +214,24 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
                         )}
                       </div>
                       {(() => {
-                        const summary = prSummaries.get(t.id);
-                        if (summary) {
-                          // Review thread: the PR title plus the panel
-                          // seats, in place of the generic "discussion ·
-                          // no task yet" line. The reviewer line clips
-                          // with an ellipsis when the roster is long.
+                        // Review threads get a repo#PR · reviewers line in
+                        // place of the generic "discussion · no task yet" —
+                        // keyed off the flow, not the (best-effort) summary,
+                        // so the discussion line never leaks through when the
+                        // summary lookup is empty.
+                        if (isReviewThread(t)) {
+                          const summary = prSummaries.get(t.id);
+                          const repoRef = summary != null
+                            ? `${summary.repoFullName}#${summary.prNumber}`
+                            : reviewRepoRefFromTitle(t.title);
+                          const reviewers = summary != null && summary.reviewers.length > 0
+                            ? summary.reviewers.join(', ')
+                            : '';
                           return (
-                            <>
-                              {summary.prTitle != null && summary.prTitle !== '' && (
-                                <div style={threadPrTitleStyle}>{summary.prTitle}</div>
-                              )}
-                              <div
-                                style={reviewersLineStyle}
-                                title={summary.reviewers.join(', ')}
-                              >
-                                {summary.reviewers.length > 0
-                                  ? summary.reviewers.join(' · ')
-                                  : 'review panel'}
-                              </div>
-                            </>
+                            <div style={reviewersLineStyle} title={reviewers || undefined}>
+                              {[repoRef, reviewers].filter(s => s !== '' && s != null).join(' · ')
+                                || 'review panel'}
+                            </div>
                           );
                         }
                         return <ThreadMetaLine task={t.activeTask} />;
@@ -643,6 +657,33 @@ const threadPrTitleStyle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+};
+
+/** Review threads carry flow='review'. Tolerant of casing in case the
+ *  wire value ever arrives as the enum name. */
+function isReviewThread(t: ThreadDto): boolean {
+  return String(t.flow).toLowerCase() === 'review';
+}
+
+/** "Review owner/repo#123" → "owner/repo" (legacy titles, before threads
+ *  were named by the PR title). Null for a PR-title-named thread. */
+function reviewRepoFromTitle(title: string): string | null {
+  const m = /^Review (\S+?\/\S+?)#\d+/.exec(title);
+  return m !== null ? m[1] : null;
+}
+
+/** "Review owner/repo#123" → "owner/repo#123". Empty for a PR-title thread. */
+function reviewRepoRefFromTitle(title: string): string {
+  const m = /^Review (\S+?\/\S+?#\d+)/.exec(title);
+  return m !== null ? m[1] : '';
+}
+
+const repoLogoStyle: React.CSSProperties = {
+  width: 16,
+  height: 16,
+  borderRadius: 4,
+  flexShrink: 0,
+  objectFit: 'cover',
 };
 
 // The review-thread roster line: single line, clipped with an ellipsis

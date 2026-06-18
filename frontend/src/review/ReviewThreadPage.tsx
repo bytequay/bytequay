@@ -498,7 +498,6 @@ function ReviewingCard({ detail, onOpenPr }: {
       ) : (
         <div style={prNumStyle}>#{prNumber}</div>
       )}
-      {detail.prTitle && <div style={reviewingTitleStyle}>{detail.prTitle}</div>}
       <div style={reviewingMetaStyle}>
         <span style={reviewingRepoStyle}>{repo}</span>
       </div>

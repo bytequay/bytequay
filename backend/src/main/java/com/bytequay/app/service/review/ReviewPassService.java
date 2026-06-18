@@ -273,12 +273,21 @@ public class ReviewPassService
         String reviewModel = appSettings.get(Key.LLM_MODEL)
                 .filter(s -> !s.isBlank())
                 .orElseGet(() -> panel.get(0).reviewer().providerId());
+        // Name the thread by the PR title so the thread list reads "Add
+        // refreshable vended credentials…" rather than a bare
+        // "Review repo#number". The review flow's PrRawDetail doesn't carry
+        // the title, so fetch it best-effort here; fall back to the
+        // repo#number label if the lookup fails.
+        String prTitleForName = bestEffortPrTitle(repoFullName, prNumber);
+        String threadTitle = prTitleForName != null && !prTitleForName.isBlank()
+                ? prTitleForName
+                : "Review " + repoFullName + "#" + prNumber;
         Thread thread = new Thread(
                 UUID.randomUUID().toString(),
                 ThreadKind.LOGIC_LOOP,
                 panel.get(0).reviewer().providerId(),
                 /* agentSessionId */ null,
-                "Review " + repoFullName + "#" + prNumber,
+                threadTitle,
                 ThreadStatus.RUNNING,
                 reviewModel,
                 /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,

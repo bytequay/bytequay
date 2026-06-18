@@ -740,6 +740,88 @@ button.prc-branches__ref--clickable:hover {
   border-width: 0 7px 7px 7px;
   border-color: transparent transparent var(--bg-elevated) transparent;
 }
+
+/* The signed-in user's own comments get a faint blue wash so they stand
+   out in a long thread. Covers the regular comment card (left tail) and
+   the review-summary bubble (up tail) — recolour whichever tail side is
+   visible plus the header bar. */
+.prc-comment-card-body--mine {
+  background: rgba(56, 116, 222, 0.06);
+  border-color: rgba(56, 116, 222, 0.30);
+}
+.prc-comment-card-body--mine .prc-comment-head {
+  background: rgba(56, 116, 222, 0.13);
+  border-bottom-color: rgba(56, 116, 222, 0.22);
+}
+.prc-comment-card-body--mine::after { border-right-color: rgba(56, 116, 222, 0.30); }
+.prc-comment-card-body--mine::before { border-right-color: rgba(56, 116, 222, 0.18); }
+.prc-review-comment-card .prc-comment-card-body--mine::after { border-bottom-color: rgba(56, 116, 222, 0.30); }
+.prc-review-comment-card .prc-comment-card-body--mine::before { border-bottom-color: rgba(56, 116, 222, 0.18); }
+
+/* GitHub blob-permalink snippet card — a file/line header over the
+   referenced source line(s), the way github.com expands a pasted
+   permalink in a comment. */
+.gh-permalink {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.gh-permalink__head {
+  padding: 6px 12px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.gh-permalink__path {
+  display: block;
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.gh-permalink__path:hover { text-decoration: underline; }
+.gh-permalink__loc {
+  margin-top: 1px;
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+}
+.gh-permalink__sha {
+  color: var(--text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  text-decoration: none;
+}
+.gh-permalink__sha:hover { text-decoration: underline; }
+.gh-permalink__code {
+  padding: 6px 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: var(--pr-code-font-size, 12.5px);
+  line-height: 1.5;
+}
+.gh-permalink__row {
+  display: flex;
+  white-space: pre;
+}
+.gh-permalink__lineno {
+  flex-shrink: 0;
+  width: 48px;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--text-4);
+  user-select: none;
+}
+.gh-permalink__linetext {
+  padding-right: 12px;
+  color: var(--text-1);
+}
+.gh-permalink__note {
+  padding: 2px 12px;
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+  font-style: italic;
+}
 .prc-event-row b { color: var(--text-1); font-weight: 600; }
 /* GitHub-style "bot" tag next to an automated actor's name. */
 .prc-bot-tag {

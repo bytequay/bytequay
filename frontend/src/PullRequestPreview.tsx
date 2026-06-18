@@ -2675,6 +2675,9 @@ function PullRequestPreview({
   function renderActivity(item: ActivityItemDto, key: number | string, attachedThreads?: ReviewThreadDto[]) {
     const hasBody = !!item.body && item.body.trim().length > 0;
     const hasThreads = !!attachedThreads && attachedThreads.length > 0;
+    // Tint the signed-in user's own comments so they're easy to pick out
+    // of the thread, the way github.com shades "your" comments.
+    const isMine = !!currentUserLogin && currentUserLogin === item.actor;
     const stateBadge = item.eventType === 'reviewed' && item.state
       ? item.state.replace(/_/g, ' ').toLowerCase()
       : null;
@@ -2723,7 +2726,7 @@ function PullRequestPreview({
           </div>
           {hasBody && (
             <article className="prc-comment-card prc-review-comment-card">
-              <div className="prc-comment-card-body">
+              <div className={`prc-comment-card-body${isMine ? ' prc-comment-card-body--mine' : ''}`}>
                 <header className="prc-comment-head">
                   <a
                     href={`https://github.com/${item.actor}`}
@@ -2841,7 +2844,7 @@ function PullRequestPreview({
     return (
       <article key={`a-${key}`} className="prc-comment-card">
         <Avatar login={item.actor} size={40} className="prc-comment-avatar" />
-        <div className="prc-comment-card-body">
+        <div className={`prc-comment-card-body${isMine ? ' prc-comment-card-body--mine' : ''}`}>
           <header className="prc-comment-head">
             <a
               href={`https://github.com/${item.actor}`}

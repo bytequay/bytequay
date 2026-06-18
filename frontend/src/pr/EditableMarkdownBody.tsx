@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
+import { type MarkdownRepoContext } from '../markdown';
+import { MarkdownWithPermalinks } from './GithubPermalinkCard';
 
 /**
  * Renders a comment body as markdown by default; when {@code canEdit}
@@ -142,8 +143,9 @@ export function EditableMarkdownBody({
       {renderViewSlot
         ? renderViewSlot(body)
         // Content comes from the GitHub API; contextIsolation prevents
-        // renderer escapes via the markdown render path.
-        : <div className={className} dangerouslySetInnerHTML={{ __html: renderMarkdown(body, repoContext) }} />}
+        // renderer escapes via the markdown render path. Standalone GitHub
+        // blob permalinks card into a code snippet, like github.com.
+        : <MarkdownWithPermalinks body={body} className={className} repoContext={repoContext} />}
       {canEdit && !controlled && (
         <button
           type="button"

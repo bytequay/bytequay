@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { renderMarkdown } from '../markdown';
+import { MarkdownWithPermalinks } from './GithubPermalinkCard';
 import { lastTouchedLine } from './utils';
 
 /**
@@ -171,13 +171,7 @@ export function CommentBodyWithSuggestions({ body, hunk }: { body: string; hunk:
       {parts.map((p, i) => {
         if (p.kind === 'md') {
           if (!p.text.trim()) return null;
-          return (
-            <div
-              key={i}
-              className="prc-comment-body"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(p.text) }}
-            />
-          );
+          return <MarkdownWithPermalinks key={i} body={p.text} />;
         }
         const oldLine = hunk ? lastTouchedLine(hunk) : '';
         return (

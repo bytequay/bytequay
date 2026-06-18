@@ -310,18 +310,25 @@ public class CliReviewRunner
             }
             return argv.build();
         }
-        // Codex: `codex exec [resume <id>] --json --skip-git-repo-check
-        // --sandbox read-only -C <dir> <prompt>`.
+        // Codex. `exec resume` rejects --sandbox / -C (they're recorded on
+        // the session), so the first turn and a resume take different argv:
+        //   first:  codex exec --json --skip-git-repo-check --sandbox read-only -C <dir> <prompt>
+        //   resume: codex exec resume --json --skip-git-repo-check <id> <prompt>
         ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
                 .add(binary)
                 .add("exec");
         if (resuming) {
-            argv.add("resume", resumeSessionId);
+            argv.add("resume")
+                    .add("--json")
+                    .add("--skip-git-repo-check")
+                    .add(resumeSessionId);
         }
-        argv.add("--json")
-                .add("--skip-git-repo-check")
-                .add("--sandbox", "read-only")
-                .add("-C", workingDir);
+        else {
+            argv.add("--json")
+                    .add("--skip-git-repo-check")
+                    .add("--sandbox", "read-only")
+                    .add("-C", workingDir);
+        }
         if (argvPrompt != null) {
             argv.add(argvPrompt);
         }

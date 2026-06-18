@@ -78,11 +78,13 @@ class TestCodexCliThreadAgent
 
         List<String> cmd = agent.buildCommand("next step").command();
 
-        // `codex exec resume <id> ...` continues the recorded session.
-        assertThat(cmd).containsSubsequence("exec", "resume", "sess-abc");
-        // A resumed session already carries its context, so the prompt is
-        // sent unprefixed even though a role brief exists.
-        assertThat(cmd.get(cmd.size() - 1)).isEqualTo("next step");
+        // `codex exec resume --json --skip-git-repo-check <id> <prompt>`
+        // continues the recorded session.
+        assertThat(cmd).containsExactly(
+                "codex", "exec", "resume", "--json", "--skip-git-repo-check", "sess-abc", "next step");
+        // `exec resume` rejects --sandbox / -C / -m (they were recorded on the
+        // session) — passing them made every resume exit 2. Guard against it.
+        assertThat(cmd).doesNotContain("--sandbox", "-C", "-m");
     }
 
     @Test

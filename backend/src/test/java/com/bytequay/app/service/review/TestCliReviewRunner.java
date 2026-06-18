@@ -66,10 +66,12 @@ class TestCliReviewRunner
                 .containsExactly("codex", "exec", "--json", "--skip-git-repo-check",
                         "--sandbox", "read-only", "-C", "/work", "review this");
 
+        // `codex exec resume` rejects --sandbox / -C — they were recorded on
+        // the session — so a resume passes only the session id + prompt.
         assertThat(CliReviewRunner.buildArgv(
                 CliReviewRunner.Provider.CODEX, "codex", "sess-2", "/work", "more", null))
-                .containsExactly("codex", "exec", "resume", "sess-2", "--json", "--skip-git-repo-check",
-                        "--sandbox", "read-only", "-C", "/work", "more");
+                .containsExactly("codex", "exec", "resume", "--json", "--skip-git-repo-check",
+                        "sess-2", "more");
     }
 
     @Test

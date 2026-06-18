@@ -144,26 +144,35 @@ public class CodexCliThreadAgent
                 .add("exec");
         String resume = resumeSessionId();
         boolean firstTurn = resume == null || resume.isBlank();
-        if (!firstTurn) {
-            // `codex exec resume <id> [flags] <prompt>` continues the
-            // recorded session so the model keeps its prior context.
-            argv.add("resume", resume);
+        if (firstTurn) {
+            // `codex exec [flags] <prompt>` — the sandbox, cwd, and model are
+            // set once here and recorded on the session.
+            argv.add("--json")
+                    // Worktrees are detached checkouts; without this Codex
+                    // refuses to run outside a "normal" git repo root.
+                    .add("--skip-git-repo-check")
+                    .add("--sandbox", SANDBOX_MODE)
+                    .add("-C", workingDir);
+            String model = model();
+            if (model != null && !model.isBlank()) {
+                argv.add("-m", model);
+            }
+            // The prompt is the trailing positional arg. Fold the role-skill
+            // + workspace-memory context in front of it, since Codex has no
+            // system-prompt flag.
+            argv.add(composeFirstPrompt(userInput));
         }
-        argv.add("--json")
-                // Worktrees are detached checkouts; without this Codex
-                // refuses to run outside a "normal" git repo root.
-                .add("--skip-git-repo-check")
-                .add("--sandbox", SANDBOX_MODE)
-                .add("-C", workingDir);
-        String model = model();
-        if (model != null && !model.isBlank()) {
-            argv.add("-m", model);
+        else {
+            // `codex exec resume --json --skip-git-repo-check <SESSION_ID>
+            // [PROMPT]` — resume continues the recorded session, which already
+            // carries the sandbox / cwd / model / context, so passing those
+            // flags again is rejected ("unexpected argument '--sandbox'").
+            argv.add("resume")
+                    .add("--json")
+                    .add("--skip-git-repo-check")
+                    .add(resume)
+                    .add(userInput);
         }
-        // The prompt is the trailing positional arg. On the first turn we
-        // fold the role-skill + workspace-memory context in front of it,
-        // since Codex has no system-prompt flag; resumed turns already
-        // carry that context in the recorded session.
-        argv.add(firstTurn ? composeFirstPrompt(userInput) : userInput);
 
         ProcessBuilder pb = new ProcessBuilder(argv.build());
         pb.directory(Path.of(workingDir).toFile());

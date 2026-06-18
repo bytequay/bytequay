@@ -141,6 +141,17 @@ public class CodexCliThreadAgent
     {
         ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
                 .add(binary)
+                // Point Codex at our per-thread MCP server so it gets the same
+                // bytequay tools as the Claude agent — create_task, read_task,
+                // queue_task, read_pr, … Without this a Codex trunk has no way
+                // to cut a task in our system and improvises with its own
+                // internal sub-agent fork (invisible to the task UI). `-c` is a
+                // global override merged on top of the user's config.toml, so
+                // it adds the server without disturbing their auth/settings.
+                // NOTE: needs a Codex build with HTTP (streamable) MCP support;
+                // if a turn errors with an MCP/config complaint, the surfaced
+                // stderr will say so and this key/transport may need tuning.
+                .add("-c", "mcp_servers.bytequay.url=\"" + mcpServerUrl() + "\"")
                 .add("exec");
         String resume = resumeSessionId();
         boolean firstTurn = resume == null || resume.isBlank();
@@ -178,6 +189,14 @@ public class CodexCliThreadAgent
         pb.directory(Path.of(workingDir).toFile());
         pb.redirectErrorStream(false);
         return pb;
+    }
+
+    /** Our per-thread MCP endpoint — matches McpController's route and the
+     *  local sidecar port. The Claude agent reaches the same server via
+     *  --mcp-config; Codex reaches it via the -c override above. */
+    private String mcpServerUrl()
+    {
+        return "http://127.0.0.1:53123/api/threads/" + threadId + "/mcp";
     }
 
     /** Codex takes its prompt as an argv arg, so there's nothing to feed

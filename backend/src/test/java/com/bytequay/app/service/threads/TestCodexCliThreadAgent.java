@@ -78,13 +78,28 @@ class TestCodexCliThreadAgent
 
         List<String> cmd = agent.buildCommand("next step").command();
 
-        // `codex exec resume --json --skip-git-repo-check <id> <prompt>`
-        // continues the recorded session.
-        assertThat(cmd).containsExactly(
-                "codex", "exec", "resume", "--json", "--skip-git-repo-check", "sess-abc", "next step");
+        // `codex [-c …] exec resume --json --skip-git-repo-check <id> <prompt>`
+        // continues the recorded session — the resume args appear in order.
+        assertThat(cmd).containsSubsequence(
+                "exec", "resume", "--json", "--skip-git-repo-check", "sess-abc", "next step");
         // `exec resume` rejects --sandbox / -C / -m (they were recorded on the
         // session) — passing them made every resume exit 2. Guard against it.
         assertThat(cmd).doesNotContain("--sandbox", "-C", "-m");
+    }
+
+    @Test
+    void wiresTheThreadMcpServerOnEveryTurn()
+    {
+        // Both a fresh and a resumed turn must carry the -c override that
+        // points Codex at our per-thread MCP server, so a Codex trunk gets
+        // create_task / read_task / … the same as the Claude agent.
+        String expected = "mcp_servers.bytequay.url=\"http://127.0.0.1:53123/api/threads/thread-1/mcp\"";
+
+        List<String> fresh = agent("gpt-5", null, "").buildCommand("go").command();
+        assertThat(fresh).containsSubsequence("codex", "-c", expected, "exec");
+
+        List<String> resumed = agent("gpt-5", "sess-abc", "").buildCommand("go").command();
+        assertThat(resumed).containsSubsequence("codex", "-c", expected, "exec", "resume");
     }
 
     @Test

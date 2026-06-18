@@ -2092,7 +2092,8 @@ export type ReviewPhaseDto =
   | 'DEBATE'
   | 'TERMINATE'
   | 'ARBITRATE'
-  | 'PUBLISHED';
+  | 'PUBLISHED'
+  | 'COMPLETED';
 
 export type ReviewParticipantKindDto = 'LEAD' | 'REVIEWER' | 'HUMAN';
 export type ReviewFindingSeverityDto = 'BLOCKER' | 'MAJOR' | 'NIT' | 'QUESTION';
@@ -3476,6 +3477,10 @@ export type Bridge = {
    *  "continue reviewing". Returns the current detail; progress streams
    *  via the transcript poll. */
   resumeReview: (passId: string) => Promise<ReviewPassDetailDto>;
+  /** Mark a pass completed by hand — finished without posting to GitHub.
+   *  Terminal but reversible (resumeReview re-runs). Returns the updated
+   *  detail with phase COMPLETED. */
+  completeReview: (passId: string) => Promise<ReviewPassDetailDto>;
   /** Light PR title + author per review thread, for labelling review
    *  threads in thread lists without loading the transcript. */
   getReviewThreadPrSummaries: (

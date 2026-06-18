@@ -75,7 +75,8 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr, onOpenDiff }: Props) {
   const phase = detail?.pass.phase;
   useEffect(() => {
     if (phase === undefined) return;
-    const terminal = phase === 'TERMINATE' || phase === 'ARBITRATE' || phase === 'PUBLISHED';
+    const terminal = phase === 'TERMINATE' || phase === 'ARBITRATE' || phase === 'PUBLISHED'
+        || phase === 'COMPLETED';
     const steering = Date.now() < steerPollUntil;
     if (terminal && !steering) return;
     const timer = window.setInterval(() => { void refresh(); }, 5_000);
@@ -447,7 +448,6 @@ function TopBar({ detail, onBack, onOpenPr }: {
               ${(costMilli / 1000).toFixed(2)} / ${(costCapMilli / 1000).toFixed(2)}
             </span>
           )}
-          {detail.pass.verdict && <VerdictPill verdict={detail.pass.verdict} />}
         </div>
       )}
     </header>
@@ -578,12 +578,19 @@ const FLOW_PHASES: { id: string; label: string }[] = [
 ];
 
 function FlowStepper({ currentPhase }: { currentPhase: string }) {
-  const currentIdx = FLOW_PHASES.findIndex(p => p.id === currentPhase);
-  // TERMINATE (Wrap-up) and PUBLISHED (Publish) are completed terminal
+  // COMPLETED is a hand-set terminal state outside the linear pipeline —
+  // treat it as "everything done" and relabel the final step "Completed"
+  // (the review finished without posting). PUBLISHED keeps the "Publish"
+  // label on its done final step.
+  const isCompleted = currentPhase === 'COMPLETED';
+  const currentIdx = isCompleted
+      ? FLOW_PHASES.length - 1
+      : FLOW_PHASES.findIndex(p => p.id === currentPhase);
+  // TERMINATE (Wrap-up), PUBLISHED (Publish), and COMPLETED are terminal
   // states — the matched step is DONE, not in-progress, so the flow reads
   // as concluded. ARBITRATE is a live wait for the human ballot, so it
   // stays "current".
-  const matchedIsDone = currentPhase === 'TERMINATE' || currentPhase === 'PUBLISHED';
+  const matchedIsDone = currentPhase === 'TERMINATE' || currentPhase === 'PUBLISHED' || isCompleted;
   return (
     <section style={cardStyle} aria-label="Flow">
       <h2 style={cardTitleStyle}>Flow</h2>
@@ -593,6 +600,7 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
           const state: 'done' | 'current' | 'next' = idx < currentIdx ? 'done'
               : idx === currentIdx ? (matchedIsDone ? 'done' : 'current')
               : 'next';
+          const label = isCompleted && phase.id === 'PUBLISHED' ? 'Completed' : phase.label;
           return (
             <li key={phase.id} style={flowRowStyle}>
               <span
@@ -600,7 +608,7 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
                 className={state === 'current' ? 'review-agenda-glyph--active' : undefined}
                 aria-hidden
               />
-              <span style={flowLabelStyle(state)}>{phase.label}</span>
+              <span style={flowLabelStyle(state)}>{label}</span>
             </li>
           );
         })}
@@ -645,18 +653,21 @@ function BudgetCard({
   // The review is actively running whenever the pass isn't in a terminal
   // phase — so Resume must stay disabled through the whole run (initial or
   // resumed), not just for the instant the resume request takes.
-  const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(detail.pass.phase);
+  // Resume is only offered once the pass has settled into a finished
+  // state — wrap-up (TERMINATE), hand-completed, or published. While the
+  // pipeline runs, or while ARBITRATE waits on the human ballot, the
+  // button stays disabled (there's nothing to resume yet).
+  const canResume = ['TERMINATE', 'PUBLISHED', 'COMPLETED'].includes(detail.pass.phase);
   const [resuming, setResuming] = useState(false);
-  // Drop the local "resuming" flag once the backend has actually moved the
-  // pass into a running phase; `running` then governs the disabled state,
-  // bridging the gap between the click and the first non-terminal poll.
+  // Drop the local "resuming" flag once the pass leaves the resumable
+  // state — the resume took effect and the pipeline is running again.
   useEffect(() => {
-    if (running) {
+    if (!canResume) {
       setResuming(false);
     }
-  }, [running]);
+  }, [canResume]);
   const resume = async () => {
-    if (resuming || running) {
+    if (resuming || !canResume) {
       return;
     }
     setResuming(true);
@@ -668,8 +679,11 @@ function BudgetCard({
       setResuming(false);   // re-enable on failure; success holds until `running`
     }
   };
-  const resumeDisabled = resuming || running;
-  const resumeLabel = running ? 'Reviewing…' : resuming ? 'Resuming…' : '▶ Resume review';
+  const resumeDisabled = resuming || !canResume;
+  const resumeLabel = resuming ? 'Resuming…'
+      : canResume ? '▶ Resume review'
+      : detail.pass.phase === 'ARBITRATE' ? 'Awaiting arbitration'
+      : 'Reviewing…';
   return (
     <section style={cardStyle} aria-label="Budget">
       <h2 style={cardTitleStyle}>Budget</h2>
@@ -728,7 +742,6 @@ function BudgetCard({
       >
         {resumeLabel}
       </button>
-      <p style={budgetHintStyle}>✦ stops early on convergence — raise, then resume to keep reviewing</p>
     </section>
   );
 }
@@ -1379,6 +1392,7 @@ const PHASE_LABELS: Record<string, string> = {
   TERMINATE: 'Wrap-up',
   ARBITRATE: 'Arbitration',
   PUBLISHED: 'Published',
+  COMPLETED: 'Completed',
 };
 
 function phaseLabel(phase: string): string {
@@ -1414,7 +1428,7 @@ function AgendaSection({ agenda, passPhase }: { agenda: AgendaPhaseDto[]; passPh
     // Pass just kicked off; the lead hasn't called set_agenda yet.
     // A quiet placeholder beats an empty box — but a terminal pass
     // with no agenda (a pre-agenda historical run) shows nothing.
-    const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
+    const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED', 'COMPLETED'].includes(passPhase);
     if (!running) return null;
     return (
       <section style={agendaCardStyle} aria-label="Agenda">
@@ -1538,7 +1552,7 @@ function TranscriptSection({
   focusParticipantId: string | null;
   onMentionClick: (participantId: string) => void;
 }) {
-  const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
+  const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED', 'COMPLETED'].includes(passPhase);
   // Focused view: one reviewer's stream — what they said plus what
   // was addressed to them. A watcher-side view filter only — the data
   // the page fetched is unchanged; we just hide rows here.
@@ -2130,10 +2144,12 @@ function PostReviewControl({
   onPublished: (next: ReviewPassDetailDto) => void;
 }) {
   const alreadyPublished = detail.pass.phase === 'PUBLISHED';
+  const alreadyCompleted = detail.pass.phase === 'COMPLETED';
   const isArbitrate = detail.pass.phase === 'ARBITRATE';
   const suggested: ReviewVerdictDto = detail.pass.verdict ?? 'COMMENT';
   const [verdict, setVerdict] = useState<ReviewVerdictDto>(suggested);
   const [busy, setBusy] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Post the kept findings — everything not still in dispute or discarded.
   const postableIds = useMemo(
@@ -2158,6 +2174,22 @@ function PostReviewControl({
     }
   };
 
+  const complete = async () => {
+    if (busy || completing) {
+      return;
+    }
+    setCompleting(true);
+    setError(null);
+    try {
+      const next = await window.bridge.completeReview(detail.pass.id);
+      onPublished(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCompleting(false);
+    }
+  };
+
   // While disputes are unresolved the arbitration ballot owns this space;
   // posting is gated until the ballot clears.
   if (isArbitrate) {
@@ -2168,6 +2200,18 @@ function PostReviewControl({
     return (
       <div style={postReviewDoneStyle}>
         ✓ Posted to the PR as a <strong>{detail.pass.verdict}</strong> review.
+      </div>
+    );
+  }
+
+  // Hand-completed: a terminal-but-reversible state. Show the marker and
+  // point at the left-rail Resume to reopen — the publish path stays
+  // available there if the user resumes and finishes again.
+  if (alreadyCompleted) {
+    return (
+      <div style={postReviewCompletedStyle}>
+        ✓ Marked as completed — not posted to the PR.
+        <span style={postReviewCompletedHintStyle}>Resume from the left to reopen the review.</span>
       </div>
     );
   }
@@ -2184,7 +2228,7 @@ function PostReviewControl({
               aria-label={v}
               checked={verdict === v}
               onChange={() => setVerdict(v)}
-              disabled={busy}
+              disabled={busy || completing}
               style={srOnlyStyle}
             />
             <span aria-hidden>{verdictGlyph(v)}</span>
@@ -2194,12 +2238,21 @@ function PostReviewControl({
       </div>
       <button
         type="button"
-        style={(busy || postableIds.length === 0) ? { ...btnPubStyle, ...btnPubDisabledStyle } : btnPubStyle}
+        style={(busy || completing || postableIds.length === 0) ? { ...btnPubStyle, ...btnPubDisabledStyle } : btnPubStyle}
         onClick={() => void post()}
-        disabled={busy || postableIds.length === 0}
+        disabled={busy || completing || postableIds.length === 0}
         title="Post the agreed findings to the PR as one GitHub review"
       >
         {busy ? 'Posting…' : `▲ Post review to remote${postableIds.length > 0 ? ` (${postableIds.length})` : ''}`}
+      </button>
+      <button
+        type="button"
+        style={(busy || completing) ? { ...btnCompleteStyle, ...btnPubDisabledStyle } : btnCompleteStyle}
+        onClick={() => void complete()}
+        disabled={busy || completing}
+        title="Mark this review done without posting to the PR — you can resume it later"
+      >
+        {completing ? 'Marking…' : '✓ Mark as completed'}
       </button>
       {error !== null && <div style={errorStyle} role="alert">{error}</div>}
     </div>
@@ -2219,13 +2272,40 @@ const postReviewDoneStyle: React.CSSProperties = {
   border: '1px solid rgba(22,163,74,0.28)',
   borderRadius: 9,
 };
+const postReviewCompletedStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+  padding: '8px 12px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#475569',
+  background: 'rgba(100,116,139,0.08)',
+  border: '1px solid rgba(100,116,139,0.28)',
+  borderRadius: 9,
+};
+const postReviewCompletedHintStyle: React.CSSProperties = {
+  fontWeight: 400,
+  fontSize: 11,
+  color: 'var(--text-3)',
+};
+const btnCompleteStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  fontSize: 12.5,
+  fontWeight: 600,
+  color: '#475569',
+  background: '#fff',
+  border: '1px solid var(--border)',
+  borderRadius: 9,
+  cursor: 'pointer',
+};
 
 function PhasePill({ phase }: { phase: string }) {
   // TERMINATE (Wrap-up) and PUBLISHED are terminal — drop the pulsing
   // "live" dot and the running blue so the pill doesn't read as still
   // in-flight. Use the same friendly label as the flow rail so the top
   // bar and the left flow agree (e.g. both say "Wrap-up", not "terminate").
-  const terminal = phase === 'TERMINATE' || phase === 'PUBLISHED';
+  const terminal = phase === 'TERMINATE' || phase === 'PUBLISHED' || phase === 'COMPLETED';
   const color = terminal ? '#10b981' : '#0066cc';
   return (
     <span style={pillStyle(color)}>
@@ -2237,13 +2317,6 @@ function PhasePill({ phase }: { phase: string }) {
       {phaseLabel(phase)}
     </span>
   );
-}
-
-function VerdictPill({ verdict }: { verdict: ReviewVerdictDto }) {
-  const color = verdict === 'APPROVE' ? '#16a34a'
-      : verdict === 'REQUEST_CHANGES' ? '#cf1322'
-      : '#737373';
-  return <span style={pillStyle(color)}>{verdict.toLowerCase()}</span>;
 }
 
 /** Friendly label + leading glyph for a verdict pill. The radio keeps
@@ -2558,12 +2631,6 @@ const reviewingMetaStyle: React.CSSProperties = {
 };
 
 const reviewingRepoStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text-3)',
-};
-
-const budgetHintStyle: React.CSSProperties = {
-  margin: '10px 0 0',
   fontSize: 11,
   color: 'var(--text-3)',
 };

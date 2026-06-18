@@ -54,7 +54,6 @@ describe('ReviewThreadPage', () => {
     // that the PR ref can be a link).
     expect(screen.getAllByText(/acme\/widget/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('PR #42')).toBeTruthy();
-    expect(screen.getByText('comment')).toBeTruthy();
 
     // Each persona label can appear in multiple places: the roster
     // row, and (for reviewers / the lead) above any transcript
@@ -338,6 +337,58 @@ describe('ReviewThreadPage', () => {
     });
     // Control stays so the user can retry after fixing the upstream issue.
     expect(screen.getByText(/Post review to remote/)).toBeTruthy();
+  });
+
+  it('marks the review completed without posting, then shows the completed state', async () => {
+    const initial = buildDetail({
+      verdict: 'COMMENT',
+      findings: [finding({ id: 'f1', body: 'A.' })],
+    });
+    const completed: ReviewPassDetailDto = {
+      ...initial,
+      pass: { ...initial.pass, phase: 'COMPLETED' },
+    };
+    const completeReview = vi.fn(async () => completed);
+    const publishReviewPass = vi.fn(async () => completed);
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => initial),
+      completeReview,
+      publishReviewPass,
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('✓ Mark as completed'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('✓ Mark as completed'));
+    });
+
+    expect(completeReview).toHaveBeenCalledWith('pass-1');
+    // Completing never posts to GitHub.
+    expect(publishReviewPass).not.toHaveBeenCalled();
+    // The control collapses to the completed marker; the post button is gone.
+    await waitFor(() => expect(screen.getByText(/Marked as completed/i)).toBeTruthy());
+    expect(screen.queryByText(/Post review to remote/)).toBeNull();
+    expect(screen.queryByText('✓ Mark as completed')).toBeNull();
+  });
+
+  it('shows the completed marker (and the Completed flow label) for a COMPLETED pass', async () => {
+    const base = buildDetail({ verdict: 'COMMENT' });
+    const detail: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, phase: 'COMPLETED' },
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText(/Marked as completed/i));
+    // No publish affordance on an already-completed pass.
+    expect(screen.queryByText(/Post review to remote/)).toBeNull();
+    // The flow rail's final step reads "Completed" rather than "Publish".
+    expect(screen.getAllByText('Completed').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('Publish')).toBeNull();
   });
 
   it('renders the empty-agenda placeholder while the pass is still running', async () => {

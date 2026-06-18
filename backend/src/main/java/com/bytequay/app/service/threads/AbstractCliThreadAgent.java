@@ -35,6 +35,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -137,6 +138,13 @@ public abstract class AbstractCliThreadAgent
      *  real crash. */
     private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
+
+    /** How many trailing stderr lines to keep so a non-zero exit can
+     *  surface the CLI's actual error instead of a bare exit code. */
+    private static final int STDERR_TAIL_LINES = 40;
+    /** Rolling tail of the current turn's stderr, guarded by its own
+     *  monitor (the drain runs on a separate thread). Cleared per turn. */
+    private final ArrayDeque<String> stderrTail = new ArrayDeque<>();
 
     private final AtomicLong runningCostUsdMilli = new AtomicLong();
     private final AtomicLong runningTokensIn = new AtomicLong();
@@ -592,11 +600,14 @@ public abstract class AbstractCliThreadAgent
             return;
         }
         currentProcess.set(process);
+        synchronized (stderrTail) {
+            stderrTail.clear();
+        }
         // The worktree lease is held by the registry for the lifetime of
         // this session, so the per-turn subprocess doesn't manage it.
         try {
             deliverPrompt(process, userInput);
-            drainStderr(process);
+            java.lang.Thread stderrThread = drainStderr(process);
             consumeStdout(process);
             int exit = process.waitFor();
             if (exit != 0) {
@@ -608,8 +619,19 @@ public abstract class AbstractCliThreadAgent
                     publish(new StreamEvent.SessionEnded(Instant.now(), exit, "interrupted by user"));
                 }
                 else {
-                    publish(new StreamEvent.ErrorOccurred(Instant.now(),
-                            binary + " exited with code " + exit, true));
+                    // Let the stderr drain finish so the failure carries the
+                    // CLI's actual error, not just a bare exit code.
+                    try {
+                        stderrThread.join(2_000);
+                    }
+                    catch (InterruptedException ignored) {
+                        java.lang.Thread.currentThread().interrupt();
+                    }
+                    String tail = stderrTailText();
+                    String detail = binary + " exited with code " + exit
+                            + (tail.isBlank() ? "" : ":\n" + tail);
+                    log.warn("CLI thread {} ({}) failed: {}", threadId, binary, detail);
+                    publish(new StreamEvent.ErrorOccurred(Instant.now(), detail, true));
                     transition(ThreadStatus.ERRORED);
                     publish(new StreamEvent.SessionEnded(Instant.now(), exit, "non-zero exit"));
                 }
@@ -657,7 +679,7 @@ public abstract class AbstractCliThreadAgent
         }
     }
 
-    private void drainStderr(Process process)
+    private java.lang.Thread drainStderr(Process process)
     {
         java.lang.Thread t = new java.lang.Thread(() -> {
             try (BufferedReader reader = new BufferedReader(
@@ -665,6 +687,12 @@ public abstract class AbstractCliThreadAgent
                 String line;
                 while ((line = reader.readLine()) != null) {
                     log.debug("[{} stderr] {}", binary, line);
+                    synchronized (stderrTail) {
+                        stderrTail.addLast(line);
+                        while (stderrTail.size() > STDERR_TAIL_LINES) {
+                            stderrTail.removeFirst();
+                        }
+                    }
                 }
             }
             catch (IOException ignored) {
@@ -673,6 +701,15 @@ public abstract class AbstractCliThreadAgent
         }, "thread-" + threadId + "-stderr");
         t.setDaemon(true);
         t.start();
+        return t;
+    }
+
+    /** The captured stderr tail, joined — used to explain a non-zero exit. */
+    private String stderrTailText()
+    {
+        synchronized (stderrTail) {
+            return String.join("\n", stderrTail).strip();
+        }
     }
 
     private void handle(StreamEvent event)

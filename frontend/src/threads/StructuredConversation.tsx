@@ -408,8 +408,26 @@ function DaySeparator({ iso }: { iso: string }) {
   );
 }
 
+/** Small chevron button to fold/unfold a whole message card. ▾ open,
+ *  ▸ folded — matches the per-card fold on the review panel. */
+function CardFoldToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      style={cardFoldToggleStyle}
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expand message' : 'Collapse message'}
+      title={collapsed ? 'Expand' : 'Collapse'}
+    >
+      {collapsed ? '▸' : '▾'}
+    </button>
+  );
+}
+
 function UserCard({ message }: { message: ThreadMessageDto }) {
   const text = String(parseContent(message.contentJson).text ?? '');
+  const [collapsed, setCollapsed] = useState(false);
   // data-seq lets the floating ConvIndex panel scroll the
   // transcript to a specific prompt: each user-message row carries
   // its thread_messages.seq, and the index's click handler runs
@@ -422,17 +440,21 @@ function UserCard({ message }: { message: ThreadMessageDto }) {
         <span style={userAvatarStyle}>Y</span>
         <span style={cardNameStyle}>You</span>
         <span style={cardTsStyle}>{formatTime(message.ts)}</span>
+        <CardFoldToggle collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
       </header>
-      <div style={cardBodyStyle}>
-        {paragraphs(text).map((p, i) => (
-          <p key={i} style={paraStyle}>{renderInline(p)}</p>
-        ))}
-      </div>
+      {!collapsed && (
+        <div style={cardBodyStyle}>
+          {paragraphs(text).map((p, i) => (
+            <p key={i} style={paraStyle}>{renderInline(p)}</p>
+          ))}
+        </div>
+      )}
     </article>
   );
 }
 
 function AssistantCard({ card }: { card: Extract<Card, { kind: 'assistant' }> }) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <article style={assistantCardStyle}>
       <header style={cardHeaderStyle}>
@@ -441,22 +463,25 @@ function AssistantCard({ card }: { card: Extract<Card, { kind: 'assistant' }> })
         <span style={modelBadgeStyle}>{threadModelLabel(card.modelName)}</span>
         {card.isStreaming && <span style={streamingPillStyle}>· streaming</span>}
         <span style={cardTsStyle}>{formatTime(card.tsIso)}</span>
+        <CardFoldToggle collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
       </header>
-      <div style={cardBodyStyle}>
-        {card.items.map(item => {
-          if (item.kind === 'thinking') {
-            return <ThinkingRow key={item.key} message={item.message} />;
-          }
-          if (item.kind === 'prose') {
-            return <ProseRow key={item.key} message={item.message} />;
-          }
-          if (item.kind === 'autoAllow') {
-            return <AutoAllowRow key={item.key} message={item.message} />;
-          }
-          return <ToolRow key={item.key} call={item.call} result={item.result} />;
-        })}
-        {card.turn && <TurnFooter turn={card.turn} />}
-      </div>
+      {!collapsed && (
+        <div style={cardBodyStyle}>
+          {card.items.map(item => {
+            if (item.kind === 'thinking') {
+              return <ThinkingRow key={item.key} message={item.message} />;
+            }
+            if (item.kind === 'prose') {
+              return <ProseRow key={item.key} message={item.message} />;
+            }
+            if (item.kind === 'autoAllow') {
+              return <AutoAllowRow key={item.key} message={item.message} />;
+            }
+            return <ToolRow key={item.key} call={item.call} result={item.result} />;
+          })}
+          {card.turn && <TurnFooter turn={card.turn} />}
+        </div>
+      )}
     </article>
   );
 }
@@ -1089,6 +1114,16 @@ const taskBoundaryLabelStyle: React.CSSProperties = {
 const cardHeaderStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   padding: '10px 14px 8px',
+};
+// No marginLeft:auto here — the timestamp already pushes to the right, so
+// the toggle just trails it at the far edge of the header.
+const cardFoldToggleStyle: React.CSSProperties = {
+  flexShrink: 0,
+  width: 20, height: 20,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: 11, color: '#475569',
+  background: 'rgba(15,23,42,0.05)', border: '1px solid rgba(15,23,42,0.08)',
+  borderRadius: 6, cursor: 'pointer',
 };
 const cardNameStyle: React.CSSProperties = {
   fontWeight: 700, color: 'var(--text-1)', fontSize: 13,

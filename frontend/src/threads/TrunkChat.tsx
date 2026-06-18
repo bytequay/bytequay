@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderChatMarkdown } from '../markdown';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { assistantLabel, type AssistantLabel } from './assistantLabel';
@@ -395,12 +395,45 @@ function UserBubble({ text, initials, seq }: { text: string; initials: string; s
   );
 }
 
+/** Small chevron button to fold/unfold a message card. ▾ open, ▸ folded. */
+function CardFoldToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      style={cardFoldToggleStyle}
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expand message' : 'Collapse message'}
+      title={collapsed ? 'Expand' : 'Collapse'}
+    >
+      {collapsed ? '▸' : '▾'}
+    </button>
+  );
+}
+
+const cardFoldToggleStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  flexShrink: 0,
+  width: 20,
+  height: 20,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 11,
+  color: '#475569',
+  background: 'rgba(15,23,42,0.05)',
+  border: '1px solid rgba(15,23,42,0.08)',
+  borderRadius: 6,
+  cursor: 'pointer',
+};
+
 function AssistantBlock({ text, ts, speaker, activity }: {
   text: string;
   ts: number;
   speaker: AssistantLabel;
   activity?: TurnActivity;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <div style={assistantRowStyle}>
       <div style={{ ...claudeAvatarStyle, background: speaker.color }}>{speaker.glyph}</div>
@@ -409,14 +442,19 @@ function AssistantBlock({ text, ts, speaker, activity }: {
           <span style={assistantNameStyle}>{speaker.name}</span>
           <span style={assistantMetaStyle}>trunk</span>
           <span style={assistantMetaStyle}>· {relativeTime(ts)}</span>
+          <CardFoldToggle collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
         </div>
-        <div
-          className="bq-chat-md"
-          style={assistantBubbleStyle}
-          dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
-        />
-        {activity !== undefined && activity.tools > 0 && (
-          <div style={activityBadgeStyle}>· {formatActivity(activity)}</div>
+        {!collapsed && (
+          <>
+            <div
+              className="bq-chat-md"
+              style={assistantBubbleStyle}
+              dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
+            />
+            {activity !== undefined && activity.tools > 0 && (
+              <div style={activityBadgeStyle}>· {formatActivity(activity)}</div>
+            )}
+          </>
         )}
       </div>
     </div>

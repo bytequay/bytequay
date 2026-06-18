@@ -1836,6 +1836,7 @@ function DispatchGroupBubble({
    *  drives the per-chip responded / waiting status. */
   hasResponse: (reviewerId: string) => boolean;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   const firstId = dispatches[0].id;
   const lead = participantsById.get(dispatches[0].participantId);
   const leadBg = lead !== undefined ? seatColor(lead) : 'linear-gradient(135deg,#fbbf24,#d97706)';
@@ -1851,7 +1852,9 @@ function DispatchGroupBubble({
           <span style={dispatchCountStyle}>
             dispatched {dispatches.length} reviewers in parallel
           </span>
+          <CardFoldToggle collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
         </div>
+        {!collapsed && (
         <ul style={dispatchListStyle}>
           {dispatches.map(d => {
             const reviewerId = d.mentions[0] ?? '';
@@ -1897,6 +1900,7 @@ function DispatchGroupBubble({
             );
           })}
         </ul>
+        )}
       </div>
     </div>
   );
@@ -1910,6 +1914,38 @@ function stripLeadingMention(body: string, label: string | undefined): string {
   return body.startsWith(prefix) ? body.slice(prefix.length).replace(/^[\s,:·-]+/, '') : body;
 }
 
+/** Small chevron button to fold/unfold a message card. ▾ open, ▸ folded. */
+function CardFoldToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      style={cardFoldToggleStyle}
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expand message' : 'Collapse message'}
+      title={collapsed ? 'Expand' : 'Collapse'}
+    >
+      {collapsed ? '▸' : '▾'}
+    </button>
+  );
+}
+
+const cardFoldToggleStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  flexShrink: 0,
+  width: 18,
+  height: 18,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 10,
+  color: 'var(--text-3)',
+  background: 'none',
+  border: 'none',
+  borderRadius: 5,
+  cursor: 'pointer',
+};
+
 function MessageBubble({
   message, author, isLead, participantsById, onMentionClick, focusParticipantId,
 }: {
@@ -1920,6 +1956,7 @@ function MessageBubble({
   onMentionClick: (participantId: string) => void;
   focusParticipantId: string | null;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   const kind = author?.kind ?? 'REVIEWER';
   const name = author?.personaLabel ?? '?';
   const color = author?.color ?? 'var(--text-muted)';
@@ -1969,14 +2006,19 @@ function MessageBubble({
               </button>
             );
           })}
+          <CardFoldToggle collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
         </div>
-        <div style={bubbleBodyStyle}><MessageBody message={message} /></div>
-        {message.refs.length > 0 && (
-          <div style={refRowStyle}>
-            {message.refs.map(r => (
-              <span key={r} style={refChipStyle}>#{refLabel(r)}</span>
-            ))}
-          </div>
+        {!collapsed && (
+          <>
+            <div style={bubbleBodyStyle}><MessageBody message={message} /></div>
+            {message.refs.length > 0 && (
+              <div style={refRowStyle}>
+                {message.refs.map(r => (
+                  <span key={r} style={refChipStyle}>#{refLabel(r)}</span>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

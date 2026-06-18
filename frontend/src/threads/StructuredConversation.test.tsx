@@ -11,13 +11,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { StructuredConversation } from './StructuredConversation';
 
 afterEach(() => {
   cleanup();
+});
+
+describe('StructuredConversation card fold', () => {
+  it('collapses an assistant card body when its fold toggle is clicked', () => {
+    const messages: ThreadMessageDto[] = [
+      userMessage({ seq: 1, ts: '2026-05-15T12:00:00Z', text: 'a prompt' }),
+      assistantMessage({ seq: 2, ts: '2026-05-15T12:00:01Z', text: 'a long reply body' }),
+    ];
+
+    render(
+      <StructuredConversation
+        messages={messages}
+        pendingPermission={null}
+        onDecide={() => {}}
+        modelName="claude-sonnet-4.6"
+        tasks={[]}
+      />,
+    );
+
+    expect(screen.getByText('a long reply body')).toBeTruthy();
+    const card = screen.getByText('a long reply body').closest('article');
+    expect(card).toBeTruthy();
+    fireEvent.click(within(card as HTMLElement).getByLabelText('Collapse message'));
+    // Body hidden; header (and now an "Expand" toggle) remains.
+    expect(screen.queryByText('a long reply body')).toBeNull();
+    expect(within(card as HTMLElement).getByLabelText('Expand message')).toBeTruthy();
+  });
 });
 
 describe('StructuredConversation task-boundary marker', () => {

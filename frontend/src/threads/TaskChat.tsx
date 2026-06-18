@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderChatMarkdown } from '../markdown';
 import { highlightShell } from './shellHighlight';
 import { useTypewriter } from './useTypewriter';
@@ -391,6 +391,38 @@ function UserBubble({ text, initials, seq }: { text: string; initials: string; s
   );
 }
 
+/** Small chevron button to fold/unfold a message card. ▾ open, ▸ folded. */
+function CardFoldToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      style={cardFoldToggleStyle}
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expand message' : 'Collapse message'}
+      title={collapsed ? 'Expand' : 'Collapse'}
+    >
+      {collapsed ? '▸' : '▾'}
+    </button>
+  );
+}
+
+const cardFoldToggleStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  flexShrink: 0,
+  width: 20,
+  height: 20,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 11,
+  color: '#475569',
+  background: 'rgba(15,23,42,0.05)',
+  border: '1px solid rgba(15,23,42,0.08)',
+  borderRadius: 6,
+  cursor: 'pointer',
+};
+
 function AssistantBlock({
   text, taskSeq, ts,
 }: {
@@ -398,6 +430,7 @@ function AssistantBlock({
   taskSeq: number | null;
   ts: number;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <div style={assistantRowStyle}>
       <div style={claudeAvatarStyle}>C</div>
@@ -408,12 +441,15 @@ function AssistantBlock({
             <span style={assistantMetaStyle}>Task {taskSeq}</span>
           )}
           <span style={assistantMetaStyle}>· {relativeTime(ts)}</span>
+          <CardFoldToggle collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
         </div>
-        <div
-          className="bq-chat-md"
-          style={assistantBlockStyle}
-          dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
-        />
+        {!collapsed && (
+          <div
+            className="bq-chat-md"
+            style={assistantBlockStyle}
+            dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
+          />
+        )}
       </div>
     </div>
   );
@@ -466,9 +502,10 @@ function ToolCard({
   isError: boolean;
   isRunning: boolean;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   // Shell commands are multi-line and long; show them as a wrapping,
   // syntax-highlighted block on their real lines instead of one
-  // truncated row.
+  // truncated row — and let the whole card fold to just its header.
   if ((toolName === 'Bash' || toolName === 'run_shell') && detail.length > 0) {
     return (
       <div style={toolShellRowStyle}>
@@ -476,8 +513,9 @@ function ToolCard({
           <div style={toolBadgeStyle(toolName, isError)}>{toolName}</div>
           {isRunning && <span style={runningDotStyle}>● Running</span>}
           {footer !== null && <div style={toolFooterStyle}>{footer}</div>}
+          <CardFoldToggle collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
         </div>
-        <pre style={toolShellCodeStyle}>{highlightShell(detail)}</pre>
+        {!collapsed && <pre style={toolShellCodeStyle}>{highlightShell(detail)}</pre>}
       </div>
     );
   }

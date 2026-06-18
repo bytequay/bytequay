@@ -63,9 +63,14 @@ type Props = {
    *  setNav({view:'settings'}). When not provided, the side nav's
    *  Settings button is hidden. */
   onOpenSettings?: () => void;
+  /** Navigate to a freshly-started review thread (its threadId) — wired
+   *  to the diff page's "Run AI review" panel launch. */
+  onStartReview?: (threadId: string) => void;
+  /** Active workspace the review panel lands in. Null → ws-default. */
+  workspaceId?: string | null;
 };
 
-function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Props) {
+function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onStartReview, workspaceId }: Props) {
   const cachedPrs = getCached<PullRequestDto[]>(PRS_CACHE_KEY);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -713,6 +718,8 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
       }}
       onApprove={handleApprove}
       initialCommitSha={diffViewerCommitSha}
+      workspaceId={workspaceId}
+      onStartReview={onStartReview}
     />
   ) : selected ? (
     <PullRequestPreview

@@ -30,6 +30,11 @@ type Props = {
   /** Click on a PR's head-ref chip routes here so the user can jump
    *  from the team kanban preview to the local-repo Commits tab. */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
+  /** Navigate to a freshly-started review thread — wired to the diff
+   *  page's "Run AI review" panel launch. */
+  onStartReview?: (threadId: string) => void;
+  /** Active workspace the review panel lands in. Null → ws-default. */
+  workspaceId?: string | null;
 };
 
 // SWR cache keys. The columns response captures per-column slices +
@@ -62,7 +67,7 @@ function loadSidebarWidth(): number {
   return Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, n));
 }
 
-function TeamDetailPage({ teamId, onBack, onOpenLocalBranch }: Props) {
+function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, workspaceId }: Props) {
   const [team, setTeam] = useState<TeamDto | null>(() => getCached<TeamDto>(TEAM_KEY(teamId)) ?? null);
   const [columnsData, setColumnsData] = useState<TeamColumnsResponse>(() =>
     getCached<TeamColumnsResponse>(COLUMNS_KEY(teamId)) ?? EMPTY_COLUMNS,
@@ -391,6 +396,8 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch }: Props) {
         pr={diffViewerPr}
         onBack={exitDiff}
         onApprove={handleApprove}
+        workspaceId={workspaceId}
+        onStartReview={onStartReview}
       />
     ) : selectedPr ? (
       // Wrap in a positioned container — PullRequestPreview's Classic mode

@@ -642,6 +642,10 @@ function App() {
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
             onOpenSettings={() => setNav({ view: 'settings' })}
+            onStartReview={threadId => setNav({
+              view: 'review-thread', threadId, back: nav,
+            })}
+            workspaceId={activeWorkspaceId}
           />
         )}
         {nav.view === 'repo' && (
@@ -881,6 +885,10 @@ function App() {
             onBack={() => setNav({ view: 'team', teamId: nav.teamId })}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
+            onStartReview={threadId => setNav({
+              view: 'review-thread', threadId, back: nav,
+            })}
+            workspaceId={activeWorkspaceId}
           />
         )}
         {nav.view === 'settings' && (

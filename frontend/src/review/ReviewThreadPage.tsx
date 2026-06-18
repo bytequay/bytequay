@@ -2910,9 +2910,9 @@ const dispatchArrowStyle: React.CSSProperties = {
 const dispatchBodyStyle: React.CSSProperties = {
   minWidth: 0,
   color: 'var(--text-2)',
-  // Indent under the @mention chip (past the arrow) so the directive reads
-  // as a reply beneath the addressee.
-  marginLeft: 22,
+  // Flush to the left edge under the @mention, not indented, matching the
+  // other transcript content.
+  marginLeft: 0,
 };
 const dispatchGotBaseStyle: React.CSSProperties = {
   flexShrink: 0,

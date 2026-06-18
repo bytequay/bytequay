@@ -2742,6 +2742,9 @@ const transcriptScrollStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: 'auto',
+  // Never scroll the conversation sideways — content wraps within the
+  // column instead (bubbles carry minWidth:0 + overflow-wrap).
+  overflowX: 'hidden',
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
@@ -2815,8 +2818,12 @@ const bubbleStyle: React.CSSProperties = {
 
 const bubbleLeadStyle: React.CSSProperties = {
   ...bubbleStyle,
+  // Take the row's remaining width (after the avatar) and shrink rather
+  // than overflow — width:100% pushed it past the avatar and forced a
+  // horizontal scrollbar.
+  flex: 1,
   maxWidth: '100%',
-  width: '100%',
+  minWidth: 0,
   background: 'rgba(245,158,11,0.06)',
   borderStyle: 'dashed',
   borderColor: 'rgba(245,158,11,0.32)',

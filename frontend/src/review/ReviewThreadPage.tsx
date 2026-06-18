@@ -1350,7 +1350,6 @@ function TranscriptSection({
   focusParticipantId: string | null;
   onMentionClick: (participantId: string) => void;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
   const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
   // Focused view: one reviewer's stream — what they said plus what
   // was addressed to them. A watcher-side view filter only — the data
@@ -1375,25 +1374,10 @@ function TranscriptSection({
 
   return (
     <section
-      style={collapsed ? transcriptCardCollapsedStyle : transcriptCardStyle}
+      style={transcriptCardStyle}
       aria-label="Panel transcript"
     >
-      <div style={transcriptHeadStyle}>
-        <h2 style={transcriptTitleStyle}>
-          Transcript
-          <span style={transcriptCountStyle}>{visible.length} messages</span>
-        </h2>
-        <button
-          type="button"
-          style={foldBtnStyle}
-          onClick={() => setCollapsed(c => !c)}
-          aria-expanded={!collapsed}
-          title={collapsed ? 'Expand the conversation' : 'Collapse the conversation'}
-        >
-          {collapsed ? '▸ Expand' : '▾ Collapse'}
-        </button>
-      </div>
-      {collapsed ? null : items.length === 0 ? (
+      {items.length === 0 ? (
         <div style={transcriptEmptyStyle}>
           {running ? (
             <>
@@ -1493,36 +1477,40 @@ function DispatchGroupBubble({
             const color = reviewer?.color ?? rosterFallbackColor('REVIEWER');
             return (
               <li key={d.id} style={dispatchRowStyle}>
-                <span style={{ ...dispatchArrowStyle, color }} aria-hidden>→</span>
-                <button
-                  type="button"
-                  className="review-chip review-dispatch-arrow"
-                  style={mentionChipStyleFor(color, false, false)}
-                  onClick={() => onJumpToResponse(reviewerId)}
-                  title="Jump to this reviewer's response"
-                >
-                  @{reviewer?.personaLabel ?? reviewerId}
-                </button>
+                <div style={dispatchMentionRowStyle}>
+                  <span style={{ ...dispatchArrowStyle, color }} aria-hidden>→</span>
+                  <button
+                    type="button"
+                    className="review-chip review-dispatch-arrow"
+                    style={mentionChipStyleFor(color, false, false)}
+                    onClick={() => onJumpToResponse(reviewerId)}
+                    title="Jump to this reviewer's response"
+                  >
+                    @{reviewer?.personaLabel ?? reviewerId}
+                  </button>
+                  {reviewerId !== '' && (
+                    <span style={hasResponse(reviewerId) ? dispatchGotDoneStyle : dispatchGotWaitStyle}>
+                      {hasResponse(reviewerId) ? '✓ responded' : '· waiting'}
+                    </span>
+                  )}
+                  {reviewerId !== '' && (
+                    <button
+                      type="button"
+                      className="review-chip"
+                      style={dispatchFilterBtnStyle}
+                      onClick={() => onMentionClick(reviewerId)}
+                      aria-label={`Filter the transcript to ${reviewer?.personaLabel ?? 'this reviewer'}`}
+                      title="Filter the transcript to this reviewer's stream"
+                    >
+                      filter
+                    </button>
+                  )}
+                </div>
+                {/* The directive itself drops to its own line under the
+                    @mention so it reads as a message, not "@DeepSeek …". */}
                 <div style={dispatchBodyStyle}>
                   <MarkdownProse text={stripLeadingMention(d.body, reviewer?.personaLabel)} />
                 </div>
-                {reviewerId !== '' && (
-                  <span style={hasResponse(reviewerId) ? dispatchGotDoneStyle : dispatchGotWaitStyle}>
-                    {hasResponse(reviewerId) ? '✓ responded' : '· waiting'}
-                  </span>
-                )}
-                {reviewerId !== '' && (
-                  <button
-                    type="button"
-                    className="review-chip"
-                    style={dispatchFilterBtnStyle}
-                    onClick={() => onMentionClick(reviewerId)}
-                    aria-label={`Filter the transcript to ${reviewer?.personaLabel ?? 'this reviewer'}`}
-                    title="Filter the transcript to this reviewer's stream"
-                  >
-                    filter
-                  </button>
-                )}
               </li>
             );
           })}
@@ -2134,7 +2122,7 @@ const bodyGridStyle: React.CSSProperties = {
   // definite height, so the transcript collapsed to ~0 and the
   // conversation never showed even though the messages were in the DOM.
   display: 'flex',
-  gap: 14,
+  gap: 10,
   flex: 1,
   minHeight: 0,
   alignItems: 'stretch',
@@ -2159,8 +2147,11 @@ const centerColStyle: React.CSSProperties = {
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  gap: 10,
+  gap: 8,
   overflow: 'hidden',
+  // Small inset so the now-borderless transcript isn't flush to the panel
+  // edge.
+  padding: '8px 10px',
   // Soft translucent surface so the transcript bubbles read as a panel
   // floating on the mesh, matching the design's center column.
   background: 'rgba(255,255,255,0.34)',
@@ -2722,58 +2713,15 @@ const rosterModelStyle: React.CSSProperties = {
 // The transcript is a fixed-height window: the card fills the centre
 // column's remaining height and the messages scroll inside it, so a long
 // history never grows the page.
+// Borderless: just the conversation window. The center column already
+// provides the translucent panel surface, so the transcript drops its own
+// card chrome (border / background / header / collapse) and is only the
+// scrollable message list.
 const transcriptCardStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  padding: 14,
-  background: 'var(--bg-1)',
-  border: '1px solid var(--border)',
-  borderRadius: 12,
-};
-
-const transcriptCardCollapsedStyle: React.CSSProperties = {
-  ...transcriptCardStyle,
-  flex: '0 0 auto',
-};
-
-const transcriptHeadStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  marginBottom: 10,
-};
-
-const transcriptTitleStyle: React.CSSProperties = {
-  margin: 0,
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: 8,
-  fontSize: 13,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  color: 'var(--text-3)',
-};
-
-const transcriptCountStyle: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: 0,
-  textTransform: 'none',
-  color: 'var(--text-4, #94a3b8)',
-};
-
-const foldBtnStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  color: 'var(--text-2)',
-  background: 'var(--bg-2)',
-  border: '1px solid var(--border)',
-  borderRadius: 7,
-  padding: '3px 9px',
-  cursor: 'pointer',
 };
 
 const transcriptScrollStyle: React.CSSProperties = {
@@ -2926,10 +2874,18 @@ const dispatchListStyle: React.CSSProperties = {
 
 const dispatchRowStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'flex-start',
-  gap: 6,
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: 3,
   fontSize: 12.5,
   lineHeight: 1.45,
+};
+
+const dispatchMentionRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  flexWrap: 'wrap',
 };
 
 const dispatchArrowStyle: React.CSSProperties = {
@@ -2938,9 +2894,11 @@ const dispatchArrowStyle: React.CSSProperties = {
 };
 
 const dispatchBodyStyle: React.CSSProperties = {
-  flex: 1,
   minWidth: 0,
   color: 'var(--text-2)',
+  // Indent under the @mention chip (past the arrow) so the directive reads
+  // as a reply beneath the addressee.
+  marginLeft: 22,
 };
 const dispatchGotBaseStyle: React.CSSProperties = {
   flexShrink: 0,

@@ -57,6 +57,13 @@ function newSeatKey(): string {
   return `seat-${seatKeyCounter}`;
 }
 
+/** CLI agents (claude-cli / codex-cli) can review but can't lead — the
+ *  lead coordinates the panel via structured tools the CLI path can't run.
+ *  Provider ids for CLI seats end in "-cli". */
+function isCliProvider(providerId: string): boolean {
+  return providerId.endsWith('-cli');
+}
+
 /** Parses the search box into a concrete repo + number when it looks
  *  like a PR reference. A bare number (or {@code #123}) resolves
  *  against {@code defaultRepo}; an {@code owner/repo#123} (or
@@ -138,11 +145,13 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
         // the default a bare typed PR number resolves against.
         setDefaultRepo(repoList[0]?.repoFullName ?? null);
         // Seed one reviewer row on the first configured model, marked
-        // lead, so the panel is valid the moment the dialog opens.
-        const firstConfigured = rosterList.find(r => r.configured);
-        if (firstConfigured !== undefined) {
+        // lead, so the panel is valid the moment the dialog opens. The lead
+        // can't be a CLI agent, so prefer a configured API model for it.
+        const firstLeadable = rosterList.find(r => r.configured && !isCliProvider(r.providerId))
+            ?? rosterList.find(r => r.configured);
+        if (firstLeadable !== undefined) {
           const key = newSeatKey();
-          setSeats([{ key, providerId: firstConfigured.providerId, role: 'none', customPrompt: '' }]);
+          setSeats([{ key, providerId: firstLeadable.providerId, role: 'none', customPrompt: '' }]);
           setLeadKey(key);
         }
       }
@@ -531,9 +540,14 @@ function SeatRow({
         <button
           type="button"
           onClick={onMakeLead}
-          style={seatLeadBtnStyle(isLead)}
+          disabled={isCliProvider(seat.providerId)}
+          style={isCliProvider(seat.providerId)
+              ? { ...seatLeadBtnStyle(isLead), opacity: 0.4, cursor: 'not-allowed' }
+              : seatLeadBtnStyle(isLead)}
           aria-pressed={isLead}
-          title={isLead ? 'Lead — runs consensus + moderates' : 'Make this the lead'}
+          title={isCliProvider(seat.providerId)
+              ? "A CLI agent can't be the lead — the lead coordinates via structured tools"
+              : isLead ? 'Lead — runs consensus + moderates' : 'Make this the lead'}
         >
           {isLead ? '★' : '☆'}
         </button>
@@ -545,11 +559,15 @@ function SeatRow({
             style={seatSelectStyle}
             aria-label={`Reviewer ${index + 1} model`}
           >
-            {roster.map(r => (
-              <option key={r.providerId} value={r.providerId} disabled={!r.configured}>
-                {r.displayName}{r.configured ? '' : ' (no key)'}
-              </option>
-            ))}
+            {roster
+              // The lead can't be a CLI agent, so keep CLI options out of
+              // the lead seat's picker entirely.
+              .filter(r => !isLead || !isCliProvider(r.providerId))
+              .map(r => (
+                <option key={r.providerId} value={r.providerId} disabled={!r.configured}>
+                  {r.displayName}{r.configured ? '' : ' (no key)'}
+                </option>
+              ))}
           </select>
         </label>
         {isLead ? (

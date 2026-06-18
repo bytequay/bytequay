@@ -632,8 +632,13 @@ public class AgentToolHandlers
                             + "propose a successor. create_task only runs when the "
                             + "chain has no live task.");
         }
+        // GitHub owner/name slugs are case-insensitive (trino/Trino,
+        // spark/Spark resolve to the same repo), so match the same way —
+        // otherwise an agent that fumbles the case gets a confusing "repo not
+        // in watched repos" denial. The canonical-cased watched repo is used
+        // for everything downstream (clone path, task repo).
         WatchedRepo watched = watchedRepos.findAll().stream()
-                .filter(r -> repo.equals(r.fullName()))
+                .filter(r -> repo.equalsIgnoreCase(r.fullName()))
                 .findFirst()
                 .orElse(null);
         if (watched == null) {

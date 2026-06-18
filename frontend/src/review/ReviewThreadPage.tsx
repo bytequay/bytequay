@@ -255,6 +255,7 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr, onOpenDiff }: Props) {
               spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
               emptyHint="Nothing locked in yet."
             />
+            <PostReviewControl detail={detail} onPublished={(next) => setDetail(next)} />
             <AddFindingPanel passId={detail.pass.id} onAdded={(next) => setDetail(next)} />
             {onOpenDiff !== undefined && agreedFindings.length > 0 && (() => {
               const [owner, repo] = detail.pass.repoFullName.split('/');
@@ -283,15 +284,10 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr, onOpenDiff }: Props) {
                 emptyHint="All disagreements resolved or arbitrated."
               />
             )}
-            {detail.pass.phase === 'ARBITRATE' ? (
+            {detail.pass.phase === 'ARBITRATE' && (
               <ArbitrationBallotSection
                 detail={detail}
                 onResolved={(next) => setDetail(next)}
-              />
-            ) : (
-              <PublishSection
-                detail={detail}
-                onPublished={(next) => setDetail(next)}
               />
             )}
             <SpawnBuildSection detail={detail} onSpawned={() => void refresh()} />
@@ -565,11 +561,17 @@ const FLOW_PHASES: { id: string; label: string }[] = [
   { id: 'CROSS_REVIEW', label: 'Cross-review' },
   { id: 'CONSENSUS', label: 'Consensus' },
   { id: 'DEBATE', label: 'Debate' },
-  // TERMINATE is the post-debate "results finalized" state in the backend
-  // ReviewPhase enum. Without it here, a finished pass (phase=TERMINATE)
-  // matched no row and the whole stepper rendered greyed-out.
-  { id: 'TERMINATE', label: 'Wrap-up' },
+  // Real backend order: DEBATE → (ARBITRATE only if disputes remain) →
+  // TERMINATE → PUBLISHED. ARBITRATE is a conditional branch BEFORE the
+  // wrap-up, so it sits ahead of it here — otherwise a terminated pass
+  // showed "Arbitrate" as a still-pending step after Wrap-up, reading as
+  // if the review hadn't finished. When a pass terminates without any
+  // disputes, ARBITRATE is skipped but renders done (idx < current) — a
+  // harmless "nothing to arbitrate" rather than a dangling future step.
+  // TERMINATE is the post-debate "results finalized" state; without it
+  // here a finished pass matched no row and the stepper greyed out.
   { id: 'ARBITRATE', label: 'Arbitrate' },
+  { id: 'TERMINATE', label: 'Wrap-up' },
   { id: 'PUBLISHED', label: 'Publish' },
 ];
 
@@ -2115,161 +2117,122 @@ function FindingsSection({ findings }: { findings: ReviewFindingDto[] }) {
   );
 }
 
-function PublishSection({
+/** Compact publish control that lives under the Agreed-findings rail (in
+ *  place of the old right-side "Publish to PR" panel). The agreed/included
+ *  findings ARE the selection — no checklist; pick a verdict and post the
+ *  kept findings to the PR as one GitHub review. */
+function PostReviewControl({
   detail, onPublished,
 }: {
   detail: ReviewPassDetailDto;
   onPublished: (next: ReviewPassDetailDto) => void;
 }) {
   const alreadyPublished = detail.pass.phase === 'PUBLISHED';
+  const isArbitrate = detail.pass.phase === 'ARBITRATE';
   const suggested: ReviewVerdictDto = detail.pass.verdict ?? 'COMMENT';
   const [verdict, setVerdict] = useState<ReviewVerdictDto>(suggested);
-  // Default to including findings the panel (or the human ballot) kept:
-  // AGREED / ARBITRATED-in / RESOLVED / POSTED. DISPUTED + REPORTED start
-  // un-checked (no consensus), and DROPPED stays out (the human or panel
-  // discarded it) — the user can still tick any of them in manually.
-  const [includedIds, setIncludedIds] = useState<Set<string>>(
-      () => new Set(detail.findings
-          .filter(f => f.status !== 'DISPUTED' && f.status !== 'REPORTED' && f.status !== 'DROPPED')
-          .map(f => f.id)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Post the kept findings — everything not still in dispute or discarded.
+  const postableIds = useMemo(
+      () => detail.findings
+          .filter(f => f.status !== 'DISPUTED' && f.status !== 'REPORTED' && f.status !== 'DROPPED')
+          .map(f => f.id),
+      [detail.findings]);
 
-  const toggle = (id: string) => {
-    setIncludedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const handlePublish = async () => {
-    if (busy || alreadyPublished) return;
+  const post = async () => {
+    if (busy || alreadyPublished) {
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const next = await window.bridge.publishReviewPass(
-          detail.pass.id, verdict, Array.from(includedIds));
+      const next = await window.bridge.publishReviewPass(detail.pass.id, verdict, postableIds);
       onPublished(next);
-    }
-    catch (e) {
+    } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    }
-    finally {
+    } finally {
       setBusy(false);
     }
   };
 
+  // While disputes are unresolved the arbitration ballot owns this space;
+  // posting is gated until the ballot clears.
+  if (isArbitrate) {
+    return null;
+  }
+
+  if (alreadyPublished) {
+    return (
+      <div style={postReviewDoneStyle}>
+        ✓ Posted to the PR as a <strong>{detail.pass.verdict}</strong> review.
+      </div>
+    );
+  }
+
   return (
-    <section style={cardStyle} aria-label="Publish">
-      <h2 style={cardTitleStyle}>
-        Publish to PR{alreadyPublished && <PublishedBadge />}
-      </h2>
-
-      {alreadyPublished ? (
-        <p style={publishHintStyle}>
-          Posted to the PR as a <strong>{detail.pass.verdict}</strong> review.
-          Findings flipped to POSTED above.
-        </p>
-      ) : (
-        <>
-          <p style={publishHintStyle}>
-            Verdict suggestion: <strong>{suggested}</strong>. The selected
-            findings post as inline review comments on GitHub; whole-PR
-            notes fold into the review body so nothing you pick is dropped.
-          </p>
-
-          <fieldset style={fieldsetStyle} aria-label="Verdict">
-            <legend style={legendStyle}>Verdict</legend>
-            <div style={verdictRowStyle}>
-              {(['APPROVE', 'COMMENT', 'REQUEST_CHANGES'] as ReviewVerdictDto[]).map(v => (
-                <label key={v} style={verdictPillStyle(v, verdict === v)}>
-                  <input
-                    type="radio"
-                    name="review-verdict"
-                    value={v}
-                    aria-label={v}
-                    checked={verdict === v}
-                    onChange={() => setVerdict(v)}
-                    disabled={busy}
-                    style={srOnlyStyle}
-                  />
-                  <span aria-hidden>{verdictGlyph(v)}</span>
-                  {verdictLabel(v)}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          {detail.findings.length > 0 && (
-            <fieldset style={fieldsetStyle} aria-label="Findings to post">
-              <legend style={legendStyle}>
-                Findings to post ({includedIds.size}/{detail.findings.length})
-              </legend>
-              {detail.findings.map(f => (
-                <label key={f.id} style={findingChoiceStyle}>
-                  <div style={findingChoiceTopRowStyle}>
-                    <input
-                      type="checkbox"
-                      checked={includedIds.has(f.id)}
-                      onChange={() => toggle(f.id)}
-                      disabled={busy}
-                    />
-                    <SeverityChip severity={f.severity} />
-                    <StatusChip status={f.status} />
-                    <span
-                      style={findingAnchorStyle}
-                      title={f.path !== null
-                          ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
-                          : undefined}
-                    >
-                      {f.path !== null
-                          ? `${f.path.split('/').pop()}${f.line !== null ? `:${f.line}` : ''}`
-                          : 'Whole PR'}
-                    </span>
-                  </div>
-                  {/* Body drops to its own full-width line beneath the
-                      chips, left-aligned, so long code tokens wrap inside
-                      the form instead of spilling past its edge. */}
-                  <div style={findingChoiceTextStyle}>
-                    <MarkdownProse text={f.body} variant="card" />
-                  </div>
-                </label>
-              ))}
-            </fieldset>
-          )}
-
-          {error !== null && (
-            <div style={errorStyle} role="alert">{error}</div>
-          )}
-
-          <button
-            type="button"
-            style={busy ? { ...btnPubStyle, ...btnPubDisabledStyle } : btnPubStyle}
-            onClick={() => { void handlePublish(); }}
-            disabled={busy}
-          >
-            {busy ? 'Posting…' : 'Post review to PR'}
-          </button>
-        </>
-      )}
-    </section>
+    <div style={postReviewStyle}>
+      <div style={verdictRowStyle} role="radiogroup" aria-label="Review verdict">
+        {(['APPROVE', 'COMMENT', 'REQUEST_CHANGES'] as ReviewVerdictDto[]).map(v => (
+          <label key={v} style={verdictPillStyle(v, verdict === v)}>
+            <input
+              type="radio"
+              name="post-review-verdict"
+              value={v}
+              aria-label={v}
+              checked={verdict === v}
+              onChange={() => setVerdict(v)}
+              disabled={busy}
+              style={srOnlyStyle}
+            />
+            <span aria-hidden>{verdictGlyph(v)}</span>
+            {verdictLabel(v)}
+          </label>
+        ))}
+      </div>
+      <button
+        type="button"
+        style={(busy || postableIds.length === 0) ? { ...btnPubStyle, ...btnPubDisabledStyle } : btnPubStyle}
+        onClick={() => void post()}
+        disabled={busy || postableIds.length === 0}
+        title="Post the agreed findings to the PR as one GitHub review"
+      >
+        {busy ? 'Posting…' : `▲ Post review to remote${postableIds.length > 0 ? ` (${postableIds.length})` : ''}`}
+      </button>
+      {error !== null && <div style={errorStyle} role="alert">{error}</div>}
+    </div>
   );
 }
 
-function PublishedBadge() {
-  return (
-    <span style={publishedBadgeStyle} aria-label="published">
-      Published
-    </span>
-  );
-}
+const postReviewStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+const postReviewDoneStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  fontSize: 12,
+  color: '#15803d',
+  background: 'rgba(22,163,74,0.08)',
+  border: '1px solid rgba(22,163,74,0.28)',
+  borderRadius: 9,
+};
 
 function PhasePill({ phase }: { phase: string }) {
+  // TERMINATE (Wrap-up) and PUBLISHED are terminal — drop the pulsing
+  // "live" dot and the running blue so the pill doesn't read as still
+  // in-flight. Use the same friendly label as the flow rail so the top
+  // bar and the left flow agree (e.g. both say "Wrap-up", not "terminate").
+  const terminal = phase === 'TERMINATE' || phase === 'PUBLISHED';
+  const color = terminal ? '#10b981' : '#0066cc';
   return (
-    <span style={pillStyle('#0066cc')}>
-      <span style={phaseDotStyle} className="review-live-dot" aria-hidden />
-      {phase.toLowerCase()}
+    <span style={pillStyle(color)}>
+      <span
+        style={phaseDotStyle}
+        className={terminal ? undefined : 'review-live-dot'}
+        aria-hidden
+      />
+      {phaseLabel(phase)}
     </span>
   );
 }
@@ -3519,14 +3482,6 @@ const findingAnchorStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-const findingChoiceTextStyle: React.CSSProperties = {
-  fontSize: 12.5,
-  color: 'var(--text-1)',
-  minWidth: 0,
-  overflowWrap: 'break-word',
-  wordBreak: 'break-word',
-};
-
 const checklistHeadStyle: React.CSSProperties = {
   ...cardTitleStyle,
   display: 'flex',
@@ -3755,52 +3710,6 @@ const publishHintStyle: React.CSSProperties = {
   marginTop: 0,
   marginBottom: 10,
   lineHeight: 1.5,
-};
-
-const fieldsetStyle: React.CSSProperties = {
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  padding: '8px 12px 10px',
-  marginBottom: 10,
-};
-
-const legendStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  color: 'var(--text-3)',
-  padding: '0 6px',
-};
-
-
-const findingChoiceStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'stretch',
-  gap: 3,
-  padding: '7px 0',
-  fontSize: 13,
-};
-
-const findingChoiceTopRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  flexWrap: 'wrap',
-};
-
-const publishedBadgeStyle: React.CSSProperties = {
-  marginLeft: 8,
-  fontSize: 10,
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.06em',
-  padding: '2px 7px',
-  borderRadius: 4,
-  color: '#fff',
-  background: '#16a34a',
-  verticalAlign: 'middle',
 };
 
 const errorStyle: React.CSSProperties = {

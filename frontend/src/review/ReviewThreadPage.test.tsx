@@ -70,17 +70,35 @@ describe('ReviewThreadPage', () => {
     expect(screen.getByText(/Reviewing acme\/widget#42/)).toBeTruthy();
     expect(screen.getByText('Mostly fine.')).toBeTruthy();
 
-    // Findings render with the file:line anchor and a severity chip
-    // each — the line=null finding falls back to just the path.
-    // Each finding body appears twice now (the read-only Findings
-    // section and the publish form's checkbox list); the file:line
-    // anchors do too, so just assert >=1 match for each.
-    expect(screen.getAllByText('Reachable null deref.').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('src/foo.ts:12').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Trailing whitespace.').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('src/bar.ts').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByLabelText('severity-blocker').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByLabelText('severity-nit').length).toBeGreaterThanOrEqual(1);
+    // Findings render in the Agreed rail with their file:line anchor
+    // (the line=null finding falls back to just the path) and a
+    // lowercase severity tag. The compact post-review control no
+    // longer re-lists them, so each body shows exactly once.
+    expect(screen.getAllByText(/Reachable null deref\./).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/src\/foo\.ts:12/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Trailing whitespace\./).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/src\/bar\.ts/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('blocker').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('nit').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('labels a terminated pass "Wrap-up" in the top bar and flow, not raw "terminate"', async () => {
+    // Regression: the top-bar pill showed the raw enum ("terminate") with a
+    // pulsing "live" dot while the flow rail said "Wrap-up" — reading as two
+    // different, still-running states. Both now use the friendly label.
+    const detail = buildDetail({}); // default phase is TERMINATE
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    // "Wrap-up" shows (top-bar pill + flow rail); the raw lowercase enum
+    // never leaks to the UI.
+    await waitFor(() => expect(screen.getAllByText('Wrap-up').length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText('terminate')).toBeNull();
+    // The flow rail still lists Arbitrate (now ordered before Wrap-up).
+    expect(screen.getByText('Arbitrate')).toBeTruthy();
   });
 
   it('renders the agenda widget with per-phase statuses and a summary line', async () => {
@@ -112,11 +130,11 @@ describe('ReviewThreadPage', () => {
     });
   });
 
-  it('renders a status chip per finding and default-unchecks DISPUTED ones in the publish form', async () => {
+  it('excludes DISPUTED findings from the post-review count', async () => {
     // Multi-reviewer pass shape: one AGREED (panel consensus) + one
-    // DISPUTED (only one reviewer raised). The status chip should
-    // render for each, and the publish form should default the
-    // disputed finding to UN-checked so the user opts in deliberately.
+    // DISPUTED (only one reviewer raised). The compact post-review
+    // control posts the kept findings only, so a still-disputed
+    // finding is left out of the count until it's arbitrated in.
     const detail = buildDetail({
       verdict: 'COMMENT',
       findings: [
@@ -131,18 +149,15 @@ describe('ReviewThreadPage', () => {
     });
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
-    await waitFor(() => screen.getByText(/Verdict suggestion/i));
+    await waitFor(() => screen.getByText(/Post review to remote/));
 
-    // Both status chips render — by aria-label so the test doesn't
-    // hinge on the exact severity text getting matched first.
-    expect(screen.getAllByLabelText('status-agreed').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByLabelText('status-disputed').length).toBeGreaterThanOrEqual(1);
+    // Both bodies render in their rails (Agreed vs Open) — the disputed
+    // one isn't hidden, just held back from posting.
+    expect(screen.getAllByText(/Both reviewers flagged this\./).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Solo nit\./).length).toBeGreaterThanOrEqual(1);
 
-    // Publish counter reflects 1/2 included (the agreed one).
-    expect(screen.getByText(/Findings to post \(1\/2\)/)).toBeTruthy();
-    const [agreedBox, disputedBox] = screen.getAllByRole('checkbox') as HTMLInputElement[];
-    expect(agreedBox.checked).toBe(true);
-    expect(disputedBox.checked).toBe(false);
+    // Only the agreed finding is postable (1), not the disputed one.
+    expect(screen.getByText(/Post review to remote \(1\)/)).toBeTruthy();
   });
 
   it('keeps an Included (ARBITRATED) finding visible and default-checked to post', async () => {
@@ -163,13 +178,13 @@ describe('ReviewThreadPage', () => {
     });
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
-    // It renders (in the Agreed list + the publish list) rather than
-    // disappearing — before the fix it matched no list and showed nowhere.
+    // It renders in the Agreed rail rather than disappearing — before
+    // the fix it matched no list and showed nowhere.
     await waitFor(() =>
-        expect(screen.getAllByText('Human kept this disputed blocker.').length).toBeGreaterThan(0));
-    // Default post selection: the arbitrated-in finding is checked, the
-    // dropped one is not (1 of 2).
-    expect(screen.getByText(/Findings to post \(1\/2\)/)).toBeTruthy();
+        expect(screen.getAllByText(/Human kept this disputed blocker\./).length).toBeGreaterThan(0));
+    // Postable count: the arbitrated-in finding posts, the dropped one
+    // doesn't (1 of 2).
+    expect(screen.getByText(/Post review to remote \(1\)/)).toBeTruthy();
   });
 
   it('surfaces a backend error inline without rendering the panel sections', async () => {
@@ -188,7 +203,7 @@ describe('ReviewThreadPage', () => {
     expect(screen.queryByText(/Findings/i)).toBeNull();
   });
 
-  it('renders the publish form with the suggested verdict pre-selected and all findings checked', async () => {
+  it('renders the post-review control with the suggested verdict pre-selected', async () => {
     const detail = buildDetail({
       verdict: 'APPROVE',
       findings: [finding({ id: 'f1', body: 'Nit.' })],
@@ -199,16 +214,14 @@ describe('ReviewThreadPage', () => {
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
 
-    await waitFor(() => screen.getByText(/Verdict suggestion/i));
+    await waitFor(() => screen.getByText(/Post review to remote/));
     const approveRadio = screen.getByRole('radio', { name: 'APPROVE' }) as HTMLInputElement;
     expect(approveRadio.checked).toBe(true);
-    // All findings default to included.
-    expect(screen.getByText(/Findings to post \(1\/1\)/)).toBeTruthy();
-    const findingCheckbox = screen.getByRole('checkbox') as HTMLInputElement;
-    expect(findingCheckbox.checked).toBe(true);
 
-    const publishBtn = screen.getByText('Post review to PR') as HTMLButtonElement;
-    expect(publishBtn.disabled).toBe(false);
+    // The one AGREED finding is postable, so the button is enabled and
+    // its count reflects the single finding.
+    const publishBtn = screen.getByText(/Post review to remote \(1\)/) as HTMLButtonElement;
+    expect(publishBtn.closest('button')!.disabled).toBe(false);
   });
 
   it('publishes the pass with the selected verdict + finding ids and re-renders the published state', async () => {
@@ -231,28 +244,24 @@ describe('ReviewThreadPage', () => {
     });
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
-    await waitFor(() => screen.getByText(/Verdict suggestion/i));
+    await waitFor(() => screen.getByText(/Post review to remote/));
 
-    // Switch verdict + un-check the second finding.
+    // Switch the verdict. The compact control has no per-finding
+    // toggle — it posts every kept finding (both are AGREED here).
     await act(async () => {
       fireEvent.click(screen.getByRole('radio', { name: 'REQUEST_CHANGES' }));
     });
-    const dropCheckbox = screen.getAllByRole('checkbox')[1] as HTMLInputElement;
-    await act(async () => { fireEvent.click(dropCheckbox); });
-    expect(dropCheckbox.checked).toBe(false);
 
     await act(async () => {
-      fireEvent.click(screen.getByText('Post review to PR'));
+      fireEvent.click(screen.getByText(/Post review to remote/));
     });
 
     expect(publishReviewPass).toHaveBeenCalledTimes(1);
-    expect(publishReviewPass).toHaveBeenCalledWith('pass-1', 'REQUEST_CHANGES', ['f-keep']);
-    // Published state replaces the form with a one-line confirmation
-    // and shows a Published badge in the heading.
-    await waitFor(() => expect(screen.getByLabelText('published')).toBeTruthy());
-    expect(screen.getByText(/Posted to the PR as a/i).textContent).toContain('REQUEST_CHANGES');
-    // The post button is gone — the form is locked once published.
-    expect(screen.queryByText('Post review to PR')).toBeNull();
+    expect(publishReviewPass).toHaveBeenCalledWith('pass-1', 'REQUEST_CHANGES', ['f-keep', 'f-drop']);
+    // Published state replaces the control with a one-line confirmation.
+    await waitFor(() => expect(screen.getByText(/Posted to the PR as a/i).textContent).toContain('REQUEST_CHANGES'));
+    // The post button is gone — the control is locked once published.
+    expect(screen.queryByText(/Post review to remote/)).toBeNull();
   });
 
   it('renders the arbitration ballot when phase=ARBITRATE and routes include/drop to the bridge', async () => {
@@ -283,9 +292,8 @@ describe('ReviewThreadPage', () => {
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
     await waitFor(() => screen.getByText(/Arbitration ballot/i));
 
-    // Publish form is hidden — the user must arbitrate first.
-    expect(screen.queryByText('Post review to PR')).toBeNull();
-    expect(screen.queryByText(/Verdict suggestion/i)).toBeNull();
+    // Post-review control is hidden — the user must arbitrate first.
+    expect(screen.queryByText(/Post review to remote/)).toBeNull();
 
     // Two ballot items each with Include + Drop buttons. Look by
     // role to avoid matching the same words used inside the hint
@@ -316,17 +324,17 @@ describe('ReviewThreadPage', () => {
     });
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
-    await waitFor(() => screen.getByText('Post review to PR'));
+    await waitFor(() => screen.getByText(/Post review to remote/));
 
     await act(async () => {
-      fireEvent.click(screen.getByText('Post review to PR'));
+      fireEvent.click(screen.getByText(/Post review to remote/));
     });
 
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toContain('GitHub rejected the review');
     });
-    // Form stays so the user can retry after fixing the upstream issue.
-    expect(screen.getByText('Post review to PR')).toBeTruthy();
+    // Control stays so the user can retry after fixing the upstream issue.
+    expect(screen.getByText(/Post review to remote/)).toBeTruthy();
   });
 
   it('renders the empty-agenda placeholder while the pass is still running', async () => {
@@ -575,7 +583,7 @@ describe('ReviewThreadPage', () => {
     expect(screen.getByText(/build-th/i)).toBeTruthy();
   });
 
-  it('SAFETY: no transcript/filter/finding affordance posts to GitHub — only PublishSection does', async () => {
+  it('SAFETY: no transcript/filter/finding affordance posts to GitHub — only the post-review control does', async () => {
     const lead = participant({ id: 'p-mod', kind: 'LEAD', personaLabel: 'Lead' });
     const claude = participant({ id: 'p-claude', kind: 'REVIEWER', personaLabel: 'Claude' });
     const base = buildDetail({
@@ -614,7 +622,7 @@ describe('ReviewThreadPage', () => {
     }
 
     // Nothing reached GitHub. The publish endpoint is only hit through
-    // the PublishSection's explicit "Post review to PR" confirm.
+    // the post-review control's explicit "Post review to remote" confirm.
     expect(publishReviewPass).not.toHaveBeenCalled();
     expect(spawnBuildFromReview).not.toHaveBeenCalled();
   });

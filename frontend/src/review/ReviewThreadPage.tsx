@@ -1849,12 +1849,19 @@ function PublishSection({
                   <SeverityChip severity={f.severity} />
                   <StatusChip status={f.status} />
                   <span style={findingChoiceBodyStyle}>
-                    <span style={findingAnchorStyle}>
-                      {f.path !== null
+                    <span
+                      style={findingAnchorStyle}
+                      title={f.path !== null
                           ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
+                          : undefined}
+                    >
+                      {f.path !== null
+                          ? `${f.path.split('/').pop()}${f.line !== null ? `:${f.line}` : ''}`
                           : 'Whole PR'}
                     </span>
-                    {f.body}
+                    <div style={findingChoiceTextStyle}>
+                      <MarkdownProse text={f.body} variant="card" />
+                    </div>
                   </span>
                 </label>
               ))}
@@ -3116,8 +3123,17 @@ const findingAnchorStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--text-3)',
   marginBottom: 4,
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-all',
+  // Filename:line only (full path on hover) on a single clipped line —
+  // the full path broke mid-segment and dominated the row.
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const findingChoiceTextStyle: React.CSSProperties = {
+  fontSize: 12.5,
+  color: 'var(--text-1)',
+  minWidth: 0,
 };
 
 const checklistHeadStyle: React.CSSProperties = {

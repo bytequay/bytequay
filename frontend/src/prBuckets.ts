@@ -479,10 +479,35 @@ export function categorizeMyPr(pr: PullRequestDto, now: number = Date.now()): My
 }
 
 /**
- * Returns the To-review column for a review-requested PR, or null when
- * it doesn't belong (wrong origin, or cleared > today).
+ * "Is this review actually my turn?" — true when the PR has my review
+ * requested right now, or I've already participated (left a GitHub
+ * verdict, or opened / reviewed it locally). Gates the To-review
+ * "Needs attention" column: a review-requested PR I'm neither asked to
+ * review nor have touched isn't really on my plate.
+ *
+ * `me` is the current GitHub login. When it's unknown (null — the
+ * profile hasn't loaded yet) we can't check the GitHub-side signals
+ * (`requestedReviewers` / `reviewerVerdicts`), so we fall back to local
+ * participation only but treat the result as "yes" — better to show a
+ * PR than to hide it because the login wasn't ready.
  */
-export function categorizeToReview(pr: PullRequestDto, now: number = Date.now()): ToReviewColumn | null {
+export function isMyReviewTurn(pr: PullRequestDto, me: string | null): boolean {
+  // Local engagement is mine regardless of login — the app only records
+  // viewedAt / reviewedAt for the signed-in user.
+  if (pr.viewedAt !== null || pr.reviewedAt !== null) return true;
+  // Login unknown → can't evaluate the GitHub-side signals; don't hide.
+  if (!me) return true;
+  if (pr.requestedReviewers.includes(me)) return true;
+  if (pr.reviewerVerdicts && Object.prototype.hasOwnProperty.call(pr.reviewerVerdicts, me)) return true;
+  return false;
+}
+
+/**
+ * Returns the To-review column for a review-requested PR, or null when
+ * it doesn't belong (wrong origin, cleared > today, or no longer my
+ * turn). `me` is the current GitHub login — see isMyReviewTurn.
+ */
+export function categorizeToReview(pr: PullRequestDto, now: number = Date.now(), me: string | null = null): ToReviewColumn | null {
   if (pr.origin !== 'REVIEW_REQUESTED') return null;
 
   // Cleared today: handled action with reviewedAt today. Anything older
@@ -495,8 +520,16 @@ export function categorizeToReview(pr: PullRequestDto, now: number = Date.now())
     return reviewedMs >= startOfToday.getTime() ? 'cleared_today' : null;
   }
 
-  // Resurfaced or attention-flagged → top priority.
-  if (isResurfaced(pr) || (pr.attentionReason ?? null) !== null) return 'needs_attention';
+  // Resurfaced → top priority. Resurfacing requires reviewedAt, so this
+  // is always my turn (I reviewed it; the author just pushed back).
+  if (isResurfaced(pr)) return 'needs_attention';
+
+  // Attention-flagged → needs_attention, but only when it's actually my
+  // turn. A stale / blocking flag on a PR I was never asked to review and
+  // have never touched isn't mine to chase.
+  if ((pr.attentionReason ?? null) !== null && isMyReviewTurn(pr, me)) {
+    return 'needs_attention';
+  }
 
   // User left feedback that the author hasn't addressed yet.
   if (pr.handledAction === 'CHANGES_REQUESTED' || pr.handledAction === 'COMMENTED') {
@@ -511,8 +544,11 @@ export function categorizeToReview(pr: PullRequestDto, now: number = Date.now())
   // User has peeked but not reviewed → still in progress for them.
   if (pr.viewedAt !== null && pr.reviewedAt === null) return 'in_progress';
 
-  // Brand-new review request → Needs attention.
-  return 'needs_attention';
+  // Brand-new review request → Needs attention, but only when it's my
+  // turn (requested of me, or I've participated). A review-requested PR
+  // I'm no longer on the hook for and have never touched drops off.
+  if (isMyReviewTurn(pr, me)) return 'needs_attention';
+  return null;
 }
 
 export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Record<MyPrColumn, PullRequestDto[]> {
@@ -555,7 +591,7 @@ export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Rec
   return out;
 }
 
-export function groupToReview(prs: PullRequestDto[], now: number = Date.now()): Record<ToReviewColumn, PullRequestDto[]> {
+export function groupToReview(prs: PullRequestDto[], now: number = Date.now(), me: string | null = null): Record<ToReviewColumn, PullRequestDto[]> {
   const out: Record<ToReviewColumn, PullRequestDto[]> = {
     needs_attention: [],
     in_progress: [],
@@ -566,45 +602,18 @@ export function groupToReview(prs: PullRequestDto[], now: number = Date.now()): 
     // See groupMyPrs — snoozed PRs are parked and don't belong in
     // the active kanban until they wake.
     if (isSnoozed(pr, now)) continue;
-    const col = categorizeToReview(pr, now);
+    const col = categorizeToReview(pr, now, me);
     if (col) out[col].push(pr);
   }
-  // Per-column sort. needs_attention uses an attention-severity rank as
-  // primary key so a CI_FAILING / MENTIONED PR always sits above a plain
-  // unviewed one. Within the same rank, latest-updated wins so the most
-  // recent activity surfaces to the top.
-  out.needs_attention.sort((a, b) => {
-    const sa = attentionRank(a);
-    const sb = attentionRank(b);
-    if (sa !== sb) return sa - sb;
-    return byUpdatedAtDesc(a, b);
-  });
+  // needs_attention is ordered purely by most-recent activity — the PR
+  // that moved last sits on top, regardless of why it's flagged. The
+  // attention reason still colours the card; it no longer reorders the
+  // column.
+  out.needs_attention.sort(byUpdatedAtDesc);      // newest first (latest activity at top)
   out.in_progress.sort(byUpdatedAtDesc);          // newest first (latest activity at top)
   out.awaiting_author.sort(byUpdatedAtDesc);      // newest first (latest activity at top)
   out.cleared_today.sort(byReviewedAtDesc);       // most recently cleared first
   return out;
-}
-
-// Lower rank = more urgent. Anything you'd want pushed to the top of the
-// "Needs attention" column. CI_FAILING + MERGE_CONFLICT are blocking and
-// time-sensitive; MENTIONED is a personal call-out; the rest fall through
-// to the brand-new bucket. Tweak this table if priorities shift.
-const ATTENTION_RANK: Record<string, number> = {
-  CI_FAILING: 0,
-  MERGE_CONFLICT: 1,
-  MENTIONED: 2,
-  NEW_COMMENT: 3,
-  BLOCKING: 4,
-  STALE: 5,
-  MINE: 6,
-};
-function attentionRank(pr: PullRequestDto): number {
-  if (pr.attentionReason && ATTENTION_RANK[pr.attentionReason] !== undefined) {
-    return ATTENTION_RANK[pr.attentionReason];
-  }
-  // No attentionReason but landed in needs_attention = brand-new request.
-  // Sit below explicit reasons but above resolved ones.
-  return 7;
 }
 
 function byCreatedAtAsc(a: PullRequestDto, b: PullRequestDto): number {

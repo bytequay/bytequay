@@ -89,6 +89,12 @@ type Props = {
    *  kanban which lane to render. Team mode ignores this prop and
    *  forces 'mine'. */
   lane?: Lane;
+  /** Current user's GitHub login. Gates the To-review "Needs attention"
+   *  column: a review-requested PR only counts as needs-attention when
+   *  it's the user's turn (requested of them, or they've participated).
+   *  Null while the profile is still loading — the categorizer then
+   *  degrades to "don't hide". See categorizeToReview / isMyReviewTurn. */
+  currentUserLogin?: string | null;
   // onLaneChange went away with the morning-briefing strip — the page
   // header is the only thing that switches lanes now, and it owns the
   // setter directly.
@@ -266,6 +272,7 @@ function KanbanBoard(props: Props) {
             onReopen={props.onReopen}
             onSnooze={props.onSnooze}
             cardMode={mode}
+            currentUserLogin={props.currentUserLogin ?? null}
           />
         )}
     </div>
@@ -436,8 +443,8 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
   );
 }
 
-function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze }: BoardProps) {
-  const groups = useMemo(() => groupToReview(prs), [prs]);
+function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, currentUserLogin }: BoardProps) {
+  const groups = useMemo(() => groupToReview(prs, undefined, currentUserLogin ?? null), [prs, currentUserLogin]);
   const gridTemplate = TO_REVIEW_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
   // Per-column urgent count — PRs with an attentionReason set. Only
   // emitted today by the categorizer in the needs_attention bucket,

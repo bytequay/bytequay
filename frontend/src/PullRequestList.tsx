@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { PullRequestDto } from './types';
+import type { PullRequestDto, UserProfileDto } from './types';
 import PullRequestPreview from './PullRequestPreview';
 import ReviewScreen from './ReviewScreen';
 import DiffViewerScreen from './DiffViewerScreen';
@@ -108,6 +108,13 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(loadSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+  // Current GitHub login — gates the To-review "Needs attention" column
+  // (categorizeToReview / isMyReviewTurn). Seed from the shared profile
+  // cache so a warm cache renders the gated columns on first paint;
+  // refresh in the background below.
+  const [currentUserLogin, setCurrentUserLogin] = useState<string | null>(
+    () => getCached<UserProfileDto>('home:profile')?.login ?? null,
+  );
   const pageRef = useRef<HTMLDivElement>(null);
 
   const persistSidebarWidth = (width: number) => {
@@ -213,6 +220,22 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     };
     void initialLoad();
     return stopPolling;
+  }, []);
+
+  // Resolve the current GitHub login once so the kanban can tell whether
+  // a review-requested PR is actually the user's turn. Cache it under the
+  // shared profile key for other pages, and degrade silently to null (no
+  // gating) if the lookup fails.
+  useEffect(() => {
+    let cancelled = false;
+    window.bridge.getUserProfile()
+      .then(profile => {
+        if (cancelled) return;
+        setCurrentUserLogin(profile.login);
+        setCached('home:profile', profile);
+      })
+      .catch(() => { /* leave null — categorizer keeps showing all */ });
+    return () => { cancelled = true; };
   }, []);
 
   const needle = filter.trim().toLowerCase();
@@ -904,6 +927,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
               // columns; passing `prs` ignored the filter entirely.
               prs={filtered}
               lane={lane}
+              currentUserLogin={currentUserLogin}
               selectedId={selectedId}
               onSelect={handleSelect}
               onHandle={handleMarkHandled}

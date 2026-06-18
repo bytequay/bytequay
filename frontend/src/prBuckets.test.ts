@@ -19,6 +19,7 @@ import {
   categorize,
   categorizeMyPr,
   categorizeToReview,
+  isMyReviewTurn,
   formatRelative,
   groupByCategory,
   groupHandledByTime,
@@ -626,16 +627,88 @@ describe('categorizeToReview', () => {
   });
 });
 
-describe('groupToReview sort order', () => {
-  it('attentionReason wins over plain brand-new in needs_attention', () => {
-    // Both land in needs_attention, but the CI-failing one should sit on top.
-    const ciFailing = pr({ id: 1, origin: 'REVIEW_REQUESTED', attentionReason: 'CI_FAILING' });
-    const brandNew = pr({ id: 2, origin: 'REVIEW_REQUESTED' });
-    const groups = groupToReview([brandNew, ciFailing], NOW);
-    expect(groups.needs_attention.map(p => p.id)).toEqual([1, 2]);
+describe('categorizeToReview — needs_attention is gated to my turn', () => {
+  it('login unknown (null) → ungated, brand-new request still needs_attention', () => {
+    expect(categorizeToReview(pr({ origin: 'REVIEW_REQUESTED' }), NOW, null)).toBe('needs_attention');
   });
 
-  it('within same severity, latest-updated PR is on top', () => {
+  it('my review is requested → needs_attention', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      requestedReviewers: ['me'],
+    }), NOW, 'me')).toBe('needs_attention');
+  });
+
+  it('I left a GitHub verdict → needs_attention even after the request is gone', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      requestedReviewers: [],
+      reviewerVerdicts: { me: 'COMMENTED' },
+      attentionReason: 'NEW_COMMENT',
+    }), NOW, 'me')).toBe('needs_attention');
+  });
+
+  it('not requested, no verdict, never touched → drops off the board (null)', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      requestedReviewers: ['someone-else'],
+      reviewerVerdicts: { 'someone-else': 'APPROVED' },
+    }), NOW, 'me')).toBeNull();
+  });
+
+  it('stale flag on a PR that is not my turn → dropped, not needs_attention', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      requestedReviewers: [],
+      attentionReason: 'STALE',
+    }), NOW, 'me')).toBeNull();
+  });
+
+  it('not requested but I opened it locally → in_progress (local engagement counts)', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      requestedReviewers: [],
+      viewedAt: '2026-04-23T10:00:00Z',
+    }), NOW, 'me')).toBe('in_progress');
+  });
+
+  it('groupToReview drops not-my-turn PRs from every column', () => {
+    const mine = pr({ id: 1, origin: 'REVIEW_REQUESTED', requestedReviewers: ['me'] });
+    const notMine = pr({ id: 2, origin: 'REVIEW_REQUESTED', requestedReviewers: ['bob'] });
+    const groups = groupToReview([mine, notMine], NOW, 'me');
+    const all = Object.values(groups).flat().map(p => p.id);
+    expect(all).toEqual([1]);
+  });
+});
+
+describe('isMyReviewTurn', () => {
+  it('local view/review counts regardless of login', () => {
+    expect(isMyReviewTurn(pr({ viewedAt: '2026-04-23T10:00:00Z' }), null)).toBe(true);
+    expect(isMyReviewTurn(pr({ reviewedAt: '2026-04-23T10:00:00Z' }), 'me')).toBe(true);
+  });
+
+  it('unknown login degrades to "shown" when there is no local engagement', () => {
+    expect(isMyReviewTurn(pr({ requestedReviewers: [] }), null)).toBe(true);
+  });
+
+  it('requested reviewer or verdict author is my turn; a bystander is not', () => {
+    expect(isMyReviewTurn(pr({ requestedReviewers: ['me'] }), 'me')).toBe(true);
+    expect(isMyReviewTurn(pr({ reviewerVerdicts: { me: 'APPROVED' } }), 'me')).toBe(true);
+    expect(isMyReviewTurn(pr({ requestedReviewers: ['bob'], reviewerVerdicts: { bob: 'APPROVED' } }), 'me')).toBe(false);
+  });
+});
+
+describe('groupToReview sort order', () => {
+  it('needs_attention orders by updatedAt desc, not attention severity', () => {
+    // The CI-failing PR is older; the brand-new one moved more recently.
+    // Latest activity wins — the attention reason no longer reorders.
+    const ciFailingOld = pr({ id: 1, origin: 'REVIEW_REQUESTED', attentionReason: 'CI_FAILING', updatedAt: '2026-04-20T10:00:00Z' });
+    const brandNewFresh = pr({ id: 2, origin: 'REVIEW_REQUESTED', updatedAt: '2026-04-25T10:00:00Z' });
+    const groups = groupToReview([ciFailingOld, brandNewFresh], NOW);
+    expect(groups.needs_attention.map(p => p.id)).toEqual([2, 1]);
+  });
+
+  it('latest-updated PR is on top', () => {
     const stale = pr({ id: 1, origin: 'REVIEW_REQUESTED', attentionReason: 'MENTIONED', updatedAt: '2026-04-20T10:00:00Z' });
     const fresh = pr({ id: 2, origin: 'REVIEW_REQUESTED', attentionReason: 'MENTIONED', updatedAt: '2026-04-25T10:00:00Z' });
     const groups = groupToReview([stale, fresh], NOW);

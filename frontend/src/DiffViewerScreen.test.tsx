@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import DiffViewerScreen from './DiffViewerScreen';
-import type { DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewThreadDto } from './types';
+import type { DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewFindingDto, ReviewThreadDto } from './types';
 
 // React 19 enforces this flag before async act() works.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -139,6 +139,7 @@ function makeThread(overrides: Partial<ReviewThreadDto> = {}): ReviewThreadDto {
 function bridgeStub(detail: PullRequestDetailDto, options: {
   files?: DiffFileDto[];
   commits?: PullRequestCommitDto[];
+  reviewDetail?: unknown;
 } = {}) {
   return {
     markPrViewed: vi.fn().mockResolvedValue(undefined),
@@ -156,7 +157,28 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
     listAiProviders: vi.fn().mockResolvedValue([]),
     getLatestAiReview: vi.fn().mockResolvedValue(null),
     getAiReviewStatus: vi.fn().mockResolvedValue({ state: 'IDLE', error: null }),
-    getReviewPassForPr: vi.fn().mockResolvedValue(null),
+    getReviewPassForPr: vi.fn().mockResolvedValue(options.reviewDetail ?? null),
+    editReviewFinding: vi.fn().mockResolvedValue(options.reviewDetail ?? { pass: { id: 'pass-1' }, findings: [] }),
+    dropReviewFinding: vi.fn().mockResolvedValue({ pass: { id: 'pass-1' }, findings: [] }),
+    addReviewFinding: vi.fn().mockResolvedValue(options.reviewDetail ?? { pass: { id: 'pass-1' }, findings: [] }),
+  };
+}
+
+/** Minimal panel finding for the review-overlay lookup — only the fields
+ *  DiffViewerScreen reads (status / path / line / severity / body). */
+function panelFinding(overrides: Partial<ReviewFindingDto> = {}): ReviewFindingDto {
+  return {
+    id: 'f',
+    reviewPassId: 'pass-1',
+    path: null,
+    line: null,
+    severity: 'MAJOR',
+    status: 'AGREED',
+    body: '',
+    resolution: null,
+    postedCommentId: null,
+    createdAt: '2026-05-22T12:00:00Z',
+    ...overrides,
   };
 }
 
@@ -182,8 +204,11 @@ async function render(detail = makeDetail(), props: {
   onBack?: () => void;
   files?: DiffFileDto[];
   commits?: PullRequestCommitDto[];
+  reviewDetail?: unknown;
 } = {}) {
-  const bridge = bridgeStub(detail, { files: props.files, commits: props.commits });
+  const bridge = bridgeStub(detail, {
+    files: props.files, commits: props.commits, reviewDetail: props.reviewDetail,
+  });
   (window as unknown as { bridge: ReturnType<typeof bridgeStub> }).bridge = bridge;
   await act(async () => {
     root.render(
@@ -324,5 +349,100 @@ describe('DiffViewerScreen freshness', () => {
     expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(container.innerHTML).toContain('Resolved');
+  });
+});
+
+describe('DiffViewerScreen panel-findings overlay', () => {
+  it('lists whole-PR (path-less) agreed findings in the sidebar, not just line-anchored ones', async () => {
+    // Regression: "View findings on the diff" showed nothing when the
+    // panel's agreed findings had no file path. Whole-PR findings can't
+    // anchor to a diff line but must still appear in the sidebar list.
+    await render(makeDetail(), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+      reviewDetail: {
+        pass: { id: 'pass-1' },
+        findings: [
+          panelFinding({ id: 'whole', status: 'AGREED', path: null, line: null,
+            body: 'Overall the error handling is inconsistent.' }),
+          panelFinding({ id: 'anchored', status: 'ARBITRATED', path: 'src/foo.ts', line: 1,
+            body: 'Null deref here.' }),
+        ],
+      },
+    });
+
+    // The sidebar "Panel findings" list shows both — the whole-PR one
+    // labelled "whole PR", the anchored one by its file.
+    expect(container.textContent).toContain('Panel findings');
+    expect(container.textContent).toContain('Overall the error handling is inconsistent.');
+    expect(container.textContent).toContain('Null deref here.');
+    expect(container.textContent).toContain('whole PR');
+  });
+
+  it('drops findings that are neither AGREED nor ARBITRATED from the overlay', async () => {
+    await render(makeDetail(), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+      reviewDetail: {
+        pass: { id: 'pass-1' },
+        findings: [
+          panelFinding({ id: 'disputed', status: 'DISPUTED', path: null, line: null,
+            body: 'Still contested.' }),
+          panelFinding({ id: 'dropped', status: 'DROPPED', path: 'src/foo.ts', line: 1,
+            body: 'Discarded.' }),
+        ],
+      },
+    });
+
+    expect(container.textContent).not.toContain('Still contested.');
+    expect(container.textContent).not.toContain('Discarded.');
+  });
+
+  it('removes a panel finding from the sidebar via the card ✕ button', async () => {
+    const bridge = await render(makeDetail(), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+      reviewDetail: {
+        pass: { id: 'pass-1' },
+        findings: [
+          panelFinding({ id: 'f-keep', status: 'AGREED', path: 'src/foo.ts', line: 1,
+            body: 'Drop me from the sidebar.' }),
+        ],
+      },
+    });
+
+    // Target the sidebar card's remove button specifically (the inline
+    // diff-row overlay also renders a remove button for the same finding,
+    // but that one only hides itself without updating the shared list).
+    const sidebar = container.querySelector('.ai-sidebar');
+    expect(sidebar).toBeTruthy();
+    const removeBtn = Array.from(sidebar!.querySelectorAll('button'))
+      .find(b => b.getAttribute('title')?.startsWith('Remove this finding'));
+    expect(removeBtn).toBeTruthy();
+
+    await act(async () => {
+      removeBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.dropReviewFinding).toHaveBeenCalledWith('pass-1', 'f-keep');
+    // The drop returns an empty finding set, so the card is gone.
+    expect(container.textContent).not.toContain('Drop me from the sidebar.');
+  });
+
+  it('exposes an Add-finding affordance even when there are no findings yet', async () => {
+    await render(makeDetail(), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+      reviewDetail: { pass: { id: 'pass-1' }, findings: [] },
+    });
+
+    // Section renders (passId known) with the add button despite 0 findings.
+    expect(container.textContent).toContain('Panel findings');
+    const addBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('+ Add'));
+    expect(addBtn).toBeTruthy();
   });
 });

@@ -143,6 +143,15 @@ function panelSeverityKey(s: ReviewFindingSeverityDto): string {
  * and the human can edit it before it publishes to GitHub — the edit
  * persists on the review-pass finding via {@link Bridge.editReviewFinding}.
  */
+/** The panel findings that publish — AGREED (consensus) + ARBITRATED (a
+ *  disputed finding the human kept). DROPPED / DISPUTED / REPORTED are
+ *  excluded. Whole-PR (path-less) findings stay in: they list in the
+ *  sidebar even though they can't anchor to a diff line. Shared by the
+ *  initial load and every CRUD refresh so the rule lives in one place. */
+function visiblePanelFindings(findings: ReviewFindingDto[]): ReviewFindingDto[] {
+  return findings.filter(f => f.status === 'AGREED' || f.status === 'ARBITRATED');
+}
+
 function PanelFinding({ finding }: { finding: ReviewFindingDto }) {
   const [collapsed, setCollapsed] = useState(false);
   const [body, setBody] = useState(finding.body);
@@ -1228,11 +1237,6 @@ const ArrowDownIcon = () => (
     <path d="M6 10 L2 5 L4.5 5 L4.5 2 L7.5 2 L7.5 5 L10 5 Z" />
   </svg>
 );
-const ArrowUpDownIcon = () => (
-  <svg className="diff-expand-btn__svg" viewBox="0 0 12 12" aria-hidden="true">
-    <path d="M6 0.5 L10 4.5 L7.5 4.5 L7.5 7.5 L10 7.5 L6 11.5 L2 7.5 L4.5 7.5 L4.5 4.5 L2 4.5 Z" />
-  </svg>
-);
 
 /** Expand-collapsed-code controls that sit in the gutter of a hunk
  *  header (or its own row for the after-last-hunk gap). The two button
@@ -1278,7 +1282,7 @@ function ExpandControls({
         title={`Expand ${EXPAND_INCREMENT} more lines`}
         aria-label={`Expand ${EXPAND_INCREMENT} more lines`}
       >
-        <ArrowUpDownIcon />
+        {dir === 'up' ? <ArrowUpIcon /> : <ArrowDownIcon />}
       </button>
     );
   }
@@ -2049,7 +2053,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                     downBusy={downBusy}
                   />
                 </span>
-                <span className="diff-row__content">Expand to end of file</span>
+                <span className="diff-row__content" />
               </div>
             )}
           </div>
@@ -2140,16 +2144,23 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
   // pass; the diff page just surfaces them. Best-effort: an empty list
   // (no pass, or the lookup failed) simply means no panel markers.
   const [panelFindings, setPanelFindings] = useState<ReviewFindingDto[]>([]);
+  // The review pass these findings belong to — kept so the sidebar can add
+  // a finding by hand even when the list is empty.
+  const [panelPassId, setPanelPassId] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     window.bridge.getReviewPassForPr(pr.repo, pr.number)
       .then(detail => {
         if (cancelled || detail === null) return;
-        setPanelFindings(
-          // AGREED (panel consensus) + ARBITRATED (a disputed finding the
-          // human chose "Include" for) both publish, so both overlay here.
-          (detail.findings ?? []).filter(f =>
-            (f.status === 'AGREED' || f.status === 'ARBITRATED') && f.path !== null));
+        setPanelPassId(detail.pass.id);
+        // AGREED (panel consensus) + ARBITRATED (a disputed finding the
+        // human chose "Include" for) both publish, so both surface here.
+        // Keep whole-PR findings (path === null) too: they can't anchor to
+        // a diff line, but they still belong in the sidebar's "Panel
+        // findings" list. The inline-overlay + orphan passes downstream
+        // match on path/line, so a path-less finding simply lists in the
+        // sidebar without trying to pin itself to a row.
+        setPanelFindings(visiblePanelFindings(detail.findings ?? []));
       })
       .catch(() => { /* best-effort: no overlay if the lookup fails */ });
     return () => { cancelled = true; };
@@ -2639,6 +2650,8 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
           ref={aiSidebarRef}
           pr={pr}
           panelFindings={panelFindings}
+          panelPassId={panelPassId}
+          onPanelFindingsChange={(findings) => setPanelFindings(visiblePanelFindings(findings))}
           collapsed={aiCollapsed}
           onToggleCollapsed={() => {
             setAiCollapsed(prev => {

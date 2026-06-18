@@ -49,11 +49,19 @@ type Props = {
    *  {@code undefined} to opt out and let the sidebar own its draft
    *  state alone. */
   draftSnapshot?: AiReviewDraftDto | null;
-  /** Agreed/included findings from the multi-agent review panel, listed at
-   *  the top of the sidebar as a navigable summary (click jumps to the
-   *  finding on the diff, where it can be edited). Separate from the
-   *  single-AI-review draft this sidebar otherwise manages. */
+  /** Agreed/included findings from the multi-agent review panel, shown as
+   *  editable cards at the top of the sidebar. Click the location to jump
+   *  to the finding on the diff; edit / remove / add are CRUD'd in place.
+   *  Separate from the single-AI-review draft this sidebar otherwise
+   *  manages. */
   panelFindings?: ReviewFindingDto[];
+  /** Review pass these findings belong to — needed to add a finding by
+   *  hand when the list is empty (existing cards carry their own passId).
+   *  Null disables the add affordance. */
+  panelPassId?: string | null;
+  /** Called after a panel-finding CRUD op with the full updated finding
+   *  set from the backend; the parent re-filters + re-renders. */
+  onPanelFindingsChange?: (findings: ReviewFindingDto[]) => void;
 };
 
 export type AiReviewSidebarHandle = {
@@ -224,7 +232,8 @@ function FindingCard({ c, draftId, draftPublished, onJump, onDraftUpdated }: Fin
 }
 
 const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiReviewSidebar(
-  { pr, onJumpToFile, collapsed, onToggleCollapsed, onDraftChange, draftSnapshot, panelFindings },
+  { pr, onJumpToFile, collapsed, onToggleCollapsed, onDraftChange, draftSnapshot,
+    panelFindings, panelPassId, onPanelFindingsChange },
   ref,
 ) {
   const [state, setState] = useState<RunState>('idle');
@@ -448,30 +457,13 @@ const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiRevi
       </header>
 
       <div className="ai-sidebar__body">
-        {panelFindings !== undefined && panelFindings.length > 0 && (
-          <div style={panelSectionStyle}>
-            <div style={panelSectionHeadStyle}>
-              ⚖ Panel findings <span style={panelSectionCountStyle}>{panelFindings.length}</span>
-            </div>
-            {panelFindings.map(f => {
-              const loc = f.path != null
-                ? `${f.path.split('/').pop()}${f.line != null ? `:${f.line}` : ''}`
-                : 'whole PR';
-              return (
-                <button
-                  key={f.id}
-                  type="button"
-                  style={panelRowStyle}
-                  onClick={() => { if (f.path != null) onJumpToFile?.(f.path, f.line ?? undefined, 'RIGHT'); }}
-                  title={f.path != null ? `Jump to ${f.path}${f.line != null ? `:${f.line}` : ''} on the diff` : undefined}
-                >
-                  <span style={panelRowSevStyle(f.severity)}>{f.severity.toLowerCase()}</span>
-                  <span style={panelRowLocStyle}>{loc}</span>
-                  <span style={panelRowTextStyle}>{firstLine(f.body)}</span>
-                </button>
-              );
-            })}
-          </div>
+        {panelFindings !== undefined && (panelFindings.length > 0 || (panelPassId ?? null) !== null) && (
+          <PanelFindingsSection
+            findings={panelFindings}
+            passId={panelPassId ?? null}
+            onJumpToFile={onJumpToFile}
+            onChange={onPanelFindingsChange}
+          />
         )}
         {state === 'running' && !draft && (
           <div className="ai-sidebar__placeholder">
@@ -503,45 +495,390 @@ const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiRevi
   );
 });
 
-function firstLine(body: string): string {
-  const line = body.split('\n').find(l => l.trim().length > 0) ?? body;
-  return line.trim();
+/** The "Panel findings" block: a header with a live count + an add
+ *  affordance, an optional add form, and one editable card per finding. */
+function PanelFindingsSection({
+  findings, passId, onJumpToFile, onChange,
+}: {
+  findings: ReviewFindingDto[] | undefined;
+  passId: string | null;
+  onJumpToFile?: (filePath: string, lineNumber?: number, side?: 'LEFT' | 'RIGHT') => void;
+  onChange?: (findings: ReviewFindingDto[]) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const list = findings ?? [];
+  return (
+    <div style={panelSectionStyle}>
+      <div style={panelSectionHeadStyle}>
+        <span>⚖ Panel findings</span>
+        <span style={panelSectionCountStyle}>{list.length}</span>
+        <span style={panelHeadSpacerStyle} />
+        {passId !== null && (
+          <button
+            type="button"
+            style={panelAddBtnStyle}
+            onClick={() => setAdding(v => !v)}
+            title="Add a finding by hand"
+          >
+            {adding ? '✕ Cancel' : '+ Add'}
+          </button>
+        )}
+      </div>
+      {adding && passId !== null && (
+        <PanelAddForm
+          passId={passId}
+          onDone={(next) => { setAdding(false); if (next !== null) onChange?.(next); }}
+        />
+      )}
+      {list.length === 0 && !adding && (
+        <div style={panelEmptyStyle}>No agreed findings to publish yet.</div>
+      )}
+      <div style={panelCardsStyle}>
+        {list.map(f => (
+          <PanelFindingCard
+            key={f.id}
+            finding={f}
+            onJumpToFile={onJumpToFile}
+            onChange={onChange}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One finding rendered as a card: severity chip + clickable location +
+ *  edit / remove, with the body in markdown (or a textarea while editing). */
+function PanelFindingCard({
+  finding, onJumpToFile, onChange,
+}: {
+  finding: ReviewFindingDto;
+  onJumpToFile?: (filePath: string, lineNumber?: number, side?: 'LEFT' | 'RIGHT') => void;
+  onChange?: (findings: ReviewFindingDto[]) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(finding.body);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const canJump = finding.path != null;
+  const loc = finding.path != null
+    ? `${finding.path.split('/').pop()}${finding.line != null ? `:${finding.line}` : ''}`
+    : 'whole PR';
+
+  const save = async () => {
+    if (busy || draft.trim().length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const detail = await window.bridge.editReviewFinding(finding.reviewPassId, finding.id, draft.trim());
+      setEditing(false);
+      onChange?.(detail.findings);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const detail = await window.bridge.dropReviewFinding(finding.reviewPassId, finding.id);
+      onChange?.(detail.findings);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={panelCardStyle}>
+      <div style={panelCardHeadStyle}>
+        <span style={panelSevChipStyle(finding.severity)}>{finding.severity.toLowerCase()}</span>
+        <button
+          type="button"
+          style={panelLocStyle(canJump)}
+          onClick={() => { if (canJump) onJumpToFile?.(finding.path as string, finding.line ?? undefined, 'RIGHT'); }}
+          disabled={!canJump}
+          title={canJump
+            ? `Jump to ${finding.path}${finding.line != null ? `:${finding.line}` : ''} on the diff`
+            : 'Whole-PR finding — not anchored to a line'}
+        >
+          {loc}
+        </button>
+        <span style={panelHeadSpacerStyle} />
+        {!editing && (
+          <>
+            <button
+              type="button"
+              style={panelIconBtnStyle}
+              onClick={() => { setDraft(finding.body); setEditing(true); }}
+              title="Edit this comment before it publishes to GitHub"
+            >
+              ✎
+            </button>
+            <button
+              type="button"
+              style={panelIconDangerStyle}
+              onClick={() => void remove()}
+              disabled={busy}
+              title="Remove this finding — it won't be published"
+            >
+              {busy ? '…' : '✕'}
+            </button>
+          </>
+        )}
+      </div>
+      {editing ? (
+        <>
+          <textarea
+            style={panelTextareaStyle}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={Math.min(12, Math.max(3, draft.split('\n').length))}
+            disabled={busy}
+            autoFocus
+          />
+          <div style={panelEditActionsStyle}>
+            <button
+              type="button"
+              style={panelSaveBtnStyle}
+              onClick={() => void save()}
+              disabled={busy || draft.trim().length === 0}
+            >
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              style={panelCancelBtnStyle}
+              onClick={() => { setEditing(false); setDraft(finding.body); }}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <div
+          className="ai-finding__body"
+          style={panelCardBodyStyle}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(finding.body) }}
+        />
+      )}
+      {error !== null && <div style={panelErrStyle} role="alert">{error}</div>}
+    </div>
+  );
+}
+
+/** Compact form to capture a finding the panel described in prose but never
+ *  recorded structurally. Severity + optional path/line + body. */
+function PanelAddForm({
+  passId, onDone,
+}: {
+  passId: string;
+  onDone: (next: ReviewFindingDto[] | null) => void;
+}) {
+  const [severity, setSeverity] = useState('major');
+  const [path, setPath] = useState('');
+  const [line, setLine] = useState('');
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (busy || body.trim().length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const lineNum = line.trim().length > 0 ? Number.parseInt(line, 10) : null;
+      const detail = await window.bridge.addReviewFinding(
+        passId,
+        severity,
+        path.trim().length > 0 ? path.trim() : null,
+        lineNum !== null && Number.isFinite(lineNum) ? lineNum : null,
+        body.trim());
+      onDone(detail.findings);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={panelAddFormStyle}>
+      <div style={panelAddRowStyle}>
+        <select
+          style={panelSelectStyle}
+          value={severity}
+          onChange={(e) => setSeverity(e.target.value)}
+          disabled={busy}
+          aria-label="severity"
+        >
+          <option value="blocker">blocker</option>
+          <option value="major">major</option>
+          <option value="nit">nit</option>
+          <option value="question">question</option>
+        </select>
+        <input
+          style={panelInputStyle}
+          placeholder="path (optional)"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          disabled={busy}
+          aria-label="path"
+        />
+        <input
+          style={panelLineInputStyle}
+          placeholder="line"
+          value={line}
+          onChange={(e) => setLine(e.target.value.replace(/[^0-9]/g, ''))}
+          disabled={busy}
+          inputMode="numeric"
+          aria-label="line"
+        />
+      </div>
+      <textarea
+        style={panelTextareaStyle}
+        placeholder="Finding comment…"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={3}
+        disabled={busy}
+        aria-label="finding comment"
+      />
+      <div style={panelEditActionsStyle}>
+        <button
+          type="button"
+          style={panelSaveBtnStyle}
+          onClick={() => void submit()}
+          disabled={busy || body.trim().length === 0}
+        >
+          {busy ? 'Adding…' : 'Add finding'}
+        </button>
+        <button
+          type="button"
+          style={panelCancelBtnStyle}
+          onClick={() => onDone(null)}
+          disabled={busy}
+        >
+          Cancel
+        </button>
+      </div>
+      {error !== null && <div style={panelErrStyle} role="alert">{error}</div>}
+    </div>
+  );
 }
 
 const panelSectionStyle: CSSProperties = {
-  marginBottom: 10,
-  paddingBottom: 8,
+  marginBottom: 12,
+  paddingBottom: 10,
   borderBottom: '1px solid var(--border)',
 };
 const panelSectionHeadStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
   fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-  letterSpacing: '0.04em', color: 'var(--text-2)', marginBottom: 6,
+  letterSpacing: '0.04em', color: 'var(--text-2)', marginBottom: 8,
 };
+const panelHeadSpacerStyle: CSSProperties = { flex: 1 };
 const panelSectionCountStyle: CSSProperties = {
   fontSize: 10, fontWeight: 700, color: '#6d28d9',
   background: 'rgba(139,92,246,0.12)', borderRadius: 8, padding: '1px 7px',
 };
-const panelRowStyle: CSSProperties = {
-  display: 'flex', alignItems: 'baseline', gap: 7, width: '100%',
-  textAlign: 'left', background: 'none', border: 'none',
-  padding: '5px 2px', cursor: 'pointer', borderRadius: 6,
+const panelAddBtnStyle: CSSProperties = {
+  fontSize: 11, fontWeight: 600, color: '#6d28d9', background: 'rgba(139,92,246,0.1)',
+  border: '1px solid rgba(139,92,246,0.3)', borderRadius: 7, padding: '2px 9px',
+  cursor: 'pointer', textTransform: 'none', letterSpacing: 0,
 };
-const panelRowLocStyle: CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 10.5, color: 'var(--text-3)', flexShrink: 0,
+const panelEmptyStyle: CSSProperties = {
+  fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic', padding: '2px 0 4px',
 };
-const panelRowTextStyle: CSSProperties = {
-  fontSize: 12, color: 'var(--text-1)', overflow: 'hidden',
-  textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0,
+const panelCardsStyle: CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 8,
 };
-function panelRowSevStyle(severity: string): CSSProperties {
+const panelCardStyle: CSSProperties = {
+  border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px',
+  background: 'var(--bg-elevated, #fff)',
+  boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+};
+const panelCardHeadStyle: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5,
+};
+function panelSevChipStyle(severity: string): CSSProperties {
   const s = severity.toLowerCase();
   const color = s === 'blocker' ? '#dc2626'
     : s === 'major' ? '#ea580c'
     : s === 'question' ? '#2563eb'
+    : s === 'nit' ? '#737373'
     : '#737373';
-  return { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', color, flexShrink: 0 };
+  return {
+    fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em',
+    color, background: `${color}1a`, border: `1px solid ${color}40`,
+    borderRadius: 6, padding: '1px 6px', flexShrink: 0,
+  };
 }
+function panelLocStyle(canJump: boolean): CSSProperties {
+  return {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: 10.5, color: canJump ? '#2563eb' : 'var(--text-3)',
+    background: 'none', border: 'none', padding: 0,
+    cursor: canJump ? 'pointer' : 'default',
+    textDecoration: canJump ? 'underline' : 'none',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    minWidth: 0,
+  };
+}
+const panelIconBtnStyle: CSSProperties = {
+  fontSize: 12, color: 'var(--text-2)', background: 'none',
+  border: '1px solid var(--border)', borderRadius: 6, padding: '1px 6px',
+  cursor: 'pointer', flexShrink: 0,
+};
+const panelIconDangerStyle: CSSProperties = {
+  ...panelIconBtnStyle, color: '#dc2626', borderColor: 'rgba(220,38,38,0.3)',
+};
+const panelCardBodyStyle: CSSProperties = {
+  fontSize: 12, color: 'var(--text-1)', lineHeight: 1.5,
+  overflowWrap: 'break-word', wordBreak: 'break-word',
+};
+const panelTextareaStyle: CSSProperties = {
+  width: '100%', boxSizing: 'border-box', fontSize: 12, lineHeight: 1.5,
+  fontFamily: 'inherit', padding: '6px 8px', borderRadius: 8,
+  border: '1px solid var(--border)', resize: 'vertical',
+};
+const panelEditActionsStyle: CSSProperties = {
+  display: 'flex', gap: 6, marginTop: 6,
+};
+const panelSaveBtnStyle: CSSProperties = {
+  fontSize: 12, fontWeight: 600, color: '#fff', background: '#6d28d9',
+  border: 'none', borderRadius: 7, padding: '4px 12px', cursor: 'pointer',
+};
+const panelCancelBtnStyle: CSSProperties = {
+  fontSize: 12, fontWeight: 600, color: 'var(--text-2)', background: 'none',
+  border: '1px solid var(--border)', borderRadius: 7, padding: '4px 12px', cursor: 'pointer',
+};
+const panelErrStyle: CSSProperties = {
+  fontSize: 11, color: '#dc2626', marginTop: 5,
+};
+const panelAddFormStyle: CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8,
+  padding: '8px 10px', border: '1px dashed var(--border)', borderRadius: 10,
+  background: 'rgba(139,92,246,0.03)',
+};
+const panelAddRowStyle: CSSProperties = {
+  display: 'flex', gap: 6, flexWrap: 'wrap',
+};
+const panelSelectStyle: CSSProperties = {
+  fontSize: 12, padding: '4px 6px', borderRadius: 7,
+  border: '1px solid var(--border)', background: 'var(--bg-elevated, #fff)',
+};
+const panelInputStyle: CSSProperties = {
+  flex: 1, minWidth: 90, fontSize: 12, padding: '4px 8px', borderRadius: 7,
+  border: '1px solid var(--border)', boxSizing: 'border-box',
+};
+const panelLineInputStyle: CSSProperties = {
+  width: 56, fontSize: 12, padding: '4px 8px', borderRadius: 7,
+  border: '1px solid var(--border)', boxSizing: 'border-box',
+};
 
 export default AiReviewSidebar;

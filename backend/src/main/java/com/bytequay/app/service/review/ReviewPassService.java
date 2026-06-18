@@ -501,9 +501,9 @@ public class ReviewPassService
     {
         ReviewPass pass = seated.pass();
         PanelSeatConfig roster = seated.roster();
-        diffCache.seed(pass.id(), seated.request().diff() == null ? "" : seated.request().diff());
-        LeadToolset.Session session = leadToolset.sessionFor(pass.id(), roster, seated.lead().id());
         try {
+            diffCache.seed(pass.id(), seated.request().diff() == null ? "" : seated.request().diff());
+            LeadToolset.Session session = leadToolset.sessionFor(pass.id(), roster, seated.lead().id());
             budgetMeter.initSeatSlices(pass, reviewStore.listParticipantsForPass(pass.id()));
 
             leadOrchestrator.runRound(reload(pass.id()), session, roster,
@@ -539,11 +539,14 @@ public class ReviewPassService
             log.warn("Review pass {} failed during {}: {}",
                     pass.id(), reload(pass.id()).phase(), e.getMessage());
             reviewStore.savePass(withPhase(reload(pass.id()), ReviewPhase.TERMINATE, Instant.now()));
-            diffCache.drop(pass.id());
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
                     "Review panel run failed: " + e.getMessage(), e);
         }
-        diffCache.drop(pass.id());
+        finally {
+            // Working state — always evicted when the pass run ends, on
+            // success, failure, or any other exit.
+            diffCache.drop(pass.id());
+        }
         return finalizePass(pass.id());
     }
 

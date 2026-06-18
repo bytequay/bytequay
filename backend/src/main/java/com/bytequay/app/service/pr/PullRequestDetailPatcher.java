@@ -39,7 +39,7 @@ final class PullRequestDetailPatcher
                 .build();
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     static StoredPrDetail withTimelineCommentBody(StoredPrDetail detail, long commentId, String body)
@@ -54,7 +54,7 @@ final class PullRequestDetailPatcher
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), patched,
-                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     static StoredPrDetail withReviewCommentBody(StoredPrDetail detail, long commentId, String body)
@@ -71,7 +71,7 @@ final class PullRequestDetailPatcher
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     static StoredPrDetail withTimelineCommentRemoved(StoredPrDetail detail, long commentId)
@@ -82,7 +82,7 @@ final class PullRequestDetailPatcher
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), patched,
-                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     static StoredPrDetail withReviewCommentRemoved(StoredPrDetail detail, long commentId)
@@ -92,7 +92,7 @@ final class PullRequestDetailPatcher
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     static StoredPrDetail withReviewThreadResolved(StoredPrDetail detail, long rootCommentId, boolean resolved)
@@ -109,7 +109,7 @@ final class PullRequestDetailPatcher
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     static StoredPrDetail withReviewCommentReaction(StoredPrDetail detail, long commentId, String content)
@@ -126,7 +126,7 @@ final class PullRequestDetailPatcher
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     static StoredPrDetail withTimelineCommentReaction(StoredPrDetail detail, long commentId, String content)
@@ -141,7 +141,7 @@ final class PullRequestDetailPatcher
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), patched,
-                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState());
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
     private static Reactions bumpReaction(Reactions reactions, String content)

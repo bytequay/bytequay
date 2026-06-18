@@ -433,20 +433,28 @@ public interface PullRequestRepository
     }
 
     /**
-     * Looks up the PR's current merge-queue entry state via GraphQL —
-     * REST exposes nothing per-PR; you'd have to fetch the whole repo
-     * queue and scan. The GraphQL field returns {@code QUEUED},
-     * {@code MERGEABLE}, {@code UNMERGEABLE}, etc. when an entry exists,
-     * or {@code null}/empty when the PR isn't in the queue.
-     *
-     * <p>Empty Optional = not enqueued (or merge queue not configured
-     * on this repo). Any non-null state = "in the queue, currently
-     * showing this state".
+     * Looks up the PR's merge-queue facts via GraphQL — REST exposes
+     * nothing per-PR; you'd have to fetch the whole repo queue and scan.
+     * Returns both whether the base branch has a merge queue configured
+     * (it's possible to add this PR to the queue) and the PR's current
+     * entry state ({@code QUEUED}, {@code MERGEABLE}, {@code UNMERGEABLE},
+     * etc., or null when the PR isn't currently in the queue).
      */
-    default Optional<String> fetchMergeQueueState(String pat, PullRequestRef pr)
+    default MergeQueueInfo fetchMergeQueueInfo(String pat, PullRequestRef pr)
     {
-        throw new UnsupportedOperationException("fetchMergeQueueState not implemented");
+        throw new UnsupportedOperationException("fetchMergeQueueInfo not implemented");
     }
+
+    /**
+     * Merge-queue facts for a single PR, sourced from GraphQL.
+     *
+     * @param queueConfigured true when the PR's base branch has a merge
+     * queue configured (it's possible to add this PR to the queue).
+     * @param entryState the PR's current merge-queue entry state
+     * ({@code QUEUED}, {@code MERGEABLE}, {@code UNMERGEABLE}, etc.), or
+     * null when the PR isn't currently in the queue.
+     */
+    record MergeQueueInfo(boolean queueConfigured, String entryState) {}
 
     /**
      * Marks a review thread resolved on GitHub (GraphQL mutation).

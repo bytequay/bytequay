@@ -190,7 +190,8 @@ public class SqlitePrDetailStore
 
         return Optional.of(new StoredPrDetail(
                 raw, reviews, files, timeline, checkRuns, reviewComments, linkedIssues,
-                entityOpt.get().getMergeQueueState()));
+                d.getMergeQueueState(),
+                Boolean.TRUE.equals(d.getMergeQueueEnabled())));
     }
 
     @Override
@@ -200,7 +201,7 @@ public class SqlitePrDetailStore
         Instant now = Instant.now();
         detailRepo.save(populateDetail(
                 detailRepo.findById(prId).orElseGet(PrDetailEntity::new),
-                prId, detail.raw(), detail.mergeQueueState(), now));
+                prId, detail.raw(), detail.mergeQueueState(), detail.mergeQueueEnabled(), now));
 
         replaceChildren(prId, detail.reviews(), reviewRepo::deleteByPrId, reviewRepo::saveAll, SqlitePrDetailStore::toReview);
         replaceChildren(prId, detail.files(), fileRepo::deleteByPrId, fileRepo::saveAll, SqlitePrDetailStore::toFile);
@@ -244,7 +245,7 @@ public class SqlitePrDetailStore
         Instant now = Instant.now();
         detailRepo.save(populateDetail(
                 detailRepo.findById(prId).orElseGet(PrDetailEntity::new),
-                prId, detail.raw(), detail.mergeQueueState(), now));
+                prId, detail.raw(), detail.mergeQueueState(), detail.mergeQueueEnabled(), now));
 
         replaceChildren(prId, detail.reviews(), reviewRepo::deleteByPrId, reviewRepo::saveAll, SqlitePrDetailStore::toReview);
         replaceChildren(prId, detail.files(), fileRepo::deleteByPrId, fileRepo::saveAll, SqlitePrDetailStore::toFile);
@@ -304,7 +305,7 @@ public class SqlitePrDetailStore
     // write paths.
 
     private static PrDetailEntity populateDetail(
-            PrDetailEntity entity, long prId, PrRawDetail raw, String mergeQueueState, Instant syncedAt)
+            PrDetailEntity entity, long prId, PrRawDetail raw, String mergeQueueState, boolean mergeQueueEnabled, Instant syncedAt)
     {
         entity.setPrId(prId);
         entity.setBody(raw.body());
@@ -325,6 +326,7 @@ public class SqlitePrDetailStore
         entity.setState(raw.state());
         entity.setMerged(raw.merged());
         entity.setMergeQueueState(mergeQueueState);
+        entity.setMergeQueueEnabled(mergeQueueEnabled);
         entity.setSyncedAt(syncedAt);
         return entity;
     }

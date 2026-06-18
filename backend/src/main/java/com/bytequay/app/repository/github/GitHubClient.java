@@ -1418,13 +1418,16 @@ public class GitHubClient
                   mergeQueueEntry {
                     state
                   }
+                  mergeQueue {
+                    id
+                  }
                 }
               }
             }
             """;
 
     @Override
-    public Optional<String> fetchMergeQueueState(String pat, PullRequestRef pr)
+    public PullRequestRepository.MergeQueueInfo fetchMergeQueueInfo(String pat, PullRequestRef pr)
     {
         Map<String, Object> body = ImmutableMap.of(
                 "query", MERGE_QUEUE_STATE_QUERY,
@@ -1441,12 +1444,19 @@ public class GitHubClient
             if (response == null
                     || response.data() == null
                     || response.data().repository() == null
-                    || response.data().repository().pullRequest() == null
-                    || response.data().repository().pullRequest().mergeQueueEntry() == null) {
-                return Optional.empty();
+                    || response.data().repository().pullRequest() == null) {
+                return new PullRequestRepository.MergeQueueInfo(false, null);
             }
-            String state = response.data().repository().pullRequest().mergeQueueEntry().state();
-            return state == null || state.isBlank() ? Optional.empty() : Optional.of(state);
+            MergeQueueGqlPr pullRequest = response.data().repository().pullRequest();
+            boolean queueConfigured = pullRequest.mergeQueue() != null
+                    && pullRequest.mergeQueue().id() != null
+                    && !pullRequest.mergeQueue().id().isBlank();
+            String entryState = null;
+            if (pullRequest.mergeQueueEntry() != null) {
+                String state = pullRequest.mergeQueueEntry().state();
+                entryState = state == null || state.isBlank() ? null : state;
+            }
+            return new PullRequestRepository.MergeQueueInfo(queueConfigured, entryState);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -1463,10 +1473,13 @@ public class GitHubClient
     record MergeQueueGqlRepo(MergeQueueGqlPr pullRequest) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueGqlPr(MergeQueueGqlEntry mergeQueueEntry) {}
+    record MergeQueueGqlPr(MergeQueueGqlEntry mergeQueueEntry, MergeQueueGqlQueue mergeQueue) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueGqlEntry(String state) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueGqlQueue(String id) {}
 
     @Override
     public void setPullRequestDraft(String pat, PullRequestRef pr, boolean draft)

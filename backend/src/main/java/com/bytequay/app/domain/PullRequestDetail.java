@@ -32,6 +32,8 @@ import java.util.List;
  * @param baseRepo {@code "owner/repo"} of the target side.
  * @param mergeQueueState GitHub merge-queue state for this PR, or null when it
  * has none.
+ * @param mergeQueueEnabled true when the PR's base branch has a merge queue
+ * configured (it's possible to add this PR to the queue); GraphQL-sourced.
  */
 public record PullRequestDetail(
         String repo,
@@ -61,7 +63,8 @@ public record PullRequestDetail(
         String baseRepo,
         String mergeQueueState,
         String state,
-        boolean merged)
+        boolean merged,
+        boolean mergeQueueEnabled)
 {
     public enum CiStatus
     {

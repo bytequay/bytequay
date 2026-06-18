@@ -78,7 +78,7 @@ class TestPullRequestDetailMapper
                         new PrReviewState("bob", "CHANGES_REQUESTED")),
                 List.of(), List.of(),
                 List.of(check("build", "completed", "success")),
-                List.of(), List.of(), /* mergeQueueState */ null);
+                List.of(), List.of(), /* mergeQueueState */ null, /* mergeQueueEnabled */ false);
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(
                 "owner/repo", 7, stored, /* viewerCanWrite */ true);

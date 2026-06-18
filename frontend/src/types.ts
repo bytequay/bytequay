@@ -394,6 +394,12 @@ export type PullRequestDetailDto = {
    *  doesn't use a merge queue. GraphQL-sourced (REST doesn't expose
    *  this per-PR). Drives the "Queued" status pill. */
   mergeQueueState: string | null;
+  /** True when the PR's base branch has a merge queue configured — i.e.
+   *  it's possible to add this PR to the queue (regardless of whether it
+   *  currently has an entry). Authoritative, GraphQL-sourced from
+   *  `pullRequest.mergeQueue`. Drives the "Add to merge queue" button
+   *  mode, replacing the old client-side heuristic. */
+  mergeQueueEnabled: boolean;
 };
 
 /** Lightweight CI-only slice served by /prs/ci. Polled while the detail

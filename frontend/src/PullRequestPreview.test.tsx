@@ -231,6 +231,7 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
     baseRef: null,
     baseRepo: null,
     mergeQueueState: null,
+    mergeQueueEnabled: false,
     ...overrides,
   };
 }
@@ -317,6 +318,27 @@ describe('PullRequestPreview render smoke', () => {
     expect(html).toContain('reaction-chip');
     // The "+ reaction" smiley-add button has its specific class.
     expect(html).toContain('reaction-add');
+  });
+
+  it('shows "Add to merge queue" when the base branch has a merge queue, even while blocked', async () => {
+    // Authoritative flag drives the button — no CI-green / approval
+    // prerequisite. mergeable_state="blocked" (e.g. unresolved
+    // conversation) must NOT downgrade it out of queue mode.
+    await render(makeDetail({
+      viewerCanWrite: true,
+      mergeQueueEnabled: true,
+      mergeableState: 'blocked',
+      changesRequestedCount: 0,
+    }), makePr(), { onMerge: vi.fn() });
+    expect(container.innerHTML).toContain('Add to merge queue');
+  });
+
+  it('does not offer the queue button when no merge queue is configured', async () => {
+    await render(makeDetail({
+      viewerCanWrite: true,
+      mergeQueueEnabled: false,
+    }), makePr(), { onMerge: vi.fn() });
+    expect(container.innerHTML).not.toContain('Add to merge queue');
   });
 
   it('renders an empty PR (no comments / no threads) without throwing', async () => {

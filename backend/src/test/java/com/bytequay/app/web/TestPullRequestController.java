@@ -145,6 +145,6 @@ class TestPullRequestController
                 null, null, 10, 2, 3, 1, 0, 0, ImmutableList.of(),
                 PullRequestDetail.CiStatus.PASSING, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(), false,
-                null, null, null, null, null, "open", false);
+                null, null, null, null, null, "open", false, false);
     }
 }

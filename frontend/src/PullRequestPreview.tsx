@@ -549,23 +549,17 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
   const changesSummary = detail.changesRequestedCount > 0
     ? `${detail.changesRequestedCount} change${detail.changesRequestedCount === 1 ? '' : 's'} requested`
     : null;
-  // Heuristic merge-queue detection: every client-side signal says
-  // this PR is ready to merge (CI green, ≥1 approval, no requested
-  // changes), but GitHub still reports mergeable_state="blocked".
-  // On repos without a merge queue, "blocked" almost always means a
-  // required reviewer hasn't approved yet — so we gate on approvals
-  // being present. False positives are possible (codeowners /
-  // protected-files rules), but the case we want to catch right now
-  // is Trino-style "queue is the required path". The button label
-  // and strategy-picker visibility follow this heuristic; the *actual*
-  // merge-vs-enqueue dispatch happens in the backend via a GraphQL
-  // probe, so a wrong heuristic just shows the wrong button text — the
-  // merge still routes correctly.
-  const requiresMergeQueue = !closed
-      && pr.mergeableState === 'blocked'
-      && ciPassing
-      && detail.changesRequestedCount === 0
-      && approverLogins.length > 0;
+  // Authoritative merge-queue detection: the backend reports whether the
+  // PR's base branch actually has a merge queue configured (GraphQL
+  // `pullRequest.mergeQueue`). When it does, the only way to merge is to
+  // add the PR to the queue — so the button reads "Add to merge queue"
+  // whenever a queue exists, even before CI / approvals land (matching
+  // github.com's "this PR will be added to the merge queue when all
+  // requirements are met"). This replaces the old client-side heuristic
+  // (mergeable_state="blocked" + CI green + approvals) which guessed
+  // wrong whenever something other than review was blocking the merge.
+  // A file conflict still wins as 'disabled' (checked above).
+  const requiresMergeQueue = !closed && detail.mergeQueueEnabled;
 
   // Three primary modes the button can land in, computed once so label,
   // click handler, confirm-modal copy, and disabled-reason all pivot off

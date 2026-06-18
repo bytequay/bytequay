@@ -83,9 +83,9 @@ final class PullRequestDetailFetcher
         List<PullRequestDetail.LinkedIssue> linkedIssues = emptyIfNull(result.linkedIssues());
 
         List<PrTimelineEvent> mergedTimeline = PullRequestTimelineUtil.mergeIssueComments(timeline, issueComments);
-        Optional<String> mergeQueueState = result.mergeQueueState();
-        if (mergeQueueState == null) {
-            mergeQueueState = Optional.empty();
+        PullRequestRepository.MergeQueueInfo info = result.mergeQueueInfo();
+        if (info == null) {
+            info = new PullRequestRepository.MergeQueueInfo(false, null);
         }
         logDetailFetchDone(ref, t0, timeline, reviewComments, files, checkRuns, issueComments);
 
@@ -97,7 +97,8 @@ final class PullRequestDetailFetcher
                 checkRuns,
                 reviewComments,
                 linkedIssues,
-                mergeQueueState.orElse(null));
+                info.entryState(),
+                info.queueConfigured());
     }
 
     private Instant detailFetchWatermark(String repoFull, PullRequestRef ref)
@@ -129,7 +130,7 @@ final class PullRequestDetailFetcher
                 timed("fetchPrReviewComments", ref, () -> gitHub.fetchPrReviewComments(pat, ref, watermark)),
                 timed("fetchPrIssueComments", ref, () -> gitHub.fetchPrIssueComments(pat, ref, watermark)),
                 timed("fetchReviewThreadResolution", ref, () -> fetchReviewThreadResolutionBestEffort(pat, ref)),
-                timed("fetchMergeQueueState", ref, () -> fetchMergeQueueStateBestEffort(pat, ref)),
+                timed("fetchMergeQueueInfo", ref, () -> fetchMergeQueueInfoBestEffort(pat, ref)),
                 fetchCheckRunsAfterRawDetail(pat, ref, raw),
                 fetchLinkedIssuesAfterRawDetail(pat, ref, raw));
     }
@@ -180,15 +181,15 @@ final class PullRequestDetailFetcher
         }
     }
 
-    private Optional<String> fetchMergeQueueStateBestEffort(String pat, PullRequestRef ref)
+    private PullRequestRepository.MergeQueueInfo fetchMergeQueueInfoBestEffort(String pat, PullRequestRef ref)
     {
         // GraphQL fetch: REST does not expose the per-PR merge-queue entry.
         try {
-            return gitHub.fetchMergeQueueState(pat, ref);
+            return gitHub.fetchMergeQueueInfo(pat, ref);
         }
         catch (RuntimeException e) {
-            log.warn("GraphQL merge-queue state fetch failed: {}", e.getMessage());
-            return Optional.empty();
+            log.warn("GraphQL merge-queue info fetch failed: {}", e.getMessage());
+            return new PullRequestRepository.MergeQueueInfo(false, null);
         }
     }
 
@@ -202,7 +203,7 @@ final class PullRequestDetailFetcher
                 join(fetches.reviewComments()),
                 join(fetches.issueComments()),
                 join(fetches.threadResolution()),
-                join(fetches.mergeQueueState()),
+                join(fetches.mergeQueueInfo()),
                 join(fetches.checkRuns()),
                 join(fetches.linkedIssues()));
     }
@@ -337,7 +338,7 @@ final class PullRequestDetailFetcher
             CompletableFuture<List<PrReviewThreadMessage>> reviewComments,
             CompletableFuture<List<PrTimelineEvent>> issueComments,
             CompletableFuture<List<PullRequestRepository.ReviewThreadMeta>> threadResolution,
-            CompletableFuture<Optional<String>> mergeQueueState,
+            CompletableFuture<PullRequestRepository.MergeQueueInfo> mergeQueueInfo,
             CompletableFuture<List<PrCheckRunState>> checkRuns,
             CompletableFuture<List<PullRequestDetail.LinkedIssue>> linkedIssues)
     {
@@ -351,7 +352,7 @@ final class PullRequestDetailFetcher
             List<PrReviewThreadMessage> reviewComments,
             List<PrTimelineEvent> issueComments,
             List<PullRequestRepository.ReviewThreadMeta> threadResolution,
-            Optional<String> mergeQueueState,
+            PullRequestRepository.MergeQueueInfo mergeQueueInfo,
             List<PrCheckRunState> checkRuns,
             List<PullRequestDetail.LinkedIssue> linkedIssues)
     {

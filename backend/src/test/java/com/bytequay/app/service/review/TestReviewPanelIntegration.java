@@ -142,7 +142,8 @@ class TestReviewPanelIntegration
                 reviewStore, diffCache, pullRequests, patResolver, mapper);
         ReviewerSeat reviewerSeat = new ReviewerSeat(
                 turnRunner, new SeatContextAssembler(reviewStore), seatToolset,
-                endpoints, budget, diffCache, reviewStore, mapper);
+                endpoints, budget, diffCache, reviewStore, mapper,
+                new CliReviewRunner(mapper), new CliReviewSessionRegistry());
         LeadToolset leadToolset = new LeadToolset(
                 reviewStore, seatToolset, reviewerSeat, scheduler, mapper);
         LeadOrchestrator leadOrchestrator = new LeadOrchestrator(

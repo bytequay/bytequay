@@ -101,7 +101,9 @@ class TestReviewerSeat
                 new ReviewBudgetMeter(reviewStore),
                 diffCache,
                 reviewStore,
-                mapper);
+                mapper,
+                new CliReviewRunner(mapper),
+                new CliReviewSessionRegistry());
     }
 
     @Test

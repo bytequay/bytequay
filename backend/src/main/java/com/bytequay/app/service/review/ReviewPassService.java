@@ -69,6 +69,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.bytequay.app.config.AsyncConfig.REVIEW_EXECUTOR;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -272,7 +273,7 @@ public class ReviewPassService
         // bounce a 500 back to the user.
         String reviewModel = appSettings.get(Key.LLM_MODEL)
                 .filter(s -> !s.isBlank())
-                .orElseGet(() -> panel.get(0).reviewer().providerId());
+                .orElseGet(() -> panel.get(0).providerId());
         // Name the thread by the PR title so the thread list reads "Add
         // refreshable vended credentials…" rather than a bare
         // "Review repo#number". The review flow's PrRawDetail doesn't carry
@@ -285,7 +286,7 @@ public class ReviewPassService
         Thread thread = new Thread(
                 UUID.randomUUID().toString(),
                 ThreadKind.LOGIC_LOOP,
-                panel.get(0).reviewer().providerId(),
+                panel.get(0).providerId(),
                 /* agentSessionId */ null,
                 threadTitle,
                 ThreadStatus.RUNNING,
@@ -334,7 +335,7 @@ public class ReviewPassService
         ReviewParticipant moderator = new ReviewParticipant(
                 UUID.randomUUID().toString(), pass.id(),
                 ReviewParticipantKind.LEAD,
-                /* credentialId */ leadMember.reviewer().providerId(),
+                /* credentialId */ leadMember.providerId(),
                 "Lead",
                 /* model */ null, /* color */ null, now);
         reviewStore.saveParticipant(moderator);
@@ -354,7 +355,7 @@ public class ReviewPassService
             ReviewParticipant seat = new ReviewParticipant(
                     UUID.randomUUID().toString(), pass.id(),
                     ReviewParticipantKind.REVIEWER,
-                    /* credentialId */ m.reviewer().providerId(),
+                    /* credentialId */ m.providerId(),
                     m.displayLabel(),
                     /* model */ null, /* color */ null, now);
             reviewStore.saveParticipant(seat);
@@ -419,14 +420,14 @@ public class ReviewPassService
         // code (summarize the PR, dispatch reviewers, drive consensus),
         // so it runs the orchestrator's built-in prompt, not a voice.
         seatConfigs.add(new PanelSeatConfig.Seat(
-                moderator.id(), leadMember.reviewer().providerId(),
+                moderator.id(), leadMember.providerId(),
                 /* personaPrompt */ null, "Lead", /* lead */ true));
         // reviewerSeats was built 1:1 from reviewerMembers (lead excluded),
         // so pair against that — not the full panel — or the indices skew.
         for (int i = 0; i < reviewerMembers.size(); i++) {
             seatConfigs.add(new PanelSeatConfig.Seat(
                     reviewerSeats.get(i).id(),
-                    reviewerMembers.get(i).reviewer().providerId(),
+                    reviewerMembers.get(i).providerId(),
                     renderSeatTemplate(reviewerMembers.get(i).personaPrompt(), prSummary),
                     reviewerMembers.get(i).displayLabel(),
                     /* lead */ false));
@@ -1229,7 +1230,11 @@ public class ReviewPassService
      *  with an optional persona prompt (the reviewing "voice" the
      *  Start Review dialog picked) and a display label that shows on
      *  the participant chip + kickoff message. */
-    record PanelMember(LlmReviewer reviewer, String personaPrompt, String displayLabel, boolean lead) {}
+    /** A resolved panel seat. Provider-kind-agnostic: {@code providerId}
+     *  may name an API reviewer or a CLI agent (claude-cli/codex-cli), so
+     *  this carries plain strings rather than an {@code LlmReviewer}. */
+    record PanelMember(String providerId, String displayName, String personaPrompt, String displayLabel,
+            boolean lead) {}
 
     /** Resolves the panel for a review pass. Two paths:
      *  <ol>
@@ -1248,7 +1253,7 @@ public class ReviewPassService
         }
         String leadId = opts.leadId();
         return resolveLegacyPanel(opts.panelProviderIds()).stream()
-                .map(r -> new PanelMember(r, null, r.displayName(),
+                .map(r -> new PanelMember(r.providerId(), r.displayName(), null, r.displayName(),
                         leadId != null && r.providerId().equalsIgnoreCase(leadId)))
                 .toList();
     }
@@ -1263,7 +1268,22 @@ public class ReviewPassService
     {
         List<PanelMember> members = new ArrayList<>();
         for (PanelSeat seat : seats) {
-            LlmReviewer reviewer = requireConfiguredReviewer(seat.providerId());
+            boolean isCli = CliReviewRunner.Provider.isCliProvider(seat.providerId());
+            // The lead drives the panel through structured tools on the API
+            // LeadOrchestrator, which a CLI agent can't run — reject a CLI
+            // lead up front (before the on-PATH check) with a clear reason.
+            if (isCli && seat.lead()) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(412),
+                        "A CLI agent ('" + CliReviewRunner.Provider.of(seat.providerId()).displayName()
+                                + "') can't be the panel lead — the lead coordinates via structured "
+                                + "tools. Make an API model the lead.");
+            }
+            // A CLI seat (claude-cli/codex-cli) carries no LlmReviewer and no
+            // model version — its "config" is the binary being on PATH.
+            String providerName = isCli
+                    ? requireAvailableCli(seat.providerId())
+                    : requireConfiguredReviewer(seat.providerId()).displayName();
             String prompt;
             String label;
             if (seat.lead()) {
@@ -1275,7 +1295,7 @@ public class ReviewPassService
                 // entirely (a skill/prompt attached to it is ignored,
                 // not validated).
                 prompt = null;
-                label = reviewer.displayName();
+                label = providerName;
             }
             else if (seat.roleSkillId() != null) {
                 Skill skill = skills.byId(seat.roleSkillId())
@@ -1298,13 +1318,13 @@ public class ReviewPassService
             }
             else if (seat.customPrompt() != null && !seat.customPrompt().isBlank()) {
                 prompt = seat.customPrompt();
-                label = "Custom · " + reviewer.displayName();
+                label = "Custom · " + providerName;
             }
             else {
                 prompt = null;
-                label = reviewer.displayName();
+                label = providerName;
             }
-            members.add(new PanelMember(reviewer, prompt, label, seat.lead()));
+            members.add(new PanelMember(seat.providerId(), providerName, prompt, label, seat.lead()));
         }
         if (members.isEmpty()) {
             throw new ResponseStatusException(
@@ -1318,9 +1338,33 @@ public class ReviewPassService
         if (members.stream().noneMatch(PanelMember::lead)) {
             PanelMember first = members.get(0);
             members.set(0, new PanelMember(
-                    first.reviewer(), null, first.reviewer().displayName(), true));
+                    first.providerId(), first.displayName(), null, first.displayName(), true));
+        }
+        // The lead coordinates the panel through structured tool calls
+        // (dispatch, mark_consensus, …) on the API LeadOrchestrator, which a
+        // CLI agent can't drive — so a CLI seat may review but never lead.
+        PanelMember lead = members.stream().filter(PanelMember::lead).findFirst().orElseThrow();
+        if (CliReviewRunner.Provider.isCliProvider(lead.providerId())) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(412),
+                    "A CLI agent ('" + lead.displayName() + "') can't be the panel lead — the lead "
+                            + "coordinates via structured tools. Make an API model the lead.");
         }
         return members;
+    }
+
+    /** Validate a CLI seat — its binary must be on PATH — and return its
+     *  display name. The CLI counterpart of {@link #requireConfiguredReviewer}. */
+    private static String requireAvailableCli(String providerId)
+    {
+        CliReviewRunner.Provider provider = CliReviewRunner.Provider.of(providerId);
+        if (!CliReviewRunner.isOnPath(provider.binary())) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(412),
+                    "'" + provider.displayName() + "' isn't installed — '" + provider.binary()
+                            + "' is not on PATH.");
+        }
+        return provider.displayName();
     }
 
     /** Resolve a reviewer by provider id, 412-ing when it's unknown or
@@ -1879,8 +1923,10 @@ public class ReviewPassService
      *  unconfigured ones disabled with a hint. */
     public List<RosterEntry> roster()
     {
-        return reviewers.all().stream()
-                .map(r -> new RosterEntry(r.providerId(), r.displayName(), r.isConfigured()))
+        return Stream.concat(
+                        reviewers.all().stream()
+                                .map(r -> new RosterEntry(r.providerId(), r.displayName(), r.isConfigured())),
+                        cliRosterEntries().stream())
                 .sorted((a, b) -> {
                     int byConfig = Boolean.compare(!a.configured(), !b.configured());
                     if (byConfig != 0) {
@@ -1888,6 +1934,17 @@ public class ReviewPassService
                     }
                     return a.displayName().compareToIgnoreCase(b.displayName());
                 })
+                .toList();
+    }
+
+    /** The CLI agents offered as reviewer seats. Unlike API reviewers they
+     *  carry no model version — the choice is just the agent — and they're
+     *  "configured" when their binary is on PATH. */
+    private static List<RosterEntry> cliRosterEntries()
+    {
+        return Stream.of(CliReviewRunner.Provider.values())
+                .map(p -> new RosterEntry(p.providerId(), p.displayName(),
+                        CliReviewRunner.isOnPath(p.binary())))
                 .toList();
     }
 }

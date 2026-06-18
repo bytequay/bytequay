@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.ReviewFinding;
+import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewMessage;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPhase;
@@ -29,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -68,6 +71,8 @@ public class ReviewerSeat
     private final ReviewDiffCache diffCache;
     private final ReviewStore reviewStore;
     private final ObjectMapper mapper;
+    private final CliReviewRunner cliRunner;
+    private final CliReviewSessionRegistry cliSessions;
 
     public ReviewerSeat(
             TurnRunner runner,
@@ -77,7 +82,9 @@ public class ReviewerSeat
             ReviewBudgetMeter budget,
             ReviewDiffCache diffCache,
             ReviewStore reviewStore,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            CliReviewRunner cliRunner,
+            CliReviewSessionRegistry cliSessions)
     {
         this.runner = requireNonNull(runner, "runner is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
@@ -87,6 +94,8 @@ public class ReviewerSeat
         this.diffCache = requireNonNull(diffCache, "diffCache is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
+        this.cliSessions = requireNonNull(cliSessions, "cliSessions is null");
     }
 
     /** Thrown when a dispatch would spend past the seat's slice. The
@@ -152,6 +161,12 @@ public class ReviewerSeat
                 .orElseThrow(() -> new IllegalArgumentException(
                         "participant " + participantId + " is not on the pass roster"));
 
+        // CLI seats (Claude/Codex CLI) run as their own agents through a
+        // subprocess, not the API TurnRunner — branch off here.
+        if (CliReviewRunner.Provider.isCliProvider(seat.providerId())) {
+            return runCliTurn(pass, seat, participantId, directive, phase, round);
+        }
+
         ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(seat.providerId());
         String system = systemPrompt(seat);
         ArrayNode messages = providerMessages(endpoint.transport(), system,
@@ -203,6 +218,109 @@ public class ReviewerSeat
             log.debug("Reviewer seat {} ({}) {}: {} rounds.",
                     seat.displayLabel(), endpoint.modelId(), phase, result.rounds());
         }
+        return message;
+    }
+
+    /**
+     * Run one turn for a CLI seat (Claude/Codex CLI). Spawns the agent
+     * (resuming its session so it keeps prior-phase context), parses the
+     * findings block it emits into structured findings, and persists the
+     * prose as the seat's review_messages row.
+     */
+    private ReviewMessage runCliTurn(
+            ReviewPass pass,
+            PanelSeatConfig.Seat seat,
+            String participantId,
+            String directive,
+            ReviewPhase phase,
+            int round)
+    {
+        CliReviewRunner.Provider provider = CliReviewRunner.Provider.of(seat.providerId());
+        String resume = cliSessions.get(participantId);
+        boolean resuming = resume != null && !resume.isBlank();
+        String prompt = cliPrompt(pass, seat, directive, resuming);
+
+        CliReviewRunner.Result result;
+        try {
+            result = cliRunner.run(provider, prompt, resume, Path.of(System.getProperty("java.io.tmpdir")));
+        }
+        catch (CliReviewException e) {
+            log.warn("CLI reviewer seat {} ({}) {} failed: {}",
+                    seat.displayLabel(), seat.providerId(), phase, e.getMessage());
+            return persistSeatMessage(pass, participantId, phase, round,
+                    "(CLI reviewer failed: " + e.getMessage() + ")", 0);
+        }
+
+        if (result.sessionId() != null && !result.sessionId().isBlank()) {
+            cliSessions.put(participantId, result.sessionId());
+        }
+
+        List<CliReviewFindings.Parsed> parsed = CliReviewFindings.parse(result.text(), mapper);
+        for (CliReviewFindings.Parsed finding : parsed) {
+            reviewStore.saveFinding(new ReviewFinding(
+                    UUID.randomUUID().toString(),
+                    pass.id(),
+                    finding.path(), finding.line(),
+                    finding.severity(),
+                    ReviewFindingStatus.REPORTED,
+                    "[" + seat.displayLabel() + "] " + finding.summary(),
+                    /* resolution */ null,
+                    /* postedCommentId */ null,
+                    Instant.now()));
+        }
+        log.info("CLI reviewer seat {} ({}) {}: recorded {} finding(s).",
+                seat.displayLabel(), seat.providerId(), phase, parsed.size());
+
+        String body = stripFindingsBlock(result.text());
+        return persistSeatMessage(pass, participantId, phase, round,
+                body.isBlank() ? "(no review text)" : body, result.costUsdMilli());
+    }
+
+    /** Compose the single prompt string a CLI seat gets. On the first turn
+     *  it carries the persona + inlined diff; resumed turns rely on the
+     *  CLI's own session for that and send only the directive. The findings
+     *  instruction rides on every turn so each one emits a parseable block. */
+    private String cliPrompt(ReviewPass pass, PanelSeatConfig.Seat seat, String directive, boolean resuming)
+    {
+        StringBuilder sb = new StringBuilder();
+        if (!resuming) {
+            sb.append(systemPrompt(seat)).append("\n\n");
+            sb.append(diffHeader(pass)).append("\n\n");
+        }
+        sb.append(directive).append("\n\n");
+        sb.append(CliReviewFindings.INSTRUCTION);
+        return sb.toString();
+    }
+
+    /** Drop the trailing findings block from the prose shown in the
+     *  transcript — the structured findings already landed on the rail. */
+    private static String stripFindingsBlock(String text)
+    {
+        if (text == null) {
+            return "";
+        }
+        int marker = text.lastIndexOf(CliReviewFindings.BEGIN);
+        return (marker >= 0 ? text.substring(0, marker) : text).strip();
+    }
+
+    /** Persist a seat's reply + meter its spend. Shared by the API and CLI
+     *  paths so both land a consistent review_messages row. */
+    private ReviewMessage persistSeatMessage(
+            ReviewPass pass, String participantId, ReviewPhase phase, int round, String body, long costMilliUsd)
+    {
+        ReviewMessage message = new ReviewMessage(
+                UUID.randomUUID().toString(),
+                pass.id(),
+                participantId,
+                phase,
+                round,
+                body,
+                /* mentions */ List.of(),
+                /* refs */ List.of(),
+                costMilliUsd,
+                Instant.now());
+        reviewStore.saveMessage(message);
+        budget.chargeSeat(pass.id(), participantId, costMilliUsd);
         return message;
     }
 

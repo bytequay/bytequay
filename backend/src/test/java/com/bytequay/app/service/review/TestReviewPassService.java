@@ -279,6 +279,30 @@ class TestReviewPassService
     }
 
     @Test
+    void rosterListsTheCliAgentsAlongsideApiReviewers()
+    {
+        List<ReviewPassService.RosterEntry> roster = service.roster();
+
+        assertThat(roster).anyMatch(e ->
+                "claude-cli".equals(e.providerId()) && "Claude CLI".equals(e.displayName()));
+        assertThat(roster).anyMatch(e ->
+                "codex-cli".equals(e.providerId()) && "Codex CLI".equals(e.displayName()));
+    }
+
+    @Test
+    void aCliAgentCannotBeThePanelLead()
+    {
+        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 42,
+                new ReviewPassService.StartOptions(
+                        List.of(), 3, 500L, true, null, null,
+                        List.of(
+                                new ReviewPassService.PanelSeat("claude-cli", null, null, true),
+                                new ReviewPassService.PanelSeat("claude", null, null, false)))))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("can't be the panel lead");
+    }
+
+    @Test
     void leadSeatDropsAnyAttachedRoleSkill()
     {
         // Even if a caller pins a review skill on the lead seat, the

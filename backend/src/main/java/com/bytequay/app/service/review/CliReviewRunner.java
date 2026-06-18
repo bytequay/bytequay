@@ -18,20 +18,24 @@ import com.bytequay.app.service.threads.CliStreamParser;
 import com.bytequay.app.service.threads.CodexJsonParser;
 import com.bytequay.app.service.threads.StreamJsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -58,11 +62,14 @@ public class CliReviewRunner
      *  streaming timeout so a wedged CLI can't hang the pass. */
     private static final long DEFAULT_TIMEOUT_MS = 6 * 60 * 1000;
 
+    /** Cap on concurrent CLI review subprocesses so a many-seat panel
+     *  can't spawn an unbounded number of agents at once (the panel fans
+     *  the INDEPENDENT phase out in parallel). Mirrors the spirit of the
+     *  scheduler's small CLI lane. */
+    private static final int MAX_CONCURRENT = 3;
+    private final Semaphore slots = new Semaphore(MAX_CONCURRENT);
+
     private final ObjectMapper mapper;
-    // Binary names default to the PATH lookup; a later slice can make these
-    // configurable. Kept as fields so the spawn path reads one source.
-    private final String claudeBinary = "claude";
-    private final String codexBinary = "codex";
     private final long timeoutMs = DEFAULT_TIMEOUT_MS;
 
     CliReviewRunner(ObjectMapper mapper)
@@ -73,19 +80,33 @@ public class CliReviewRunner
     /** The CLI agents that can hold a reviewer seat. */
     public enum Provider
     {
-        CLAUDE("claude-cli"),
-        CODEX("codex-cli");
+        CLAUDE("claude-cli", "Claude CLI", "claude"),
+        CODEX("codex-cli", "Codex CLI", "codex");
 
         private final String providerId;
+        private final String displayName;
+        private final String binary;
 
-        Provider(String providerId)
+        Provider(String providerId, String displayName, String binary)
         {
             this.providerId = providerId;
+            this.displayName = displayName;
+            this.binary = binary;
         }
 
         public String providerId()
         {
             return providerId;
+        }
+
+        public String displayName()
+        {
+            return displayName;
+        }
+
+        public String binary()
+        {
+            return binary;
         }
 
         /** Whether {@code providerId} names a CLI reviewer (vs an API one). */
@@ -118,7 +139,24 @@ public class CliReviewRunner
      */
     public Result run(Provider provider, String prompt, String resumeSessionId, Path workingDir)
     {
-        String binary = provider == Provider.CLAUDE ? claudeBinary : codexBinary;
+        try {
+            slots.acquire();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CliReviewException("interrupted waiting for a CLI review slot", e);
+        }
+        try {
+            return runOnce(provider, prompt, resumeSessionId, workingDir);
+        }
+        finally {
+            slots.release();
+        }
+    }
+
+    private Result runOnce(Provider provider, String prompt, String resumeSessionId, Path workingDir)
+    {
+        String binary = provider.binary();
         // Codex takes the prompt as a trailing argv arg; Claude reads it
         // from stdin.
         String argvPrompt = provider == Provider.CODEX ? prompt : null;
@@ -172,6 +210,26 @@ public class CliReviewRunner
         stderrDrain.interrupt();
 
         return assemble(parser, lines);
+    }
+
+    /** Whether {@code binary} resolves to an executable on PATH — the
+     *  CLI equivalent of "has an API key", used to mark a roster entry
+     *  configured. Scans {@code $PATH} without spawning anything. */
+    public static boolean isOnPath(String binary)
+    {
+        String path = System.getenv("PATH");
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        for (String dir : Splitter.on(File.pathSeparatorChar).split(path)) {
+            if (dir.isBlank()) {
+                continue;
+            }
+            if (Files.isExecutable(Path.of(dir, binary))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Build the argv for one turn. Pure — unit-tested. */

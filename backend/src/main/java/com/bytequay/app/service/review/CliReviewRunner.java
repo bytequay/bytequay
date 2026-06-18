@@ -1,0 +1,278 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.review;
+
+import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.service.threads.CliStreamParser;
+import com.bytequay.app.service.threads.CodexJsonParser;
+import com.bytequay.app.service.threads.StreamJsonParser;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Runs one review turn through a CLI agent ({@code claude -p} or
+ * {@code codex exec}) and returns its assembled text plus the provider
+ * session id, so the next phase can {@code --resume} the same session.
+ *
+ * <p>This mirrors how {@code AbstractCliThreadAgent} drives a turn — a
+ * fresh subprocess per turn, JSONL stdout parsed by the same
+ * {@link CliStreamParser}s — but stripped to what a read-only reviewer
+ * needs (no MCP permission tool, no thread persistence). The provider
+ * keeps cross-phase context via its own session, resumed by id.
+ *
+ * <p>The argv assembly ({@link #buildArgv}) and the stdout assembly
+ * ({@link #assemble}) are pure and unit-tested; the subprocess glue in
+ * {@link #run} is the thin, environment-dependent part.
+ */
+@Component
+public class CliReviewRunner
+{
+    private static final Logger log = LoggerFactory.getLogger(CliReviewRunner.class);
+
+    /** Default per-turn wall-clock ceiling — matches the API reviewer's
+     *  streaming timeout so a wedged CLI can't hang the pass. */
+    private static final long DEFAULT_TIMEOUT_MS = 6 * 60 * 1000;
+
+    private final ObjectMapper mapper;
+    // Binary names default to the PATH lookup; a later slice can make these
+    // configurable. Kept as fields so the spawn path reads one source.
+    private final String claudeBinary = "claude";
+    private final String codexBinary = "codex";
+    private final long timeoutMs = DEFAULT_TIMEOUT_MS;
+
+    CliReviewRunner(ObjectMapper mapper)
+    {
+        this.mapper = mapper;
+    }
+
+    /** The CLI agents that can hold a reviewer seat. */
+    public enum Provider
+    {
+        CLAUDE("claude-cli"),
+        CODEX("codex-cli");
+
+        private final String providerId;
+
+        Provider(String providerId)
+        {
+            this.providerId = providerId;
+        }
+
+        public String providerId()
+        {
+            return providerId;
+        }
+
+        /** Whether {@code providerId} names a CLI reviewer (vs an API one). */
+        public static boolean isCliProvider(String providerId)
+        {
+            return CLAUDE.providerId.equals(providerId) || CODEX.providerId.equals(providerId);
+        }
+
+        public static Provider of(String providerId)
+        {
+            for (Provider provider : values()) {
+                if (provider.providerId.equals(providerId)) {
+                    return provider;
+                }
+            }
+            throw new IllegalArgumentException("not a CLI reviewer provider: " + providerId);
+        }
+    }
+
+    /** Outcome of one CLI review turn. {@code sessionId} is null when the
+     *  provider didn't announce one (then the next turn starts fresh). */
+    public record Result(String text, String sessionId, long costUsdMilli)
+    {
+    }
+
+    /**
+     * Run one review turn. {@code resumeSessionId} continues a prior
+     * session (null/blank starts fresh); {@code workingDir} is the
+     * directory the CLI runs in.
+     */
+    public Result run(Provider provider, String prompt, String resumeSessionId, Path workingDir)
+    {
+        String binary = provider == Provider.CLAUDE ? claudeBinary : codexBinary;
+        // Codex takes the prompt as a trailing argv arg; Claude reads it
+        // from stdin.
+        String argvPrompt = provider == Provider.CODEX ? prompt : null;
+        List<String> argv = buildArgv(provider, binary, resumeSessionId, workingDir.toString(), argvPrompt);
+
+        ProcessBuilder pb = new ProcessBuilder(argv);
+        pb.directory(workingDir.toFile());
+        pb.redirectErrorStream(false);
+
+        Process process;
+        try {
+            process = pb.start();
+        }
+        catch (IOException e) {
+            throw new CliReviewException(
+                    "could not start " + binary + " (is it on PATH?): " + e.getMessage(), e);
+        }
+
+        deliverPrompt(process, provider, prompt);
+        Thread stderrDrain = drainStderr(process, binary);
+
+        CliStreamParser parser = provider == Provider.CLAUDE
+                ? new StreamJsonParser(mapper)
+                : new CodexJsonParser(mapper);
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lines.add(line);
+            }
+        }
+        catch (IOException e) {
+            log.warn("CLI reviewer {} stdout read failed: {}", binary, e.getMessage());
+        }
+
+        boolean exited;
+        try {
+            exited = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
+            throw new CliReviewException("CLI reviewer " + binary + " interrupted", e);
+        }
+        if (!exited) {
+            process.destroyForcibly();
+            throw new CliReviewException("CLI reviewer " + binary + " timed out after "
+                    + timeoutMs + "ms");
+        }
+        stderrDrain.interrupt();
+
+        return assemble(parser, lines);
+    }
+
+    /** Build the argv for one turn. Pure — unit-tested. */
+    static List<String> buildArgv(
+            Provider provider, String binary, String resumeSessionId, String workingDir, String argvPrompt)
+    {
+        boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
+        if (provider == Provider.CLAUDE) {
+            // Read-only review: no MCP permission tool, no skill injection —
+            // the directive carries the diff. The prompt arrives on stdin.
+            ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
+                    .add(binary)
+                    .add("-p")
+                    .add("--output-format", "stream-json")
+                    .add("--verbose");
+            if (resuming) {
+                argv.add("--resume", resumeSessionId);
+            }
+            return argv.build();
+        }
+        // Codex: `codex exec [resume <id>] --json --skip-git-repo-check
+        // --sandbox read-only -C <dir> <prompt>`.
+        ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
+                .add(binary)
+                .add("exec");
+        if (resuming) {
+            argv.add("resume", resumeSessionId);
+        }
+        argv.add("--json")
+                .add("--skip-git-repo-check")
+                .add("--sandbox", "read-only")
+                .add("-C", workingDir);
+        if (argvPrompt != null) {
+            argv.add(argvPrompt);
+        }
+        return argv.build();
+    }
+
+    /** Fold the parsed stdout into one result: last session id wins, the
+     *  assistant texts join, the turn costs sum. Pure — unit-tested. */
+    static Result assemble(CliStreamParser parser, List<String> stdoutLines)
+    {
+        StringBuilder text = new StringBuilder();
+        String sessionId = null;
+        long costUsdMilli = 0;
+        Instant now = Instant.EPOCH;
+        for (String line : stdoutLines) {
+            if (line == null || line.isBlank()) {
+                continue;
+            }
+            for (StreamEvent event : parser.parse(line, now)) {
+                if (event instanceof StreamEvent.SessionStarted started) {
+                    sessionId = started.sessionId();
+                }
+                else if (event instanceof StreamEvent.AssistantText assistant
+                        && assistant.text() != null && !assistant.text().isBlank()) {
+                    if (text.length() > 0) {
+                        text.append("\n\n");
+                    }
+                    text.append(assistant.text().strip());
+                }
+                else if (event instanceof StreamEvent.TurnDone done) {
+                    costUsdMilli += done.costUsdMilli();
+                }
+            }
+        }
+        return new Result(text.toString().strip(), sessionId, costUsdMilli);
+    }
+
+    private static void deliverPrompt(Process process, Provider provider, String prompt)
+    {
+        try (OutputStream stdin = process.getOutputStream()) {
+            if (provider == Provider.CLAUDE) {
+                stdin.write(prompt.getBytes(StandardCharsets.UTF_8));
+                stdin.flush();
+            }
+            // Codex carries the prompt in argv; closing stdin lets it proceed.
+        }
+        catch (IOException e) {
+            log.warn("CLI reviewer prompt delivery failed: {}", e.getMessage());
+        }
+    }
+
+    /** Drain stderr on a daemon thread so a chatty CLI can't deadlock by
+     *  filling its stderr pipe while we read stdout. */
+    private static Thread drainStderr(Process process, String binary)
+    {
+        Thread thread = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.debug("[{} stderr] {}", binary, line);
+                }
+            }
+            catch (IOException ignored) {
+                // Pipe closed when the process exits — nothing to do.
+            }
+        }, "cli-review-stderr");
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+}

@@ -70,6 +70,9 @@ describe('ReviewThreadPage', () => {
     expect(screen.getByText(/Reviewing acme\/widget#42/)).toBeTruthy();
     expect(screen.getByText('Mostly fine.')).toBeTruthy();
 
+    // The top-bar meta shows how many panel messages the thread holds.
+    expect(screen.getByText('2 messages')).toBeTruthy();
+
     // Findings render in the Agreed rail with their file:line anchor
     // (the line=null finding falls back to just the path) and a
     // lowercase severity tag. The compact post-review control no

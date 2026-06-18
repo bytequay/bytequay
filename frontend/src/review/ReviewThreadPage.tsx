@@ -413,7 +413,6 @@ function TopBar({ detail, onBack, onOpenPr }: {
   return (
     <header style={topBarStyle}>
       <button type="button" className="button button--secondary" onClick={onBack} style={backBtnStyle}>← Back</button>
-      <span style={panelBadgeStyle}>⚖ Review panel</span>
       <div style={breadcrumbStyle}>
         {detail ? (
           <>
@@ -439,6 +438,9 @@ function TopBar({ detail, onBack, onOpenPr }: {
           <PhasePill phase={detail.pass.phase} />
           <span style={countMetaStyle}>
             {agreedCount} agreed · {openCount} open
+          </span>
+          <span style={countMetaStyle}>
+            {detail.messages.length} {detail.messages.length === 1 ? 'message' : 'messages'}
           </span>
           {costCapMilli > 0 && (
             <span style={{ ...costMetaStyle, color: costColor(costPct) }}>
@@ -507,16 +509,16 @@ function ReviewingCard({ detail, onOpenPr }: {
           <li style={commitsEmptyStyle}>No commits found.</li>
         ) : commits.map(c => (
           <li key={c.sha} style={commitItemStyle} title={c.message ?? c.sha}>
-            <div style={commitRowStyle}>
+            <span style={commitMsgStyle}>{firstLine(c.message)}</span>
+            <div style={commitSubRowStyle}>
               <span style={commitShaStyle}>{c.sha.slice(0, 7)}</span>
-              <span style={commitMsgStyle}>{firstLine(c.message)}</span>
+              {(commitAuthorLabel(c) !== '' || c.authoredAt !== null) && (
+                <span>
+                  {[commitAuthorLabel(c), commitTimeAgo(c.authoredAt)]
+                      .filter(s => s !== '').join(' · ')}
+                </span>
+              )}
             </div>
-            {(commitAuthorLabel(c) !== '' || c.authoredAt !== null) && (
-              <div style={commitSubRowStyle}>
-                {[commitAuthorLabel(c), commitTimeAgo(c.authoredAt)]
-                    .filter(s => s !== '').join(' · ')}
-              </div>
-            )}
           </li>
         ))}
       </ul>
@@ -2442,19 +2444,6 @@ const backBtnStyle: React.CSSProperties = {
   padding: '4px 8px',
 };
 
-const panelBadgeStyle: React.CSSProperties = {
-  fontSize: 10.5,
-  fontWeight: 800,
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-  whiteSpace: 'nowrap',
-  color: '#5b21b6',
-  background: 'linear-gradient(135deg, rgba(56,189,248,0.18), rgba(124,92,255,0.14))',
-  border: '1px solid rgba(124,92,255,0.22)',
-  borderRadius: 999,
-  padding: '4px 11px',
-};
-
 
 const bodyGridStyle: React.CSSProperties = {
   // Flex row, not grid: a flex item stretched on the cross axis gets a
@@ -2608,17 +2597,13 @@ const commitItemStyle: React.CSSProperties = {
   gap: 1,
   minWidth: 0,
 };
-const commitRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: 7,
-  fontSize: 11.5,
-  minWidth: 0,
-};
 const commitSubRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  marginTop: 2,
   fontSize: 10.5,
   color: 'var(--text-3)',
-  paddingLeft: 2,
   fontVariantNumeric: 'tabular-nums',
 };
 const commitShaStyle: React.CSSProperties = {
@@ -2633,6 +2618,7 @@ const commitShaStyle: React.CSSProperties = {
 };
 const commitMsgStyle: React.CSSProperties = {
   minWidth: 0,
+  fontSize: 11.5,
   color: 'var(--text-2)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',

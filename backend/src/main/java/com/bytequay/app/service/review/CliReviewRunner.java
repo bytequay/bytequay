@@ -69,6 +69,10 @@ public class CliReviewRunner
     private static final int MAX_CONCURRENT = 3;
     private final Semaphore slots = new Semaphore(MAX_CONCURRENT);
 
+    /** The local sidecar's base URL — the CLI subprocess reaches the
+     *  review MCP server here. Matches server.port in application.properties. */
+    private static final String SIDECAR_BASE_URL = "http://127.0.0.1:53123";
+
     private final ObjectMapper mapper;
     private final long timeoutMs = DEFAULT_TIMEOUT_MS;
 
@@ -132,12 +136,22 @@ public class CliReviewRunner
     {
     }
 
+    /** Points a Claude CLI seat at its review MCP server (the pass + seat
+     *  it serves). Null disables the bridge — the seat then has no review
+     *  tools and reviews from the inlined diff only (Codex today). */
+    public record McpEndpoint(String passId, String participantId)
+    {
+    }
+
     /**
      * Run one review turn. {@code resumeSessionId} continues a prior
      * session (null/blank starts fresh); {@code workingDir} is the
-     * directory the CLI runs in.
+     * directory the CLI runs in. When {@code mcp} is non-null and the
+     * provider is Claude, the seat is wired to its review MCP server so it
+     * can call get_pr_diff / report_finding / … directly.
      */
-    public Result run(Provider provider, String prompt, String resumeSessionId, Path workingDir)
+    public Result run(
+            Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
     {
         try {
             slots.acquire();
@@ -147,20 +161,24 @@ public class CliReviewRunner
             throw new CliReviewException("interrupted waiting for a CLI review slot", e);
         }
         try {
-            return runOnce(provider, prompt, resumeSessionId, workingDir);
+            return runOnce(provider, prompt, resumeSessionId, workingDir, mcp);
         }
         finally {
             slots.release();
         }
     }
 
-    private Result runOnce(Provider provider, String prompt, String resumeSessionId, Path workingDir)
+    private Result runOnce(
+            Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
     {
         String binary = provider.binary();
         // Codex takes the prompt as a trailing argv arg; Claude reads it
         // from stdin.
         String argvPrompt = provider == Provider.CODEX ? prompt : null;
-        List<String> argv = buildArgv(provider, binary, resumeSessionId, workingDir.toString(), argvPrompt);
+        // Only Claude's CLI supports our --mcp-config bridge today.
+        Path mcpConfig = (provider == Provider.CLAUDE && mcp != null) ? writeMcpConfig(mcp) : null;
+        List<String> argv = buildArgv(
+                provider, binary, resumeSessionId, workingDir.toString(), argvPrompt, mcpConfig);
 
         ProcessBuilder pb = new ProcessBuilder(argv);
         pb.directory(workingDir.toFile());
@@ -232,19 +250,61 @@ public class CliReviewRunner
         return false;
     }
 
-    /** Build the argv for one turn. Pure — unit-tested. */
+    /** The four review tools, with the CLI's {@code mcp__<server>__}
+     *  prefix, pre-allowed so {@code claude -p} runs them without a
+     *  permission prompt. */
+    static final String ALLOWED_REVIEW_TOOLS =
+            "mcp__bytequay__get_pr_diff,mcp__bytequay__get_file_content,"
+            + "mcp__bytequay__search_code,mcp__bytequay__report_finding";
+
+    /** The review MCP endpoint URL for a {@code (passId, participantId)}
+     *  seat. Pure — unit-tested. */
+    static String mcpServerUrl(McpEndpoint mcp)
+    {
+        return SIDECAR_BASE_URL + "/api/reviews/" + mcp.passId()
+                + "/seats/" + mcp.participantId() + "/mcp";
+    }
+
+    /** The {@code --mcp-config} JSON the CLI reads. Pure — unit-tested. */
+    static String mcpConfigJson(McpEndpoint mcp)
+    {
+        return "{\"mcpServers\":{\"bytequay\":{\"type\":\"http\",\"url\":\""
+                + mcpServerUrl(mcp) + "\"}}}";
+    }
+
+    private static Path writeMcpConfig(McpEndpoint mcp)
+    {
+        try {
+            Path file = Files.createTempFile("bytequay-review-mcp-", ".json");
+            file.toFile().deleteOnExit();
+            Files.writeString(file, mcpConfigJson(mcp));
+            return file;
+        }
+        catch (IOException e) {
+            throw new CliReviewException("could not write review MCP config: " + e.getMessage(), e);
+        }
+    }
+
+    /** Build the argv for one turn. Pure — unit-tested. {@code mcpConfig}
+     *  (Claude only) wires the review MCP server + pre-allows its tools. */
     static List<String> buildArgv(
-            Provider provider, String binary, String resumeSessionId, String workingDir, String argvPrompt)
+            Provider provider, String binary, String resumeSessionId, String workingDir,
+            String argvPrompt, Path mcpConfig)
     {
         boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
         if (provider == Provider.CLAUDE) {
-            // Read-only review: no MCP permission tool, no skill injection —
-            // the directive carries the diff. The prompt arrives on stdin.
+            // The prompt arrives on stdin. With an MCP config the seat gets
+            // the real review tools (get_pr_diff / report_finding / …),
+            // pre-allowed so -p mode never stops for a permission prompt.
             ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
                     .add(binary)
                     .add("-p")
                     .add("--output-format", "stream-json")
                     .add("--verbose");
+            if (mcpConfig != null) {
+                argv.add("--mcp-config", mcpConfig.toString());
+                argv.add("--allowedTools", ALLOWED_REVIEW_TOOLS);
+            }
             if (resuming) {
                 argv.add("--resume", resumeSessionId);
             }

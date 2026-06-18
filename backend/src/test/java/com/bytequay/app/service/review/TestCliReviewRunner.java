@@ -17,6 +17,7 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.service.threads.CliStreamParser;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,25 +28,46 @@ class TestCliReviewRunner
     void buildsClaudeArgvWithStdinPromptAndOptionalResume()
     {
         assertThat(CliReviewRunner.buildArgv(
-                CliReviewRunner.Provider.CLAUDE, "claude", null, "/work", null))
+                CliReviewRunner.Provider.CLAUDE, "claude", null, "/work", null, null))
                 .containsExactly("claude", "-p", "--output-format", "stream-json", "--verbose");
 
         assertThat(CliReviewRunner.buildArgv(
-                CliReviewRunner.Provider.CLAUDE, "claude", "sess-1", "/work", null))
+                CliReviewRunner.Provider.CLAUDE, "claude", "sess-1", "/work", null, null))
                 .containsExactly("claude", "-p", "--output-format", "stream-json", "--verbose",
                         "--resume", "sess-1");
+    }
+
+    @Test
+    void claudeArgvWiresTheMcpConfigAndPreAllowsTheReviewTools()
+    {
+        assertThat(CliReviewRunner.buildArgv(
+                CliReviewRunner.Provider.CLAUDE, "claude", null, "/work", null, Path.of("/tmp/mcp.json")))
+                .containsExactly("claude", "-p", "--output-format", "stream-json", "--verbose",
+                        "--mcp-config", "/tmp/mcp.json",
+                        "--allowedTools", CliReviewRunner.ALLOWED_REVIEW_TOOLS);
+    }
+
+    @Test
+    void buildsTheReviewMcpUrlAndConfigForASeat()
+    {
+        CliReviewRunner.McpEndpoint mcp = new CliReviewRunner.McpEndpoint("pass-1", "seat-9");
+        assertThat(CliReviewRunner.mcpServerUrl(mcp))
+                .isEqualTo("http://127.0.0.1:53123/api/reviews/pass-1/seats/seat-9/mcp");
+        assertThat(CliReviewRunner.mcpConfigJson(mcp))
+                .isEqualTo("{\"mcpServers\":{\"bytequay\":{\"type\":\"http\","
+                        + "\"url\":\"http://127.0.0.1:53123/api/reviews/pass-1/seats/seat-9/mcp\"}}}");
     }
 
     @Test
     void buildsCodexArgvReadOnlyWithTrailingPromptAndOptionalResume()
     {
         assertThat(CliReviewRunner.buildArgv(
-                CliReviewRunner.Provider.CODEX, "codex", null, "/work", "review this"))
+                CliReviewRunner.Provider.CODEX, "codex", null, "/work", "review this", null))
                 .containsExactly("codex", "exec", "--json", "--skip-git-repo-check",
                         "--sandbox", "read-only", "-C", "/work", "review this");
 
         assertThat(CliReviewRunner.buildArgv(
-                CliReviewRunner.Provider.CODEX, "codex", "sess-2", "/work", "more"))
+                CliReviewRunner.Provider.CODEX, "codex", "sess-2", "/work", "more", null))
                 .containsExactly("codex", "exec", "resume", "sess-2", "--json", "--skip-git-repo-check",
                         "--sandbox", "read-only", "-C", "/work", "more");
     }

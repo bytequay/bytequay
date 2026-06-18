@@ -236,13 +236,20 @@ public class ReviewerSeat
             int round)
     {
         CliReviewRunner.Provider provider = CliReviewRunner.Provider.of(seat.providerId());
+        // The MCP bridge — real review tools incl. report_finding — is wired
+        // for Claude only today. Codex falls back to the JSON-block protocol.
+        boolean mcp = provider == CliReviewRunner.Provider.CLAUDE;
         String resume = cliSessions.get(participantId);
         boolean resuming = resume != null && !resume.isBlank();
-        String prompt = cliPrompt(pass, seat, directive, resuming);
+        String prompt = cliPrompt(pass, seat, directive, resuming, mcp);
+        CliReviewRunner.McpEndpoint endpoint = mcp
+                ? new CliReviewRunner.McpEndpoint(pass.id(), participantId)
+                : null;
 
         CliReviewRunner.Result result;
         try {
-            result = cliRunner.run(provider, prompt, resume, Path.of(System.getProperty("java.io.tmpdir")));
+            result = cliRunner.run(provider, prompt, resume,
+                    Path.of(System.getProperty("java.io.tmpdir")), endpoint);
         }
         catch (CliReviewException e) {
             log.warn("CLI reviewer seat {} ({}) {} failed: {}",
@@ -255,6 +262,17 @@ public class ReviewerSeat
             cliSessions.put(participantId, result.sessionId());
         }
 
+        if (mcp) {
+            // Findings were written live through the MCP report_finding tool
+            // — nothing to parse out of the prose.
+            log.info("CLI reviewer seat {} ({}) {}: ran via MCP review tools.",
+                    seat.displayLabel(), seat.providerId(), phase);
+            String body = result.text().strip();
+            return persistSeatMessage(pass, participantId, phase, round,
+                    body.isBlank() ? "(no review text)" : body, result.costUsdMilli());
+        }
+
+        // JSON-block fallback (Codex): parse the structured findings out.
         List<CliReviewFindings.Parsed> parsed = CliReviewFindings.parse(result.text(), mapper);
         for (CliReviewFindings.Parsed finding : parsed) {
             reviewStore.saveFinding(new ReviewFinding(
@@ -268,7 +286,7 @@ public class ReviewerSeat
                     /* postedCommentId */ null,
                     Instant.now()));
         }
-        log.info("CLI reviewer seat {} ({}) {}: recorded {} finding(s).",
+        log.info("CLI reviewer seat {} ({}) {}: recorded {} finding(s) from the JSON block.",
                 seat.displayLabel(), seat.providerId(), phase, parsed.size());
 
         String body = stripFindingsBlock(result.text());
@@ -278,17 +296,22 @@ public class ReviewerSeat
 
     /** Compose the single prompt string a CLI seat gets. On the first turn
      *  it carries the persona + inlined diff; resumed turns rely on the
-     *  CLI's own session for that and send only the directive. The findings
-     *  instruction rides on every turn so each one emits a parseable block. */
-    private String cliPrompt(ReviewPass pass, PanelSeatConfig.Seat seat, String directive, boolean resuming)
+     *  CLI's own session for that and send only the directive. When the seat
+     *  has no MCP tools (Codex) the findings-as-JSON instruction rides along;
+     *  with MCP (Claude) the seat calls report_finding directly, so it's
+     *  omitted and the persona's tool instructions apply as written. */
+    private String cliPrompt(
+            ReviewPass pass, PanelSeatConfig.Seat seat, String directive, boolean resuming, boolean mcp)
     {
         StringBuilder sb = new StringBuilder();
         if (!resuming) {
             sb.append(systemPrompt(seat)).append("\n\n");
             sb.append(diffHeader(pass)).append("\n\n");
         }
-        sb.append(directive).append("\n\n");
-        sb.append(CliReviewFindings.INSTRUCTION);
+        sb.append(directive);
+        if (!mcp) {
+            sb.append("\n\n").append(CliReviewFindings.INSTRUCTION);
+        }
         return sb.toString();
     }
 

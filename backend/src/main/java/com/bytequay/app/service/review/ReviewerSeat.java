@@ -236,7 +236,15 @@ public class ReviewerSeat
                 form your own judgement, do not assume what other reviewers said unless \
                 the lead quoted them for you. Use the read-only tools (get_pr_diff, \
                 get_file_content, search_code) to check the actual code before making \
-                claims, and record every concrete issue with report_finding. \
+                claims, and record every concrete issue with report_finding — one \
+                report_finding call per issue. Do NOT just describe findings in prose: a \
+                finding that isn't recorded with report_finding does not exist to the rest \
+                of the panel or the publish step. \
+                ANCHOR EVERY CODE-SPECIFIC FINDING TO A LINE: pass both "path" (the diff \
+                file) and "line" (the new-file line number from the '+' side of the hunk) \
+                so it can post as an inline comment. Omit path/line only for a genuinely \
+                PR-wide observation; a code issue reported without a line silently \
+                degrades to a whole-PR note. \
                 BE TERSE: one short line per finding (claim + where), no preamble, no \
                 restating the task, no long explanations or background. Your final reply \
                 is a brief bullet list of findings plus a one-line overall stance — a few \

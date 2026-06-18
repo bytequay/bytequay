@@ -730,11 +730,13 @@ public class ReviewPassService
 
     private static final String INDEPENDENT_DIRECTIVE = """
             Give your independent review of this PR. Use the read-only tools to \
-            check the actual code before making claims, record every concrete \
-            issue with report_finding, and close with a SHORT summary — one terse \
-            line per finding, no preamble or long explanations, a few sentences at \
-            most. You are reviewing alone — no other reviewer's output exists for \
-            you.""";
+            check the actual code before making claims, and record every concrete \
+            issue with report_finding — one call per issue, anchored to its line: \
+            pass both "path" and the new-file "line" from the diff hunk so it can \
+            post as an inline comment. Reserve a path-less finding for a genuinely \
+            PR-wide point. Close with a SHORT summary — one terse line per finding, \
+            no preamble or long explanations, a few sentences at most. You are \
+            reviewing alone — no other reviewer's output exists for you.""";
 
     /** Lead-driven phase content: rounds until the Lead marks the
      *  agenda phase done, the pass budget is spent, or the watchdog

@@ -62,11 +62,13 @@ final class ReviewToolSchemas
 
     static final Tool REPORT_FINDING = new Tool(
             "report_finding",
-            "Record one review finding (file, line, severity, summary) on the pass.",
+            "Record one review finding (file, line, severity, summary) on the pass. "
+                    + "Anchor it to a specific changed line whenever the issue is about "
+                    + "concrete code — pass both path and line.",
             """
             {"type":"object","properties":{
-            "path":{"type":"string","description":"File the finding anchors to; omit for whole-PR."},
-            "line":{"type":"integer"},
+            "path":{"type":"string","description":"File the finding anchors to (the diff path). REQUIRED whenever the finding is about specific code; omit only for a genuinely PR-wide observation."},
+            "line":{"type":"integer","description":"Line number the finding anchors to — use the new-file line from the '+' side of the diff hunk. REQUIRED together with path for any code-specific finding; the finding posts as an inline comment on this line, and a finding with no line can only fold into the review body."},
             "severity":{"type":"string","enum":["blocker","major","nit","question"]},
             "summary":{"type":"string"}},
             "required":["severity","summary"]}""");

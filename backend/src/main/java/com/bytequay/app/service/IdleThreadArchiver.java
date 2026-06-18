@@ -122,7 +122,7 @@ public class IdleThreadArchiver
                 t.provider(),
                 t.agentSessionId(),
                 t.title(),
-                ThreadStatus.COMPLETED,
+                ThreadStatus.ARCHIVED,
                 t.model(),
                 t.costUsdMilli(),
                 t.tokensIn(),

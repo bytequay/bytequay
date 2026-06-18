@@ -744,7 +744,7 @@ public class ThreadService
         // COMPLETED the user can clean up the thread.
         List<Task> allTasks = taskStore.listTasksByThread(threadId);
         long unfinished = allTasks.stream()
-                .filter(t -> t.status() != TaskStatus.COMPLETED)
+                .filter(t -> t.status() != TaskStatus.COMPLETED && t.status() != TaskStatus.ARCHIVED)
                 .count();
         if (unfinished > 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
@@ -796,7 +796,7 @@ public class ThreadService
         // PENDING, AWAITING, IDLE, AWAITING_REVIEW, NEEDS_ATTENTION,
         // ERRORED — counts as still in flight and blocks the button.
         long unfinished = taskStore.listTasksByThread(threadId).stream()
-                .filter(t -> t.status() != TaskStatus.COMPLETED)
+                .filter(t -> t.status() != TaskStatus.COMPLETED && t.status() != TaskStatus.ARCHIVED)
                 .count();
         if (unfinished > 0) {
             return Optional.of(unfinished + " task" + (unfinished == 1 ? " is" : "s are")

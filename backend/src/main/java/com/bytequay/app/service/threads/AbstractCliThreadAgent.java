@@ -196,6 +196,7 @@ public abstract class AbstractCliThreadAgent
             ThreadStatus inherited = thread.status();
             this.status.set(
                     inherited == ThreadStatus.COMPLETED
+                            || inherited == ThreadStatus.ARCHIVED
                             || inherited == ThreadStatus.ERRORED
                             ? ThreadStatus.IDLE : inherited);
             this.agentSessionId.set(thread.agentSessionId());
@@ -345,7 +346,9 @@ public abstract class AbstractCliThreadAgent
     {
         requireNonNull(userInput, "userInput is null");
         ThreadStatus current = status.get();
-        if (current == ThreadStatus.COMPLETED || current == ThreadStatus.ERRORED) {
+        if (current == ThreadStatus.COMPLETED
+                || current == ThreadStatus.ARCHIVED
+                || current == ThreadStatus.ERRORED) {
             throw new IllegalStateException(
                     "thread is in terminal status " + current + "; cannot send more input");
         }
@@ -419,17 +422,20 @@ public abstract class AbstractCliThreadAgent
         // errorMessage so the runtime ticker restarts and the failure
         // banner doesn't hover over the new conversation.
         if (status.compareAndSet(ThreadStatus.ERRORED, ThreadStatus.IDLE)
-                || status.compareAndSet(ThreadStatus.COMPLETED, ThreadStatus.IDLE)) {
+                || status.compareAndSet(ThreadStatus.COMPLETED, ThreadStatus.IDLE)
+                || status.compareAndSet(ThreadStatus.ARCHIVED, ThreadStatus.IDLE)) {
             Thread current = store.findThreadById(threadId).orElse(null);
             if (current == null) {
                 return;
             }
             // Flip the latest task back to IDLE first so the thread-side
             // saveThread cascade sees a non-terminal active task and the
-            // two stay in sync.
+            // two stay in sync. Revive any task that isn't genuinely
+            // COMPLETED — ARCHIVED (idle-archived), ERRORED, or otherwise
+            // unfinished work can be picked back up; a COMPLETED (shipped)
+            // task stays done.
             taskStore.findLatestTaskForThread(threadId).ifPresent(task -> {
-                if (task.status() == TaskStatus.COMPLETED
-                        || task.status() == TaskStatus.ERRORED) {
+                if (task.status() != TaskStatus.COMPLETED) {
                     taskStore.saveTask(new Task(
                             task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
                             task.branchName(), task.worktreePath(), task.baseBranch(),

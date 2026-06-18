@@ -100,4 +100,11 @@ public enum TaskStatus
      *  reaped. Terminal — distinct from {@link #ERRORED} (a failure) and
      *  {@link #COMPLETED} (done). */
     CANCELED,
+
+    /** Inherited from a thread that {@code IdleThreadArchiver} archived
+     *  for inactivity (the thread→active-task status cascade). The task
+     *  wasn't finished — it just went dormant with the thread — so the
+     *  UI labels it "Archived", not "Completed", and {@code resume()}
+     *  revives it to {@link #IDLE} with its session + worktree intact. */
+    ARCHIVED,
 }

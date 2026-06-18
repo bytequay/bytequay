@@ -69,7 +69,7 @@ class TestIdleThreadArchiver
         verify(threadStore).saveThread(saved.capture());
         Thread archivedSave = saved.getValue();
         assertThat(archivedSave.id()).isEqualTo("stale");
-        assertThat(archivedSave.status()).isEqualTo(ThreadStatus.COMPLETED);
+        assertThat(archivedSave.status()).isEqualTo(ThreadStatus.ARCHIVED);
         assertThat(archivedSave.endedAt()).isEqualTo(now);
     }
 

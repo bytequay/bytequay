@@ -422,7 +422,9 @@ public class LogicLoopThreadAgent
                     "a turn is already in flight"));
             return done;
         }
-        if (current == ThreadStatus.COMPLETED || current == ThreadStatus.ERRORED) {
+        if (current == ThreadStatus.COMPLETED
+                || current == ThreadStatus.ARCHIVED
+                || current == ThreadStatus.ERRORED) {
             CompletableFuture<Void> done = new CompletableFuture<>();
             done.complete(null);
             return done;
@@ -1051,7 +1053,10 @@ public class LogicLoopThreadAgent
     @Override
     public void resume()
     {
-        if (status.get() == ThreadStatus.AWAITING) {
+        // AWAITING (paused) and ARCHIVED (auto-archived for inactivity)
+        // both revive to IDLE so the user can pick the panel back up.
+        if (status.get() == ThreadStatus.AWAITING
+                || status.get() == ThreadStatus.ARCHIVED) {
             status.set(ThreadStatus.IDLE);
         }
     }

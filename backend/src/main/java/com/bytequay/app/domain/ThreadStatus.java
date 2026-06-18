@@ -53,6 +53,14 @@ public enum ThreadStatus
      *  {@code mark as complete}. */
     COMPLETED,
 
+    /** Auto-archived by {@code IdleThreadArchiver} after sitting idle
+     *  past the workspace's "archive idle after" cadence. Distinct from
+     *  {@link #COMPLETED}: the work wasn't finished, we just stopped
+     *  touching it. Hidden from the default list like COMPLETED, but the
+     *  UI labels it "Archived" so it reads as dormant, not done, and
+     *  {@code resume()} revives it to {@link #IDLE}. */
+    ARCHIVED,
+
     /** Failed (budget, timeout, exception, killed, crashed). */
     ERRORED,
 }

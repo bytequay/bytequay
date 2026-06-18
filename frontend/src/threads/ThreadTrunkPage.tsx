@@ -127,6 +127,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   });
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   useInspectorHotkey(setInspectorOpen);
   // The user's own messages are always labelled "YOU" on their avatar.
@@ -487,6 +488,31 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     }
   }, [foreground, advancing, threadId, loadThread, refreshTasks]);
 
+  // Revive a terminal (completed / archived / errored) trunk thread back
+  // to IDLE so the user can keep planning. Same bridge call the per-task
+  // detail page uses; the latest non-COMPLETED task is revived alongside.
+  const onResumeTrunk = useCallback(async () => {
+    if (resuming) return;
+    setResuming(true);
+    setSendError(null);
+    try {
+      await window.bridge.resumeTask(threadId);
+      await Promise.all([loadThread(), refreshTasks()]);
+    }
+    catch (e) {
+      setSendError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setResuming(false);
+    }
+  }, [resuming, threadId, loadThread, refreshTasks]);
+
+  // A trunk whose own agent loop has gone terminal. Tasks have their own
+  // lifecycle; this is purely the planning conversation's status.
+  const threadTerminal = thread?.status === 'COMPLETED'
+    || thread?.status === 'ARCHIVED'
+    || thread?.status === 'ERRORED';
+
   const title = thread?.title ?? 'Loading…';
   const taskCount = tasks?.length ?? 0;
   // The thread status (IDLE = no running turn) is about the trunk's own
@@ -755,6 +781,33 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   input={pendingQuestion.input}
                   onAnswer={text => { void answerQuestion(text); }}
                 />
+              </div>
+            )}
+
+            {threadTerminal && (
+              <div style={trunkResumeBannerStyle}>
+                <div style={trunkResumeCopyStyle}>
+                  <span style={trunkResumeTitleStyle}>
+                    {thread?.status === 'ARCHIVED'
+                      ? 'Archived for inactivity'
+                      : thread?.status === 'ERRORED'
+                        ? 'Thread ended in error'
+                        : 'Thread completed'}
+                  </span>
+                  <span style={trunkResumeMsgStyle}>
+                    {thread?.status === 'ARCHIVED'
+                      ? "Auto-archived after sitting idle — the work isn't finished. Resume to keep planning where you left off."
+                      : 'Resume to keep planning — the trunk picks up its session and any unfinished task comes back too.'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { void onResumeTrunk(); }}
+                  disabled={resuming}
+                  style={trunkResumeBtnStyle}
+                >
+                  {resuming ? 'Resuming…' : '↻ Resume thread'}
+                </button>
               </div>
             )}
 
@@ -2310,6 +2363,45 @@ const composerCardStyle: React.CSSProperties = {
   borderRadius: 14,
   boxShadow: '0 4px 14px rgba(0,0,0,0.04)',
   flexShrink: 0,
+};
+
+const trunkResumeBannerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '10px 14px',
+  marginBottom: 8,
+  background: 'rgba(56,116,222,0.08)',
+  border: '1px solid rgba(56,116,222,0.30)',
+  borderRadius: 12,
+  flexShrink: 0,
+};
+const trunkResumeCopyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  flex: 1,
+  minWidth: 0,
+};
+const trunkResumeTitleStyle: React.CSSProperties = {
+  fontWeight: 700,
+  fontSize: 13,
+  color: 'var(--text-1)',
+};
+const trunkResumeMsgStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--text-2)',
+};
+const trunkResumeBtnStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '7px 14px',
+  border: 0,
+  borderRadius: 9,
+  background: 'linear-gradient(135deg,#4f86ff,#3b6fe0)',
+  color: '#fff',
+  fontSize: 12.5,
+  fontWeight: 700,
+  cursor: 'pointer',
 };
 
 const planningPlaceholderStyle: React.CSSProperties = {

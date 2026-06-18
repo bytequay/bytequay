@@ -63,11 +63,11 @@ final class PullRequestDetailFetcher
     {
         long t0 = System.nanoTime();
         String repoFull = repoFullName(ref);
-        log.info("fetchDetailFromGitHub start: {}#{}", repoFull, ref.number());
+        log.debug("fetchDetailFromGitHub start: {}#{}", repoFull, ref.number());
 
         Instant watermark = detailFetchWatermark(repoFull, ref);
         if (watermark != null) {
-            log.info("fetchDetailFromGitHub incremental: {}#{} since={}", repoFull, ref.number(), watermark);
+            log.debug("fetchDetailFromGitHub incremental: {}#{} since={}", repoFull, ref.number(), watermark);
         }
 
         PrDetailFetchResult result = awaitDetailFetches(startDetailFetches(pat, ref, watermark));
@@ -267,7 +267,7 @@ final class PullRequestDetailFetcher
             List<PrTimelineEvent> issueComments)
     {
         long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
-        log.info("fetchDetailFromGitHub done: {}#{} in {}ms -- timeline={} threadMsgs={} files={} checks={} issueComments={}",
+        log.debug("fetchDetailFromGitHub done: {}#{} in {}ms -- timeline={} threadMsgs={} files={} checks={} issueComments={}",
                 repoFullName(ref), ref.number(), elapsedMs,
                 timeline.size(),
                 reviewComments.size(),
@@ -283,12 +283,7 @@ final class PullRequestDetailFetcher
             try {
                 T result = thread.get();
                 long ms = (System.nanoTime() - t) / 1_000_000;
-                if (ms > 500) {
-                    log.info("{}({}#{}) ok in {}ms", name, repoFullName(ref), ref.number(), ms);
-                }
-                else {
-                    log.debug("{}({}#{}) ok in {}ms", name, repoFullName(ref), ref.number(), ms);
-                }
+                log.debug("{}({}#{}) ok in {}ms", name, repoFullName(ref), ref.number(), ms);
                 return result;
             }
             catch (RuntimeException e) {

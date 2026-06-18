@@ -28,7 +28,7 @@ const ARCHIVE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const DEFAULT_BEHAVIOR: WorkspaceBehaviorDto = {
-  archiveIdleAfter: '1d',
+  archiveIdleAfter: '1w',
   autoProposeTask: true,
   autoPromoteDecisions: false,
   newTopicNudge: true,

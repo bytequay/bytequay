@@ -46,9 +46,8 @@ public class WorkspaceBehaviorService
     static final String ARCHIVE_AFTER_1W = "1w";
     static final String ARCHIVE_AFTER_NEVER = "never";
 
-    /** Default cadence — matches the workspace-settings mockup's
-     *  "After 1d" selection. */
-    static final String DEFAULT_ARCHIVE_AFTER = ARCHIVE_AFTER_1D;
+    /** Default cadence — auto-archive a thread after a week idle. */
+    static final String DEFAULT_ARCHIVE_AFTER = ARCHIVE_AFTER_1W;
 
     private final AppSettingsStore settings;
 

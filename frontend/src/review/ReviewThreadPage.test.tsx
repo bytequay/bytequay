@@ -462,6 +462,33 @@ describe('ReviewThreadPage', () => {
     expect(screen.queryByText('Claude says.')).toBeNull();
   });
 
+  it('renders a reviewer timeline with role labels when focused', async () => {
+    const base = buildDetail({});
+    const lead = participant({ id: 'p-mod', kind: 'LEAD', personaLabel: 'Lead' });
+    const claude = participant({ id: 'p-claude', kind: 'REVIEWER', personaLabel: 'Claude' });
+    const detail: ReviewPassDetailDto = {
+      ...base,
+      participants: [lead, claude, participant({ id: 'p-you', kind: 'HUMAN', personaLabel: 'You' })],
+      messages: [
+        message({ id: 'd', participantId: 'p-mod', phase: 'INDEPENDENT',
+            mentions: ['p-claude'], body: '@Claude review the diff' }),
+        message({ id: 'rc', participantId: 'p-claude', phase: 'INDEPENDENT', body: 'Found an issue.' }),
+      ],
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: '@Claude' }));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '@Claude' })); });
+
+    // The focused view becomes a timeline: each turn carries a role label
+    // explaining why it's in @Claude's thread.
+    expect(screen.getByText(/replied/i)).toBeTruthy();        // Claude's own reply
+    expect(screen.getByText(/dispatched to/i)).toBeTruthy();  // the lead's dispatch to Claude
+  });
+
   it('coalesces a multi-dispatch lead turn into one bubble with an arrow chip per addressee', async () => {
     const base = buildDetail({});
     const lead = participant({ id: 'p-mod', kind: 'LEAD', personaLabel: 'Lead' });

@@ -1572,6 +1572,15 @@ function TranscriptSection({
             'No panel conversation was recorded for this pass.'
           )}
         </div>
+      ) : focusParticipantId !== null ? (
+        <FocusTimeline
+          messages={visible}
+          focusId={focusParticipantId}
+          participantsById={participantsById}
+          leadId={leadId}
+          onMentionClick={onMentionClick}
+          running={running}
+        />
       ) : (
         <div style={transcriptScrollStyle}>
           {items.map((item, i) => {
@@ -1622,6 +1631,177 @@ function TranscriptSection({
     </section>
   );
 }
+
+/** Focus-mode timeline: the selected reviewer's relevant turns laid out
+ *  on a vertical timeline. Each node is labelled by WHY it's in the
+ *  focused view — dispatched to them, their own reply, a cross-mention, or
+ *  the human joining their thread — with phase dividers and a relative
+ *  timestamp anchored to the first focused turn. */
+function FocusTimeline({
+  messages, focusId, participantsById, leadId, onMentionClick, running,
+}: {
+  messages: ReviewPanelMessageDto[];
+  focusId: string;
+  participantsById: Map<string, ReviewParticipantDto>;
+  leadId: string | null;
+  onMentionClick: (participantId: string) => void;
+  running: boolean;
+}) {
+  const baseMs = messages.length > 0 ? new Date(messages[0].createdAt).getTime() : 0;
+  return (
+    <div style={transcriptScrollStyle}>
+      <div style={timelineStyle}>
+        <span style={timelineLineStyle} aria-hidden />
+        {messages.map((m, i) => {
+          const showPhase = i === 0 || m.phase !== messages[i - 1].phase;
+          const role = focusRole(m, focusId, leadId, participantsById);
+          return (
+            <Fragment key={m.id}>
+              {showPhase && (
+                <div style={timelinePhaseStyle}>
+                  <span style={phaseLineStyle} aria-hidden />
+                  <span style={phaseDividerLabelStyle}>{phaseDividerText(m)}</span>
+                  <span style={phaseLineStyle} aria-hidden />
+                </div>
+              )}
+              <div style={timelineNodeStyle}>
+                <span style={timelineDotStyle(role.kind)} aria-hidden />
+                <div style={timelineNodeHeadStyle}>
+                  <span style={timelineTimeStyle}>{relativeStamp(baseMs, m.createdAt)}</span>
+                  <span style={focusRoleLabelStyle(role.kind)}>{role.label}</span>
+                </div>
+                <MessageBubble
+                  onMentionClick={onMentionClick}
+                  message={m}
+                  author={participantsById.get(m.participantId) ?? null}
+                  isLead={m.participantId === leadId}
+                  participantsById={participantsById}
+                  focusParticipantId={focusId}
+                />
+              </div>
+            </Fragment>
+          );
+        })}
+        {running && (
+          <div style={liveIndicatorStyle}>
+            <span style={livePulseStyle} className="review-live-dot" aria-hidden /> reviewing…
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type FocusRoleKind = 'reply' | 'dispatch' | 'mention' | 'you';
+
+function focusRole(
+  m: ReviewPanelMessageDto,
+  focusId: string,
+  leadId: string | null,
+  participantsById: Map<string, ReviewParticipantDto>,
+): { kind: FocusRoleKind; label: string } {
+  const label = participantsById.get(focusId)?.personaLabel ?? 'reviewer';
+  if (m.participantId === focusId) {
+    return { kind: 'reply', label: `${label} replied` };
+  }
+  if (leadId !== null && m.participantId === leadId) {
+    return { kind: 'dispatch', label: `dispatched to @${label}` };
+  }
+  if (participantsById.get(m.participantId)?.kind === 'HUMAN') {
+    return { kind: 'you', label: 'you joined this thread' };
+  }
+  const who = participantsById.get(m.participantId)?.personaLabel ?? 'someone';
+  return { kind: 'mention', label: `${who} mentioned @${label}` };
+}
+
+/** "t+MM:SS" relative to the first focused turn; '' on a bad date. */
+function relativeStamp(baseMs: number, iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t) || baseMs === 0) {
+    return '';
+  }
+  const sec = Math.max(0, Math.floor((t - baseMs) / 1000));
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  return `t+${mm}:${ss}`;
+}
+
+const FOCUS_KIND_COLOR: Record<FocusRoleKind, string> = {
+  reply: '#1e3a8a',
+  dispatch: '#92400e',
+  mention: '#6b21a8',
+  you: '#0d4a1d',
+};
+const FOCUS_KIND_DOT: Record<FocusRoleKind, string> = {
+  reply: '#3b82f6',
+  dispatch: '#d97706',
+  mention: '#7c3aed',
+  you: '#0d9488',
+};
+
+const timelineStyle: React.CSSProperties = {
+  position: 'relative',
+  paddingLeft: 30,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+};
+const timelineLineStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 10,
+  top: 26,
+  bottom: 16,
+  width: 2,
+  borderRadius: 1,
+  background: 'linear-gradient(180deg, rgba(59,130,246,0.4), rgba(124,92,255,0.2))',
+};
+const timelineNodeStyle: React.CSSProperties = {
+  position: 'relative',
+};
+function timelineDotStyle(kind: FocusRoleKind): React.CSSProperties {
+  return {
+    position: 'absolute',
+    left: -25,
+    top: 4,
+    width: 11,
+    height: 11,
+    borderRadius: '50%',
+    background: '#fff',
+    border: `2.5px solid ${FOCUS_KIND_DOT[kind]}`,
+    boxShadow: `0 0 0 3px ${FOCUS_KIND_DOT[kind]}1f`,
+  };
+}
+const timelineNodeHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginBottom: 5,
+  flexWrap: 'wrap',
+};
+const timelineTimeStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 10,
+  color: 'var(--text-4, #94a3b8)',
+};
+function focusRoleLabelStyle(kind: FocusRoleKind): React.CSSProperties {
+  return {
+    fontSize: 9.5,
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    padding: '1px 8px',
+    borderRadius: 999,
+    color: FOCUS_KIND_COLOR[kind],
+    background: `${FOCUS_KIND_DOT[kind]}1a`,
+    border: `1px solid ${FOCUS_KIND_DOT[kind]}47`,
+  };
+}
+const timelinePhaseStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  margin: '2px 0',
+};
 
 /** One lead turn that fanned out to N reviewers in parallel: a single
  *  LEAD bubble with one arrow chip per addressee. Each arrow jumps to

@@ -13,6 +13,7 @@
  */
 import { marked, Renderer } from 'marked';
 import { highlightToHtml } from './highlight';
+import { lookupEmoji } from './emoji';
 
 /** Unified-diff hunk header, e.g. {@code @@ -140,20 +140,16 @@}. Its
  *  presence is the unambiguous signal that a fenced block is a diff
@@ -158,7 +159,8 @@ export function renderChatMarkdown(text: string | null | undefined, repoContext?
  */
 function decorateRefsAndMentions(html: string, repoContext?: MarkdownRepoContext): string {
   if (!html || typeof document === 'undefined') return html;
-  if (!html.includes('@') && !html.includes('#')) return html;
+  // ':' gates the emoji shortcode pass; '@'/'#' gate the ref/mention pass.
+  if (!html.includes('@') && !html.includes('#') && !html.includes(':')) return html;
   const container = document.createElement('div');
   container.innerHTML = html;
   decorateNode(container, repoContext);
@@ -166,7 +168,11 @@ function decorateRefsAndMentions(html: string, repoContext?: MarkdownRepoContext
 }
 
 const SKIP_TAGS = new Set(['A', 'CODE', 'PRE', 'STYLE', 'SCRIPT', 'TEXTAREA']);
-const REF_RE = /(?<=^|[\s([])(@[A-Za-z0-9][A-Za-z0-9-]{0,38}|#\d{1,8})(?=$|[\s.,;:!?)\]])/g;
+// One pass matches either a `@user` / `#N` reference (group 1, boundary-
+// guarded so emails / mid-word hashes don't trip it) OR a `:shortcode:`
+// emoji (group 2). Emoji need no boundary guard — the colons delimit them
+// and an unknown name is left as literal text by the lookup below.
+const REF_RE = /(?<=^|[\s([])(@[A-Za-z0-9][A-Za-z0-9-]{0,38}|#\d{1,8})(?=$|[\s.,;:!?)\]])|:([A-Za-z0-9_+-]+):/g;
 
 function decorateNode(node: Node, repoContext?: MarkdownRepoContext): void {
   if (node.nodeType === Node.ELEMENT_NODE) {
@@ -178,12 +184,43 @@ function decorateNode(node: Node, repoContext?: MarkdownRepoContext): void {
   }
   if (node.nodeType !== Node.TEXT_NODE) return;
   const text = node.textContent ?? '';
-  if (!text || (!text.includes('@') && !text.includes('#'))) return;
+  if (!text || (!text.includes('@') && !text.includes('#') && !text.includes(':'))) return;
   const matches = Array.from(text.matchAll(REF_RE));
   if (matches.length === 0) return;
   const frag = document.createDocumentFragment();
   let pos = 0;
+  // Tracks whether we actually emitted any replacement — an emoji-only
+  // text node whose codes are all unknown produces zero changes, so we
+  // skip the replaceChild to avoid pointless DOM churn.
+  let changed = false;
   for (const m of matches) {
+    const emojiName = m[2];
+    if (emojiName !== undefined) {
+      const resolved = lookupEmoji(emojiName);
+      // Unknown shortcode → leave the literal `:name:` exactly as typed.
+      if (!resolved) continue;
+      const start = m.index ?? 0;
+      const end = start + m[0].length;
+      if (start > pos) frag.appendChild(document.createTextNode(text.slice(pos, start)));
+      if (resolved.kind === 'unicode') {
+        frag.appendChild(document.createTextNode(resolved.value));
+      } else {
+        const img = document.createElement('img');
+        img.className = 'md-emoji';
+        img.src = resolved.src;
+        img.alt = `:${emojiName}:`;
+        img.title = `:${emojiName}:`;
+        // Inline-sized so it sits on the text baseline wherever the
+        // rendered markdown lands, without a stylesheet dependency.
+        img.style.height = '1.25em';
+        img.style.width = '1.25em';
+        img.style.verticalAlign = 'text-bottom';
+        frag.appendChild(img);
+      }
+      pos = end;
+      changed = true;
+      continue;
+    }
     const start = m.index ?? 0;
     const end = start + m[0].length;
     if (start > pos) frag.appendChild(document.createTextNode(text.slice(pos, start)));
@@ -201,7 +238,9 @@ function decorateNode(node: Node, repoContext?: MarkdownRepoContext): void {
     }
     frag.appendChild(span);
     pos = end;
+    changed = true;
   }
+  if (!changed) return;
   if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
   node.parentNode?.replaceChild(frag, node);
 }

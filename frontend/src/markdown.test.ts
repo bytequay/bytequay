@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { renderChatMarkdown } from './markdown';
+import { renderChatMarkdown, renderMarkdown } from './markdown';
 
 describe('renderChatMarkdown diff blocks', () => {
   it('paints add / del / hunk / meta rows for a plain fenced diff', () => {
@@ -57,5 +57,37 @@ describe('renderChatMarkdown diff blocks', () => {
     expect(html).toContain('hljs');
     expect(html).toContain('<span class="hljs-keyword">const</span>');
     expect(html).toContain('language-js');
+  });
+});
+
+describe('emoji shortcodes', () => {
+  it('renders GitHub custom :shipit: as an image', () => {
+    const html = renderMarkdown('Ship it :shipit:');
+    expect(html).toContain('<img');
+    expect(html).toContain('shipit.png');
+    expect(html).toContain('class="md-emoji"');
+    expect(html).toContain('alt=":shipit:"');
+  });
+
+  it('converts common Unicode shortcodes to their glyph', () => {
+    expect(renderMarkdown(':tada: :+1: :rocket:')).toContain('🎉');
+    expect(renderMarkdown(':+1:')).toContain('👍');
+  });
+
+  it('leaves unknown shortcodes as literal text', () => {
+    const html = renderMarkdown('not an emoji :definitely_not_a_real_code:');
+    expect(html).toContain(':definitely_not_a_real_code:');
+    expect(html).not.toContain('<img');
+  });
+
+  it('does not emojify inside code spans or fences', () => {
+    expect(renderMarkdown('`:shipit:`')).not.toContain('<img');
+    expect(renderChatMarkdown('```\n:shipit:\n```')).not.toContain('<img');
+  });
+
+  it('does not mistake a time like 12:00:00 for a shortcode', () => {
+    const html = renderMarkdown('meet at 12:00:00 today');
+    expect(html).toContain('12:00:00');
+    expect(html).not.toContain('<img');
   });
 });

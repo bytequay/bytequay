@@ -90,16 +90,18 @@ class TestCodexCliThreadAgent
     @Test
     void wiresTheThreadMcpServerOnEveryTurn()
     {
-        // Both a fresh and a resumed turn must carry the -c override that
-        // points Codex at our per-thread MCP server, so a Codex trunk gets
-        // create_task / read_task / … the same as the Claude agent.
-        String expected = "mcp_servers.bytequay.url=\"http://127.0.0.1:53123/api/threads/thread-1/mcp\"";
+        // Both a fresh and a resumed turn must carry the -c overrides that
+        // point Codex at our per-thread MCP server AND enable the rmcp client
+        // (which actually enumerates the server's tools), so a Codex trunk
+        // gets create_task / read_task / … the same as the Claude agent.
+        String url = "mcp_servers.bytequay.url=\"http://127.0.0.1:53123/api/threads/thread-1/mcp\"";
+        String rmcp = "experimental_use_rmcp_client=true";
 
         List<String> fresh = agent("gpt-5", null, "").buildCommand("go").command();
-        assertThat(fresh).containsSubsequence("codex", "-c", expected, "exec");
+        assertThat(fresh).containsSubsequence("codex", "-c", url, "-c", rmcp, "exec");
 
         List<String> resumed = agent("gpt-5", "sess-abc", "").buildCommand("go").command();
-        assertThat(resumed).containsSubsequence("codex", "-c", expected, "exec", "resume");
+        assertThat(resumed).containsSubsequence("codex", "-c", url, "-c", rmcp, "exec", "resume");
     }
 
     @Test

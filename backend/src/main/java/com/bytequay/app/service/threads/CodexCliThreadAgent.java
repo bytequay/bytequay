@@ -152,6 +152,12 @@ public class CodexCliThreadAgent
                 // if a turn errors with an MCP/config complaint, the surfaced
                 // stderr will say so and this key/transport may need tuning.
                 .add("-c", "mcp_servers.bytequay.url=\"" + mcpServerUrl() + "\"")
+                // Use the rmcp client. Codex's default MCP client connects to
+                // an HTTP server (we see `initialize`) but never enumerates its
+                // tools (no `tools/list`), so the model never sees create_task
+                // and improvises with its built-in multi_agent spawn. The rmcp
+                // client does the streamable-HTTP tool discovery.
+                .add("-c", "experimental_use_rmcp_client=true")
                 .add("exec");
         String resume = resumeSessionId();
         boolean firstTurn = resume == null || resume.isBlank();

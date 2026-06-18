@@ -49,10 +49,13 @@ describe('renderChatMarkdown diff blocks', () => {
     expect(html).not.toContain('<script>');
   });
 
-  it('leaves a non-diff code block as an ordinary pre', () => {
+  it('syntax-highlights a non-diff code block', () => {
     const html = renderChatMarkdown('```js\nconst a = 1;\n```');
     expect(html).not.toContain('bq-diff');
     expect(html).toContain('<pre>');
-    expect(html).toContain('const a = 1;');
+    // highlight.js tokenises the code: same text, wrapped in hljs spans.
+    expect(html).toContain('hljs');
+    expect(html).toContain('<span class="hljs-keyword">const</span>');
+    expect(html).toContain('language-js');
   });
 });

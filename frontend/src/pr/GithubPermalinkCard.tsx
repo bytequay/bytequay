@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
+import { highlightToHtml, languageForPath } from '../highlight';
 
 /**
  * Renders a GitHub blob permalink (e.g.
@@ -107,7 +108,10 @@ export function GithubPermalinkCard({ url }: { url: string }) {
           snippet.map((line, i) => (
             <div key={i} className="gh-permalink__row">
               <span className="gh-permalink__lineno">{lineStart + i}</span>
-              <code className="gh-permalink__linetext">{line === '' ? ' ' : line}</code>
+              <code
+                className="gh-permalink__linetext hljs"
+                dangerouslySetInnerHTML={{ __html: line === '' ? ' ' : highlightToHtml(line, languageForPath(path)) }}
+              />
             </div>
           ))
         )}

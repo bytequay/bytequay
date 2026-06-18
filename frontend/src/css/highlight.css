@@ -1,0 +1,64 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* highlight.js token colours, GitHub-flavoured. We don't import hljs's own
+   theme CSS because the app ships several themes; instead the base palette
+   here is GitHub-light and the dark theme (atom-one-dark) overrides it with
+   GitHub-dark. The `.hljs` base colour inherits so plain text matches each
+   theme's foreground. */
+.hljs { color: inherit; background: transparent; }
+.hljs-comment, .hljs-quote { color: #6e7781; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag,
+.hljs-type, .hljs-class .hljs-title { color: #cf222e; }
+.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable,
+.hljs-tag .hljs-attr, .hljs-attr, .hljs-attribute { color: #0550ae; }
+.hljs-string, .hljs-regexp, .hljs-symbol, .hljs-bullet, .hljs-link { color: #0a3069; }
+.hljs-title, .hljs-title.function_, .hljs-section, .hljs-selector-id { color: #8250df; }
+.hljs-built_in, .hljs-builtin-name { color: #953800; }
+.hljs-tag, .hljs-name { color: #116329; }
+.hljs-meta { color: #6e7781; }
+.hljs-deletion { color: #82071e; }
+.hljs-addition { color: #116329; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+
+[data-theme="atom-one-dark"] .hljs-comment,
+[data-theme="atom-one-dark"] .hljs-quote { color: #8b949e; }
+[data-theme="atom-one-dark"] .hljs-keyword,
+[data-theme="atom-one-dark"] .hljs-selector-tag,
+[data-theme="atom-one-dark"] .hljs-subst,
+[data-theme="atom-one-dark"] .hljs-doctag,
+[data-theme="atom-one-dark"] .hljs-type,
+[data-theme="atom-one-dark"] .hljs-class .hljs-title { color: #ff7b72; }
+[data-theme="atom-one-dark"] .hljs-number,
+[data-theme="atom-one-dark"] .hljs-literal,
+[data-theme="atom-one-dark"] .hljs-variable,
+[data-theme="atom-one-dark"] .hljs-template-variable,
+[data-theme="atom-one-dark"] .hljs-tag .hljs-attr,
+[data-theme="atom-one-dark"] .hljs-attr,
+[data-theme="atom-one-dark"] .hljs-attribute { color: #79c0ff; }
+[data-theme="atom-one-dark"] .hljs-string,
+[data-theme="atom-one-dark"] .hljs-regexp,
+[data-theme="atom-one-dark"] .hljs-symbol,
+[data-theme="atom-one-dark"] .hljs-bullet,
+[data-theme="atom-one-dark"] .hljs-link { color: #a5d6ff; }
+[data-theme="atom-one-dark"] .hljs-title,
+[data-theme="atom-one-dark"] .hljs-title.function_,
+[data-theme="atom-one-dark"] .hljs-section,
+[data-theme="atom-one-dark"] .hljs-selector-id { color: #d2a8ff; }
+[data-theme="atom-one-dark"] .hljs-built_in,
+[data-theme="atom-one-dark"] .hljs-builtin-name { color: #ffa657; }
+[data-theme="atom-one-dark"] .hljs-tag,
+[data-theme="atom-one-dark"] .hljs-name { color: #7ee787; }
+[data-theme="atom-one-dark"] .hljs-meta { color: #8b949e; }

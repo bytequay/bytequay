@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
+import { highlightToHtml, languageForPath } from './highlight';
 import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewFindingDto, ReviewFindingSeverityDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached } from './dataCache';
 import Avatar from './Avatar';
@@ -1317,6 +1318,10 @@ function ExpandControls({
 
 function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDraftUpdated, prId, repo, prNumber, headSha, threads, onThreadReplied, prAuthor }: FileDiffProps) {
   const hunks = useMemo(() => parseUnifiedDiff(file.patch), [file.patch]);
+  // Syntax-highlight every diff line against the file's language. Each line
+  // is highlighted independently (a diff row is one line), so multi-line
+  // constructs don't carry state across rows — fine for GitHub-style diffs.
+  const lang = useMemo(() => languageForPath(file.filename), [file.filename]);
   // Expanded gap state — Map<gapIndex, Map<newLine, content>>. Gap g is
   // the region BEFORE hunks[g]; hunks.length is the after-last gap.
   // Cleared whenever the underlying patch changes (file or commit
@@ -1768,7 +1773,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                     <span className="diff-row__gutter">{newLine}</span>
                     <span className="diff-row__content">
                       <span className="diff-row__sigil"> </span>
-                      {content}
+                      <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(content, lang) }} />
                     </span>
                   </div>
                   {inline?.map(c => (
@@ -1885,7 +1890,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                     <span className="diff-row__sigil">
                       {row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' '}
                     </span>
-                    {row.content}
+                    <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(row.content, lang) }} />
                   </span>
                 </div>
                 {inline?.map(c => (
@@ -2004,7 +2009,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                     <span className="diff-row__gutter">{newLine}</span>
                     <span className="diff-row__content">
                       <span className="diff-row__sigil"> </span>
-                      {content}
+                      <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(content, lang) }} />
                     </span>
                   </div>
                   {inline?.map(c => (

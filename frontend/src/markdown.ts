@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { marked, Renderer } from 'marked';
+import { highlightToHtml } from './highlight';
 
 /** Unified-diff hunk header, e.g. {@code @@ -140,20 +140,16 @@}. Its
  *  presence is the unambiguous signal that a fenced block is a diff
@@ -55,14 +56,19 @@ function renderDiffBlock(code: string): string {
   return `<pre class="bq-diff"><code class="language-diff">${rows}</code></pre>`;
 }
 
-/** Shared renderer that special-cases diff code fences and otherwise
- *  defers to marked's default. Passed per-parse via options so we don't
- *  mutate the global marked singleton. */
+/** Shared renderer that special-cases diff fences as colored diff blocks
+ *  and otherwise syntax-highlights the fence with highlight.js. Passed
+ *  per-parse via options so we don't mutate the global marked singleton. */
 function makeChatRenderer(): Renderer {
   const renderer = new Renderer();
-  const baseCode = renderer.code.bind(renderer);
-  renderer.code = (code: string, infostring: string | undefined, escaped: boolean): string =>
-    isDiffBlock(code, infostring) ? renderDiffBlock(code) : baseCode(code, infostring, escaped);
+  renderer.code = (code: string, infostring: string | undefined): string => {
+    if (isDiffBlock(code, infostring)) {
+      return renderDiffBlock(code);
+    }
+    const lang = (infostring ?? '').trim().split(/\s+/)[0].toLowerCase();
+    const html = highlightToHtml(code, lang === '' ? undefined : lang);
+    return `<pre><code class="hljs${lang === '' ? '' : ` language-${lang}`}">${html}</code></pre>`;
+  };
   return renderer;
 }
 

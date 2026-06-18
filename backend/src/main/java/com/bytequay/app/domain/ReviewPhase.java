@@ -39,7 +39,12 @@ public enum ReviewPhase
     DEBATE("debate"),
     TERMINATE("terminate"),
     ARBITRATE("arbitrate"),
-    PUBLISHED("published");
+    PUBLISHED("published"),
+    /** Terminal state the human sets by hand via "Mark as completed" —
+     *  the review is done without posting to GitHub. Distinct from
+     *  PUBLISHED (posted) and from the automatic TERMINATE (wrap-up).
+     *  Still resumable: {@code resumePass} re-runs the pipeline. */
+    COMPLETED("completed");
 
     private final String dbValue;
 

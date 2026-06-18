@@ -282,6 +282,14 @@ public class ReviewController
         return reviews.resumePass(passId);
     }
 
+    /** Mark a pass completed by hand — finished without posting to
+     *  GitHub. Resumable afterwards via {@code /resume}. */
+    @PostMapping("/{passId}/complete")
+    public ReviewPassDetail complete(@PathVariable String passId)
+    {
+        return reviews.completePass(passId);
+    }
+
     /** Batch PR title + author for review threads, so a thread list can
      *  label each review thread with the reviewed PR cheaply. */
     @PostMapping("/pr-summaries")

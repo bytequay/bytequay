@@ -906,6 +906,35 @@ class TestReviewPassService
     }
 
     @Test
+    void completePassMarksThePassCompletedWithoutPostingToGitHub()
+    {
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        ReviewFinding agreed = seedFinding(pass, "src/a.ts", 1,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Nit.");
+
+        ReviewPassDetail completed = service.completePass(pass.id());
+
+        assertThat(completed.pass().phase()).isEqualTo(ReviewPhase.COMPLETED);
+        assertThat(completed.pass().endedAt()).isNotNull();
+        // Nothing is posted to GitHub, and findings keep their status.
+        verify(pullRequests, never()).createReview(
+                anyString(), any(PullRequestRef.class), any(CreateReviewCommand.class));
+        assertThat(findingById(completed, agreed.id()).status())
+                .isEqualTo(ReviewFindingStatus.AGREED);
+    }
+
+    @Test
+    void completePassRefusesWithA409WhenThePassAlreadyPublished()
+    {
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        service.publishPass(pass.id(), ReviewVerdict.APPROVE, List.of());
+
+        assertThatThrownBy(() -> service.completePass(pass.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("already published");
+    }
+
+    @Test
     void publishPassSurfacesA502WhenGitHubRejectsTheReview()
     {
         ReviewPass pass = seedPass(ReviewPhase.TERMINATE);

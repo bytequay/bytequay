@@ -1690,6 +1690,28 @@ public class ReviewPassService
         return buildDetail(published);
     }
 
+    /**
+     * Mark a pass COMPLETED by hand — the human closing the review out
+     * without posting to GitHub. A terminal-but-reversible state: the
+     * left-rail "Resume review" still re-runs the pipeline. Idempotent;
+     * refuses only a pass that already published (that path is final).
+     */
+    public ReviewPassDetail completePass(String passId)
+    {
+        requireNonNull(passId, "passId is null");
+        ReviewPass pass = reviewStore.findPassById(passId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no review pass: " + passId));
+        if (pass.phase() == ReviewPhase.PUBLISHED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "review pass " + passId + " is already published");
+        }
+        if (pass.phase() != ReviewPhase.COMPLETED) {
+            reviewStore.savePass(withPhase(pass, ReviewPhase.COMPLETED, Instant.now()));
+        }
+        return findPassWithDetail(passId).orElseThrow();
+    }
+
     /** The reviewer's most-recent INDEPENDENT message is the natural
      *  body for the GitHub review. Falls back to a generated line if
      *  the transcript is empty (defensive — shouldn't happen on a

@@ -156,6 +156,11 @@ public abstract class AbstractCliThreadAgent
     private final AtomicLong taskCostUsdMilli = new AtomicLong();
     private final AtomicLong taskTokensIn = new AtomicLong();
     private final AtomicLong taskTokensOut = new AtomicLong();
+    // Converts the parser's reported token usage to per-turn deltas. A
+    // cumulative provider (Codex) reports the session running total each turn;
+    // without this we summed those totals and quadratically over-counted.
+    private final CumulativeUsageDelta tokensInDelta;
+    private final CumulativeUsageDelta tokensOutDelta;
     private final AtomicLong runningToolCallCount = new AtomicLong();
     private final long sessionStartedMs;
 
@@ -204,6 +209,8 @@ public abstract class AbstractCliThreadAgent
         // or errored) must still accept trunk planning turns. Normalise a
         // terminal inherited status to IDLE so send() doesn't refuse the
         // very first turn.
+        long cumBaselineIn = 0L;
+        long cumBaselineOut = 0L;
         if (trunkCwd != null) {
             this.workingDir = trunkCwd;
             this.branchName = null;
@@ -215,6 +222,12 @@ public abstract class AbstractCliThreadAgent
                             || inherited == ThreadStatus.ERRORED
                             ? ThreadStatus.IDLE : inherited);
             this.agentSessionId.set(thread.agentSessionId());
+            // A resumed trunk session already contributed thread.tokensIn, so
+            // anchor cumulative-usage deltas there; a fresh session starts at 0.
+            if (thread.agentSessionId() != null && !thread.agentSessionId().isBlank()) {
+                cumBaselineIn = thread.tokensIn();
+                cumBaselineOut = thread.tokensOut();
+            }
         }
         else {
             // Look up the active task directly from TaskStore so the ctor
@@ -244,10 +257,19 @@ public abstract class AbstractCliThreadAgent
             this.taskCostUsdMilli.set(active.costUsdMilli());
             this.taskTokensIn.set(active.tokensIn());
             this.taskTokensOut.set(active.tokensOut());
+            // The task's session already contributed active.tokensIn on a
+            // resume — anchor cumulative-usage deltas there.
+            if (active.agentSessionId() != null && !active.agentSessionId().isBlank()) {
+                cumBaselineIn = active.tokensIn();
+                cumBaselineOut = active.tokensOut();
+            }
         }
         this.runningCostUsdMilli.set(thread.costUsdMilli());
         this.runningTokensIn.set(thread.tokensIn());
         this.runningTokensOut.set(thread.tokensOut());
+        boolean cumulativeUsage = parser.reportsCumulativeUsage();
+        this.tokensInDelta = new CumulativeUsageDelta(cumulativeUsage, cumBaselineIn);
+        this.tokensOutDelta = new CumulativeUsageDelta(cumulativeUsage, cumBaselineOut);
         this.sessionStartedMs = thread.createdAt().toEpochMilli();
         // Seed the seq counter from any existing rows so a restart
         // doesn't collide with prior persisted messages.
@@ -742,16 +764,21 @@ public abstract class AbstractCliThreadAgent
         }
         boolean turnDone = event instanceof StreamEvent.TurnDone;
         if (event instanceof StreamEvent.TurnDone t) {
+            // Convert the parser's reported usage to a per-turn delta first —
+            // Codex reports the session running total each turn, so adding the
+            // raw value would quadratically over-count (the 3.8M-token bug).
+            long inDelta = tokensInDelta.delta(t.tokensIn());
+            long outDelta = tokensOutDelta.delta(t.tokensOut());
             runningCostUsdMilli.addAndGet(t.costUsdMilli());
-            runningTokensIn.addAndGet(t.tokensIn());
-            runningTokensOut.addAndGet(t.tokensOut());
+            runningTokensIn.addAndGet(inDelta);
+            runningTokensOut.addAndGet(outDelta);
             // Grow the focused task's OWN usage and persist it, so the task
             // row reflects what this task spent (not the thread's lifetime —
             // the saveThread cascade no longer mirrors thread totals onto it).
             if (activeTaskId != null) {
                 long cost = taskCostUsdMilli.addAndGet(t.costUsdMilli());
-                long in = taskTokensIn.addAndGet(t.tokensIn());
-                long out = taskTokensOut.addAndGet(t.tokensOut());
+                long in = taskTokensIn.addAndGet(inDelta);
+                long out = taskTokensOut.addAndGet(outDelta);
                 taskStore.findTaskById(activeTaskId).ifPresent(task ->
                         taskStore.saveTask(task.withUsage(cost, in, out)));
             }

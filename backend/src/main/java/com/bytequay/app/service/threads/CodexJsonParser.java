@@ -154,6 +154,14 @@ public class CodexJsonParser
         return exit.isInt() && exit.intValue() != 0;
     }
 
+    @Override
+    public boolean reportsCumulativeUsage()
+    {
+        // Codex's turn.completed.usage is the session running total, not the
+        // turn's own — e.g. {"input_tokens":24763,"cached_input_tokens":24448}.
+        return true;
+    }
+
     private List<StreamEvent> parseTurnCompleted(JsonNode usage, Instant now)
     {
         long tokensIn = usage.path("input_tokens").asLong(0L);

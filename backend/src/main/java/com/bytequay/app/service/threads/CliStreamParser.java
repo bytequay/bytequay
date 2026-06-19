@@ -38,4 +38,17 @@ public interface CliStreamParser
      * events anchor against parse time.
      */
     List<StreamEvent> parse(String line, Instant now);
+
+    /**
+     * Whether the {@code tokensIn}/{@code tokensOut} this parser puts on a
+     * {@link StreamEvent.TurnDone} are the session's <em>cumulative</em> total
+     * (true) or the turn's own usage (false). Codex's {@code turn.completed}
+     * reports the running session total on every turn, so summing them
+     * quadratically over-counts; the agent converts those to per-turn deltas.
+     * Anthropic reports per-turn usage, so it sums directly.
+     */
+    default boolean reportsCumulativeUsage()
+    {
+        return false;
+    }
 }

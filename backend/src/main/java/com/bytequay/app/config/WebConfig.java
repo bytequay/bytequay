@@ -44,7 +44,10 @@ public class WebConfig
     private static final String DEEPSEEK_LOCAL_BASE_URL = "http://127.0.0.1:8000";
     private static final String OPENAI_API_BASE_URL = "https://api.openai.com/v1";
     private static final String GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
-    private static final String QUOTABLE_API_BASE_URL = "https://api.quotable.io";
+    private static final String API_NINJAS_BASE_URL = "https://api.api-ninjas.com";
+    /** Env var holding the API Ninjas key. Optional — without it the daily
+     *  card's remote fetch 401s and falls back to the curated pool. */
+    private static final String API_NINJAS_KEY_ENV = "API_NINJAS_KEY";
 
     // Outbound-HTTP timeouts. Without these a stuck GitHub call (rate-limited,
     // TCP dead connection, network blip) ties up a Tomcat worker until Node's
@@ -153,18 +156,25 @@ public class WebConfig
     }
 
     @Bean
-    public RestClient quotableRestClient()
+    public RestClient apiNinjasRestClient()
     {
-        // Public, no-auth quote feed used by the home-page "daily card".
-        // We hit it at most once per calendar day per backend lifetime —
-        // a short read timeout is plenty, and on any failure the daily
-        // card falls back to the in-process curated pool.
-        return RestClient.builder()
-                .baseUrl(QUOTABLE_API_BASE_URL)
+        // API Ninjas quote feed used by the home-page "daily card". We hit
+        // it at most once per calendar day per backend lifetime — a short
+        // read timeout is plenty, and on any failure (including a missing
+        // API key) the daily card falls back to the in-process curated
+        // pool. The key comes from the API_NINJAS_KEY env var; it's set as
+        // a default header only when present so a keyless dev environment
+        // still boots (the card just uses the pool).
+        RestClient.Builder builder = RestClient.builder()
+                .baseUrl(API_NINJAS_BASE_URL)
                 .defaultHeader("Accept", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofSeconds(8)))
-                .build();
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofSeconds(8)));
+        String apiKey = System.getenv(API_NINJAS_KEY_ENV);
+        if (apiKey != null && !apiKey.isBlank()) {
+            builder.defaultHeader("X-Api-Key", apiKey);
+        }
+        return builder.build();
     }
 
     private static ClientHttpRequestFactory newTimeoutRequestFactory(Duration connect, Duration read)

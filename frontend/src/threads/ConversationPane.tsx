@@ -637,7 +637,13 @@ function formatToolArgs(toolName: string, input: unknown): string {
       return extra ? `${path} · ${extra}` : path;
     }
     case 'Bash':
-      return String(obj.command ?? '');
+    // Codex CLI names its shell tool `command_execution`; without these
+    // aliases it fell through to the raw-JSON dump below.
+    case 'command_execution':
+    case 'shell': {
+      const cmd = obj.command;
+      return Array.isArray(cmd) ? cmd.map(String).join(' ') : String(cmd ?? '');
+    }
     case 'Grep':
       return `${obj.pattern ?? ''}${obj.path ? ` · ${obj.path}` : ''}`;
     default: {

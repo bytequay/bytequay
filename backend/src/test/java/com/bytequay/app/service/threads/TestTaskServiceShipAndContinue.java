@@ -169,6 +169,13 @@ class TestTaskServiceShipAndContinue
         //    persist the new task before reaping the old one's path.
         assertThat(next.seq()).isEqualTo(2L);
         assertThat(next.status()).isEqualTo(TaskStatus.PENDING);
+
+        // 4. The shipped task's PHASE fast-forwards to "awaiting remote
+        //    review" so the flow stepper reflects the open PR instead of
+        //    staying stuck on "implementing". (It only reaches COMPLETED when
+        //    the PR merges — a separate, webhook-driven transition.)
+        verify(taskPhaseMachine).observe(
+                eq("task-1"), eq(TaskPhase.AWAITING_REMOTE_REVIEW), anyString());
     }
 
     @Test

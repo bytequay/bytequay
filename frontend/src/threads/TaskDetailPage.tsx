@@ -1203,12 +1203,10 @@ export default function TaskDetailPage({
                   else if (isShipped) {
                     // Pushed with a PR open (or parked for approval) — the work
                     // is shipped and waiting on merge, so don't offer Ship again.
+                    // The "Shipped" badge says it all; no hint line needed.
                     glyph = '✓';
                     label = 'Shipped';
-                    hint = hasPr
-                      ? `PR #${task!.prNumber} is open — waiting on merge. `
-                        + 'Open the trunk to start the next task.'
-                      : 'Shipped — waiting on merge. Open the trunk to start the next task.';
+                    hint = '';
                     tone = shipShippedDoneStyle;
                   }
                   else {
@@ -1246,7 +1244,7 @@ export default function TaskDetailPage({
                         <span aria-hidden style={{ marginRight: 8 }}>{glyph}</span>
                         {label}
                       </button>
-                      <div style={shipHintStyle}>{hint}</div>
+                      {hint && <div style={shipHintStyle}>{hint}</div>}
                     </>
                   );
                 })()}

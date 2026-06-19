@@ -370,6 +370,16 @@ public class TaskService
                     .withLinkedPrNumber(parkedLinkedPrNumber)
                     .withEndedAt(parkedEndedAt);
             taskStore.saveTask(parked);
+            // Ship pushed + opened the PR directly, so fast-forward the phase
+            // to match that observed reality: the task is no longer
+            // "implementing" — it's shipped and waiting on the PR to merge, so
+            // the flow stepper should read "Remote review", not "Implement".
+            // It only reaches COMPLETED when the PR actually merges
+            // (completeTasksForMergedPr). NEXT keeps its own parked flow.
+            if (mode == ParkMode.SHIP && prNumber != null) {
+                taskPhaseMachine.observe(
+                        current.id(), TaskPhase.AWAITING_REMOTE_REVIEW, "shipped_pr_open");
+            }
 
             // 5-6. Optionally cut + persist the seq+1 successor. SHIP only
             //    continues the chain when the trunk has queued work — an empty

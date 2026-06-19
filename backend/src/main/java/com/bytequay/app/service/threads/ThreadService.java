@@ -874,9 +874,11 @@ public class ThreadService
                 () -> git.workingTreeFileDiff(cwd.get(), path, DIFF_MAX_BYTES));
     }
 
-    /** Commits authored during the thread's lifetime. Time-based filter
-     *  on the thread's {@code createdAt} — works for single-user repos
-     *  where anything new since the AI session started is the AI's. */
+    /** The commits this task ADDED on top of its base branch
+     *  ({@code git log <base>..HEAD}). Scoped to the task's own work, not
+     *  the base history the worktree was cut from — a time-based filter
+     *  over-includes commits that landed on the base branch during the
+     *  task's lifetime (they're recent but aren't the task's). */
     public List<GitRunner.CommitEntry> listTaskCommits(String threadId)
     {
         Thread thread = requireTask(threadId);
@@ -888,8 +890,13 @@ public class ThreadService
         if (cwd.isEmpty()) {
             return List.of();
         }
+        String base = taskStore.findActiveTaskForThread(threadId)
+                .or(() -> taskStore.findLatestTaskForThread(threadId))
+                .map(Task::baseBranch)
+                .filter(b -> b != null && !b.isBlank())
+                .orElse("main");
         return runGit("list commits for " + threadId,
-                () -> git.listCommitsSince(cwd.get(), thread.createdAt(), COMMITS_LIMIT));
+                () -> git.listCommitsAhead(cwd.get(), base, COMMITS_LIMIT));
     }
 
     /** Per-file rollup for one commit (path + status + +/-) so the

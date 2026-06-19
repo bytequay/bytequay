@@ -285,6 +285,46 @@ public record Task(
                 openingPrompt);
     }
 
+    /** Copy with this task's own accumulated usage; all other fields
+     *  unchanged. Used by the agent to persist a task's task-scoped spend
+     *  (NOT the thread's lifetime total — see SqliteThreadStore's cascade). */
+    public Task withUsage(long costUsdMilli, long tokensIn, long tokensOut)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt);
+    }
+
     /** Copy with a new user-supplied {@code name}; all other fields unchanged. */
     public Task withName(String name)
     {

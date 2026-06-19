@@ -115,11 +115,20 @@ export default function TaskChat({
   const baseLabel = baseBranch !== null && baseBranch.length > 0
     ? `off ${baseBranch}` : 'off main';
 
+  // A task only carries a "plan" when it was actually seeded with an opening
+  // prompt (or has since produced a conversation). A task cut with a blank
+  // prompt lands here empty and idle — claiming "seeded with the plan" then is
+  // misleading, so say it's waiting for the user's first message instead.
+  const hasContent = items.length > 0 || streaming || isInFlight;
+  const forkedHint = hasContent
+    ? `seeded with the plan · ${baseLabel}`
+    : `waiting for your first message · ${baseLabel}`;
+
   return (
     <div ref={assignScrollRef} style={scrollStyle}>
       <div style={forkedRowStyle}>
         <span style={forkedBadgeStyle}>⑂ forked from the thread</span>
-        <span style={forkedHintStyle}>seeded with the plan · {baseLabel}</span>
+        <span style={forkedHintStyle}>{forkedHint}</span>
       </div>
 
       {canLoadOlder && (

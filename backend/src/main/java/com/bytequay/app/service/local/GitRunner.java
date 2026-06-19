@@ -1009,6 +1009,56 @@ public class GitRunner
     }
 
     /**
+     * Lists the commits a task branch has ADDED on top of its base —
+     * {@code git log <base>..HEAD}. This is what "commits on this task"
+     * means: only the work the task authored, not the base branch's
+     * history the worktree was cut from. A time-based filter over-includes
+     * here, because commits landed on the base branch (by other work)
+     * during the task's lifetime are recent but aren't the task's.
+     *
+     * <p>Returns no commits when {@code base} is blank or unresolvable
+     * (e.g. the base ref is gone) rather than failing the page.
+     */
+    public List<CommitEntry> listCommitsAhead(Path workingDir, String base, int limit)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0 || base == null || base.isBlank()) {
+            return List.of();
+        }
+        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
+                + "%ae" + US_SEP + "%aI" + US_SEP + "%s";
+        List<String> args = new ArrayList<>(List.of(
+                "git", "log",
+                "--max-count=" + limit,
+                base.trim() + "..HEAD",
+                "-z",
+                "--pretty=format:" + fmt));
+        GitResult result = run(args, workingDir);
+        if (result.exitCode() != 0) {
+            // An unresolvable base (deleted ref, detached state) shouldn't
+            // 500 the Commits panel — just show nothing task-specific.
+            return List.of();
+        }
+        String stdout = result.stdout();
+        if (stdout.isEmpty()) {
+            return List.of();
+        }
+        List<CommitEntry> entries = new ArrayList<>();
+        for (String record : stdout.split(NUL_SEP, -1)) {
+            if (record.isEmpty()) {
+                continue;
+            }
+            String[] parts = record.split(US_SEP, -1);
+            if (parts.length < 6) {
+                continue;
+            }
+            entries.add(new CommitEntry(
+                    parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]));
+        }
+        return List.copyOf(entries);
+    }
+
+    /**
      * Lists every file touched by a single commit, with status and
      * line counts. Powers the middle pane of the Commits tab.
      *

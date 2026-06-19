@@ -149,6 +149,13 @@ public abstract class AbstractCliThreadAgent
     private final AtomicLong runningCostUsdMilli = new AtomicLong();
     private final AtomicLong runningTokensIn = new AtomicLong();
     private final AtomicLong runningTokensOut = new AtomicLong();
+    // Task-scoped usage, seeded from the focused task (0 in trunk mode) and
+    // grown per turn. The running* counters above are the THREAD's lifetime
+    // cumulative spend; these are just this task's, so metrics() and the task
+    // row don't inherit the whole chain's tokens. Untouched in trunk mode.
+    private final AtomicLong taskCostUsdMilli = new AtomicLong();
+    private final AtomicLong taskTokensIn = new AtomicLong();
+    private final AtomicLong taskTokensOut = new AtomicLong();
     private final AtomicLong runningToolCallCount = new AtomicLong();
     private final long sessionStartedMs;
 
@@ -232,6 +239,11 @@ public abstract class AbstractCliThreadAgent
             // Each Task owns its own forked session that --resume must hit
             // so we land back in this Task's worktree conversation.
             this.agentSessionId.set(active.agentSessionId());
+            // Seed task-scoped usage from the task's own prior spend so a
+            // resumed task keeps accumulating from where it left off.
+            this.taskCostUsdMilli.set(active.costUsdMilli());
+            this.taskTokensIn.set(active.tokensIn());
+            this.taskTokensOut.set(active.tokensOut());
         }
         this.runningCostUsdMilli.set(thread.costUsdMilli());
         this.runningTokensIn.set(thread.tokensIn());
@@ -334,11 +346,15 @@ public abstract class AbstractCliThreadAgent
     public final AgentMetrics metrics()
     {
         long runtimeMs = Math.max(0L, System.currentTimeMillis() - sessionStartedMs);
+        // A task-focused agent reports its TASK's usage; a trunk agent reports
+        // the thread's. Without this split a focused task's metrics show the
+        // whole thread's lifetime spend (the 26M-token "context" bug).
+        boolean taskScoped = activeTaskId != null;
         return new AgentMetrics(
                 runtimeMs,
-                runningCostUsdMilli.get(),
-                runningTokensIn.get(),
-                runningTokensOut.get(),
+                (taskScoped ? taskCostUsdMilli : runningCostUsdMilli).get(),
+                (taskScoped ? taskTokensIn : runningTokensIn).get(),
+                (taskScoped ? taskTokensOut : runningTokensOut).get(),
                 (int) Math.min(Integer.MAX_VALUE, runningToolCallCount.get()),
                 store.listFiles(threadId).size());
     }
@@ -729,6 +745,16 @@ public abstract class AbstractCliThreadAgent
             runningCostUsdMilli.addAndGet(t.costUsdMilli());
             runningTokensIn.addAndGet(t.tokensIn());
             runningTokensOut.addAndGet(t.tokensOut());
+            // Grow the focused task's OWN usage and persist it, so the task
+            // row reflects what this task spent (not the thread's lifetime —
+            // the saveThread cascade no longer mirrors thread totals onto it).
+            if (activeTaskId != null) {
+                long cost = taskCostUsdMilli.addAndGet(t.costUsdMilli());
+                long in = taskTokensIn.addAndGet(t.tokensIn());
+                long out = taskTokensOut.addAndGet(t.tokensOut());
+                taskStore.findTaskById(activeTaskId).ifPresent(task ->
+                        taskStore.saveTask(task.withUsage(cost, in, out)));
+            }
         }
         persistMessage(event);
         publish(event);

@@ -35,6 +35,7 @@ import { WorkModelPill } from '../workspace/WorkModelPill';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { useThreadTasks } from './useThreadTasks';
 import { useThreadStream } from './useThreadStream';
+import { contextWindowPct } from './contextWindow';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
 import { findPendingAskQuestion } from './askQuestion';
@@ -696,9 +697,7 @@ export default function TaskDetailPage({
             <span style={termCtxBadgeStyle}>
               {thread?.model ?? 'claude'}
               <span style={{ marginLeft: 8, opacity: 0.7 }}>
-                ctx {task !== null
-                  ? Math.min(100, Math.round((task.tokensIn / 200_000) * 100))
-                  : 0}%
+                ctx {contextWindowPct(messages, liveUsage?.tokensIn)}%
               </span>
             </span>
           )}
@@ -916,9 +915,7 @@ export default function TaskDetailPage({
                     runtimeSec={task !== null
                       ? Math.max(0, Math.floor((Date.now() - Date.parse(task.createdAt)) / 1000))
                       : 0}
-                    ctxPct={task !== null
-                      ? Math.min(100, Math.round((liveTokensIn / 200_000) * 100))
-                      : 0}
+                    ctxPct={contextWindowPct(messages, liveUsage?.tokensIn)}
                   />
                 )}
               </div>

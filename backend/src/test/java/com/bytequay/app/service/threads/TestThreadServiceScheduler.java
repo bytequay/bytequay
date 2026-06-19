@@ -753,7 +753,10 @@ class TestThreadServiceScheduler
         Path expected = Path.of(active.agentCwd());
         assertThat(git.workingTreeFilesPaths).containsExactly(expected);
         assertThat(git.workingTreeDiffPaths).containsExactly(expected);
-        assertThat(git.listCommitsSincePaths).containsExactly(expected);
+        assertThat(git.listCommitsAheadPaths).containsExactly(expected);
+        // Commits are scoped to the task's base branch (base..HEAD), not a
+        // time window — so the panel shows only the task's own commits.
+        assertThat(git.listCommitsAheadBases).containsExactly("main");
         assertThat(git.commitFilesPaths).containsExactly(expected);
         assertThat(git.commitDiffPaths).containsExactly(expected);
     }
@@ -788,7 +791,7 @@ class TestThreadServiceScheduler
         assertThat(service.listTaskCommits(thread.id())).isEmpty();
         assertThat(service.getWorkingDiff(thread.id(), "src/App.java")).isEmpty();
         // git was never invoked against the missing directory.
-        assertThat(git.listCommitsSincePaths).isEmpty();
+        assertThat(git.listCommitsAheadPaths).isEmpty();
         assertThat(git.workingTreeDiffPaths).isEmpty();
     }
 
@@ -855,7 +858,8 @@ class TestThreadServiceScheduler
     {
         private final List<Path> workingTreeFilesPaths = new ArrayList<>();
         private final List<Path> workingTreeDiffPaths = new ArrayList<>();
-        private final List<Path> listCommitsSincePaths = new ArrayList<>();
+        private final List<Path> listCommitsAheadPaths = new ArrayList<>();
+        private final List<String> listCommitsAheadBases = new ArrayList<>();
         private final List<Path> commitFilesPaths = new ArrayList<>();
         private final List<Path> commitDiffPaths = new ArrayList<>();
 
@@ -874,9 +878,10 @@ class TestThreadServiceScheduler
         }
 
         @Override
-        public List<GitRunner.CommitEntry> listCommitsSince(Path workingDir, Instant since, int limit)
+        public List<GitRunner.CommitEntry> listCommitsAhead(Path workingDir, String base, int limit)
         {
-            listCommitsSincePaths.add(workingDir);
+            listCommitsAheadPaths.add(workingDir);
+            listCommitsAheadBases.add(base);
             return List.of();
         }
 

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -125,6 +126,40 @@ class TestCodexCliThreadAgent
                 "-c", "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
         assertThat(cmd).doesNotContain(
                 "mcp_servers.bytequay.default_tools_approval_mode=\"auto\"");
+    }
+
+    @Test
+    void metricsReportTheTasksOwnUsageNotTheThreadLifetime()
+    {
+        // A focused task agent must report the TASK's own spend, not the
+        // thread's lifetime-cumulative total — otherwise a freshly-cut task
+        // shows the whole chain's 26M tokens (the context-window bug).
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        when(threadStore.listFiles(anyString())).thenReturn(List.of());
+        // Task's own usage is small; the thread's lifetime is huge.
+        Task active = new Task(
+                "task-1", "thread-1", 1L, TaskStatus.RUNNING,
+                "auto/task-1", CWD, "main", "/tmp/repo",
+                null, null, null, null, null, "DEVELOP", null, null,
+                /* cost */ 2L, /* tokensIn */ 5L, /* tokensOut */ 3L,
+                /* agentSessionId */ null, NOW, null, null, null, null, null);
+        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(active));
+        Thread thread = new Thread(
+                "thread-1", ThreadKind.CLI_AGENT, "codex", null, "Codex test", ThreadStatus.IDLE,
+                "gpt-5",
+                /* cost */ 9_000L, /* tokensIn */ 26_000_000L, /* tokensOut */ 200_000L,
+                NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
+        CodexCliThreadAgent agent = new CodexCliThreadAgent(
+                thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
+                mock(McpPermissionGate.class), mock(ExecutorService.class),
+                mock(CheckpointTrigger.class), () -> "", null, "codex");
+
+        AgentMetrics metrics = agent.metrics();
+
+        assertThat(metrics.tokensIn()).isEqualTo(5L);
+        assertThat(metrics.tokensOut()).isEqualTo(3L);
+        assertThat(metrics.costUsdMilli()).isEqualTo(2L);
     }
 
     @Test

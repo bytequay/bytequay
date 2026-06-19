@@ -143,14 +143,17 @@ class SqliteThreadStore
         entity.setParentReviewPassId(thread.parentReviewPassId());
         threads.save(entity);
 
-        // Mirror Thread-level state (status, running cost / tokens,
-        // endedAt, errorMessage) onto the active task so a reader of
-        // the task row sees a consistent picture. branchName /
-        // worktreePath / workingDir / linked PR/issue / taskType
-        // live on the task and are no longer overridden via Thread —
-        // callers that want to change them go through TaskStore
-        // directly. ThreadService.create materialises the first task
-        // explicitly; this method no longer auto-creates one.
+        // Mirror Thread-level lifecycle state (status, endedAt,
+        // errorMessage) onto the active task so a reader of the task row
+        // sees a consistent picture. Cost / tokens are deliberately NOT
+        // mirrored: the thread's counters are LIFETIME-cumulative across
+        // every task in the chain, so copying them onto a task makes a
+        // freshly-cut task inherit the whole thread's spend (a brand-new
+        // task showed 26M tokens this way). Each task owns its own usage —
+        // the agent accumulates it task-scoped and persists it via
+        // TaskStore — so here we preserve the task's existing values.
+        // branchName / worktreePath / workingDir / linked PR/issue /
+        // taskType also live on the task and aren't overridden via Thread.
         taskStore.findActiveTaskForThread(thread.id()).ifPresent(task -> {
             Task next = new Task(
                     task.id(),
@@ -169,9 +172,9 @@ class SqliteThreadStore
                     task.taskType(),
                     task.linkedPrNumber(),
                     task.linkedIssueNumber(),
-                    thread.costUsdMilli(),
-                    thread.tokensIn(),
-                    thread.tokensOut(),
+                    task.costUsdMilli(),
+                    task.tokensIn(),
+                    task.tokensOut(),
                     task.agentSessionId(),
                     task.createdAt(),
                     thread.endedAt() != null ? thread.endedAt() : task.endedAt(),

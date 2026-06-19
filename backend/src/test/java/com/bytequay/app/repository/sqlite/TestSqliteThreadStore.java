@@ -328,6 +328,42 @@ class TestSqliteThreadStore
         assertThat(taskStore.findActiveTaskForThread(thread.id())).isEmpty();
     }
 
+    @Test
+    void saveThreadCascadeDoesNotMirrorThreadLifetimeTokensOntoTheActiveTask()
+    {
+        // The thread's cost/tokens are LIFETIME-cumulative across the whole
+        // task chain; the saveThread cascade must NOT copy them onto the
+        // active task (that made a freshly-cut task inherit the thread's
+        // entire 26M-token spend). The task keeps its own usage.
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);
+        store.saveThread(thread);
+        Instant created = Instant.parse("2026-05-15T12:00:00Z");
+        String taskId = UUID.randomUUID().toString();
+        // The task's OWN usage — small.
+        taskStore.saveTask(new Task(
+                taskId, thread.id(), 1L, TaskStatus.IDLE, "main", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                /* cost */ 7L, /* tokensIn */ 11L, /* tokensOut */ 13L,
+                null, created, null, null, null, null, null));
+
+        // Persist the thread with a huge lifetime spend, triggering the cascade.
+        Thread busy = new Thread(
+                thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
+                thread.title(), ThreadStatus.RUNNING, thread.model(),
+                /* cost */ 9_000L, /* tokensIn */ 26_000_000L, /* tokensOut */ 200_000L,
+                thread.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
+                null, null, thread.flow(), "ws-default", thread.workModel(), thread.activeTask());
+        store.saveThread(busy);
+
+        Task got = taskStore.findTaskById(taskId).orElseThrow();
+        // Tokens/cost preserved as the task's OWN, NOT the thread's lifetime.
+        assertThat(got.tokensIn()).isEqualTo(11L);
+        assertThat(got.tokensOut()).isEqualTo(13L);
+        assertThat(got.costUsdMilli()).isEqualTo(7L);
+        // Status IS still mirrored from the thread (lifecycle sync).
+        assertThat(got.status()).isEqualTo(TaskStatus.RUNNING);
+    }
+
     private static Thread newTask(ThreadKind kind, ThreadStatus status)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");

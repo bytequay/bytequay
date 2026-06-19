@@ -14,8 +14,11 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.QueuedTask;
+import com.bytequay.app.domain.QueuedTaskStatus;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -89,6 +92,7 @@ class TestTaskServiceShipAndContinue
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
+    private final TaskQueueService taskQueue = mock(TaskQueueService.class);
 
     private final TaskService service = new TaskService(
             threadStore, taskStore, watchedRepoStore, worktreeService,
@@ -96,7 +100,8 @@ class TestTaskServiceShipAndContinue
             registry, workspaces, notifications, mapper,
             new RoleSkillService(new ConceptRegistry()),
             NOOP_PUBLISHER,
-            taskPhaseMachine);
+            taskPhaseMachine,
+            taskQueue);
 
     @Test
     void shipAndContinueReapsTheShippedWorktreeAndClearsItsPathOnTheRow()
@@ -124,6 +129,9 @@ class TestTaskServiceShipAndContinue
                 .thenReturn(Optional.of(new WorktreeService.WorktreeHandle(
                         Path.of("/tmp/acme/widget/.worktrees/task-2"), "dev/task-2")));
         when(registry.find("thread-1")).thenReturn(Optional.empty());
+        // The chain continues only when the trunk has queued work; this test
+        // exercises that path, so stand up a pending queue head.
+        when(taskQueue.pendingHead(any())).thenReturn(Optional.of(queued()));
 
         Task next = service.shipAndContinue("thread-1", "task-1",
                 new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
@@ -161,6 +169,44 @@ class TestTaskServiceShipAndContinue
         //    persist the new task before reaping the old one's path.
         assertThat(next.seq()).isEqualTo(2L);
         assertThat(next.status()).isEqualTo(TaskStatus.PENDING);
+    }
+
+    @Test
+    void shipWithAnEmptyQueueShipsTerminallyWithoutCuttingASuccessor()
+            throws Exception
+    {
+        // The reported bug: every ship spawned an empty seq+1 task even with
+        // nothing queued. Now a dry queue means a terminal ship — the trunk
+        // re-plans rather than getting a placeholder task it never asked for.
+        String workingDir = "/tmp/acme/widget";
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
+        Task shipped = task("task-1", "thread-1", 1L, "dev/task-1",
+                "/tmp/acme/widget/.worktrees/task-1", workingDir);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(shipped));
+        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(shipped));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
+        when(workspaces.findDefaultBaseBranch(anyString(), anyString())).thenReturn(Optional.empty());
+        when(git.defaultBranch(any(Path.class))).thenReturn(Optional.of("main"));
+        when(git.hasUncommittedChanges(any(Path.class))).thenReturn(false);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.createPullRequest(eq("ghp_secret"), any(RepoRef.class), any(CreatePullRequestCommand.class)))
+                .thenReturn(prWithNumber(42));
+        when(registry.find("thread-1")).thenReturn(Optional.empty());
+        // No queued work — the chain ran dry.
+        when(taskQueue.pendingHead(any())).thenReturn(Optional.empty());
+
+        Task result = service.shipAndContinue("thread-1", "task-1",
+                new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
+
+        // No successor worktree cut and no PENDING task persisted — only the
+        // shipped task is saved, and the caller gets the shipped row back.
+        verify(worktreeService, never()).create(any(Path.class), anyString(), anyString());
+        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore, atLeastOnce()).saveTask(saved.capture());
+        assertThat(saved.getAllValues()).noneMatch(t -> t.status() == TaskStatus.PENDING);
+        assertThat(result.id()).isEqualTo("task-1");
+        assertThat(result.status()).isEqualTo(TaskStatus.IN_REVIEW);
     }
 
     @Test
@@ -303,6 +349,13 @@ class TestTaskServiceShipAndContinue
                 /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null,
                 /* name */ null, /* roleSkill */ null, /* workModel */ null);
+    }
+
+    private static QueuedTask queued()
+    {
+        return new QueuedTask(0, "next", BranchBase.MAIN, /* initialPrompt */ null,
+                QueuedTaskStatus.PENDING, /* materializedTaskId */ null,
+                Instant.parse("2026-05-15T12:00:00Z"));
     }
 
     private static PullRequest prWithNumber(int number)

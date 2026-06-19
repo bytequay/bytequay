@@ -13,11 +13,15 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { isPublishGateNotification } from '../notificationDisplay';
+import { prRefFromNotification } from './notificationNav';
 import PublishGatePane from '../PublishGatePane';
 import type { NotificationDto, NotificationKindDto } from '../types';
 
 type Props = {
   threadId: string;
+  /** Navigate to a PR's in-app detail page. When a notification points at a
+   *  PR (e.g. a NEEDS_ATTENTION about failing CI), Jump in opens it. */
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
 };
 
 /** Compact strip of unread or interrupted notifications scoped to this
@@ -26,7 +30,7 @@ type Props = {
  *  approve / discard without leaving for the notification center.
  *  RESOLVING rows remain visible until their local cleanup decision is
  *  recorded. */
-export default function NotificationStrip({ threadId }: Props) {
+export default function NotificationStrip({ threadId, onOpenPr }: Props) {
   const [items, setItems] = useState<NotificationDto[]>([]);
   /** Transient hint shown when the backend refuses a dismiss (e.g. a
    *  task that still needs attention). Cleared on the next refresh. */
@@ -82,13 +86,20 @@ export default function NotificationStrip({ threadId }: Props) {
     }
   };
 
-  const onJumpIn = async (e: React.MouseEvent) => {
+  const onJumpIn = async (n: NotificationDto, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       await window.bridge.jumpInThread(threadId);
     }
-    catch { /* fall through to refresh; the backend's defensive
-                  paths cover partial failures */ }
+    catch { /* fall through; the backend's defensive paths cover partial
+                  failures, and we still want to navigate to the PR below */ }
+    // When the notification points at a PR (e.g. failing CI), Jump in opens
+    // it so the user lands on the actual problem instead of nowhere.
+    const prRef = prRefFromNotification(n);
+    if (prRef !== null && onOpenPr !== undefined) {
+      onOpenPr(prRef.owner, prRef.repo, prRef.prNumber);
+      return;
+    }
     void refresh();
   };
 
@@ -146,7 +157,7 @@ export default function NotificationStrip({ threadId }: Props) {
                 <button
                   type="button"
                   style={chipJumpInStyle}
-                  onClick={e => { void onJumpIn(e); }}
+                  onClick={e => { void onJumpIn(n, e); }}
                   title="Interrupt the headless run and take control of the lease"
                   aria-label="Jump in to this thread"
                 >

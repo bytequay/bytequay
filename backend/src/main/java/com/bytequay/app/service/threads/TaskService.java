@@ -83,6 +83,7 @@ public class TaskService
     private final RoleSkillService roleSkillService;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskPhaseMachine taskPhaseMachine;
+    private final TaskQueueService taskQueue;
 
     public TaskService(
             ThreadStore threadStore,
@@ -98,7 +99,8 @@ public class TaskService
             ObjectMapper mapper,
             RoleSkillService roleSkillService,
             ApplicationEventPublisher eventPublisher,
-            TaskPhaseMachine taskPhaseMachine)
+            TaskPhaseMachine taskPhaseMachine,
+            TaskQueueService taskQueue)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -114,6 +116,7 @@ public class TaskService
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
+        this.taskQueue = requireNonNull(taskQueue, "taskQueue is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -368,54 +371,16 @@ public class TaskService
                     .withEndedAt(parkedEndedAt);
             taskStore.saveTask(parked);
 
-            // 5. Resolve next base + cut a new worktree. MAIN mode
-            //    uses the same per-repo merge-target as the PR base;
-            //    STACKED chains on the current branch instead.
-            String nextBase = request.baseMode() == BaseMode.STACKED
-                    ? current.branchName()
-                    : resolveMergeTarget(repoFullName, workingDir);
-            long nextSeq = current.seq() + 1;
-            String nextTaskId = UUID.randomUUID().toString();
-            String nextTitle = request.nextTitle() != null && !request.nextTitle().isBlank()
-                    ? request.nextTitle().trim()
-                    : "task " + nextSeq;
-            Optional<WorktreeService.WorktreeHandle> nextHandle =
-                    worktreeService.create(workingDir, nextTaskId, nextTitle);
-
-            // 6. Persist the new task at seq+1, PENDING.
-            String nextBranchName = nextHandle
-                    .map(WorktreeService.WorktreeHandle::branchName)
-                    .orElse(null);
-            String nextRoleSkill = roleSkillService.generateForTask(
-                    repoFullName, nextBranchName, nextTaskId, nextBase);
-            Task next = new Task(
-                    nextTaskId,
-                    threadId,
-                    nextSeq,
-                    TaskStatus.PENDING,
-                    nextBranchName,
-                    nextHandle.map(handle -> handle.worktreePath().toString()).orElse(null),
-                    nextBase,
-                    current.workingDir(),
-                    /* processPid */ null,
-                    /* logPath */ null,
-                    /* prNumber */ null,
-                    /* prState */ null,
-                    /* ciState */ null,
-                    current.taskType(),
-                    /* linkedPrNumber */ null,
-                    /* linkedIssueNumber */ null,
-                    /* costUsdMilli */ 0L,
-                    /* tokensIn */ 0L,
-                    /* tokensOut */ 0L,
-                    /* agentSessionId — captured on the new task's first turn */ null,
-                    now,
-                    /* endedAt */ null,
-                    /* errorMessage */ null,
-                    /* name */ null,
-                    nextRoleSkill,
-                    /* workModel — inherited from the thread by default */ null);
-            taskStore.saveTask(next);
+            // 5-6. Optionally cut + persist the seq+1 successor. SHIP only
+            //    continues the chain when the trunk has queued work — an empty
+            //    queue means the chain ran dry and the trunk re-plans, so we
+            //    don't spawn a placeholder task the user never asked for. NEXT
+            //    is an explicit "start the next task" action: it always cuts one.
+            boolean startSuccessor = mode != ParkMode.SHIP
+                    || taskQueue.pendingHead(thread).isPresent();
+            Task successor = startSuccessor
+                    ? cutSuccessorTask(threadId, current, request, repoFullName, workingDir, now)
+                    : null;
 
             // 7. Drop the in-memory agent for this thread. The next
             //    user turn will spawn a fresh ThreadAgent that reads
@@ -434,9 +399,9 @@ public class TaskService
             registry.evict(threadId);
 
             // Drop an informational notification so the bell / center
-            // shows "Task N shipped → PR #M, next task started" the
-            // next time the user looks. Best-effort: a failure here
-            // shouldn't roll back the (already-completed) ship.
+            // shows "Task N shipped → PR #M" (and, when the chain continues,
+            // the next task) the next time the user looks. Best-effort: a
+            // failure here shouldn't roll back the (already-completed) ship.
             try {
                 Map<String, Object> payloadMap = new LinkedHashMap<>();
                 payloadMap.put("shippedTaskId", current.id());
@@ -444,9 +409,14 @@ public class TaskService
                 payloadMap.put("prNumber", prNumber);
                 payloadMap.put("repoFullName", repoFullName);
                 payloadMap.put("branchName", current.branchName());
-                payloadMap.put("nextTaskId", nextTaskId);
-                payloadMap.put("nextSeq", nextSeq);
-                payloadMap.put("nextTitle", nextTitle);
+                if (successor != null) {
+                    payloadMap.put("nextTaskId", successor.id());
+                    payloadMap.put("nextSeq", successor.seq());
+                    payloadMap.put("nextTitle",
+                            request.nextTitle() != null && !request.nextTitle().isBlank()
+                                    ? request.nextTitle().trim()
+                                    : "task " + successor.seq());
+                }
                 String payload = mapper.writeValueAsString(payloadMap);
                 notificationService.notifyAutoFixDone(threadId, current.id(), payload);
             }
@@ -475,7 +445,9 @@ public class TaskService
             if (workspaceId != null && !workspaceId.isBlank()) {
                 eventPublisher.publishEvent(new WorkspaceShipEvent(workspaceId, threadId, taskId));
             }
-            return next;
+            // The successor when the chain continues; otherwise the parked
+            // (shipped) task, so the caller still gets a real row back.
+            return successor != null ? successor : parked;
         }
         catch (IOException e) {
             throw new RuntimeException("Ship and continue failed for task " + taskId, e);
@@ -484,6 +456,63 @@ public class TaskService
             java.lang.Thread.currentThread().interrupt();
             throw new RuntimeException("Ship and continue interrupted for task " + taskId, e);
         }
+    }
+
+    /**
+     * Cut + persist the seq+1 successor: resolve its base (STACKED chains on
+     * the current branch, else the repo's merge-target), create its worktree,
+     * freeze a role skill, and store it PENDING. Extracted from the ship flow
+     * so a terminal ship (chain ran dry) can skip it entirely.
+     */
+    private Task cutSuccessorTask(
+            String threadId, Task current, ShipRequest request,
+            String repoFullName, Path workingDir, Instant now)
+            throws IOException, InterruptedException
+    {
+        String nextBase = request.baseMode() == BaseMode.STACKED
+                ? current.branchName()
+                : resolveMergeTarget(repoFullName, workingDir);
+        long nextSeq = current.seq() + 1;
+        String nextTaskId = UUID.randomUUID().toString();
+        String nextTitle = request.nextTitle() != null && !request.nextTitle().isBlank()
+                ? request.nextTitle().trim()
+                : "task " + nextSeq;
+        Optional<WorktreeService.WorktreeHandle> nextHandle =
+                worktreeService.create(workingDir, nextTaskId, nextTitle);
+        String nextBranchName = nextHandle
+                .map(WorktreeService.WorktreeHandle::branchName)
+                .orElse(null);
+        String nextRoleSkill = roleSkillService.generateForTask(
+                repoFullName, nextBranchName, nextTaskId, nextBase);
+        Task next = new Task(
+                nextTaskId,
+                threadId,
+                nextSeq,
+                TaskStatus.PENDING,
+                nextBranchName,
+                nextHandle.map(handle -> handle.worktreePath().toString()).orElse(null),
+                nextBase,
+                current.workingDir(),
+                /* processPid */ null,
+                /* logPath */ null,
+                /* prNumber */ null,
+                /* prState */ null,
+                /* ciState */ null,
+                current.taskType(),
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null,
+                /* costUsdMilli */ 0L,
+                /* tokensIn */ 0L,
+                /* tokensOut */ 0L,
+                /* agentSessionId — captured on the new task's first turn */ null,
+                now,
+                /* endedAt */ null,
+                /* errorMessage */ null,
+                /* name */ null,
+                nextRoleSkill,
+                /* workModel — inherited from the thread by default */ null);
+        taskStore.saveTask(next);
+        return next;
     }
 
     /**

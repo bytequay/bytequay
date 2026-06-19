@@ -36,6 +36,7 @@ import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { useThreadTasks } from './useThreadTasks';
 import { useThreadStream } from './useThreadStream';
 import { contextWindowPct } from './contextWindow';
+import { isTaskShippable } from './shipState';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
 import { findPendingAskQuestion } from './askQuestion';
@@ -870,7 +871,7 @@ export default function TaskDetailPage({
                   an inline Review → approve / discard pane, so the user
                   can resolve them without leaving the task window for the
                   notification center. Self-hides when nothing is parked. */}
-              <NotificationStrip threadId={threadId} />
+              <NotificationStrip threadId={threadId} onOpenPr={onOpenPr} />
               <div style={isTerminal ? chatCardDarkStyle : chatCardStyle}>
                 {(mode === 'conversation' || isDiff) && (
                   messages === null ? (
@@ -1148,7 +1149,11 @@ export default function TaskDetailPage({
                   // terminal signal as done, else the button keeps offering
                   // "Ship — finalize & merge" on an already-finished task.
                   const isCompleted = task?.status === 'COMPLETED' || task?.phase === 'COMPLETED';
-                  const isTerminal = isCompleted || isErrored;
+                  // Already shipped (PR open, awaiting merge) or parked for
+                  // approval — Ship can't run again, so the button reads as a
+                  // "Shipped" badge, not an action.
+                  const isShipped = task?.status === 'IN_REVIEW' || task?.status === 'AWAITING_REVIEW';
+                  const canShip = isTaskShippable(task);
                   const isMerged = prState === 'merged';
                   const isDraftPr = prState === 'draft';
                   const hasPr = task?.prNumber != null;
@@ -1195,6 +1200,17 @@ export default function TaskDetailPage({
                       tone = shipShippedStyle;
                     }
                   }
+                  else if (isShipped) {
+                    // Pushed with a PR open (or parked for approval) — the work
+                    // is shipped and waiting on merge, so don't offer Ship again.
+                    glyph = '✓';
+                    label = 'Shipped';
+                    hint = hasPr
+                      ? `PR #${task!.prNumber} is open — waiting on merge. `
+                        + 'Open the trunk to start the next task.'
+                      : 'Shipped — waiting on merge. Open the trunk to start the next task.';
+                    tone = shipShippedDoneStyle;
+                  }
                   else {
                     // Active task — Ship is a live action even if a PR is
                     // already open, so it must read as a button, never as a
@@ -1217,13 +1233,13 @@ export default function TaskDetailPage({
                       <button
                         type="button"
                         onClick={() => { void onShip(); }}
-                        disabled={task === null || shipping || isTerminal}
+                        disabled={shipping || !canShip}
                         style={tone}
                         title={task === null
                           ? 'No task loaded yet'
                           : isErrored
                             ? 'This task ended in an error; recover from the thread trunk'
-                            : isTerminal
+                            : !canShip
                               ? label
                               : `Ship Task ${task.seq} and return to the thread trunk`}
                       >

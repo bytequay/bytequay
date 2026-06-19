@@ -662,7 +662,7 @@ export default function ThreadDetailPage({
         />
       )}
       <div style={threadWindowStyle}>
-        <NotificationStrip threadId={thread.id} />
+        <NotificationStrip threadId={thread.id} onOpenPr={onOpenPr} />
         <div style={threadWindowBodyStyle} ref={splitContainerRef}>
           <div
             style={diffOpen

@@ -1222,10 +1222,6 @@ export default function TaskDetailPage({
                   // terminal signal as done, else the button keeps offering
                   // "Ship — finalize & merge" on an already-finished task.
                   const isCompleted = task?.status === 'COMPLETED' || task?.phase === 'COMPLETED';
-                  // Already shipped (PR open, awaiting merge) or parked for
-                  // approval — Ship can't run again, so the button reads as a
-                  // "Shipped" badge, not an action.
-                  const isShipped = task?.status === 'IN_REVIEW' || task?.status === 'AWAITING_REVIEW';
                   const isPaused = task?.status === 'PAUSED';
                   const isMerged = prState === 'merged';
                   const isDraftPr = prState === 'draft';
@@ -1275,15 +1271,6 @@ export default function TaskDetailPage({
                       tone = shipShippedStyle;
                     }
                   }
-                  else if (isShipped) {
-                    // Pushed with a PR open (or parked for approval) — the work
-                    // is shipped and waiting on merge. The "Shipped" badge says
-                    // it all; ship/finalize happens from the trunk now.
-                    glyph = '✓';
-                    label = 'Shipped';
-                    hint = '';
-                    tone = shipShippedDoneStyle;
-                  }
                   else if (isPaused) {
                     // Set aside by the user — resume revives it to active work.
                     glyph = '▶';
@@ -1293,9 +1280,11 @@ export default function TaskDetailPage({
                     action = onResume;
                   }
                   else {
-                    // Active task — Pause sets it aside (keeping its branch +
-                    // progress) so the user can work on something else. Shipping
-                    // moved to the trunk; this surface no longer finalizes.
+                    // Any non-terminal task — running, idle, or parked for review
+                    // (AWAITING_REVIEW / IN_REVIEW). Pause sets it aside (keeping
+                    // its branch + progress) so the user can pick another task in
+                    // the trunk. Shipping/approval happen elsewhere (the trunk and
+                    // the review gate); this surface only pauses/resumes.
                     glyph = '⏸';
                     label = busy ? 'Pausing…' : 'Pause task';
                     hint = 'Sets this task aside — its branch and progress are kept and '

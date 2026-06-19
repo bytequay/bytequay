@@ -16,6 +16,9 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.CreatePullRequestCommand;
+import com.bytequay.app.domain.Notification;
+import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.QueuedTaskStatus;
@@ -315,15 +318,48 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void pauseRejectsAnAlreadyShippedTask()
+    void pauseRejectsATerminalTask()
     {
-        Task shipped = task("t1.k1", "t1", 1L, "dev/x", null, "/clone", TaskStatus.IN_REVIEW);
-        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(shipped));
+        // A done task can't be paused — only live / parked work can.
+        Task done = task("t1.k1", "t1", 1L, "dev/x", null, "/clone", TaskStatus.COMPLETED);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(done));
 
         assertThatThrownBy(() -> service.pauseTask("t1", "t1.k1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("cannot be paused");
         verify(taskStore, never()).saveTask(any());
+    }
+
+    @Test
+    void pauseClearsTheTasksParkedApprovalNotification()
+    {
+        // A parked-review task (AWAITING_REVIEW) carries an approve/discard
+        // notification. Pausing sets it aside, so that notification must not
+        // keep showing "needs your approval".
+        Task parked = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.AWAITING_REVIEW);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(parked));
+        when(registry.find("t1")).thenReturn(Optional.empty());
+        Notification parkedNotif = new Notification(
+                "notif-1", NotificationKind.AWAITING_REVIEW, "t1", "t1.k1",
+                NotificationStatus.UNREAD, "{}", Instant.parse("2026-05-15T12:00:00Z"), null);
+        when(notifications.listForThread("t1")).thenReturn(List.of(parkedNotif));
+
+        Task result = service.pauseTask("t1", "t1.k1");
+
+        assertThat(result.status()).isEqualTo(TaskStatus.PAUSED);
+        verify(notifications).markRead("notif-1");
+    }
+
+    @Test
+    void pauseAcceptsAShippedInReviewTask()
+    {
+        // Shipping moved off the task page; a shipped (IN_REVIEW) task can be
+        // paused to set it aside while its PR rides to merge.
+        Task shipped = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.IN_REVIEW);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(shipped));
+        when(registry.find("t1")).thenReturn(Optional.empty());
+
+        assertThat(service.pauseTask("t1", "t1.k1").status()).isEqualTo(TaskStatus.PAUSED);
     }
 
     @Test

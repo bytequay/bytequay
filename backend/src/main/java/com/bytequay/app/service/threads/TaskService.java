@@ -16,6 +16,8 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
+import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
@@ -689,6 +691,19 @@ public class TaskService
         registry.evict(threadId);
         Task paused = task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
         taskStore.saveTask(paused);
+        // Clear any parked approve/discard notification for this task — a
+        // paused task is set aside, so it must not keep showing "needs your
+        // approval". Best-effort: a notification failure mustn't fail the pause.
+        try {
+            notificationService.listForThread(threadId).stream()
+                    .filter(n -> taskId.equals(n.taskId())
+                            && n.kind() == NotificationKind.AWAITING_REVIEW
+                            && n.status() == NotificationStatus.UNREAD)
+                    .forEach(n -> notificationService.markRead(n.id()));
+        }
+        catch (RuntimeException e) {
+            log.warn("clearing parked notifications on pause of {} threw: {}", taskId, e.getMessage());
+        }
         return paused;
     }
 
@@ -722,7 +737,8 @@ public class TaskService
     private static boolean isPausable(TaskStatus status)
     {
         return switch (status) {
-            case PENDING, RUNNING, AWAITING, IDLE, AWAITING_REVIEW, NEEDS_ATTENTION -> true;
+            case PENDING, RUNNING, AWAITING, IDLE,
+                    AWAITING_REVIEW, IN_REVIEW, NEEDS_ATTENTION -> true;
             default -> false;
         };
     }

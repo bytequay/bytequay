@@ -115,6 +115,10 @@ export default function TaskDetailPage({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Messages the user sent while the agent was mid-turn: enqueued on the
+  // backend (ThreadTurn QUEUED) and shown as pending bubbles so they read as
+  // "queued, will send next" instead of vanishing.
+  const [queuedInputs, setQueuedInputs] = useState<string[]>([]);
   const [canceling, setCanceling] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [markReady, setMarkReady] = useState<'idle' | 'running' | 'error'>('idle');
@@ -199,6 +203,21 @@ export default function TaskDetailPage({
     }
   }, [threadId, taskId]);
 
+  // Pending turns the user queued while a turn was in flight. The scheduler
+  // runs them after the current turn; until each dispatches its user-message
+  // row isn't written, so we surface the QUEUED turns directly as pending
+  // bubbles. Scoped to this task.
+  const loadQueuedTurns = useCallback(async () => {
+    try {
+      const turns = await window.bridge.getTaskTurns(threadId);
+      setQueuedInputs(turns
+        .filter(t => t.status === 'QUEUED' && t.taskId === taskId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map(t => t.input));
+    }
+    catch { /* non-fatal — leave the previous pending list */ }
+  }, [threadId, taskId]);
+
   // Live token streaming: accumulate the agent's assistant-text deltas
   // off the per-thread SSE channel so the response types in instead of
   // landing all at once on the next poll. loadMessages is the canonical
@@ -251,12 +270,15 @@ export default function TaskDetailPage({
     // the window deadlocks: the agent waits for the user, but the card to
     // respond never appears.
     if (thread?.status !== 'RUNNING' && thread?.status !== 'AWAITING' && !sending) return;
+    void loadQueuedTurns();
     const handle = window.setInterval(() => {
       void loadMessages();
       void loadThread();
       // The phase can advance mid-turn (IMPLEMENTING → VALIDATING → …);
       // keep the chip / stepper in step with the messages.
       void refreshTasks();
+      // Drain the pending list as queued turns dispatch into real messages.
+      void loadQueuedTurns();
     }, 4_000);
     return () => {
       window.clearInterval(handle);
@@ -265,7 +287,7 @@ export default function TaskDetailPage({
       // One catch-up fetch on teardown guarantees the reply lands.
       void loadMessages();
     };
-  }, [thread?.status, sending, loadMessages, loadThread, refreshTasks]);
+  }, [thread?.status, sending, loadMessages, loadThread, refreshTasks, loadQueuedTurns]);
 
   // Self-heal a stale window. When the task ends its turn to wait on the
   // user (e.g. an AskUserQuestion or a parked approval), the thread goes
@@ -329,8 +351,9 @@ export default function TaskDetailPage({
       setInput('');
       // Refresh the thread too so its status flips to RUNNING and the
       // poll kicks in — without this the agent's reply never appears
-      // until the user sends another message.
-      await Promise.all([loadMessages(), loadThread()]);
+      // until the user sends another message. Refresh queued turns so a
+      // message sent mid-turn shows immediately as a pending bubble.
+      await Promise.all([loadMessages(), loadThread(), loadQueuedTurns()]);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -338,7 +361,7 @@ export default function TaskDetailPage({
     finally {
       setSending(false);
     }
-  }, [sending, input, threadId, loadMessages, loadThread]);
+  }, [sending, input, threadId, loadMessages, loadThread, loadQueuedTurns]);
 
   // Latest unanswered approval prompt for this task's agent. Writes
   // (Edit / Bash / run_shell) park on the MCP approval gate; without a
@@ -900,6 +923,7 @@ export default function TaskDetailPage({
                       baseBranch={task?.baseBranch ?? null}
                       userInitials={userInitials}
                       liveText={liveText}
+                      queuedMessages={queuedInputs}
                       isInFlight={thread?.status === 'RUNNING' || sending}
                       onInterrupt={() => { void onInterrupt(); }}
                       interrupting={interrupting}

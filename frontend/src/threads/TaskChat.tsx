@@ -42,6 +42,10 @@ type Props = {
    *  token), replacing the "working…" pulse until the durable message
    *  lands and the parent clears it. */
   liveText?: string;
+  /** Messages the user queued while a turn was in flight, oldest first.
+   *  Shown as pending bubbles at the foot of the transcript so a message
+   *  sent mid-turn reads as "queued, sends next" rather than vanishing. */
+  queuedMessages?: string[];
   /** Fired from the Stop button in the working… card. Parent owns
    *  the interrupt RPC + optimistic state. */
   onInterrupt?: () => void;
@@ -70,7 +74,7 @@ type Props = {
  */
 export default function TaskChat({
   messages, taskSeq, baseBranch, userInitials, isInFlight = false,
-  liveText = '', onInterrupt, interrupting = false, outerRef,
+  liveText = '', queuedMessages = [], onInterrupt, interrupting = false, outerRef,
   canLoadOlder = false, loadingOlder = false, onLoadOlder,
 }: Props) {
   const streaming = liveText.length > 0;
@@ -214,6 +218,9 @@ export default function TaskChat({
           </div>
         </div>
       )}
+      {queuedMessages.map((text, i) => (
+        <QueuedBubble key={`queued-${i}`} text={text} initials={userInitials} />
+      ))}
       <style>{thinkingKeyframes}</style>
     </div>
   );
@@ -396,6 +403,24 @@ function UserBubble({ text, initials, seq }: { text: string; initials: string; s
         dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
       />
       <div style={userAvatarStyle}>{initials}</div>
+    </div>
+  );
+}
+
+/** A message the user queued while the agent was mid-turn — a dashed,
+ *  muted user bubble tagged "queued" so it reads as pending, not sent. */
+function QueuedBubble({ text, initials }: { text: string; initials: string }) {
+  return (
+    <div style={userRowStyle}>
+      <div style={queuedColStyle}>
+        <span style={queuedTagStyle}>⏳ queued · sends next</span>
+        <div
+          className="bq-chat-md bq-chat-md--user"
+          style={queuedBubbleStyle}
+          dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
+        />
+      </div>
+      <div style={queuedAvatarStyle}>{initials}</div>
     </div>
   );
 }
@@ -702,6 +727,47 @@ const userBubbleStyle: React.CSSProperties = {
   // tighten it without fighting an inline style.
   overflowWrap: 'anywhere',
   boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+};
+
+const queuedColStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: 3,
+  maxWidth: '72%',
+};
+
+const queuedTagStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  color: '#15803d',
+  textTransform: 'uppercase',
+};
+
+const queuedBubbleStyle: React.CSSProperties = {
+  padding: '10px 14px',
+  background: 'rgba(34, 197, 94, 0.10)',
+  color: '#14532d',
+  border: '1px dashed rgba(34, 197, 94, 0.55)',
+  borderRadius: 14,
+  borderTopRightRadius: 4,
+  fontSize: 15,
+  overflowWrap: 'anywhere',
+};
+
+const queuedAvatarStyle: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: 999,
+  background: 'rgba(16, 185, 129, 0.25)',
+  color: '#047857',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 11,
+  fontWeight: 700,
+  flexShrink: 0,
 };
 
 const userAvatarStyle: React.CSSProperties = {

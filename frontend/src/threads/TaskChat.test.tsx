@@ -68,4 +68,22 @@ describe('TaskChat forked-from-thread hint', () => {
 
     expect(screen.getByText(/seeded with the plan · off main/)).toBeTruthy();
   });
+
+  it('renders messages queued mid-turn as pending bubbles, not lost', () => {
+    render(
+      <TaskChat
+        messages={[msg('user', 'text', { text: 'first' })]}
+        taskSeq={1}
+        baseBranch="main"
+        userInitials="JC"
+        isInFlight
+        queuedMessages={['fix the build', 'then update docs']}
+      />,
+    );
+
+    expect(screen.getByText('fix the build')).toBeTruthy();
+    expect(screen.getByText('then update docs')).toBeTruthy();
+    // Both carry the "queued · sends next" pending tag.
+    expect(screen.getAllByText(/queued · sends next/i)).toHaveLength(2);
+  });
 });

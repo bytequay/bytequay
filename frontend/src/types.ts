@@ -3539,6 +3539,13 @@ export type Bridge = {
    *  worktree + branch. Terminal and destructive — the caller confirms
    *  first. */
   cancelTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
+  /** Pause an active task: stop its agent and park it at PAUSED with its
+   *  worktree + session intact so it can be resumed. The thread won't run a
+   *  paused task, freeing the user to work on something else. */
+  pauseTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
+  /** Resume a paused task back to IDLE so the thread runs it again.
+   *  ({@link resumeTask} is the thread-level revive; this is per-task.) */
+  resumePausedTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
   /** Next → park the current task at AWAITING_REVIEW (worktree
    *  preserved) and start a fresh task cut from main. The trunk
    *  window's Next button calls this; differs from

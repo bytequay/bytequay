@@ -664,6 +664,69 @@ public class TaskService
         return taskStore.findTaskById(taskId).orElse(task);
     }
 
+    /**
+     * Set a task aside: stop its agent and park it at {@link TaskStatus#PAUSED}
+     * with its worktree, branch, and agent session intact. Unlike ship
+     * (publish) or cancel (throw away + reap), pause preserves the work — the
+     * thread treats a PAUSED task as not-active, freeing the trunk to plan or
+     * run another task, and {@link #resumeTask} revives it later. Idempotent.
+     */
+    @Transactional
+    public Task pauseTask(String threadId, String taskId)
+    {
+        Task task = requireTask(threadId, taskId);
+        if (task.status() == TaskStatus.PAUSED) {
+            return task;
+        }
+        if (!isPausable(task.status())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " cannot be paused from status " + task.status());
+        }
+        // Stop the live agent and drop it so the thread frees its lease — the
+        // next turn can spawn for another task or the trunk. The worktree is
+        // NOT reaped (cancel does that); pause keeps it for resume.
+        registry.find(threadId).ifPresent(ThreadAgent::interrupt);
+        registry.evict(threadId);
+        Task paused = task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
+        taskStore.saveTask(paused);
+        return paused;
+    }
+
+    /**
+     * Revive a {@link TaskStatus#PAUSED} task back to {@link TaskStatus#IDLE}
+     * so the thread runs it again (the next turn re-spawns the agent in its
+     * worktree via {@code --resume}). Requires no other active task on the
+     * thread — one active task per thread, so the user parks/pauses the
+     * current one before reviving a paused sibling.
+     */
+    @Transactional
+    public Task resumeTask(String threadId, String taskId)
+    {
+        Task task = requireTask(threadId, taskId);
+        if (task.status() != TaskStatus.PAUSED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not paused");
+        }
+        taskStore.findActiveTaskForThread(threadId).ifPresent(active -> {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "thread " + threadId + " already has an active task (" + active.id()
+                            + "); pause or finish it before resuming this one");
+        });
+        Task resumed = task.withStatus(TaskStatus.IDLE);
+        taskStore.saveTask(resumed);
+        return resumed;
+    }
+
+    /** A task can be paused only while it's live, non-terminal work — not
+     *  once shipped (IN_REVIEW), already parked terminally, or done. */
+    private static boolean isPausable(TaskStatus status)
+    {
+        return switch (status) {
+            case PENDING, RUNNING, AWAITING, IDLE, AWAITING_REVIEW, NEEDS_ATTENTION -> true;
+            default -> false;
+        };
+    }
+
     /** True when the task's working dir maps to {@code repoFullName}. A
      *  task whose repo can't be resolved (clone removed) is treated as a
      *  non-match rather than throwing. */

@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -50,6 +51,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -288,6 +290,73 @@ class TestTaskServiceShipAndContinue
 
         verify(taskStore, never()).completeTask(anyString(), any());
         verify(taskPhaseMachine, never()).transition(anyString(), any(), anyString(), any());
+    }
+
+    @Test
+    void pauseStopsTheAgentAndParksAtPausedKeepingTheWorktree()
+    {
+        Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(active));
+        ThreadAgent session = mock(ThreadAgent.class);
+        when(registry.find("t1")).thenReturn(Optional.of(session));
+
+        Task paused = service.pauseTask("t1", "t1.k1");
+
+        // Agent stopped + evicted so the thread frees its lease.
+        verify(session).interrupt();
+        verify(registry).evict("t1");
+        // Pause keeps the work — the worktree is NOT reaped (unlike cancel).
+        verify(worktreeService, never()).reap(any());
+        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore).saveTask(saved.capture());
+        assertThat(saved.getValue().status()).isEqualTo(TaskStatus.PAUSED);
+        assertThat(saved.getValue().worktreePath()).isEqualTo("/wt");
+        assertThat(paused.status()).isEqualTo(TaskStatus.PAUSED);
+    }
+
+    @Test
+    void pauseRejectsAnAlreadyShippedTask()
+    {
+        Task shipped = task("t1.k1", "t1", 1L, "dev/x", null, "/clone", TaskStatus.IN_REVIEW);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(shipped));
+
+        assertThatThrownBy(() -> service.pauseTask("t1", "t1.k1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("cannot be paused");
+        verify(taskStore, never()).saveTask(any());
+    }
+
+    @Test
+    void resumeRevivesAPausedTaskToIdleWhenNoOtherTaskIsActive()
+    {
+        Task paused = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
+        when(taskStore.findActiveTaskForThread("t1")).thenReturn(Optional.empty());
+
+        Task resumed = service.resumeTask("t1", "t1.k1");
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore).saveTask(saved.capture());
+        assertThat(saved.getValue().status()).isEqualTo(TaskStatus.IDLE);
+        // Worktree preserved through the pause→resume round-trip.
+        assertThat(saved.getValue().worktreePath()).isEqualTo("/wt");
+    }
+
+    @Test
+    void resumeRejectsWhenTheThreadAlreadyHasAnActiveTask()
+    {
+        // One active task per thread — the user must park/pause the current
+        // one before reviving a paused sibling.
+        Task paused = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
+        Task other = task("t1.k2", "t1", 2L, "dev/y", "/wt2", "/clone", TaskStatus.IDLE);
+        when(taskStore.findActiveTaskForThread("t1")).thenReturn(Optional.of(other));
+
+        assertThatThrownBy(() -> service.resumeTask("t1", "t1.k1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("already has an active task");
+        verify(taskStore, never()).saveTask(any());
     }
 
     private static Thread thread(String id)

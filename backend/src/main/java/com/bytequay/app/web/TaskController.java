@@ -175,6 +175,22 @@ public class TaskController
         return taskService.cancelTask(threadId, taskId);
     }
 
+    /** Pause a task: stop the agent and park it at PAUSED, keeping the
+     *  worktree + session so it can be resumed. The thread won't run a
+     *  paused task, freeing the user to work on something else. */
+    @PostMapping("/{taskId}/pause")
+    public Task pause(@PathVariable String threadId, @PathVariable String taskId)
+    {
+        return taskService.pauseTask(threadId, taskId);
+    }
+
+    /** Resume a paused task back to IDLE so the thread runs it again. */
+    @PostMapping("/{taskId}/resume")
+    public Task resume(@PathVariable String threadId, @PathVariable String taskId)
+    {
+        return taskService.resumeTask(threadId, taskId);
+    }
+
     /** Rename a task. Trimmed; an empty / null body clears the
      *  rename and reverts to the humanised branch-derived label. */
     @PatchMapping("/{taskId}/name")

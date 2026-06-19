@@ -736,6 +736,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:tasks:ship', { threadId, taskId, opts }),
   cancelTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:cancel', { threadId, taskId }),
+  pauseTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('threads:tasks:pause', { threadId, taskId }),
+  resumePausedTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('threads:tasks:resume', { threadId, taskId }),
   parkAndStartNext: (
     threadId: string,
     taskId: string,

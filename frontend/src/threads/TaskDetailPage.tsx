@@ -37,7 +37,6 @@ import { useThreadTasks } from './useThreadTasks';
 import { useThreadStream } from './useThreadStream';
 import { contextWindowPct } from './contextWindow';
 import { taskRuntimeSec } from './taskRuntime';
-import { isTaskShippable } from './shipState';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
 import { findPendingAskQuestion } from './askQuestion';
@@ -115,7 +114,7 @@ export default function TaskDetailPage({
   const [mode, setMode] = useState<Mode>('conversation');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [shipping, setShipping] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [markReady, setMarkReady] = useState<'idle' | 'running' | 'error'>('idle');
@@ -408,24 +407,38 @@ export default function TaskDetailPage({
     }
   }, [acceptEdits, savingAcceptEdits, threadId, taskId]);
 
-  const onShip = useCallback(async () => {
-    if (task === null || shipping) return;
-    const ok = window.confirm(
-      `Ship Task ${task.seq}`
-      + (task.branchName !== null ? ` (${task.branchName})` : '')
-      + ' — closes this task and returns to the thread trunk.');
-    if (!ok) return;
-    setShipping(true);
+  // Pause sets the task aside (agent stopped, branch + progress kept) and
+  // returns to the trunk, so the thread is free for other work. Resume revives
+  // it to IDLE and stays on the task page so the user can pick it back up.
+  const onPause = useCallback(async () => {
+    if (task === null || busy) return;
+    setBusy(true);
     setError(null);
     try {
-      await window.bridge.shipAndContinue(threadId, task.id);
+      await window.bridge.pauseTask(threadId, task.id);
       onBackToTrunk();
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setShipping(false);
+      setBusy(false);
     }
-  }, [task, shipping, threadId, onBackToTrunk]);
+  }, [task, busy, threadId, onBackToTrunk]);
+
+  const onResume = useCallback(async () => {
+    if (task === null || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await window.bridge.resumePausedTask(threadId, task.id);
+      await refreshTasks();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setBusy(false);
+    }
+  }, [task, busy, threadId, refreshTasks]);
 
   // Close the task: stop the agent, mark it CANCELED, reap the worktree +
   // branch. Destructive (drops unpushed work), so confirm via the styled
@@ -1159,7 +1172,7 @@ export default function TaskDetailPage({
                   // approval — Ship can't run again, so the button reads as a
                   // "Shipped" badge, not an action.
                   const isShipped = task?.status === 'IN_REVIEW' || task?.status === 'AWAITING_REVIEW';
-                  const canShip = isTaskShippable(task);
+                  const isPaused = task?.status === 'PAUSED';
                   const isMerged = prState === 'merged';
                   const isDraftPr = prState === 'draft';
                   const hasPr = task?.prNumber != null;
@@ -1168,11 +1181,13 @@ export default function TaskDetailPage({
                   let glyph: string;
                   let hint: string;
                   let tone: React.CSSProperties;
+                  // The primary action this button fires, or null when it's a
+                  // disabled status badge (errored / shipped / done).
+                  let action: (() => void) | null = null;
                   if (isErrored) {
                     glyph = '⨯';
-                    label = 'Errored — no ship';
-                    hint = 'Recover or abandon this task from the trunk; '
-                      + 'Ship is disabled while a task is in an errored state.';
+                    label = 'Errored';
+                    hint = 'Recover or abandon this task from the trunk.';
                     tone = shipShippedStyle;
                   }
                   else if (isCompleted) {
@@ -1208,44 +1223,48 @@ export default function TaskDetailPage({
                   }
                   else if (isShipped) {
                     // Pushed with a PR open (or parked for approval) — the work
-                    // is shipped and waiting on merge, so don't offer Ship again.
-                    // The "Shipped" badge says it all; no hint line needed.
+                    // is shipped and waiting on merge. The "Shipped" badge says
+                    // it all; ship/finalize happens from the trunk now.
                     glyph = '✓';
                     label = 'Shipped';
                     hint = '';
                     tone = shipShippedDoneStyle;
                   }
-                  else {
-                    // Active task — Ship is a live action even if a PR is
-                    // already open, so it must read as a button, never as a
-                    // done "Shipped" badge.
-                    glyph = '☁︎↑';
-                    label = shipping ? 'Shipping…' : 'Ship — finalize & merge';
-                    hint = isDraftPr
-                      ? `PR #${task!.prNumber} is still a draft — use “Mark as ready” `
-                        + 'above to send it for review. Ship pushes any new work and '
-                        + 'parks the task in review; it does not un-draft the PR.'
-                      : hasPr
-                        ? `PR #${task!.prNumber} is open. Ship finalises this task `
-                          + 'and returns you to the thread.'
-                        : 'Finalises & merges this task, then takes you back to the '
-                          + 'thread — where the next task starts.';
+                  else if (isPaused) {
+                    // Set aside by the user — resume revives it to active work.
+                    glyph = '▶';
+                    label = busy ? 'Resuming…' : 'Resume task';
+                    hint = 'Paused. Resume to pick this task back up where it left off.';
                     tone = shipPrimaryStyle;
+                    action = onResume;
+                  }
+                  else {
+                    // Active task — Pause sets it aside (keeping its branch +
+                    // progress) so the user can work on something else. Shipping
+                    // moved to the trunk; this surface no longer finalizes.
+                    glyph = '⏸';
+                    label = busy ? 'Pausing…' : 'Pause task';
+                    hint = 'Sets this task aside — its branch and progress are kept and '
+                      + 'the thread is freed for other work. Resume it any time.';
+                    tone = shipPrimaryStyle;
+                    action = onPause;
                   }
                   return (
                     <>
                       <button
                         type="button"
-                        onClick={() => { void onShip(); }}
-                        disabled={shipping || !canShip}
+                        onClick={() => { if (action !== null) void action(); }}
+                        disabled={busy || action === null}
                         style={tone}
                         title={task === null
                           ? 'No task loaded yet'
                           : isErrored
                             ? 'This task ended in an error; recover from the thread trunk'
-                            : !canShip
+                            : action === null
                               ? label
-                              : `Ship Task ${task.seq} and return to the thread trunk`}
+                              : isPaused
+                                ? `Resume Task ${task.seq}`
+                                : `Pause Task ${task.seq} and return to the thread trunk`}
                       >
                         <span aria-hidden style={{ marginRight: 8 }}>{glyph}</span>
                         {label}

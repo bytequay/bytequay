@@ -89,6 +89,15 @@ public enum TaskStatus
      *  already on the remote under review. */
     IN_REVIEW,
 
+    /** Set aside by the user: the agent is stopped and the task parks here
+     *  with its worktree, branch, and agent session intact. Non-terminal and
+     *  user-initiated — the thread treats a PAUSED task as not-active (so the
+     *  trunk is free to plan or run another task), but {@code resumeTask}
+     *  revives it to {@link #IDLE} where it left off. The deliberate-pause
+     *  sibling of {@link #ARCHIVED} (which is the same dormancy, but triggered
+     *  automatically by inactivity rather than by the user). */
+    PAUSED,
+
     /** Task finished cleanly — for a shipped task, this means its PR merged. */
     COMPLETED,
 

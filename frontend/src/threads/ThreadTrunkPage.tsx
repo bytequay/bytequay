@@ -1611,6 +1611,7 @@ function glyphChar(task: WorkUnitTaskDto): string {
   if (status === 'COMPLETED') return '✓';
   if (status === 'ERRORED') return '⨯';
   if (status === 'CANCELED') return '⊘';
+  if (status === 'PAUSED') return '⏸';
   if (status === 'AWAITING_REVIEW' || status === 'NEEDS_ATTENTION') return '⏸';
   if (status === 'RUNNING' || status === 'AWAITING') return '●';
   return '○';
@@ -2004,6 +2005,7 @@ function glyphStyle(task: WorkUnitTaskDto): React.CSSProperties {
   const status = displayStatus(task);
   if (status === 'COMPLETED') { color = '#16a34a'; bg = 'rgba(22, 163, 74, 0.12)'; }
   else if (status === 'ERRORED') { color = '#b91c1c'; bg = 'rgba(185, 28, 28, 0.12)'; }
+  else if (status === 'PAUSED') { color = '#7c3aed'; bg = 'rgba(124, 58, 237, 0.12)'; }
   else if (status === 'AWAITING_REVIEW' || status === 'NEEDS_ATTENTION') {
     color = '#d97706'; bg = 'rgba(217, 119, 6, 0.14)';
   }
@@ -2153,6 +2155,7 @@ function taskStatusPillStyle(status: string): React.CSSProperties {
   let color = 'var(--text-2)';
   if (status === 'COMPLETED') { bg = 'rgba(22,163,74,0.12)'; color = '#15803d'; }
   else if (status === 'ERRORED') { bg = 'rgba(185,28,28,0.12)'; color = '#991b1b'; }
+  else if (status === 'PAUSED') { bg = 'rgba(124,58,237,0.12)'; color = '#6d28d9'; }
   else if (status === 'AWAITING_REVIEW' || status === 'NEEDS_ATTENTION') {
     bg = 'rgba(217,119,6,0.14)'; color = '#9a3412';
   }

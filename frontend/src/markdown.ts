@@ -168,6 +168,38 @@ function decorateRefsAndMentions(html: string, repoContext?: MarkdownRepoContext
 }
 
 const SKIP_TAGS = new Set(['A', 'CODE', 'PRE', 'STYLE', 'SCRIPT', 'TEXTAREA']);
+
+/** A github.com pull-request URL: captures owner, repo, number and tolerates
+ *  a trailing `/files`, `?query`, or `#anchor`. Anchored so it only matches
+ *  a whole href (an autolinked bare URL or an explicit link target). */
+const GITHUB_PR_URL_RE = /^https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)(?:[/?#]\S*)?$/i;
+
+/** Rewrite an anchor that points at a github.com PR so it opens the
+ *  internal PR detail page. Stamps `data-pr-owner/repo/number` (read by the
+ *  App-level click delegate) and leaves the href in place as a fallback —
+ *  a modifier-click or a context without the delegate still resolves the
+ *  link the normal way. A bare PR URL (link text == the URL) is collapsed
+ *  into a compact `owner/repo#N` reference chip, mirroring github.com;
+ *  same-repo links shorten to `#N`. An explicit `[label](url)` link keeps
+ *  its label but still navigates internally. */
+function rewriteGithubPrAnchor(anchor: HTMLAnchorElement, repoContext?: MarkdownRepoContext): void {
+  const href = (anchor.getAttribute('href') ?? '').trim();
+  const match = GITHUB_PR_URL_RE.exec(href);
+  if (!match) return;
+  const [, owner, repo, number] = match;
+  anchor.dataset.prOwner = owner;
+  anchor.dataset.prRepo = repo;
+  anchor.dataset.prNumber = number;
+  anchor.title = `${owner}/${repo}#${number}`;
+  const text = (anchor.textContent ?? '').trim();
+  if (text === href || text === href.replace(/\/$/, '')) {
+    const sameRepo = repoContext !== undefined
+        && repoContext.owner.toLowerCase() === owner.toLowerCase()
+        && repoContext.repo.toLowerCase() === repo.toLowerCase();
+    anchor.textContent = sameRepo ? `#${number}` : `${owner}/${repo}#${number}`;
+    anchor.classList.add('md-ref-pr');
+  }
+}
 // One pass matches either a `@user` / `#N` reference (group 1, boundary-
 // guarded so emails / mid-word hashes don't trip it) OR a `:shortcode:`
 // emoji (group 2). Emoji need no boundary guard — the colons delimit them
@@ -176,7 +208,16 @@ const REF_RE = /(?<=^|[\s([])(@[A-Za-z0-9][A-Za-z0-9-]{0,38}|#\d{1,8})(?=$|[\s.,
 
 function decorateNode(node: Node, repoContext?: MarkdownRepoContext): void {
   if (node.nodeType === Node.ELEMENT_NODE) {
-    if (SKIP_TAGS.has((node as Element).tagName)) return;
+    const element = node as Element;
+    // Anchors are otherwise skipped (we don't decorate refs inside link
+    // text), but a GitHub PR link is exactly what we want to turn into an
+    // internal reference — handle it here before the skip, then stop (no
+    // recursion into the anchor's text).
+    if (element.tagName === 'A') {
+      rewriteGithubPrAnchor(element as HTMLAnchorElement, repoContext);
+      return;
+    }
+    if (SKIP_TAGS.has(element.tagName)) return;
     // Snapshot children before mutating — replaceChild during iteration
     // breaks a live NodeList.
     for (const child of Array.from(node.childNodes)) decorateNode(child, repoContext);

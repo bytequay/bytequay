@@ -2448,7 +2448,8 @@
    theme paints them in its native colour: blue on github-light,
    purple on the purple theme, green on warm, etc. */
 .md-ref-mention,
-.md-ref-issue {
+.md-ref-issue,
+.md-ref-pr {
   display: inline-block;
   padding: 0 5px;
   border-radius: var(--radius-sm);
@@ -2456,6 +2457,17 @@
   color: var(--accent);
   font-weight: 500;
   font-size: 0.95em;
+}
+
+/* PR reference chips (a bare github.com/<owner>/<repo>/pull/N URL,
+   rewritten in markdown.ts) are clickable — the App-level delegate opens
+   the internal PR detail page instead of github.com. */
+.md-ref-pr {
+  cursor: pointer;
+  text-decoration: none;
+}
+.md-ref-pr:hover {
+  text-decoration: underline;
 }
 
 .md-body {

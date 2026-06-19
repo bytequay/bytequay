@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import SettingsShell from './settings/SettingsShell';
 import NotificationsScreen from './NotificationsScreen';
 import TeamDetailPage from './teams/TeamDetailPage';
@@ -371,6 +371,36 @@ function writeActiveWorkspaceId(id: string): void {
 function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
+
+  // Current nav kept in a ref so the document-level click delegate below
+  // can read it for the `back` breadcrumb without re-subscribing each render.
+  const navRef = useRef(nav);
+  navRef.current = nav;
+
+  // Internal PR links: markdown.ts rewrites bare github.com PR URLs in
+  // comment / description bodies into chips carrying data-pr-owner/repo/
+  // number. A single delegated listener turns a plain left-click on any of
+  // them into in-app navigation to the PR detail page, instead of letting
+  // main.ts route the href to the embedded github.com browser. Modifier
+  // clicks fall through so "open in new window" still works via the href.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      const link = target?.closest<HTMLElement>('[data-pr-number]');
+      if (!link) return;
+      const owner = link.dataset.prOwner;
+      const repo = link.dataset.prRepo;
+      const prNumber = Number(link.dataset.prNumber);
+      if (!owner || !repo || !Number.isFinite(prNumber) || prNumber <= 0) return;
+      e.preventDefault();
+      setNav({ view: 'repo', owner, repo, prNumber, back: navRef.current });
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
 
   // Open a thread, routing review threads (flow=REVIEW) to the panel
   // page and everything else to the trunk. A review thread exposes a

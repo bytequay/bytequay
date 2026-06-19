@@ -91,3 +91,41 @@ describe('emoji shortcodes', () => {
     expect(html).not.toContain('<img');
   });
 });
+
+describe('GitHub PR links', () => {
+  it('rewrites a bare PR URL into an internal reference chip', () => {
+    const html = renderMarkdown('see https://github.com/trinodb/trino/pull/29952 please');
+    expect(html).toContain('class="md-ref-pr"');
+    expect(html).toContain('data-pr-owner="trinodb"');
+    expect(html).toContain('data-pr-repo="trino"');
+    expect(html).toContain('data-pr-number="29952"');
+    // Bare URL collapses to the cross-repo reference label.
+    expect(html).toContain('>trinodb/trino#29952<');
+  });
+
+  it('shortens to #N when the link targets the same repo as the comment', () => {
+    const html = renderMarkdown('https://github.com/trinodb/trino/pull/29952', { owner: 'trinodb', repo: 'trino' });
+    expect(html).toContain('data-pr-number="29952"');
+    // Visible chip text is the short same-repo form.
+    expect(html).toContain('>#29952<');
+  });
+
+  it('keeps an explicit link label but still marks it for internal nav', () => {
+    const html = renderMarkdown('[the fix](https://github.com/trinodb/trino/pull/29952)');
+    expect(html).toContain('data-pr-number="29952"');
+    expect(html).toContain('>the fix<');
+    // No chip styling — only bare URLs become chips.
+    expect(html).not.toContain('class="md-ref-pr"');
+  });
+
+  it('tolerates trailing path / query on the PR URL', () => {
+    const html = renderMarkdown('https://github.com/trinodb/trino/pull/29952/files');
+    expect(html).toContain('data-pr-number="29952"');
+  });
+
+  it('leaves non-PR github URLs alone', () => {
+    const html = renderMarkdown('https://github.com/trinodb/trino/issues/12');
+    expect(html).not.toContain('data-pr-number');
+    expect(html).not.toContain('class="md-ref-pr"');
+  });
+});

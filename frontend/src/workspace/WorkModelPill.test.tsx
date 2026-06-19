@@ -79,7 +79,7 @@ describe('WorkModelPill', () => {
     installBridge({ getThreadWorkModel: vi.fn(async () => INHERITED) });
 
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitFor(() => screen.getByRole('button'));
+    await waitForLoadedPill();
 
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
 
@@ -95,7 +95,7 @@ describe('WorkModelPill', () => {
     installBridge({ getThreadWorkModel: vi.fn(async () => INHERITED) });
 
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitFor(() => screen.getByRole('button'));
+    await waitForLoadedPill();
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
     await waitFor(() => screen.getByRole('dialog'));
 
@@ -116,7 +116,7 @@ describe('WorkModelPill', () => {
     });
 
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitFor(() => screen.getByRole('button'));
+    await waitForLoadedPill();
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
     await waitFor(() => screen.getByRole('dialog'));
 
@@ -146,6 +146,19 @@ describe('WorkModelPill', () => {
     expect(setTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1', null);
   });
 });
+
+/** Wait until the pill has finished its async load. The first render is a
+ *  disabled "Loading…" button; clicking that no-ops, so opening the
+ *  popover before the resolved model lands would race (and flakes under
+ *  CI load). Block on the button becoming enabled. */
+async function waitForLoadedPill() {
+  await waitFor(() => {
+    const button = screen.getByRole('button') as HTMLButtonElement;
+    if (button.disabled) {
+      throw new Error('pill is still loading');
+    }
+  });
+}
 
 function emptyOptions(): WorkModelOptionsDto {
   return { cliAgents: [], apiProviders: [] };

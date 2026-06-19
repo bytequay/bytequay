@@ -85,7 +85,6 @@ public class TaskService
     private final RoleSkillService roleSkillService;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskPhaseMachine taskPhaseMachine;
-    private final TaskQueueService taskQueue;
 
     public TaskService(
             ThreadStore threadStore,
@@ -101,8 +100,7 @@ public class TaskService
             ObjectMapper mapper,
             RoleSkillService roleSkillService,
             ApplicationEventPublisher eventPublisher,
-            TaskPhaseMachine taskPhaseMachine,
-            TaskQueueService taskQueue)
+            TaskPhaseMachine taskPhaseMachine)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -118,7 +116,6 @@ public class TaskService
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
-        this.taskQueue = requireNonNull(taskQueue, "taskQueue is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -328,9 +325,14 @@ public class TaskService
                 String pat = patResolver.resolve(repoFullName);
                 String prBase = resolveMergeTarget(repoFullName, workingDir);
                 try {
-                    PullRequest pr = pullRequestRepository.createPullRequest(
-                            pat, repoRef,
-                            CreatePullRequestCommand.of(current.branchName(), prBase, thread.title()));
+                    // Ship opens the PR as a DRAFT and keeps the worktree alive:
+                    // the post-ship loop (CI auto-fix, addressing review
+                    // comments) pushes more commits to this branch, and the
+                    // lifecycle reconciler marks the PR ready once CI is green.
+                    CreatePullRequestCommand command = mode == ParkMode.SHIP
+                            ? CreatePullRequestCommand.draft(current.branchName(), prBase, thread.title())
+                            : CreatePullRequestCommand.of(current.branchName(), prBase, thread.title());
+                    PullRequest pr = pullRequestRepository.createPullRequest(pat, repoRef, command);
                     prNumber = pr.number();
                 }
                 catch (RuntimeException e) {
@@ -347,18 +349,21 @@ public class TaskService
 
             // 4. Park the current task. SHIP marks it IN_REVIEW — the
             //    work is pushed and a PR is open, but the task is only
-            //    COMPLETED once that PR merges (see onPullRequestMerged) —
-            //    and nulls worktreePath ahead of the worktree reap in
-            //    step 8; NEXT keeps the row alive at AWAITING_REVIEW with
-            //    the worktree preserved so jump-back doesn't have to
-            //    re-cut a worktree from origin/<branch> on a wake.
+            //    COMPLETED once that PR merges (see onPullRequestMerged).
+            //    NEXT keeps the row alive at AWAITING_REVIEW. Both modes
+            //    preserve the worktree: SHIP runs the post-ship PR loop
+            //    (CI fix / addressing comments push more commits to the
+            //    branch), and NEXT's jump-back doesn't have to re-cut a
+            //    worktree from origin/<branch> on a wake. The reconciler
+            //    reaps a shipped task's worktree only when its PR merges.
             Instant now = Instant.now();
             TaskStatus parkedStatus = mode == ParkMode.SHIP
                     ? TaskStatus.IN_REVIEW
                     : TaskStatus.AWAITING_REVIEW;
-            String parkedWorktreePath = mode == ParkMode.SHIP
-                    ? null
-                    : current.worktreePath();
+            // Both modes keep the worktree now: SHIP enters the PR loop (CI
+            // fix / addressing comments push more commits), and the reconciler
+            // reaps it only when the PR actually merges.
+            String parkedWorktreePath = current.worktreePath();
             // endedAt stays null for a shipped task too — it isn't
             // finished until its PR merges, at which point completion
             // stamps endedAt.
@@ -379,17 +384,20 @@ public class TaskService
             // It only reaches COMPLETED when the PR actually merges
             // (completeTasksForMergedPr). NEXT keeps its own parked flow.
             if (mode == ParkMode.SHIP && prNumber != null) {
+                // Link the PR so the lifecycle reconciler can monitor it, and
+                // fast-forward to "pushed, awaiting CI" — the draft PR's checks
+                // are starting. The reconciler drives it from here (CI fix →
+                // mark-ready → remote review → merge).
+                taskStore.linkTaskToPr(current.id(), repoFullName + "#" + prNumber);
                 taskPhaseMachine.observe(
-                        current.id(), TaskPhase.AWAITING_REMOTE_REVIEW, "shipped_pr_open");
+                        current.id(), TaskPhase.PUSHED_AWAITING_CI, "shipped_draft_pr_open");
             }
 
-            // 5-6. Optionally cut + persist the seq+1 successor. SHIP only
-            //    continues the chain when the trunk has queued work — an empty
-            //    queue means the chain ran dry and the trunk re-plans, so we
-            //    don't spawn a placeholder task the user never asked for. NEXT
-            //    is an explicit "start the next task" action: it always cuts one.
-            boolean startSuccessor = mode != ParkMode.SHIP
-                    || taskQueue.pendingHead(thread).isPresent();
+            // 5-6. Optionally cut + persist the seq+1 successor. SHIP enters
+            //    the PR loop on the shipped task and does NOT cut a successor —
+            //    the trunk cuts the next task when the user wants it. NEXT is
+            //    the explicit "start the next task" action and always cuts one.
+            boolean startSuccessor = mode != ParkMode.SHIP;
             Task successor = startSuccessor
                     ? cutSuccessorTask(threadId, current, request, repoFullName, workingDir, now)
                     : null;
@@ -437,17 +445,10 @@ public class TaskService
                         threadId, e.getMessage());
             }
 
-            // 8. SHIP-only: reap the shipped task's worktree + local
-            //    branch. The PR is on the remote; the local refs are an
-            //    inert cache from this point on. Done last and best-
-            //    effort — if the remove fails (concurrent rm -rf, locked
-            //    file) we've still completed the ship; the directory is
-            //    a disk leak the operator can clean up by hand or a
-            //    future orphan-sweep can pick up. NEXT preserves the
-            //    worktree so jump-back lands back in it without a re-cut.
-            if (mode == ParkMode.SHIP) {
-                worktreeService.remove(workingDir, worktreePath.toString(), current.branchName());
-            }
+            // 8. The worktree is kept for BOTH modes now. SHIP enters the PR
+            //    loop (CI fix / addressing comments push more commits to this
+            //    branch), and the lifecycle reconciler reaps the worktree only
+            //    when the PR actually merges. NEXT preserves it for jump-back.
 
             // Phase B: tell the memory subsystem a unit of work just
             // landed. ShipEventMemoryTrigger listens, dedups within

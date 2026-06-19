@@ -136,6 +136,17 @@ public class TaskLifecycleDriver
             completeRemotelyTerminal(task, detail.merged());
             return;
         }
+        if (phase == TaskPhase.AWAITING_READY && detail.draft()) {
+            // CI is green on a still-draft shipped PR. Un-drafting (marking
+            // it ready for review) is autonomous per the post-ship loop:
+            // record the AWAITING_READY gate, flip the PR ready, and let the
+            // next observe land it at AWAITING_REMOTE_REVIEW. Idempotent —
+            // guarded on detail.draft(), so an already-ready PR never
+            // re-fires the mutation.
+            phaseMachine.observe(task.id(), TaskPhase.AWAITING_READY, "ci_green_on_draft");
+            pullRequests.setPullRequestDraft(repo, number, false);
+            return;
+        }
         phaseMachine.observe(task.id(), phase, "pr_state_observed");
     }
 

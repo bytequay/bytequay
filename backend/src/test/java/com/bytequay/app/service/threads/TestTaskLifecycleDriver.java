@@ -43,7 +43,7 @@ class TestTaskLifecycleDriver
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees);
 
     @Test
-    void fetchesTheLinkedPrDirectlyAndAdvancesThePhase()
+    void greenDraftRecordsTheReadyGateAndAutonomouslyUnDraftsThePr()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
@@ -51,10 +51,28 @@ class TestTaskLifecycleDriver
 
         driver.reconcileTask(task);
 
-        // Went straight to the PR by number — not the cached summary —
-        // and a green draft moves it to AWAITING_READY.
+        // Went straight to the PR by number — not the cached summary — saw a
+        // green draft, recorded the AWAITING_READY gate, and un-drafted the PR
+        // (marked it ready for review) so the next sweep lands it at remote
+        // review. Un-drafting on green is autonomous per the post-ship loop.
         verify(pullRequests).getPullRequestDetail("trinodb/trino", 29897);
-        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_READY, "pr_state_observed");
+        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_READY, "ci_green_on_draft");
+        verify(pullRequests).setPullRequestDraft("trinodb/trino", 29897, false);
+    }
+
+    @Test
+    void greenReadyPrAdvancesToRemoteReviewWithoutReUnDrafting()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_READY);
+        PullRequestDetail greenReady = detail(CiStatus.PASSING, false);
+        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenReady);
+
+        driver.reconcileTask(task);
+
+        // Already ready (not draft) — the un-draft mutation must not re-fire;
+        // the phase simply advances onto the remote-review spine.
+        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "pr_state_observed");
+        verify(pullRequests, never()).setPullRequestDraft(any(), anyInt(), eq(false));
     }
 
     @Test

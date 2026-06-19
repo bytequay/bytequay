@@ -1415,6 +1415,21 @@ function PullRequestPreview({
     };
   }, [pr.id, pr.repo, pr.number]);
 
+  // Authoritative PR commit count — reuse the same commit list the diff
+  // viewer and the branch/commits view load (GitHub /pulls/{n}/commits),
+  // rather than tallying `committed` timeline events, which over-counts
+  // when the head branch carries history outside the base..head range.
+  // null while loading / on failure → the header drops the number.
+  const [commitCount, setCommitCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setCommitCount(null);
+    void window.bridge.fetchPrCommits(pr.repo, pr.number)
+      .then((list) => { if (!cancelled) setCommitCount(list.length); })
+      .catch(() => { /* leave null — header shows "wants to merge into" */ });
+    return () => { cancelled = true; };
+  }, [pr.repo, pr.number]);
+
   // Focus-driven CI poll. Active only when the OS window AND the document
   // are visible — leaves the poll dormant when the user tabs away so we
   // don't burn rate-limit on a hidden window. Resets whenever the open PR
@@ -2017,12 +2032,15 @@ function PullRequestPreview({
   // Activity counts for the right sidebar's "Activity" stats card.
   const stats = (() => {
     if (!detail) return { comments: 0, reviews: 0, commits: 0, daysOpen: null as number | null };
-    let comments = 0, reviews = 0, commits = 0;
+    let comments = 0, reviews = 0;
     for (const a of detail.recentActivity) {
       if (a.eventType === 'commented') comments++;
       else if (a.eventType === 'reviewed') reviews++;
-      else if (a.eventType === 'committed') commits++;
     }
+    // Commit count comes from the PR's commit list (fetched above),
+    // matching github.com's "wants to merge N commits". 0 while loading
+    // → the header reads "wants to merge into".
+    const commits = commitCount ?? 0;
     const daysOpen = pr.createdAt
       ? Math.max(0, Math.floor((Date.now() - new Date(pr.createdAt).getTime()) / 86_400_000))
       : null;
@@ -2207,12 +2225,10 @@ function PullRequestPreview({
             {pr.author && <a className="prc-branch-line__author" href={`https://github.com/${pr.author}`} target="_blank" rel="noreferrer">{pr.author}</a>}
             <span className="prc-branch-line__verb">
               {(() => {
-                // Approximate count from the timeline's `committed`
-                // events. Won't be exact on PRs whose timeline has
-                // been truncated, but accurate enough for the header
-                // copy ("1 commit" vs "12 commits"). When the count
-                // can't be derived, fall back to the article-less
-                // form so the sentence still parses.
+                // PR commit count (stats.commits is sourced from the
+                // PR's commit list). When it's 0 — the count isn't
+                // available yet — fall back to the article-less form so
+                // the sentence still parses.
                 const n = stats.commits;
                 if (n <= 0) return 'wants to merge into';
                 return `wants to merge ${n} commit${n === 1 ? '' : 's'} into`;

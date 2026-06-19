@@ -1946,6 +1946,11 @@
   flex-direction: column;
   gap: var(--space-1);
 }
+.finish-review-panel__self-note {
+  margin: var(--space-1) 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
 .finish-review-verdict {
   display: flex;
   align-items: flex-start;

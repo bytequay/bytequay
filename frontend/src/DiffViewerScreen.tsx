@@ -536,6 +536,9 @@ type FinishReviewPanelProps = {
   onBodyChange: (next: string) => void;
   verdict: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
   onVerdictChange: (next: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES') => void;
+  /** False for the user's own PR — GitHub only allows Comment, so the
+   *  Approve / Request-changes verdicts are dropped. */
+  allowApproval: boolean;
   pendingComments: AiReviewCommentDto[];
   pendingExpanded: boolean;
   onTogglePending: () => void;
@@ -574,6 +577,7 @@ function FinishReviewPanel({
   onBodyChange,
   verdict,
   onVerdictChange,
+  allowApproval,
   pendingComments,
   pendingExpanded,
   onTogglePending,
@@ -630,7 +634,7 @@ function FinishReviewPanel({
         </div>
 
         <div className="finish-review-panel__verdicts" role="radiogroup" aria-label="Review verdict">
-          {VERDICT_OPTIONS.map((opt) => (
+          {(allowApproval ? VERDICT_OPTIONS : VERDICT_OPTIONS.filter(o => o.value === 'COMMENT')).map((opt) => (
             <label
               key={opt.value}
               className={`finish-review-verdict${verdict === opt.value ? ' finish-review-verdict--active' : ''}`}
@@ -650,6 +654,11 @@ function FinishReviewPanel({
             </label>
           ))}
         </div>
+        {!allowApproval && (
+          <p className="finish-review-panel__self-note">
+            You can only comment on your own pull request — GitHub doesn’t let authors approve or request changes on it.
+          </p>
+        )}
 
         <button
           type="button"
@@ -2174,6 +2183,12 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
     return () => { cancelled = true; };
   }, [pr.repo, pr.number]);
 
+  // GitHub forbids authors from approving (or requesting changes on) their
+  // own PR — attempting it 422s. `origin === 'AUTHORED'` is the backend's
+  // "this PR is mine" marker, so we hide the Approve affordances and offer
+  // only Comment, mirroring github.com.
+  const isOwnPr = pr.origin === 'AUTHORED';
+
   const handleApprove = async () => {
     if (!onApprove || approveState === 'running') return;
     setApproveState('running');
@@ -2419,7 +2434,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
           <span className="diff-viewer__num">#{pr.number}</span>
           <span className="diff-viewer__pr-title">{pr.title}</span>
         </div>
-        {onApprove && (
+        {onApprove && !isOwnPr && (
           <button
             className="button button--approve"
             type="button"
@@ -2473,6 +2488,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
                     onBodyChange={setSubmitBody}
                     verdict={submitVerdict}
                     onVerdictChange={setSubmitVerdict}
+                    allowApproval={!isOwnPr}
                     pendingComments={aiDraft ? aiDraft.comments.filter(c => !c.dismissed) : []}
                     pendingExpanded={pendingExpanded}
                     onTogglePending={() => setPendingExpanded(v => !v)}

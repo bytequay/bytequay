@@ -220,14 +220,12 @@ function isOpenParked(n: NotificationDto): boolean {
     && (n.status === 'UNREAD' || n.status === 'READ' || n.status === 'RESOLVING');
 }
 
-/** Jump-in is meaningful for any parked row that's still attached to
- *  a live agent — both AWAITING_REVIEW (publish gate) and
- *  NEEDS_ATTENTION (stuck headless run). Distinct from
- *  {@link isOpenParked} so NEEDS_ATTENTION can carry both Jump-in
- *  and Dismiss; AWAITING_REVIEW stays Jump-in-only because dismiss
- *  must go through the approve / discard surface. */
-function hasJumpInAffordance(n: NotificationDto): boolean {
-  return (n.kind === 'AWAITING_REVIEW' || n.kind === 'NEEDS_ATTENTION')
+/** Jump-in (a lease takeover) only makes sense for a genuinely stuck /
+ *  running task — NEEDS_ATTENTION. A cleanly parked AWAITING_REVIEW row is
+ *  resolved via its Review button (approve / discard), so Jump-in there did
+ *  nothing visible; it's no longer offered for that kind. */
+export function hasJumpInAffordance(n: Pick<NotificationDto, 'kind' | 'status'>): boolean {
+  return n.kind === 'NEEDS_ATTENTION'
     && (n.status === 'UNREAD' || n.status === 'READ' || n.status === 'RESOLVING');
 }
 

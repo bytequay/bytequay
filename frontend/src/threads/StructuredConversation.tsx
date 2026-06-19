@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
 import type { PendingPermission } from './ConversationPane';
+import { isShellTool, shellCommand } from './toolDisplay';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard, type PermissionDecideHandler } from './PermissionCard';
 import { threadModelLabel } from './threadDisplay';
@@ -880,6 +881,7 @@ function parseContent(json: string): Record<string, unknown> {
 
 function formatToolArgs(toolName: string, input: unknown): string {
   if (input == null || typeof input !== 'object') return '';
+  if (isShellTool(toolName)) return shellCommand(input);
   const obj = input as Record<string, unknown>;
   switch (toolName) {
     case 'Read':
@@ -892,14 +894,6 @@ function formatToolArgs(toolName: string, input: unknown): string {
       const limit = obj.limit != null ? `limit: ${obj.limit}` : null;
       const extra = [offset, limit].filter(Boolean).join(', ');
       return extra ? `${path} · ${extra}` : path;
-    }
-    case 'Bash':
-    // Codex CLI names its shell tool `command_execution`; without these
-    // aliases it fell through to the raw-JSON dump below.
-    case 'command_execution':
-    case 'shell': {
-      const cmd = obj.command;
-      return Array.isArray(cmd) ? cmd.map(String).join(' ') : String(cmd ?? '');
     }
     case 'Grep':
       return `${obj.pattern ?? ''}${obj.path ? ` · ${obj.path}` : ''}`;

@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderChatMarkdown } from '../markdown';
 import { highlightShell } from './shellHighlight';
+import { isShellTool, shellCommand } from './toolDisplay';
 import { useTypewriter } from './useTypewriter';
 import { assistantLabel, type AssistantLabel } from './assistantLabel';
 import type { ThreadDto, ThreadMessageDto } from '../types';
@@ -330,8 +331,8 @@ function summariseToolCall(
         || toolName === 'MultiEdit' || toolName === 'NotebookEdit') {
       detail = String(inObj.file_path ?? inObj.path ?? inObj.notebook_path ?? '');
     }
-    else if (toolName === 'Bash') {
-      detail = String(inObj.command ?? inObj.cmd ?? '');
+    else if (isShellTool(toolName)) {
+      detail = shellCommand(inObj);
     }
     else if (toolName === 'Grep') {
       const pat = inObj.pattern ?? inObj.query ?? '';
@@ -370,7 +371,7 @@ function summariseToolCall(
         const dels = (out.match(/^-/gm) ?? []).length;
         if (adds > 0 || dels > 0) footer = `+${adds} -${dels}`;
       }
-      else if (toolName === 'Bash') {
+      else if (isShellTool(toolName)) {
         const trimmed = out.trim();
         if (trimmed.length > 0) footer = trimmed.split('\n')[0].slice(0, 80);
       }
@@ -549,7 +550,7 @@ function ToolCard({
   // Shell commands are multi-line and long; show them as a wrapping,
   // syntax-highlighted block on their real lines instead of one
   // truncated row — and let the whole card fold to just its header.
-  if ((toolName === 'Bash' || toolName === 'run_shell') && detail.length > 0) {
+  if (isShellTool(toolName) && detail.length > 0) {
     return (
       <div style={toolShellRowStyle}>
         <div style={toolShellHeadStyle}>

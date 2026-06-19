@@ -26,6 +26,7 @@ import type {
 import GroupMenu from './GroupMenu';
 import NotificationStrip from './NotificationStrip';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
+import { isShellTool, shellCommand } from './toolDisplay';
 import { StructuredConversation } from './StructuredConversation';
 import ThreadsLeftRail, {
   repoKey,
@@ -2560,11 +2561,13 @@ function deriveStage(messages: ThreadMessageDto[], status: ThreadStatusDto | und
       try {
         const c = JSON.parse(m.contentJson) as { callId?: string; toolName?: string; input?: unknown };
         if (c.callId && !seenResults.has(c.callId)) {
-          return {
-            toolName: c.toolName ?? 'tool',
-            glyph: '⚒',
-            detail: oneLineInput(c.input),
-          };
+          const toolName = c.toolName ?? 'tool';
+          // Shell tools (command_execution / Bash / …) surface the command
+          // itself rather than the JSON envelope in the status line.
+          const detail = isShellTool(toolName)
+            ? oneLineInput(shellCommand(c.input))
+            : oneLineInput(c.input);
+          return { toolName, glyph: '⚒', detail };
         }
       }
       catch { /* ignore */ }

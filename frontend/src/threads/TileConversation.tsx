@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ThreadMessageDto } from '../types';
 import type { PendingPermission } from './ConversationPane';
+import { isShellTool, shellCommand } from './toolDisplay';
 import { ToolOutputBody } from './StructuredConversation';
 
 /** Locally re-declared so this file doesn't depend on a private
@@ -426,6 +427,7 @@ function parseContent(json: string): Record<string, unknown> {
 
 function formatToolArgs(toolName: string, input: unknown): string {
   if (input === null || input === undefined || typeof input !== 'object') return '';
+  if (isShellTool(toolName)) return shellCommand(input);
   const obj = input as Record<string, unknown>;
   switch (toolName) {
     case 'Read':
@@ -435,14 +437,6 @@ function formatToolArgs(toolName: string, input: unknown): string {
     case 'NotebookEdit': {
       const path = String(obj.file_path ?? obj.notebook_path ?? '');
       return path;
-    }
-    case 'Bash':
-    // Codex CLI names its shell tool `command_execution`; without these
-    // aliases it fell through to the raw-JSON dump below.
-    case 'command_execution':
-    case 'shell': {
-      const cmd = obj.command;
-      return Array.isArray(cmd) ? cmd.map(String).join(' ') : String(cmd ?? '');
     }
     case 'Grep':
       return `${obj.pattern ?? ''}${obj.path !== undefined ? ` · ${obj.path as string}` : ''}`;

@@ -15,6 +15,7 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -22,6 +23,7 @@ import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ParkedProposalService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -30,9 +32,11 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
@@ -63,24 +67,34 @@ public class PublishToolHandlers
      *  megabyte per park. */
     private static final int PUSH_DIFF_MAX_BYTES = 500_000;
 
+    /** Phases that mean "still implementing" — a ship/push proposal from one
+     *  of these fast-forwards to AWAITING_PUSH so the stepper reflects the
+     *  review/push stage instead of staying on "Implement". */
+    private static final Set<TaskPhase> PRE_PUSH_PHASES = EnumSet.of(
+            TaskPhase.QUEUED, TaskPhase.IMPLEMENTING,
+            TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW);
+
     private final TaskStore taskStore;
     private final WatchedRepoStore watchedRepos;
     private final ParkedProposalService parkedProposals;
     private final GitRunner git;
     private final ObjectMapper mapper;
+    private final TaskPhaseMachine taskPhaseMachine;
 
     public PublishToolHandlers(
             TaskStore taskStore,
             WatchedRepoStore watchedRepos,
             ParkedProposalService parkedProposals,
             GitRunner git,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            TaskPhaseMachine taskPhaseMachine)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
     }
 
     /** Args record for {@code request_review}. */
@@ -742,7 +756,6 @@ public class PublishToolHandlers
     {
         try {
             parkedProposals.park(task, proposal);
-            return ToolOutcome.Completed.ok(parkedText);
         }
         catch (RuntimeException e) {
             log.warn("failed to park task {} for review ({}): {}",
@@ -751,6 +764,30 @@ public class PublishToolHandlers
                     "Could not save the review notification (" + e.getMessage()
                             + "). The task was not parked — please retry.");
         }
+        // A ship / push / next proposal means the agent finished implementing
+        // and is awaiting the user's approval to push — fast-forward the
+        // dev-lifecycle phase so the flow stepper reads "Push", not "Implement"
+        // (CLI agents jump straight here without walking the phases). Best-
+        // effort: the park already committed, so a phase failure mustn't mask it.
+        if (proposesPush(proposal) && PRE_PUSH_PHASES.contains(task.phase())) {
+            try {
+                taskPhaseMachine.observe(task.id(), TaskPhase.AWAITING_PUSH, "parked_for_publish");
+            }
+            catch (RuntimeException e) {
+                log.warn("phase fast-forward on park of {} threw: {}", task.id(), e.getMessage());
+            }
+        }
+        return ToolOutcome.Completed.ok(parkedText);
+    }
+
+    /** Whether a parked proposal represents the agent finishing the work and
+     *  awaiting approval to push it (ship / push / roll-to-next), as opposed
+     *  to acting on an already-published PR (comment, request review, …). */
+    private static boolean proposesPush(ParkedProposal proposal)
+    {
+        return proposal instanceof ParkedProposal.ShipTask
+                || proposal instanceof ParkedProposal.Push
+                || proposal instanceof ParkedProposal.NextTask;
     }
 
     private static ParkedProposal.PrRef toPrRef(PullRequestRef ref)

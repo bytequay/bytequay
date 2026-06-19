@@ -18,6 +18,7 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -323,6 +324,11 @@ class TestMcpPublishGate
         assertThat(textOf(response)).startsWith("Parked at AWAITING_REVIEW (ship_task).");
         assertThat(tasks.findTaskById(seeded.id()).orElseThrow().status())
                 .isEqualTo(TaskStatus.AWAITING_REVIEW);
+        // The agent finished implementing and proposed a ship, so the
+        // dev-lifecycle phase fast-forwards from IMPLEMENTING to AWAITING_PUSH
+        // — the flow stepper reads "Push", not a stale "Implement".
+        assertThat(tasks.findTaskById(seeded.id()).orElseThrow().phase())
+                .isEqualTo(TaskPhase.AWAITING_PUSH);
         JsonNode payload = mapper.readTree(newestAwaitingReviewFor(threadId).payloadJson());
         assertThat(payload.path("action").asText()).isEqualTo("ship_task");
         assertThat(payload.path("branch").asText()).isEqualTo("feature/finished");

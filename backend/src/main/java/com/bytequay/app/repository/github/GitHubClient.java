@@ -3223,7 +3223,15 @@ public class GitHubClient
             // fall back to GitHub's own message rather than guessing.
             default -> "GitHub API request failed with status " + e.getStatusCode().value() + ".";
         };
-        String githubMessage = extractGitHubErrorMessage(e.getResponseBodyAsString());
+        String responseBody = e.getResponseBodyAsString();
+        // Log GitHub's raw response so the real reason is recoverable even
+        // when GitHub only sends a generic top-level message (e.g. a 422
+        // "Unprocessable Entity" with no errors[] detail, as it does for
+        // "Can not approve your own pull request"). Without this the cause
+        // is invisible — the thrown reason is all the UI ever sees.
+        log.warn("GitHub API {} failed: {}", e.getStatusCode().value(),
+                responseBody == null || responseBody.isBlank() ? "(empty body)" : responseBody);
+        String githubMessage = extractGitHubErrorMessage(responseBody);
         String message = githubMessage != null ? githubMessage : fallback;
         throw new ResponseStatusException(status, message, e);
     }

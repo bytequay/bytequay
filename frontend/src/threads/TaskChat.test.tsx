@@ -69,6 +69,25 @@ describe('TaskChat forked-from-thread hint', () => {
     expect(screen.getByText(/seeded with the plan · off main/)).toBeTruthy();
   });
 
+  it('labels the assistant by the thread work model (Codex), not a hardcoded Claude', () => {
+    render(
+      <TaskChat
+        messages={[msg('assistant', 'text', { text: 'on it' })]}
+        taskSeq={1}
+        baseBranch="main"
+        userInitials="JC"
+        thread={{
+          workModel: { kind: 'CLI', agentOrProvider: 'codex', model: null, account: null },
+          provider: 'codex',
+          model: null,
+        } as unknown as import('../types').ThreadDto}
+      />,
+    );
+
+    expect(screen.getByText('Codex')).toBeTruthy();
+    expect(screen.queryByText('Claude')).toBeNull();
+  });
+
   it('renders messages queued mid-turn as pending bubbles, not lost', () => {
     render(
       <TaskChat

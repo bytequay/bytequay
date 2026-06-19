@@ -956,6 +956,7 @@ export default function TaskDetailPage({
                       userInitials={userInitials}
                       liveText={liveText}
                       queuedMessages={queuedInputs}
+                      thread={thread}
                       isInFlight={thread?.status === 'RUNNING' || sending}
                       onInterrupt={() => { void onInterrupt(); }}
                       interrupting={interrupting}

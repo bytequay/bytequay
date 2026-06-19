@@ -15,7 +15,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderChatMarkdown } from '../markdown';
 import { highlightShell } from './shellHighlight';
 import { useTypewriter } from './useTypewriter';
-import type { ThreadMessageDto } from '../types';
+import { assistantLabel, type AssistantLabel } from './assistantLabel';
+import type { ThreadDto, ThreadMessageDto } from '../types';
 
 type Props = {
   /** Optional ref forwarded onto the chat's scroll container so the
@@ -46,6 +47,9 @@ type Props = {
    *  Shown as pending bubbles at the foot of the transcript so a message
    *  sent mid-turn reads as "queued, sends next" rather than vanishing. */
   queuedMessages?: string[];
+  /** The thread's resolved work model, so the assistant bubbles name the
+   *  actual agent (Codex / DeepSeek / …) instead of a hardcoded "Claude". */
+  thread?: Pick<ThreadDto, 'workModel' | 'provider' | 'model'> | null;
   /** Fired from the Stop button in the working… card. Parent owns
    *  the interrupt RPC + optimistic state. */
   onInterrupt?: () => void;
@@ -74,9 +78,10 @@ type Props = {
  */
 export default function TaskChat({
   messages, taskSeq, baseBranch, userInitials, isInFlight = false,
-  liveText = '', queuedMessages = [], onInterrupt, interrupting = false, outerRef,
+  liveText = '', queuedMessages = [], thread, onInterrupt, interrupting = false, outerRef,
   canLoadOlder = false, loadingOlder = false, onLoadOlder,
 }: Props) {
+  const speaker = useMemo(() => assistantLabel(thread), [thread]);
   const streaming = liveText.length > 0;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const assignScrollRef = (el: HTMLDivElement | null) => {
@@ -164,6 +169,7 @@ export default function TaskChat({
               text={item.text}
               taskSeq={taskSeq}
               ts={item.ts}
+              speaker={speaker}
             />
           );
         }
@@ -184,13 +190,13 @@ export default function TaskChat({
         }
         return <SystemNote key={`sys-${i}`} text={item.text} />;
       })}
-      {streaming && <StreamingAssistantBlock text={liveText} taskSeq={taskSeq} />}
+      {streaming && <StreamingAssistantBlock text={liveText} taskSeq={taskSeq} speaker={speaker} />}
       {isInFlight && !streaming && (
         <div style={thinkingRowStyle}>
-          <div style={claudeAvatarStyle}>C</div>
+          <div style={{ ...claudeAvatarStyle, background: speaker.color }}>{speaker.glyph}</div>
           <div style={assistantColStyle}>
             <div style={assistantHeaderStyle}>
-              <span style={assistantNameStyle}>Claude</span>
+              <span style={assistantNameStyle}>{speaker.name}</span>
               {taskSeq !== null && (
                 <span style={assistantMetaStyle}>Task {taskSeq}</span>
               )}
@@ -458,19 +464,20 @@ const cardFoldToggleStyle: React.CSSProperties = {
 };
 
 function AssistantBlock({
-  text, taskSeq, ts,
+  text, taskSeq, ts, speaker,
 }: {
   text: string;
   taskSeq: number | null;
   ts: number;
+  speaker: AssistantLabel;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   return (
     <div style={assistantRowStyle}>
-      <div style={claudeAvatarStyle}>C</div>
+      <div style={{ ...claudeAvatarStyle, background: speaker.color }}>{speaker.glyph}</div>
       <div style={assistantColStyle}>
         <div style={assistantHeaderStyle}>
-          <span style={assistantNameStyle}>Claude</span>
+          <span style={assistantNameStyle}>{speaker.name}</span>
           {taskSeq !== null && (
             <span style={assistantMetaStyle}>Task {taskSeq}</span>
           )}
@@ -494,15 +501,17 @@ function AssistantBlock({
  *  message / timestamp yet) and trails a blinking cursor. The parent
  *  clears {@code liveText} once the assembled message lands, at which
  *  point the normal AssistantBlock takes over. */
-function StreamingAssistantBlock({ text, taskSeq }: { text: string; taskSeq: number | null }) {
+function StreamingAssistantBlock({
+  text, taskSeq, speaker,
+}: { text: string; taskSeq: number | null; speaker: AssistantLabel }) {
   // Ease the reveal so bursty deltas type in smoothly instead of popping.
   const shown = useTypewriter(text);
   return (
     <div style={assistantRowStyle}>
-      <div style={claudeAvatarStyle}>C</div>
+      <div style={{ ...claudeAvatarStyle, background: speaker.color }}>{speaker.glyph}</div>
       <div style={assistantColStyle}>
         <div style={assistantHeaderStyle}>
-          <span style={assistantNameStyle}>Claude</span>
+          <span style={assistantNameStyle}>{speaker.name}</span>
           {taskSeq !== null && (
             <span style={assistantMetaStyle}>Task {taskSeq}</span>
           )}

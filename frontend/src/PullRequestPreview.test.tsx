@@ -239,6 +239,7 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
 function bridgeStub(detail: PullRequestDetailDto) {
   return {
     fetchPullRequestDetail: vi.fn().mockResolvedValue(detail),
+    fetchPrCommits: vi.fn().mockResolvedValue([]),
     refreshPullRequestDetail: vi.fn().mockResolvedValue(detail),
     setPrDraft: vi.fn().mockResolvedValue(undefined),
     addRequestedReviewer: vi.fn().mockResolvedValue(undefined),

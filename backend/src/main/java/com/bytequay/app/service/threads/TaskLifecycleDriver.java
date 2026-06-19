@@ -14,11 +14,20 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
+import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +35,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -73,17 +84,32 @@ public class TaskLifecycleDriver
     private final PullRequestService pullRequests;
     private final TaskPhaseMachine phaseMachine;
     private final WorktreeService worktrees;
+    private final TaskReviewMarkerStore reviewMarkers;
+    private final ThreadStore threadStore;
+    private final ThreadTurnScheduler scheduler;
+    private final NotificationService notifications;
+    private final ObjectMapper mapper;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
             PullRequestService pullRequests,
             TaskPhaseMachine phaseMachine,
-            WorktreeService worktrees)
+            WorktreeService worktrees,
+            TaskReviewMarkerStore reviewMarkers,
+            ThreadStore threadStore,
+            ThreadTurnScheduler scheduler,
+            NotificationService notifications,
+            ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
+        this.reviewMarkers = requireNonNull(reviewMarkers, "reviewMarkers is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -147,7 +173,123 @@ public class TaskLifecycleDriver
             pullRequests.setPullRequestDraft(repo, number, false);
             return;
         }
+        if (phase == TaskPhase.AWAITING_REMOTE_REVIEW) {
+            Optional<Instant> newest = TaskLifecyclePhases.newestUnaddressedReviewComment(
+                    detail, reviewMarkers.find(task.id()).orElse(null));
+            if (newest.isPresent()) {
+                startAddressComments(task, repo, number, detail, newest.get());
+                return;
+            }
+        }
         phaseMachine.observe(task.id(), phase, "pr_state_observed");
+    }
+
+    /**
+     * A ready PR has a fresh round of unresolved reviewer comments. Move
+     * the task onto the address-comments spine, tell the user, and kick off
+     * an <em>analysis</em> turn that presents a per-comment plan and then
+     * stops — the user reviews / discusses / edits it in the task chat and
+     * tells the agent to proceed before anything is addressed (decision:
+     * ask first; addressing is never autonomous). The user's "go ahead" is
+     * just their next chat turn, which addresses the comments one by one
+     * with the existing reply / push gate tools.
+     */
+    private void startAddressComments(
+            Task task, String repo, int number, PullRequestDetail detail, Instant newest)
+    {
+        phaseMachine.observe(task.id(), TaskPhase.ADDRESSING_COMMENTS, "new_review_comments");
+        // Advance the marker up front so a later sweep doesn't re-trigger on
+        // the same comments while the analysis / user review is underway; a
+        // genuinely newer round of comments still reads as new.
+        reviewMarkers.mark(task.id(), newest);
+        notifyNewComments(task, repo, number);
+        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
+        if (threadOpt.isEmpty()) {
+            log.warn("address-comments: thread {} not found (task {})", task.threadId(), task.id());
+            return;
+        }
+        Thread thread = threadOpt.get();
+        if (thread.status() != ThreadStatus.IDLE) {
+            // Busy thread — the notification already alerted the user, who
+            // can open the task and start the analysis themselves. Don't
+            // stack a turn on top of a running one.
+            log.info("address-comments: thread {} is {} (task {}); notified only",
+                    thread.id(), thread.status(), task.id());
+            return;
+        }
+        String prompt = buildReviewAnalysisPrompt(repo, number, detail);
+        try {
+            scheduler.enqueueTurn(thread, prompt, TurnInitiator.unattended("address-comments-analysis"));
+            log.info("address-comments: analysis turn queued for task {} on {} #{}",
+                    task.id(), repo, number);
+        }
+        catch (RuntimeException e) {
+            log.warn("address-comments analysis enqueue failed for task {}: {}",
+                    task.id(), e.getMessage());
+        }
+    }
+
+    /** Best-effort NEEDS_ATTENTION row so the bell flags the new comments
+     *  even if the user isn't looking at the task chat. */
+    private void notifyNewComments(Task task, String repo, int number)
+    {
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("reason", "New review comments");
+            payload.put("repoFullName", repo);
+            payload.put("prNumber", number);
+            notifications.notifyNeedsAttention(
+                    task.threadId(), task.id(), mapper.writeValueAsString(payload));
+        }
+        catch (JsonProcessingException e) {
+            log.warn("Failed to write new-review-comments payload for task {}: {}",
+                    task.id(), e.getMessage());
+        }
+    }
+
+    /** The analysis turn's first prompt. Carries the unresolved review
+     *  threads inline so the agent needn't re-fetch the PR, asks for a
+     *  structured per-comment analysis, and tells it to STOP and wait for
+     *  the user before addressing anything. */
+    private static String buildReviewAnalysisPrompt(String repo, int number, PullRequestDetail detail)
+    {
+        StringBuilder out = new StringBuilder();
+        out.append("New review comments arrived on ").append(repo).append(" #").append(number)
+                .append(". Do NOT change code or reply on the PR yet.\n\n")
+                .append("For EACH unresolved review thread below, write a short analysis:\n")
+                .append("  1. Summary — what is the comment asking?\n")
+                .append("  2. Problem — what is actually wrong, if anything?\n")
+                .append("  3. Does it make sense? If you disagree, draft a respectful "
+                        + "push-back reply.\n")
+                .append("  4. If it needs a code change, give a concrete plan for the fix.\n\n")
+                .append("Then STOP and wait. I'll review your analysis, discuss any of it, and "
+                        + "tell you to proceed. Only after I confirm should you address them one "
+                        + "by one — implement the fix or post the push-back, validate, push, and "
+                        + "reply on the threads.\n\n")
+                .append("Unresolved review threads:\n");
+        int i = 1;
+        for (ReviewThread thread : detail.reviewThreads()) {
+            if (Boolean.TRUE.equals(thread.resolved())
+                    || thread.messages() == null
+                    || thread.messages().isEmpty()) {
+                continue;
+            }
+            out.append('\n').append(i++).append(". ");
+            if (thread.filePath() != null) {
+                out.append(thread.filePath());
+                if (thread.line() != null) {
+                    out.append(':').append(thread.line());
+                }
+            }
+            out.append('\n');
+            for (ReviewMessage message : thread.messages()) {
+                out.append("   @").append(message.author() == null ? "?" : message.author())
+                        .append(": ")
+                        .append(message.body() == null ? "" : message.body().strip())
+                        .append('\n');
+            }
+        }
+        return out.toString();
     }
 
     /** Drive a task to terminal COMPLETED from an observed remote merge /

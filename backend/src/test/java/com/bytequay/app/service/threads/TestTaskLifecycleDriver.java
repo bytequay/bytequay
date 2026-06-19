@@ -15,18 +15,30 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
+import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
+import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -39,8 +51,14 @@ class TestTaskLifecycleDriver
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final WorktreeService worktrees = mock(WorktreeService.class);
+    private final TaskReviewMarkerStore reviewMarkers = mock(TaskReviewMarkerStore.class);
+    private final ThreadStore threadStore = mock(ThreadStore.class);
+    private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
+    private final NotificationService notifications = mock(NotificationService.class);
+    private final ObjectMapper mapper = new ObjectMapper();
     private final TaskLifecycleDriver driver =
-            new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees);
+            new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
+                    reviewMarkers, threadStore, scheduler, notifications, mapper);
 
     @Test
     void greenDraftRecordsTheReadyGateAndAutonomouslyUnDraftsThePr()
@@ -127,12 +145,84 @@ class TestTaskLifecycleDriver
         verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
     }
 
+    @Test
+    void newReviewCommentsOnAReadyPrStartTheAddressLoop()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        Instant commentAt = Instant.parse("2026-06-01T09:00:00Z");
+        PullRequestDetail readyWithComments = detailWithThreads(
+                CiStatus.PASSING, /* draft */ false,
+                List.of(unresolvedThread("Foo.java", 10, "reviewer", "please fix this", commentAt)));
+        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(readyWithComments);
+        Thread thread = mock(Thread.class);
+        when(thread.id()).thenReturn("t1");
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-id");
+
+        driver.reconcileTask(task);
+
+        // Fresh reviewer comments on a ready PR divert the task onto the
+        // address-comments spine, advance the marker so they don't re-fire,
+        // alert the user, and queue an analysis turn that presents a plan and
+        // waits for approval.
+        verify(phaseMachine).observe("t1.k2", TaskPhase.ADDRESSING_COMMENTS, "new_review_comments");
+        verify(reviewMarkers).mark("t1.k2", commentAt);
+        verify(notifications).notifyNeedsAttention(eq("t1"), eq("t1.k2"), anyString());
+        ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
+        verify(scheduler).enqueueTurn(eq(thread), anyString(), initiator.capture());
+        assertThat(initiator.getValue().attended()).isFalse();
+        assertThat(initiator.getValue().source()).isEqualTo("address-comments-analysis");
+        // It does not also plain-advance to remote review — it diverted.
+        verify(phaseMachine, never())
+                .observe("t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "pr_state_observed");
+    }
+
+    @Test
+    void alreadyAddressedCommentsDoNotReTriggerTheAddressLoop()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        Instant commentAt = Instant.parse("2026-06-01T09:00:00Z");
+        PullRequestDetail readyWithComments = detailWithThreads(
+                CiStatus.PASSING, false,
+                List.of(unresolvedThread("Foo.java", 10, "reviewer", "please fix this", commentAt)));
+        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(readyWithComments);
+        // The marker already covers this comment — we surfaced it last round.
+        when(reviewMarkers.find("t1.k2")).thenReturn(Optional.of(commentAt));
+
+        driver.reconcileTask(task);
+
+        // No diversion: the PR just sits at remote review, no new analysis turn.
+        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "pr_state_observed");
+        verify(phaseMachine, never())
+                .observe(anyString(), eq(TaskPhase.ADDRESSING_COMMENTS), anyString());
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
+    }
+
     private static PullRequestDetail detail(CiStatus ci, boolean draft)
     {
         PullRequestDetail d = mock(PullRequestDetail.class);
         when(d.ciStatus()).thenReturn(ci);
         when(d.draft()).thenReturn(draft);
         return d;
+    }
+
+    private static PullRequestDetail detailWithThreads(
+            CiStatus ci, boolean draft, List<ReviewThread> threads)
+    {
+        PullRequestDetail d = mock(PullRequestDetail.class);
+        when(d.ciStatus()).thenReturn(ci);
+        when(d.draft()).thenReturn(draft);
+        when(d.reviewThreads()).thenReturn(threads);
+        return d;
+    }
+
+    private static ReviewThread unresolvedThread(
+            String file, int line, String author, String body, Instant at)
+    {
+        ReviewMessage msg = new ReviewMessage(1L, author, body, at, null, null, "COLLABORATOR");
+        return new ReviewThread(1L, file, line, "RIGHT", null, List.of(msg),
+                /* resolved */ false, /* outdated */ false, null, null, null, null);
     }
 
     private static Task task(String linkedPrRef, TaskPhase phase)

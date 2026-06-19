@@ -30,6 +30,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -39,7 +41,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,6 +94,19 @@ public class AutomationCoordinator
      *  hard on each sweep. */
     private static final int CI_SCAN_LIMIT = 200;
 
+    /** Total autonomous CI-fix attempts for a shipped task before we
+     *  hand it to the user. Attempt 1 is the cheap re-run (flaky guard);
+     *  attempts 2–3 are agent fix turns. After this the loop escalates
+     *  to a NEEDS_ATTENTION notification per the post-ship design. */
+    private static final int MAX_CI_FIX_ATTEMPTS = 3;
+
+    /** After triggering a re-run or an agent fix turn, give CI this long
+     *  to actually re-run before the next sweep acts again. Without it,
+     *  detail-cache lag (the cached run still reads "failure" for a sweep
+     *  or two after we re-ran) would make us skip the cheap re-run and
+     *  spend an agent turn prematurely. */
+    private static final Duration CI_FIX_COOLDOWN = Duration.ofMinutes(4);
+
     private final WorktreeLeaseService leaseService;
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
@@ -99,6 +116,8 @@ public class AutomationCoordinator
     private final NotificationService notificationService;
     private final WorkspaceStore workspaceStore;
     private final ThreadTurnScheduler scheduler;
+    private final PullRequestService pullRequests;
+    private final GitRunner git;
     private final ObjectMapper mapper;
 
     /** Tracks tasks that already had an auto-fix turn queued during
@@ -110,6 +129,19 @@ public class AutomationCoordinator
      *  enqueue-failure so the next sweep retries. */
     private final Set<String> autoFixTriggered = ConcurrentHashMap.newKeySet();
 
+    /** Per-task autonomous CI-fix attempt counter for shipped tasks on
+     *  the post-ship loop, capped at {@link #MAX_CI_FIX_ATTEMPTS}. Like
+     *  {@link #autoFixTriggered} this is intentionally non-durable — a
+     *  restart resets the budget, which is fine: the operator is present
+     *  and the user can always take over a stuck PR. */
+    private final ConcurrentHashMap<String, Integer> ciFixAttempts = new ConcurrentHashMap<>();
+
+    /** Per-task cooldown gate: the earliest instant the next CI-fix sweep
+     *  may act on this task again, set after each re-run / agent turn so
+     *  the in-flight CI has time to report back. Non-durable, same as
+     *  {@link #ciFixAttempts}. */
+    private final ConcurrentHashMap<String, Instant> ciFixCooldown = new ConcurrentHashMap<>();
+
     public AutomationCoordinator(
             WorktreeLeaseService leaseService,
             TaskStore taskStore,
@@ -120,6 +152,8 @@ public class AutomationCoordinator
             NotificationService notificationService,
             WorkspaceStore workspaceStore,
             ThreadTurnScheduler scheduler,
+            PullRequestService pullRequests,
+            GitRunner git,
             ObjectMapper mapper)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
@@ -131,6 +165,8 @@ public class AutomationCoordinator
         this.notificationService = requireNonNull(notificationService, "notificationService is null");
         this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -210,6 +246,14 @@ public class AutomationCoordinator
         CiAggregate ci = aggregateChecks(detail.get().checkRuns());
         if (!ci.isFailing()) {
             return false;
+        }
+        // A shipped task (linked into the post-ship PR loop) drives its own
+        // autonomous CI-fix sequence — re-run → agent fix → escalate —
+        // regardless of the per-repo dashboard auto-fix opt-in. A plain
+        // linked-PR task keeps the conservative dashboard behaviour below:
+        // one NEEDS_ATTENTION row plus an opt-in fix turn.
+        if (task.linkedPrRef() != null) {
+            return driveShippedCiFix(task, repoFullName, ci);
         }
         if (hasOpenNotificationForTask(task.id())) {
             return false;
@@ -339,6 +383,182 @@ public class AutomationCoordinator
                 .append("on the PR yourself — call `request_review` when you have a candidate ")
                 .append("fix and the user will publish.");
         return out.toString();
+    }
+
+    /**
+     * Drives one step of the autonomous post-ship CI-fix loop for a
+     * shipped task whose linked PR is failing CI. The sequence, paced by
+     * the 60-second sweep and the {@link #CI_FIX_COOLDOWN}:
+     *
+     * <ol>
+     *   <li>attempt 0 → <b>re-run</b> the failed checks in place — the
+     *       cheapest way to clear a flaky/transient failure before
+     *       spending an agent;</li>
+     *   <li>attempts 1–2 → spawn an <b>agent fix turn</b> that decides
+     *       whether the failure is ours, fixes + pushes if so, else stops
+     *       so the next sweep re-runs;</li>
+     *   <li>at the cap → <b>escalate</b> to a NEEDS_ATTENTION row and stop
+     *       acting (the user takes over).</li>
+     * </ol>
+     *
+     * Returns true only when this step wrote a user-facing notification.
+     */
+    private boolean driveShippedCiFix(Task task, String repoFullName, CiAggregate ci)
+    {
+        Instant now = Instant.now();
+        Instant eligibleAt = ciFixCooldown.get(task.id());
+        if (eligibleAt != null && now.isBefore(eligibleAt)) {
+            // Last action's CI run hasn't had time to report back yet.
+            return false;
+        }
+        int attempts = ciFixAttempts.getOrDefault(task.id(), 0);
+        if (attempts >= MAX_CI_FIX_ATTEMPTS) {
+            return escalateShippedCiFix(task, repoFullName, ci);
+        }
+        if (attempts == 0) {
+            rerunShippedCi(task, repoFullName, now);
+            return false;
+        }
+        enqueueShippedCiFixTurn(task, repoFullName, ci.failingNames(), now);
+        return false;
+    }
+
+    /** Re-runs the failed checks on the task's pushed head commit (the
+     *  cheap flaky guard, attempt 0). The head SHA comes from the kept
+     *  worktree — a shipped task keeps its worktree precisely so the loop
+     *  can act on it. Bumps the attempt counter and arms the cooldown. */
+    private void rerunShippedCi(Task task, String repoFullName, Instant now)
+    {
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            return;
+        }
+        String headSha;
+        try {
+            headSha = git.headSha(Path.of(task.worktreePath()));
+        }
+        catch (IOException e) {
+            log.warn("CI re-run skipped: could not resolve HEAD for task {} ({}): {}",
+                    task.id(), task.worktreePath(), e.getMessage());
+            return;
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            log.warn("CI re-run interrupted resolving HEAD for task {}", task.id());
+            return;
+        }
+        try {
+            int n = pullRequests.rerunFailedChecks(repoFullName, headSha);
+            ciFixAttempts.put(task.id(), 1);
+            ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
+            log.info("CI re-run requested for shipped task {} on {} PR #{} (head {}): {} run(s)",
+                    task.id(), repoFullName, task.linkedPrNumber(), headSha, n);
+        }
+        catch (RuntimeException e) {
+            log.warn("CI re-run failed for task {}: {}", task.id(), e.getMessage());
+        }
+    }
+
+    /** Spawns an agent fix turn for a shipped task whose re-run didn't
+     *  clear CI. Same worktree-free / thread-IDLE gating as the dashboard
+     *  auto-fix, but always-on (no per-repo opt-in) since the task entered
+     *  the loop explicitly on ship. Bumps the attempt counter only when a
+     *  turn was actually queued; a deferral retries on the next sweep. */
+    private void enqueueShippedCiFixTurn(
+            Task task, String repoFullName, List<String> failingChecks, Instant now)
+    {
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            return;
+        }
+        if (leaseService.isHeld(task.worktreePath())) {
+            log.info("shipped CI-fix deferred: worktree {} held (task {}, PR #{})",
+                    task.worktreePath(), task.id(), task.linkedPrNumber());
+            return;
+        }
+        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
+        if (threadOpt.isEmpty()) {
+            log.warn("shipped CI-fix skipped: thread {} not found (task {})",
+                    task.threadId(), task.id());
+            return;
+        }
+        Thread thread = threadOpt.get();
+        if (thread.status() != ThreadStatus.IDLE) {
+            log.info("shipped CI-fix deferred: thread {} is {} (task {}, PR #{})",
+                    thread.id(), thread.status(), task.id(), task.linkedPrNumber());
+            return;
+        }
+        String prompt = buildShippedCiFixPrompt(task, repoFullName, failingChecks);
+        try {
+            String turnId = scheduler.enqueueTurn(
+                    thread, prompt, TurnInitiator.unattended("ci-fix-shipped"));
+            int attempt = ciFixAttempts.merge(task.id(), 1, Integer::sum);
+            ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
+            log.info("shipped CI-fix queued: task {} on {} PR #{} → turn {} (attempt {})",
+                    task.id(), repoFullName, task.linkedPrNumber(), turnId, attempt);
+        }
+        catch (RuntimeException e) {
+            log.warn("shipped CI-fix enqueue failed for task {}: {}", task.id(), e.getMessage());
+        }
+    }
+
+    /** Hands a stubbornly-red shipped PR to the user after the autonomous
+     *  budget is spent. Reuses the NEEDS_ATTENTION row + UNREAD dedup so a
+     *  PR that stays red doesn't re-notify every sweep. */
+    private boolean escalateShippedCiFix(Task task, String repoFullName, CiAggregate ci)
+    {
+        if (hasOpenNotificationForTask(task.id())) {
+            return false;
+        }
+        try {
+            String payloadJson = mapper.writeValueAsString(new CiFailingPayload(
+                    repoFullName, task.linkedPrNumber(), ci.failingNames(), ci.total()));
+            notificationService.notifyNeedsAttention(task.threadId(), task.id(), payloadJson);
+            log.info("shipped CI-fix gave up after {} attempts on {} PR #{} (task {}); escalated",
+                    MAX_CI_FIX_ATTEMPTS, repoFullName, task.linkedPrNumber(), task.id());
+            return true;
+        }
+        catch (JsonProcessingException e) {
+            log.warn("Failed to write CI-fail escalation payload for task {}: {}",
+                    task.id(), e.getMessage());
+            return false;
+        }
+    }
+
+    /** The agent's first prompt for an autonomous shipped CI-fix turn.
+     *  Unlike the dashboard auto-fix prompt, this turn pushes its own fix
+     *  (the post-ship loop is autonomous on CI): the agent first decides
+     *  whether the failure is ours, and only changes + pushes code when it
+     *  is — otherwise it stops and the system re-runs. */
+    private static String buildShippedCiFixPrompt(
+            Task task, String repoFullName, List<String> failingChecks)
+    {
+        StringBuilder out = new StringBuilder();
+        out.append("CI is failing on the shipped PR ").append(repoFullName)
+                .append(" #").append(task.linkedPrNumber()).append(".\n");
+        if (failingChecks != null && !failingChecks.isEmpty()) {
+            out.append("Failing checks:\n");
+            for (String name : failingChecks) {
+                out.append("  - ").append(name).append('\n');
+            }
+        }
+        out.append('\n')
+                .append("First decide whether these failures are caused by this branch's ")
+                .append("changes. If they are NOT — a flaky test, an infra/network blip, or ")
+                .append("an unrelated breakage already on the base branch — do not change ")
+                .append("any code: say so briefly and stop, and the system will re-run the ")
+                .append("checks.\n")
+                .append("If they ARE caused by this branch, fix them on the current branch, ")
+                .append("run the local checks to confirm green (`mvn verify` for the backend, ")
+                .append("`npx tsc --noEmit` + `npm test` for the frontend), then commit and ")
+                .append("`git push` the fix so CI re-runs. This is an autonomous CI-fix turn: ")
+                .append("push directly, do not wait for review.");
+        return out.toString();
+    }
+
+    /** Visible for tests: seed the in-memory CI-fix attempt counter so a
+     *  test can drive the agent-fix and escalation branches directly. */
+    void seedCiFixAttemptsForTest(String taskId, int attempts)
+    {
+        ciFixAttempts.put(taskId, attempts);
     }
 
     private Optional<WatchedRepo> findRepoForWorkingDir(String workingDir)

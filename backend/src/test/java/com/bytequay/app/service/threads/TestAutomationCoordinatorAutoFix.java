@@ -17,6 +17,7 @@ import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -31,6 +32,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -78,6 +81,8 @@ class TestAutomationCoordinatorAutoFix
     private final NotificationService notificationService = mock(NotificationService.class);
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
+    private final PullRequestService pullRequests = mock(PullRequestService.class);
+    private final GitRunner git = mock(GitRunner.class);
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
@@ -169,12 +174,130 @@ class TestAutomationCoordinatorAutoFix
         verify(scheduler).enqueueTurn(any(), anyString(), any());
     }
 
+    @Test
+    void reRunsFailedChecksFirstForAShippedTask()
+            throws Exception
+    {
+        Task task = newShippedTask("ship-1", "thread-1");
+        wireShippedFailingCi(task);
+        when(git.headSha(any())).thenReturn("sha123");
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.scanForFailingCi();
+
+        // Cheapest first: the failed checks are re-run in place — no agent
+        // turn, no NEEDS_ATTENTION yet — even though the repo never opted
+        // into dashboard auto-fix (shipped tasks are always-on).
+        verify(pullRequests).rerunFailedChecks(eq(REPO), eq("sha123"));
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
+        verify(notificationService, never())
+                .notifyNeedsAttention(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void doesNotReRunAgainWhileTheFirstReRunIsStillInFlight()
+            throws Exception
+    {
+        Task task = newShippedTask("ship-2", "thread-2");
+        wireShippedFailingCi(task);
+        when(git.headSha(any())).thenReturn("sha123");
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.scanForFailingCi();
+        coordinator.scanForFailingCi();
+
+        // The cooldown holds the loop while the re-run is in flight, so the
+        // second sweep neither re-runs again nor jumps to an agent turn.
+        verify(pullRequests).rerunFailedChecks(eq(REPO), eq("sha123"));
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
+    }
+
+    @Test
+    void spawnsAnAutonomousAgentFixTurnAfterTheReRunFails()
+    {
+        Task task = newShippedTask("ship-3", "thread-3");
+        wireShippedFailingCi(task);
+        Thread thread = newThread("thread-3", ThreadStatus.IDLE);
+        when(threadStore.findThreadById(eq("thread-3"))).thenReturn(Optional.of(thread));
+        when(leaseService.isHeld(eq(WORKTREE_PATH))).thenReturn(false);
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-id");
+        AutomationCoordinator coordinator = newCoordinator();
+        // Pretend the cheap re-run already ran and didn't clear CI.
+        coordinator.seedCiFixAttemptsForTest("ship-3", 1);
+
+        coordinator.scanForFailingCi();
+
+        ArgumentCaptor<String> promptArg = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<TurnInitiator> initiatorArg = ArgumentCaptor.forClass(TurnInitiator.class);
+        verify(scheduler).enqueueTurn(any(), promptArg.capture(), initiatorArg.capture());
+        // Autonomous CI-fix prompt: pushes its own fix, no review wait.
+        assertThat(promptArg.getValue())
+                .contains("shipped PR")
+                .contains("git push");
+        assertThat(initiatorArg.getValue().attended()).isFalse();
+        assertThat(initiatorArg.getValue().source()).isEqualTo("ci-fix-shipped");
+        // The re-run is not invoked again on the agent attempt.
+        verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
+    }
+
+    @Test
+    void escalatesToNeedsAttentionAfterTheAttemptBudgetIsSpent()
+    {
+        Task task = newShippedTask("ship-4", "thread-4");
+        wireShippedFailingCi(task);
+        AutomationCoordinator coordinator = newCoordinator();
+        coordinator.seedCiFixAttemptsForTest("ship-4", 3);
+
+        coordinator.scanForFailingCi();
+
+        // Budget spent → hand it to the user; no more re-runs or agent turns.
+        verify(notificationService).notifyNeedsAttention(eq("thread-4"), eq("ship-4"), anyString());
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
+        verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
+    }
+
+    private void wireShippedFailingCi(Task task)
+    {
+        when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(task));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(/* id */ 1L, "acme", "widgets", /* displayOrder */ 0,
+                        CLONE_PATH, /* upstreamRemoteName */ null, /* viewFocus */ "fork")));
+        when(pullRequestStore.findIdByRepoAndNumber(eq(REPO), eq(PR_NUMBER)))
+                .thenReturn(Optional.of(PR_ID));
+        when(prDetailStore.find(eq(PR_ID))).thenReturn(Optional.of(detailWithFailingCi()));
+        when(notificationService.listUnread()).thenReturn(List.of());
+        // Deliberately NOT stubbing workspaceStore.findRepo — a shipped
+        // task must auto-fix even with the per-repo opt-in absent.
+    }
+
+    private static Task newShippedTask(String id, String threadId)
+    {
+        Instant now = Instant.parse("2026-05-15T12:00:00Z");
+        return new Task(
+                id, threadId, /* seq */ 1L, TaskStatus.IN_REVIEW,
+                /* branchName */ "dev/" + id,
+                WORKTREE_PATH,
+                /* baseBranch */ "main",
+                /* workingDir */ CLONE_PATH,
+                /* processPid */ null, /* logPath */ null,
+                /* prNumber */ null, /* prState */ null, /* ciState */ null,
+                /* taskType */ "DEVELOP",
+                /* linkedPrNumber */ PR_NUMBER,
+                /* linkedIssueNumber */ null,
+                /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
+                /* agentSessionId */ null,
+                now, /* endedAt */ null, /* errorMessage */ null,
+                /* name */ null, /* roleSkill */ null, /* workModel */ null,
+                /* pushedAt */ null, TaskPhase.PUSHED_AWAITING_CI, /* agendaJson */ null,
+                /* consecutiveAutoPushes */ 0, /* linkedPrRef */ REPO + "#" + PR_NUMBER);
+    }
+
     private AutomationCoordinator newCoordinator()
     {
         return new AutomationCoordinator(
                 leaseService, taskStore, threadStore, watchedRepoStore,
                 pullRequestStore, prDetailStore, notificationService,
-                workspaceStore, scheduler, mapper);
+                workspaceStore, scheduler, pullRequests, git, mapper);
     }
 
     private void wireFailingCi(Task task, Thread thread, boolean autoFixEnabled, boolean leaseHeld)

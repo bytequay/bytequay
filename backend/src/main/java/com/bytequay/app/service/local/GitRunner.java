@@ -189,6 +189,19 @@ public class GitRunner
     }
 
     /**
+     * Returns the HEAD commit SHA of {@code workingDir}. Used by the
+     * post-ship CI-fix loop to target a re-run of the failed checks at
+     * the exact commit the task's branch was pushed at.
+     */
+    public String headSha(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(List.of("git", "rev-parse", "HEAD"), workingDir);
+        result.requireSuccess();
+        return result.stdout().strip();
+    }
+
+    /**
      * Returns the current branch name, or null if HEAD is detached
      * (e.g. the user checked out a tag or specific commit). Powers
      * the branch chip on the repo detail header.

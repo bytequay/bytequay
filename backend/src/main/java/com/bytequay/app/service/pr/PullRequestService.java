@@ -482,6 +482,19 @@ public class PullRequestService
     }
 
     /**
+     * Re-runs the failed CI jobs on {@code headSha} for {@code repo}
+     * (GitHub's "re-run failed jobs"). Used by the post-ship loop to
+     * shake out a transient/flaky failure before spending an agent
+     * turn. Returns how many workflow runs were re-triggered — 0 when
+     * nothing on the head had failed.
+     */
+    public int rerunFailedChecks(String repo, String headSha)
+    {
+        String pat = patResolver.resolve(repo);
+        return gitHub.rerunFailedChecks(pat, parseRepoRef(repo), headSha);
+    }
+
+    /**
      * Returns the raw log text for a single Actions check-run, capped at
      * a sensible size so a 50MB job log doesn't crater the renderer.
      * Empty string when GitHub doesn't expose a log for this check

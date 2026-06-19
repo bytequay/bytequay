@@ -320,25 +320,37 @@ describe('PullRequestPreview render smoke', () => {
     expect(html).toContain('reaction-add');
   });
 
-  it('shows "Add to merge queue" when the base branch has a merge queue, even while blocked', async () => {
-    // Authoritative flag drives the button — no CI-green / approval
-    // prerequisite. mergeable_state="blocked" (e.g. unresolved
-    // conversation) must NOT downgrade it out of queue mode.
+  it('shows "Merge when ready" on a merge-queue repo, even when fully green', async () => {
+    // A queue repo can't be merged directly — github.com shows "Merge
+    // when ready" (enable auto-merge → joins the queue) regardless of CI
+    // / approval. The authoritative flag drives it; not "Rebase and merge".
+    await render(makeDetail({
+      viewerCanWrite: true,
+      mergeQueueEnabled: true,
+    }), makePr(), { onMerge: vi.fn() });
+    const html = container.innerHTML;
+    expect(html).toContain('Merge when ready');
+    expect(html).not.toContain('Rebase and merge');
+  });
+
+  it('keeps "Merge when ready" on a queue repo blocked by an unresolved conversation', async () => {
     await render(makeDetail({
       viewerCanWrite: true,
       mergeQueueEnabled: true,
       mergeableState: 'blocked',
       changesRequestedCount: 0,
     }), makePr(), { onMerge: vi.fn() });
-    expect(container.innerHTML).toContain('Add to merge queue');
+    expect(container.innerHTML).toContain('Merge when ready');
   });
 
-  it('does not offer the queue button when no merge queue is configured', async () => {
+  it('does not offer the queue / when-ready button when no merge queue is configured', async () => {
     await render(makeDetail({
       viewerCanWrite: true,
       mergeQueueEnabled: false,
     }), makePr(), { onMerge: vi.fn() });
-    expect(container.innerHTML).not.toContain('Add to merge queue');
+    const html = container.innerHTML;
+    expect(html).not.toContain('Add to merge queue');
+    expect(html).not.toContain('Merge when ready');
   });
 
   it('renders an empty PR (no comments / no threads) without throwing', async () => {

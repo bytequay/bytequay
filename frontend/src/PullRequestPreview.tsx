@@ -551,28 +551,30 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
     : null;
   // Authoritative merge-queue detection: the backend reports whether the
   // PR's base branch actually has a merge queue configured (GraphQL
-  // `pullRequest.mergeQueue`). When it does, the only way to merge is to
-  // add the PR to the queue — so the button reads "Add to merge queue"
-  // whenever a queue exists, even before CI / approvals land (matching
-  // github.com's "this PR will be added to the merge queue when all
-  // requirements are met"). This replaces the old client-side heuristic
-  // (mergeable_state="blocked" + CI green + approvals) which guessed
-  // wrong whenever something other than review was blocking the merge.
-  // A file conflict still wins as 'disabled' (checked above).
+  // `pullRequest.mergeQueue`). When it does, a PR can't be merged
+  // directly — it goes through the queue — so github.com shows
+  // "Merge when ready" (enable auto-merge; the PR joins the queue once
+  // requirements are met), even when CI is green and the PR is approved.
+  // We mirror that exactly: a queue repo routes to the 'when-ready' mode
+  // below. This replaces the old client-side heuristic (mergeable_state=
+  // "blocked" + CI green + approvals) which guessed wrong whenever
+  // something other than review blocked the merge. File conflicts still
+  // win as 'disabled' (checked above).
   const requiresMergeQueue = !closed && detail.mergeQueueEnabled;
 
-  // Three primary modes the button can land in, computed once so label,
-  // click handler, confirm-modal copy, and disabled-reason all pivot off
-  // one variable rather than re-checking the same conditions four times.
-  //   - merge        CI is green; clicking merges now (the default).
-  //   - queue        Repo uses a merge queue (the heuristic above);
-  //                  clicking adds to the queue.
-  //   - when-ready   PR is otherwise mergeable but CI is still pending or
-  //                  github.com marks it "blocked"; clicking enables
-  //                  GitHub's auto-merge so the PR merges automatically
-  //                  once required checks pass. Mirrors github.com's
-  //                  "Merge when ready" button. Only offered when the
-  //                  onEnableAutoMerge prop is wired through.
+  // Primary modes the button can land in, computed once so label, click
+  // handler, confirm-modal copy, and disabled-reason all pivot off one
+  // variable rather than re-checking the same conditions four times.
+  //   - merge        CI is green and no merge queue; clicking merges now.
+  //   - when-ready   Clicking enables GitHub's auto-merge so the PR merges
+  //                  automatically once requirements are met — github.com's
+  //                  "Merge when ready" button. Used both for a merge-queue
+  //                  repo (always, since direct merge isn't possible) and
+  //                  for a non-queue PR whose CI is still pending / blocked.
+  //                  Needs the onEnableAutoMerge prop wired through.
+  //   - queue        Fallback for a queue repo when onEnableAutoMerge isn't
+  //                  wired: clicking enqueues directly. Label "Add to merge
+  //                  queue".
   //   - disabled     Something is blocking (closed, no write access,
   //                  conflicts, mid-merge); button greys out.
   const mergeMode: 'merge' | 'queue' | 'when-ready' | 'disabled' = (() => {
@@ -580,7 +582,9 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
     if (!detail.viewerCanWrite) return 'disabled';
     if (mergeState === 'running') return 'disabled';
     if (hasConflict) return 'disabled';
-    if (requiresMergeQueue) return 'queue';
+    // Queue repo → "Merge when ready" (enable auto-merge → joins queue).
+    // Falls back to a direct enqueue only when auto-merge isn't wired.
+    if (requiresMergeQueue) return onEnableAutoMerge ? 'when-ready' : 'queue';
     if (ciPassing) return 'merge';
     if ((ciPending || pr.mergeableState === 'blocked') && onEnableAutoMerge) {
       return 'when-ready';
@@ -890,7 +894,9 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
                 ? (mergeMode === 'queue'
                   ? 'Add this PR to the merge queue'
                   : mergeMode === 'when-ready'
-                    ? 'Enable auto-merge — GitHub merges this PR once required checks pass'
+                    ? (detail.mergeQueueEnabled
+                      ? 'Enable auto-merge — GitHub adds this PR to the merge queue when all requirements are met'
+                      : 'Enable auto-merge — GitHub merges this PR once required checks pass')
                     : `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`)
                 : (disabledReason ?? 'Not ready to merge')}
             >
@@ -1025,7 +1031,9 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
               <p className="merge-confirm__sub">{pr.title}</p>
               <p className="merge-confirm__sub">
                 {mergeMode === 'when-ready'
-                  ? `GitHub will ${MERGE_STRATEGY_LABEL[strategy].toLowerCase()} this PR automatically once required checks pass.`
+                  ? (detail.mergeQueueEnabled
+                    ? 'This repository uses a merge queue. GitHub will add this PR to the queue and merge it once it reaches the front with all requirements met.'
+                    : `GitHub will ${MERGE_STRATEGY_LABEL[strategy].toLowerCase()} this PR automatically once required checks pass.`)
                   : MERGE_STRATEGY_HINT[strategy]}
               </p>
             </div>

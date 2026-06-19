@@ -341,6 +341,39 @@ class TestMcpPublishGate
     }
 
     @Test
+    void validateAdvancesAnImplementingTaskToValidating()
+            throws Exception
+    {
+        String threadId = newThread("Validate fixture");
+        Task seeded = newTask(threadId, "feature/x", "/tmp/bytequay-test-validate");
+        tasks.saveTask(seeded);
+
+        JsonNode response = invokeValidate(threadId, "ran the unit tests");
+
+        assertThat(textOf(response)).contains("VALIDATING");
+        assertThat(tasks.findTaskById(seeded.id()).orElseThrow().phase())
+                .isEqualTo(TaskPhase.VALIDATING);
+    }
+
+    @Test
+    void validateIsANoOpOnceTheTaskIsPastValidation()
+            throws Exception
+    {
+        // Review sits behind validate in the lifecycle, so a task already at
+        // AWAITING_PUSH has validated — validate must not rewind it.
+        String threadId = newThread("Validate no-op fixture");
+        Task seeded = newTask(threadId, "feature/y", "/tmp/bytequay-test-validate-noop");
+        tasks.saveTask(seeded);
+        tasks.updatePhase(seeded.id(), TaskPhase.AWAITING_PUSH);
+
+        JsonNode response = invokeValidate(threadId, null);
+
+        assertThat(textOf(response)).contains("already at or past validation");
+        assertThat(tasks.findTaskById(seeded.id()).orElseThrow().phase())
+                .isEqualTo(TaskPhase.AWAITING_PUSH);
+    }
+
+    @Test
     void approvalPromptIsDeniedOnceTheThreadHasAnAwaitingReviewTask()
             throws Exception
     {
@@ -615,6 +648,23 @@ class TestMcpPublishGate
                   }
                 }
                 """.formatted(mapper.writeValueAsString(nextTitle), mapper.writeValueAsString(baseMode));
+        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+    }
+
+    private JsonNode invokeValidate(String threadId, String summary)
+            throws Exception
+    {
+        String args = summary == null
+                ? "{}"
+                : "{ \"summary\": " + mapper.writeValueAsString(summary) + " }";
+        String rpc = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "method": "tools/call",
+                  "params": { "name": "validate", "arguments": %s }
+                }
+                """.formatted(args);
         return resolved(controller.handle(threadId, mapper.readTree(rpc)));
     }
 

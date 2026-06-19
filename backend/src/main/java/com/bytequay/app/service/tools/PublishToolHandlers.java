@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -95,6 +96,40 @@ public class PublishToolHandlers
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
+    }
+
+    /** Args record for {@code validate}. */
+    public record ValidateArgs(
+            @ToolParam(description = "Optional one-line note on what you're validating "
+                    + "(tests, build, lint). Recorded as the phase-transition reason.")
+            String summary) {}
+
+    @AgentTool(
+            name = "validate",
+            description = "Mark the active task as VALIDATING so the flow stepper reflects the "
+                    + "validation stage. This ONLY advances the dev-lifecycle phase — it does "
+                    + "not run anything; run your tests / build / lint yourself, then call this "
+                    + "to record that you're verifying. No-op if the task is already at or past "
+                    + "validation. (Validation passing is implied once you request review or "
+                    + "ship — review sits behind validate in the lifecycle.)",
+            security = SecurityType.TASK_MANAGE,
+            gating = Gating.AUTO,
+            roles = AgentRole.TASK)
+    public ToolOutcome validate(ValidateArgs args, ToolCall call)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        if (active.isEmpty()) {
+            return ToolOutcome.Completed.ok("no active task on this thread — nothing to validate");
+        }
+        Task task = active.get();
+        if (task.phase() != TaskPhase.IMPLEMENTING) {
+            return ToolOutcome.Completed.ok(
+                    "task is already at or past validation (phase " + task.phase() + "); no change");
+        }
+        String note = nullToEmpty(args.summary()).trim();
+        String reason = note.isEmpty() ? "agent_validating" : "validating: " + note;
+        taskPhaseMachine.transition(task.id(), TaskPhase.VALIDATING, reason, Actor.AGENT);
+        return ToolOutcome.Completed.ok("Validating — phase advanced to VALIDATING.");
     }
 
     /** Args record for {@code request_review}. */

@@ -47,9 +47,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -120,6 +123,7 @@ public abstract class AbstractCliThreadAgent
     private final ToolFileOps fileOps;
     private final McpPermissionGate gate;
     private final ExecutorService executor;
+    private final ExecutorService processIoExecutor;
     private final CheckpointTrigger checkpointTrigger;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
@@ -172,6 +176,7 @@ public abstract class AbstractCliThreadAgent
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
+            ExecutorService processIoExecutor,
             CheckpointTrigger checkpointTrigger,
             String binary,
             String trunkCwd)
@@ -190,6 +195,7 @@ public abstract class AbstractCliThreadAgent
         this.fileOps = new ToolFileOps(requireNonNull(mapper, "mapper is null"));
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.processIoExecutor = requireNonNull(processIoExecutor, "processIoExecutor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.binary = requireNonNull(binary, "binary is null");
@@ -623,7 +629,7 @@ public abstract class AbstractCliThreadAgent
         // this session, so the per-turn subprocess doesn't manage it.
         try {
             deliverPrompt(process, userInput);
-            java.lang.Thread stderrThread = drainStderr(process);
+            Future<?> stderrDrain = drainStderr(process);
             consumeStdout(process);
             int exit = process.waitFor();
             if (exit != 0) {
@@ -637,12 +643,7 @@ public abstract class AbstractCliThreadAgent
                 else {
                     // Let the stderr drain finish so the failure carries the
                     // CLI's actual error, not just a bare exit code.
-                    try {
-                        stderrThread.join(2_000);
-                    }
-                    catch (InterruptedException ignored) {
-                        java.lang.Thread.currentThread().interrupt();
-                    }
+                    awaitDrain(stderrDrain, 2_000L);
                     String tail = stderrTailText();
                     String detail = binary + " exited with code " + exit
                             + (tail.isBlank() ? "" : ":\n" + tail);
@@ -695,9 +696,9 @@ public abstract class AbstractCliThreadAgent
         }
     }
 
-    private java.lang.Thread drainStderr(Process process)
+    private Future<?> drainStderr(Process process)
     {
-        java.lang.Thread t = new java.lang.Thread(() -> {
+        return processIoExecutor.submit(() -> {
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -714,10 +715,22 @@ public abstract class AbstractCliThreadAgent
             catch (IOException ignored) {
                 // Process exited; pipe is closed.
             }
-        }, "thread-" + threadId + "-stderr");
-        t.setDaemon(true);
-        t.start();
-        return t;
+        });
+    }
+
+    private static void awaitDrain(Future<?> future, long timeoutMillis)
+            throws InterruptedException
+    {
+        try {
+            future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        }
+        catch (TimeoutException e) {
+            future.cancel(true);
+        }
+        catch (ExecutionException e) {
+            // The drainer swallows expected pipe-close IOExceptions; any other
+            // failure is non-fatal to turn classification.
+        }
     }
 
     /** The captured stderr tail, joined — used to explain a non-zero exit. */
@@ -1072,16 +1085,5 @@ public abstract class AbstractCliThreadAgent
             }
         }
         return sb.toString();
-    }
-
-    /** Default executor for production use — daemon threads named per
-     *  thread so jstack output is readable. */
-    public static ExecutorService defaultExecutor()
-    {
-        return Executors.newCachedThreadPool(r -> {
-            java.lang.Thread t = new java.lang.Thread(r, "thread-runner");
-            t.setDaemon(true);
-            return t;
-        });
     }
 }

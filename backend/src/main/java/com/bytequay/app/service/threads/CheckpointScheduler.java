@@ -18,10 +18,10 @@ import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -32,11 +32,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static com.bytequay.app.config.AsyncConfig.CHECKPOINT_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -86,9 +84,10 @@ public class CheckpointScheduler
             ThreadStore threads,
             TaskStore taskStore,
             ThreadCheckpointStore checkpoints,
-            CheckpointSummariser summariser)
+            CheckpointSummariser summariser,
+            @Qualifier(CHECKPOINT_EXECUTOR) ExecutorService executor)
     {
-        this(threads, taskStore, checkpoints, summariser, defaultExecutor(), DEFAULT_THRESHOLD_TOKENS);
+        this(threads, taskStore, checkpoints, summariser, executor, DEFAULT_THRESHOLD_TOKENS);
     }
 
     CheckpointScheduler(
@@ -281,31 +280,5 @@ public class CheckpointScheduler
     private ReentrantLock lockFor(String threadId)
     {
         return locks.computeIfAbsent(threadId, id -> new ReentrantLock());
-    }
-
-    @PreDestroy
-    void shutdown()
-    {
-        executor.shutdownNow();
-    }
-
-    private static ExecutorService defaultExecutor()
-    {
-        // A small pool — checkpoint generation is I/O-bound on
-        // Anthropic latency, not CPU-bound, and per-thread serialisation
-        // means we only ever want a handful in flight across threads.
-        ThreadFactory factory = new ThreadFactory()
-        {
-            private final AtomicInteger n = new AtomicInteger();
-
-            @Override
-            public Thread newThread(Runnable r)
-            {
-                Thread t = new Thread(r, "checkpoint-scheduler-" + n.incrementAndGet());
-                t.setDaemon(true);
-                return t;
-            }
-        };
-        return Executors.newFixedThreadPool(2, factory);
     }
 }

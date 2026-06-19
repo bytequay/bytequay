@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,6 +43,7 @@ class TestAgentSchedulerInvokeAll
                 mock(ThreadTurnStore.class),
                 mock(ThreadTurnEventStore.class),
                 mock(ThreadRegistry.class),
+                ForkJoinPool.commonPool(),
                 /* maxCliRunning */ 1,
                 maxApi);
     }

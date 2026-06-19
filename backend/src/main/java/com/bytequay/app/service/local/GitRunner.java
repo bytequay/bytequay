@@ -15,6 +15,7 @@ package com.bytequay.app.service.local;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -28,9 +29,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
+import static com.bytequay.app.config.AsyncConfig.PROCESS_IO_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -47,6 +52,13 @@ import static java.util.Objects.requireNonNull;
 public class GitRunner
 {
     private static final long DEFAULT_TIMEOUT_SECONDS = 30;
+
+    private final ExecutorService processIoExecutor;
+
+    public GitRunner(@Qualifier(PROCESS_IO_EXECUTOR) ExecutorService processIoExecutor)
+    {
+        this.processIoExecutor = requireNonNull(processIoExecutor, "processIoExecutor is null");
+    }
 
     // Runtime-computed control-byte separators. Embedding them as
     // string literals (e.g. "\0" or with literal US) trips checkstyle's
@@ -1430,46 +1442,62 @@ public class GitRunner
         // finished in milliseconds. `git diff` on a large branch
         // hits this routinely. Virtual threads keep the cost
         // negligible for the common small-output case.
-        Thread stdoutDrain = Thread.ofVirtual().start(
+        Future<String> stdoutDrain = processIoExecutor.submit(
                 () -> drainSilently(process.getInputStream()));
-        Thread stderrDrain = Thread.ofVirtual().start(
+        Future<String> stderrDrain = processIoExecutor.submit(
                 () -> drainSilently(process.getErrorStream()));
-        boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        boolean finished;
+        try {
+            finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException e) {
+            stdoutDrain.cancel(true);
+            stderrDrain.cancel(true);
+            process.destroyForcibly();
+            throw e;
+        }
         if (!finished) {
             process.destroyForcibly();
-            stdoutDrain.interrupt();
-            stderrDrain.interrupt();
+            stdoutDrain.cancel(true);
+            stderrDrain.cancel(true);
             throw new IOException("git " + args + " timed out after " + timeoutSeconds + "s");
         }
-        // join() lets the drainers finish copying anything still in
+        // Waiting lets the drainers finish copying anything still in
         // flight after git exited; bounded by 5s in case a drainer
         // somehow gets stuck (shouldn't, but cheap insurance).
-        stdoutDrain.join(5_000);
-        stderrDrain.join(5_000);
-        String stdout = bufferedOutput.remove(stdoutDrain);
-        String stderr = bufferedOutput.remove(stderrDrain);
+        String stdout = awaitOutput(stdoutDrain);
+        String stderr = awaitOutput(stderrDrain);
         return new GitResult(
                 process.exitValue(),
-                stdout == null ? "" : stdout,
-                stderr == null ? "" : stderr,
+                stdout,
+                stderr,
                 ImmutableList.copyOf(args));
     }
 
-    /** Per-thread capture of what a drainer read. ConcurrentHashMap
-     *  because the drainer thread writes the result and the caller
-     *  thread reads it after join — no shared mutability across
-     *  invocations since drainers are one-shot. */
-    private final ConcurrentHashMap<Thread, String> bufferedOutput = new ConcurrentHashMap<>();
+    private static String awaitOutput(Future<String> future)
+            throws InterruptedException
+    {
+        try {
+            return future.get(5_000L, TimeUnit.MILLISECONDS);
+        }
+        catch (TimeoutException e) {
+            future.cancel(true);
+            return "";
+        }
+        catch (ExecutionException e) {
+            return "";
+        }
+    }
 
-    private void drainSilently(InputStream in)
+    private static String drainSilently(InputStream in)
     {
         try (in) {
             byte[] bytes = in.readAllBytes();
-            bufferedOutput.put(Thread.currentThread(), new String(bytes, StandardCharsets.UTF_8));
+            return new String(bytes, StandardCharsets.UTF_8);
         }
         catch (IOException e) {
-            // Process killed or stream closed — leave the entry
-            // unset; run() treats absent as empty.
+            // Process killed or stream closed — run() treats this as empty.
+            return "";
         }
     }
 

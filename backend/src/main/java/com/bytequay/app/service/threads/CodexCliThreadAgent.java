@@ -71,12 +71,10 @@ public class CodexCliThreadAgent
             Supplier<String> workspaceMemoryProvider,
             String roleSkillText)
     {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(thread, store, taskStore, parser, mapper, gate, executor, executor, checkpointTrigger,
                 workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null);
     }
 
-    /** Trunk-mode constructor: no focused Task, cwd defaulting to {@code
-     *  trunkCwd}, resuming {@code thread.agentSessionId}. */
     public CodexCliThreadAgent(
             Thread thread,
             ThreadStore store,
@@ -91,7 +89,45 @@ public class CodexCliThreadAgent
             String trunkCwd,
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(thread, store, taskStore, parser, mapper, gate, executor, executor, checkpointTrigger,
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd);
+    }
+
+    public CodexCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CodexJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            ExecutorService processIoExecutor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String roleSkillText)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null);
+    }
+
+    /** Trunk-mode constructor: no focused Task, cwd defaulting to {@code
+     *  trunkCwd}, resuming {@code thread.agentSessionId}. */
+    public CodexCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CodexJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            ExecutorService processIoExecutor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String roleSkillText,
+            String trunkCwd,
+            @SuppressWarnings("unused") TrunkMode trunkMode)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
                 workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd);
     }
 
@@ -112,7 +148,25 @@ public class CodexCliThreadAgent
             String roleSkillText,
             String binary)
     {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(thread, store, taskStore, parser, mapper, gate, executor, executor, checkpointTrigger,
+                workspaceMemoryProvider, roleSkillText, binary, (String) null);
+    }
+
+    CodexCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CodexJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            ExecutorService processIoExecutor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String roleSkillText,
+            String binary)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
                 workspaceMemoryProvider, roleSkillText, binary, (String) null);
     }
 
@@ -124,13 +178,14 @@ public class CodexCliThreadAgent
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
+            ExecutorService processIoExecutor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             String roleSkillText,
             String binary,
             String trunkCwd)
     {
-        super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        super(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
                 binary, trunkCwd);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.roleSkillText = roleSkillText;

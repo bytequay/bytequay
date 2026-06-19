@@ -18,6 +18,7 @@ import com.bytequay.app.repository.AppSettingsStore.Key;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
@@ -43,11 +44,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.config.AsyncConfig.DS4_SUPERVISOR_EXECUTOR;
+import static com.bytequay.app.config.AsyncConfig.DS4_WORK_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -127,13 +129,9 @@ public class Ds4LifecycleService
     private final HttpClient probeClient;
 
     /** Single-thread supervisor — every transition runs here so the
-     *  status snapshot has exactly one writer. Daemon so it doesn't
-     *  block JVM shutdown when @PreDestroy fires. */
-    private final ExecutorService supervisor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "ds4-supervisor");
-        t.setDaemon(true);
-        return t;
-    });
+     *  status snapshot has exactly one writer. */
+    private final ExecutorService supervisor;
+    private final ExecutorService worker;
 
     private final AtomicReference<Ds4Status> status = new AtomicReference<>();
     /** Live process handle while we own a subprocess. Null after
@@ -149,10 +147,14 @@ public class Ds4LifecycleService
 
     public Ds4LifecycleService(
             AppSettingsStore settings,
-            ApplicationEventPublisher events)
+            ApplicationEventPublisher events,
+            @Qualifier(DS4_SUPERVISOR_EXECUTOR) ExecutorService supervisor,
+            @Qualifier(DS4_WORK_EXECUTOR) ExecutorService worker)
     {
         this.settings = requireNonNull(settings, "settings is null");
         this.events = requireNonNull(events, "events is null");
+        this.supervisor = requireNonNull(supervisor, "supervisor is null");
+        this.worker = requireNonNull(worker, "worker is null");
         this.probeClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
                 .build();
@@ -373,7 +375,7 @@ public class Ds4LifecycleService
         // Spin a daemon watcher so we notice an exit even when no
         // turn is in flight. The watcher only fires the CRASHED
         // transition; the supervisor decides whether to restart.
-        Thread.ofVirtual().name("ds4-watcher").start(() -> watchProcess(spawned, cfg));
+        worker.submit(() -> watchProcess(spawned, cfg));
     }
 
     void stopBlocking()
@@ -582,7 +584,7 @@ public class Ds4LifecycleService
 
     private void captureLogs(Process p)
     {
-        Thread.ofVirtual().name("ds4-stdout").start(() -> {
+        worker.submit(() -> {
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;

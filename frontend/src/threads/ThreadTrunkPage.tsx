@@ -1410,7 +1410,7 @@ function summariseScheduler(turns: ThreadTurnDto[] | null) {
   return { running, queued, cli, api };
 }
 
-function TaskCard({
+export function TaskCard({
   task, selected, isForeground, onSelect, onOpen,
 }: {
   task: WorkUnitTaskDto;
@@ -1427,18 +1427,21 @@ function TaskCard({
     return () => window.clearInterval(id);
   }, []);
 
-  // The whole card opens the task window — clicking anywhere enters it,
-  // not just a small "Open →" target. onSelect rides along so the
-  // park/ship row keeps the card as its target.
+  // Single click selects the card (the park/ship row targets the selected
+  // task); double-click — or Enter — jumps into the task window. This keeps
+  // a stray click from yanking the user out of the trunk into a task.
+  const select = () => { onSelect(); };
   const open = () => { onSelect(); onOpen(); };
   return (
     <li
       role="button"
       tabIndex={0}
-      aria-label={`Open ${labelText}`}
-      onClick={open}
+      aria-label={`Select ${labelText} — double-click to open`}
+      onClick={select}
+      onDoubleClick={open}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        if (e.key === 'Enter') { e.preventDefault(); open(); }
+        else if (e.key === ' ') { e.preventDefault(); select(); }
       }}
       style={taskCardStyle(selected, isForeground)}
     >

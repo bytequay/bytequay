@@ -36,6 +36,7 @@ import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { useThreadTasks } from './useThreadTasks';
 import { useThreadStream } from './useThreadStream';
 import { contextWindowPct } from './contextWindow';
+import { taskRuntimeSec } from './taskRuntime';
 import { isTaskShippable } from './shipState';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
@@ -553,6 +554,9 @@ export default function TaskDetailPage({
   const toolCallCount = useMemo(
     () => (messages ?? []).filter(m => m.role === 'tool' && m.type === 'tool_call').length,
     [messages]);
+  // Real runtime = sum of completed turn durations, NOT wall-clock since the
+  // task was created (which ticks up forever while the task sits idle).
+  const runtimeSec = useMemo(() => taskRuntimeSec(messages), [messages]);
 
   // Smooth the metric counters so they climb (easeOut) instead of
   // snapping on each poll / stream burst — the Claude-Code "real time"
@@ -913,9 +917,7 @@ export default function TaskDetailPage({
                     model={thread?.model ?? null}
                     costUsdMilli={task?.costUsdMilli ?? 0}
                     tokensIn={animatedTokensIn}
-                    runtimeSec={task !== null
-                      ? Math.max(0, Math.floor((Date.now() - Date.parse(task.createdAt)) / 1000))
-                      : 0}
+                    runtimeSec={runtimeSec}
                     ctxPct={contextWindowPct(messages, liveUsage?.tokensIn)}
                   />
                 )}
@@ -1060,7 +1062,11 @@ export default function TaskDetailPage({
                   <span>TASK METRICS</span>
                   <span style={railHeadMutedStyle}>this task</span>
                 </div>
-                <TaskMetricsTable task={task} toolCallCount={animatedToolCalls} />
+                <TaskMetricsTable
+                  task={task}
+                  toolCallCount={animatedToolCalls}
+                  runtimeSec={runtimeSec}
+                />
               </section>
 
               {task !== null && (
@@ -1382,10 +1388,11 @@ function ContextWindowMeter({
 }
 
 function TaskMetricsTable({
-  task, toolCallCount,
+  task, toolCallCount, runtimeSec,
 }: {
   task: WorkUnitTaskDto | null;
   toolCallCount: number;
+  runtimeSec: number;
 }) {
   // Hooks must run unconditionally — pass 0 while the task is still
   // loading so the count-up starts from empty once it arrives.
@@ -1401,7 +1408,7 @@ function TaskMetricsTable({
         label="Tokens"
         value={`${formatTokensCompact(tokensIn)} → ${formatTokensCompact(tokensOut)}`}
       />
-      <VitalRow label="Runtime" value={formatRuntime(task.createdAt)} />
+      <VitalRow label="Runtime" value={formatRuntime(runtimeSec)} />
       <VitalRow label="Tool calls" value={String(toolCallCount)} />
     </dl>
   );
@@ -1413,10 +1420,8 @@ function formatTokensCompact(n: number): string {
   return String(n);
 }
 
-function formatRuntime(createdAt: string): string {
-  const start = Date.parse(createdAt);
-  if (!Number.isFinite(start)) return '—';
-  const secs = Math.floor((Date.now() - start) / 1000);
+function formatRuntime(secs: number): string {
+  if (!Number.isFinite(secs) || secs < 0) return '—';
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   const s = secs % 60;

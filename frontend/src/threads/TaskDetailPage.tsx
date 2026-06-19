@@ -35,7 +35,6 @@ import { WorkModelPill } from '../workspace/WorkModelPill';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { useThreadTasks } from './useThreadTasks';
 import { useThreadStream } from './useThreadStream';
-import { contextWindowPct } from './contextWindow';
 import { taskRuntimeSec } from './taskRuntime';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
@@ -88,6 +87,8 @@ type DiffSelection =
  *  tool I/O so 300 is roomy enough that a fresh task usually fits in
  *  one page; older windows arrive via the "Load earlier" button. */
 const TASK_INITIAL_LIMIT = 300;
+/** Model context window (Sonnet 4.x default) the meter measures against. */
+const CONTEXT_WINDOW_LIMIT = 200_000;
 
 /** Merge two ordered-by-seq message lists, deduping by seq. Both the
  *  task-detail and the trunk pages use this shape; defined locally
@@ -119,6 +120,11 @@ export default function TaskDetailPage({
   // backend (ThreadTurn QUEUED) and shown as pending bubbles so they read as
   // "queued, will send next" instead of vanishing.
   const [queuedInputs, setQueuedInputs] = useState<string[]>([]);
+  // Assembled-prompt size for the context-window meter — the same number the
+  // "View full context" inspector shows. Sourced from the backend assembler,
+  // NOT the task's cumulative token usage (which is unrelated to how full the
+  // window is and read 0 / 17M depending on the bug du jour).
+  const [contextTokens, setContextTokens] = useState<number | null>(null);
   const [canceling, setCanceling] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [markReady, setMarkReady] = useState<'idle' | 'running' | 'error'>('idle');
@@ -203,6 +209,20 @@ export default function TaskDetailPage({
     }
   }, [threadId, taskId]);
 
+  // Fetch the assembled-prompt token total (the inspector's number) for the
+  // context-window meter. Cheap-ish (the backend sums the recent transcript),
+  // and the context only changes as messages land, so the poll cadence is fine.
+  const loadContextSize = useCallback(async () => {
+    if (taskId === null) {
+      return;
+    }
+    try {
+      const ctx = await window.bridge.getTaskContext(threadId, taskId);
+      setContextTokens(ctx.meta.totalTokens);
+    }
+    catch { /* non-fatal — keep the previous reading */ }
+  }, [threadId, taskId]);
+
   // Pending turns the user queued while a turn was in flight. The scheduler
   // runs them after the current turn; until each dispatches its user-message
   // row isn't written, so we surface the QUEUED turns directly as pending
@@ -279,6 +299,8 @@ export default function TaskDetailPage({
       void refreshTasks();
       // Drain the pending list as queued turns dispatch into real messages.
       void loadQueuedTurns();
+      // Keep the context-window meter current as the transcript grows.
+      void loadContextSize();
     }, 4_000);
     return () => {
       window.clearInterval(handle);
@@ -286,8 +308,13 @@ export default function TaskDetailPage({
       // IDLE before the last poll fetched the final assistant message.
       // One catch-up fetch on teardown guarantees the reply lands.
       void loadMessages();
+      void loadContextSize();
     };
-  }, [thread?.status, sending, loadMessages, loadThread, refreshTasks, loadQueuedTurns]);
+  }, [thread?.status, sending, loadMessages, loadThread, refreshTasks, loadQueuedTurns, loadContextSize]);
+
+  // Initial / idle context-window reading — the poll above only runs while a
+  // turn is live, so fetch once when the task loads too.
+  useEffect(() => { void loadContextSize(); }, [loadContextSize]);
 
   // Self-heal a stale window. When the task ends its turn to wait on the
   // user (e.g. an AskUserQuestion or a parked approval), the thread goes
@@ -600,6 +627,11 @@ export default function TaskDetailPage({
   // turn, not just at the turn-boundary row.
   const liveTokensIn = Math.max(task?.tokensIn ?? 0, liveUsage?.tokensIn ?? 0);
   const animatedTokensIn = useAnimatedNumber(liveTokensIn);
+  // Context-window occupancy = assembled-prompt size / model window. Uses the
+  // real assembled size (inspector's number), not cumulative token usage.
+  const ctxPctValue = contextTokens === null
+    ? 0
+    : Math.min(100, Math.round((contextTokens / CONTEXT_WINDOW_LIMIT) * 100));
   const animatedToolCalls = useAnimatedNumber(toolCallCount);
 
   // Seqs of this task's own user prompts — feeds the conversation-index
@@ -738,7 +770,7 @@ export default function TaskDetailPage({
             <span style={termCtxBadgeStyle}>
               {thread?.model ?? 'claude'}
               <span style={{ marginLeft: 8, opacity: 0.7 }}>
-                ctx {contextWindowPct(messages, liveUsage?.tokensIn)}%
+                ctx {ctxPctValue}%
               </span>
             </span>
           )}
@@ -955,7 +987,7 @@ export default function TaskDetailPage({
                     costUsdMilli={task?.costUsdMilli ?? 0}
                     tokensIn={animatedTokensIn}
                     runtimeSec={runtimeSec}
-                    ctxPct={contextWindowPct(messages, liveUsage?.tokensIn)}
+                    ctxPct={ctxPctValue}
                   />
                 )}
               </div>
@@ -1122,10 +1154,7 @@ export default function TaskDetailPage({
                 <div style={railHeadStyle}>
                   <span>CONTEXT WINDOW</span>
                 </div>
-                <ContextWindowMeter
-                  tokensIn={animatedTokensIn}
-                  tokensOut={Math.max(task?.tokensOut ?? 0, liveUsage?.tokensOut ?? 0)}
-                />
+                <ContextWindowMeter contextTokens={contextTokens ?? 0} />
                 <button
                   type="button"
                   onClick={() => setInspectorOpen(true)}
@@ -1400,18 +1429,17 @@ function previewBlurb(md: string): string {
 }
 
 function ContextWindowMeter({
-  tokensIn, tokensOut,
+  contextTokens,
 }: {
-  tokensIn: number;
-  tokensOut: number;
+  contextTokens: number;
 }) {
-  // Estimate against a 200k context window (Sonnet 4.x default). The
-  // bar surfaces *consumed input* — tokensIn is the dominant signal
-  // for "how full is the window"; tokensOut don't count against it.
-  const cap = 200_000;
-  // Count the number up toward each polled value so a turn's usage
-  // reads like the streaming CLI instead of snapping in one jump.
-  const used = useAnimatedNumber(tokensIn);
+  // contextTokens is the assembled-prompt size (the "View full context"
+  // total), i.e. how full the window actually is — NOT cumulative token
+  // usage. Estimated against a 200k window (Sonnet 4.x default).
+  const cap = CONTEXT_WINDOW_LIMIT;
+  // Count the number up toward each polled value so it reads like the
+  // streaming CLI instead of snapping in one jump.
+  const used = useAnimatedNumber(contextTokens);
   const pct = Math.min(100, Math.round((used / cap) * 100));
   const tone = pct < 60 ? '#16a34a' : pct < 85 ? '#d97706' : '#dc2626';
   const safety = pct < 60 ? 'safe' : pct < 85 ? 'tight' : 'critical';

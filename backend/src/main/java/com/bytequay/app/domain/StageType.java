@@ -46,8 +46,11 @@ public enum StageType
             TaskPhase.AWAITING_UPDATE_PUSH,
             TaskPhase.PUSHED_AWAITING_CI)),
 
-    /** Polling loop on remote review comments. */
+    /** Polling loop on remote review comments. Arms as soon as the PR is
+     *  out for review ({@code AWAITING_REMOTE_REVIEW}), then stays active
+     *  while comments are addressed. */
     REVIEW_MONITOR_STAGE(Set.of(
+            TaskPhase.AWAITING_REMOTE_REVIEW,
             TaskPhase.ADDRESSING_COMMENTS,
             TaskPhase.AGENT_RE_REVIEW,
             TaskPhase.AWAITING_UPDATE_PUSH)),
@@ -83,18 +86,20 @@ public enum StageType
      * isn't bound to any single stage. {@link TaskPhase#QUEUED} and
      * {@link TaskPhase#NEEDS_ATTENTION} are cross-cutting by design — they
      * attach to whatever stage is already active. {@link TaskPhase#AWAITING_READY}
-     * and {@link TaskPhase#AWAITING_REMOTE_REVIEW} are the post-push idle
-     * waits that the spec leaves unmapped; they too keep the current stage.
+     * is the post-push CI-green idle wait that stays unmapped; it keeps the
+     * current stage.
      *
      * <p>Returning empty (rather than throwing) is deliberate: the lifecycle
      * hook runs inside the phase-transition's transaction, so a throw here
      * would roll back a legitimate phase move. An unmapped phase is treated
      * as "stay in the current stage".
      *
-     * <p>The overlap on {@code AWAITING_UPDATE_PUSH} is resolved by the
-     * declaration order of this enum: {@code CI_FIXING_STAGE} is declared
-     * before {@code REVIEW_MONITOR_STAGE}, so the former wins, matching the
-     * locked resolver precedence.
+     * <p>{@code AWAITING_UPDATE_PUSH} belongs to both {@code CI_FIXING_STAGE}
+     * and {@code REVIEW_MONITOR_STAGE}; this method resolves the overlap by
+     * declaration order (CI-fixing wins), but the lifecycle prefers to keep
+     * whichever monitor stage is already active when the phase is legal there
+     * (see {@code StageLifecycle}), so the resolver precedence only decides
+     * the cold-start case.
      */
     public static Optional<StageType> forPhase(TaskPhase phase)
     {

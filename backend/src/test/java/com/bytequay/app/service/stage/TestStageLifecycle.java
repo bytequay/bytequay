@@ -118,6 +118,32 @@ class TestStageLifecycle
     }
 
     @Test
+    void reviewMonitorStageArmsAndStaysAcrossOverlapPhases()
+    {
+        String taskId = seedTask();
+        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
+        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "push", Actor.HUMAN);
+        assertActive(taskId, StageType.CI_FIXING_STAGE);
+
+        // PR out for remote review → review-monitor arms, ci-fixing closes.
+        machine.transition(taskId, TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green", Actor.WEBHOOK);
+        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
+        assertThat(only(taskId, StageType.CI_FIXING_STAGE).state()).isEqualTo(StageState.CLOSED);
+
+        // Addressing comments and the awaiting_update_push gate both stay in
+        // the review-monitor stage despite AWAITING_UPDATE_PUSH overlapping
+        // ci-fixing in the phase-to-stage map.
+        machine.transition(taskId, TaskPhase.ADDRESSING_COMMENTS, "new_comment", Actor.WEBHOOK);
+        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
+        machine.transition(taskId, TaskPhase.AGENT_RE_REVIEW, "re_review", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.AWAITING_UPDATE_PUSH, "approved", Actor.HUMAN);
+        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
+        assertThat(stagesOfType(taskId, StageType.REVIEW_MONITOR_STAGE)).hasSize(1);
+    }
+
+    @Test
     void crossCuttingPhaseKeepsTheCurrentStage()
     {
         String taskId = seedTask();

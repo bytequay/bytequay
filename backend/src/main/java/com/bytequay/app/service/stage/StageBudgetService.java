@@ -26,8 +26,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -53,6 +55,9 @@ public class StageBudgetService
 {
     /** Default autonomous pushes per ci-fixing stage instance. */
     public static final int DEFAULT_AUTO_PUSH_BUDGET = 5;
+
+    /** Default bump applied by the "extend budget" recovery action. */
+    public static final int DEFAULT_BUDGET_EXTENSION = 5;
 
     private static final Logger log = LoggerFactory.getLogger(StageBudgetService.class);
 
@@ -113,6 +118,65 @@ public class StageBudgetService
             onExhausted(event.taskId(), stage.id(), spent);
         }
         writeMetrics(stage.id(), updated);
+    }
+
+    /**
+     * Recovery action: extend the exhausted stage's budget by
+     * {@code additional} (default {@link #DEFAULT_BUDGET_EXTENSION}) and
+     * resume autonomous pushes. 404 if the stage is unknown, 422 unless its
+     * budget is actually exhausted.
+     */
+    @Transactional
+    public StageMetrics extendBudget(UUID stageId, Integer additional)
+    {
+        int bump = additional == null || additional <= 0 ? DEFAULT_BUDGET_EXTENSION : additional;
+        StageInstance stage = requireExhaustedStage(stageId);
+        StageMetrics metrics = readMetrics(stageId);
+        StageMetrics updated = metrics
+                .withBudget(metrics.autoPushBudget().extendedBy(bump))
+                .withBudgetExhausted(false);
+        writeMetrics(stageId, updated);
+
+        // Reset the task-level cap too, so autonomous pushes actually resume.
+        taskStore.setConsecutiveAutoPushes(stage.taskId(), 0);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("decision", "extend");
+        payload.put("additional", bump);
+        stageStore.recordEvent(stageId, stage.taskId(), StageEventType.BUDGET_EXHAUSTED_DECISION, payload);
+        return updated;
+    }
+
+    /**
+     * Recovery action: leave the budget exhausted but flip the stage to
+     * gate every subsequent push behind internal review. 404 if unknown,
+     * 422 unless the budget is actually exhausted.
+     */
+    @Transactional
+    public StageMetrics fallbackToReview(UUID stageId)
+    {
+        StageInstance stage = requireExhaustedStage(stageId);
+        StageMetrics updated = readMetrics(stageId)
+                .withInternalReviewEnabled(true)
+                .withBudgetExhausted(false);
+        writeMetrics(stageId, updated);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("decision", "fallback_to_internal_review");
+        stageStore.recordEvent(stageId, stage.taskId(), StageEventType.BUDGET_EXHAUSTED_DECISION, payload);
+        return updated;
+    }
+
+    private StageInstance requireExhaustedStage(UUID stageId)
+    {
+        StageInstance stage = stageStore.findStageById(stageId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no stage: " + stageId));
+        if (!readMetrics(stageId).budgetExhausted()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "stage " + stageId + " is not awaiting a budget decision");
+        }
+        return stage;
     }
 
     private void onExhausted(String taskId, UUID stageId, AutoPushBudget budget)

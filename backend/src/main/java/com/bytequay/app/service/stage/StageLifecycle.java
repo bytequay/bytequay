@@ -105,12 +105,20 @@ public class StageLifecycle
         }
 
         Optional<StageInstance> active = stageStore.findActiveStage(taskId);
-        if (active.isPresent() && active.get().type() == target.get()) {
-            return;
+        if (active.isPresent()) {
+            StageType activeType = active.get().type();
+            // Stay put when the new phase is already the active stage's, or
+            // when it legally belongs to the active stage. The latter keeps a
+            // monitor stage stable across a phase that overlaps two stages —
+            // e.g. AWAITING_UPDATE_PUSH belongs to both CI-fixing and
+            // review-monitor; the active stage wins over forPhase's
+            // declaration-order precedence so a review-comment push doesn't
+            // flip the active stage to CI-fixing mid-loop.
+            if (activeType == target.get() || activeType.allowedPhases().contains(toPhase)) {
+                return;
+            }
+            stageStore.closeStage(active.get().id(), "phase_transition_to_" + toPhase.name());
         }
-
-        active.ifPresent(stage ->
-                stageStore.closeStage(stage.id(), "phase_transition_to_" + toPhase.name()));
         // Phase-driven stages are top-level — only a callable review panel
         // carries a caller pointer, so callerStageId stays null here.
         StageInstance opened = stageStore.openStage(taskId, target.get(), null);

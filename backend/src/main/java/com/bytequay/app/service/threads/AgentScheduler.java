@@ -26,6 +26,8 @@ import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -71,7 +73,7 @@ import static java.util.Objects.requireNonNull;
  */
 @Component
 public class AgentScheduler
-        implements ThreadTurnScheduler
+        implements ThreadTurnScheduler, ApplicationEventPublisherAware
 {
     private static final int RECOVERY_PAGE_SIZE = 1_000;
     // Usually one or two follow-up turns. Keep the page large enough
@@ -86,6 +88,10 @@ public class AgentScheduler
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
     private final Set<String> runningTaskIds = new HashSet<>();
     private final Object lock = new Object();
+    /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
+     *  null in POJO unit tests that construct the scheduler directly, where
+     *  turn-finished side effects (mutex release) aren't under test. */
+    private ApplicationEventPublisher eventPublisher;
 
     public AgentScheduler(
             ThreadStore threads,
@@ -101,6 +107,12 @@ public class AgentScheduler
         this.sessions = requireNonNull(sessions, "sessions is null");
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
+    }
+
+    @Override
+    public void setApplicationEventPublisher(ApplicationEventPublisher publisher)
+    {
+        this.eventPublisher = publisher;
     }
 
     /**
@@ -487,6 +499,13 @@ public class AgentScheduler
             // Wake blocked invokeAll slot acquisitions — they share
             // the lane capacity with turns.
             lock.notifyAll();
+        }
+
+        // Outside the lock: let listeners (e.g. the write-mutex release)
+        // react to a finished task turn. Trunk turns carry no taskId.
+        if (eventPublisher != null && finished.taskId() != null) {
+            eventPublisher.publishEvent(
+                    new TaskTurnFinishedEvent(finished.taskId(), finished.id(), failed));
         }
     }
 

@@ -131,6 +131,13 @@ class TaskEntity
     @Column(name = "opening_prompt")
     private String openingPrompt;
 
+    /** Task-level write mutex (V118): the task_stage id currently allowed to
+     *  run a write sequence on the shared branch, or null when free.
+     *  Entity-managed via atomic acquire/release queries, never mapped by
+     *  saveTask, so a full-row save can't clobber it. */
+    @Column(name = "active_write_op_stage_id")
+    private String activeWriteOpStageId;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -229,4 +236,7 @@ class TaskEntity
 
     String getOpeningPrompt() { return openingPrompt; }
     void setOpeningPrompt(String openingPrompt) { this.openingPrompt = openingPrompt; }
+
+    String getActiveWriteOpStageId() { return activeWriteOpStageId; }
+    void setActiveWriteOpStageId(String activeWriteOpStageId) { this.activeWriteOpStageId = activeWriteOpStageId; }
 }

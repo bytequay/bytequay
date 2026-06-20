@@ -238,6 +238,33 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional
+    public boolean tryAcquireWriteMutex(String taskId, String stageId)
+    {
+        return tasks.acquireWriteMutex(taskId, stageId) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void releaseWriteMutex(String taskId, String stageId)
+    {
+        tasks.releaseWriteMutex(taskId, stageId);
+    }
+
+    @Override
+    @Transactional
+    public boolean releaseWriteMutexForTask(String taskId)
+    {
+        return tasks.releaseWriteMutexForTask(taskId) == 1;
+    }
+
+    @Override
+    public Optional<String> writeMutexHolder(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::getActiveWriteOpStageId);
+    }
+
+    @Override
     public Optional<Task> findActiveTaskByPrRef(String prRef)
     {
         return tasks.findFirstByLinkedPrRefAndPhaseNot(prRef, TaskPhase.COMPLETED.name())

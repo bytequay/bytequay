@@ -674,6 +674,8 @@ function App() {
             onGoToMyPrs={() => setNav({ view: 'my-prs' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onGoToTeams={() => setNav({ view: 'teams' })}
+            onOpenTask={(threadId, taskId) => setNav({ view: 'thread-detail', threadId, taskId })}
+            onOpenThread={openThread}
           />
         )}
         {nav.view === 'my-prs' && (

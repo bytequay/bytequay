@@ -16,17 +16,17 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.github.GitHubOAuthService;
 import com.bytequay.app.service.github.GitHubOAuthService.ConnectionInfo;
 import com.google.common.collect.ImmutableMap;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -76,15 +76,9 @@ public class GitHubOAuthController
     @PostMapping("/callback")
     public ConnectionInfo callback(@RequestBody CallbackRequest req)
     {
-        if (req == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        if (req.code() == null || req.code().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "code is required");
-        }
-        if (req.state() == null || req.state().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "state is required");
-        }
+        req = requireBody(req);
+        requireNotBlank(req.code(), "code is required");
+        requireNotBlank(req.state(), "state is required");
         return oauth.exchangeCode(req.code(), req.state());
     }
 

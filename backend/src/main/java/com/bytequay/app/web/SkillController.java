@@ -33,6 +33,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -151,9 +152,7 @@ public class SkillController
     @PatchMapping("/skills/{id}/enabled")
     public Skill setEnabled(@PathVariable long id, @RequestBody EnabledRequest body)
     {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        body = requireBody(body);
         return service.setEnabled(id, body.enabled());
     }
 

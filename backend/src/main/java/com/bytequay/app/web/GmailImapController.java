@@ -16,7 +16,6 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.gmail.GmailImapAuthService;
 import com.bytequay.app.service.gmail.GmailImapAuthService.ConnectionInfo;
 import com.google.common.collect.ImmutableMap;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,11 +23,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
 
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -67,15 +67,9 @@ public class GmailImapController
     @PostMapping("/imap/connect")
     public ConnectionInfo connect(@RequestBody ConnectRequest req)
     {
-        if (req == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        if (req.email() == null || req.email().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "email is required");
-        }
-        if (req.appPassword() == null || req.appPassword().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "appPassword is required");
-        }
+        req = requireBody(req);
+        requireNotBlank(req.email(), "email is required");
+        requireNotBlank(req.appPassword(), "appPassword is required");
         return imap.connect(req.email(), req.appPassword());
     }
 

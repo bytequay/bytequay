@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.service.threads.ThreadSettingsService;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,10 +22,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -68,9 +67,7 @@ public class ThreadSettingsController
     @PutMapping
     public Payload put(@PathVariable String threadId, @RequestBody PatchBody body)
     {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        body = requireBody(body);
         ThreadSettings written = service.save(threadId, new ThreadSettings(
                 threadId,
                 body.maxRunningTasks(),

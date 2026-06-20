@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -40,9 +41,7 @@ public class SurfaceVisitController
     @PostMapping("/api/footprints/visit")
     public SurfaceVisitDto record(@RequestBody RecordVisitRequest body)
     {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        body = requireBody(body);
         if (isBlank(body.surfaceId())) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "surfaceId is required");
         }

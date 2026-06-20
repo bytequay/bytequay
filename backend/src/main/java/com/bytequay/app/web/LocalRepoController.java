@@ -177,19 +177,9 @@ public class LocalRepoController
             @PathVariable("owner") String owner,
             @PathVariable("repo") String repo)
     {
-        try {
-            return localRepoService.listBranches(owner, repo);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "branch listing interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.listBranches(owner, repo),
+                "branch listing interrupted");
     }
 
     /**
@@ -230,22 +220,9 @@ public class LocalRepoController
         // Cap matches what the Commits tab UI scrolls without paging.
         // Bump together when paging lands.
         int capped = Math.min(Math.max(limit, 1), 500);
-        try {
-            return localRepoService.listCommits(owner, repo, revision, capped);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit listing interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.listCommits(owner, repo, revision, capped),
+                "commit listing interrupted");
     }
 
     /**
@@ -259,22 +236,9 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @PathVariable("sha") String sha)
     {
-        try {
-            return localRepoService.commitFiles(owner, repo, sha);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-files listing interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.commitFiles(owner, repo, sha),
+                "commit-files listing interrupted");
     }
 
     /**
@@ -288,22 +252,9 @@ public class LocalRepoController
             @PathVariable("owner") String owner,
             @PathVariable("repo") String repo)
     {
-        try {
-            return localRepoService.workingTreeFiles(owner, repo);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "working-tree status interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.workingTreeFiles(owner, repo),
+                "working-tree status interrupted");
     }
 
     /**
@@ -318,22 +269,9 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestParam("path") String filePath)
     {
-        try {
-            return localRepoService.workingTreeFileDiff(owner, repo, filePath);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "working-tree diff fetch interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.workingTreeFileDiff(owner, repo, filePath),
+                "working-tree diff fetch interrupted");
     }
 
     /**
@@ -348,22 +286,9 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @PathVariable("sha") String sha)
     {
-        try {
-            return localRepoService.commitDetail(owner, repo, sha);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-detail fetch interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.commitDetail(owner, repo, sha),
+                "commit-detail fetch interrupted");
     }
 
     /**
@@ -378,22 +303,9 @@ public class LocalRepoController
             @PathVariable("sha") String sha,
             @RequestParam("path") String filePath)
     {
-        try {
-            return localRepoService.commitFileDiff(owner, repo, sha, filePath);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-diff fetch interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.commitFileDiff(owner, repo, sha, filePath),
+                "commit-diff fetch interrupted");
     }
 
     /**
@@ -409,22 +321,9 @@ public class LocalRepoController
             @RequestParam("base") String base,
             @RequestParam("head") String head)
     {
-        try {
-            return localRepoService.rangeFiles(owner, repo, base, head);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "range-files lookup interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.rangeFiles(owner, repo, base, head),
+                "range-files lookup interrupted");
     }
 
     /**
@@ -443,22 +342,9 @@ public class LocalRepoController
             @RequestParam("head") String head,
             @RequestParam("path") String filePath)
     {
-        try {
-            return localRepoService.rangeFileDiff(owner, repo, base, head, filePath);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "range diff fetch interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.rangeFileDiff(owner, repo, base, head, filePath),
+                "range diff fetch interrupted");
     }
 
     /**
@@ -475,22 +361,9 @@ public class LocalRepoController
             @RequestParam("newest") String newestSha,
             @RequestParam("path") String filePath)
     {
-        try {
-            return localRepoService.commitRangeFileDiff(owner, repo, oldestSha, newestSha, filePath);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit range-diff fetch interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.commitRangeFileDiff(owner, repo, oldestSha, newestSha, filePath),
+                "commit range-diff fetch interrupted");
     }
 
     /**
@@ -507,22 +380,9 @@ public class LocalRepoController
             @RequestParam("branch") String branch,
             @RequestParam(name = "base", required = false) String base)
     {
-        try {
-            return localRepoService.mergeBase(owner, repo, branch, base);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "merge-base lookup interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.mergeBase(owner, repo, branch, base),
+                "merge-base lookup interrupted");
     }
 
     /**
@@ -537,22 +397,9 @@ public class LocalRepoController
             @RequestParam(name = "limit", required = false, defaultValue = "100") int limit)
     {
         int capped = Math.min(Math.max(limit, 1), 500);
-        try {
-            return localRepoService.listActivity(owner, repo, capped);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "activity listing interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> localRepoService.listActivity(owner, repo, capped),
+                "activity listing interrupted");
     }
 
     /**
@@ -565,7 +412,9 @@ public class LocalRepoController
             @PathVariable("owner") String owner,
             @PathVariable("repo") String repo)
     {
-        return runGitOperation(() -> localRepoService.fetch(owner, repo));
+        return runLocalRepoOperation(
+                () -> localRepoService.fetch(owner, repo),
+                "git operation interrupted");
     }
 
     /**
@@ -578,7 +427,9 @@ public class LocalRepoController
             @PathVariable("owner") String owner,
             @PathVariable("repo") String repo)
     {
-        return runGitOperation(() -> localRepoService.pull(owner, repo));
+        return runLocalRepoOperation(
+                () -> localRepoService.pull(owner, repo),
+                "git operation interrupted");
     }
 
     /**
@@ -592,7 +443,9 @@ public class LocalRepoController
             @PathVariable("owner") String owner,
             @PathVariable("repo") String repo)
     {
-        return runGitOperation(() -> localRepoService.push(owner, repo));
+        return runLocalRepoOperation(
+                () -> localRepoService.push(owner, repo),
+                "git operation interrupted");
     }
 
     /**
@@ -612,7 +465,9 @@ public class LocalRepoController
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Force-with-lease push requires explicit user confirmation");
         }
-        return runGitOperation(() -> localRepoService.pushForceWithLease(owner, repo));
+        return runLocalRepoOperation(
+                () -> localRepoService.pushForceWithLease(owner, repo),
+                "git operation interrupted");
     }
 
     /**
@@ -630,7 +485,9 @@ public class LocalRepoController
         if (body == null || body.name() == null || body.name().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
         }
-        return runGitOperation(() -> localRepoService.createBranch(owner, repo, body.name(), body.base()));
+        return runLocalRepoOperation(
+                () -> localRepoService.createBranch(owner, repo, body.name(), body.base()),
+                "git operation interrupted");
     }
 
     /**
@@ -647,7 +504,9 @@ public class LocalRepoController
         if (body == null || body.name() == null || body.name().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
         }
-        return runGitOperation(() -> localRepoService.switchBranch(owner, repo, body.name()));
+        return runLocalRepoOperation(
+                () -> localRepoService.switchBranch(owner, repo, body.name()),
+                "git operation interrupted");
     }
 
     /**
@@ -666,10 +525,12 @@ public class LocalRepoController
         if (body == null || body.name() == null || body.name().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
         }
-        return runGitOperation(() -> localRepoService.checkoutRemoteBranch(owner, repo, body.name()));
+        return runLocalRepoOperation(
+                () -> localRepoService.checkoutRemoteBranch(owner, repo, body.name()),
+                "git operation interrupted");
     }
 
-    private LocalRepoStatus runGitOperation(GitOp op)
+    private <T> T runLocalRepoOperation(LocalRepoOp<T> op, String interruptedMessage)
     {
         try {
             return op.call();
@@ -689,14 +550,14 @@ public class LocalRepoController
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "git operation interrupted");
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, interruptedMessage);
         }
     }
 
     @FunctionalInterface
-    private interface GitOp
+    private interface LocalRepoOp<T>
     {
-        LocalRepoStatus call()
+        T call()
                 throws IOException, InterruptedException;
     }
 
@@ -717,25 +578,12 @@ public class LocalRepoController
         if (body == null || body.title() == null || body.title().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required");
         }
-        try {
+        return runLocalRepoOperation(() -> {
             PullRequest created = localRepoService.createPullRequest(
                     owner, repo, body.title(), body.body(),
                     body.base(), body.draft());
             return new CreatePrResponse(created.number(), created.htmlUrl());
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "PR creation interrupted");
-        }
+        }, "PR creation interrupted");
     }
 
     /**
@@ -795,23 +643,10 @@ public class LocalRepoController
         if (body == null || body.names() == null || body.names().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "names is required");
         }
-        try {
-            return new DeleteBranchesResponse(
-                    localRepoService.deleteBranches(owner, repo, body.names(), body.deleteRemote()));
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
-        catch (GitRunner.GitCommandException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "delete interrupted");
-        }
+        return runLocalRepoOperation(
+                () -> new DeleteBranchesResponse(
+                        localRepoService.deleteBranches(owner, repo, body.names(), body.deleteRemote())),
+                "delete interrupted");
     }
 
     /**

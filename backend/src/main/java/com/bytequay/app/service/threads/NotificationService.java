@@ -75,6 +75,14 @@ public class NotificationService
         return create(NotificationKind.AUTO_FIX_DONE, threadId, taskId, payloadJson);
     }
 
+    /** A shipped PR is ready to merge (CI green, no unresolved comments,
+     *  reviewers approved). De-dup is the caller's job via the task's
+     *  merge-notification sentinel; this just writes the row. */
+    public Notification notifyReadyToMerge(String threadId, String taskId, String payloadJson)
+    {
+        return create(NotificationKind.READY_TO_MERGE, threadId, taskId, payloadJson);
+    }
+
     public Notification create(NotificationKind kind, String threadId, String taskId, String payloadJson)
     {
         requireNonNull(kind, "kind is null");

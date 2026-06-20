@@ -265,6 +265,28 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional
+    public boolean markMergeNotificationSentIfUnset(String taskId, Instant at)
+    {
+        return tasks.setMergeNotificationSentAtIfNull(taskId, at.toEpochMilli()) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void clearMergeNotificationSent(String taskId)
+    {
+        tasks.clearMergeNotificationSentAt(taskId);
+    }
+
+    @Override
+    public Optional<Instant> mergeNotificationSentAt(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(TaskEntity::getMergeNotificationSentAtMs)
+                .map(Timestamps::instant);
+    }
+
+    @Override
     public Optional<Task> findActiveTaskByPrRef(String prRef)
     {
         return tasks.findFirstByLinkedPrRefAndPhaseNot(prRef, TaskPhase.COMPLETED.name())

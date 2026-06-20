@@ -27,6 +27,7 @@ import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -58,9 +59,11 @@ class TestTaskLifecycleDriver
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final RemoteCommentIngestor commentIngestor = mock(RemoteCommentIngestor.class);
+    private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
-                    reviewMarkers, threadStore, scheduler, notifications, mapper, commentIngestor);
+                    reviewMarkers, threadStore, scheduler, notifications, mapper,
+                    commentIngestor, readyToMerge);
 
     @Test
     void greenDraftRecordsTheReadyGateAndAutonomouslyUnDraftsThePr()

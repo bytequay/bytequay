@@ -33,4 +33,10 @@ public enum NotificationKind
     /** Ship-and-continue or an auto-fix completed without further
      *  attention required (PR merged, CI green, etc.). Informational. */
     AUTO_FIX_DONE,
+
+    /** A shipped PR reached the ready-to-merge state — CI green, no
+     *  unresolved review comments, reviewers approved. Fired once per
+     *  ready state (de-duped on the task), re-armed if a condition breaks.
+     *  Click → the PR. */
+    READY_TO_MERGE,
 }

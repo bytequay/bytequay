@@ -20,7 +20,6 @@ import com.bytequay.app.domain.TeamSummary;
 import com.bytequay.app.service.teams.TeamService;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -31,12 +30,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -67,12 +67,8 @@ public class TeamController
     @PostMapping
     public Team create(@RequestBody CreateTeamRequest req)
     {
-        if (req == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        if (req.name() == null || req.name().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "name is required");
-        }
+        req = requireBody(req);
+        requireNotBlank(req.name(), "name is required");
         return teamService.create(req.name(), req.avatar(), req.color(), req.description(), toMemberSet(req.members()));
     }
 
@@ -87,9 +83,7 @@ public class TeamController
     @PatchMapping("/{id}")
     public Team update(@PathVariable long id, @RequestBody UpdateTeamRequest req)
     {
-        if (req == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        req = requireBody(req);
         return teamService.update(id, req.name(), req.avatar(), req.color(), req.description());
     }
 
@@ -97,9 +91,7 @@ public class TeamController
     @PutMapping("/{id}/members")
     public Team replaceMembers(@PathVariable long id, @RequestBody ReplaceMembersRequest req)
     {
-        if (req == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        req = requireBody(req);
         return teamService.replaceMembers(id, toMemberSet(req.members()));
     }
 

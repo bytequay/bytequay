@@ -138,6 +138,8 @@ export type TaskBrainViewData = {
     linkedPr: LinkedPrDto | null;
     context: ContextWindowDto;        // brain-agent's own (Task, Agent) context
     recentCommits: CommitDto[];       // limit 5
+    panelSpawnable: boolean;          // true in an internal-review phase over a PR
+    parentStageId: string | null;     // the stage a panel review is called from
   };
   scrubbers: {
     stageEvents: ScrubberDash[];      // for the LEFT scrubber
@@ -150,6 +152,14 @@ export type TaskBrainViewData = {
 export type BrainMessageResult = {
   turnId: string;
   brainThreadId: string;
+};
+
+/** Handles returned by spawning a panel review: the opened review stage,
+ *  the seated pass, and the review thread the panel page routes by. */
+export type SpawnReviewResult = {
+  reviewStageId: string;
+  reviewPassId: string;
+  reviewThreadId: string;
 };
 
 // ── Stage detail (drill-in page) ─────────────────────────────────────

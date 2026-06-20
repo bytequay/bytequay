@@ -309,6 +309,13 @@ function SpawnBuildSection(
   const [error, setError] = useState<string | null>(null);
   const pass = detail.pass;
 
+  // A TASK_PHASE-hosted pass is the dev task's own internal review — the
+  // task IS the build, so there's nothing to spawn. The handoff is only
+  // for standalone (THREAD-hosted) reviews of someone else's PR.
+  if (pass.hostKind === 'TASK_PHASE') {
+    return null;
+  }
+
   if (pass.spawnedBuildThreadId !== null) {
     const applied = detail.findings.filter(
       f => f.status === 'AGREED' || f.status === 'RESOLVED');

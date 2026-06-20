@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import type { ApprovalDto, CommitDto, ContextWindowDto, TaskBrainViewData } from '../../types/brainView';
 import { LinkedPRCard } from './LinkedPRCard';
 import { formatTokensK, relativeShort } from './format';
@@ -24,7 +25,43 @@ type Props = {
   onViewContext: () => void;
   onPause: () => void;
   onClose: () => void;
+  /** Launch a multi-agent panel review of the task's own PR. Resolves once
+   *  the panel is seated and the view has navigated to it. */
+  onSpawnReview: () => Promise<void>;
 };
+
+/**
+ * Internal-review actions — shown only while the task is reviewing its own
+ * work (an internal-review phase over an existing PR). Offers to launch a
+ * multi-agent panel review as a callable sub-stage; the panel opens in the
+ * review thread page once seated.
+ */
+function InternalReviewActionsCard({ onSpawnReview }: { onSpawnReview: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="approval-card">
+      <div className="hd"><span className="ic" aria-hidden>⚖</span>Internal review</div>
+      <div className="stage-name">Get a second opinion before pushing</div>
+      <button
+        type="button"
+        className="btn"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          setError(null);
+          onSpawnReview().catch((e: unknown) => {
+            setError(e instanceof Error ? e.message : 'Failed to start the panel review');
+            setBusy(false);
+          });
+        }}
+      >
+        {busy ? 'Starting…' : '⚖ Get a panel review'}
+      </button>
+      {error !== null && <div className="err" role="alert">{error}</div>}
+    </div>
+  );
+}
 
 function ApprovalCard({ approval, onApprove }: { approval: ApprovalDto; onApprove: () => void }) {
   return (
@@ -96,12 +133,16 @@ function ContextWindowCard({ ctx, onViewContext }: { ctx: ContextWindowDto; onVi
  * the pause/close controls.
  */
 export function RightRail({
-  rail, nowMs, onApprove, onMerge, onViewDiff, onViewContext, onPause, onClose,
+  rail, nowMs, onApprove, onMerge, onViewDiff, onViewContext, onPause, onClose, onSpawnReview,
 }: Props) {
   return (
     <aside className="right-rail">
       {rail.approval !== null && (
         <ApprovalCard approval={rail.approval} onApprove={() => onApprove(rail.approval as ApprovalDto)} />
+      )}
+
+      {rail.panelSpawnable && (
+        <InternalReviewActionsCard onSpawnReview={onSpawnReview} />
       )}
 
       {rail.linkedPr !== null && (

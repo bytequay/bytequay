@@ -796,6 +796,9 @@ function App() {
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber, back: nav,
             })}
+            onOpenReviewThread={threadId => setNav({
+              view: 'review-thread', threadId, back: nav,
+            })}
           />
         )}
         {nav.view === 'stage-detail' && (

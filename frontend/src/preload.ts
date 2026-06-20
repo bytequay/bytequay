@@ -875,6 +875,11 @@ const bridge: Bridge = {
       void ipcRenderer.invoke('threads:stream:stop', threadId);
     };
   },
+
+  // ── Brain agent ──────────────────────────────────────────────────
+  getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),
+  sendBrainMessage: (taskId: string, text: string) =>
+    ipcRenderer.invoke('brain:sendMessage', taskId, text),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

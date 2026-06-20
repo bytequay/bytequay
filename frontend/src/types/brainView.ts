@@ -144,3 +144,10 @@ export type TaskBrainViewData = {
     userMessages: ScrubberDash[];     // for the RIGHT scrubber
   };
 };
+
+/** Result of posting a brain message: the answering turn id and the
+ *  task's brain thread id (to subscribe to its SSE stream). */
+export type BrainMessageResult = {
+  turnId: string;
+  brainThreadId: string;
+};

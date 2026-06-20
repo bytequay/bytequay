@@ -28,7 +28,6 @@ import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.service.RepoService;
 import com.google.common.collect.ImmutableMap;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -38,12 +37,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -401,14 +400,6 @@ public class RepoController
                 request.name(),
                 request.bio(),
                 request.location());
-    }
-
-    private static <T> T requireBody(T body)
-    {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        return body;
     }
 
     public record AddRepoRequest(String owner, String repo) {}

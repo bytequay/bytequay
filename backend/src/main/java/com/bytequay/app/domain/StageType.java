@@ -82,6 +82,23 @@ public enum StageType
     }
 
     /**
+     * The PascalCase display name used in user-facing prose (e.g.
+     * "CiFixingStage"). The brain agent references stages by this name and
+     * the brain feed scans responses for it to resolve drill-in chips, so
+     * it's the single source of truth for both.
+     */
+    public String displayName()
+    {
+        return switch (this) {
+            case DEVELOPMENT_STAGE -> "DevelopmentStage";
+            case CI_FIXING_STAGE -> "CiFixingStage";
+            case REVIEW_MONITOR_STAGE -> "ReviewMonitorStage";
+            case CLEANUP_STAGE -> "CleanupStage";
+            case REVIEW_STAGE -> "ReviewStage";
+        };
+    }
+
+    /**
      * The stage a phase resolves to, or empty for a cross-cutting phase that
      * isn't bound to any single stage. {@link TaskPhase#QUEUED} and
      * {@link TaskPhase#NEEDS_ATTENTION} are cross-cutting by design — they

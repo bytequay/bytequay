@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.stage;
 
-import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
@@ -99,19 +98,8 @@ public class AgentContextDigest
     {
         return Optional.ofNullable(stageId)
                 .flatMap(stageStore::findStageById)
-                .map(s -> displayName(s.type()))
+                .map(s -> s.type().displayName())
                 .orElse("Stage");
-    }
-
-    private static String displayName(StageType type)
-    {
-        return switch (type) {
-            case DEVELOPMENT_STAGE -> "DevelopmentStage";
-            case CI_FIXING_STAGE -> "CiFixingStage";
-            case REVIEW_MONITOR_STAGE -> "ReviewMonitorStage";
-            case CLEANUP_STAGE -> "CleanupStage";
-            case REVIEW_STAGE -> "ReviewStage";
-        };
     }
 
     private static String placeholder()

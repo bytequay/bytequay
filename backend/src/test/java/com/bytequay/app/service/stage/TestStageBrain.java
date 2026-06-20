@@ -25,6 +25,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
@@ -110,6 +111,52 @@ class TestStageBrain
                 .containsExactly("fix #1: bumped retry default", "fix #2: widened timeout");
         // Interleaved with the stage-open row, all chronological.
         assertThat(brain.brainFeed().get(0).type()).isEqualTo("STAGE_OPENED");
+    }
+
+    @Test
+    void brainFeedIncludesConversationWithStageRefAndUserScrubber()
+    {
+        String taskId = seedTask();
+        UUID stageId = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null).id();
+
+        // A brain thread with a user question and an assistant reply that
+        // mentions the stage by name.
+        String brainThreadId = "ws-default.brain-" + UUID.randomUUID();
+        Thread brain = new Thread(
+                brainThreadId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain",
+                ThreadStatus.IDLE, "claude-haiku-4-5-20251001", 0L, 0L, 0L,
+                Instant.parse("2026-06-21T10:00:00Z"), Instant.parse("2026-06-21T10:00:00Z"),
+                null, null, ThreadFlow.BUILD, "ws-default", null, null, null,
+                List.of(), 1, taskId);
+        threadStore.saveThread(brain);
+        appendBrainMsg(brainThreadId, 1, "user", "How many pushes have we done?",
+                Instant.parse("2026-06-21T10:01:00Z"));
+        appendBrainMsg(brainThreadId, 2, "assistant",
+                "CiFixingStage iteration #1 pushed the retry-count fix.",
+                Instant.parse("2026-06-21T10:01:30Z"));
+
+        TaskBrainViewData brainView = stageService.getBrain(taskId);
+
+        BrainFeedRow userRow = brainView.brainFeed().stream()
+                .filter(r -> r.type().equals("USER_MESSAGE")).findFirst().orElseThrow();
+        assertThat(userRow.body()).isEqualTo("How many pushes have we done?");
+
+        BrainFeedRow agentRow = brainView.brainFeed().stream()
+                .filter(r -> r.type().equals("BRAIN_AGENT_RESPONSE")).findFirst().orElseThrow();
+        assertThat(agentRow.body()).contains("CiFixingStage");
+        assertThat(agentRow.referencedStageId()).isEqualTo(stageId.toString());
+
+        assertThat(brainView.scrubbers().userMessages()).hasSize(1);
+        assertThat(brainView.scrubbers().userMessages().get(0).label())
+                .contains("How many pushes");
+    }
+
+    private void appendBrainMsg(String threadId, long seq, String role, String text, Instant ts)
+    {
+        String contentJson = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
+        threadStore.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), threadId, null, seq, role, "text", contentJson,
+                null, null, null, null, ts));
     }
 
     @Test

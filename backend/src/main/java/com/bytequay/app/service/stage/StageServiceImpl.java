@@ -29,10 +29,15 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -41,6 +46,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -65,17 +71,23 @@ public class StageServiceImpl
     private final StageStore stageStore;
     private final StageBudgetService budgetService;
     private final ThreadTurnEventStore turnEventStore;
+    private final ThreadStore threadStore;
+    private final ObjectMapper mapper;
 
     public StageServiceImpl(
             TaskStore taskStore,
             StageStore stageStore,
             StageBudgetService budgetService,
-            ThreadTurnEventStore turnEventStore)
+            ThreadTurnEventStore turnEventStore,
+            ThreadStore threadStore,
+            ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.budgetService = requireNonNull(budgetService, "budgetService is null");
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Override
@@ -96,16 +108,47 @@ public class StageServiceImpl
                 .toList();
 
         Map<UUID, StageType> stageTypes = allStages.stream()
-                .collect(Collectors.toMap(StageInstance::id, StageInstance::type));
+                .collect(Collectors.toMap(StageInstance::id, StageInstance::type, (a, b) -> a));
+
+        // Brain conversation: user questions + agent replies on the task's
+        // brain thread, surfaced in the feed and the user-message scrubber.
+        List<ThreadMessage> brainMessages = brainMessages(taskId);
+        // Index of stage display names → id for resolving drill-in chips.
+        Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
         return new TaskBrainViewData(
                 buildTask(task),
                 buildAggregate(allStages),
                 topLevel,
                 subStages,
-                buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId)),
+                buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
+                        brainMessages, stageNameIndex),
                 buildRightRail(task, allStages),
-                buildScrubbers(allEvents));
+                buildScrubbers(allEvents, brainMessages));
+    }
+
+    /** The task's brain-thread conversation (user + assistant text rows),
+     *  oldest-first; empty when no brain thread exists yet. */
+    private List<ThreadMessage> brainMessages(String taskId)
+    {
+        return threadStore.findBrainThreadByTask(taskId)
+                .map(t -> threadStore.listMessages(t.id()))
+                .orElseGet(List::of)
+                .stream()
+                .filter(m -> "text".equals(m.type()))
+                .filter(m -> "user".equals(m.role()) || "assistant".equals(m.role()))
+                .toList();
+    }
+
+    /** Display-name → stage id, for resolving stage mentions in brain
+     *  replies. When several stages share a type the most recent wins. */
+    private static Map<String, String> stageNameIndex(List<StageInstance> stages)
+    {
+        Map<String, String> index = new HashMap<>();
+        for (StageInstance s : stages) {
+            index.put(s.type().displayName(), s.id().toString());
+        }
+        return index;
     }
 
     @Override
@@ -201,10 +244,12 @@ public class StageServiceImpl
         return Optional.ofNullable(latest);
     }
 
-    private static List<BrainFeedRow> buildBrainFeed(
+    private List<BrainFeedRow> buildBrainFeed(
             List<StageEvent> events,
             Map<UUID, StageType> stageTypes,
-            List<ThreadTurnEvent> summaries)
+            List<ThreadTurnEvent> summaries,
+            List<ThreadMessage> brainMessages,
+            Map<String, String> stageNameIndex)
     {
         List<FeedEntry> entries = new ArrayList<>();
         for (StageEvent e : events) {
@@ -214,8 +259,63 @@ public class StageServiceImpl
         for (ThreadTurnEvent s : summaries) {
             entries.add(new FeedEntry(s.createdAt(), summaryRow(s, stageTypes)));
         }
+        for (ThreadMessage m : brainMessages) {
+            entries.add(new FeedEntry(m.ts(), brainMessageRow(m, stageNameIndex)));
+        }
         entries.sort(Comparator.comparing(FeedEntry::ts));
         return entries.stream().map(FeedEntry::row).toList();
+    }
+
+    /** Map a brain-thread message to a feed row. User messages are the YOU
+     *  bubble; assistant messages are the brain reply, with the first
+     *  mentioned stage resolved to a drill-in chip id. */
+    private BrainFeedRow brainMessageRow(ThreadMessage m, Map<String, String> stageNameIndex)
+    {
+        boolean user = "user".equals(m.role());
+        String body = decodeText(m.contentJson());
+        String referencedStageId = user ? null : firstReferencedStage(body, stageNameIndex);
+        return new BrainFeedRow(
+                m.id(),
+                user ? "USER_MESSAGE" : "BRAIN_AGENT_RESPONSE",
+                null,
+                null,
+                m.ts().toString(),
+                body,
+                referencedStageId);
+    }
+
+    /** The id of the first stage whose display name the reply mentions, or
+     *  null. Drives the primary drill-in chip. */
+    private static String firstReferencedStage(String body, Map<String, String> stageNameIndex)
+    {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        String earliest = null;
+        int earliestAt = Integer.MAX_VALUE;
+        for (Map.Entry<String, String> e : stageNameIndex.entrySet()) {
+            int at = body.indexOf(e.getKey());
+            if (at >= 0 && at < earliestAt) {
+                earliestAt = at;
+                earliest = e.getValue();
+            }
+        }
+        return earliest;
+    }
+
+    /** Extract the display text from a {@code {"text": "..."}} message blob. */
+    private String decodeText(String contentJson)
+    {
+        if (contentJson == null || contentJson.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode node = mapper.readTree(contentJson).get("text");
+            return node == null || node.isNull() ? "" : node.asText();
+        }
+        catch (JsonProcessingException e) {
+            return "";
+        }
     }
 
     /** A brain-feed row paired with its timestamp, for chronological merge. */
@@ -329,7 +429,11 @@ public class StageServiceImpl
             StageEventType.BUDGET_EXHAUSTED,
             StageEventType.NOTIFY_FIRED);
 
-    private static TaskBrainViewData.Scrubbers buildScrubbers(List<StageEvent> events)
+    /** Max chars of a user message shown as a scrubber dash label. */
+    private static final int SCRUBBER_LABEL_MAX = 30;
+
+    private TaskBrainViewData.Scrubbers buildScrubbers(
+            List<StageEvent> events, List<ThreadMessage> brainMessages)
     {
         List<StageEvent> major = events.stream()
                 .filter(e -> SCRUBBER_MAJOR.contains(e.eventType()))
@@ -343,7 +447,30 @@ public class StageServiceImpl
                     e.eventAt().toString(),
                     i == lastIdx));
         }
-        return new TaskBrainViewData.Scrubbers(stageEvents, List.<ScrubberDash>of());
+
+        // One dash per user message; id = message id so the frontend's
+        // click-to-scroll target matches the feed row.
+        List<ThreadMessage> userMsgs = brainMessages.stream()
+                .filter(m -> "user".equals(m.role()))
+                .toList();
+        int lastUser = userMsgs.size() - 1;
+        List<ScrubberDash> userMessages = new ArrayList<>(userMsgs.size());
+        for (int i = 0; i < userMsgs.size(); i++) {
+            ThreadMessage m = userMsgs.get(i);
+            userMessages.add(new ScrubberDash(
+                    m.id(),
+                    ellipsis(decodeText(m.contentJson())),
+                    i == lastUser));
+        }
+        return new TaskBrainViewData.Scrubbers(stageEvents, userMessages);
+    }
+
+    private static String ellipsis(String text)
+    {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= SCRUBBER_LABEL_MAX ? text : text.substring(0, SCRUBBER_LABEL_MAX) + "…";
     }
 
     // ── mappers + placeholders ──────────────────────────────────────────

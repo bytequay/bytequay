@@ -39,6 +39,8 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.RoleSkillService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,6 +68,7 @@ import static java.util.Objects.requireNonNull;
  */
 @Service
 public class ThreadService
+        implements ApplicationEventPublisherAware
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadService.class);
 
@@ -104,6 +107,10 @@ public class ThreadService
     private final WorktreeService worktreeService;
     private final RoleSkillService roleSkillService;
     private final IdGenerator idGenerator;
+    /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
+     *  null in POJO unit tests that construct this service directly, where
+     *  task-creation side effects (stage init) aren't under test. */
+    private ApplicationEventPublisher events;
 
     public ThreadService(
             ThreadStore store,
@@ -131,6 +138,12 @@ public class ThreadService
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
+    }
+
+    @Override
+    public void setApplicationEventPublisher(ApplicationEventPublisher publisher)
+    {
+        this.events = publisher;
     }
 
     public List<Thread> listByStatus(ThreadStatus status, int limit)
@@ -524,6 +537,11 @@ public class ThreadService
                 roleSkillText,
                 /* workModel */ null);
         taskStore.saveTask(task);
+        // Open the Development stage at creation. Guarded because the
+        // publisher is only wired under Spring (see the field's note).
+        if (events != null) {
+            events.publishEvent(new TaskCreatedEvent(task.id()));
+        }
         Thread refreshed = store.findThreadById(threadId).orElse(thread);
         if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
             scheduler.enqueueTurn(refreshed, request.initialPrompt());

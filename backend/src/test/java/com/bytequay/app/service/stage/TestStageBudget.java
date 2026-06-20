@@ -35,11 +35,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The per-stage auto-push budget: a fresh ci-fixing stage starts with the
@@ -69,14 +71,7 @@ class TestStageBudget
     void autonomousPushesDrainTheBudgetAndExhaustionFlagsTheStage()
     {
         String taskId = seedTask();
-        // Drive to the first push (human, so it doesn't spend budget) — opens
-        // the ci-fixing stage with a fresh budget.
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
-        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
-
-        StageInstance ciFixing = stageStore.findActiveStage(taskId).orElseThrow();
+        StageInstance ciFixing = openCiFixing(taskId);
         assertThat(ciFixing.type()).isEqualTo(StageType.CI_FIXING_STAGE);
         StageMetrics fresh = budgetService.readMetrics(ciFixing.id());
         assertThat(fresh.autoPushBudget().limit()).isEqualTo(StageBudgetService.DEFAULT_AUTO_PUSH_BUDGET);
@@ -103,6 +98,42 @@ class TestStageBudget
     }
 
     @Test
+    void extendBudgetRequiresExhaustionThenBumpsAndResumes()
+    {
+        String taskId = seedTask();
+        StageInstance ciFixing = openCiFixing(taskId);
+
+        // Not exhausted yet → 422.
+        assertThatThrownBy(() -> budgetService.extendBudget(ciFixing.id(), 5))
+                .isInstanceOf(ResponseStatusException.class);
+
+        drain(taskId, StageBudgetService.DEFAULT_AUTO_PUSH_BUDGET);
+        StageMetrics after = budgetService.extendBudget(ciFixing.id(), 5);
+
+        assertThat(after.autoPushBudget().limit()).isEqualTo(10);
+        assertThat(after.autoPushBudget().remaining()).isEqualTo(5);
+        assertThat(after.budgetExhausted()).isFalse();
+        assertThat(taskStore.consecutiveAutoPushes(taskId)).isZero();
+        assertThat(stageStore.findEventsByStage(ciFixing.id()))
+                .anyMatch(e -> e.eventType() == StageEventType.BUDGET_EXHAUSTED_DECISION);
+    }
+
+    @Test
+    void fallbackToReviewFlipsTheGateClosed()
+    {
+        String taskId = seedTask();
+        StageInstance ciFixing = openCiFixing(taskId);
+        drain(taskId, StageBudgetService.DEFAULT_AUTO_PUSH_BUDGET);
+
+        StageMetrics after = budgetService.fallbackToReview(ciFixing.id());
+
+        assertThat(after.internalReviewEnabled()).isTrue();
+        assertThat(after.budgetExhausted()).isFalse();
+        assertThat(stageStore.findEventsByStage(ciFixing.id()))
+                .anyMatch(e -> e.eventType() == StageEventType.BUDGET_EXHAUSTED_DECISION);
+    }
+
+    @Test
     void reviewMonitorStageHasNoBudget()
     {
         String taskId = seedTask();
@@ -112,6 +143,24 @@ class TestStageBudget
         StageMetrics metrics = budgetService.readMetrics(reviewMonitor.id());
         assertThat(metrics.autoPushBudget()).isNull();
         assertThat(metrics.internalReviewEnabled()).isTrue();
+    }
+
+    /** Drive a fresh task to its first push so the ci-fixing stage opens
+     *  with a budget. The push is human, so it doesn't spend the budget. */
+    private StageInstance openCiFixing(String taskId)
+    {
+        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
+        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
+        return stageStore.findActiveStage(taskId).orElseThrow();
+    }
+
+    private void drain(String taskId, int pushes)
+    {
+        for (int i = 0; i < pushes; i++) {
+            events.publishEvent(new TaskAutoPushEvent(taskId));
+        }
     }
 
     private String seedTask()

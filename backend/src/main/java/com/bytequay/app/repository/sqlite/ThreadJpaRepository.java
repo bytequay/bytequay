@@ -18,6 +18,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 interface ThreadJpaRepository
         extends JpaRepository<ThreadEntity, String>
@@ -49,4 +50,8 @@ interface ThreadJpaRepository
      *  The set is small (threads rarely carry a queue), so a substring
      *  scan is fine. */
     List<ThreadEntity> findByQueueJsonContaining(String fragment);
+
+    /** The brain thread bound to a task, if one exists. The partial
+     *  unique index guarantees at most one BRAIN_AGENT thread per task. */
+    Optional<ThreadEntity> findFirstByKindAndParentTaskId(String kind, String parentTaskId);
 }

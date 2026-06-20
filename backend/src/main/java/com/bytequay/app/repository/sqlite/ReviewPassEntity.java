@@ -79,6 +79,11 @@ class ReviewPassEntity
     @Column(name = "kind", nullable = false)
     private String kind = "FRESH";
 
+    /** REVIEW_STAGE link (V123); null for standalone passes. Written once
+     *  via setPassTaskStage, never by savePass — same as host. */
+    @Column(name = "task_stage_id")
+    private String taskStageId;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -133,4 +138,7 @@ class ReviewPassEntity
 
     String getKind() { return kind; }
     void setKind(String kind) { this.kind = kind; }
+
+    String getTaskStageId() { return taskStageId; }
+    void setTaskStageId(String taskStageId) { this.taskStageId = taskStageId; }
 }

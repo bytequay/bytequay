@@ -62,7 +62,8 @@ class InMemoryReviewStore
                 pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(), pass.headSha(),
                 pass.phase(), pass.round(), pass.roundCap(), pass.costCapMilli(), pass.costUsdMilli(),
                 pass.verdict(), pass.createdAt(), pass.endedAt(), pass.spawnedBuildThreadId(),
-                pass.agendaJson(), existing.hostKind(), existing.hostId(), existing.kind());
+                pass.agendaJson(), existing.hostKind(), existing.hostId(), existing.kind(),
+                existing.taskStageId());
         passHistory.add(toStore);
         passes.put(pass.id(), toStore);
     }
@@ -78,7 +79,21 @@ class InMemoryReviewStore
                 p.id(), p.threadId(), p.repoFullName(), p.prNumber(), p.headSha(), p.phase(),
                 p.round(), p.roundCap(), p.costCapMilli(), p.costUsdMilli(), p.verdict(),
                 p.createdAt(), p.endedAt(), p.spawnedBuildThreadId(), p.agendaJson(),
-                hostKind, hostId, kind));
+                hostKind, hostId, kind, p.taskStageId()));
+    }
+
+    @Override
+    public void setPassTaskStage(String passId, String taskStageId)
+    {
+        ReviewPass p = passes.get(passId);
+        if (p == null) {
+            return;
+        }
+        passes.put(passId, new ReviewPass(
+                p.id(), p.threadId(), p.repoFullName(), p.prNumber(), p.headSha(), p.phase(),
+                p.round(), p.roundCap(), p.costCapMilli(), p.costUsdMilli(), p.verdict(),
+                p.createdAt(), p.endedAt(), p.spawnedBuildThreadId(), p.agendaJson(),
+                p.hostKind(), p.hostId(), p.kind(), taskStageId));
     }
 
     @Override

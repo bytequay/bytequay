@@ -67,7 +67,12 @@ public record ReviewPass(
         /** The review thread id (THREAD) or the task id (TASK_PHASE). */
         String hostId,
         /** FRESH first review vs RE_REVIEW (Loop D). */
-        ReviewPassKind kind)
+        ReviewPassKind kind,
+        /** The REVIEW_STAGE task_stage row this pass was spawned for, when
+         *  hosted from an internal-review context (V123); null otherwise.
+         *  Written once via {@code setPassTaskStage}, never by {@code savePass}
+         *  — same discipline as the host fields. */
+        String taskStageId)
 {
     /** Convenience constructor for the pre-host (V108) 15-field shape:
      *  defaults to a THREAD-hosted FRESH pass with {@code hostId =
@@ -94,7 +99,7 @@ public record ReviewPass(
         this(id, threadId, repoFullName, prNumber, headSha, phase, round, roundCap,
                 costCapMilli, costUsdMilli, verdict, createdAt, endedAt,
                 spawnedBuildThreadId, agendaJson,
-                ReviewPassHostKind.THREAD, threadId, ReviewPassKind.FRESH);
+                ReviewPassHostKind.THREAD, threadId, ReviewPassKind.FRESH, null);
     }
 
     /** Pass with no spawned build thread yet — every site that builds
@@ -141,11 +146,11 @@ public record ReviewPass(
                 spawnedBuildThreadId, null);
     }
 
-    /** Copy with a different agenda payload — preserves host fields. */
+    /** Copy with a different agenda payload — preserves host + stage link. */
     public ReviewPass withAgendaJson(String newAgendaJson)
     {
         return new ReviewPass(id, threadId, repoFullName, prNumber, headSha, phase,
                 round, roundCap, costCapMilli, costUsdMilli, verdict, createdAt,
-                endedAt, spawnedBuildThreadId, newAgendaJson, hostKind, hostId, kind);
+                endedAt, spawnedBuildThreadId, newAgendaJson, hostKind, hostId, kind, taskStageId);
     }
 }

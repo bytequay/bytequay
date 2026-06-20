@@ -44,6 +44,11 @@ public interface ReviewStore
      *  clobber it. */
     void setPassHost(String passId, ReviewPassHostKind hostKind, String hostId, ReviewPassKind kind);
 
+    /** Link a pass to the REVIEW_STAGE row it was spawned for. Written once
+     *  at creation, outside {@code savePass}, so a later full-row save can't
+     *  clobber it — same discipline as {@code setPassHost}. */
+    void setPassTaskStage(String passId, String taskStageId);
+
     Optional<ReviewPass> findPassById(String id);
 
     /** All passes for a thread, oldest first. A {@code flow='review'}

@@ -27,6 +27,7 @@ import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,10 +61,11 @@ class TestTaskLifecycleDriver
     private final ObjectMapper mapper = new ObjectMapper();
     private final RemoteCommentIngestor commentIngestor = mock(RemoteCommentIngestor.class);
     private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
+    private final IterationService iterationService = mock(IterationService.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     reviewMarkers, threadStore, scheduler, notifications, mapper,
-                    commentIngestor, readyToMerge);
+                    commentIngestor, readyToMerge, iterationService);
 
     @Test
     void greenDraftRecordsTheReadyGateAndAutonomouslyUnDraftsThePr()

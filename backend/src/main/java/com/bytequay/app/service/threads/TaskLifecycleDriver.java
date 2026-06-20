@@ -26,6 +26,7 @@ import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -93,6 +94,7 @@ public class TaskLifecycleDriver
     private final ObjectMapper mapper;
     private final RemoteCommentIngestor commentIngestor;
     private final ReadyToMergeService readyToMerge;
+    private final IterationService iterationService;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -105,7 +107,8 @@ public class TaskLifecycleDriver
             NotificationService notifications,
             ObjectMapper mapper,
             RemoteCommentIngestor commentIngestor,
-            ReadyToMergeService readyToMerge)
+            ReadyToMergeService readyToMerge,
+            IterationService iterationService)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -118,6 +121,7 @@ public class TaskLifecycleDriver
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.commentIngestor = requireNonNull(commentIngestor, "commentIngestor is null");
         this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
+        this.iterationService = requireNonNull(iterationService, "iterationService is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -232,7 +236,9 @@ public class TaskLifecycleDriver
         }
         String prompt = buildReviewAnalysisPrompt(repo, number, detail);
         try {
-            scheduler.enqueueTurn(thread, prompt, TurnInitiator.unattended("address-comments-analysis"));
+            String turnId = scheduler.enqueueTurn(
+                    thread, prompt, TurnInitiator.unattended("address-comments-analysis"));
+            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_NEW_COMMENTS);
             log.info("address-comments: analysis turn queued for task {} on {} #{}",
                     task.id(), repo, number);
         }

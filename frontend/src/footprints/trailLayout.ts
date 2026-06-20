@@ -31,51 +31,93 @@ export function surfaceMeta(surfaceType: SurfaceType): SurfaceMeta {
 /** Grey origin marker that opens every trail. */
 export const START_META: SurfaceMeta = { color: '#8A8D93', icon: 'flag' };
 
-// ── Serpentine geometry. The SVG stretches to the card (preserveAspect
-//    none), so pins are placed as percentages of the viewBox. Top row runs
-//    left→right, curves down the right edge, bottom row runs right→left. ──
+// ── Trail geometry. The SVG stretches to the card (preserveAspect none),
+//    so pins are placed as percentages of the viewBox. A short trail uses a
+//    single horizontal line; only once there are more than PER_ROW pins
+//    does it wrap into the serpentine (top row left→right, curve down the
+//    right edge, bottom row right→left) so a couple of visits don't sprawl
+//    across two rows. ──
 const VB_W = 680;
-const VB_H = 190;
+const X_START = 48;
+const X_END = 632;
+
+/** Pins beyond this wrap to a second row. Five keeps labels (~124px) from
+ *  colliding across a full-width card. */
+const PER_ROW = 5;
+
+// Single-row layout.
+const ONE_ROW_VB_H = 88;
+const ONE_ROW_Y = 34;
+const ONE_ROW_HEIGHT_PX = 104;
+
+// Two-row (serpentine) layout.
+const TWO_ROW_VB_H = 190;
 const TOP_Y = 52;
 const BOT_Y = 132;
-const X_START = 48;
 const X_TOP_END = 600;
 const X_BOT_END = 92;
-
-export const TRAIL_VIEWBOX = `0 0 ${VB_W} ${VB_H}`;
-export const TRAIL_PATH = `M${X_START} ${TOP_Y} H${X_TOP_END} C636 ${TOP_Y} 636 ${BOT_Y} ${X_TOP_END} ${BOT_Y} H${X_BOT_END}`;
-/** Fixed pixel height of the trail area; pin top is a % of this. */
-export const TRAIL_HEIGHT_PX = 196;
+const TWO_ROW_HEIGHT_PX = 196;
 
 export type PinPos = { leftPct: number; topPct: number };
 
+export type TrailConfig = {
+  viewBox: string;
+  /** Dashed route the pins sit on. */
+  path: string;
+  /** Pixel height of the trail area. */
+  heightPx: number;
+  /** One position per pin, in chronological index order. */
+  positions: PinPos[];
+};
+
+/** n evenly-spaced x-coordinates across [a, b]; a single point is centred. */
+function spreadX(n: number, a: number, b: number): number[] {
+  if (n <= 0) return [];
+  if (n === 1) return [(a + b) / 2];
+  return Array.from({ length: n }, (_, i) => a + (i / (n - 1)) * (b - a));
+}
+
 /**
- * Positions for {@code count} evenly-spaced pins along the serpentine —
- * the first half on the top row (left→right), the rest on the bottom row
- * (right→left), so index order reads chronologically along the path.
+ * Geometry for a trail of {@code count} pins. Up to {@link PER_ROW} pins lay
+ * out on one horizontal line (short, compact card); more than that wrap into
+ * the two-row serpentine. Pin index order always reads chronologically.
  */
-export function pinPositions(count: number): PinPos[] {
-  const positions: PinPos[] = [];
-  if (count <= 0) return positions;
+export function computeTrail(count: number): TrailConfig {
+  if (count <= 0) {
+    return { viewBox: `0 0 ${VB_W} ${ONE_ROW_VB_H}`, path: '', heightPx: ONE_ROW_HEIGHT_PX, positions: [] };
+  }
+
+  if (count <= PER_ROW) {
+    const positions = spreadX(count, X_START, X_END).map(x => ({
+      leftPct: (x / VB_W) * 100,
+      topPct: (ONE_ROW_Y / ONE_ROW_VB_H) * 100,
+    }));
+    return {
+      viewBox: `0 0 ${VB_W} ${ONE_ROW_VB_H}`,
+      path: `M${X_START} ${ONE_ROW_Y} H${X_END}`,
+      heightPx: ONE_ROW_HEIGHT_PX,
+      positions,
+    };
+  }
+
   const topCount = Math.ceil(count / 2);
   const bottomCount = count - topCount;
-  for (let i = 0; i < count; i++) {
-    let x: number;
-    let y: number;
-    if (i < topCount) {
-      const t = topCount <= 1 ? 0 : i / (topCount - 1);
-      x = X_START + t * (X_TOP_END - X_START);
-      y = TOP_Y;
-    }
-    else {
-      const j = i - topCount;
-      const t = bottomCount <= 1 ? 0 : j / (bottomCount - 1);
-      x = X_TOP_END - t * (X_TOP_END - X_BOT_END);
-      y = BOT_Y;
-    }
-    positions.push({ leftPct: (x / VB_W) * 100, topPct: (y / VB_H) * 100 });
+  const topX = spreadX(topCount, X_START, X_TOP_END);
+  // Bottom row runs right→left so the path reads as one continuous route.
+  const bottomX = spreadX(bottomCount, X_BOT_END, X_TOP_END).reverse();
+  const positions: PinPos[] = [];
+  for (let i = 0; i < topCount; i++) {
+    positions.push({ leftPct: (topX[i] / VB_W) * 100, topPct: (TOP_Y / TWO_ROW_VB_H) * 100 });
   }
-  return positions;
+  for (let i = 0; i < bottomCount; i++) {
+    positions.push({ leftPct: (bottomX[i] / VB_W) * 100, topPct: (BOT_Y / TWO_ROW_VB_H) * 100 });
+  }
+  return {
+    viewBox: `0 0 ${VB_W} ${TWO_ROW_VB_H}`,
+    path: `M${X_START} ${TOP_Y} H${X_TOP_END} C636 ${TOP_Y} 636 ${BOT_Y} ${X_TOP_END} ${BOT_Y} H${X_BOT_END}`,
+    heightPx: TWO_ROW_HEIGHT_PX,
+    positions,
+  };
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

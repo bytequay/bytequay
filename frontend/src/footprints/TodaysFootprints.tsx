@@ -15,10 +15,7 @@ import { useEffect, useState } from 'react';
 import type { FootprintStopDto, FootprintsTrailDto } from '../types';
 import { getCached, setCached } from '../dataCache';
 import { StartPin, StopPin } from './FootprintPin';
-import {
-  addDays, formatDayLabel, isSameDay, pinPositions, toYmd,
-  TRAIL_HEIGHT_PX, TRAIL_PATH, TRAIL_VIEWBOX,
-} from './trailLayout';
+import { addDays, computeTrail, formatDayLabel, isSameDay, toYmd } from './trailLayout';
 
 type Props = {
   /** Re-open a stop's surface. */
@@ -57,7 +54,8 @@ export default function TodaysFootprints({ onResume, onSeeFullDay }: Props) {
   const today = isSameDay(date, new Date());
   const stops = trail?.stops ?? [];
   // start marker + one pin per stop, in chronological order.
-  const positions = pinPositions(stops.length + 1);
+  const layout = computeTrail(stops.length + 1);
+  const positions = layout.positions;
 
   return (
     <div className="home-card hp-footprints">
@@ -92,14 +90,14 @@ export default function TodaysFootprints({ onResume, onSeeFullDay }: Props) {
         </div>
       ) : (
         <>
-          <div className="hp-footprints__trail" style={{ height: TRAIL_HEIGHT_PX }}>
+          <div className="hp-footprints__trail" style={{ height: layout.heightPx }}>
             <svg
               className="hp-footprints__path"
-              viewBox={TRAIL_VIEWBOX}
+              viewBox={layout.viewBox}
               preserveAspectRatio="none"
               aria-hidden
             >
-              <path d={TRAIL_PATH} fill="none" stroke="#D5D5DA" strokeWidth={2} strokeDasharray="1.5 7" />
+              <path d={layout.path} fill="none" stroke="#D5D5DA" strokeWidth={2} strokeDasharray="1.5 7" />
             </svg>
             <StartPin pos={positions[0]} />
             {stops.map((stop, i) => (

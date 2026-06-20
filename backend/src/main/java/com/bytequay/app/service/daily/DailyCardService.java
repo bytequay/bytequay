@@ -33,11 +33,10 @@ import static java.util.Objects.requireNonNull;
 /**
  * Picks a daily card and caches it for the calendar day so every
  * request on that day returns the same card. The primary source is
- * API Ninjas' quote-of-the-day feed — one curated quote per day,
- * attributed to a real person; when the call fails (offline,
- * rate-limited, missing API key, upstream outage) we fall back to an
- * in-process curated pool of attributed quotes plus a handful of
- * non-quote tips so the home card always renders something real.
+ * ZenQuotes' random-quote feed — a quote attributed to a real person;
+ * when the call fails (offline, rate-limited, upstream outage) we fall
+ * back to an in-process curated pool of attributed quotes plus a handful
+ * of non-quote tips so the home card always renders something real.
  *
  * <p>The cache is per-server-lifetime: a backend restart mid-day
  * re-picks (a fresh remote call, or the same fallback index). The
@@ -53,11 +52,11 @@ public class DailyCardService
      *  stop being read; we don't bother evicting. */
     private final ConcurrentMap<LocalDate, DailyCard> byDate = new ConcurrentHashMap<>();
 
-    private final RestClient apiNinjasClient;
+    private final RestClient zenQuotesClient;
 
-    public DailyCardService(@Qualifier("apiNinjasRestClient") RestClient apiNinjasClient)
+    public DailyCardService(@Qualifier("zenQuotesRestClient") RestClient zenQuotesClient)
     {
-        this.apiNinjasClient = requireNonNull(apiNinjasClient, "apiNinjasClient is null");
+        this.zenQuotesClient = requireNonNull(zenQuotesClient, "zenQuotesClient is null");
     }
 
     /**
@@ -77,41 +76,46 @@ public class DailyCardService
         return remote != null ? remote : pickFromPool(date);
     }
 
-    /** Calls API Ninjas for the quote of the day. Returns null on any
-     *  failure — the caller falls back to the curated pool. We log a warn
-     *  so the failure mode is visible without breaking the home card. */
+    /** Calls ZenQuotes for a random quote. Returns null on any failure —
+     *  the caller falls back to the curated pool. We log a warn so the
+     *  failure mode is visible without breaking the home card. */
     private DailyCard fetchRemote(LocalDate date)
     {
         try {
-            // The endpoint mirrors /v2/quotes and returns a one-element
-            // array; take the first entry.
-            ApiNinjasQuote[] body = apiNinjasClient.get()
-                    .uri("/v2/quoteoftheday")
+            // ZenQuotes returns a one-element array: [{ q, a, h }].
+            ZenQuote[] body = zenQuotesClient.get()
+                    .uri("/api/random")
                     .retrieve()
-                    .body(ApiNinjasQuote[].class);
+                    .body(ZenQuote[].class);
             if (body == null || body.length == 0) {
                 return null;
             }
-            ApiNinjasQuote quote = body[0];
+            ZenQuote quote = body[0];
             if (quote == null
-                    || quote.quote() == null || quote.quote().isBlank()
-                    || quote.author() == null || quote.author().isBlank()) {
+                    || quote.q() == null || quote.q().isBlank()
+                    || quote.a() == null || quote.a().isBlank()) {
+                return null;
+            }
+            // When rate-limited, ZenQuotes returns a real-looking quote
+            // attributed to "zenquotes.io" ("Too many requests…"). Treat
+            // that as a failure so we show a genuine quote from the pool.
+            if ("zenquotes.io".equalsIgnoreCase(quote.a().trim())) {
                 return null;
             }
             return new DailyCard(
                     "quote",
-                    quote.quote(),
-                    quote.author(),
-                    // The API's categories are quote topics, not author-role
-                    // labels, so we leave role null when sourcing remotely —
-                    // the hand-curated pool fills it; the API can't.
+                    quote.q(),
+                    quote.a(),
+                    // ZenQuotes gives no author-role label, so we leave role
+                    // null when sourcing remotely — the hand-curated pool
+                    // fills it; the feed can't.
                     /* role */ null,
                     date);
         }
         catch (RuntimeException e) {
-            // Network failure, rate limit, missing API key, malformed
-            // payload — any of these degrade silently to the curated pool.
-            log.warn("API Ninjas quote fetch failed; falling back to local pool: {}", e.getMessage());
+            // Network failure, rate limit, malformed payload — any of
+            // these degrade silently to the curated pool.
+            log.warn("ZenQuotes fetch failed; falling back to local pool: {}", e.getMessage());
             return null;
         }
     }
@@ -125,8 +129,10 @@ public class DailyCardService
         return new DailyCard(seed.type(), seed.text(), seed.author(), seed.role(), date);
     }
 
+    /** ZenQuotes payload: {@code q} = quote text, {@code a} = author,
+     *  {@code h} = pre-rendered HTML (unused). */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ApiNinjasQuote(String quote, String author, String work, List<String> categories) {}
+    record ZenQuote(String q, String a, String h) {}
 
     private record Seed(String type, String text, String author, String role) {}
 

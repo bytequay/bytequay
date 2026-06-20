@@ -37,6 +37,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,6 +95,26 @@ class TestSqliteStageStore
         assertThat(stageStore.findEventsByStage(stage.id()))
                 .extracting(StageEvent::eventType)
                 .containsExactly(StageEventType.OPENED, StageEventType.CLOSED);
+    }
+
+    @Test
+    void closeStageMergesExtraPayloadIntoTheSingleClosedEvent()
+    {
+        String taskId = seedTask();
+        StageInstance stage = stageStore.openStage(taskId, StageType.REVIEW_STAGE, null);
+
+        stageStore.closeStage(stage.id(), "review_pass_terminated",
+                Map.of("findingCount", 3, "agreedCount", 2));
+
+        List<StageEvent> events = stageStore.findEventsByStage(stage.id());
+        assertThat(events).extracting(StageEvent::eventType)
+                .containsExactly(StageEventType.OPENED, StageEventType.CLOSED);
+        // One CLOSED row carrying both the reason and the merged summary.
+        String closedPayload = events.get(1).payloadJson();
+        assertThat(closedPayload)
+                .contains("review_pass_terminated")
+                .contains("findingCount")
+                .contains("agreedCount");
     }
 
     @Test

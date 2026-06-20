@@ -52,6 +52,7 @@ import com.bytequay.app.service.threads.AgentScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -119,6 +120,7 @@ public class ReviewPassService
     private final ReviewBudgetMeter budgetMeter;
     private final ReviewDiffCache diffCache;
     private final AgentScheduler scheduler;
+    private final ApplicationEventPublisher events;
 
     public ReviewPassService(
             ThreadStore threadStore,
@@ -135,8 +137,10 @@ public class ReviewPassService
             ReviewBudgetMeter budgetMeter,
             ReviewDiffCache diffCache,
             AgentScheduler scheduler,
-            SkillStore skills)
+            SkillStore skills,
+            ApplicationEventPublisher events)
     {
+        this.events = requireNonNull(events, "events is null");
         this.reviewExecutor = requireNonNull(reviewExecutor, "reviewExecutor is null");
         this.leadOrchestrator = requireNonNull(leadOrchestrator, "leadOrchestrator is null");
         this.reviewerSeat = requireNonNull(reviewerSeat, "reviewerSeat is null");
@@ -204,8 +208,25 @@ public class ReviewPassService
     public ReviewPassDetail startTaskPhaseReview(
             String taskId, String repoFullName, int prNumber, ReviewPassKind kind, StartOptions opts)
     {
+        return startTaskPhaseReview(taskId, repoFullName, prNumber, kind, opts, null);
+    }
+
+    /**
+     * Variant that also links the pass to the callable {@code REVIEW_STAGE}
+     * it was spawned for. The link is stamped during the synchronous seating
+     * — before the async body can reach {@code finalizePass} — so the
+     * terminate hook always sees it and closes the right stage. The original
+     * overload (no stage) defers to this with a null link.
+     */
+    public ReviewPassDetail startTaskPhaseReview(
+            String taskId, String repoFullName, int prNumber, ReviewPassKind kind,
+            StartOptions opts, String reviewStageId)
+    {
         Seat seat = seatReviewPass(repoFullName, prNumber, opts);
         reviewStore.setPassHost(seat.pass().id(), ReviewPassHostKind.TASK_PHASE, taskId, kind);
+        if (reviewStageId != null) {
+            reviewStore.setPassTaskStage(seat.pass().id(), reviewStageId);
+        }
         launchReviewBody(seat);
         return buildDetail(reviewStore.findPassById(seat.pass().id()).orElse(seat.pass()));
     }
@@ -582,6 +603,12 @@ public class ReviewPassService
                 /* endedAt */ needsBallot ? null : Instant.now(),
                 fresh.spawnedBuildThreadId(), fresh.agendaJson());
         reviewStore.savePass(finalPass);
+        // A stage-linked pass that's truly done (TERMINATE, not parked at
+        // ARBITRATE awaiting the human ballot) tells the stage package to
+        // close its callable REVIEW_STAGE. Standalone passes carry no link.
+        if (!needsBallot && fresh.taskStageId() != null) {
+            events.publishEvent(new ReviewPassTerminatedEvent(passId, fresh.taskStageId()));
+        }
         return buildDetail(finalPass);
     }
 

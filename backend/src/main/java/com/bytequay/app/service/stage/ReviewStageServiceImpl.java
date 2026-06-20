@@ -22,7 +22,6 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -62,20 +61,17 @@ public class ReviewStageServiceImpl
     private final TaskStore taskStore;
     private final WatchedRepoStore watchedRepoStore;
     private final ReviewPassService reviewPassService;
-    private final ReviewStore reviewStore;
 
     public ReviewStageServiceImpl(
             StageStore stageStore,
             TaskStore taskStore,
             WatchedRepoStore watchedRepoStore,
-            ReviewPassService reviewPassService,
-            ReviewStore reviewStore)
+            ReviewPassService reviewPassService)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.reviewPassService = requireNonNull(reviewPassService, "reviewPassService is null");
-        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
     }
 
     @Override
@@ -102,12 +98,13 @@ public class ReviewStageServiceImpl
         StageInstance reviewStage = stageStore.openStage(
                 task.id(), StageType.REVIEW_STAGE, parent.id());
 
-        // Seat a TASK_PHASE-hosted FRESH pass; the panel body runs async.
+        // Seat a TASK_PHASE-hosted FRESH pass linked back to the stage; the
+        // link is stamped during seating (before the async body can settle),
+        // so the terminate hook always sees it. The panel body runs async.
         ReviewPassDetail detail = reviewPassService.startTaskPhaseReview(
                 task.id(), repoFullName, task.prNumber(), ReviewPassKind.FRESH,
-                ReviewPassService.StartOptions.DEFAULT);
+                ReviewPassService.StartOptions.DEFAULT, reviewStage.id().toString());
         String reviewPassId = detail.pass().id();
-        reviewStore.setPassTaskStage(reviewPassId, reviewStage.id().toString());
 
         log.info("Spawned review pass {} under stage {} (caller {}) for task {} PR #{}",
                 reviewPassId, reviewStage.id(), parent.id(), task.id(), task.prNumber());

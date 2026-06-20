@@ -17,6 +17,7 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,9 +36,13 @@ import static java.util.Objects.requireNonNull;
  * audit row is written), so the stage hooks integrate into the phase
  * scheduler without any new code path bypassing it.
  *
- * <p>The first phase transition a Task takes opens its
- * {@code DevelopmentStage}; subsequent transitions close the active stage
- * and open the next whenever the phase crosses a stage boundary. Because
+ * <p>A Task opens its {@code DevelopmentStage} the moment it is created
+ * (via {@link TaskCreatedEvent}); thereafter each transition closes the
+ * active stage and opens the next whenever the phase crosses a stage
+ * boundary. The creation hook is idempotent, and so is the
+ * transition hook — should a task ever transition before its creation
+ * event is seen, the first transition opens the stage just the same.
+ * Because
  * the listener runs inside the transition's transaction, it must never
  * throw on an ordinary phase — an unmapped or cross-cutting phase
  * ({@code QUEUED}, {@code NEEDS_ATTENTION}, the post-push idle waits) is a
@@ -57,9 +62,32 @@ public class StageLifecycle
 
     @EventListener
     @Transactional
+    public void onTaskCreated(TaskCreatedEvent event)
+    {
+        ensureDevelopmentStageOpen(event.taskId());
+    }
+
+    @EventListener
+    @Transactional
     public void onPhaseTransition(TaskPhaseTransitionedEvent event)
     {
         reconcile(event.taskId(), event.to());
+    }
+
+    /**
+     * Open a {@code DevelopmentStage} for a freshly-created Task. Idempotent:
+     * a no-op once the Task has any stage at all, so a re-fired creation
+     * event or a creation event arriving after the first phase transition
+     * never produces a duplicate.
+     */
+    public void ensureDevelopmentStageOpen(String taskId)
+    {
+        if (!stageStore.findStagesByTask(taskId).isEmpty()) {
+            return;
+        }
+        StageInstance opened = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        log.debug("opened {} stage {} at creation of task {}",
+                StageType.DEVELOPMENT_STAGE, opened.id(), taskId);
     }
 
     /**

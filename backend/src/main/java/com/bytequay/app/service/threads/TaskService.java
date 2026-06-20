@@ -525,6 +525,7 @@ public class TaskService
                 nextRoleSkill,
                 /* workModel — inherited from the thread by default */ null);
         taskStore.saveTask(next);
+        eventPublisher.publishEvent(new TaskCreatedEvent(next.id()));
         return next;
     }
 

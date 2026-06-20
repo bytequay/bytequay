@@ -27,10 +27,12 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
@@ -61,6 +63,23 @@ class TestStageLifecycle
     private TaskStore taskStore;
     @Autowired
     private ThreadStore threadStore;
+    @Autowired
+    private ApplicationEventPublisher events;
+
+    @Test
+    void taskCreatedEventOpensDevelopmentStageOnce()
+    {
+        String taskId = seedTask();
+        assertThat(stageStore.findActiveStage(taskId)).isEmpty();
+
+        events.publishEvent(new TaskCreatedEvent(taskId));
+        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
+
+        // Idempotent — a re-fired creation event adds no second stage.
+        events.publishEvent(new TaskCreatedEvent(taskId));
+        assertThat(stagesOfType(taskId, StageType.DEVELOPMENT_STAGE)).hasSize(1);
+        assertThat(stageStore.findStagesByTask(taskId)).hasSize(1);
+    }
 
     @Test
     void phaseWalkOpensAndClosesStagesAtTheirBoundaries()

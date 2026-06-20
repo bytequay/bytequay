@@ -195,6 +195,12 @@ class SqliteStageStore
     }
 
     @Override
+    public boolean reviewCommentExistsByRemoteLink(String remoteLink)
+    {
+        return remoteLink != null && comments.existsByRemoteLink(remoteLink);
+    }
+
+    @Override
     public List<ReviewComment> findUnresolvedComments(String taskId)
     {
         return comments.findByTaskIdAndResolvedFalse(taskId).stream()

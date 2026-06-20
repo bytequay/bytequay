@@ -842,6 +842,20 @@ export type RecentEventDto = {
   actorLogin: string | null;
 };
 
+/** The kinds of surface a footprint visit can land on — mirrors the
+ *  backend SurfaceType enum. */
+export type SurfaceType = 'PR_KANBAN' | 'PR' | 'TASK' | 'THREAD';
+
+/** Payload for recording one visit to a tracked surface. {@code surfaceId}
+ *  is the renderer's navigable key (e.g. "owner/repo#5680",
+ *  "threadId/taskId"); the resume handler parses it back. */
+export type SurfaceVisitInput = {
+  surfaceType: SurfaceType;
+  surfaceId: string;
+  title?: string | null;
+  context?: string | null;
+};
+
 export type StatPeriods = {
   today: number;
   /** [todayStart-1d, todayStart) — powers day-over-day delta on the home page. */
@@ -2932,6 +2946,10 @@ export type Bridge = {
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
   /** Today's home-page daily card. Stable for the whole day. */
   getDailyCard: () => Promise<DailyCardDto>;
+  /** Records a visit to a tracked surface for the footprints trail.
+   *  Fire-and-forget — callers don't await it and navigation never
+   *  blocks on the write. */
+  recordSurfaceVisit: (visit: SurfaceVisitInput) => Promise<void>;
   updateProfile: (name: string, bio: string, location: string) => Promise<UserProfileDto>;
   openExternal: (url: string) => Promise<void>;
   getUserStats: (login: string, force?: boolean) => Promise<UserStatsDto>;

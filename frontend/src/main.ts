@@ -2086,6 +2086,30 @@ const url = new URL(`${BACKEND_BASE}/api/activity/following`);
     return res.json();
   });
 
+  // Footprints visit capture. Fire-and-forget by contract: a failed
+  // write must never surface to the renderer or block navigation, so we
+  // swallow errors here and only warn.
+  ipcMain.handle('footprints:recordVisit', async (_event, visit: {
+    surfaceType: string;
+    surfaceId: string;
+    title?: string | null;
+    context?: string | null;
+  }) => {
+    try {
+      const res = await fetch(`${BACKEND_BASE}/api/footprints/visit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(visit),
+      });
+      if (!res.ok) {
+        console.warn(`backend /api/footprints/visit returned ${res.status}`);
+      }
+    }
+    catch (e) {
+      console.warn('recordSurfaceVisit failed', e);
+    }
+  });
+
   ipcMain.handle('repos:updateProfile', async (_event, name: string, bio: string, location: string) => {
 const res = await fetch(`${BACKEND_BASE}/api/profile`, {
       method: 'PATCH',

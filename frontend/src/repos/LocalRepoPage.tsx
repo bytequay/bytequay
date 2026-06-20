@@ -15,6 +15,7 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeybo
 import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDetailDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto, RepoMetaDto } from '../types';
 import Avatar from '../Avatar';
 import LogoLoading from '../LogoLoading';
+import AddRepoModal from './AddRepoModal';
 import { formatRelativeTime } from '../pr/utils';
 import { DiffFileTreePane, type FilesPaneMode } from '../diff/DiffFileTreePane';
 import { statusBadgeFromLetter } from '../diffStatusBadge';
@@ -106,6 +107,11 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True when this repo has no local clone mapped yet. We render a
+  // mapping affordance instead of letting the branch/commit loads error.
+  const [unmapped, setUnmapped] = useState(false);
+  // Open while the user maps a clone (locate or clone fresh).
+  const [mapCloneOpen, setMapCloneOpen] = useState(false);
   // Repo-level GitHub metadata, fetched lazily once per page load.
   // We only read parent.{owner,name,defaultBranch} for the fork →
   // upstream view-focus dropdown next to the title; failure is
@@ -170,13 +176,20 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
   const [expandedColumns, setExpandedColumns] = useState<Set<Column>>(() => new Set());
 
   const reload = async (signal?: { cancelled: boolean }) => {
-    const [all, branchList] = await Promise.all([
-      window.bridge.listLocalRepos(),
-      window.bridge.listLocalBranches(owner, repo),
-    ]);
+    const all = await window.bridge.listLocalRepos();
     if (signal?.cancelled) return;
-    const match = all.find(r => r.owner === owner && r.repo === repo);
-    setStatus(match ?? null);
+    const match = all.find(r => r.owner === owner && r.repo === repo) ?? null;
+    setStatus(match);
+    // No clone mapped yet — listLocalBranches throws for an unmapped
+    // repo, so skip it and surface the mapping flow instead of an error.
+    if (match == null || match.localClonePath == null) {
+      setUnmapped(true);
+      setBranches(null);
+      return;
+    }
+    setUnmapped(false);
+    const branchList = await window.bridge.listLocalBranches(owner, repo);
+    if (signal?.cancelled) return;
     setBranches(branchList);
   };
 
@@ -185,6 +198,8 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
     setStatus(null);
     setBranches(null);
     setError(null);
+    setUnmapped(false);
+    setMapCloneOpen(false);
     reload(signal).catch(e => {
       if (!signal.cancelled) setError(e instanceof Error ? e.message : String(e));
     });
@@ -591,6 +606,49 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
       setDeleteBusy(false);
     }
   };
+
+  // No local clone mapped yet — offer the mapping flow rather than
+  // erroring on the branch/commit loads (which require a clone).
+  if (unmapped) {
+    return (
+      <div className="local-repo-page">
+        <header className="local-repo-page__head">
+          <nav className="local-repo-page__breadcrumb">
+            <button type="button" className="local-repo-page__back" onClick={onBack}>
+              ← {owner}/{repo}
+            </button>
+          </nav>
+        </header>
+        <div className="local-repo-page__unmapped">
+          <div className="local-repo-page__unmapped-msg">
+            No local clone mapped for <code>{owner}/{repo}</code> yet — branches and
+            commits need one.
+          </div>
+          <button
+            type="button"
+            className="button button--primary button--sm"
+            onClick={() => setMapCloneOpen(true)}
+          >
+            Map a local clone…
+          </button>
+        </div>
+        {mapCloneOpen && (
+          <AddRepoModal
+            owner={owner}
+            repo={repo}
+            onClose={() => setMapCloneOpen(false)}
+            onMapped={(mapped) => {
+              setStatus(mapped);
+              setUnmapped(false);
+              setMapCloneOpen(false);
+              const signal = { cancelled: false };
+              void reload(signal).catch(e => setError(e instanceof Error ? e.message : String(e)));
+            }}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={`local-repo-page${tab === 'commits' ? ' local-repo-page--wide' : ''}`}>

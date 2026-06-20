@@ -13,14 +13,23 @@
  */
 package com.bytequay.app.service.footprints;
 
+import com.bytequay.app.domain.FootprintStop;
+import com.bytequay.app.domain.FootprintsTrail;
 import com.bytequay.app.domain.SurfaceType;
 import com.bytequay.app.domain.SurfaceVisit;
 import com.bytequay.app.repository.SurfaceVisitStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -31,11 +40,56 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class FootprintsService
 {
+    /** Most-recent surfaces shown on the home trail; the rest live behind
+     *  "see full day". Matches the design's "last ~8" cap. */
+    static final int HOME_STOP_CAP = 8;
+
     private final SurfaceVisitStore store;
 
     public FootprintsService(SurfaceVisitStore store)
     {
         this.store = requireNonNull(store, "store is null");
+    }
+
+    /**
+     * The footprints trail for one calendar day in the given zone. Visits
+     * are merged per surface (latest visit fixes the position and carries
+     * the title snapshot; {@code visitCount} counts all of them), the most
+     * recent {@link #HOME_STOP_CAP} surfaces are kept, and the result is
+     * ordered chronologically (oldest first; the last stop is the
+     * latest — "you are here"). {@code totalStops} reports the pre-cap
+     * distinct-surface count.
+     */
+    public FootprintsTrail trailForDay(LocalDate date, ZoneId zone)
+    {
+        requireNonNull(date, "date is null");
+        requireNonNull(zone, "zone is null");
+        Instant start = date.atStartOfDay(zone).toInstant();
+        Instant end = date.plusDays(1).atStartOfDay(zone).toInstant();
+
+        // findVisitedBetween is oldest-first, so the last visit seen for a
+        // surface key is its latest — that's the snapshot we keep.
+        Map<String, FootprintStop> bySurface = new LinkedHashMap<>();
+        for (SurfaceVisit visit : store.findVisitedBetween(start, end)) {
+            String key = visit.surfaceType().name() + '\0' + visit.surfaceId();
+            FootprintStop prior = bySurface.get(key);
+            int count = prior == null ? 1 : prior.visitCount() + 1;
+            bySurface.put(key, new FootprintStop(
+                    visit.surfaceType(),
+                    visit.surfaceId(),
+                    visit.title(),
+                    visit.context(),
+                    visit.visitedAt(),
+                    count));
+        }
+
+        int totalStops = bySurface.size();
+        List<FootprintStop> stops = bySurface.values().stream()
+                .sorted(comparing(FootprintStop::latestVisitAt).reversed())
+                .limit(HOME_STOP_CAP)
+                .sorted(comparing(FootprintStop::latestVisitAt))
+                .collect(toImmutableList());
+        return new FootprintsTrail(date, stops, totalStops);
     }
 
     /**

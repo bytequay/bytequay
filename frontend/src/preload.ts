@@ -54,6 +54,7 @@ import type {
   MemoryItemDto,
   RecentEventDto,
   SurfaceVisitInput,
+  FootprintsTrailDto,
   SavedViewBodyDto,
   SkillDraftDto,
   SkillDto,
@@ -339,6 +340,8 @@ const bridge: Bridge = {
   getDailyCard: (): Promise<DailyCardDto> => ipcRenderer.invoke('home:dailyCard'),
   recordSurfaceVisit: (visit: SurfaceVisitInput): Promise<void> =>
     ipcRenderer.invoke('footprints:recordVisit', visit),
+  getFootprints: (date?: string): Promise<FootprintsTrailDto> =>
+    ipcRenderer.invoke('footprints:get', date),
   updateProfile: (name: string, bio: string, location: string): Promise<UserProfileDto> =>
     ipcRenderer.invoke('repos:updateProfile', name, bio, location),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),

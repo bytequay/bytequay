@@ -2110,6 +2110,14 @@ const url = new URL(`${BACKEND_BASE}/api/activity/following`);
     }
   });
 
+  ipcMain.handle('footprints:get', async (_event, date?: string) => {
+    const url = new URL(`${BACKEND_BASE}/api/footprints`);
+    if (date) url.searchParams.set('date', date);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`backend /api/footprints returned ${res.status}`);
+    return res.json();
+  });
+
   ipcMain.handle('repos:updateProfile', async (_event, name: string, bio: string, location: string) => {
 const res = await fetch(`${BACKEND_BASE}/api/profile`, {
       method: 'PATCH',

@@ -33,6 +33,9 @@ type Props = {
   onOpenStage?: (stageId: string) => void;
   /** Open the linked PR in the in-app PR detail page. */
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
+  /** Open the multi-agent review panel for a freshly-spawned pass, keyed by
+   *  its review thread id. */
+  onOpenReviewThread?: (threadId: string) => void;
   /** Injectable clock for deterministic relative-time rendering in
    *  tests. Defaults to the real wall clock. */
   nowMs?: number;
@@ -57,7 +60,7 @@ function liveLabelFor(type: StageType): string {
  */
 export default function TaskBrainView({
   taskId, threadId: _threadId, threadTitle = 'Cost & tokens',
-  onBack, onOpenThread, onOpenStage, onOpenPr, nowMs,
+  onBack, onOpenThread, onOpenStage, onOpenPr, onOpenReviewThread, nowMs,
 }: Props) {
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, aggregate, stages, subStages, brainFeed, rightRail, scrubbers } = data;
@@ -110,6 +113,19 @@ export default function TaskBrainView({
     if (owner !== undefined && repo !== undefined) onOpenPr(owner, repo, task.prNumber);
   };
 
+  // Launch a panel review of the task's own PR from the current stage, then
+  // open the seated panel. The rail only renders this affordance when the
+  // server marks the task panelSpawnable, so parentStageId is set here.
+  const spawnReview = async (): Promise<void> => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (bridge?.spawnReview === undefined || rightRail.parentStageId === null) {
+      throw new Error('Panel review is unavailable for this task right now.');
+    }
+    const result = await bridge.spawnReview(rightRail.parentStageId);
+    pollFast();
+    if (onOpenReviewThread !== undefined) onOpenReviewThread(result.reviewThreadId);
+  };
+
   // M2 stubs — the brain agent and the stage actions don't exist yet.
   const stub = (what: string) => () => console.log(`[brain view] ${what} (not wired in M2)`);
 
@@ -154,6 +170,7 @@ export default function TaskBrainView({
             onViewContext={stub('view full context')}
             onPause={stub('pause task')}
             onClose={stub('close task')}
+            onSpawnReview={spawnReview}
           />
         </div>
       </div>

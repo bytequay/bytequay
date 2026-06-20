@@ -186,6 +186,8 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
         authoredAt: ago(21 * 60),
       },
     ],
+    panelSpawnable: false,
+    parentStageId: null,
   },
   scrubbers: {
     stageEvents: [

@@ -881,6 +881,7 @@ const bridge: Bridge = {
   sendBrainMessage: (taskId: string, text: string) =>
     ipcRenderer.invoke('brain:sendMessage', taskId, text),
   getStageDetail: (stageId: string) => ipcRenderer.invoke('stages:getDetail', stageId),
+  spawnReview: (parentStageId: string) => ipcRenderer.invoke('stages:spawnReview', parentStageId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

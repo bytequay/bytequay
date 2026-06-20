@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TaskBrainView from './TaskBrainView';
+import { buildMockBrainView } from './brainViewFixture';
 
 // Freeze the wall clock so both the mock hook (which anchors fixture
 // timestamps to Date.now()) and the page's relative-time rendering see
@@ -100,6 +101,34 @@ describe('TaskBrainView', () => {
     renderView({ onOpenPr });
     fireEvent.click(screen.getByRole('button', { name: /^PR #5680/ }));
     expect(onOpenPr).toHaveBeenCalledWith('trinodb', 'trino', 5680);
+  });
+
+  it('offers a panel review when the task is panelSpawnable and opens the seated panel', async () => {
+    const view = buildMockBrainView(FROZEN);
+    const spawnable = {
+      ...view,
+      rightRail: { ...view.rightRail, panelSpawnable: true, parentStageId: 'stage-parent' },
+    };
+    const getBrainView = vi.fn().mockResolvedValue(spawnable);
+    const spawnReview = vi.fn().mockResolvedValue({
+      reviewStageId: 'rs-1', reviewPassId: 'rp-1', reviewThreadId: 'rt-9',
+    });
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView, spawnReview };
+    const onOpenReviewThread = vi.fn();
+
+    renderView({ onOpenReviewThread });
+
+    const button = await screen.findByRole('button', { name: '⚖ Get a panel review' });
+    fireEvent.click(button);
+
+    expect(spawnReview).toHaveBeenCalledWith('stage-parent');
+    await waitFor(() => expect(onOpenReviewThread).toHaveBeenCalledWith('rt-9'));
+  });
+
+  it('hides the panel-review affordance when the task is not panelSpawnable', () => {
+    // The default fixture has panelSpawnable: false.
+    renderView();
+    expect(screen.queryByRole('button', { name: '⚖ Get a panel review' })).toBeNull();
   });
 
   it('posts a brain message and shows the optimistic YOU bubble', () => {

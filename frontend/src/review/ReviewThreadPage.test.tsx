@@ -617,6 +617,24 @@ describe('ReviewThreadPage', () => {
         .toBe(false);
   });
 
+  it('hides the build handoff for a TASK_PHASE (internal-review) pass', async () => {
+    const base = buildDetail({
+      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
+    });
+    const internal: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, hostKind: 'TASK_PHASE' },
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => internal),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    // The transcript renders, but the dev task IS the build — no handoff.
+    await waitFor(() => screen.getByText('Add retry logic'));
+    expect(screen.queryByRole('button', { name: '→ Spawn build thread' })).toBeNull();
+  });
+
   it('shows the spawned-build breadcrumb instead of the button once a build thread exists', async () => {
     const base = buildDetail({
       findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
@@ -943,6 +961,7 @@ function buildDetail(
       endedAt: '2026-05-22T12:00:10Z',
       spawnedBuildThreadId: null,
       agendaJson: null,
+      hostKind: 'THREAD',
     },
     prTitle: 'Add retry logic',
     agenda: [

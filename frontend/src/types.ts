@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { BrainMessageResult, StageDetailData, TaskBrainViewData } from './types/brainView';
+import type { BrainMessageResult, SpawnReviewResult, StageDetailData, TaskBrainViewData } from './types/brainView';
 
 export type HandledAction =
   | 'APPROVED'
@@ -2169,6 +2169,10 @@ export type ReviewPassDto = {
   /** The lead's agenda as raw JSON; prefer the parsed
    *  {@link ReviewPassDetailDto.agenda}. Null before kickoff. */
   agendaJson: string | null;
+  /** What hosts this pass: a standalone review thread (THREAD) or the dev
+   *  task's own internal review (TASK_PHASE). The build handoff is hidden
+   *  for TASK_PHASE — the dev task is the build. */
+  hostKind: 'THREAD' | 'TASK_PHASE';
 };
 
 export type AgendaPhaseStatusDto = 'OPEN' | 'IN_PROGRESS' | 'DONE';
@@ -3762,6 +3766,10 @@ export type Bridge = {
   sendBrainMessage: (taskId: string, text: string) => Promise<BrainMessageResult>;
   /** Drill-in detail for one stage: iteration log, metrics, realtime CI. */
   getStageDetail: (stageId: string) => Promise<StageDetailData>;
+  /** Spawn a panel review as a callable sub-stage of {@code parentStageId}.
+   *  Returns the opened review stage, the seated pass, and the review
+   *  thread the panel page navigates to. */
+  spawnReview: (parentStageId: string) => Promise<SpawnReviewResult>;
 
   // ── Thread tabs: working-tree changes + commits ──────────────────
   /** Files modified by the AI session but not yet committed. Returns

@@ -522,7 +522,9 @@ public class AgentScheduler
     {
         return switch (thread.kind()) {
             case CLI_AGENT -> CLI;
-            case LOGIC_LOOP -> API;
+            // Brain agents run in-JVM against a model API, same lane as a
+            // logic-loop agent.
+            case LOGIC_LOOP, BRAIN_AGENT -> API;
         };
     }
 

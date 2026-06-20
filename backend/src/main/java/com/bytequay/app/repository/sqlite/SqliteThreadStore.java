@@ -132,6 +132,9 @@ class SqliteThreadStore
             // saveThread can't clobber a concurrent queue edit. The column
             // default '[]' covers a brand-new row.
             entity.setParallelSlots(thread.parallelSlots() < 1 ? 1 : thread.parallelSlots());
+            // parent_task_id is structural too — a brain thread's 1:1 link
+            // to its task is set at creation and never changes.
+            entity.setParentTaskId(thread.parentTaskId());
         }
         else if (thread.flow() != null
                 && !thread.flow().dbValue().equals(entity.getFlow())) {
@@ -418,7 +421,8 @@ class SqliteThreadStore
                 active,
                 e.getParentReviewPassId(),
                 deserialiseQueue(e.getQueueJson()),
-                e.getParallelSlots());
+                e.getParallelSlots(),
+                e.getParentTaskId());
     }
 
     @Override

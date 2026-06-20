@@ -111,7 +111,12 @@ public record Thread(
         /** Concurrent compute slots the thread's tasks may occupy
          *  (V110). Invariantly 1 in v1 — the field exists so unlocking
          *  parallelism in v2 is a config flip, not a re-migration. */
-        int parallelSlots)
+        int parallelSlots,
+        /** For a {@link ThreadKind#BRAIN_AGENT} thread, the dev task this
+         *  brain answers questions about (V122). Null for every other
+         *  thread. A partial unique index enforces one brain thread per
+         *  task. Entity-managed; the store maps it on INSERT. */
+        String parentTaskId)
 {
     /** Defensive copy + null-safety on the queue so a null persists as
      *  an empty list and callers can't mutate it underneath the record;
@@ -122,6 +127,39 @@ public record Thread(
         if (parallelSlots < 1) {
             parallelSlots = 1;
         }
+    }
+
+    /** Back-compat constructor for the 21-field shape that predates the
+     *  {@code parentTaskId} column (V122). Defaults it to null — correct
+     *  for every thread except a brain thread; only the store's row mapper
+     *  and the brain-thread creation path thread a real value through the
+     *  canonical constructor. */
+    public Thread(
+            String id,
+            ThreadKind kind,
+            String provider,
+            String agentSessionId,
+            String title,
+            ThreadStatus status,
+            String model,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant endedAt,
+            String errorMessage,
+            ThreadFlow flow,
+            String workspaceId,
+            WorkModel workModel,
+            Task activeTask,
+            String parentReviewPassId,
+            List<QueuedTask> queue,
+            int parallelSlots)
+    {
+        this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
+                tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
+                workspaceId, workModel, activeTask, parentReviewPassId, queue, parallelSlots, null);
     }
 
     /** Back-compat constructor for the 19-field shape that predates the
@@ -152,7 +190,7 @@ public record Thread(
     {
         this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
                 tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
-                workspaceId, workModel, activeTask, parentReviewPassId, List.of(), 1);
+                workspaceId, workModel, activeTask, parentReviewPassId, List.of(), 1, null);
     }
 
     /** Thread with no review-pass parent — the default for every

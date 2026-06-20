@@ -413,6 +413,7 @@ public class ThreadRegistry
                         resolveTaskRoleSkill(thread), toolRegistry,
                         ds4, ds4Instrumentation, gate);
             }
+            case BRAIN_AGENT -> buildBrain(thread);
         };
     }
 
@@ -440,7 +441,33 @@ public class ThreadRegistry
                         roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                         toolRegistry, ds4, ds4Instrumentation, gate);
             }
+            // Brain turns carry no task id, so they route through the trunk
+            // path — build the same brain agent either way.
+            case BRAIN_AGENT -> buildBrain(thread);
         };
+    }
+
+    /**
+     * Build the read-only brain agent for a brain thread. It's a
+     * {@link LogicLoopThreadAgent} (API lane) whose tool surface and system
+     * prompt are driven by {@link ThreadKind#BRAIN_AGENT} internally; the
+     * working directory is the parent task's so file/git read tools resolve
+     * against the right clone. Role skill is null — the brain prompt is
+     * composed from the task's iteration digest, not a dev role skill.
+     */
+    private ThreadAgent buildBrain(Thread thread)
+    {
+        WorkModel resolved = resolveWorkModel(thread.id());
+        String workingDir = thread.parentTaskId() == null
+                ? null
+                : taskStore.findTaskById(thread.parentTaskId())
+                        .map(Task::workingDir)
+                        .orElse(null);
+        return new LogicLoopThreadAgent(
+                thread, store, taskStore, mapper, executor,
+                credentialService, resolved, workingDir,
+                /* roleSkillText */ null, toolRegistry,
+                ds4, ds4Instrumentation, gate);
     }
 
     /** Whether a CLI-agent thread should run the {@code codex} binary

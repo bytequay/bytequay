@@ -1480,3 +1480,172 @@
 }
 
 
+
+/* ── Today's footprints ─────────────────────────────────────────────
+   A winding map-style trail of the surfaces visited on a day. The SVG
+   route stretches to the card; pins are absolutely positioned over it
+   (percent left, percent top of a fixed-height area) so labels stay real
+   text. Pin colours follow the surface concept coding. */
+.hp-footprints__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.hp-footprints__label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+.hp-footprints__controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.hp-footprints__stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hp-footprints__step {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.hp-footprints__step:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent-a40);
+}
+.hp-footprints__step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.hp-footprints__day {
+  min-width: 92px;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.hp-footprints__seeall,
+.hp-footprints__seeall-inline {
+  padding: 0;
+  background: none;
+  border: none;
+  color: #6e5de7;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.hp-footprints__seeall:hover,
+.hp-footprints__seeall-inline:hover {
+  text-decoration: underline;
+}
+.hp-footprints__empty {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+.hp-footprints__trail {
+  position: relative;
+  width: 100%;
+}
+.hp-footprints__path {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.hp-fp-pin-wrap {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.hp-fp-pin {
+  position: relative;
+  width: 27px;
+  height: 27px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid currentColor;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14);
+  cursor: pointer;
+}
+button.hp-fp-pin:hover {
+  box-shadow: 0 3px 9px rgba(15, 23, 42, 0.22);
+  transform: translateY(-1px);
+}
+.hp-fp-pin--start {
+  cursor: default;
+}
+/* "You are here" — a soft pulsing ring on the latest stop. */
+.hp-fp-pin__pulse {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid #6e5de7;
+  animation: hp-fp-pulse 1.8s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes hp-fp-pulse {
+  0% { transform: scale(0.85); opacity: 0.7; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+.hp-fp-pin__badge {
+  position: absolute;
+  top: -6px;
+  right: -9px;
+  padding: 2px 4px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #2a2b30;
+  border-radius: var(--radius-pill);
+}
+.hp-fp-label {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 124px;
+  text-align: center;
+  pointer-events: none;
+}
+.hp-fp-label__title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #2a2b30;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hp-fp-label__meta {
+  margin-top: 1px;
+  font-size: 10px;
+  color: #9a9da3;
+}
+.hp-footprints__overflow {
+  margin-top: 8px;
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+}

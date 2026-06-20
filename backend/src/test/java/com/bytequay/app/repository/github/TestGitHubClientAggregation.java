@@ -40,4 +40,35 @@ class TestGitHubClientAggregation
         assertThat(GitHubClient.extractRepo("https://example.com/something"))
                 .isEqualTo("https://example.com/something");
     }
+
+    // ── GitHub error messages ─────────────────────────────────────────────────
+
+    @Test
+    void testExtractGitHubErrorMessageNullReturnsNull()
+    {
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage(null)).isNull();
+    }
+
+    @Test
+    void testExtractGitHubErrorMessageUsesTopLevelMessage()
+    {
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage(
+                "{\"message\":\"Validation Failed\"}"))
+                .isEqualTo("Validation Failed");
+    }
+
+    @Test
+    void testExtractGitHubErrorMessageIncludesFirstDetailedError()
+    {
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage(
+                "{\"message\":\"Validation Failed\",\"errors\":[{\"message\":\"Can not approve your own pull request\"}]}"))
+                .isEqualTo("Validation Failed: Can not approve your own pull request");
+    }
+
+    @Test
+    void testExtractGitHubErrorMessageInvalidJsonReturnsNull()
+    {
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage("not-json"))
+                .isNull();
+    }
 }

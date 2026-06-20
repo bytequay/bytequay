@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.beans.stage.ApprovalDto;
 import com.bytequay.app.beans.stage.BrainFeedRow;
 import com.bytequay.app.beans.stage.CommitDto;
 import com.bytequay.app.beans.stage.ContextWindowDto;
@@ -36,10 +37,12 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -57,11 +60,13 @@ public class StageServiceImpl
 
     private final TaskStore taskStore;
     private final StageStore stageStore;
+    private final StageBudgetService budgetService;
 
-    public StageServiceImpl(TaskStore taskStore, StageStore stageStore)
+    public StageServiceImpl(TaskStore taskStore, StageStore stageStore, StageBudgetService budgetService)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.budgetService = requireNonNull(budgetService, "budgetService is null");
     }
 
     @Override
@@ -90,7 +95,7 @@ public class StageServiceImpl
                 topLevel,
                 subStages,
                 buildBrainFeed(allEvents, stageTypes),
-                buildRightRail(task),
+                buildRightRail(task, allStages),
                 buildScrubbers(allEvents));
     }
 
@@ -142,16 +147,49 @@ public class StageServiceImpl
                 "");
     }
 
-    private static TaskBrainViewData.Aggregate buildAggregate(List<StageInstance> stages)
+    private TaskBrainViewData.Aggregate buildAggregate(List<StageInstance> stages)
     {
         long activeTimeSec = stages.stream()
                 .filter(s -> s.closedAt().isPresent())
                 .mapToLong(s -> Math.max(0,
                         (s.closedAt().get().toEpochMilli() - s.openedAt().toEpochMilli()) / 1000))
                 .sum();
-        // Everything except active time depends on machinery that lands
-        // later (pushes, tool calls, turns, messages, panels, cost, budget).
-        return new TaskBrainViewData.Aggregate(0, activeTimeSec, 0, 0, 0, 0, 0, 0, null);
+        // Autonomous pushes = budget spent across the task's ci-fixing stages.
+        int pushes = stages.stream()
+                .filter(s -> s.type() == StageType.CI_FIXING_STAGE)
+                .map(s -> budgetService.readMetrics(s.id()).autoPushBudget())
+                .filter(b -> b != null)
+                .mapToInt(StageMetrics.AutoPushBudget::used)
+                .sum();
+        int panels = (int) stages.stream()
+                .filter(s -> s.type() == StageType.REVIEW_STAGE)
+                .count();
+        TaskBrainViewData.AutoPushBudget budget = latestCiFixingBudget(stages)
+                .map(b -> new TaskBrainViewData.AutoPushBudget(b.used(), b.limit()))
+                .orElse(null);
+        // Tool calls / turns / messages / waiting-time / cost depend on
+        // machinery that lands later; left at zero.
+        return new TaskBrainViewData.Aggregate(pushes, activeTimeSec, 0, 0, 0, 0, panels, 0, budget);
+    }
+
+    /** The most-recent ci-fixing stage's budget, if any has one. */
+    private Optional<StageMetrics.AutoPushBudget> latestCiFixingBudget(List<StageInstance> stages)
+    {
+        return latestCiFixing(stages)
+                .map(s -> budgetService.readMetrics(s.id()).autoPushBudget())
+                .filter(b -> b != null);
+    }
+
+    /** The most-recent ci-fixing stage instance (stages arrive oldest-first). */
+    private static Optional<StageInstance> latestCiFixing(List<StageInstance> stages)
+    {
+        StageInstance latest = null;
+        for (StageInstance s : stages) {
+            if (s.type() == StageType.CI_FIXING_STAGE) {
+                latest = s;
+            }
+        }
+        return Optional.ofNullable(latest);
     }
 
     private static List<BrainFeedRow> buildBrainFeed(
@@ -169,35 +207,66 @@ public class StageServiceImpl
         String type = switch (e.eventType()) {
             case OPENED -> "STAGE_OPENED";
             case CLOSED -> "STAGE_CLOSED";
-            // The conversational / iteration / notify rows come from write
-            // sites that don't exist yet; skip everything else for now.
+            case NOTIFY_FIRED -> "NOTIFY_READY_FOR_MERGE";
+            case BUDGET_EXHAUSTED -> "NEEDS_ATTENTION";
+            // Mutex skips, notify-skips, and budget decisions stay in the
+            // stage detail view; they don't surface on the brain feed.
             default -> null;
         };
         if (type == null) {
             return Optional.empty();
         }
         StageType stageType = stageTypes.get(e.stageId());
-        String stageTypeName = stageType == null ? null : stageType.name();
-        String verb = e.eventType() == StageEventType.OPENED ? "opened" : "closed";
-        String body = (stageType == null ? "Stage" : humanize(stageType)) + " " + verb;
+        String stageLabel = stageType == null ? "Stage" : humanize(stageType);
+        String body = switch (e.eventType()) {
+            case OPENED -> stageLabel + " opened";
+            case CLOSED -> stageLabel + " closed";
+            case NOTIFY_FIRED -> "Ready to merge";
+            case BUDGET_EXHAUSTED -> stageLabel + " auto-push budget exhausted";
+            default -> "";
+        };
         return Optional.of(new BrainFeedRow(
                 e.id().toString(),
                 type,
                 e.stageId().toString(),
-                stageTypeName,
+                stageType == null ? null : stageType.name(),
                 e.eventAt().toString(),
                 body,
                 null));
     }
 
-    private static TaskBrainViewData.RightRail buildRightRail(Task task)
+    private TaskBrainViewData.RightRail buildRightRail(Task task, List<StageInstance> stages)
     {
-        LinkedPrDto linkedPr = task.prNumber() == null ? null : buildLinkedPr(task);
+        boolean mergeable = taskStore.mergeNotificationSentAt(task.id()).isPresent();
+        LinkedPrDto linkedPr = task.prNumber() == null ? null : buildLinkedPr(task, mergeable);
         ContextWindowDto context = new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe");
-        return new TaskBrainViewData.RightRail(null, linkedPr, context, List.<CommitDto>of());
+        return new TaskBrainViewData.RightRail(
+                buildApproval(stages), linkedPr, context, List.<CommitDto>of());
     }
 
-    private static LinkedPrDto buildLinkedPr(Task task)
+    /** A pending approval card when a ci-fixing stage's budget is exhausted
+     *  and waiting on the user. Null otherwise. */
+    private ApprovalDto buildApproval(List<StageInstance> stages)
+    {
+        return latestCiFixing(stages)
+                .map(stage -> Map.entry(stage, budgetService.readMetrics(stage.id())))
+                .filter(e -> e.getValue().budgetExhausted() && e.getValue().autoPushBudget() != null)
+                .map(e -> {
+                    StageInstance stage = e.getKey();
+                    StageMetrics.AutoPushBudget budget = e.getValue().autoPushBudget();
+                    return new ApprovalDto(
+                            stage.id().toString(),
+                            "CiFixingStage · push",
+                            "Auto-push budget exhausted (" + budget.used() + "/" + budget.limit() + ")",
+                            "",
+                            new ApprovalDto.PrimaryAction(
+                                    "Review & approve push",
+                                    "/api/stages/" + stage.id() + "/budget/extend"));
+                })
+                .orElse(null);
+    }
+
+    private static LinkedPrDto buildLinkedPr(Task task, boolean mergeable)
     {
         return new LinkedPrDto(
                 task.prNumber(),
@@ -208,18 +277,25 @@ public class StageServiceImpl
                 0,
                 0,
                 "unknown",
-                false);
+                mergeable);
     }
+
+    /** The "major" stage events that earn a scrubber dash. */
+    private static final Set<StageEventType> SCRUBBER_MAJOR = EnumSet.of(
+            StageEventType.OPENED,
+            StageEventType.CLOSED,
+            StageEventType.BUDGET_EXHAUSTED,
+            StageEventType.NOTIFY_FIRED);
 
     private static TaskBrainViewData.Scrubbers buildScrubbers(List<StageEvent> events)
     {
-        List<StageEvent> opens = events.stream()
-                .filter(e -> e.eventType() == StageEventType.OPENED)
+        List<StageEvent> major = events.stream()
+                .filter(e -> SCRUBBER_MAJOR.contains(e.eventType()))
                 .toList();
-        int lastIdx = opens.size() - 1;
-        List<ScrubberDash> stageEvents = new ArrayList<>(opens.size());
-        for (int i = 0; i < opens.size(); i++) {
-            StageEvent e = opens.get(i);
+        int lastIdx = major.size() - 1;
+        List<ScrubberDash> stageEvents = new ArrayList<>(major.size());
+        for (int i = 0; i < major.size(); i++) {
+            StageEvent e = major.get(i);
             stageEvents.add(new ScrubberDash(
                     e.id().toString(),
                     e.eventAt().toString(),

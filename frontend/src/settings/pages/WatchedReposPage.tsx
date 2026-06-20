@@ -70,10 +70,9 @@ function WatchedReposPage() {
 
   useEffect(() => { void load(); }, []);
 
-  const handleAdd = async (owner: string, repo: string) => {
-    await window.bridge.addWatchedRepo(owner, repo);
-    await load();
-  };
+  // The add modal watches + maps the repo in one step; re-read the list to
+  // pick up the new clone-backed row.
+  const handleAdded = () => { void load(); };
 
   const handleRemove = async (owner: string, repo: string) => {
     const fullName = `${owner}/${repo}`;
@@ -143,7 +142,7 @@ function WatchedReposPage() {
       {addOpen && (
         <AddRepoModal
           watchedRepos={repos}
-          onAdd={handleAdd}
+          onAdded={handleAdded}
           onClose={() => setAddOpen(false)}
         />
       )}

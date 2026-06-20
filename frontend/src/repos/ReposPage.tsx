@@ -67,11 +67,10 @@ function ReposPage({ onSelectRepo }: Props) {
     setMappingTarget(null);
   };
 
-  // Watching a new repo on the backend doesn't return a LocalRepoStatusDto,
-  // so we re-fetch the list to pick up the new UNMAPPED entry. The modal
-  // stays open so the user can add several at a time.
-  const handleAddWatched = async (owner: string, repo: string) => {
-    await window.bridge.addWatchedRepo(owner, repo);
+  // The add modal watches + maps the repo in one step, so by the time it
+  // calls back the row already carries its clone. Re-fetch to pick up the
+  // new entry; the modal stays open so the user can add several at a time.
+  const handleAddWatched = async () => {
     const fresh = await window.bridge.listLocalRepos();
     setRepos(fresh);
   };
@@ -194,7 +193,7 @@ function ReposPage({ onSelectRepo }: Props) {
       {showWatchModal && (
         <WatchRepoModal
           watchedRepos={watchedSynthetic}
-          onAdd={handleAddWatched}
+          onAdded={() => { void handleAddWatched(); }}
           onClose={() => setShowWatchModal(false)}
         />
       )}

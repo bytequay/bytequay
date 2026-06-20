@@ -880,6 +880,7 @@ const bridge: Bridge = {
   getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),
   sendBrainMessage: (taskId: string, text: string) =>
     ipcRenderer.invoke('brain:sendMessage', taskId, text),
+  getStageDetail: (stageId: string) => ipcRenderer.invoke('stages:getDetail', stageId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

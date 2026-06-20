@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { BrainMessageResult, TaskBrainViewData } from './types/brainView';
+import type { BrainMessageResult, StageDetailData, TaskBrainViewData } from './types/brainView';
 
 export type HandledAction =
   | 'APPROVED'
@@ -3760,6 +3760,8 @@ export type Bridge = {
   /** Post a question to the task's brain agent. Returns the answering
    *  turn id and the brain thread id (subscribe to its stream). */
   sendBrainMessage: (taskId: string, text: string) => Promise<BrainMessageResult>;
+  /** Drill-in detail for one stage: iteration log, metrics, realtime CI. */
+  getStageDetail: (stageId: string) => Promise<StageDetailData>;
 
   // ── Thread tabs: working-tree changes + commits ──────────────────
   /** Files modified by the AI session but not yet committed. Returns

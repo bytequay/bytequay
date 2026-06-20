@@ -27,6 +27,7 @@ import ThreadDetailPage from './threads/ThreadDetailPage';
 import ThreadTrunkPage from './threads/ThreadTrunkPage';
 import TaskDetailPage from './threads/TaskDetailPage';
 import TaskBrainView from './threads/brain/TaskBrainView';
+import TaskStageDetailView from './threads/brain/TaskStageDetailView';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import type {
@@ -69,6 +70,9 @@ export type Nav =
    *  stage navigator, brain feed, action rail). Sits alongside the
    *  older task-detail page; the back link returns to that page. */
   | { view: 'task-brain'; threadId: string; taskId: string }
+  /** Stage drill-in — the detailed per-stage view reached from a brain-
+   *  view stage chip or a brain-agent response's drill-in chip. */
+  | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -786,13 +790,23 @@ function App() {
             onOpenThread={() => setNav({
               view: 'thread-detail', threadId: nav.threadId,
             })}
-            // Stage-detail surface is a later milestone — fall back to the
-            // task-detail page so the click never dead-ends.
-            onOpenStage={() => setNav({
-              view: 'thread-detail', threadId: nav.threadId, taskId: nav.taskId,
+            onOpenStage={stageId => setNav({
+              view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber, back: nav,
+            })}
+          />
+        )}
+        {nav.view === 'stage-detail' && (
+          <TaskStageDetailView
+            taskId={nav.taskId}
+            stageId={nav.stageId}
+            onBack={() => setNav({
+              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
+            })}
+            onOpenStage={stageId => setNav({
+              view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
           />
         )}

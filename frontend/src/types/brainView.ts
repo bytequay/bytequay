@@ -151,3 +151,92 @@ export type BrainMessageResult = {
   turnId: string;
   brainThreadId: string;
 };
+
+// ── Stage detail (drill-in page) ─────────────────────────────────────
+
+export type StageDetailData = {
+  task: {
+    id: string;
+    taskNumber: number;
+    title: string;
+    branch: string;
+    repoFullName: string;
+    prNumber: number | null;
+    prDraft: boolean;
+    currentPhase: string;
+    agentRuntime: 'CLI' | 'API';
+    agentModel: string;
+  };
+  stage: {
+    id: string;
+    type: StageType;
+    state: StageState;
+    openedAt: string;
+    closedAt: string | null;
+    callerStageId: string | null;
+    iterationCount: number;
+    currentIterationNumber: number | null;
+    config: {
+      autoPushBudget?: { used: number; limit: number };
+      internalReviewEnabled: boolean;
+    };
+    metrics: StageMetricsSubset;
+  };
+  allStages: StageDto[];
+  subStages: StageDto[];
+  iterations: IterationDetail[];
+  realtimeCi: RealtimeCi | null;
+  ciFixHistory: CiFixHistoryEntry[];
+  context: ContextWindowDto;
+  scrubber: { userMessages: ScrubberDash[] };
+};
+
+/** Uncomputed catalog fields are absent (not zero); panelInvocationsCount
+ *  is a genuine 0 until review panels exist. */
+export type StageMetricsSubset = {
+  wallTimeSec?: number;
+  loopIterations?: number;
+  toolCallsCount?: number;
+  turnsCount?: number;
+  messagesCount?: number;
+  mutexSkipsCount?: number;
+  tokensCount?: number;
+  costCents?: number;
+  panelInvocationsCount: number;
+  terminalState?: 'succeeded' | 'failed' | 'paused' | 'aborted';
+};
+
+export type IterationDetail = {
+  id: string;
+  iterationNumber: number;
+  trigger: string;
+  startedAt: string;
+  endedAt: string | null;
+  endedReason: string | null;
+  summaryText: string | null;
+  recordedBy: 'agent' | 'orchestrator_fallback' | 'synthesized' | null;
+  log: StageLogRow[];
+};
+
+export type StageLogRow = {
+  id: string;
+  ts: string;
+  kind: 'tool_call' | 'stage_event' | 'iteration_summary' | 'user_message';
+  toolCall?: { tag: string; label: string; detail: string | null };
+  stageEvent?: { eventType: string; message: string; dataJson: string | null };
+  iterationSummary?: { text: string; recordedBy: string | null; recordedAt: string };
+  userMessage?: { text: string };
+};
+
+export type RealtimeCi = {
+  status: 'green' | 'failing' | 'pending' | 'unknown';
+  prUrl: string;
+  checks: Array<{ name: string; status: 'ok' | 'fail' | 'pending'; durationSec: number | null }>;
+  lastPolledAt: string;
+};
+
+export type CiFixHistoryEntry = {
+  iterationNumber: number;
+  endedReason: string | null;
+  summaryText: string | null;
+};

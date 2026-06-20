@@ -1,0 +1,95 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.beans.stage;
+
+import java.util.List;
+
+/**
+ * The full brain-view payload for {@code GET /api/tasks/{taskId}/brain}.
+ * The shape is locked against the frontend mock; many fields are
+ * placeholders in this milestone (0 / empty / null) and fill in as the
+ * loop, conversation, and cost machinery land.
+ */
+public record TaskBrainViewData(
+        BrainTask task,
+        Aggregate aggregate,
+        List<StageDto> stages,
+        List<StageDto> subStages,
+        List<BrainFeedRow> brainFeed,
+        RightRail rightRail,
+        Scrubbers scrubbers)
+{
+    /**
+     * The Task header shown above the brain feed.
+     *
+     * @param prNumber null when the Task has no PR yet
+     * @param agentRuntime CLI | API
+     */
+    public record BrainTask(
+            String id,
+            String title,
+            long taskNumber,
+            String branch,
+            String repoFullName,
+            Integer prNumber,
+            boolean prDraft,
+            String currentPhase,
+            String statusLabel,
+            String agentRuntime,
+            String agentModel)
+    {
+    }
+
+    /**
+     * The 8-field metrics strip summed across a Task's stages.
+     *
+     * @param autoPushBudget null until the budget machinery lands
+     */
+    public record Aggregate(
+            int pushes,
+            long activeTimeSec,
+            long waitingUserTimeSec,
+            int toolCalls,
+            int turns,
+            int messages,
+            int panels,
+            int costCents,
+            AutoPushBudget autoPushBudget)
+    {
+    }
+
+    public record AutoPushBudget(int used, int limit)
+    {
+    }
+
+    /**
+     * The brain view's right rail.
+     *
+     * @param approval null until the approval-gate machinery lands
+     * @param linkedPr null when the Task has no PR
+     */
+    public record RightRail(
+            ApprovalDto approval,
+            LinkedPrDto linkedPr,
+            ContextWindowDto context,
+            List<CommitDto> recentCommits)
+    {
+    }
+
+    public record Scrubbers(
+            List<ScrubberDash> stageEvents,
+            List<ScrubberDash> userMessages)
+    {
+    }
+}

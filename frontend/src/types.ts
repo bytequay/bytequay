@@ -856,6 +856,26 @@ export type SurfaceVisitInput = {
   context?: string | null;
 };
 
+/** One stop on the footprints trail — a merged surface with its visit
+ *  count and the latest-visit time that fixes its position. */
+export type FootprintStopDto = {
+  surfaceType: SurfaceType;
+  surfaceId: string;
+  title: string | null;
+  context: string | null;
+  latestVisitAt: string;
+  visitCount: number;
+};
+
+/** A calendar day's footprints trail. {@code stops} are capped to the
+ *  most recent few, ordered oldest-first; {@code totalStops} is the
+ *  pre-cap distinct-surface count for the "showing N of M" line. */
+export type FootprintsTrailDto = {
+  date: string;
+  stops: FootprintStopDto[];
+  totalStops: number;
+};
+
 export type StatPeriods = {
   today: number;
   /** [todayStart-1d, todayStart) — powers day-over-day delta on the home page. */
@@ -2950,6 +2970,9 @@ export type Bridge = {
    *  Fire-and-forget — callers don't await it and navigation never
    *  blocks on the write. */
   recordSurfaceVisit: (visit: SurfaceVisitInput) => Promise<void>;
+  /** The footprints trail for a calendar day (defaults to today when
+   *  {@code date} is omitted). {@code date} is ISO YYYY-MM-DD. */
+  getFootprints: (date?: string) => Promise<FootprintsTrailDto>;
   updateProfile: (name: string, bio: string, location: string) => Promise<UserProfileDto>;
   openExternal: (url: string) => Promise<void>;
   getUserStats: (login: string, force?: boolean) => Promise<UserStatsDto>;

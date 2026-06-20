@@ -825,7 +825,12 @@ public class LogicLoopThreadAgent
     private String composeSystemPrompt()
     {
         if (kind == ThreadKind.BRAIN_AGENT) {
-            return BRAIN_SYSTEM_PROMPT;
+            // The registry composes the brain prompt (role template + context
+            // digest) and passes it as roleSkillText at session creation; fall
+            // back to the bare template if it wasn't supplied.
+            return roleSkillText == null || roleSkillText.isBlank()
+                    ? BRAIN_SYSTEM_PROMPT
+                    : roleSkillText;
         }
         if (roleSkillText == null || roleSkillText.isBlank()) {
             return null;

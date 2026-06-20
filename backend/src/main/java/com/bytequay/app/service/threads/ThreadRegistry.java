@@ -28,6 +28,7 @@ import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.skills.SkillMaterializer;
+import com.bytequay.app.service.stage.AgentContextDigest;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -113,6 +114,10 @@ public class ThreadRegistry
      *  on the Settings → Local AI (ds4) → Metrics tab alongside
      *  review-path calls. Null on tests. */
     private final Ds4Instrumentation ds4Instrumentation;
+    /** Builds the brain agent's iteration-summary context digest at
+     *  session creation. Null on legacy/test paths that never build a
+     *  brain agent. */
+    private final AgentContextDigest contextDigest;
     private final WorktreeLeaseService leaseService;
     /** Resolves the cwd a trunk session should be spawned in. Takes
      *  the Thread because the trunk's working dir is workspace-
@@ -148,7 +153,8 @@ public class ThreadRegistry
             CredentialService credentialService,
             LogicLoopToolRegistry toolRegistry,
             Ds4LifecycleService ds4,
-            Ds4Instrumentation ds4Instrumentation)
+            Ds4Instrumentation ds4Instrumentation,
+            AgentContextDigest contextDigest)
     {
         this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
@@ -161,7 +167,8 @@ public class ThreadRegistry
                 credentialService,
                 toolRegistry,
                 ds4,
-                ds4Instrumentation);
+                ds4Instrumentation,
+                contextDigest);
     }
 
     /**
@@ -235,6 +242,7 @@ public class ThreadRegistry
                 null,
                 null,
                 null,
+                null,
                 null);
     }
 
@@ -255,7 +263,8 @@ public class ThreadRegistry
             CredentialService credentialService,
             LogicLoopToolRegistry toolRegistry,
             Ds4LifecycleService ds4,
-            Ds4Instrumentation ds4Instrumentation)
+            Ds4Instrumentation ds4Instrumentation,
+            AgentContextDigest contextDigest)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -275,6 +284,7 @@ public class ThreadRegistry
         this.toolRegistry = toolRegistry;
         this.ds4 = ds4;
         this.ds4Instrumentation = ds4Instrumentation;
+        this.contextDigest = contextDigest;
     }
 
     public Optional<ThreadAgent> find(String threadId)
@@ -466,8 +476,25 @@ public class ThreadRegistry
         return new LogicLoopThreadAgent(
                 thread, store, taskStore, mapper, executor,
                 credentialService, resolved, workingDir,
-                /* roleSkillText */ null, toolRegistry,
+                brainSystemPrompt(thread), toolRegistry,
                 ds4, ds4Instrumentation, gate);
+    }
+
+    /**
+     * The brain agent's full system prompt: the read-only role template
+     * followed by a digest of the parent task's recent iteration summaries
+     * (the cross-agent context preload). Composed at session-creation time
+     * and passed as the agent's role-skill text. Falls back to the bare
+     * template when no digest service or parent task is available.
+     */
+    private String brainSystemPrompt(Thread thread)
+    {
+        if (contextDigest == null || thread.parentTaskId() == null) {
+            return LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT;
+        }
+        String digest = contextDigest.build(
+                thread.parentTaskId(), AgentContextDigest.DEFAULT_CAP_TOKENS);
+        return LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT + "\n\n" + digest;
     }
 
     /** Whether a CLI-agent thread should run the {@code codex} binary

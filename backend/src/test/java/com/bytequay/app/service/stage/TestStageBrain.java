@@ -192,6 +192,56 @@ class TestStageBrain
         assertThat(brain.brainFeed()).anyMatch(r -> r.type().equals("NOTIFY_READY_FOR_MERGE"));
     }
 
+    @Test
+    void brainFeedMapsAClosedReviewStageToPanelReviewCompleted()
+    {
+        String taskId = seedTask();
+        StageInstance parent = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        StageInstance review = stageStore.openStage(taskId, StageType.REVIEW_STAGE, parent.id());
+        stageStore.closeStage(review.id(), "review_pass_terminated",
+                Map.of("seatNames", List.of("Claude", "GPT-5"), "findingCount", 3, "agreedCount", 2));
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        BrainFeedRow panel = brain.brainFeed().stream()
+                .filter(r -> r.type().equals("PANEL_REVIEW_COMPLETED"))
+                .findFirst().orElseThrow();
+        assertThat(panel.referencedStageId()).isEqualTo(review.id().toString());
+        assertThat(panel.body()).contains("Claude", "GPT-5").contains("2 of 3");
+        // The generic STAGE_CLOSED row is suppressed for review stages — the
+        // panel entry replaces it.
+        assertThat(brain.brainFeed()).noneMatch(r ->
+                r.type().equals("STAGE_CLOSED") && r.stageId().equals(review.id().toString()));
+    }
+
+    @Test
+    void rightRailIsPanelSpawnableInInternalReviewWithAPr()
+    {
+        String taskId = seedTask();
+        taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withPrNumber(42));
+        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+        StageInstance active = stageStore.findActiveStage(taskId).orElseThrow();
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        assertThat(brain.rightRail().panelSpawnable()).isTrue();
+        assertThat(brain.rightRail().parentStageId()).isEqualTo(active.id().toString());
+    }
+
+    @Test
+    void rightRailIsNotPanelSpawnableWithoutAPr()
+    {
+        String taskId = seedTask();
+        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        assertThat(brain.rightRail().panelSpawnable()).isFalse();
+        assertThat(brain.rightRail().parentStageId()).isNull();
+    }
+
     private StageInstance openCiFixing(String taskId)
     {
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);

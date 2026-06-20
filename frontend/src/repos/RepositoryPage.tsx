@@ -20,6 +20,7 @@ import type {
   UserProfileDto,
 } from '../types';
 import LogoLoading from '../LogoLoading';
+import AddRepoModal from './AddRepoModal';
 import { formatRelativeTime } from '../pr/utils';
 
 type Props = {
@@ -58,6 +59,10 @@ function RepositoryPage(props: Props) {
   const [pulls, setPulls] = useState<PullRequestDto[] | null>(null);
   const [issues, setIssues] = useState<IssueDto[] | null>(null);
   const [me, setMe] = useState<UserProfileDto | null>(null);
+  // Open while the user is mapping a local clone (locate or clone fresh).
+  // The mapping flow lives in AddRepoModal; navigating to the branches
+  // page before a clone exists is what previously errored.
+  const [mapCloneOpen, setMapCloneOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,6 +129,7 @@ function RepositoryPage(props: Props) {
           meLogin={me?.login ?? null}
           onOpenAllPrs={() => onOpenPrs(owner, repo)}
           onOpenBranches={() => onOpenBranches(owner, repo)}
+          onMapClone={() => setMapCloneOpen(true)}
           onSelectPr={onSelectPr}
         />
       )}
@@ -131,6 +137,14 @@ function RepositoryPage(props: Props) {
         <div className="repository-page__placeholder">
           Opening {tab}…
         </div>
+      )}
+      {mapCloneOpen && (
+        <AddRepoModal
+          owner={owner}
+          repo={repo}
+          onClose={() => setMapCloneOpen(false)}
+          onMapped={(mapped) => { setStatus(mapped); setMapCloneOpen(false); }}
+        />
       )}
     </div>
   );
@@ -241,6 +255,7 @@ function RepositoryOverview({
   meLogin,
   onOpenAllPrs,
   onOpenBranches,
+  onMapClone,
   onSelectPr,
 }: {
   owner: string;
@@ -252,12 +267,13 @@ function RepositoryOverview({
   meLogin: string | null;
   onOpenAllPrs: () => void;
   onOpenBranches: () => void;
+  onMapClone: () => void;
   onSelectPr: (owner: string, repo: string, prNumber: number) => void;
 }) {
   return (
     <div className="repository-overview">
       <div className="repository-overview__main">
-        <CloneBlock owner={owner} repo={repo} status={status} onOpenBranches={onOpenBranches} />
+        <CloneBlock owner={owner} repo={repo} status={status} onOpenBranches={onOpenBranches} onMapClone={onMapClone} />
         <PullRequestsPanel
           pulls={pulls}
           meLogin={meLogin}
@@ -278,11 +294,13 @@ function CloneBlock({
   repo: _repo,
   status,
   onOpenBranches,
+  onMapClone,
 }: {
   owner: string;
   repo: string;
   status: LocalRepoStatusDto | null;
   onOpenBranches: () => void;
+  onMapClone: () => void;
 }) {
   if (!status) {
     return (
@@ -297,7 +315,7 @@ function CloneBlock({
         <div className="repo-overview-panel__clone-msg">
           No local clone yet — branches & commits unavailable.
         </div>
-        <button type="button" className="repo-overview-panel__clone-cta" onClick={onOpenBranches}>
+        <button type="button" className="repo-overview-panel__clone-cta" onClick={onMapClone}>
           Map a local clone…
         </button>
       </div>

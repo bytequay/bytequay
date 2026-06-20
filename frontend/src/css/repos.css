@@ -856,6 +856,22 @@
   justify-content: center;
   padding: 48px 0;
 }
+/* Shown when the repo has no local clone mapped yet — a calm notice
+   plus the "Map a local clone…" CTA that opens the mapping modal. */
+.local-repo-page__unmapped {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 56px 24px;
+  text-align: center;
+}
+.local-repo-page__unmapped-msg {
+  max-width: 420px;
+  color: var(--text-3);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
 
 .local-repo-page__tabs {
   display: flex;

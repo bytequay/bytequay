@@ -102,6 +102,11 @@ public class TaskPhaseMachine
         if (to == TaskPhase.PUSHED_AWAITING_CI) {
             taskStore.setConsecutiveAutoPushes(taskId,
                     actor.isAuto() ? taskStore.consecutiveAutoPushes(taskId) + 1 : 0);
+            // An autonomous push also spends the active ci-fixing stage's
+            // per-instance budget (separate from the task-level cap above).
+            if (actor.isAuto()) {
+                events.publishEvent(new TaskAutoPushEvent(taskId));
+            }
         }
     }
 

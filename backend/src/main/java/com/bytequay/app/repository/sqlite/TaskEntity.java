@@ -138,6 +138,12 @@ class TaskEntity
     @Column(name = "active_write_op_stage_id")
     private String activeWriteOpStageId;
 
+    /** Ready-to-merge notify sentinel (V116 column). Set via atomic CAS the
+     *  first time a monitor detects the ready state, cleared when a
+     *  condition breaks. Entity-managed, never mapped by saveTask. */
+    @Column(name = "merge_notification_sent_at_ms")
+    private Long mergeNotificationSentAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -239,4 +245,7 @@ class TaskEntity
 
     String getActiveWriteOpStageId() { return activeWriteOpStageId; }
     void setActiveWriteOpStageId(String activeWriteOpStageId) { this.activeWriteOpStageId = activeWriteOpStageId; }
+
+    Long getMergeNotificationSentAtMs() { return mergeNotificationSentAtMs; }
+    void setMergeNotificationSentAtMs(Long mergeNotificationSentAtMs) { this.mergeNotificationSentAtMs = mergeNotificationSentAtMs; }
 }

@@ -87,4 +87,20 @@ interface TaskJpaRepository
     @Query("UPDATE TaskEntity t SET t.activeWriteOpStageId = null "
             + "WHERE t.id = :taskId AND t.activeWriteOpStageId IS NOT NULL")
     int releaseWriteMutexForTask(@Param("taskId") String taskId);
+
+    // ── ready-to-merge notify sentinel (V116): atomic CAS dedup ─────────
+
+    /** Stamp the sentinel iff unset. Returns 1 when this caller is the
+     *  first to detect the ready state (so it fires the notification). */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.mergeNotificationSentAtMs = :atMs "
+            + "WHERE t.id = :taskId AND t.mergeNotificationSentAtMs IS NULL")
+    int setMergeNotificationSentAtIfNull(@Param("taskId") String taskId, @Param("atMs") long atMs);
+
+    /** Clear the sentinel when a ready condition breaks. Returns rows
+     *  affected. */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.mergeNotificationSentAtMs = null "
+            + "WHERE t.id = :taskId AND t.mergeNotificationSentAtMs IS NOT NULL")
+    int clearMergeNotificationSentAt(@Param("taskId") String taskId);
 }

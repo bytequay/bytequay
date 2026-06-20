@@ -209,6 +209,28 @@ public interface TaskStore
         return Optional.empty();
     }
 
+    // ── ready-to-merge notify sentinel (V116) ──────────────────────────
+
+    /** Atomically stamp the ready-to-merge sentinel iff unset. Returns true
+     *  when this caller won the race (so it fires the notification). False
+     *  default for test stores. */
+    default boolean markMergeNotificationSentIfUnset(String taskId, Instant at)
+    {
+        return false;
+    }
+
+    /** Clear the ready-to-merge sentinel (a condition broke). No-op default. */
+    default void clearMergeNotificationSent(String taskId)
+    {
+    }
+
+    /** The ready-to-merge sentinel, or empty when not currently armed.
+     *  Empty default for test stores. */
+    default Optional<Instant> mergeNotificationSentAt(String taskId)
+    {
+        return Optional.empty();
+    }
+
     /** Permanent removal. Drops the row plus its child {@code task_files};
      *  FK cascades handle the join. Callers must already have stopped
      *  any live agent attached to the task. */

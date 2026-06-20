@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.beans.stage.BrainFeedRow;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.StageEventType;
@@ -24,10 +25,16 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.threads.TaskAutoPushEvent;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.Test;
@@ -38,6 +45,7 @@ import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -67,6 +75,42 @@ class TestStageBrain
     private ThreadStore threadStore;
     @Autowired
     private ApplicationEventPublisher events;
+    @Autowired
+    private IterationService iterationService;
+    @Autowired
+    private IterationStore iterationStore;
+    @Autowired
+    private ThreadTurnStore threadTurnStore;
+
+    @Test
+    void brainFeedIncludesIterationSummariesInChronologicalOrder()
+    {
+        String taskId = seedTask();
+        String threadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        // Real monitor turns so the summary turn-event's turn_id FK holds.
+        seedTurn("turn-a", threadId, taskId);
+        seedTurn("turn-b", threadId, taskId);
+
+        // Two iterations, each summarised in-line.
+        iterationService.begin(taskId, "turn-a", IterationService.TRIGGER_RED_CI);
+        UUID iterA = iterationStore.findByTurnId("turn-a").orElseThrow().id();
+        iterationService.recordSummary(iterA, "fix #1: bumped retry default");
+        iterationService.begin(taskId, "turn-b", IterationService.TRIGGER_RED_CI);
+        UUID iterB = iterationStore.findByTurnId("turn-b").orElseThrow().id();
+        iterationService.recordSummary(iterB, "fix #2: widened timeout");
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        List<String> summaryBodies = brain.brainFeed().stream()
+                .filter(r -> r.type().equals("ITERATION_SUMMARY"))
+                .map(BrainFeedRow::body)
+                .toList();
+        assertThat(summaryBodies)
+                .containsExactly("fix #1: bumped retry default", "fix #2: widened timeout");
+        // Interleaved with the stage-open row, all chronological.
+        assertThat(brain.brainFeed().get(0).type()).isEqualTo("STAGE_OPENED");
+    }
 
     @Test
     void brainReflectsBudgetExhaustionAndReadyState()
@@ -127,5 +171,13 @@ class TestStageBrain
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, now, null, null, null, null, null));
         return taskId;
+    }
+
+    private void seedTurn(String turnId, String threadId, String taskId)
+    {
+        Instant now = Instant.parse("2026-06-20T09:30:00Z");
+        threadTurnStore.saveTurn(new ThreadTurn(
+                turnId, threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.QUEUED,
+                "monitor work", now, now, null, null, null, TurnInitiator.unattended("test")));
     }
 }

@@ -29,14 +29,17 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadTurnEventStore;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -61,12 +64,18 @@ public class StageServiceImpl
     private final TaskStore taskStore;
     private final StageStore stageStore;
     private final StageBudgetService budgetService;
+    private final ThreadTurnEventStore turnEventStore;
 
-    public StageServiceImpl(TaskStore taskStore, StageStore stageStore, StageBudgetService budgetService)
+    public StageServiceImpl(
+            TaskStore taskStore,
+            StageStore stageStore,
+            StageBudgetService budgetService,
+            ThreadTurnEventStore turnEventStore)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.budgetService = requireNonNull(budgetService, "budgetService is null");
+        this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
     }
 
     @Override
@@ -94,7 +103,7 @@ public class StageServiceImpl
                 buildAggregate(allStages),
                 topLevel,
                 subStages,
-                buildBrainFeed(allEvents, stageTypes),
+                buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId)),
                 buildRightRail(task, allStages),
                 buildScrubbers(allEvents));
     }
@@ -193,13 +202,46 @@ public class StageServiceImpl
     }
 
     private static List<BrainFeedRow> buildBrainFeed(
-            List<StageEvent> events, Map<UUID, StageType> stageTypes)
+            List<StageEvent> events,
+            Map<UUID, StageType> stageTypes,
+            List<ThreadTurnEvent> summaries)
     {
-        return events.stream()
-                .map(e -> brainFeedRow(e, stageTypes))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .toList();
+        List<FeedEntry> entries = new ArrayList<>();
+        for (StageEvent e : events) {
+            brainFeedRow(e, stageTypes)
+                    .ifPresent(row -> entries.add(new FeedEntry(e.eventAt(), row)));
+        }
+        for (ThreadTurnEvent s : summaries) {
+            entries.add(new FeedEntry(s.createdAt(), summaryRow(s, stageTypes)));
+        }
+        entries.sort(Comparator.comparing(FeedEntry::ts));
+        return entries.stream().map(FeedEntry::row).toList();
+    }
+
+    /** A brain-feed row paired with its timestamp, for chronological merge. */
+    private record FeedEntry(Instant ts, BrainFeedRow row)
+    {
+    }
+
+    private static BrainFeedRow summaryRow(ThreadTurnEvent event, Map<UUID, StageType> stageTypes)
+    {
+        StageType stageType = null;
+        if (event.stageId() != null) {
+            try {
+                stageType = stageTypes.get(UUID.fromString(event.stageId()));
+            }
+            catch (IllegalArgumentException ignore) {
+                stageType = null;
+            }
+        }
+        return new BrainFeedRow(
+                event.id(),
+                "ITERATION_SUMMARY",
+                event.stageId(),
+                stageType == null ? null : stageType.name(),
+                event.createdAt().toString(),
+                event.message() == null ? "" : event.message(),
+                null);
     }
 
     private static Optional<BrainFeedRow> brainFeedRow(StageEvent e, Map<UUID, StageType> stageTypes)

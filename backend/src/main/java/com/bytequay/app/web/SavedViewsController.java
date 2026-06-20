@@ -29,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Locale;
 
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -77,9 +78,7 @@ public class SavedViewsController
     @PostMapping
     public SavedViewDto create(@RequestBody SavedViewBody body)
     {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        body = requireBody(body);
         ConceptKind kind;
         try {
             kind = ConceptKind.valueOf(

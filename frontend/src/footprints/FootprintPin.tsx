@@ -50,6 +50,7 @@ export function StopPin({ stop, pos, current, onResume }: StopPinProps) {
         style={{ color: meta.color }}
         onClick={() => onResume(stop)}
         title={current ? `${label} (you are here) — resume` : `${label} — resume`}
+        aria-label={current ? `${label} (you are here) — resume` : `${label} — resume`}
       >
         {current && <span className="hp-fp-pin__pulse" aria-hidden />}
         <FootprintIcon kind={meta.icon} />

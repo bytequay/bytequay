@@ -12,12 +12,14 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { PullRequestDto, RecentEventDto, StatPeriods, TeamSummaryDto, UserOrgDto, UserProfileDto, UserStatsDto, WatchedRepoDto } from './types';
+import type { FootprintStopDto, PullRequestDto, RecentEventDto, StatPeriods, TeamSummaryDto, UserOrgDto, UserProfileDto, UserStatsDto, WatchedRepoDto } from './types';
 import Avatar from './Avatar';
 import AddRepoModal from './AddRepoModal';
 import ActivityRow from './ActivityRow';
 import DailyCardSection from './DailyCardSection';
 import YearInCodeHeatmap from './YearInCodeHeatmap';
+import TodaysFootprints from './footprints/TodaysFootprints';
+import { resumeStop } from './footprints/resume';
 import { bucketize } from './prBuckets';
 import { getCached, setCached } from './dataCache';
 
@@ -41,6 +43,10 @@ type Props = {
   onOpenTeam?: (teamId: number) => void;
   /** Set by App.tsx — jumps to Settings → Teams (to create a new team). */
   onGoToTeams?: () => void;
+  /** Resume a task from a footprint pin — opens the task detail page. */
+  onOpenTask?: (threadId: string, taskId: string) => void;
+  /** Resume a thread from a footprint pin — opens the thread. */
+  onOpenThread?: (threadId: string) => void;
 };
 
 type StatPeriod = 'today' | 'week' | 'month';
@@ -178,7 +184,14 @@ function EditProfileModal({
   );
 }
 
-function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props) {
+function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenThread }: Props) {
+  // Resume a footprint pin via the app's existing navigation handlers.
+  const handleResumeFootprint = (stop: FootprintStopDto) => resumeStop(stop, {
+    openPrKanban: onGoToMyPrs,
+    openPr: onSelectRepo,
+    openTask: (threadId, taskId) => onOpenTask?.(threadId, taskId),
+    openThread: (threadId) => onOpenThread?.(threadId),
+  });
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
    *  initialPrNumber), and only fall out to the system browser for
@@ -445,6 +458,12 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
           <DailyCardSection />
         </div>
       </div>
+
+      {/* ── Today's footprints: the day's visited surfaces as a trail ── */}
+      <TodaysFootprints
+        onResume={handleResumeFootprint}
+        onSeeFullDay={() => console.log('[footprints] full-day view — decision pending')}
+      />
 
       {/* ── Middle (primary): Start reviewing + Watched repos ── */}
       <div className="home-middle-row">

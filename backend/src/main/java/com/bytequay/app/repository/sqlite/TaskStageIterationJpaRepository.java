@@ -31,6 +31,9 @@ interface TaskStageIterationJpaRepository
     /** Highest iteration number in a stage, to compute the next one. */
     Optional<TaskStageIterationEntity> findFirstByStageIdOrderByIterationNumberDesc(String stageId);
 
+    /** All iterations of a stage, oldest-first — the stage detail bands. */
+    List<TaskStageIterationEntity> findByStageIdOrderByIterationNumberAsc(String stageId);
+
     /** Most-recent iterations that carry a summary, for a task — the M4
      *  cross-agent context hook. */
     List<TaskStageIterationEntity> findBySummaryTextIsNotNullAndTaskIdOrderByStartedAtMsDesc(

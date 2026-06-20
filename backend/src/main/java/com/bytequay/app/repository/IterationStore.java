@@ -39,6 +39,10 @@ public interface IterationStore
     /** Next 1-based iteration number for a stage. */
     int nextIterationNumber(UUID stageId);
 
+    /** All iterations of a stage, oldest-first — drives the stage-detail
+     *  iteration bands. */
+    List<TaskStageIteration> findByStage(UUID stageId);
+
     /** Most-recent summarised iterations for a task, newest-first — the
      *  cross-agent context hook a later milestone reads. */
     List<TaskStageIteration> findRecentSummaries(String taskId, int limit);

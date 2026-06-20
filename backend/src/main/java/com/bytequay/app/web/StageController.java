@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,10 +39,12 @@ import static java.util.Objects.requireNonNull;
 public class StageController
 {
     private final StageService service;
+    private final StageDetailService detailService;
 
-    public StageController(StageService service)
+    public StageController(StageService service, StageDetailService detailService)
     {
         this.service = requireNonNull(service, "service is null");
+        this.detailService = requireNonNull(detailService, "detailService is null");
     }
 
     @GetMapping("/api/tasks/{taskId}/brain")
@@ -65,6 +69,12 @@ public class StageController
     public StageDetailDto stage(@PathVariable String stageId)
     {
         return service.getStageDetail(parseStageId(stageId));
+    }
+
+    @GetMapping("/api/stages/{stageId}/detail")
+    public StageDetailData stageDetail(@PathVariable String stageId)
+    {
+        return detailService.getDetail(parseStageId(stageId));
     }
 
     private static UUID parseStageId(String raw)

@@ -85,6 +85,14 @@ class SqliteIterationStore
     }
 
     @Override
+    public List<TaskStageIteration> findByStage(UUID stageId)
+    {
+        return iterations.findByStageIdOrderByIterationNumberAsc(stageId.toString()).stream()
+                .map(SqliteIterationStore::toIteration)
+                .toList();
+    }
+
+    @Override
     public List<TaskStageIteration> findRecentSummaries(String taskId, int limit)
     {
         return iterations

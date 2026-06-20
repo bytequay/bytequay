@@ -45,9 +45,10 @@ import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
 import { applyTheme, loadTheme } from './themes';
+import { useSurfaceVisitCapture } from './footprints/useSurfaceVisitCapture';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
-type Nav =
+export type Nav =
   | { view: 'home' }
   | { view: 'my-prs' }
   /** `back` carries the parent screen so the PR-detail breadcrumb
@@ -376,6 +377,10 @@ function writeActiveWorkspaceId(id: string): void {
 function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
+
+  // Records a footprint whenever nav lands on a tracked surface (PR
+  // kanban, a PR, a task, a thread). Single capture point; fire-and-forget.
+  useSurfaceVisitCapture(nav);
 
   // Current nav kept in a ref so the document-level click delegate below
   // can read it for the `back` breadcrumb without re-subscribing each render.

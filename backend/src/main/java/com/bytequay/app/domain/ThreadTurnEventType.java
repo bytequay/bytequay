@@ -20,5 +20,9 @@ public enum ThreadTurnEventType
     TURN_STARTED,
     TURN_FINISHED,
     TURN_FAILED,
-    TURN_CANCELLED
+    TURN_CANCELLED,
+
+    /** A loop-iteration summary written to the chronological log so it
+     *  surfaces on the brain feed. Carries {@code is_summary = true}. */
+    ITERATION_SUMMARY
 }

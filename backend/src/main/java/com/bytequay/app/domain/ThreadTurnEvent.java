@@ -21,6 +21,11 @@ import java.time.Instant;
  * <p>{@code taskId} mirrors the turn's task: an event inherits the
  * Task its parent turn was bound to, or {@code null} for a trunk
  * planning turn.
+ *
+ * <p>{@code isSummary} flags an iteration-summary row that should also
+ * surface on the brain feed; {@code stageId} ties such a row to the stage
+ * whose iteration it describes. Both default off for ordinary scheduler
+ * events via the back-compat constructor.
  */
 public record ThreadTurnEvent(
         String id,
@@ -29,6 +34,29 @@ public record ThreadTurnEvent(
         String taskId,
         ThreadTurnEventType event,
         Instant createdAt,
-        String message)
+        String message,
+        boolean isSummary,
+        String stageId)
 {
+    /** Ordinary scheduler event: not a summary, no stage. */
+    public ThreadTurnEvent(
+            String id,
+            String turnId,
+            String threadId,
+            String taskId,
+            ThreadTurnEventType event,
+            Instant createdAt,
+            String message)
+    {
+        this(id, turnId, threadId, taskId, event, createdAt, message, false, null);
+    }
+
+    /** An iteration-summary row for the brain feed. */
+    public static ThreadTurnEvent summary(
+            String id, String turnId, String threadId, String taskId, String stageId,
+            Instant createdAt, String text)
+    {
+        return new ThreadTurnEvent(id, turnId, threadId, taskId,
+                ThreadTurnEventType.ITERATION_SUMMARY, createdAt, text, true, stageId);
+    }
 }

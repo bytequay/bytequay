@@ -43,6 +43,12 @@ class ThreadTurnEventEntity
     @Column(name = "message")
     private String message;
 
+    @Column(name = "is_summary", nullable = false)
+    private boolean summary;
+
+    @Column(name = "stage_id")
+    private String stageId;
+
     String getId()
     {
         return id;
@@ -111,5 +117,25 @@ class ThreadTurnEventEntity
     void setMessage(String message)
     {
         this.message = message;
+    }
+
+    boolean isSummary()
+    {
+        return summary;
+    }
+
+    void setSummary(boolean summary)
+    {
+        this.summary = summary;
+    }
+
+    String getStageId()
+    {
+        return stageId;
+    }
+
+    void setStageId(String stageId)
+    {
+        this.stageId = stageId;
     }
 }

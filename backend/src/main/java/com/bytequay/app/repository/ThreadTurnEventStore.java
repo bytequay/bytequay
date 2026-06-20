@@ -27,4 +27,12 @@ public interface ThreadTurnEventStore
 
     /** Scheduler events for one thread, newest-first by creation time. */
     List<ThreadTurnEvent> listEventsByTaskId(String threadId, int limit);
+
+    /** Iteration-summary rows for a task, oldest-first — the brain feed
+     *  merges these with the stage-event stream. Empty default for test
+     *  stores; the SQLite store overrides. */
+    default List<ThreadTurnEvent> listSummaryEventsByTask(String taskId)
+    {
+        return List.of();
+    }
 }

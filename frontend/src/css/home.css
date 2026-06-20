@@ -1555,9 +1555,10 @@
 .hp-footprints__seeall-inline:hover {
   text-decoration: underline;
 }
+/* Collapsed when the day has no visits — a compact line under the
+   header rather than a tall empty map. */
 .hp-footprints__empty {
-  padding: 32px 0;
-  text-align: center;
+  padding: 4px 0 2px;
   color: var(--text-3);
   font-size: var(--font-size-sm);
 }

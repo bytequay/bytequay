@@ -48,6 +48,12 @@ public interface StageStore
      *  the id is unknown or the stage is already closed. */
     void closeStage(UUID stageId, String reason);
 
+    /** Close {@code stageId}, merging {@code extraPayload} into the single
+     *  {@code CLOSED} event alongside {@code reason} — so a caller (e.g. a
+     *  finished review panel) can record its summary on the closing event
+     *  rather than as a second row. No-op when unknown or already closed. */
+    void closeStage(UUID stageId, String reason, Map<String, Object> extraPayload);
+
     Optional<StageInstance> findStageById(UUID stageId);
 
     /** The raw {@code metrics_json} blob for a stage, or empty if unknown. */

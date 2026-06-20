@@ -158,7 +158,8 @@ class TestReviewPanelIntegration
                 appSettings,
                 Runnable::run,
                 leadOrchestrator, reviewerSeat, leadToolset, budget, diffCache, scheduler,
-                mock(SkillStore.class));
+                mock(SkillStore.class),
+                event -> {});
     }
 
     @Test

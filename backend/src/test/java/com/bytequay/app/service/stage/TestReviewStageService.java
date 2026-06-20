@@ -25,7 +25,6 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -62,7 +61,6 @@ class TestReviewStageService
     private TaskStore taskStore;
     private WatchedRepoStore watchedRepoStore;
     private ReviewPassService reviewPassService;
-    private ReviewStore reviewStore;
     private ReviewStageServiceImpl service;
 
     @BeforeEach
@@ -72,9 +70,8 @@ class TestReviewStageService
         taskStore = mock(TaskStore.class);
         watchedRepoStore = mock(WatchedRepoStore.class);
         reviewPassService = mock(ReviewPassService.class);
-        reviewStore = mock(ReviewStore.class);
         service = new ReviewStageServiceImpl(
-                stageStore, taskStore, watchedRepoStore, reviewPassService, reviewStore);
+                stageStore, taskStore, watchedRepoStore, reviewPassService);
     }
 
     @Test
@@ -91,7 +88,8 @@ class TestReviewStageService
         when(watchedRepoStore.findAll()).thenReturn(List.of(repo("acme", "widget", "/repos/widget")));
         when(stageStore.openStage("task-7", StageType.REVIEW_STAGE, parentId)).thenReturn(reviewStage);
         when(reviewPassService.startTaskPhaseReview(
-                eq("task-7"), eq("acme/widget"), eq(42), eq(ReviewPassKind.FRESH), any()))
+                eq("task-7"), eq("acme/widget"), eq(42), eq(ReviewPassKind.FRESH), any(),
+                eq(reviewStageId.toString())))
                 .thenReturn(detail("pass-9", "thread-3"));
 
         SpawnReviewResult result = service.spawnReview(parentId);
@@ -100,7 +98,11 @@ class TestReviewStageService
         assertThat(result.reviewPassId()).isEqualTo("pass-9");
         assertThat(result.reviewThreadId()).isEqualTo("thread-3");
         verify(stageStore).openStage("task-7", StageType.REVIEW_STAGE, parentId);
-        verify(reviewStore).setPassTaskStage("pass-9", reviewStageId.toString());
+        // The pass is linked to the stage during seating (race-free), so the
+        // service passes the stage id straight into the start call.
+        verify(reviewPassService).startTaskPhaseReview(
+                eq("task-7"), eq("acme/widget"), eq(42), eq(ReviewPassKind.FRESH), any(),
+                eq(reviewStageId.toString()));
     }
 
     @Test
@@ -129,7 +131,7 @@ class TestReviewStageService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("internal-review");
         verify(reviewPassService, never())
-                .startTaskPhaseReview(any(), any(), anyInt(), any(), any());
+                .startTaskPhaseReview(any(), any(), anyInt(), any(), any(), any());
     }
 
     @Test

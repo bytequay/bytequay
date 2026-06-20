@@ -93,7 +93,15 @@ class SqliteStageStore
     @Transactional
     public void closeStage(UUID stageId, String reason)
     {
+        closeStage(stageId, reason, Map.of());
+    }
+
+    @Override
+    @Transactional
+    public void closeStage(UUID stageId, String reason, Map<String, Object> extraPayload)
+    {
         requireNonNull(stageId, "stageId is null");
+        requireNonNull(extraPayload, "extraPayload is null");
         stages.findById(stageId.toString()).ifPresent(row -> {
             if (StageState.CLOSED.name().equals(row.getState())) {
                 return;
@@ -102,8 +110,10 @@ class SqliteStageStore
             row.setState(StageState.CLOSED.name());
             row.setClosedAtMs(now.toEpochMilli());
             stages.save(row);
-            writeEvent(row.getId(), row.getTaskId(), StageEventType.CLOSED,
-                    Map.of("reason", reason == null ? "" : reason), now);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("reason", reason == null ? "" : reason);
+            payload.putAll(extraPayload);
+            writeEvent(row.getId(), row.getTaskId(), StageEventType.CLOSED, payload, now);
         });
     }
 

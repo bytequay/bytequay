@@ -32,6 +32,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -119,6 +120,7 @@ public class AutomationCoordinator
     private final PullRequestService pullRequests;
     private final GitRunner git;
     private final ObjectMapper mapper;
+    private final IterationService iterationService;
 
     /** Tracks tasks that already had an auto-fix turn queued during
      *  this process's lifetime. Without it the 60-second CI sweep
@@ -154,7 +156,8 @@ public class AutomationCoordinator
             ThreadTurnScheduler scheduler,
             PullRequestService pullRequests,
             GitRunner git,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            IterationService iterationService)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -168,6 +171,7 @@ public class AutomationCoordinator
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.iterationService = requireNonNull(iterationService, "iterationService is null");
     }
 
     /**
@@ -349,6 +353,7 @@ public class AutomationCoordinator
         String prompt = buildAutoFixPrompt(task, repoFullName, failingChecks);
         try {
             String turnId = scheduler.enqueueTurn(thread, prompt, TurnInitiator.unattended("auto-fix-ci-fail"));
+            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI);
             log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
                     task.id(), repoFullName, task.worktreePath(),
                     task.linkedPrNumber(), turnId);
@@ -490,6 +495,7 @@ public class AutomationCoordinator
         try {
             String turnId = scheduler.enqueueTurn(
                     thread, prompt, TurnInitiator.unattended("ci-fix-shipped"));
+            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI);
             int attempt = ciFixAttempts.merge(task.id(), 1, Integer::sum);
             ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
             log.info("shipped CI-fix queued: task {} on {} PR #{} → turn {} (attempt {})",

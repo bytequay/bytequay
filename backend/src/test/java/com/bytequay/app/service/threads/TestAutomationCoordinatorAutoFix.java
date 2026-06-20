@@ -34,6 +34,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.stage.IterationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -84,6 +85,7 @@ class TestAutomationCoordinatorAutoFix
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final GitRunner git = mock(GitRunner.class);
     private final ObjectMapper mapper = new ObjectMapper();
+    private final IterationService iterationService = mock(IterationService.class);
 
     @Test
     void enqueuesAnAutoFixTurnWhenOptedInAndThreadIdle()
@@ -297,7 +299,7 @@ class TestAutomationCoordinatorAutoFix
         return new AutomationCoordinator(
                 leaseService, taskStore, threadStore, watchedRepoStore,
                 pullRequestStore, prDetailStore, notificationService,
-                workspaceStore, scheduler, pullRequests, git, mapper);
+                workspaceStore, scheduler, pullRequests, git, mapper, iterationService);
     }
 
     private void wireFailingCi(Task task, Thread thread, boolean autoFixEnabled, boolean leaseHeld)

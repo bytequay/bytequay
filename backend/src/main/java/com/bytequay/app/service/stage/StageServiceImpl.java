@@ -29,6 +29,7 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.repository.StageStore;
@@ -344,8 +345,23 @@ public class StageServiceImpl
                 null);
     }
 
-    private static Optional<BrainFeedRow> brainFeedRow(StageEvent e, Map<UUID, StageType> stageTypes)
+    private Optional<BrainFeedRow> brainFeedRow(StageEvent e, Map<UUID, StageType> stageTypes)
     {
+        StageType stageType = stageTypes.get(e.stageId());
+
+        // A closing review panel gets its own feed entry, carrying the panel
+        // summary and pointing back at the review stage for drill-in.
+        if (e.eventType() == StageEventType.CLOSED && stageType == StageType.REVIEW_STAGE) {
+            return Optional.of(new BrainFeedRow(
+                    e.id().toString(),
+                    "PANEL_REVIEW_COMPLETED",
+                    e.stageId().toString(),
+                    stageType.name(),
+                    e.eventAt().toString(),
+                    panelReviewBody(e.payloadJson()),
+                    e.stageId().toString()));
+        }
+
         String type = switch (e.eventType()) {
             case OPENED -> "STAGE_OPENED";
             case CLOSED -> "STAGE_CLOSED";
@@ -358,7 +374,6 @@ public class StageServiceImpl
         if (type == null) {
             return Optional.empty();
         }
-        StageType stageType = stageTypes.get(e.stageId());
         String stageLabel = stageType == null ? "Stage" : humanize(stageType);
         String body = switch (e.eventType()) {
             case OPENED -> stageLabel + " opened";
@@ -377,13 +392,67 @@ public class StageServiceImpl
                 null));
     }
 
+    /** Human-readable line for a finished panel, read from the CLOSED event's
+     *  {@code seatNames}/{@code findingCount}/{@code agreedCount} payload.
+     *  Degrades to a bare label when the payload is missing or malformed. */
+    private String panelReviewBody(String payloadJson)
+    {
+        if (payloadJson == null || payloadJson.isBlank()) {
+            return "Panel review complete";
+        }
+        try {
+            JsonNode node = mapper.readTree(payloadJson);
+            List<String> seats = new ArrayList<>();
+            JsonNode seatNames = node.get("seatNames");
+            if (seatNames != null && seatNames.isArray()) {
+                seatNames.forEach(s -> seats.add(s.asText()));
+            }
+            int findingCount = node.path("findingCount").asInt(0);
+            int agreedCount = node.path("agreedCount").asInt(0);
+            StringBuilder out = new StringBuilder("Panel review complete");
+            if (!seats.isEmpty()) {
+                out.append(" — ").append(String.join(", ", seats));
+            }
+            out.append(" · ").append(agreedCount).append(" of ").append(findingCount)
+                    .append(findingCount == 1 ? " finding agreed" : " findings agreed");
+            return out.toString();
+        }
+        catch (JsonProcessingException ex) {
+            return "Panel review complete";
+        }
+    }
+
     private TaskBrainViewData.RightRail buildRightRail(Task task, List<StageInstance> stages)
     {
         boolean mergeable = taskStore.mergeNotificationSentAt(task.id()).isPresent();
         LinkedPrDto linkedPr = task.prNumber() == null ? null : buildLinkedPr(task, mergeable);
         ContextWindowDto context = new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe");
+        // A panel review is launchable while the task is reviewing its own
+        // work (internal-review phases) over an existing PR, called from the
+        // current top-level stage. The frontend renders the launch card off
+        // these two fields; the spawn endpoint re-validates them server-side.
+        StageInstance parentStage = task.prNumber() != null && PANEL_SPAWNABLE_PHASES.contains(task.phase())
+                ? topLevelActiveStage(stages).orElse(null)
+                : null;
         return new TaskBrainViewData.RightRail(
-                buildApproval(stages), linkedPr, context, List.<CommitDto>of());
+                buildApproval(stages), linkedPr, context, List.<CommitDto>of(),
+                parentStage != null,
+                parentStage == null ? null : parentStage.id().toString());
+    }
+
+    /** The phases in which a callable panel review can be spawned — kept in
+     *  step with {@code ReviewStageServiceImpl}'s server-side guard. */
+    private static final Set<TaskPhase> PANEL_SPAWNABLE_PHASES =
+            EnumSet.of(TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_UPDATE_PUSH);
+
+    /** The open/active top-level stage a panel review would be called from —
+     *  the callable sub-stage itself never qualifies as a parent. */
+    private static Optional<StageInstance> topLevelActiveStage(List<StageInstance> stages)
+    {
+        return stages.stream()
+                .filter(s -> s.callerStageId().isEmpty())
+                .filter(s -> s.state() == StageState.OPEN || s.state() == StageState.ACTIVE)
+                .reduce((first, second) -> second);
     }
 
     /** A pending approval card when a ci-fixing stage's budget is exhausted

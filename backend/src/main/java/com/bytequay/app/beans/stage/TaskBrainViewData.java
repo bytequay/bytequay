@@ -78,12 +78,18 @@ public record TaskBrainViewData(
      *
      * @param approval null until the approval-gate machinery lands
      * @param linkedPr null when the Task has no PR
+     * @param panelSpawnable true when the task is in an internal-review
+     *                       context and a panel review can be launched
+     * @param parentStageId the open stage a panel review would be called
+     *                      from, or null when none is spawnable
      */
     public record RightRail(
             ApprovalDto approval,
             LinkedPrDto linkedPr,
             ContextWindowDto context,
-            List<CommitDto> recentCommits)
+            List<CommitDto> recentCommits,
+            boolean panelSpawnable,
+            String parentStageId)
     {
     }
 

@@ -194,7 +194,14 @@ class SqliteStageStore
                 .toList();
     }
 
-    private void writeEvent(
+    @Override
+    @Transactional
+    public StageEvent recordEvent(UUID stageId, String taskId, StageEventType type, Map<String, Object> payload)
+    {
+        return writeEvent(stageId.toString(), taskId, type, payload, Instant.now());
+    }
+
+    private StageEvent writeEvent(
             String stageId, String taskId, StageEventType type, Map<String, Object> payload, Instant at)
     {
         TaskStageEventEntity ev = new TaskStageEventEntity();
@@ -205,6 +212,7 @@ class SqliteStageStore
         ev.setEventAtMs(at.toEpochMilli());
         ev.setPayloadJson(serialise(payload));
         events.save(ev);
+        return toEvent(ev);
     }
 
     private String serialise(Map<String, Object> payload)

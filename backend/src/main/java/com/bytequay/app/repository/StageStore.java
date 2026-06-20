@@ -16,10 +16,12 @@ package com.bytequay.app.repository;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageEvent;
+import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -57,6 +59,11 @@ public interface StageStore
     Optional<StageInstance> findActiveStage(String taskId);
 
     // ── stage events ───────────────────────────────────────────────────
+
+    /** Append a stage event beyond the {@code OPENED}/{@code CLOSED} pair
+     *  the lifecycle writes itself — used by the mutex, budget, and notify
+     *  paths. Stamped with the current time. */
+    StageEvent recordEvent(UUID stageId, String taskId, StageEventType type, Map<String, Object> payload);
 
     /** A stage's events, oldest-first. */
     List<StageEvent> findEventsByStage(UUID stageId);

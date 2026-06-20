@@ -179,6 +179,36 @@ public interface TaskStore
     {
     }
 
+    // ── task-level write mutex (V118) ──────────────────────────────────
+
+    /** Atomically acquire the task's write mutex for {@code stageId} iff
+     *  it's currently free. Returns true when this stage won the lock.
+     *  False default for test stores; the SQLite store does the CAS. */
+    default boolean tryAcquireWriteMutex(String taskId, String stageId)
+    {
+        return false;
+    }
+
+    /** Release the write mutex iff {@code stageId} holds it. No-op default. */
+    default void releaseWriteMutex(String taskId, String stageId)
+    {
+    }
+
+    /** Release the write mutex regardless of holder — the safety release
+     *  on turn completion. Returns true if a lock was actually released.
+     *  False default for test stores. */
+    default boolean releaseWriteMutexForTask(String taskId)
+    {
+        return false;
+    }
+
+    /** The stage id currently holding the task's write mutex, or empty.
+     *  Empty default for test stores. */
+    default Optional<String> writeMutexHolder(String taskId)
+    {
+        return Optional.empty();
+    }
+
     /** Permanent removal. Drops the row plus its child {@code task_files};
      *  FK cascades handle the join. Callers must already have stopped
      *  any live agent attached to the task. */

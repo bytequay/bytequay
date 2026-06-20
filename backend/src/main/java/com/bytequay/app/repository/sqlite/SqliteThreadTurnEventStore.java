@@ -49,6 +49,8 @@ class SqliteThreadTurnEventStore
         entity.setEvent(event.event().name());
         entity.setCreatedAtMs(event.createdAt().toEpochMilli());
         entity.setMessage(event.message());
+        entity.setSummary(event.isSummary());
+        entity.setStageId(event.stageId());
         events.save(entity);
     }
 
@@ -57,6 +59,16 @@ class SqliteThreadTurnEventStore
     {
         requireNonNull(threadId, "threadId is null");
         return events.findByThreadIdOrderByCreatedAtMsDescIdDesc(threadId, firstPage(limit))
+                .stream()
+                .map(SqliteThreadTurnEventStore::toEvent)
+                .toList();
+    }
+
+    @Override
+    public List<ThreadTurnEvent> listSummaryEventsByTask(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return events.findByTaskIdAndSummaryTrueOrderByCreatedAtMsAsc(taskId)
                 .stream()
                 .map(SqliteThreadTurnEventStore::toEvent)
                 .toList();
@@ -71,6 +83,8 @@ class SqliteThreadTurnEventStore
                 e.getTaskId(),
                 ThreadTurnEventType.valueOf(e.getEvent()),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                e.getMessage());
+                e.getMessage(),
+                e.isSummary(),
+                e.getStageId());
     }
 }

@@ -22,4 +22,8 @@ interface ThreadTurnEventJpaRepository
         extends JpaRepository<ThreadTurnEventEntity, String>
 {
     List<ThreadTurnEventEntity> findByThreadIdOrderByCreatedAtMsDescIdDesc(String threadId, Pageable pageable);
+
+    /** Summary rows for a task, oldest-first — the brain feed merges these
+     *  with the stage-event stream. */
+    List<ThreadTurnEventEntity> findByTaskIdAndSummaryTrueOrderByCreatedAtMsAsc(String taskId);
 }

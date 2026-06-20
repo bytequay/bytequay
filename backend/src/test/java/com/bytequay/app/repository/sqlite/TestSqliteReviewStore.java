@@ -189,6 +189,36 @@ class TestSqliteReviewStore
         assertThat(passes).extracting(ReviewPass::id).containsExactly(newer.id(), older.id());
     }
 
+    @Test
+    void stampsTaskStageLinkOnceAndKeepsItThroughAFullRowSave()
+    {
+        Thread reviewThread = newReviewThread();
+        threads.saveThread(reviewThread);
+        ReviewPass pass = newPass(reviewThread.id(), "acme/widget", 73);
+        reviews.savePass(pass);
+
+        // Fresh passes are standalone — no stage link until one is stamped.
+        assertThat(reviews.findPassById(pass.id()).orElseThrow().taskStageId()).isNull();
+
+        reviews.setPassTaskStage(pass.id(), "stage-xyz");
+        assertThat(reviews.findPassById(pass.id()).orElseThrow().taskStageId())
+                .isEqualTo("stage-xyz");
+
+        // A later full-row save (e.g. a phase advance) reconstructs the pass
+        // with a null taskStageId — savePass must not map the column, so the
+        // once-written link survives, mirroring the host discipline.
+        ReviewPass advanced = reviews.findPassById(pass.id()).orElseThrow();
+        reviews.savePass(new ReviewPass(
+                advanced.id(), advanced.threadId(), advanced.repoFullName(), advanced.prNumber(),
+                advanced.headSha(), ReviewPhase.CONSENSUS, advanced.round(), advanced.roundCap(),
+                advanced.costCapMilli(), advanced.costUsdMilli(), advanced.verdict(),
+                advanced.createdAt(), advanced.endedAt(), advanced.spawnedBuildThreadId(),
+                advanced.agendaJson()));
+        ReviewPass reloaded = reviews.findPassById(pass.id()).orElseThrow();
+        assertThat(reloaded.phase()).isEqualTo(ReviewPhase.CONSENSUS);
+        assertThat(reloaded.taskStageId()).isEqualTo("stage-xyz");
+    }
+
     private static Thread newReviewThread()
     {
         Instant now = Instant.parse("2026-05-22T12:00:00Z");

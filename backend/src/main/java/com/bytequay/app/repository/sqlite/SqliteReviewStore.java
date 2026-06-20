@@ -104,6 +104,16 @@ class SqliteReviewStore
     }
 
     @Override
+    @Transactional
+    public void setPassTaskStage(String passId, String taskStageId)
+    {
+        passes.findById(passId).ifPresent(entity -> {
+            entity.setTaskStageId(taskStageId);
+            passes.save(entity);
+        });
+    }
+
+    @Override
     public Optional<ReviewPass> findPassById(String id)
     {
         return passes.findById(id).map(SqliteReviewStore::toPass);
@@ -293,7 +303,8 @@ class SqliteReviewStore
                 e.getAgendaJson(),
                 ReviewPassHostKind.valueOf(e.getHostKind()),
                 e.getHostId(),
-                ReviewPassKind.valueOf(e.getKind()));
+                ReviewPassKind.valueOf(e.getKind()),
+                e.getTaskStageId());
     }
 
     private static ReviewParticipant toParticipant(ReviewParticipantEntity e)

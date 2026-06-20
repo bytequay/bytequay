@@ -43,6 +43,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -73,15 +74,9 @@ public class RepoController
     @PostMapping("/repos")
     public WatchedRepo addRepo(@RequestBody AddRepoRequest request)
     {
-        if (request == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        if (request.owner() == null || request.owner().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "owner is required");
-        }
-        if (request.repo() == null || request.repo().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "repo is required");
-        }
+        request = requireBody(request);
+        requireNotBlank(request.owner(), "owner is required");
+        requireNotBlank(request.repo(), "repo is required");
         return repoService.addWatchedRepo(request.owner(), request.repo());
     }
 
@@ -221,12 +216,8 @@ public class RepoController
             @PathVariable int number,
             @RequestBody IssueCommentRequest request)
     {
-        if (request == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        if (request.body() == null || request.body().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body must not be blank");
-        }
+        request = requireBody(request);
+        requireNotBlank(request.body(), "body must not be blank");
         return repoService.createIssueComment(
                 owner, repo, number, request.body());
     }
@@ -248,12 +239,8 @@ public class RepoController
             @PathVariable int number,
             @RequestBody IssueStateRequest request)
     {
-        if (request == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        if (request.state() == null || request.state().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "state is required");
-        }
+        request = requireBody(request);
+        requireNotBlank(request.state(), "state is required");
         return repoService.setIssueState(
                 owner, repo, number, request.state());
     }
@@ -275,12 +262,8 @@ public class RepoController
             @PathVariable long commentId,
             @RequestBody IssueReactionRequest request)
     {
-        if (request == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        if (request.content() == null || request.content().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "content is required");
-        }
+        request = requireBody(request);
+        requireNotBlank(request.content(), "content is required");
         repoService.addIssueCommentReaction(
                 owner, repo, commentId, request.content());
         return ImmutableMap.of("result", "reacted");
@@ -304,9 +287,7 @@ public class RepoController
             @PathVariable int number,
             @RequestBody IssueSubscriptionRequest request)
     {
-        if (request == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        request = requireBody(request);
         repoService.setIssueSubscription(
                 owner, repo, number, request.subscribed());
         return ImmutableMap.of("result", request.subscribed() ? "subscribed" : "unsubscribed");
@@ -415,13 +396,19 @@ public class RepoController
     @PatchMapping("/profile")
     public UserProfile updateProfile(@RequestBody UpdateProfileRequest request)
     {
-        if (request == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
+        request = requireBody(request);
         return repoService.updateUserProfile(
                 request.name(),
                 request.bio(),
                 request.location());
+    }
+
+    private static <T> T requireBody(T body)
+    {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
+        return body;
     }
 
     public record AddRepoRequest(String owner, String repo) {}

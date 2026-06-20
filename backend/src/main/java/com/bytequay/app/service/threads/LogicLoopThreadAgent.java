@@ -234,6 +234,39 @@ public class LogicLoopThreadAgent
             "reorder_queue",
             "drop_queued_task");
 
+    /** The read-only tool surface the brain agent is allowed to call.
+     *  Enforced the same way as {@link #TRUNK_TOOL_ALLOWLIST}: the rendered
+     *  tool list is filtered to these names, so the brain agent never even
+     *  sees a write tool. The handlers register in {@code LogicLoopToolRegistry}
+     *  via {@code @AgentTool}; until they land the list renders empty. */
+    static final Set<String> BRAIN_TOOL_ALLOWLIST = Set.of(
+            "count_operations",
+            "read_commit_summary",
+            "read_diff_summary",
+            "check_test_coverage",
+            "read_stage_metrics",
+            "read_phase_history",
+            "read_review_panel_findings",
+            "read_remote_pr_status",
+            "list_unresolved_comments");
+
+    /** System prompt for the read-only brain agent. A later change prepends
+     *  a digest of the task's recent iteration summaries; this is the static
+     *  role portion. */
+    static final String BRAIN_SYSTEM_PROMPT = """
+            You are the read-only brain agent for a developer task. You can \
+            introspect the task's stages, iterations, phases, commits, and PR \
+            state via the provided tools. You cannot modify anything — no \
+            pushes, no edits, no comments.
+
+            Answer the user's question concisely (target 6 sentences or fewer). \
+            When you reference a stage or iteration, mention it by full name \
+            (e.g. "CiFixingStage iteration #1"); the frontend renders these as \
+            clickable chips.
+
+            If you need precise data, call a tool. Don't speculate when you can \
+            introspect.""";
+
     /** Mediator passed into every {@link AgentToolContext} so the
      *  bridged-CLI catalog can route through the permission gate.
      *  Lazy-stateless; one instance per agent. */
@@ -503,7 +536,7 @@ public class LogicLoopThreadAgent
         // Trunk turns get a narrow allowlist; task turns get the full
         // catalog. Saves ~3 K input tokens per trunk round (publish + shell
         // schemas are by far the heaviest). See TRUNK_TOOL_ALLOWLIST.
-        Set<String> toolFilter = isTrunkTurn() ? TRUNK_TOOL_ALLOWLIST : null;
+        Set<String> toolFilter = toolNameFilter();
         ArrayNode toolsArray = toolRegistry == null
                 ? null
                 : toolRegistry.renderAsAnthropicTools(mapper, toolFilter);
@@ -578,7 +611,7 @@ public class LogicLoopThreadAgent
 
         String system = composeSystemPrompt();
         ArrayNode messages = buildOpenAiMessages(system, userInput);
-        Set<String> toolFilter = isTrunkTurn() ? TRUNK_TOOL_ALLOWLIST : null;
+        Set<String> toolFilter = toolNameFilter();
         ArrayNode toolsArray = toolRegistry == null
                 ? null
                 : toolRegistry.renderAsOpenAiTools(mapper, toolFilter);
@@ -791,10 +824,24 @@ public class LogicLoopThreadAgent
 
     private String composeSystemPrompt()
     {
+        if (kind == ThreadKind.BRAIN_AGENT) {
+            return BRAIN_SYSTEM_PROMPT;
+        }
         if (roleSkillText == null || roleSkillText.isBlank()) {
             return null;
         }
         return roleSkillText.trim();
+    }
+
+    /** The tool-name allowlist for this turn: brain agents get the
+     *  read-only brain surface, trunk turns get the narrow trunk allowlist,
+     *  task turns get the full catalog (null = no filter). */
+    private Set<String> toolNameFilter()
+    {
+        if (kind == ThreadKind.BRAIN_AGENT) {
+            return BRAIN_TOOL_ALLOWLIST;
+        }
+        return isTrunkTurn() ? TRUNK_TOOL_ALLOWLIST : null;
     }
 
     /** Build the Anthropic message history array (no system message —

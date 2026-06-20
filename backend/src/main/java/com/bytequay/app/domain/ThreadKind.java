@@ -34,4 +34,11 @@ public enum ThreadKind
      *  executing tools ourselves. Synthesizes the same
      *  {@code StreamEvent} shapes the cli_agent path emits. */
     LOGIC_LOOP,
+
+    /** A per-task, read-only conversational agent — the brain agent.
+     *  Runs in-JVM like {@link #LOGIC_LOOP} (an API-backed
+     *  {@code LogicLoopThreadAgent}) but with a read-only tool allowlist
+     *  and a brain-specific system prompt. Bound 1:1 to a dev task via
+     *  {@link Thread#parentTaskId}. */
+    BRAIN_AGENT,
 }

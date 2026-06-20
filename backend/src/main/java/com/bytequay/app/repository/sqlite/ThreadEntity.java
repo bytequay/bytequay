@@ -102,6 +102,11 @@ class ThreadEntity
     @Column(name = "parallel_slots", nullable = false)
     private int parallelSlots = 1;
 
+    /** For a BRAIN_AGENT thread, the dev task it answers about (V122).
+     *  Null for every other thread. */
+    @Column(name = "parent_task_id")
+    private String parentTaskId;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -163,6 +168,9 @@ class ThreadEntity
 
     String getParentReviewPassId() { return parentReviewPassId; }
     void setParentReviewPassId(String parentReviewPassId) { this.parentReviewPassId = parentReviewPassId; }
+
+    String getParentTaskId() { return parentTaskId; }
+    void setParentTaskId(String parentTaskId) { this.parentTaskId = parentTaskId; }
 
     String getQueueJson() { return queueJson; }
     void setQueueJson(String queueJson) { this.queueJson = queueJson; }

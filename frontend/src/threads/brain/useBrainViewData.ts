@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { TaskBrainViewData } from '../../types/brainView';
-import { MOCK_BRAIN_VIEW } from './brainViewFixture';
+import { buildMockBrainView } from './brainViewFixture';
 
 /**
  * Mock implementation. Replace with a real fetch against the brain
@@ -25,5 +25,7 @@ import { MOCK_BRAIN_VIEW } from './brainViewFixture';
  * keep the call site stable but isn't yet used to select data.
  */
 export function useBrainViewData(_taskId: string): TaskBrainViewData {
-  return MOCK_BRAIN_VIEW;
+  // Anchored to the current wall clock so relative labels stay fresh
+  // however long the bundle has been loaded before the view is opened.
+  return buildMockBrainView(Date.now());
 }

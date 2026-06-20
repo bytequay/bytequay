@@ -21,16 +21,13 @@ import type { TaskBrainViewData } from '../../types/brainView';
  * a feed of system events plus one user question and the brain's reply,
  * a pending push approval, and a linked draft PR.
  *
- * Timestamps are anchored to {@link FIXTURE_BASE_MS} — captured once at
- * module load — so the running app always renders fresh relative labels
- * ("14m ago", "now"). Tests render the page with `nowMs={FIXTURE_BASE_MS}`
- * to get deterministic relative output regardless of wall-clock time.
+ * Timestamps are computed relative to `nowMs` — the moment the view is
+ * rendered — so the running app always shows fresh relative labels
+ * ("14m ago", "now") no matter how long the bundle has been loaded.
+ * (Anchoring to module-load time instead would drift: a page opened an
+ * hour after launch would read "1h ago" for the live row.) Pass a fixed
+ * `nowMs` in tests for deterministic relative output.
  */
-export const FIXTURE_BASE_MS = Date.now();
-
-const ago = (minutes: number): string =>
-  new Date(FIXTURE_BASE_MS - minutes * 60_000).toISOString();
-
 const DEV = 'stage-dev';
 const CIFIX = 'stage-cifix';
 const REVMON = 'stage-revmon';
@@ -38,7 +35,11 @@ const CLEANUP = 'stage-cleanup';
 const REVIEW1 = 'substage-review-1';
 const REVIEW2 = 'substage-review-2';
 
-export const MOCK_BRAIN_VIEW: TaskBrainViewData = {
+export function buildMockBrainView(nowMs: number): TaskBrainViewData {
+  const ago = (minutes: number): string =>
+    new Date(nowMs - minutes * 60_000).toISOString();
+
+  return {
   task: {
     id: '7c5cff00-0000-4000-8000-000000000002',
     title: 'Cost-meter widget · workspace sidebar',
@@ -199,4 +200,5 @@ export const MOCK_BRAIN_VIEW: TaskBrainViewData = {
       { id: 'feed-6', label: "2m · 'Are all changes covered by tests?'", active: true },
     ],
   },
-};
+  };
+}

@@ -12,11 +12,16 @@
  * limitations under the License.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TaskBrainView from './TaskBrainView';
-import { FIXTURE_BASE_MS } from './brainViewFixture';
 
-afterEach(cleanup);
+// Freeze the wall clock so both the mock hook (which anchors fixture
+// timestamps to Date.now()) and the page's relative-time rendering see
+// the same instant — making "14 minutes ago" / "now" deterministic.
+const FROZEN = Date.parse('2026-06-20T12:00:00.000Z');
+
+beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(FROZEN); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function renderView(over: Partial<Parameters<typeof TaskBrainView>[0]> = {}) {
   return render(
@@ -25,7 +30,6 @@ function renderView(over: Partial<Parameters<typeof TaskBrainView>[0]> = {}) {
       threadId="thread-1"
       onBack={() => {}}
       onOpenThread={() => {}}
-      nowMs={FIXTURE_BASE_MS}
       {...over}
     />,
   );

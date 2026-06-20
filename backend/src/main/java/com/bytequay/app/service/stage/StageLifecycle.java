@@ -54,10 +54,12 @@ public class StageLifecycle
     private static final Logger log = LoggerFactory.getLogger(StageLifecycle.class);
 
     private final StageStore stageStore;
+    private final StageBudgetService budgetService;
 
-    public StageLifecycle(StageStore stageStore)
+    public StageLifecycle(StageStore stageStore, StageBudgetService budgetService)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.budgetService = requireNonNull(budgetService, "budgetService is null");
     }
 
     @EventListener
@@ -122,6 +124,8 @@ public class StageLifecycle
         // Phase-driven stages are top-level — only a callable review panel
         // carries a caller pointer, so callerStageId stays null here.
         StageInstance opened = stageStore.openStage(taskId, target.get(), null);
+        // Seed a monitor stage's budget / review config at open time.
+        budgetService.onStageOpened(opened);
         log.debug("opened {} stage {} for task {} on phase {}",
                 target.get(), opened.id(), taskId, toPhase);
     }

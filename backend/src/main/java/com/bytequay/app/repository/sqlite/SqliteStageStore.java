@@ -114,6 +114,22 @@ class SqliteStageStore
     }
 
     @Override
+    public Optional<String> findMetricsJson(UUID stageId)
+    {
+        return stages.findById(stageId.toString()).map(TaskStageEntity::getMetricsJson);
+    }
+
+    @Override
+    @Transactional
+    public void updateMetricsJson(UUID stageId, String metricsJson)
+    {
+        stages.findById(stageId.toString()).ifPresent(row -> {
+            row.setMetricsJson(metricsJson);
+            stages.save(row);
+        });
+    }
+
+    @Override
     public List<StageInstance> findStagesByTask(String taskId)
     {
         return stages.findByTaskIdOrderByOpenedAtMsAsc(taskId).stream()

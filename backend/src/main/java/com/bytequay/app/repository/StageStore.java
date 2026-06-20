@@ -50,6 +50,12 @@ public interface StageStore
 
     Optional<StageInstance> findStageById(UUID stageId);
 
+    /** The raw {@code metrics_json} blob for a stage, or empty if unknown. */
+    Optional<String> findMetricsJson(UUID stageId);
+
+    /** Overwrite a stage's {@code metrics_json} blob. No-op when unknown. */
+    void updateMetricsJson(UUID stageId, String metricsJson);
+
     /** A task's stages, oldest-first. */
     List<StageInstance> findStagesByTask(String taskId);
 

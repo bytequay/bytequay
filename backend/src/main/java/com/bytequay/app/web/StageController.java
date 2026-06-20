@@ -13,15 +13,18 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.beans.stage.SpawnReviewResult;
 import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.service.stage.ReviewStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -31,20 +34,26 @@ import java.util.UUID;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Read endpoints for the Task stages surface and the brain view. Thin
- * delegator to {@link StageService}; no auth beyond the existing
- * internal-API sanity checks (the backend is a localhost sidecar).
+ * Endpoints for the Task stages surface and the brain view. Mostly read
+ * delegators to {@link StageService}, plus the one write that spawns a
+ * callable review sub-stage. No auth beyond the existing internal-API
+ * sanity checks (the backend is a localhost sidecar).
  */
 @RestController
 public class StageController
 {
     private final StageService service;
     private final StageDetailService detailService;
+    private final ReviewStageService reviewStageService;
 
-    public StageController(StageService service, StageDetailService detailService)
+    public StageController(
+            StageService service,
+            StageDetailService detailService,
+            ReviewStageService reviewStageService)
     {
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
+        this.reviewStageService = requireNonNull(reviewStageService, "reviewStageService is null");
     }
 
     @GetMapping("/api/tasks/{taskId}/brain")
@@ -75,6 +84,12 @@ public class StageController
     public StageDetailData stageDetail(@PathVariable String stageId)
     {
         return detailService.getDetail(parseStageId(stageId));
+    }
+
+    @PostMapping("/api/stages/{parentStageId}/spawn-review")
+    public SpawnReviewResult spawnReview(@PathVariable String parentStageId)
+    {
+        return reviewStageService.spawnReview(parseStageId(parentStageId));
     }
 
     private static UUID parseStageId(String raw)

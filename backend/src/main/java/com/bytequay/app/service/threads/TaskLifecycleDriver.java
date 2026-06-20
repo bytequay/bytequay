@@ -26,6 +26,7 @@ import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -89,6 +90,7 @@ public class TaskLifecycleDriver
     private final ThreadTurnScheduler scheduler;
     private final NotificationService notifications;
     private final ObjectMapper mapper;
+    private final RemoteCommentIngestor commentIngestor;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -99,7 +101,8 @@ public class TaskLifecycleDriver
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             NotificationService notifications,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            RemoteCommentIngestor commentIngestor)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -110,6 +113,7 @@ public class TaskLifecycleDriver
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.commentIngestor = requireNonNull(commentIngestor, "commentIngestor is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -147,6 +151,9 @@ public class TaskLifecycleDriver
             return;
         }
         PullRequestDetail detail = pullRequests.getPullRequestDetail(repo, number);
+        // Mirror any new remote review comments into the unified
+        // review_comment table (idempotent) before acting on the phase.
+        commentIngestor.ingest(task.id(), repo, number, detail);
         Optional<TaskPhase> target = TaskLifecyclePhases.observedPhaseFromDetail(detail);
         if (target.isEmpty()) {
             return;

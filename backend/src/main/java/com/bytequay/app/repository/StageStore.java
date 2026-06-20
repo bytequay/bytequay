@@ -87,6 +87,10 @@ public interface StageStore
 
     Optional<ReviewComment> findReviewCommentById(UUID id);
 
+    /** Whether a remote-sourced comment with this link is already stored —
+     *  the dedup guard for remote-comment ingestion. */
+    boolean reviewCommentExistsByRemoteLink(String remoteLink);
+
     /** A task's unresolved comments, any source. */
     List<ReviewComment> findUnresolvedComments(String taskId);
 

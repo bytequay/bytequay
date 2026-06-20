@@ -1,0 +1,1509 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`TaskBrainView > matches the snapshot for the mock fixture 1`] = `
+<div>
+  <div
+    class="task-brain"
+  >
+    <div
+      aria-hidden="true"
+      class="mesh-bg"
+    />
+    <div
+      class="tbv-stack"
+    >
+      <div
+        class="unibar"
+      >
+        <button
+          aria-label="Back"
+          class="back"
+          title="Back"
+        >
+          <span
+            aria-hidden="true"
+            class="wa"
+          >
+            B
+          </span>
+        </button>
+        <span
+          class="task-id"
+        >
+          ● TASK 
+          2
+        </span>
+        <span
+          class="title"
+        >
+          Cost-meter widget · workspace sidebar
+        </span>
+        <span
+          class="meta"
+        >
+          <span
+            aria-hidden="true"
+            class="sep"
+          >
+            ·
+          </span>
+          <span
+            class="branch"
+          >
+            jack/cost-meter
+          </span>
+          <span
+            aria-hidden="true"
+            class="sep"
+          >
+            ·
+          </span>
+          <button
+            class="pr"
+            disabled=""
+            title="Open PR #5680"
+          >
+            PR #
+            5680
+             →
+          </button>
+          <span
+            aria-hidden="true"
+            class="sep"
+          >
+            ·
+          </span>
+          <span>
+            draft
+          </span>
+        </span>
+        <span
+          class="grow"
+        />
+        <span
+          class="agent-pill"
+          title="Agent runtime · model"
+        >
+          <span
+            class="rt cli"
+          >
+            <span
+              aria-hidden="true"
+              class="ic"
+            >
+              ⌘
+            </span>
+            CLAUDE CLI
+          </span>
+          <span
+            class="md"
+          >
+            sonnet-3.7
+          </span>
+        </span>
+        <span
+          class="stat-pill"
+        >
+          <span
+            class="d"
+          />
+          CI FIXING · iter #3
+        </span>
+        <button
+          aria-label="More actions"
+          class="icon-btn"
+          title="More"
+        >
+          ⋯
+        </button>
+      </div>
+      <div
+        class="agg-strip"
+      >
+        <span
+          aria-label="Aggregate across all stages"
+          class="lbl"
+          title="Aggregate across all stages"
+        >
+          ∑
+        </span>
+        <div
+          class="items"
+        >
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              pushes
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              4
+            </span>
+          </div>
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              active
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              12m
+            </span>
+          </div>
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              waiting
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              23m
+            </span>
+          </div>
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              tool calls
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              89
+            </span>
+          </div>
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              turns
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              31
+            </span>
+          </div>
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              messages
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              412
+            </span>
+          </div>
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              panels
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              2
+            </span>
+          </div>
+          <div
+            class="m"
+          >
+            <span
+              class="n"
+            >
+              cost
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v cost"
+            >
+              $1.47
+            </span>
+          </div>
+          <div
+            class="m budget"
+            title="CiFix auto-push budget"
+          >
+            <span
+              class="n"
+            >
+              auto-push
+            </span>
+            <span
+              aria-hidden="true"
+              class="x"
+            >
+              ×
+            </span>
+            <span
+              class="v"
+            >
+              5
+              /
+              5
+            </span>
+          </div>
+        </div>
+        <div
+          class="right"
+        >
+          <span
+            class="live-pill"
+          >
+            <span
+              class="d"
+            />
+            CI FIX RUNNING
+          </span>
+        </div>
+      </div>
+      <div
+        class="tbv-body"
+        style="grid-template-columns: 252px minmax(0, 1fr) 308px;"
+      >
+        <aside
+          class="rail"
+        >
+          <button
+            class="up-thread"
+            type="button"
+          >
+            ↑ Thread · 
+            Cost & tokens
+          </button>
+          <div>
+            <div
+              class="sec-h"
+            >
+              View
+            </div>
+            <div
+              class="stages-list"
+            >
+              <div
+                aria-current="page"
+                class="stage-chip brain"
+              >
+                <span
+                  aria-hidden="true"
+                  class="gl"
+                >
+                  ⊕
+                </span>
+                <div>
+                  <div
+                    class="nm"
+                  >
+                    Brain (you are here)
+                  </div>
+                  <div
+                    class="sub"
+                  >
+                    summary · ask · steer
+                  </div>
+                </div>
+                <span
+                  class="ct"
+                >
+                  8
+                </span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div
+              class="sec-h"
+            >
+              Lifecycle 
+              <span
+                class="r"
+              >
+                4
+                 stages
+              </span>
+            </div>
+            <div
+              class="stages-list"
+            >
+              <button
+                class="stage-chip done"
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  class="gl"
+                >
+                  ✓
+                </span>
+                <div>
+                  <div
+                    class="nm"
+                  >
+                    DevelopmentStage
+                  </div>
+                  <div
+                    class="sub"
+                  >
+                    closed · 1 iter
+                  </div>
+                </div>
+                <span
+                  class="ct"
+                >
+                  1
+                </span>
+              </button>
+              <button
+                class="stage-chip active"
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  class="gl"
+                >
+                  ◼
+                </span>
+                <div>
+                  <div
+                    class="nm"
+                  >
+                    CiFixingStage
+                  </div>
+                  <div
+                    class="sub"
+                  >
+                    active · iter #3 · running
+                  </div>
+                </div>
+                <span
+                  aria-hidden="true"
+                  class="ct warn"
+                >
+                  ⊕
+                </span>
+              </button>
+              <button
+                class="stage-chip idle"
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  class="gl"
+                >
+                  ⊙
+                </span>
+                <div>
+                  <div
+                    class="nm"
+                  >
+                    ReviewMonitorStage
+                  </div>
+                  <div
+                    class="sub"
+                  >
+                    idle · 1 iter so far
+                  </div>
+                </div>
+                <span
+                  class="ct"
+                >
+                  1
+                </span>
+              </button>
+              <button
+                class="stage-chip future"
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  class="gl"
+                >
+                  ◯
+                </span>
+                <div>
+                  <div
+                    class="nm"
+                  >
+                    CleanupStage
+                  </div>
+                  <div
+                    class="sub"
+                  >
+                    not yet opened
+                  </div>
+                </div>
+                <span
+                  class="ct"
+                >
+                  —
+                </span>
+              </button>
+            </div>
+          </div>
+          <div>
+            <div
+              class="sec-h"
+            >
+              Sub-stages 
+              <span
+                class="r"
+              >
+                2
+                 panels
+              </span>
+            </div>
+            <div
+              class="group-label"
+            >
+              Spawned from internal review
+            </div>
+            <div
+              class="stages-list sub"
+            >
+              <button
+                class="stage-chip done"
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  class="gl"
+                >
+                  ✓
+                </span>
+                <div>
+                  <div
+                    class="nm"
+                  >
+                    ReviewStage
+                     #
+                    1
+                  </div>
+                  <div
+                    class="sub"
+                  >
+                    from Dev · 3 findings · agreed
+                  </div>
+                </div>
+                <span
+                  aria-hidden="true"
+                  class="ct"
+                >
+                  ·
+                </span>
+              </button>
+              <button
+                class="stage-chip done"
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  class="gl"
+                >
+                  ✓
+                </span>
+                <div>
+                  <div
+                    class="nm"
+                  >
+                    ReviewStage
+                     #
+                    2
+                  </div>
+                  <div
+                    class="sub"
+                  >
+                    from ReviewMon · 1 finding
+                  </div>
+                </div>
+                <span
+                  aria-hidden="true"
+                  class="ct"
+                >
+                  ·
+                </span>
+              </button>
+            </div>
+          </div>
+        </aside>
+        <main
+          class="brain"
+        >
+          <div
+            class="conv-scrub-wrap left"
+          >
+            <div
+              aria-label="Stage summary events · click a dash to jump"
+              class="conv-scrub stages"
+              role="group"
+            >
+              <button
+                aria-label="14m · Dev stage opened"
+                class="dash"
+                data-label="14m · Dev stage opened"
+                title="14m · Dev stage opened"
+                type="button"
+              />
+              <button
+                aria-label="13m · Panel review completed"
+                class="dash"
+                data-label="13m · Panel review completed"
+                title="13m · Panel review completed"
+                type="button"
+              />
+              <button
+                aria-label="12m · Pushed · PR #5680 created"
+                class="dash"
+                data-label="12m · Pushed · PR #5680 created"
+                title="12m · Pushed · PR #5680 created"
+                type="button"
+              />
+              <button
+                aria-label="6m · CI fix #1 summary"
+                class="dash"
+                data-label="6m · CI fix #1 summary"
+                title="6m · CI fix #1 summary"
+                type="button"
+              />
+              <button
+                aria-label="5m · Review comment addressed"
+                class="dash"
+                data-label="5m · Review comment addressed"
+                title="5m · Review comment addressed"
+                type="button"
+              />
+              <button
+                aria-label="now · CI fix #3 running"
+                class="dash active"
+                data-label="now · CI fix #3 running"
+                title="now · CI fix #3 running"
+                type="button"
+              />
+            </div>
+          </div>
+          <div
+            class="conv-scrub-wrap right"
+          >
+            <div
+              aria-label="Your messages · click a dash to jump"
+              class="conv-scrub you-msgs"
+              role="group"
+            >
+              <button
+                aria-label="2m · 'Are all changes covered by tests?'"
+                class="dash active"
+                data-label="2m · 'Are all changes covered by tests?'"
+                title="2m · 'Are all changes covered by tests?'"
+                type="button"
+              />
+            </div>
+          </div>
+          <div
+            class="scroll"
+          >
+            <div
+              class="tdiv"
+            >
+              <span
+                class="ln"
+              />
+              <span>
+                14 minutes ago
+              </span>
+              <span
+                class="ln"
+              />
+            </div>
+            <div
+              class="ev"
+              data-row-id="feed-1"
+              id="feed-1"
+            >
+              <span
+                aria-hidden="true"
+                class="ic stage-open"
+              >
+                ◼
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who system"
+                  >
+                    STAGE OPENED
+                  </span>
+                  <button
+                    class="stage-tag dev"
+                    role="link"
+                    title="Open DevelopmentStage"
+                    type="button"
+                  >
+                    DevelopmentStage
+                  </button>
+                  <span
+                    class="ts"
+                  >
+                    14m ago
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    First iteration: implement the cost-meter widget below the memory peek card. Wire to 
+                    <code>
+                      WorkspaceMetricsService.totalCostMilli()
+                    </code>
+                    .
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div
+              class="ev"
+              data-row-id="feed-2"
+              id="feed-2"
+            >
+              <span
+                aria-hidden="true"
+                class="ic review"
+              >
+                ⚖
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who system"
+                  >
+                    PANEL REVIEW COMPLETED
+                  </span>
+                  <button
+                    class="stage-tag review"
+                    role="link"
+                    title="Open ReviewStage #1"
+                    type="button"
+                  >
+                    ReviewStage #1
+                  </button>
+                  <span
+                    class="ts"
+                  >
+                    13m ago
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    Internal review panel ran with 
+                    <strong>
+                      DeepSeek + Java expertise X + Skimmed reviewer
+                    </strong>
+                    . 3 findings, all AGREED. Addressed them in the follow-up code pass.
+                  </p>
+                </div>
+                <button
+                  class="drill"
+                  type="button"
+                >
+                  🔍 Open stage
+                </button>
+              </div>
+            </div>
+            <div
+              class="ev"
+              data-row-id="feed-3"
+              id="feed-3"
+            >
+              <span
+                aria-hidden="true"
+                class="ic push"
+              >
+                ⏏
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who system"
+                  >
+                    PUSHED · PR CREATED
+                  </span>
+                  <button
+                    class="stage-tag dev"
+                    role="link"
+                    title="Open DevelopmentStage"
+                    type="button"
+                  >
+                    DevelopmentStage
+                  </button>
+                  <span
+                    class="ts"
+                  >
+                    12m ago
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    Branch 
+                    <code>
+                      jack/cost-meter
+                    </code>
+                     pushed to origin. Draft PR 
+                    <code>
+                      #5680
+                    </code>
+                     created. 
+                    <strong>
+                      DevelopmentStage closed
+                    </strong>
+                    . 
+                    <strong>
+                      CiFixingStage
+                    </strong>
+                     and 
+                    <strong>
+                      ReviewMonitorStage
+                    </strong>
+                     armed.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div
+              class="tdiv"
+            >
+              <span
+                class="ln"
+              />
+              <span>
+                6 minutes ago
+              </span>
+              <span
+                class="ln"
+              />
+            </div>
+            <div
+              class="ev"
+              data-row-id="feed-4"
+              id="feed-4"
+            >
+              <span
+                aria-hidden="true"
+                class="ic iter"
+              >
+                ⊕
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who system"
+                  >
+                    CI FIXING · ITERATION SUMMARY
+                  </span>
+                  <button
+                    class="stage-tag cifix"
+                    role="link"
+                    title="Open CiFixingStage"
+                    type="button"
+                  >
+                    CiFixingStage
+                  </button>
+                  <span
+                    class="ts"
+                  >
+                    6m ago
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    <strong>
+                      Fix #1:
+                    </strong>
+                     bumped retry-count default 3 → 5 in 
+                    <code>
+                      RetryConfig.java
+                    </code>
+                    ; tests pass. Auto-pushed (1/5 used). CI green after the fix.
+                  </p>
+                </div>
+                <button
+                  class="drill"
+                  type="button"
+                >
+                  🔍 Open stage
+                </button>
+              </div>
+            </div>
+            <div
+              class="ev"
+              data-row-id="feed-5"
+              id="feed-5"
+            >
+              <span
+                aria-hidden="true"
+                class="ic iter"
+              >
+                ⊕
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who system"
+                  >
+                    REVIEW MONITOR · ITERATION SUMMARY
+                  </span>
+                  <button
+                    class="stage-tag revmon"
+                    role="link"
+                    title="Open ReviewMonitorStage"
+                    type="button"
+                  >
+                    ReviewMonitorStage
+                  </button>
+                  <span
+                    class="ts"
+                  >
+                    5m ago
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    <strong>
+                      Iter #1:
+                    </strong>
+                     @jane left an inline comment on 
+                    <code>
+                      CostMeter.tsx#L42
+                    </code>
+                     asking for a memoization. Addressed it; you approved the push. Pushed (1 push used).
+                  </p>
+                </div>
+                <button
+                  class="drill"
+                  type="button"
+                >
+                  🔍 Open stage
+                </button>
+              </div>
+            </div>
+            <div
+              class="tdiv"
+            >
+              <span
+                class="ln"
+              />
+              <span>
+                2 minutes ago
+              </span>
+              <span
+                class="ln"
+              />
+            </div>
+            <div
+              class="ev you-msg"
+              data-row-id="feed-6"
+              id="feed-6"
+            >
+              <span
+                aria-hidden="true"
+                class="ic user"
+              >
+                YOU
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who user"
+                  >
+                    YOU
+                  </span>
+                  <span
+                    class="ts"
+                  >
+                    2m ago
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    Are all the changes covered by tests?
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div
+              class="ev"
+              data-row-id="feed-7"
+              id="feed-7"
+            >
+              <span
+                aria-hidden="true"
+                class="ic brain"
+              >
+                ⊕
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who brain"
+                  >
+                    BRAIN
+                  </span>
+                  <span
+                    class="ts"
+                  >
+                    2m ago
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    Yes — 
+                    <strong>
+                      4 new test files
+                    </strong>
+                     were added in DevelopmentStage and 
+                    <strong>
+                      2 more
+                    </strong>
+                     in ReviewMonitorStage iter #1. The retry-count change in CiFixingStage iter #1 doesn't have a dedicated test — covered transitively by the existing 
+                    <code>
+                      RetryConfigTest
+                    </code>
+                     suite (10 tests).
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div
+              class="tdiv"
+            >
+              <span
+                class="ln"
+              />
+              <span>
+                now
+              </span>
+              <span
+                class="ln"
+              />
+            </div>
+            <div
+              class="ev"
+              data-row-id="feed-8"
+              id="feed-8"
+            >
+              <span
+                aria-hidden="true"
+                class="ic iter live"
+              >
+                ⊕
+              </span>
+              <div
+                class="body"
+              >
+                <div
+                  class="who-row"
+                >
+                  <span
+                    class="who system"
+                  >
+                    CI FIXING · RUNNING
+                  </span>
+                  <button
+                    class="stage-tag cifix"
+                    role="link"
+                    title="Open CiFixingStage"
+                    type="button"
+                  >
+                    CiFixingStage
+                  </button>
+                  <span
+                    class="live-pill"
+                  >
+                    <span
+                      class="d"
+                    />
+                    LIVE
+                  </span>
+                  <span
+                    class="ts"
+                  >
+                    now
+                  </span>
+                </div>
+                <div
+                  class="tx"
+                >
+                  <p>
+                    Detected red CI: 
+                    <code>
+                      linter warning unused-import
+                    </code>
+                     in 
+                    <code>
+                      CostMeter.tsx
+                    </code>
+                    . Agent addressing now — awaiting push approval (budget exhausted: 
+                    <strong>
+                      5/5 used
+                    </strong>
+                    ).
+                  </p>
+                </div>
+                <button
+                  class="drill"
+                  type="button"
+                >
+                  🔍 Open stage
+                </button>
+              </div>
+            </div>
+          </div>
+          <div
+            class="composer"
+          >
+            <div
+              class="cbox"
+            >
+              <span
+                aria-hidden="true"
+                class="p"
+              >
+                ›
+              </span>
+              <textarea
+                aria-label="Message the brain agent"
+                class="t"
+                placeholder="Ask the brain agent about any stage, or steer the task…"
+                rows="3"
+              />
+              <button
+                aria-label="Send"
+                class="send-icon"
+                disabled=""
+                title="Send (⌘+↵)"
+                type="button"
+              >
+                ↑
+              </button>
+            </div>
+            <div
+              class="foot"
+            >
+              <span
+                class="kbd"
+              >
+                ⌘+↵
+              </span>
+               send
+              <span
+                class="kbd"
+              >
+                ⇧+↵
+              </span>
+               new line
+              <span
+                class="kbd"
+              >
+                ?
+              </span>
+               brain agent
+              <span
+                class="kbd"
+              >
+                /
+              </span>
+               jump to stage
+              <span
+                class="hint"
+              >
+                @StageName directive on the roadmap — not v1.
+              </span>
+            </div>
+          </div>
+        </main>
+        <aside
+          class="right-rail"
+        >
+          <div
+            class="approval-card"
+          >
+            <div
+              class="hd"
+            >
+              <span
+                aria-hidden="true"
+                class="ic"
+              >
+                ⏳
+              </span>
+              Approval needed
+            </div>
+            <div
+              class="stage-name"
+            >
+              CiFixingStage · iter #3 · push
+            </div>
+            <div
+              class="kv"
+            >
+              <div
+                class="kv-row"
+              >
+                <div
+                  class="kv-lbl"
+                >
+                  Why
+                </div>
+                <div
+                  class="kv-val"
+                >
+                  Auto-push budget exhausted (5/5)
+                </div>
+              </div>
+              <div
+                class="kv-row"
+              >
+                <div
+                  class="kv-lbl"
+                >
+                  Pending fix
+                </div>
+                <div
+                  class="kv-val mono"
+                >
+                  CostMeter.tsx — remove unused import
+                </div>
+              </div>
+            </div>
+            <button
+              class="btn"
+              type="button"
+            >
+              Review & approve push
+            </button>
+          </div>
+          <div>
+            <div
+              class="sec-h"
+            >
+              Linked PR
+            </div>
+            <div
+              style="margin-top: 7px;"
+            >
+              <div
+                class="pr-card"
+              >
+                <div
+                  class="num"
+                >
+                  #
+                  5680
+                   · 
+                  jack/cost-meter
+                </div>
+                <div
+                  class="row"
+                >
+                  <span
+                    class="l"
+                  >
+                    Status
+                  </span>
+                  <span
+                    class="v draft"
+                  >
+                    draft
+                  </span>
+                </div>
+                <div
+                  class="row"
+                >
+                  <span
+                    class="l"
+                  >
+                    CI
+                  </span>
+                  <span
+                    class="v warn"
+                  >
+                    ⚠ 1 failing
+                  </span>
+                </div>
+                <div
+                  class="row"
+                >
+                  <span
+                    class="l"
+                  >
+                    Reviewers
+                  </span>
+                  <span
+                    class="v"
+                  >
+                    2
+                    /
+                    3
+                     approved
+                  </span>
+                </div>
+                <div
+                  class="row"
+                >
+                  <span
+                    class="l"
+                  >
+                    Conflicts
+                  </span>
+                  <span
+                    class="v ok"
+                  >
+                    none
+                  </span>
+                </div>
+                <div
+                  class="merge-section"
+                >
+                  <button
+                    aria-disabled="true"
+                    class="merge-btn"
+                    disabled=""
+                    type="button"
+                  >
+                    ⏏ Merge — finalize PR
+                  </button>
+                  <div
+                    class="merge-note"
+                  >
+                    Resolve CI and required approvals to merge.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div
+              class="sec-h"
+            >
+              Commits 
+              <span
+                class="r"
+              >
+                this task · 
+                1
+              </span>
+            </div>
+            <div
+              class="commits-card"
+              style="margin-top: 7px;"
+            >
+              <div
+                class="msg"
+              >
+                Remove raw backend thread starts
+              </div>
+              <div
+                class="meta"
+              >
+                <span
+                  class="sha"
+                >
+                  6be742d9
+                </span>
+                <span
+                  class="when"
+                >
+                  21h ago
+                </span>
+              </div>
+              <button
+                class="diff-btn"
+                type="button"
+              >
+                ⇄ View code diff
+              </button>
+            </div>
+          </div>
+          <div>
+            <div
+              class="sec-h"
+            >
+              Context window 
+              <span
+                class="r"
+              >
+                brain agent
+              </span>
+            </div>
+            <div
+              class="ctx-card"
+              style="margin-top: 7px;"
+            >
+              <div
+                class="head"
+              >
+                <span
+                  class="pct safe"
+                >
+                  43
+                  % 
+                  safe
+                </span>
+                <span
+                  class="ratio"
+                >
+                  86.0k
+                   / 
+                  200.0k
+                </span>
+              </div>
+              <div
+                class="track"
+              >
+                <div
+                  class="fill "
+                  style="width: 43%;"
+                />
+              </div>
+              <button
+                class="view-btn"
+                type="button"
+              >
+                ⬛ View full context 
+                <span
+                  class="kbd"
+                >
+                  ⌘⇧I
+                </span>
+              </button>
+            </div>
+          </div>
+          <div
+            class="pause-card"
+          >
+            <button
+              class="pause-btn"
+              type="button"
+            >
+              ⏸ Pause task
+            </button>
+            <button
+              class="close-btn"
+              type="button"
+            >
+              ⏹ Close task
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div>
+`;

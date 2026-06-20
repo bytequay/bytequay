@@ -26,6 +26,7 @@ import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import ThreadTrunkPage from './threads/ThreadTrunkPage';
 import TaskDetailPage from './threads/TaskDetailPage';
+import TaskBrainView from './threads/brain/TaskBrainView';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import type {
@@ -63,6 +64,10 @@ type Nav =
    *  specific task's detail window (the old monolithic detail page
    *  for now — Phase 3 redesigns it as the proper task-detail shell). */
   | { view: 'thread-detail'; threadId: string; taskId?: string }
+  /** Task brain view — the per-task "brain" surface (aggregate strip,
+   *  stage navigator, brain feed, action rail). Sits alongside the
+   *  older task-detail page; the back link returns to that page. */
+  | { view: 'task-brain'; threadId: string; taskId: string }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -755,6 +760,29 @@ function App() {
             taskId={nav.taskId}
             onBackToTrunk={() => setNav({
               view: 'thread-detail', threadId: nav.threadId,
+            })}
+            onOpenBrainView={() => setNav({
+              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId as string,
+            })}
+            onOpenPr={(owner, repo, prNumber) => setNav({
+              view: 'repo', owner, repo, prNumber, back: nav,
+            })}
+          />
+        )}
+        {nav.view === 'task-brain' && (
+          <TaskBrainView
+            threadId={nav.threadId}
+            taskId={nav.taskId}
+            onBack={() => setNav({
+              view: 'thread-detail', threadId: nav.threadId, taskId: nav.taskId,
+            })}
+            onOpenThread={() => setNav({
+              view: 'thread-detail', threadId: nav.threadId,
+            })}
+            // Stage-detail surface is a later milestone — fall back to the
+            // task-detail page so the click never dead-ends.
+            onOpenStage={() => setNav({
+              view: 'thread-detail', threadId: nav.threadId, taskId: nav.taskId,
             })}
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber, back: nav,

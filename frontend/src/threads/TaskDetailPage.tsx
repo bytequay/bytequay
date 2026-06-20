@@ -59,6 +59,8 @@ type Props = {
   /** Deep-link into the in-app PR detail page for this task's opened
    *  PR. Resolved owner/repo come from the task's workingDir. */
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
+  /** Open the per-task brain view (stage navigator + brain feed). */
+  onOpenBrainView?: () => void;
 };
 
 type Mode = 'conversation' | 'terminal' | 'diff';
@@ -106,7 +108,7 @@ function mergeTaskMessages(
 }
 
 export default function TaskDetailPage({
-  threadId, taskId, onBackToTrunk, onOpenPr,
+  threadId, taskId, onBackToTrunk, onOpenPr, onOpenBrainView,
 }: Props) {
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
@@ -902,6 +904,16 @@ export default function TaskDetailPage({
               <span style={bandStatusStyle}>· {task.status.toLowerCase().replace(/_/g, ' ')}</span>
             )}
             {task !== null && <PhaseChip phase={task.phase} />}
+            {onOpenBrainView !== undefined && (
+              <button
+                type="button"
+                onClick={onOpenBrainView}
+                style={bandBrainBtnStyle}
+                title="Open the task brain view — stage navigator, brain feed, action rail"
+              >
+                ⊕ Brain view
+              </button>
+            )}
             <div style={bandSpacerStyle} />
             {task !== null && (
               <button
@@ -2357,6 +2369,23 @@ const bandPrButtonStyle: React.CSSProperties = {
 const bandRemoteStyle: React.CSSProperties = {
   color: '#0d9488',
   fontWeight: 600,
+};
+
+// Entry chip into the per-task brain view. Purple to echo the brain
+// view's own identity and read as a distinct destination from the teal
+// task-detail chrome.
+const bandBrainBtnStyle: React.CSSProperties = {
+  border: '1px solid rgba(124, 92, 255, 0.28)',
+  background: 'rgba(124, 92, 255, 0.08)',
+  color: '#5b3fff',
+  cursor: 'pointer',
+  padding: '2px 9px',
+  fontSize: 11,
+  fontWeight: 600,
+  lineHeight: 1.6,
+  borderRadius: 999,
+  flexShrink: 0,
+  fontFamily: 'inherit',
 };
 
 const bandSpacerStyle: React.CSSProperties = { flex: 1 };

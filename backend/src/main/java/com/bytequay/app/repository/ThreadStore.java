@@ -45,6 +45,13 @@ public interface ThreadStore
     /** Single-row lookup by id. Empty when no such thread exists. */
     Optional<Thread> findThreadById(String id);
 
+    /** The brain thread bound 1:1 to a task, if one has been created.
+     *  Empty default for test stores; the SQLite store overrides. */
+    default Optional<Thread> findBrainThreadByTask(String taskId)
+    {
+        return Optional.empty();
+    }
+
     /** Replace the thread's planned-task queue (V110). Entity-managed:
      *  written on its own column outside {@link #saveThread} so a
      *  full-row save can't clobber a concurrent queue edit. No-op

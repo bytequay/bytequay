@@ -196,6 +196,13 @@ class SqliteThreadStore
     }
 
     @Override
+    public Optional<Thread> findBrainThreadByTask(String taskId)
+    {
+        return threads.findFirstByKindAndParentTaskId(ThreadKind.BRAIN_AGENT.name(), taskId)
+                .map(this::merge);
+    }
+
+    @Override
     @Transactional
     public void deleteThread(String id)
     {

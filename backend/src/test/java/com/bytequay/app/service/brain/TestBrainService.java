@@ -1,0 +1,107 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.brain;
+
+import com.bytequay.app.beans.brain.BrainMessageResponse;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.ids.IdGenerator;
+import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class TestBrainService
+{
+    private static final String TASK_ID = "task-1";
+    private static final String DEV_THREAD = "dev-thread";
+
+    private final TaskStore taskStore = mock(TaskStore.class);
+    private final ThreadStore threadStore = mock(ThreadStore.class);
+    private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
+    private final IdGenerator idGenerator = mock(IdGenerator.class);
+
+    private final BrainServiceImpl service =
+            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator);
+
+    @Test
+    void createsBrainThreadOnFirstMessageAndEnqueuesTurn()
+    {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(task.threadId()).thenReturn(DEV_THREAD);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
+        Thread devThread = mock(Thread.class);
+        when(devThread.workspaceId()).thenReturn("ws-default");
+        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
+        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
+
+        BrainMessageResponse out = service.sendMessage(TASK_ID, "How many pushes?");
+
+        // A brain thread was created and saved with the right kind + parent.
+        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
+        verify(threadStore).saveThread(saved.capture());
+        assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
+        assertThat(saved.getValue().parentTaskId()).isEqualTo(TASK_ID);
+        // The answering turn was enqueued on that thread.
+        verify(scheduler).enqueueTurn(eq(saved.getValue()), eq("How many pushes?"), any());
+        assertThat(out.turnId()).isEqualTo("turn-1");
+        assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-1");
+    }
+
+    @Test
+    void reusesExistingBrainThread()
+    {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        Thread existing = mock(Thread.class);
+        when(existing.id()).thenReturn("ws-default.brain-existing");
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(existing));
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-2");
+
+        BrainMessageResponse out = service.sendMessage(TASK_ID, "again");
+
+        verify(threadStore, never()).saveThread(any());
+        assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-existing");
+    }
+
+    @Test
+    void rejectsBlankTextAndUnknownTask()
+    {
+        assertThatThrownBy(() -> service.sendMessage(TASK_ID, "  "))
+                .isInstanceOf(ResponseStatusException.class);
+
+        when(taskStore.findTaskById("missing")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.sendMessage("missing", "hi"))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+}

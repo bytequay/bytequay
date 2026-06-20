@@ -313,13 +313,12 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
   }, [prs]);
 
 
-  async function handleAdd(owner: string, repo: string) {
-    const added = await window.bridge.addWatchedRepo(owner, repo);
-    setRepos(prev => {
-      const next = [...prev, added];
-      setCached(KEY_WATCHED, next);
-      return next;
-    });
+  async function handleAdded() {
+    // The modal already watched + mapped the repo; re-read the list so the
+    // new (now clone-backed) row lands with its server-assigned fields.
+    const fresh = await window.bridge.getWatchedRepos();
+    setRepos(fresh);
+    setCached(KEY_WATCHED, fresh);
   }
 
   async function handleRemove(owner: string, repo: string) {
@@ -737,7 +736,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
       {showModal && (
         <AddRepoModal
           watchedRepos={repos}
-          onAdd={handleAdd}
+          onAdded={() => { void handleAdded(); }}
           onClose={() => setShowModal(false)}
         />
       )}

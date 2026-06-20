@@ -12,24 +12,26 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { UserRepoDto, WatchedRepoDto } from './types';
+import type { LocalRepoStatusDto, UserRepoDto, WatchedRepoDto } from './types';
 import Avatar from './Avatar';
+import MapRepoModal from './repos/AddRepoModal';
 
 type Props = {
   watchedRepos: WatchedRepoDto[];
-  onAdd: (owner: string, repo: string) => Promise<void>;
+  // Called after a repo has been both watched AND mapped to a local
+  // clone. A watched repo can never exist without a clone, so adding is
+  // a single map step — the host re-reads its list from this signal.
+  onAdded: (status: LocalRepoStatusDto) => void;
   onClose: () => void;
 };
 
 function RepoRow({
   repo,
   isWatched,
-  adding,
   onAdd,
 }: {
   repo: UserRepoDto;
   isWatched: boolean;
-  adding: boolean;
   onAdd: () => void;
 }) {
   return (
@@ -52,23 +54,25 @@ function RepoRow({
       ) : (
         <button
           className="modal-repo-row__add-btn"
-          disabled={adding}
           onClick={onAdd}
         >
-          {adding ? '…' : 'Add'}
+          Add…
         </button>
       )}
     </div>
   );
 }
 
-function AddRepoModal({ watchedRepos, onAdd, onClose }: Props) {
+function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
   const [userRepos, setUserRepos] = useState<UserRepoDto[]>([]);
   const [searchResults, setSearchResults] = useState<UserRepoDto[] | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
-  const [adding, setAdding] = useState<string | null>(null);
+  // The repo the user is mapping a clone for. Picking a repo doesn't
+  // watch it directly — it opens the locate/clone step, and the repo is
+  // only persisted once that succeeds (every watched repo has a clone).
+  const [mapTarget, setMapTarget] = useState<{ owner: string; repo: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -103,19 +107,15 @@ function AddRepoModal({ watchedRepos, onAdd, onClose }: Props) {
     }, 350);
   }
 
-  async function handleAdd(repo: UserRepoDto) {
-    setAdding(repo.fullName);
-    try {
-      await onAdd(repo.owner, repo.name);
-    } finally {
-      setAdding(null);
-    }
+  function handleAdd(repo: UserRepoDto) {
+    setMapTarget({ owner: repo.owner, repo: repo.name });
   }
 
   const displayRepos = searchResults ?? userRepos;
   const isSearchMode = !!query.trim();
 
   return (
+    <>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal__header">
@@ -149,13 +149,21 @@ function AddRepoModal({ watchedRepos, onAdd, onClose }: Props) {
               key={repo.fullName}
               repo={repo}
               isWatched={watchedSet.has(repo.fullName)}
-              adding={adding === repo.fullName}
-              onAdd={() => void handleAdd(repo)}
+              onAdd={() => handleAdd(repo)}
             />
           ))}
         </div>
       </div>
     </div>
+    {mapTarget && (
+      <MapRepoModal
+        owner={mapTarget.owner}
+        repo={mapTarget.repo}
+        onClose={() => setMapTarget(null)}
+        onMapped={(status) => { setMapTarget(null); onAdded(status); }}
+      />
+    )}
+    </>
   );
 }
 

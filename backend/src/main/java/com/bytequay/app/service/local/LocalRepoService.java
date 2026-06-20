@@ -199,6 +199,10 @@ public class LocalRepoService
         String url = "https://github.com/" + owner + "/" + repo + ".git";
         log.info("Cloning {} → {}", url, destination);
         gitRunner.clone(url, destination);
+        // Upsert: a watched repo is never persisted without a clone, so
+        // the add-to-watch flow calls straight through here with no prior
+        // row. Mapping an already-watched repo finds the row and skips.
+        ensureWatched(owner, repo);
         watchedRepoStore.setLocalClonePath(owner, repo, destination.toString());
         // Direct clone — origin already points at the watched repo,
         // so there is no separate "upstream" remote to track.
@@ -241,9 +245,27 @@ public class LocalRepoService
             throw new IllegalArgumentException(
                     "No remote points at " + owner + "/" + repo + ". Found: " + summary);
         }
+        // Upsert: see cloneFresh — locate is the other entry point for
+        // adding a brand-new watched repo, so create the row on first map.
+        ensureWatched(owner, repo);
         watchedRepoStore.setLocalClonePath(owner, repo, path.toString());
         watchedRepoStore.setUpstreamRemoteName(owner, repo, upstreamRemoteName);
         return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * Creates the watched-repo row if it does not exist yet. A watched
+     * repo must always carry a local clone, so the only way one is born
+     * is through a clone / locate that lands its path in the same call;
+     * this guard lets both entry points run whether or not the user had
+     * previously added the repo. Idempotent — an existing row is left
+     * untouched (so a re-map never resets display order).
+     */
+    private void ensureWatched(String owner, String repo)
+    {
+        if (watchedRepoStore.find(owner, repo).isEmpty()) {
+            watchedRepoStore.add(owner, repo);
+        }
     }
 
     private WatchedRepo refreshWatchedRepo(String owner, String repo)

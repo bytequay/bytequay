@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { StageDto, StageType } from '../../types/brainView';
+import { useEffect, useState } from 'react';
+import type { BrainFeedRow, StageDto, StageType } from '../../types/brainView';
 import { useBrainViewData } from './useBrainViewData';
 import { buildStageLabels } from './stageMeta';
 import { TaskIdentityBar } from './TaskIdentityBar';
@@ -58,9 +59,39 @@ export default function TaskBrainView({
   taskId, threadId: _threadId, threadTitle = 'Cost & tokens',
   onBack, onOpenThread, onOpenStage, onOpenPr, nowMs,
 }: Props) {
-  const data = useBrainViewData(taskId);
+  const { data, pollFast } = useBrainViewData(taskId);
   const { task, aggregate, stages, subStages, brainFeed, rightRail, scrubbers } = data;
   const clock = nowMs ?? Date.now();
+
+  // Optimistic YOU bubbles: shown immediately on submit so the user sees
+  // their message before the round-trip, then dropped once the persisted
+  // row shows up in the polled feed (matched on body).
+  const [optimistic, setOptimistic] = useState<BrainFeedRow[]>([]);
+  useEffect(() => {
+    setOptimistic(prev => prev.filter(
+      o => !brainFeed.some(r => r.type === 'USER_MESSAGE' && r.body === o.body)));
+  }, [brainFeed]);
+
+  const submitMessage = (text: string) => {
+    const optimisticRow: BrainFeedRow = {
+      id: `optimistic-${Date.now()}`,
+      type: 'USER_MESSAGE',
+      stageId: null,
+      stageType: null,
+      ts: new Date(clock).toISOString(),
+      body: text,
+      referencedStageId: null,
+    };
+    setOptimistic(prev => [...prev, optimisticRow]);
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (bridge?.sendBrainMessage) {
+      bridge.sendBrainMessage(taskId, text)
+        .then(() => pollFast())
+        .catch(() => { /* leave the optimistic bubble; the next poll reconciles */ });
+    }
+  };
+
+  const feed: BrainFeedRow[] = optimistic.length === 0 ? brainFeed : [...brainFeed, ...optimistic];
 
   const allStages: StageDto[] = [...stages, ...subStages];
   const activeStageIds = new Set(allStages.filter(s => s.state === 'ACTIVE').map(s => s.id));
@@ -106,13 +137,13 @@ export default function TaskBrainView({
             onOpenStage={openStage}
           />
           <BrainFeedColumn
-            feed={brainFeed}
+            feed={feed}
             scrubbers={scrubbers}
             stageLabels={stageLabels}
             activeStageIds={activeStageIds}
             nowMs={clock}
             onOpenStage={openStage}
-            onSubmitMessage={text => console.log('[brain view] composer submit (stub):', text)}
+            onSubmitMessage={submitMessage}
           />
           <RightRail
             rail={rightRail}

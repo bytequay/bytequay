@@ -11,6 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { BrainMessageResult, TaskBrainViewData } from './types/brainView';
+
 export type HandledAction =
   | 'APPROVED'
   | 'MERGED'
@@ -3750,6 +3752,14 @@ export type Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => () => void;
+
+  // ── Brain agent (per-task read-only conversational surface) ──────
+  /** Full brain-view payload for a task: aggregate strip, stages,
+   *  brain feed, right rail, scrubbers. Polled by the brain view. */
+  getBrainView: (taskId: string) => Promise<TaskBrainViewData>;
+  /** Post a question to the task's brain agent. Returns the answering
+   *  turn id and the brain thread id (subscribe to its stream). */
+  sendBrainMessage: (taskId: string, text: string) => Promise<BrainMessageResult>;
 
   // ── Thread tabs: working-tree changes + commits ──────────────────
   /** Files modified by the AI session but not yet committed. Returns

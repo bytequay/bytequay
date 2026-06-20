@@ -842,6 +842,31 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('brain:getView', async (_event, taskId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend brain view returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('brain:sendMessage', async (_event, taskId: string, text: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain/message`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend brain message returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:myActivity', async (_event, scope: string, tz?: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/my-activity`);
     url.searchParams.set('scope', scope);

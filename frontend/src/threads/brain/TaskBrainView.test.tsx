@@ -21,7 +21,7 @@ import TaskBrainView from './TaskBrainView';
 const FROZEN = Date.parse('2026-06-20T12:00:00.000Z');
 
 beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(FROZEN); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
 
 function renderView(over: Partial<Parameters<typeof TaskBrainView>[0]> = {}) {
   return render(
@@ -100,5 +100,21 @@ describe('TaskBrainView', () => {
     renderView({ onOpenPr });
     fireEvent.click(screen.getByRole('button', { name: /^PR #5680/ }));
     expect(onOpenPr).toHaveBeenCalledWith('trinodb', 'trino', 5680);
+  });
+
+  it('posts a brain message and shows the optimistic YOU bubble', () => {
+    const sendBrainMessage = vi.fn().mockResolvedValue({ turnId: 't', brainThreadId: 'b' });
+    const getBrainView = vi.fn().mockRejectedValue(new Error('offline in test'));
+    (window as unknown as { bridge: unknown }).bridge = { sendBrainMessage, getBrainView };
+
+    renderView();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message the brain agent' }), {
+      target: { value: 'How many pushes have we done?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(sendBrainMessage).toHaveBeenCalledWith('task-2', 'How many pushes have we done?');
+    // Optimistic bubble appears immediately, before any round-trip.
+    expect(screen.getByText('How many pushes have we done?')).toBeTruthy();
   });
 });

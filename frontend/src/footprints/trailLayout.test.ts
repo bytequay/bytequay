@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  addDays, formatClock, formatDayLabel, isSameDay, pinPositions, surfaceMeta, toYmd,
+  addDays, computeTrail, formatClock, formatDayLabel, isSameDay, surfaceMeta, toYmd,
 } from './trailLayout';
 
 describe('surfaceMeta', () => {
@@ -25,10 +25,10 @@ describe('surfaceMeta', () => {
   });
 });
 
-describe('pinPositions', () => {
+describe('computeTrail', () => {
   it('returns one position per pin within the card bounds', () => {
-    expect(pinPositions(0)).toEqual([]);
-    const five = pinPositions(5);
+    expect(computeTrail(0).positions).toEqual([]);
+    const five = computeTrail(5).positions;
     expect(five).toHaveLength(5);
     for (const p of five) {
       expect(p.leftPct).toBeGreaterThanOrEqual(0);
@@ -38,12 +38,22 @@ describe('pinPositions', () => {
     }
   });
 
-  it('splits pins across a top row and a lower bottom row', () => {
-    const six = pinPositions(6);
-    const rows = new Set(six.map(p => p.topPct.toFixed(2)));
+  it('keeps a few pins on a single row', () => {
+    const trail = computeTrail(3);
+    const rows = new Set(trail.positions.map(p => p.topPct.toFixed(2)));
+    expect(rows.size).toBe(1);
+    // A single-row trail is a straight horizontal line, no curve.
+    expect(trail.path).not.toContain('C');
+  });
+
+  it('wraps to a two-row serpentine once there are many pins', () => {
+    const trail = computeTrail(8);
+    const rows = new Set(trail.positions.map(p => p.topPct.toFixed(2)));
     expect(rows.size).toBe(2);
     const [topRow, bottomRow] = [...rows].map(Number).sort((a, b) => a - b);
     expect(topRow).toBeLessThan(bottomRow);
+    expect(trail.path).toContain('C');
+    expect(trail.heightPx).toBeGreaterThan(computeTrail(3).heightPx);
   });
 });
 

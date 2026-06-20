@@ -50,8 +50,6 @@ import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -68,26 +66,24 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.util.UriBuilder;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Base64;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.app.domain.PullRequest.Origin.REVIEW_REQUESTED;
+import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
+import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -103,6 +99,7 @@ public class GitHubClient
 
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
+    private final GitHubPaginator paginator;
 
     public GitHubClient(
             RestClient gitHubRestClient,
@@ -111,6 +108,7 @@ public class GitHubClient
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphqlRestClient = requireNonNull(gitHubGraphQLRestClient, "gitHubGraphQLRestClient is null");
+        this.paginator = new GitHubPaginator(gitHubRestClient);
     }
 
     // ── Search ────────────────────────────────────────────────────────────────
@@ -118,16 +116,14 @@ public class GitHubClient
     @Override
     public List<PullRequest> searchPullRequests(String pat, String query)
     {
-        if (pat == null || pat.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT missing");
-        }
+        requirePat(pat);
         try {
             GitHubSearchResponse response = gitHubRestClient.get()
                     .uri(uri -> uri.path("/search/issues")
                             .queryParam("q", query)
                             .queryParam("per_page", PER_PAGE)
                             .build())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubSearchResponse.class);
             if (response == null || response.items() == null) {
@@ -146,9 +142,7 @@ public class GitHubClient
     @Override
     public PullRequestHistoryPage searchPullRequestsPaged(String pat, String query, int page, int perPage)
     {
-        if (pat == null || pat.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT missing");
-        }
+        requirePat(pat);
         int safePage = Math.max(1, page);
         int safePerPage = Math.max(1, Math.min(100, perPage));
         try {
@@ -158,7 +152,7 @@ public class GitHubClient
                             .queryParam("per_page", safePerPage)
                             .queryParam("page", safePage)
                             .build())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubSearchResponse.class);
             if (response == null || response.items() == null) {
@@ -189,7 +183,7 @@ public class GitHubClient
         try {
             ResponseEntity<Void> resp = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .headers(h -> {
                         if (etag != null && !etag.isBlank()) {
                             h.set("If-None-Match", etag);
@@ -217,7 +211,7 @@ public class GitHubClient
         try {
             GitHubPullRequestDetailResponse r = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubPullRequestDetailResponse.class);
             if (r == null) {
@@ -273,7 +267,7 @@ public class GitHubClient
         try {
             GitHubPullRequestDetailResponse r = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubPullRequestDetailResponse.class);
             return r == null ? null : r.title();
@@ -289,7 +283,7 @@ public class GitHubClient
         try {
             List<GitHubReview> reviews = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (reviews == null) {
@@ -326,7 +320,7 @@ public class GitHubClient
                                 .queryParam("per_page", 100)
                                 .queryParam("page", currentPage)
                                 .build(owner, repo, sha))
-                        .header("Authorization", "Bearer " + pat)
+                        .header("Authorization", authorization(pat))
                         .retrieve()
                         .body(GitHubCheckRunsResponse.class);
                 if (r == null || r.checkRuns() == null || r.checkRuns().isEmpty()) {
@@ -360,7 +354,7 @@ public class GitHubClient
         try {
             String diff = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .header("Accept", "application/vnd.github.diff")
                     .retrieve()
                     .body(String.class);
@@ -379,7 +373,7 @@ public class GitHubClient
                     .uri(builder -> builder.path("/repos/{owner}/{repo}/pulls/{number}/files")
                             .queryParam("per_page", 100)
                             .build(pr.owner(), pr.repo(), pr.number()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (files == null) {
@@ -406,7 +400,7 @@ public class GitHubClient
                     .uri(builder -> builder.path("/repos/{owner}/{repo}/pulls/{number}/files")
                             .queryParam("per_page", 100)
                             .build(pr.owner(), pr.repo(), pr.number()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (files == null) {
@@ -434,7 +428,7 @@ public class GitHubClient
                     .uri(builder -> builder.path("/repos/{owner}/{repo}/contents/{+path}")
                             .queryParam("ref", sha)
                             .build(repo.owner(), repo.repo(), path))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubFileContent.class);
             if (content == null || content.content() == null) {
@@ -486,7 +480,7 @@ public class GitHubClient
             GitHubCommitDetail detail = gitHubRestClient.get()
                     .uri(builder -> builder.path("/repos/{owner}/{repo}/commits/{sha}")
                             .build(pr.owner(), pr.repo(), sha))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubCommitDetail.class);
             if (detail == null || detail.files() == null) {
@@ -514,7 +508,7 @@ public class GitHubClient
                     .uri(builder -> builder.path("/repos/{owner}/{repo}/pulls/{number}/commits")
                             .queryParam("per_page", 100)
                             .build(pr.owner(), pr.repo(), pr.number()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (commits == null) {
@@ -556,91 +550,22 @@ public class GitHubClient
         // When `since` is provided we narrow the request to events after
         // that watermark — this is the incremental-sync hot path, where
         // an unchanged PR returns an empty page in one round trip.
-        return paginate(pat, "/repos/{owner}/{repo}/issues/{number}/timeline",
-                u -> u.build(pr.owner(), pr.repo(), pr.number()),
+        return paginator.paginateSince(pat, "/repos/{owner}/{repo}/issues/{number}/timeline",
                 new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {},
-                since)
+                since,
+                pr.owner(), pr.repo(), pr.number())
                 .stream()
                 .map(GitHubClient::toTimelineEvent)
                 .collect(toImmutableList());
     }
 
-    /** Hard cap on pages so a runaway request can't tie up the executor. */
-    private static final int MAX_PAGES = 10;
-
-    /**
-     * Fetches every page of a paginated GitHub list endpoint, concatenating
-     * the results in order. Stops as soon as a response has fewer than
-     * {@code per_page=100} rows (last page) or we hit {@link #MAX_PAGES}
-     * pages (~1000 rows — far beyond anything a sane PR will produce).
-     * Errors are swallowed: we return whatever we've accumulated so the
-     * caller falls back to a partial-but-non-empty timeline rather than
-     * an empty one.
-     */
-    private <T> List<T> paginate(
-            String pat,
-            String pathTemplate,
-            Function<UriBuilder, URI> uriResolver,
-            ParameterizedTypeReference<List<T>> typeRef,
-            Instant since)
-    {
-        // Defensive: guard against the edge case where GitHub returns the
-        // same id on adjacent pages (e.g. when a comment is being created
-        // concurrently with our walk and pagination drifts). We keep one
-        // row per identity hash so the downstream save can never hit a
-        // unique-constraint violation. Falls back to a row-equality check
-        // when the row class doesn't implement a stable hashCode.
-        //
-        // When `since` is non-null it's appended as the GitHub `since=`
-        // query param — most list endpoints support it and return only
-        // rows updated after that ISO-8601 timestamp. Empty result on
-        // page 1 means "nothing changed" — incremental-sync's hot path.
-        Set<T> seen = new LinkedHashSet<>();
-        for (int page = 1; page <= MAX_PAGES; page++) {
-            final int currentPage = page;
-            try {
-                List<T> rows = gitHubRestClient.get()
-                        .uri(u -> {
-                            UriBuilder uriBuilder = u.path(pathTemplate)
-                                    .queryParam("per_page", 100)
-                                    .queryParam("page", currentPage);
-                            if (since != null) {
-                                uriBuilder = uriBuilder.queryParam("since", since.toString());
-                            }
-                            return uriResolver.apply(uriBuilder);
-                        })
-                        .header("Authorization", "Bearer " + pat)
-                        .retrieve()
-                        .body(typeRef);
-                if (rows == null || rows.isEmpty()) {
-                    break;
-                }
-                int beforeAdd = seen.size();
-                seen.addAll(rows);
-                int added = seen.size() - beforeAdd;
-                if (rows.size() < 100) {
-                    break;
-                }
-                // If a full page returned zero new rows, GitHub is
-                // looping back on us — bail to avoid an infinite-fetch.
-                if (added == 0) {
-                    break;
-                }
-            }
-            catch (RestClientResponseException e) {
-                break;
-            }
-        }
-        return ImmutableList.copyOf(seen);
-    }
-
     @Override
     public List<PrTimelineEvent> fetchPrIssueComments(String pat, PullRequestRef pr, Instant since)
     {
-        return paginate(pat, "/repos/{owner}/{repo}/issues/{number}/comments",
-                u -> u.build(pr.owner(), pr.repo(), pr.number()),
+        return paginator.paginateSince(pat, "/repos/{owner}/{repo}/issues/{number}/comments",
                 new ParameterizedTypeReference<List<GitHubIssueComment>>() {},
-                since)
+                since,
+                pr.owner(), pr.repo(), pr.number())
                 .stream()
                 .map(c -> new PrTimelineEvent(
                         c.id(),
@@ -671,10 +596,10 @@ public class GitHubClient
     @Override
     public List<PrReviewThreadMessage> fetchPrReviewComments(String pat, PullRequestRef pr, Instant since)
     {
-        return paginate(pat, "/repos/{owner}/{repo}/pulls/{number}/comments",
-                uriBuilder -> uriBuilder.build(pr.owner(), pr.repo(), pr.number()),
+        return paginator.paginateSince(pat, "/repos/{owner}/{repo}/pulls/{number}/comments",
                 new ParameterizedTypeReference<List<GitHubReviewComment>>() {},
-                since)
+                since,
+                pr.owner(), pr.repo(), pr.number())
                 .stream()
                 .map(GitHubClient::toReviewThreadMessage)
                 .collect(toImmutableList());
@@ -733,7 +658,7 @@ public class GitHubClient
         try {
             GitHubIssueItem item = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), number)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubIssueItem.class);
             if (item == null) {
@@ -794,7 +719,7 @@ public class GitHubClient
                             .queryParam("state", "open")
                             .queryParam("per_page", PER_PAGE)
                             .build(repo.owner(), repo.repo()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (items == null) {
@@ -828,7 +753,7 @@ public class GitHubClient
         try {
             GitHubRepoPullRequestItem item = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls", repo.owner(), repo.repo())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -858,7 +783,7 @@ public class GitHubClient
             GitHubRepoPullRequestItem item = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/pulls/{number}",
                             pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubRepoPullRequestItem.class);
             if (item == null) {
@@ -939,7 +864,7 @@ public class GitHubClient
             return gitHubRestClient.put()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/merge",
                             pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -962,7 +887,7 @@ public class GitHubClient
         try {
             gitHubRestClient.patch()
                     .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -984,7 +909,7 @@ public class GitHubClient
             gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/issues/{number}/comments",
                             pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("body", body))
                     .retrieve()
@@ -1005,7 +930,7 @@ public class GitHubClient
             gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
                             pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(payload)
                     .retrieve()
@@ -1035,7 +960,7 @@ public class GitHubClient
                             .queryParam("head_sha", headSha)
                             .queryParam("per_page", 30)
                             .build(repo.owner(), repo.repo()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubWorkflowRunsResponse.class);
             if (runs == null || runs.workflowRuns() == null) {
@@ -1049,7 +974,7 @@ public class GitHubClient
                 gitHubRestClient.post()
                         .uri("/repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs",
                                 repo.owner(), repo.repo(), run.id())
-                        .header("Authorization", "Bearer " + pat)
+                        .header("Authorization", authorization(pat))
                         .retrieve()
                         .toBodilessEntity();
                 reRun++;
@@ -1086,7 +1011,7 @@ public class GitHubClient
             gitHubRestClient.method(HttpMethod.DELETE)
                     .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
                             pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(payload)
                     .retrieve()
@@ -1128,7 +1053,7 @@ public class GitHubClient
             gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/comments",
                             pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(payload)
                     .retrieve()
@@ -1146,7 +1071,7 @@ public class GitHubClient
             GitHubReviewComment created = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/comments/{commentId}/replies",
                             pr.owner(), pr.repo(), pr.number(), rootCommentId)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("body", body))
                     .retrieve()
@@ -1168,7 +1093,7 @@ public class GitHubClient
             gitHubRestClient.method(HttpMethod.PATCH)
                     .uri("/repos/{owner}/{repo}/issues/comments/{commentId}",
                             owner, repo, commentId)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("body", body))
                     .retrieve()
@@ -1186,7 +1111,7 @@ public class GitHubClient
             gitHubRestClient.method(HttpMethod.PATCH)
                     .uri("/repos/{owner}/{repo}/pulls/comments/{commentId}",
                             owner, repo, commentId)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("body", body))
                     .retrieve()
@@ -1204,7 +1129,7 @@ public class GitHubClient
             gitHubRestClient.method(HttpMethod.DELETE)
                     .uri("/repos/{owner}/{repo}/issues/comments/{commentId}",
                             owner, repo, commentId)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .toBodilessEntity();
         }
@@ -1220,7 +1145,7 @@ public class GitHubClient
             gitHubRestClient.method(HttpMethod.DELETE)
                     .uri("/repos/{owner}/{repo}/pulls/comments/{commentId}",
                             owner, repo, commentId)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .toBodilessEntity();
         }
@@ -1236,7 +1161,7 @@ public class GitHubClient
             gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/issues/comments/{commentId}/reactions",
                             owner, repo, commentId)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .header("Accept", "application/vnd.github.squirrel-girl-preview+json")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("content", content))
@@ -1255,7 +1180,7 @@ public class GitHubClient
             gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/comments/{commentId}/reactions",
                             owner, repo, commentId)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     // GitHub's reactions API requires the squirrel-girl
                     // preview header on older endpoints; modern API
                     // versions accept the default Accept header but the
@@ -1309,7 +1234,7 @@ public class GitHubClient
                         "number", pr.number()));
         try {
             ReviewThreadGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(ReviewThreadGqlResponse.class);
@@ -1368,7 +1293,7 @@ public class GitHubClient
                 "variables", ImmutableMap.of("id", threadNodeId));
         try {
             graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
@@ -1437,7 +1362,7 @@ public class GitHubClient
                         "number", pr.number()));
         try {
             MergeQueueGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(MergeQueueGqlResponse.class);
@@ -1502,7 +1427,7 @@ public class GitHubClient
                             "name", pr.repo(),
                             "number", pr.number()));
             PullRequestIdGqlResponse idResponse = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(idBody)
                     .retrieve()
                     .body(PullRequestIdGqlResponse.class);
@@ -1528,7 +1453,7 @@ public class GitHubClient
                 "variables", ImmutableMap.of("id", pullRequestNodeId));
         try {
             graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
@@ -1571,7 +1496,7 @@ public class GitHubClient
                         "number", pr.number()));
         try {
             PullRequestIdGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(PullRequestIdGqlResponse.class);
@@ -1603,7 +1528,7 @@ public class GitHubClient
                 "variables", ImmutableMap.of("id", nodeId, "method", mergeMethod));
         try {
             graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
@@ -1626,7 +1551,7 @@ public class GitHubClient
                 "variables", ImmutableMap.of("id", nodeId));
         try {
             graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
@@ -1653,7 +1578,7 @@ public class GitHubClient
                         "number", pr.number()));
         try {
             AutoMergeGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(AutoMergeGqlResponse.class);
@@ -1708,7 +1633,7 @@ public class GitHubClient
                         "number", pr.number()));
         try {
             MergeQueueProbeGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(MergeQueueProbeGqlResponse.class);
@@ -1751,7 +1676,7 @@ public class GitHubClient
                 "variables", ImmutableMap.of("id", pullRequestNodeId));
         try {
             EnqueueGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(EnqueueGqlResponse.class);
@@ -1831,7 +1756,7 @@ public class GitHubClient
         String entryId;
         try {
             DequeueProbeGqlResponse probe = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(queryBody)
                     .retrieve()
                     .body(DequeueProbeGqlResponse.class);
@@ -1863,7 +1788,7 @@ public class GitHubClient
                 "variables", ImmutableMap.of("id", entryId));
         try {
             graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
@@ -1913,7 +1838,7 @@ public class GitHubClient
                         "number", pr.number()));
         try {
             SuggestedReviewersGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(SuggestedReviewersGqlResponse.class);
@@ -2001,7 +1926,7 @@ public class GitHubClient
             gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/reviews",
                             pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -2032,7 +1957,7 @@ public class GitHubClient
                             .queryParam("direction", "desc")
                             .queryParam("per_page", 100)
                             .build(repo.owner(), repo.repo()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (items == null) {
@@ -2055,7 +1980,7 @@ public class GitHubClient
             GitHubIssueItem item = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/issues/{number}",
                             repo.owner(), repo.repo(), number)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubIssueItem.class);
             if (item == null) {
@@ -2076,11 +2001,10 @@ public class GitHubClient
     public List<IssueDetail.Comment> fetchIssueDetailComments(String pat, RepoRef repo, int number)
     {
         try {
-            List<GitHubIssueComment> raw = paginate(pat,
+            List<GitHubIssueComment> raw = paginator.paginate(pat,
                     "/repos/{owner}/{repo}/issues/{number}/comments",
-                    u -> u.build(repo.owner(), repo.repo(), number),
                     new ParameterizedTypeReference<List<GitHubIssueComment>>() {},
-                    null);
+                    repo.owner(), repo.repo(), number);
             return raw.stream()
                     .map(GitHubClient::toIssueDetailComment)
                     .collect(toImmutableList());
@@ -2094,11 +2018,10 @@ public class GitHubClient
     public List<IssueTimelineEvent> fetchIssueTimeline(String pat, RepoRef repo, int number)
     {
         try {
-            List<GitHubTimelineEvent> raw = paginate(pat,
+            List<GitHubTimelineEvent> raw = paginator.paginate(pat,
                     "/repos/{owner}/{repo}/issues/{number}/timeline",
-                    u -> u.build(repo.owner(), repo.repo(), number),
                     new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {},
-                    null);
+                    repo.owner(), repo.repo(), number);
             return raw.stream()
                     // Skip "commented" rows — those ride on the comments
                     // endpoint already (and carry richer reaction data
@@ -2148,7 +2071,7 @@ public class GitHubClient
             SubscriptionResponse resp = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/issues/{number}/subscription",
                             repo.owner(), repo.repo(), number)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(SubscriptionResponse.class);
             // GitHub returns 200 with {subscribed: true|false, ignored: …}
@@ -2175,7 +2098,7 @@ public class GitHubClient
                 gitHubRestClient.put()
                         .uri("/repos/{owner}/{repo}/issues/{number}/subscription",
                                 repo.owner(), repo.repo(), number)
-                        .header("Authorization", "Bearer " + pat)
+                        .header("Authorization", authorization(pat))
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(ImmutableMap.of("subscribed", true))
                         .retrieve()
@@ -2185,7 +2108,7 @@ public class GitHubClient
                 gitHubRestClient.delete()
                         .uri("/repos/{owner}/{repo}/issues/{number}/subscription",
                                 repo.owner(), repo.repo(), number)
-                        .header("Authorization", "Bearer " + pat)
+                        .header("Authorization", authorization(pat))
                         .retrieve()
                         .toBodilessEntity();
             }
@@ -2205,7 +2128,7 @@ public class GitHubClient
             GitHubIssueItem item = gitHubRestClient.patch()
                     .uri("/repos/{owner}/{repo}/issues/{number}",
                             repo.owner(), repo.repo(), number)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("state", state))
                     .retrieve()
@@ -2233,7 +2156,7 @@ public class GitHubClient
             GitHubIssueComment posted = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/issues/{number}/comments",
                             repo.owner(), repo.repo(), number)
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("body", body))
                     .retrieve()
@@ -2308,7 +2231,7 @@ public class GitHubClient
         try {
             GitHubRepoResponse repoResp = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}", repo.owner(), repo.repo())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubRepoResponse.class);
             if (repoResp == null) {
@@ -2323,7 +2246,7 @@ public class GitHubClient
             try {
                 languages = gitHubRestClient.get()
                         .uri("/repos/{owner}/{repo}/languages", repo.owner(), repo.repo())
-                        .header("Authorization", "Bearer " + pat)
+                        .header("Authorization", authorization(pat))
                         .retrieve()
                         .body(new ParameterizedTypeReference<Map<String, Long>>() {});
                 if (languages == null) {
@@ -2384,7 +2307,7 @@ public class GitHubClient
                     .uri(u -> u.path("/repos/{owner}/{repo}/events")
                             .queryParam("per_page", 30)
                             .build(repo.owner(), repo.repo()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (events == null) {
@@ -2514,7 +2437,7 @@ public class GitHubClient
         try {
             GitHubUserProfileResponse response = gitHubRestClient.get()
                     .uri("/user")
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubUserProfileResponse.class);
             if (response == null) {
@@ -2543,7 +2466,7 @@ public class GitHubClient
         try {
             GitHubUserProfileResponse response = gitHubRestClient.patch()
                     .uri("/user")
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -2604,7 +2527,7 @@ public class GitHubClient
                 "variables", ImmutableMap.of("login", login));
         try {
             ContributionGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(ContributionGqlResponse.class);
@@ -2685,9 +2608,7 @@ public class GitHubClient
         // ship today" rather than a sorted blob. per_page=30 is a
         // glance, not an audit log — anything past that, the user can
         // click through to GitHub.
-        if (pat == null || pat.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT missing");
-        }
+        requirePat(pat);
         String query = "author:" + login + " author-date:" + isoDate;
         try {
             CommitSearchResponse response = gitHubRestClient.get()
@@ -2697,7 +2618,7 @@ public class GitHubClient
                             .queryParam("sort", "author-date")
                             .queryParam("order", "desc")
                             .build())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .header("Accept", "application/vnd.github+json")
                     .retrieve()
                     .body(CommitSearchResponse.class);
@@ -2785,7 +2706,7 @@ public class GitHubClient
                                 .queryParam("per_page", perPage)
                                 .queryParam("page", currentPage)
                                 .build())
-                        .header("Authorization", "Bearer " + pat)
+                        .header("Authorization", authorization(pat))
                         .retrieve()
                         .body(new ParameterizedTypeReference<>() {});
                 if (items == null || items.isEmpty()) {
@@ -2826,7 +2747,7 @@ public class GitHubClient
             String query = "{\"query\":\"query { viewer { hasSponsorsListing } }\"}";
             GitHubViewerSponsorsResponse response = gitHubRestClient.post()
                     .uri("/graphql")
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .header("Content-Type", "application/json")
                     .body(query)
                     .retrieve()
@@ -2852,7 +2773,7 @@ public class GitHubClient
         try {
             GitHubRepoPermissionsResponse response = gitHubRestClient.get()
                     .uri(u -> u.path("/repos/{owner}/{repo}").build(repo.owner(), repo.repo()))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubRepoPermissionsResponse.class);
             return response != null
@@ -2902,7 +2823,7 @@ public class GitHubClient
             GitHubCheckRunDetail detail = gitHubRestClient.get()
                     .uri(u -> u.path("/repos/{owner}/{repo}/check-runs/{id}")
                             .build(repo.owner(), repo.repo(), checkRunId))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubCheckRunDetail.class);
             if (detail == null) {
@@ -2962,7 +2883,7 @@ public class GitHubClient
             String body = gitHubRestClient.get()
                     .uri(u -> u.path("/repos/{owner}/{repo}/actions/jobs/{id}/logs")
                             .build(repo.owner(), repo.repo(), jobId))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .header("Accept", "text/plain, */*")
                     .retrieve()
                     .body(String.class);
@@ -3020,7 +2941,7 @@ public class GitHubClient
                     .uri(u -> u.path("/user/orgs")
                             .queryParam("per_page", 100)
                             .build())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (items == null) {
@@ -3049,7 +2970,7 @@ public class GitHubClient
                             .queryParam("q", query)
                             .queryParam("per_page", 30)
                             .build())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubRepoSearchResponse.class);
             if (response == null || response.items() == null) {
@@ -3090,7 +3011,7 @@ public class GitHubClient
                             .queryParam("q", q)
                             .queryParam("per_page", 10)
                             .build())
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubUserSearchResponse.class);
             if (response == null || response.items() == null) {
@@ -3131,7 +3052,7 @@ public class GitHubClient
                     .uri(u -> u.path(pathTemplate)
                             .queryParam("per_page", Math.min(limit, 100))
                             .build(login))
-                    .header("Authorization", "Bearer " + pat)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             if (items == null) {
@@ -3211,62 +3132,4 @@ public class GitHubClient
         }
         return repositoryUrl.substring(index + REPOS_SEGMENT.length());
     }
-
-    private static ResponseStatusException toReadableException(RestClientResponseException e)
-    {
-        HttpStatusCode status = HttpStatusCode.valueOf(e.getStatusCode().value());
-        String fallback = switch (e.getStatusCode().value()) {
-            case 401 -> "GitHub rejected the PAT. Check that the token is valid and not expired.";
-            case 403 -> "GitHub denied the request. The token may be missing scopes or you may be rate limited.";
-            // 422 is reused across many endpoints (search query syntax, review
-            // validation, "Can not approve your own pull request", etc.), so
-            // fall back to GitHub's own message rather than guessing.
-            default -> "GitHub API request failed with status " + e.getStatusCode().value() + ".";
-        };
-        String responseBody = e.getResponseBodyAsString();
-        // Log GitHub's raw response so the real reason is recoverable even
-        // when GitHub only sends a generic top-level message (e.g. a 422
-        // "Unprocessable Entity" with no errors[] detail, as it does for
-        // "Can not approve your own pull request"). Without this the cause
-        // is invisible — the thrown reason is all the UI ever sees.
-        log.warn("GitHub API {} failed: {}", e.getStatusCode().value(),
-                responseBody == null || responseBody.isBlank() ? "(empty body)" : responseBody);
-        String githubMessage = extractGitHubErrorMessage(responseBody);
-        String message = githubMessage != null ? githubMessage : fallback;
-        throw new ResponseStatusException(status, message, e);
-    }
-
-    /**
-     * Pulls the human-readable message out of a GitHub error response. GitHub
-     * returns {@code {"message": "...", "errors": [...], "documentation_url": "..."}};
-     * we surface {@code message} (and the first {@code errors[].message} when
-     * present) so callers see the real reason instead of a generic status.
-     */
-    private static String extractGitHubErrorMessage(String body)
-    {
-        if (body == null || body.isBlank()) {
-            return null;
-        }
-        try {
-            JsonNode root = ERROR_MAPPER.readTree(body);
-            String top = root.path("message").asText(null);
-            if (top == null || top.isBlank()) {
-                return null;
-            }
-            JsonNode errors = root.path("errors");
-            if (errors.isArray() && !errors.isEmpty()) {
-                JsonNode first = errors.get(0);
-                String detail = first.path("message").asText(null);
-                if (detail != null && !detail.isBlank()) {
-                    return top + ": " + detail;
-                }
-            }
-            return top;
-        }
-        catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
 }

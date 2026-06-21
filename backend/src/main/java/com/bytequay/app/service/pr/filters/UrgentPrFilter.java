@@ -24,7 +24,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 
 /**
  * The worked example for the concept axis: a single named filter
@@ -90,13 +89,7 @@ public class UrgentPrFilter
 
     private static boolean eligible(PullRequest pr, Instant now)
     {
-        if (pr.mergedAt() != null) {
-            return false;
-        }
-        if ("closed".equalsIgnoreCase(pr.state())) {
-            return false;
-        }
-        if (pr.draft()) {
+        if (!PullRequestFilters.isOpen(pr) || pr.draft()) {
             return false;
         }
         HandledAction handled = pr.handledAction();
@@ -122,11 +115,10 @@ public class UrgentPrFilter
         if (pr.origin() != PullRequest.Origin.AUTHORED) {
             return false;
         }
-        Map<String, String> verdicts = pr.reviewerVerdicts();
-        if (verdicts == null || !verdicts.containsValue(GithubReviewState.APPROVED)) {
+        if (!PullRequestFilters.hasReviewerVerdict(pr, GithubReviewState.APPROVED)) {
             return false;
         }
-        if (verdicts.containsValue(GithubReviewState.CHANGES_REQUESTED)) {
+        if (PullRequestFilters.hasReviewerVerdict(pr, GithubReviewState.CHANGES_REQUESTED)) {
             return false;
         }
         return pr.ciStatus() == PullRequestDetail.CiStatus.PASSING
@@ -136,8 +128,7 @@ public class UrgentPrFilter
     private static boolean changesRequested(PullRequest pr)
     {
         return pr.origin() == PullRequest.Origin.AUTHORED
-                && pr.reviewerVerdicts() != null
-                && pr.reviewerVerdicts().containsValue(GithubReviewState.CHANGES_REQUESTED);
+                && PullRequestFilters.hasReviewerVerdict(pr, GithubReviewState.CHANGES_REQUESTED);
     }
 
     private static boolean ciFailing(PullRequest pr)
@@ -158,7 +149,7 @@ public class UrgentPrFilter
         if (updated == null) {
             return false;
         }
-        if (pr.reviewerVerdicts() != null && !pr.reviewerVerdicts().isEmpty()) {
+        if (!PullRequestFilters.hasNoReviewerVerdicts(pr)) {
             return false;
         }
         return Duration.between(updated, now).compareTo(STALE_THRESHOLD) > 0;

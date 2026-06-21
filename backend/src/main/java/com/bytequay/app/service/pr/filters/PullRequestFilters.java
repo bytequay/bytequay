@@ -24,7 +24,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.toUnmodifiableMap;
 
 /**
  * Aggregator for every {@link NamedFilter}{@code <PullRequest>}
@@ -54,8 +53,7 @@ public class PullRequestFilters
                                 + "': " + prior + " and " + f);
             }
         }
-        this.byName = filters.stream()
-                .collect(toUnmodifiableMap(NamedFilter::name, f -> f));
+        this.byName = Map.copyOf(map);
     }
 
     /** Filter bean for {@code name}, or empty if unknown. */
@@ -87,5 +85,20 @@ public class PullRequestFilters
                 .orElseThrow(() -> new IllegalArgumentException(
                         "unknown PR filter: " + name + " (known: " + names() + ")"));
         return all.stream().filter(pr -> filter.matches(pr, now)).toList();
+    }
+
+    static boolean isOpen(PullRequest pr)
+    {
+        return pr.mergedAt() == null && !"closed".equalsIgnoreCase(pr.state());
+    }
+
+    static boolean hasNoReviewerVerdicts(PullRequest pr)
+    {
+        return pr.reviewerVerdicts() == null || pr.reviewerVerdicts().isEmpty();
+    }
+
+    static boolean hasReviewerVerdict(PullRequest pr, String verdict)
+    {
+        return pr.reviewerVerdicts() != null && pr.reviewerVerdicts().containsValue(verdict);
     }
 }

@@ -43,9 +43,6 @@ public class MineOpenPrFilter
     @Override
     public boolean matches(PullRequest pr, Instant now)
     {
-        if (pr.origin() != PullRequest.Origin.AUTHORED) {
-            return false;
-        }
-        return pr.mergedAt() == null && !"closed".equalsIgnoreCase(pr.state());
+        return pr.origin() == PullRequest.Origin.AUTHORED && PullRequestFilters.isOpen(pr);
     }
 }

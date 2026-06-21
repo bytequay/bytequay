@@ -20,13 +20,11 @@ const WINDOWS: InsightsWindow[] = ['24h', '7d', '30d'];
 const WORKSPACE_ID = 'ws-default';
 
 /** Workspace Insights — KPI cards + a per-window spend chart + the
- *  per-repo tasks-shipped breakdown. KPI counts, today/window spend,
- *  and the per-day spend series pull from
- *  {@code /api/workspaces/{id}/insights?window=…} so the numbers are
- *  real. The tasks-shipped-per-repo card stays placeholder for now —
- *  the work-unit {@code Task} doesn't carry an owner/repo column,
- *  and parsing the {@code workingDir} path is fragile; the
- *  follow-up wires it once the column lands. */
+ *  per-repo tasks-shipped breakdown. Everything pulls from
+ *  {@code /api/workspaces/{id}/insights?window=…}. The per-repo card
+ *  attributes PR-linked tasks to their repo via the {@code owner/repo#n}
+ *  link ref (the only repo signal a Task carries today), so tasks with
+ *  no linked PR don't appear in the breakdown. */
 function WorkspaceInsightsPage() {
   const [insights, setInsights] = useState<WorkspaceInsightsDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,10 +121,21 @@ function WorkspaceInsightsPage() {
           <div style={chartMetaStyle}>
             tasks with a linked PR · {windowKey} window
           </div>
-          <div style={{ ...chartMetaStyle, marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(124, 58, 237, 0.08)' }}>
-            Per-repo breakdown is a follow-up — Task doesn't carry an
-            owner/repo column today, so we can't attribute shipped
-            tasks back to their repo cleanly.
+          <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(124, 58, 237, 0.08)' }}>
+            {(insights?.tasksByRepo ?? []).length === 0 ? (
+              <div style={chartMetaStyle}>No PR-linked tasks in this window yet.</div>
+            ) : (
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(insights?.tasksByRepo ?? []).map(r => (
+                  <li key={r.repoFullName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.repoFullName}</span>
+                    <span style={{ ...chartMetaStyle, whiteSpace: 'nowrap' }}>
+                      {r.tasksShipped} shipped · {r.tasksOpen} open
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       </div>

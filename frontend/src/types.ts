@@ -2297,10 +2297,12 @@ export type WorkspaceInsightsDto = {
   spendTodayMilli: number;
   spendInWindowMilli: number;
   /** Count of tasks created inside the window that carry a linked
-   *  PR — the "shipped" signal. Per-repo breakdown is deferred until
-   *  Task carries an owner/repo column. */
+   *  PR — the "shipped" signal. */
   tasksShippedInWindow: number;
   spendByDay: { date: string; label: string; costUsdMilli: number }[];
+  /** Per-repo split of PR-linked tasks (attributed via the link ref):
+   *  shipped (reached COMPLETED in window) vs still-open. */
+  tasksByRepo: { repoFullName: string; tasksShipped: number; tasksOpen: number }[];
 };
 
 export type WorkspaceMemoryProposalDto = {

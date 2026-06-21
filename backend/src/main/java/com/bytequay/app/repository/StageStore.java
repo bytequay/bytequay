@@ -77,6 +77,13 @@ public interface StageStore
      *  paths. Stamped with the current time. */
     StageEvent recordEvent(UUID stageId, String taskId, StageEventType type, Map<String, Object> payload);
 
+    /** Find one stage event by id. */
+    Optional<StageEvent> findEventById(UUID eventId);
+
+    /** Overwrite an event's JSON payload (used to flip a follow-up note's
+     *  status to addressed / dismissed). No-op when the id is unknown. */
+    void updateEventPayload(UUID eventId, Map<String, Object> payload);
+
     /** A stage's events, oldest-first. */
     List<StageEvent> findEventsByStage(UUID stageId);
 

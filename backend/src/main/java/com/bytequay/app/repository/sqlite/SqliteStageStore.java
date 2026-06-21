@@ -233,6 +233,22 @@ class SqliteStageStore
         return writeEvent(stageId.toString(), taskId, type, payload, Instant.now());
     }
 
+    @Override
+    public Optional<StageEvent> findEventById(UUID eventId)
+    {
+        return events.findById(eventId.toString()).map(SqliteStageStore::toEvent);
+    }
+
+    @Override
+    @Transactional
+    public void updateEventPayload(UUID eventId, Map<String, Object> payload)
+    {
+        events.findById(eventId.toString()).ifPresent(ev -> {
+            ev.setPayloadJson(serialise(payload));
+            events.save(ev);
+        });
+    }
+
     private StageEvent writeEvent(
             String stageId, String taskId, StageEventType type, Map<String, Object> payload, Instant at)
     {

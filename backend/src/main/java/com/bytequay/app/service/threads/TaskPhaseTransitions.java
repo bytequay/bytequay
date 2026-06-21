@@ -91,7 +91,11 @@ final class TaskPhaseTransitions
         if (from == TaskPhase.COMPLETED) {
             return false;
         }
-        if (to == TaskPhase.NEEDS_ATTENTION || to == TaskPhase.COMPLETED) {
+        // Universal escapes from any non-terminal phase: park (NEEDS_ATTENTION),
+        // finish (COMPLETED), or restart planning (PLANNING, via an explicit
+        // user re-plan that reopens a PlanStage).
+        if (to == TaskPhase.NEEDS_ATTENTION || to == TaskPhase.COMPLETED
+                || to == TaskPhase.PLANNING) {
             return true;
         }
         return FORWARD.getOrDefault(from, Set.of()).contains(to);

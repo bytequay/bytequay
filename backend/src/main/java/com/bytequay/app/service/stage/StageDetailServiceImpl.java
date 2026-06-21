@@ -121,9 +121,7 @@ public class StageDetailServiceImpl
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + stage.taskId()));
 
-        Instant openedAt = stage.openedAt();
-        Instant closedAt = stage.closedAt().orElse(null);
-        Instant windowEnd = closedAt == null ? Instant.now() : closedAt;
+        TimeWindow window = TimeWindow.forStage(stage);
 
         List<TaskStageIteration> iters = iterationStore.findByStage(stageId);
         List<StageEvent> events = stageStore.findEventsByStage(stageId);
@@ -143,7 +141,7 @@ public class StageDetailServiceImpl
 
         return new StageDetailData(
                 buildTask(task),
-                buildStageInfo(stage, iters, openedAt, closedAt, windowEnd, devMessages),
+                buildStageInfo(stage, iters, window, devMessages),
                 topLevel,
                 subStages,
                 iterations,
@@ -172,8 +170,8 @@ public class StageDetailServiceImpl
     }
 
     private StageInfo buildStageInfo(
-            StageInstance stage, List<TaskStageIteration> iters, Instant openedAt,
-            Instant closedAt, Instant windowEnd, List<ThreadMessage> devMessages)
+            StageInstance stage, List<TaskStageIteration> iters,
+            TimeWindow window, List<ThreadMessage> devMessages)
     {
         StageMetrics metrics = budgetService.readMetrics(stage.id());
         Integer currentIter = iters.stream()
@@ -189,39 +187,31 @@ public class StageDetailServiceImpl
                 stage.id().toString(),
                 stage.type().name(),
                 stage.state().name(),
-                openedAt.toString(),
-                closedAt == null ? null : closedAt.toString(),
+                window.start().toString(),
+                window.closedAtText(),
                 stage.callerStageId().map(UUID::toString).orElse(null),
                 iters.size(),
                 currentIter,
                 config,
-                buildMetrics(stage, iters, openedAt, windowEnd, devMessages));
+                buildMetrics(stage, iters, window, devMessages));
     }
 
     private StageMetricsSubset buildMetrics(
-            StageInstance stage, List<TaskStageIteration> iters, Instant openedAt,
-            Instant windowEnd, List<ThreadMessage> devMessages)
+            StageInstance stage, List<TaskStageIteration> iters,
+            TimeWindow window, List<ThreadMessage> devMessages)
     {
-        List<ThreadMessage> inWindow = devMessages.stream()
-                .filter(m -> inWindow(m.ts(), openedAt, windowEnd))
-                .toList();
-        long toolCalls = inWindow.stream().filter(m -> "tool_call".equals(m.type())).count();
+        List<ThreadMessage> inWindow = window.messages(devMessages);
+        List<OperationGroup> groups = operationGroups(inWindow);
+        long toolCalls = groups.stream().mapToLong(g -> g.messages().size()).sum();
         long tokens = inWindow.stream()
                 .mapToLong(m -> nz(m.tokensIn()) + nz(m.tokensOut())).sum();
         long costMilli = inWindow.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
         long turns = turnStore.listTurnsByTaskId(stage.taskId(), TURN_SCAN_CAP).stream()
-                .filter(t -> inWindow(t.createdAt(), openedAt, windowEnd)).count();
+                .filter(t -> window.contains(t.createdAt())).count();
         // Steering (interventions): user messages on the dev thread in window.
         long interventions = inWindow.stream()
                 .filter(m -> "user".equals(m.role()) && "text".equals(m.type())).count();
-        // Read-time operation grouping over the window's tool calls — no
-        // OPERATION_* events are written (CLI agents give no real-time
-        // boundary); activeTime + operationsCount derive from the grouping.
-        List<ThreadMessage> toolCallMsgs = inWindow.stream()
-                .filter(m -> "tool_call".equals(m.type()))
-                .sorted(Comparator.comparing(ThreadMessage::ts))
-                .toList();
-        List<OperationGroup> ops = operationGroups(toolCallMsgs).stream()
+        List<OperationGroup> ops = groups.stream()
                 .filter(g -> g.kind() != null)
                 .toList();
         long activeTimeSec = ops.stream()
@@ -232,14 +222,14 @@ public class StageDetailServiceImpl
             operationsCount.merge(g.kind(), 1, Integer::sum);
         }
         List<TaskPhaseEvent> phaseEvents = taskStore.listPhaseEvents(stage.taskId());
-        long waitingUserSec = waitingUserTimeSec(phaseEvents, openedAt, windowEnd);
+        long waitingUserSec = waitingUserTimeSec(phaseEvents, window);
         long backflows = phaseEvents.stream()
-                .filter(e -> inWindow(e.transitionedAt(), openedAt, windowEnd))
+                .filter(e -> window.contains(e.transitionedAt()))
                 .filter(StageDetailServiceImpl::isBackflow)
                 .count();
 
         return new StageMetricsSubset(
-                Math.max(0, (windowEnd.toEpochMilli() - openedAt.toEpochMilli()) / 1000),
+                window.durationSeconds(),
                 iters.size(),
                 (int) toolCalls,
                 (int) turns,
@@ -258,6 +248,24 @@ public class StageDetailServiceImpl
     /** A run of consecutive tool calls grouped at read time. {@code kind} is
      *  null for ungrouped calls (each is its own single-message group). */
     private record OperationGroup(String kind, List<ThreadMessage> messages) {}
+
+    private record TimeWindow(Instant start, Instant end, String closedAtText)
+    {
+        static TimeWindow forStage(StageInstance stage)
+        { return endingAt(stage.openedAt(), stage.closedAt().orElse(null)); }
+        static TimeWindow forIteration(TaskStageIteration iteration)
+        { return endingAt(iteration.startedAt(), iteration.endedAt()); }
+        private static TimeWindow endingAt(Instant start, Instant closedAt)
+        {
+            return new TimeWindow(start,
+                    closedAt == null ? Instant.now() : closedAt,
+                    closedAt == null ? null : closedAt.toString());
+        }
+        boolean contains(Instant ts) { return ts != null && !ts.isBefore(start) && !ts.isAfter(end); }
+        List<ThreadMessage> messages(List<ThreadMessage> messages)
+        { return messages.stream().filter(message -> contains(message.ts())).toList(); }
+        long durationSeconds() { return Math.max(0, (end.toEpochMilli() - start.toEpochMilli()) / 1000); }
+    }
 
     private static long groupDurationSec(OperationGroup g)
     {
@@ -292,12 +300,16 @@ public class StageDetailServiceImpl
                 && BACKFLOWS.contains(Map.entry(e.fromPhase(), e.toPhase()));
     }
 
-    /** Group sorted tool-call messages into operation runs: a new run starts
+    /** Group tool-call messages into operation runs: a new run starts
      *  when the inferred kind changes or the gap exceeds the threshold. A
      *  null-kind call always starts its own single-message group (rendered
      *  free-floating). */
-    private List<OperationGroup> operationGroups(List<ThreadMessage> sortedToolCalls)
+    private List<OperationGroup> operationGroups(List<ThreadMessage> messages)
     {
+        List<ThreadMessage> sortedToolCalls = messages.stream()
+                .filter(m -> "tool_call".equals(m.type()))
+                .sorted(Comparator.comparing(ThreadMessage::ts))
+                .toList();
         List<OperationGroup> groups = new ArrayList<>();
         String curKind = null;
         List<ThreadMessage> cur = null;
@@ -355,8 +367,7 @@ public class StageDetailServiceImpl
     /** Sum of time the stage spent in user-gated phases, clipped to its
      *  window. Walks consecutive phase events; the final phase runs to the
      *  window end. */
-    private static long waitingUserTimeSec(
-            List<TaskPhaseEvent> events, Instant openedAt, Instant windowEnd)
+    private static long waitingUserTimeSec(List<TaskPhaseEvent> events, TimeWindow window)
     {
         List<TaskPhaseEvent> sorted = events.stream()
                 .sorted(Comparator.comparing(TaskPhaseEvent::transitionedAt))
@@ -368,9 +379,9 @@ public class StageDetailServiceImpl
                 continue;
             }
             Instant from = e.transitionedAt();
-            Instant to = i + 1 < sorted.size() ? sorted.get(i + 1).transitionedAt() : windowEnd;
-            Instant clipFrom = from.isBefore(openedAt) ? openedAt : from;
-            Instant clipTo = to.isAfter(windowEnd) ? windowEnd : to;
+            Instant to = i + 1 < sorted.size() ? sorted.get(i + 1).transitionedAt() : window.end();
+            Instant clipFrom = from.isBefore(window.start()) ? window.start() : from;
+            Instant clipTo = to.isAfter(window.end()) ? window.end() : to;
             if (clipTo.isAfter(clipFrom)) {
                 sec += (clipTo.toEpochMilli() - clipFrom.toEpochMilli()) / 1000;
             }
@@ -392,23 +403,12 @@ public class StageDetailServiceImpl
     private IterationDetail buildIteration(
             TaskStageIteration it, List<StageEvent> events, List<ThreadMessage> devMessages)
     {
-        Instant start = it.startedAt();
-        Instant end = it.endedAt() == null ? Instant.now() : it.endedAt();
+        TimeWindow window = TimeWindow.forIteration(it);
         List<LogRow> rows = new ArrayList<>();
 
-        List<ThreadMessage> windowMsgs = devMessages.stream()
-                .filter(m -> inWindow(m.ts(), start, end))
-                .toList();
+        List<ThreadMessage> windowMsgs = window.messages(devMessages);
 
-        // Group consecutive same-kind tool calls into operation cards (no
-        // OPERATION_* events; derived at read time). A non-null kind becomes
-        // one operation row holding its tool calls; ungrouped tool calls
-        // render free-floating, so older iterations degrade gracefully.
-        List<ThreadMessage> toolCallMsgs = windowMsgs.stream()
-                .filter(m -> "tool_call".equals(m.type()))
-                .sorted(Comparator.comparing(ThreadMessage::ts))
-                .toList();
-        for (OperationGroup g : operationGroups(toolCallMsgs)) {
+        for (OperationGroup g : operationGroups(windowMsgs)) {
             List<LogRow> nested = g.messages().stream()
                     .map(m -> new LogRow(m.id(), m.ts().toString(), "tool_call",
                             toolCall(m), null, null, null, null))
@@ -432,7 +432,7 @@ public class StageDetailServiceImpl
             }
         }
         for (StageEvent e : events) {
-            if (inWindow(e.eventAt(), start, end)) {
+            if (window.contains(e.eventAt())) {
                 rows.add(new LogRow(e.id().toString(), e.eventAt().toString(), "stage_event",
                         null, new StageEventPayload(
                                 e.eventType().name(), humanizeEvent(e.eventType().name()), e.payloadJson()),
@@ -441,7 +441,7 @@ public class StageDetailServiceImpl
         }
         String recordedBy = it.summaryText() == null ? null : recordedBy(it);
         if (it.summaryText() != null) {
-            Instant at = it.summarizedAt() == null ? end : it.summarizedAt();
+            Instant at = it.summarizedAt() == null ? window.end() : it.summarizedAt();
             rows.add(new LogRow(it.id() + ":summary", at.toString(), "iteration_summary",
                     null, null,
                     new StageDetailData.IterationSummaryPayload(it.summaryText(), recordedBy, at.toString()),
@@ -453,8 +453,8 @@ public class StageDetailServiceImpl
                 it.id().toString(),
                 it.iterationNumber(),
                 it.trigger(),
-                start.toString(),
-                it.endedAt() == null ? null : it.endedAt().toString(),
+                window.start().toString(),
+                window.closedAtText(),
                 it.endedReason(),
                 it.summaryText(),
                 recordedBy,
@@ -622,11 +622,6 @@ public class StageDetailServiceImpl
                 s.id().toString(), s.taskId(), s.type().name(), s.state().name(),
                 s.openedAt().toString(), s.closedAt().map(Instant::toString).orElse(null),
                 s.callerStageId().map(UUID::toString).orElse(null), s.type().displayName(), 0);
-    }
-
-    private static boolean inWindow(Instant ts, Instant start, Instant end)
-    {
-        return ts != null && !ts.isBefore(start) && !ts.isAfter(end);
     }
 
     private static long nz(Long v)

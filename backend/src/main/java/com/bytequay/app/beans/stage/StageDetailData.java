@@ -188,7 +188,16 @@ public record StageDetailData(
      * history (the rich per-check breakdown the mockup shows isn't captured
      * in the trigger payload today).
      */
-    public record CiFixHistoryEntry(int iterationNumber, String endedReason, String summaryText)
+    /**
+     * @param failedCheck   the check that triggered the fix (red-CI iters
+     *                      written after the payload-enrichment landed); null
+     *                      on older iters → the card falls back to the summary
+     * @param errorMessage  truncated error summary for the hover tooltip, or null
+     * @param actionsRunUrl GitHub Actions run URL for the ↗ link, or null
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record CiFixHistoryEntry(int iterationNumber, String endedReason, String summaryText,
+            String failedCheck, String errorMessage, String actionsRunUrl)
     {
     }
 

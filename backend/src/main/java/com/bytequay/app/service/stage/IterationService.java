@@ -101,6 +101,19 @@ public class IterationService
     @Transactional
     public void begin(String taskId, String turnId, String trigger)
     {
+        begin(taskId, turnId, trigger, null);
+    }
+
+    /**
+     * Variant that enriches a {@code red_ci} iteration's event with the
+     * failing check that triggered it — its name, the truncated error
+     * summary, and the GitHub Actions run URL — so the stage detail CI-fix
+     * history can show per-check detail. {@code ci} is null for non-CI
+     * triggers (the bare {@link #begin(String, String, String)} path).
+     */
+    @Transactional
+    public void begin(String taskId, String turnId, String trigger, CiFixContext ci)
+    {
         Optional<StageInstance> active = stageStore.findActiveStage(taskId)
                 .filter(IterationService::isMonitorStage);
         if (active.isEmpty()) {
@@ -116,8 +129,16 @@ public class IterationService
         payload.put("iterationNumber", number);
         payload.put("trigger", trigger);
         payload.put("iterationId", id.toString());
+        if (ci != null) {
+            payload.put("failedCheck", ci.failedCheck());
+            payload.put("errorMessage", ci.errorMessage());
+            payload.put("actionsRunUrl", ci.actionsRunUrl());
+        }
         stageStore.recordEvent(stage.id(), taskId, StageEventType.LOOP_ITERATION_STARTED, payload);
     }
+
+    /** Per-fix CI detail enriching a {@code red_ci} iteration event. */
+    public record CiFixContext(String failedCheck, String errorMessage, String actionsRunUrl) {}
 
     @EventListener
     @Transactional

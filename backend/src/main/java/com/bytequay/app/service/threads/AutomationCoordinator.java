@@ -101,6 +101,10 @@ public class AutomationCoordinator
      *  to a NEEDS_ATTENTION notification per the post-ship design. */
     private static final int MAX_CI_FIX_ATTEMPTS = 3;
 
+    /** Cap the CI-fix error summary stamped on the iteration event so a
+     *  giant log dump can't bloat the row. */
+    private static final int CI_ERROR_MESSAGE_CAP = 500;
+
     /** After triggering a re-run or an agent fix turn, give CI this long
      *  to actually re-run before the next sweep acts again. Without it,
      *  detail-cache lag (the cached run still reads "failure" for a sweep
@@ -274,7 +278,7 @@ public class AutomationCoordinator
             // CLAUDE.md — the bell-lights-up path above happens
             // regardless of the flag.
             try {
-                tryAutoFix(task, repoFullName, ci.failingNames());
+                tryAutoFix(task, repoFullName, ci.failingNames(), ci.failingRuns());
             }
             catch (RuntimeException e) {
                 log.warn("auto-fix candidate check failed for task {}: {}",
@@ -308,7 +312,8 @@ public class AutomationCoordinator
      *     defer to the next sweep so we don't interrupt the user or
      *     re-animate a finished thread.
      */
-    private void tryAutoFix(Task task, String repoFullName, List<String> failingChecks)
+    private void tryAutoFix(Task task, String repoFullName, List<String> failingChecks,
+            List<PrCheckRunState> failingRuns)
     {
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return;
@@ -353,7 +358,8 @@ public class AutomationCoordinator
         String prompt = buildAutoFixPrompt(task, repoFullName, failingChecks);
         try {
             String turnId = scheduler.enqueueTurn(thread, prompt, TurnInitiator.unattended("auto-fix-ci-fail"));
-            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI);
+            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI,
+                    ciFixContext(failingRuns));
             log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
                     task.id(), repoFullName, task.worktreePath(),
                     task.linkedPrNumber(), turnId);
@@ -424,7 +430,7 @@ public class AutomationCoordinator
             rerunShippedCi(task, repoFullName, now);
             return false;
         }
-        enqueueShippedCiFixTurn(task, repoFullName, ci.failingNames(), now);
+        enqueueShippedCiFixTurn(task, repoFullName, ci.failingNames(), ci.failingRuns(), now);
         return false;
     }
 
@@ -469,7 +475,8 @@ public class AutomationCoordinator
      *  the loop explicitly on ship. Bumps the attempt counter only when a
      *  turn was actually queued; a deferral retries on the next sweep. */
     private void enqueueShippedCiFixTurn(
-            Task task, String repoFullName, List<String> failingChecks, Instant now)
+            Task task, String repoFullName, List<String> failingChecks,
+            List<PrCheckRunState> failingRuns, Instant now)
     {
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return;
@@ -495,7 +502,8 @@ public class AutomationCoordinator
         try {
             String turnId = scheduler.enqueueTurn(
                     thread, prompt, TurnInitiator.unattended("ci-fix-shipped"));
-            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI);
+            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI,
+                    ciFixContext(failingRuns));
             int attempt = ciFixAttempts.merge(task.id(), 1, Integer::sum);
             ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
             log.info("shipped CI-fix queued: task {} on {} PR #{} → turn {} (attempt {})",
@@ -633,9 +641,10 @@ public class AutomationCoordinator
     static CiAggregate aggregateChecks(List<PrCheckRunState> checks)
     {
         if (checks == null || checks.isEmpty()) {
-            return new CiAggregate(false, List.of(), 0);
+            return new CiAggregate(false, List.of(), List.of(), 0);
         }
         List<String> failingNames = new ArrayList<>();
+        List<PrCheckRunState> failingRuns = new ArrayList<>();
         for (PrCheckRunState c : checks) {
             String conclusion = c.conclusion() == null ? "" : c.conclusion().toLowerCase(Locale.ROOT);
             if (conclusion.equals("failure")
@@ -643,12 +652,34 @@ public class AutomationCoordinator
                     || conclusion.equals("cancelled")
                     || conclusion.equals("action_required")) {
                 failingNames.add(c.name() == null ? "(unnamed)" : c.name());
+                failingRuns.add(c);
             }
         }
-        return new CiAggregate(!failingNames.isEmpty(), List.copyOf(failingNames), checks.size());
+        return new CiAggregate(
+                !failingNames.isEmpty(), List.copyOf(failingNames), List.copyOf(failingRuns), checks.size());
     }
 
-    record CiAggregate(boolean isFailing, List<String> failingNames, int total) {}
+    record CiAggregate(boolean isFailing, List<String> failingNames,
+            List<PrCheckRunState> failingRuns, int total) {}
+
+    /** Build the CI-fix detail for the iteration event from the first failing
+     *  check — its name, error summary (capped), and Actions run URL. Null
+     *  when there's nothing failing to attribute. */
+    private static IterationService.CiFixContext ciFixContext(List<PrCheckRunState> failingRuns)
+    {
+        if (failingRuns == null || failingRuns.isEmpty()) {
+            return null;
+        }
+        PrCheckRunState first = failingRuns.get(0);
+        String error = first.outputSummary() != null && !first.outputSummary().isBlank()
+                ? first.outputSummary()
+                : (first.outputTitle() == null ? "" : first.outputTitle());
+        if (error.length() > CI_ERROR_MESSAGE_CAP) {
+            error = error.substring(0, CI_ERROR_MESSAGE_CAP);
+        }
+        return new IterationService.CiFixContext(
+                first.name() == null ? "(unnamed)" : first.name(), error, first.htmlUrl());
+    }
 
     /** Wire shape for the NEEDS_ATTENTION payload emitted when a task's
      *  linked PR is failing CI. {@code reason} is a fixed discriminator

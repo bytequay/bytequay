@@ -121,6 +121,32 @@ class TestStageDetailService
     }
 
     @Test
+    void ciFixHistorySurfacesTheEnrichedFailingCheckDetail()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        Instant open = stage.openedAt();
+        iterationStore.save(TaskStageIteration
+                .opened(UUID.randomUUID(), stage.id(), taskId, "turn-1", 1, "red_ci", open)
+                .withSummary("fix #1", open.plusSeconds(60)));
+        // The enriched LOOP_ITERATION_STARTED event for iteration #1.
+        stageStore.recordEvent(stage.id(), taskId, StageEventType.LOOP_ITERATION_STARTED, Map.of(
+                "iterationNumber", 1,
+                "trigger", "red_ci",
+                "failedCheck", "frontend / lint",
+                "errorMessage", "ESLint: 3 problems",
+                "actionsRunUrl", "https://github.com/acme/widget/actions/runs/42"));
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        StageDetailData.CiFixHistoryEntry entry = detail.ciFixHistory().get(0);
+        assertThat(entry.failedCheck()).isEqualTo("frontend / lint");
+        assertThat(entry.errorMessage()).isEqualTo("ESLint: 3 problems");
+        assertThat(entry.actionsRunUrl()).contains("/actions/runs/42");
+    }
+
+    @Test
     void unknownStageIs404()
     {
         assertThatThrownBy(() -> detailService.getDetail(UUID.randomUUID()))

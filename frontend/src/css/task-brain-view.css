@@ -291,3 +291,9 @@
 .operation-kind { font-weight: 700; font-size: 11px; text-transform: capitalize; }
 .operation-meta { font-size: 10px; color: var(--tbv-text-subtle); }
 .operation-tools { margin-top: 4px; padding-left: 8px; }
+
+/* Brain feed filter strip (frontend-only filter over the fetched feed). */
+.brain .brain-filter { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--tbv-border-soft); background: rgba(255,255,255,0.55); flex-wrap: wrap; }
+.brain .brain-filter__q { flex: 1; min-width: 120px; font-size: 12px; padding: 3px 8px; border: 1px solid var(--tbv-border); border-radius: 6px; }
+.brain .brain-filter select { font-size: 11px; padding: 2px 4px; border: 1px solid var(--tbv-border); border-radius: 6px; }
+.brain .brain-filter__empty { padding: 24px 12px; text-align: center; color: var(--tbv-text-subtle); font-size: 12px; }

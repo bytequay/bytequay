@@ -668,6 +668,115 @@ exports[`TaskBrainView > matches the snapshot for the mock fixture 1`] = `
             </div>
           </div>
           <div
+            class="brain-filter"
+            role="search"
+          >
+            <input
+              aria-label="Search the brain feed"
+              class="brain-filter__q"
+              placeholder="Search the feed…"
+              type="search"
+              value=""
+            />
+            <select
+              aria-label="Filter by stage"
+            >
+              <option
+                value="all"
+              >
+                All stages
+              </option>
+              <option
+                value="DEVELOPMENT_STAGE"
+              >
+                Development
+              </option>
+              <option
+                value="CI_FIXING_STAGE"
+              >
+                CI fixing
+              </option>
+              <option
+                value="REVIEW_MONITOR_STAGE"
+              >
+                Review monitor
+              </option>
+              <option
+                value="CLEANUP_STAGE"
+              >
+                Cleanup
+              </option>
+              <option
+                value="REVIEW_STAGE"
+              >
+                Review panel
+              </option>
+            </select>
+            <select
+              aria-label="Filter by event type"
+            >
+              <option
+                value="all"
+              >
+                All events
+              </option>
+              <option
+                value="USER_MESSAGE"
+              >
+                You
+              </option>
+              <option
+                value="BRAIN_AGENT_RESPONSE"
+              >
+                Brain agent
+              </option>
+              <option
+                value="ITERATION_SUMMARY"
+              >
+                Iteration summary
+              </option>
+              <option
+                value="STAGE_OPENED"
+              >
+                Stage opened
+              </option>
+              <option
+                value="STAGE_CLOSED"
+              >
+                Stage closed
+              </option>
+              <option
+                value="PANEL_REVIEW_COMPLETED"
+              >
+                Panel review
+              </option>
+              <option
+                value="NEEDS_ATTENTION"
+              >
+                Needs attention
+              </option>
+            </select>
+            <select
+              aria-label="Filter by time"
+            >
+              <option
+                value="all"
+              >
+                Any time
+              </option>
+              <option
+                value="hour"
+              >
+                Last hour
+              </option>
+              <option
+                value="day"
+              >
+                Last day
+              </option>
+            </select>
+          </div>
+          <div
             class="scroll"
           >
             <div

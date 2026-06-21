@@ -481,6 +481,51 @@ public class PullRequestService
         repoListCache.invalidatePulls(parseRepoRef(repo));
     }
 
+    /** The result of a title edit, returned to the caller so the UI can
+     *  reflect the change before the next background sync lands. */
+    public record PrTitleUpdate(int number, String title, Instant updatedAt) {}
+
+    /**
+     * Renames a PR on GitHub, then busts the cached detail so the next
+     * {@link PullRequestDetailFetcher} poll surfaces the new title. The
+     * title must be non-blank, ≤256 chars, and actually different from the
+     * cached one; a PR that isn't in our cache 404s. A GitHub permission
+     * failure (401/403) maps to 403, any other GitHub error to 502.
+     */
+    public PrTitleUpdate updatePullRequestTitle(String repo, int number, String newTitle)
+    {
+        String trimmed = newTitle == null ? "" : newTitle.strip();
+        if (trimmed.isEmpty() || trimmed.length() > 256) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "Title must be between 1 and 256 characters");
+        }
+        PullRequest cached = store.findIdByRepoAndNumber(repo, number)
+                .flatMap(store::findById)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404),
+                        "No such pull request: " + repo + "#" + number));
+        if (trimmed.equals(cached.title())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "Title is unchanged");
+        }
+        String pat = patResolver.resolve(repo);
+        try {
+            gitHub.updatePullRequest(pat, parseRef(repo, number),
+                    new UpdatePullRequestCommand(Optional.of(trimmed),
+                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
+        }
+        catch (ResponseStatusException e) {
+            int status = e.getStatusCode().value();
+            if (status == 401 || status == 403) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(403),
+                        "You don't have permission to rename this pull request", e);
+            }
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "GitHub rejected the title update", e);
+        }
+        invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
+        return new PrTitleUpdate(number, trimmed, Instant.now());
+    }
+
     /**
      * Re-runs the failed CI jobs on {@code headSha} for {@code repo}
      * (GitHub's "re-run failed jobs"). Used by the post-ship loop to

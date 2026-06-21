@@ -22,6 +22,7 @@ import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PrTimelineEvent;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Reactions;
@@ -67,13 +68,18 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.FORBIDDEN;
+import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @ExtendWith(MockitoExtension.class)
 class TestPullRequestService
@@ -1337,5 +1343,108 @@ class TestPullRequestService
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(BAD_REQUEST.value()));
+    }
+
+    // ── updatePullRequestTitle ─────────────────────────────────────────────────
+
+    @Test
+    void testUpdateTitleHappyPathCallsGitHubAndBustsCache()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 42)).thenReturn(Optional.of(7L));
+        when(store.findById(7L)).thenReturn(Optional.of(prWithTitle("Old title")));
+
+        PullRequestService.PrTitleUpdate result =
+                pullRequestService.updatePullRequestTitle("owner/repo", 42, "  New title  ");
+
+        assertThat(result.number()).isEqualTo(42);
+        assertThat(result.title()).isEqualTo("New title");
+        assertThat(result.updatedAt()).isNotNull();
+        verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class),
+                argThat(cmd -> cmd.title().equals(Optional.of("New title"))));
+        verify(detailInvalidator).invalidate("owner/repo", 42);
+        verify(repoListCache).invalidatePulls(any());
+    }
+
+    @Test
+    void testUpdateTitleRejectsBlankTitle()
+    {
+        assertThatThrownBy(() -> pullRequestService.updatePullRequestTitle("owner/repo", 42, "   "))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(BAD_REQUEST.value()));
+        verifyNoInteractions(gitHub);
+    }
+
+    @Test
+    void testUpdateTitleRejectsTooLongTitle()
+    {
+        String tooLong = "x".repeat(257);
+        assertThatThrownBy(() -> pullRequestService.updatePullRequestTitle("owner/repo", 42, tooLong))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(BAD_REQUEST.value()));
+    }
+
+    @Test
+    void testUpdateTitleRejectsUnchangedTitle()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 42)).thenReturn(Optional.of(7L));
+        when(store.findById(7L)).thenReturn(Optional.of(prWithTitle("Same title")));
+
+        assertThatThrownBy(() -> pullRequestService.updatePullRequestTitle("owner/repo", 42, "Same title"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(BAD_REQUEST.value()));
+        verify(gitHub, never()).updatePullRequest(any(), any(), any());
+    }
+
+    @Test
+    void testUpdateTitle404WhenPrNotCached()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 99)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> pullRequestService.updatePullRequestTitle("owner/repo", 99, "New"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(NOT_FOUND.value()));
+    }
+
+    @Test
+    void testUpdateTitleMapsGitHubPermissionFailureTo403()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 42)).thenReturn(Optional.of(7L));
+        when(store.findById(7L)).thenReturn(Optional.of(prWithTitle("Old")));
+        when(gitHub.updatePullRequest(any(), any(), any()))
+                .thenThrow(new ResponseStatusException(FORBIDDEN, "denied"));
+
+        assertThatThrownBy(() -> pullRequestService.updatePullRequestTitle("owner/repo", 42, "New"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(FORBIDDEN.value()));
+        verify(detailInvalidator, never()).invalidate(any(), anyInt());
+    }
+
+    @Test
+    void testUpdateTitleMapsOtherGitHubFailureTo502()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 42)).thenReturn(Optional.of(7L));
+        when(store.findById(7L)).thenReturn(Optional.of(prWithTitle("Old")));
+        when(gitHub.updatePullRequest(any(), any(), any()))
+                .thenThrow(new ResponseStatusException(INTERNAL_SERVER_ERROR, "boom"));
+
+        assertThatThrownBy(() -> pullRequestService.updatePullRequestTitle("owner/repo", 42, "New"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(BAD_GATEWAY.value()));
+    }
+
+    private static PullRequest prWithTitle(String title)
+    {
+        return new PullRequest(7L, "owner/repo", 42, title, "alice", "url",
+                null, Instant.parse("2026-06-21T09:00:00Z"), PullRequest.Origin.AUTHORED,
+                ImmutableList.of(), null, false, null, null, null, ImmutableList.of(),
+                null, 0, 0, 0, null,
+                "open", null, null, null, null, null, null,
+                null, null, null);
     }
 }

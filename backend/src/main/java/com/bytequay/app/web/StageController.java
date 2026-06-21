@@ -21,10 +21,12 @@ import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.service.stage.ReviewStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
+import com.bytequay.app.service.stage.StageSteeringService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -45,15 +47,18 @@ public class StageController
     private final StageService service;
     private final StageDetailService detailService;
     private final ReviewStageService reviewStageService;
+    private final StageSteeringService steeringService;
 
     public StageController(
             StageService service,
             StageDetailService detailService,
-            ReviewStageService reviewStageService)
+            ReviewStageService reviewStageService,
+            StageSteeringService steeringService)
     {
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
         this.reviewStageService = requireNonNull(reviewStageService, "reviewStageService is null");
+        this.steeringService = requireNonNull(steeringService, "steeringService is null");
     }
 
     @GetMapping("/api/tasks/{taskId}/brain")
@@ -90,6 +95,15 @@ public class StageController
     public SpawnReviewResult spawnReview(@PathVariable String parentStageId)
     {
         return reviewStageService.spawnReview(parseStageId(parentStageId));
+    }
+
+    public record SteerRequest(String text) {}
+
+    @PostMapping("/api/stages/{stageId}/steer")
+    public StageSteeringService.SteerResult steer(
+            @PathVariable String stageId, @RequestBody SteerRequest req)
+    {
+        return steeringService.steer(parseStageId(stageId), req == null ? null : req.text());
     }
 
     private static UUID parseStageId(String raw)

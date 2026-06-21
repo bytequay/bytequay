@@ -69,6 +69,8 @@ class TestStageBrain
     @Autowired
     private TaskPhaseMachine machine;
     @Autowired
+    private PlanStageService planStageService;
+    @Autowired
     private StageStore stageStore;
     @Autowired
     private TaskStore taskStore;
@@ -218,6 +220,7 @@ class TestStageBrain
     void rightRailIsPanelSpawnableInInternalReviewWithAPr()
     {
         String taskId = seedTask();
+        approvePlan(taskId);
         taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withPrNumber(42));
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
         machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
@@ -233,6 +236,7 @@ class TestStageBrain
     void rightRailIsNotPanelSpawnableWithoutAPr()
     {
         String taskId = seedTask();
+        approvePlan(taskId);
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
         machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
 
@@ -301,6 +305,7 @@ class TestStageBrain
 
     private StageInstance openCiFixing(String taskId)
     {
+        approvePlan(taskId);
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
         machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
         machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
@@ -308,6 +313,14 @@ class TestStageBrain
         StageInstance active = stageStore.findActiveStage(taskId).orElseThrow();
         assertThat(active.type()).isEqualTo(StageType.CI_FIXING_STAGE);
         return active;
+    }
+
+    /** Approve a plan so the DevelopmentStage opens and the task is at
+     *  IMPLEMENTING — the precondition for the dev-phase walk. */
+    private void approvePlan(String taskId)
+    {
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        planStageService.approve(taskId, "rev-1");
     }
 
     private String seedTask()

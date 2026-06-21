@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -24,9 +25,11 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.PublishService;
@@ -68,6 +71,10 @@ class TestMcpPublishGate
     private ThreadStore threads;
     @Autowired
     private TaskStore tasks;
+    @Autowired
+    private StageStore stageStore;
+    @Autowired
+    private PlanStageService planStageService;
     @Autowired
     private WatchedRepoStore watchedRepos;
     @Autowired
@@ -318,6 +325,7 @@ class TestMcpPublishGate
         String threadId = newThread("Ship task gate fixture");
         Task seeded = newTask(threadId, "feature/finished", "/tmp/bytequay-test-ship-current");
         tasks.saveTask(seeded);
+        approvePlan(seeded.id());
 
         JsonNode response = invokeShipTask(threadId, "After ship", "main");
 
@@ -347,6 +355,7 @@ class TestMcpPublishGate
         String threadId = newThread("Validate fixture");
         Task seeded = newTask(threadId, "feature/x", "/tmp/bytequay-test-validate");
         tasks.saveTask(seeded);
+        approvePlan(seeded.id());
 
         JsonNode response = invokeValidate(threadId, "ran the unit tests");
 
@@ -709,6 +718,14 @@ class TestMcpPublishGate
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
                         "no AWAITING_REVIEW notification for thread " + threadId));
+    }
+
+    /** Approve a plan so the task leaves PLANNING for IMPLEMENTING with an
+     *  open DevelopmentStage — the precondition the publish gates assume. */
+    private void approvePlan(String taskId)
+    {
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        planStageService.approve(taskId, "rev-1");
     }
 
     private String newThread(String title)

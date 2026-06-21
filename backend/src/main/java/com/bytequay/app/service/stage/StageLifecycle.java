@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.TaskPhase;
@@ -36,17 +37,19 @@ import static java.util.Objects.requireNonNull;
  * audit row is written), so the stage hooks integrate into the phase
  * scheduler without any new code path bypassing it.
  *
- * <p>A Task opens its {@code DevelopmentStage} the moment it is created
- * (via {@link TaskCreatedEvent}); thereafter each transition closes the
- * active stage and opens the next whenever the phase crosses a stage
- * boundary. The creation hook is idempotent, and so is the
- * transition hook — should a task ever transition before its creation
- * event is seen, the first transition opens the stage just the same.
- * Because
- * the listener runs inside the transition's transaction, it must never
- * throw on an ordinary phase — an unmapped or cross-cutting phase
- * ({@code QUEUED}, {@code NEEDS_ATTENTION}, the post-push idle waits) is a
- * deliberate no-op that leaves the current stage in place.
+ * <p>A Task opens its {@code PlanStage} the moment it is created (via
+ * {@link TaskCreatedEvent}); the {@code DevelopmentStage} only opens once
+ * the user approves the plan (a {@code PLAN_APPROVED} event on the
+ * PlanStage). Thereafter each transition closes the active stage and opens
+ * the next whenever the phase crosses a stage boundary. The creation hook
+ * is idempotent, and so is the transition hook — should a task ever
+ * transition before its creation event is seen, the first transition opens
+ * the stage just the same. Because the listener runs inside the
+ * transition's transaction, it must never throw on an ordinary phase — an
+ * unmapped or cross-cutting phase ({@code QUEUED}, {@code NEEDS_ATTENTION},
+ * the post-push idle waits) is a deliberate no-op that leaves the current
+ * stage in place. The one intentional throw is the plan guard: opening the
+ * DevelopmentStage without an approved plan is illegal, not a no-op.
  */
 @Component
 public class StageLifecycle
@@ -66,7 +69,7 @@ public class StageLifecycle
     @Transactional
     public void onTaskCreated(TaskCreatedEvent event)
     {
-        ensureDevelopmentStageOpen(event.taskId());
+        ensurePlanStageOpen(event.taskId());
     }
 
     @EventListener
@@ -77,19 +80,19 @@ public class StageLifecycle
     }
 
     /**
-     * Open a {@code DevelopmentStage} for a freshly-created Task. Idempotent:
-     * a no-op once the Task has any stage at all, so a re-fired creation
-     * event or a creation event arriving after the first phase transition
-     * never produces a duplicate.
+     * Open a {@code PlanStage} for a freshly-created Task. Idempotent: a
+     * no-op once the Task has any stage at all, so a re-fired creation event
+     * or a creation event arriving after the first phase transition never
+     * produces a duplicate.
      */
-    public void ensureDevelopmentStageOpen(String taskId)
+    public void ensurePlanStageOpen(String taskId)
     {
         if (!stageStore.findStagesByTask(taskId).isEmpty()) {
             return;
         }
-        StageInstance opened = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        StageInstance opened = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
         log.debug("opened {} stage {} at creation of task {}",
-                StageType.DEVELOPMENT_STAGE, opened.id(), taskId);
+                StageType.PLAN_STAGE, opened.id(), taskId);
     }
 
     /**
@@ -121,6 +124,16 @@ public class StageLifecycle
             }
             stageStore.closeStage(active.get().id(), "phase_transition_to_" + toPhase.name());
         }
+        // The DevelopmentStage is gated on an approved plan: it may only open
+        // once the user has approved the PlanStage (a PLAN_APPROVED event).
+        // This throw is intentional — entering IMPLEMENTING without an
+        // approved plan is illegal, not a no-op (the approval flow records
+        // PLAN_APPROVED before it transitions the phase, so the sanctioned
+        // path passes the guard).
+        if (target.get() == StageType.DEVELOPMENT_STAGE && !planApproved(taskId)) {
+            throw new IllegalStateException(
+                    "DevelopmentStage cannot open without an approved PlanStage on task " + taskId);
+        }
         // Phase-driven stages are top-level — only a callable review panel
         // carries a caller pointer, so callerStageId stays null here.
         StageInstance opened = stageStore.openStage(taskId, target.get(), null);
@@ -128,5 +141,18 @@ public class StageLifecycle
         budgetService.onStageOpened(opened);
         log.debug("opened {} stage {} for task {} on phase {}",
                 target.get(), opened.id(), taskId, toPhase);
+    }
+
+    /**
+     * True once the Task has an approved plan — i.e. some PlanStage recorded
+     * a {@link StageEventType#PLAN_APPROVED} event. The approval is modelled
+     * as an event (not a stage state) because {@code StageState} has no
+     * APPROVED value; an approved PlanStage is a {@code CLOSED} one carrying
+     * this event.
+     */
+    private boolean planApproved(String taskId)
+    {
+        return stageStore.findEventsByTask(taskId).stream()
+                .anyMatch(e -> e.eventType() == StageEventType.PLAN_APPROVED);
     }
 }

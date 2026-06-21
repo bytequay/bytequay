@@ -17,9 +17,9 @@ import java.util.List;
 
 /**
  * Coarse lifecycle <em>milestone</em> over {@link TaskPhase} — the six
- * buckets the collapsed flow stepper shows, plus the two off-stepper
- * specials ({@link #QUEUED} before the sequence starts, {@link #PARKED}
- * for a NEEDS_ATTENTION escape).
+ * buckets the collapsed flow stepper shows, plus the off-stepper specials
+ * ({@link #PLAN} and {@link #QUEUED} before the sequence starts,
+ * {@link #PARKED} for a NEEDS_ATTENTION escape).
  *
  * <p>Several phases collapse into the same milestone (e.g. IMPLEMENTING,
  * ADDRESSING_COMMENTS and CI_FIXING all live under {@link #IMPLEMENT}),
@@ -31,6 +31,7 @@ import java.util.List;
  */
 public enum TaskMilestone
 {
+    PLAN("Plan"),
     QUEUED("Queued"),
     IMPLEMENT("Implement"),
     VALIDATE("Validate"),
@@ -62,6 +63,7 @@ public enum TaskMilestone
     public static TaskMilestone of(TaskPhase phase)
     {
         return switch (phase) {
+            case PLANNING -> PLAN;
             case QUEUED -> QUEUED;
             case IMPLEMENTING, ADDRESSING_COMMENTS, CI_FIXING -> IMPLEMENT;
             case VALIDATING -> VALIDATE;

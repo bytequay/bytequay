@@ -32,5 +32,17 @@ public enum StageEventType
     OPERATION_COMPLETED,
     OPERATION_FAILED,
     BUDGET_EXHAUSTED,
-    BUDGET_EXHAUSTED_DECISION
+    BUDGET_EXHAUSTED_DECISION,
+
+    /** A {@code PlanResult} was recorded on a PlanStage (the payload is the
+     *  full plan JSON). Multiple per stage form the revision chain. */
+    PLAN_RECORDED,
+
+    /** The user approved the latest plan; the PlanStage closes and the
+     *  DevelopmentStage opens. Payload carries the approved revision id. */
+    PLAN_APPROVED,
+
+    /** The dev agent flagged a plan-adequacy concern during development.
+     *  Non-blocking; payload is the note + source stage + timestamp. */
+    PLAN_FOLLOWUP_NOTED
 }

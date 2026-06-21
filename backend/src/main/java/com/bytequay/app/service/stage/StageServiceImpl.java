@@ -746,6 +746,7 @@ public class StageServiceImpl
     private static String humanize(StageType type)
     {
         return switch (type) {
+            case PLAN_STAGE -> "Planning";
             case DEVELOPMENT_STAGE -> "Development";
             case CI_FIXING_STAGE -> "CI fixing";
             case REVIEW_MONITOR_STAGE -> "Review monitor";

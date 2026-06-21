@@ -41,13 +41,15 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Drives a Task through its phase walk against the real
  * {@link TaskPhaseMachine} and asserts {@link StageLifecycle} keeps the
- * stage timeline in step: one DevelopmentStage open across the dev phases,
- * a CiFixingStage opening at the first push, and a CleanupStage opening at
- * COMPLETED — each boundary closing the prior stage.
+ * stage timeline in step: a PlanStage open at creation, the DevelopmentStage
+ * opening only once the plan is approved, a CiFixingStage opening at the
+ * first push, and a CleanupStage opening at COMPLETED — each boundary
+ * closing the prior stage.
  */
 @SpringBootTest
 @TestExecutionListeners(
@@ -58,6 +60,8 @@ class TestStageLifecycle
     @Autowired
     private TaskPhaseMachine machine;
     @Autowired
+    private PlanStageService planStageService;
+    @Autowired
     private StageStore stageStore;
     @Autowired
     private TaskStore taskStore;
@@ -67,29 +71,61 @@ class TestStageLifecycle
     private ApplicationEventPublisher events;
 
     @Test
-    void taskCreatedEventOpensDevelopmentStageOnce()
+    void taskCreatedEventOpensPlanStageOnce()
     {
         String taskId = seedTask();
         assertThat(stageStore.findActiveStage(taskId)).isEmpty();
 
         events.publishEvent(new TaskCreatedEvent(taskId));
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
+        assertActive(taskId, StageType.PLAN_STAGE);
 
         // Idempotent — a re-fired creation event adds no second stage.
         events.publishEvent(new TaskCreatedEvent(taskId));
-        assertThat(stagesOfType(taskId, StageType.DEVELOPMENT_STAGE)).hasSize(1);
+        assertThat(stagesOfType(taskId, StageType.PLAN_STAGE)).hasSize(1);
         assertThat(stageStore.findStagesByTask(taskId)).hasSize(1);
+    }
+
+    @Test
+    void developmentStageCannotOpenWithoutAnApprovedPlan()
+    {
+        String taskId = seedTask();
+        events.publishEvent(new TaskCreatedEvent(taskId));
+        assertActive(taskId, StageType.PLAN_STAGE);
+
+        // Entering IMPLEMENTING would open the DevelopmentStage; with no
+        // PLAN_APPROVED event the guard rejects it (and rolls the move back).
+        assertThatThrownBy(() ->
+                machine.transition(taskId, TaskPhase.IMPLEMENTING, "skip_planning", Actor.AGENT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("DevelopmentStage cannot open without an approved PlanStage");
+        assertActive(taskId, StageType.PLAN_STAGE);
+        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase()).isEqualTo(TaskPhase.PLANNING);
+    }
+
+    @Test
+    void approvingThePlanClosesItAndOpensTheDevelopmentStage()
+    {
+        String taskId = seedTask();
+        events.publishEvent(new TaskCreatedEvent(taskId));
+
+        planStageService.approve(taskId, "rev-1");
+
+        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
+        assertThat(only(taskId, StageType.PLAN_STAGE).state()).isEqualTo(StageState.CLOSED);
+        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
+                .isEqualTo(TaskPhase.IMPLEMENTING);
     }
 
     @Test
     void phaseWalkOpensAndClosesStagesAtTheirBoundaries()
     {
         String taskId = seedTask();
-        // A brand-new task has no stage until it takes its first transition.
-        assertThat(stageStore.findActiveStage(taskId)).isEmpty();
+        // A brand-new task plans first; approval opens the DevelopmentStage.
+        events.publishEvent(new TaskCreatedEvent(taskId));
+        planStageService.approve(taskId, "rev-1");
+        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
 
-        // The first transition opens the DevelopmentStage; the dev phases
-        // that follow keep it open.
+        // The dev phases that follow keep the DevelopmentStage open.
         machine.transition(taskId, TaskPhase.VALIDATING, "ready_for_checks", Actor.AGENT);
         assertActive(taskId, StageType.DEVELOPMENT_STAGE);
 
@@ -112,15 +148,18 @@ class TestStageLifecycle
 
         List<StageInstance> stages = stageStore.findStagesByTask(taskId);
         assertThat(stages).extracting(StageInstance::type).containsExactlyInAnyOrder(
-                StageType.DEVELOPMENT_STAGE, StageType.CI_FIXING_STAGE, StageType.CLEANUP_STAGE);
-        // Two stages closed, one (cleanup) still open.
-        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(2);
+                StageType.PLAN_STAGE, StageType.DEVELOPMENT_STAGE,
+                StageType.CI_FIXING_STAGE, StageType.CLEANUP_STAGE);
+        // Plan, dev, and ci-fixing closed; cleanup still open.
+        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(3);
     }
 
     @Test
     void reviewMonitorStageArmsAndStaysAcrossOverlapPhases()
     {
         String taskId = seedTask();
+        events.publishEvent(new TaskCreatedEvent(taskId));
+        planStageService.approve(taskId, "rev-1");
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
         machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
         machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
@@ -147,6 +186,8 @@ class TestStageLifecycle
     void crossCuttingPhaseKeepsTheCurrentStage()
     {
         String taskId = seedTask();
+        events.publishEvent(new TaskCreatedEvent(taskId));
+        planStageService.approve(taskId, "rev-1");
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
         StageInstance dev = only(taskId, StageType.DEVELOPMENT_STAGE);
 
@@ -154,7 +195,9 @@ class TestStageLifecycle
         machine.transition(taskId, TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
 
         assertThat(stageStore.findActiveStage(taskId).map(StageInstance::id)).hasValue(dev.id());
-        assertThat(stageStore.findStagesByTask(taskId)).hasSize(1);
+        // The closed PlanStage and the open DevelopmentStage — NEEDS_ATTENTION
+        // added no third stage.
+        assertThat(stageStore.findStagesByTask(taskId)).hasSize(2);
     }
 
     private void assertActive(String taskId, StageType type)

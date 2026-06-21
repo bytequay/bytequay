@@ -57,6 +57,8 @@ class TestStageBudget
     @Autowired
     private TaskPhaseMachine machine;
     @Autowired
+    private PlanStageService planStageService;
+    @Autowired
     private StageBudgetService budgetService;
     @Autowired
     private StageStore stageStore;
@@ -149,11 +151,20 @@ class TestStageBudget
      *  with a budget. The push is human, so it doesn't spend the budget. */
     private StageInstance openCiFixing(String taskId)
     {
+        approvePlan(taskId);
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
         machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
         machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
         machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
         return stageStore.findActiveStage(taskId).orElseThrow();
+    }
+
+    /** Approve a plan so the DevelopmentStage opens and the task is at
+     *  IMPLEMENTING — the precondition for the dev-phase walk. */
+    private void approvePlan(String taskId)
+    {
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        planStageService.approve(taskId, "rev-1");
     }
 
     private void drain(String taskId, int pushes)

@@ -24,15 +24,20 @@ import java.util.Set;
  * mapping) and for resolving the stage a phase belongs to
  * ({@link #forPhase}).
  *
- * <p>The first three are looping work stages, {@code CLEANUP_STAGE} is the
- * terminal stage, and {@code REVIEW_STAGE} is a callable sub-stage (the
- * multi-agent panel) that carries a {@code callerStageId}. Only
- * {@code DEVELOPMENT_STAGE} and {@code CLEANUP_STAGE} produce runtime rows
- * in this milestone; the other three are declared so the phase-to-stage
- * mapping and downstream code have them ready.
+ * <p>{@code PLAN_STAGE} is the mandatory planning stage every Task opens
+ * with; {@code DEVELOPMENT_STAGE} / {@code CI_FIXING_STAGE} /
+ * {@code REVIEW_MONITOR_STAGE} are looping work stages, {@code CLEANUP_STAGE}
+ * is the terminal stage, and {@code REVIEW_STAGE} is a callable sub-stage
+ * (the multi-agent panel) that carries a {@code callerStageId}.
  */
 public enum StageType
 {
+    /** Mandatory first stage of every Task: the brain agent produces a
+     *  user-approved plan here. Opens at Task creation and closes on
+     *  approval, which is the only thing that lets the DevelopmentStage
+     *  open. */
+    PLAN_STAGE(Set.of(TaskPhase.PLANNING)),
+
     /** First-time creation of the change. */
     DEVELOPMENT_STAGE(Set.of(
             TaskPhase.IMPLEMENTING,
@@ -90,6 +95,7 @@ public enum StageType
     public String displayName()
     {
         return switch (this) {
+            case PLAN_STAGE -> "PlanStage";
             case DEVELOPMENT_STAGE -> "DevelopmentStage";
             case CI_FIXING_STAGE -> "CiFixingStage";
             case REVIEW_MONITOR_STAGE -> "ReviewMonitorStage";

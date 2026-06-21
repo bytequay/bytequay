@@ -75,8 +75,31 @@ describe('TaskStageDetailView', () => {
     expect(screen.getAllByText('fix #1: bumped retry default').length).toBeGreaterThan(0);
     // Derivable metric is shown.
     expect(screen.getByText('Tool calls')).toBeTruthy();
-    // Steering deferred.
-    expect(screen.getByPlaceholderText('Steering coming in a future release')).toBeTruthy();
+    // Steering composer is live (no longer a disabled placeholder).
+    expect(screen.getByLabelText('Steering message')).toBeTruthy();
+  });
+
+  it('submits a steering message through the bridge', async () => {
+    const getStageDetail = vi.fn().mockResolvedValue(fixture());
+    const steerStage = vi.fn().mockResolvedValue({ turnId: 'turn-1' });
+    (window as unknown as { bridge: unknown }).bridge = { getStageDetail, steerStage };
+
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+    const box = await screen.findByLabelText('Steering message');
+    fireEvent.change(box, { target: { value: 'bump the retry default' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send steering message' }));
+
+    await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-ci', 'bump the retry default'));
+  });
+
+  it('disables the composer on a closed stage', async () => {
+    const closed = fixture();
+    closed.stage.state = 'CLOSED';
+    mockBridge(vi.fn().mockResolvedValue(closed));
+
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+    const box = await screen.findByLabelText('Steering message');
+    expect((box as HTMLTextAreaElement).disabled).toBe(true);
   });
 
   it('navigates between stages from the left-rail navigator', async () => {

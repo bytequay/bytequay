@@ -3773,6 +3773,9 @@ export type Bridge = {
    *  Returns the opened review stage, the seated pass, and the review
    *  thread the panel page navigates to. */
   spawnReview: (parentStageId: string) => Promise<SpawnReviewResult>;
+  /** Steer a stage's dev agent: enqueue the user's message as a turn on the
+   *  task's dev thread. Returns the enqueued turn id. */
+  steerStage: (stageId: string, text: string) => Promise<{ turnId: string }>;
 
   // ── Thread tabs: working-tree changes + commits ──────────────────
   /** Files modified by the AI session but not yet committed. Returns

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import type {
   CiFixHistoryEntry, IterationDetail, RealtimeCi, StageDetailData, StageLogRow,
 } from '../../types/brainView';
@@ -53,11 +53,55 @@ function stageAccent(type: StageType): string {
  * brain-agent drill-in chip. Renders everything the existing data
  * supports: iteration bands with a chronological tool-call / stage-event /
  * summary / user-message log, the derivable metrics subset, realtime CI,
- * and a simplified CI-fix history. Steering is deferred — the composer is
- * present but disabled.
+ * the CI-fix history, and the steering composer.
  */
+
+/** Steer the stage's dev agent: a textarea + send button. Disabled (with a
+ *  hint) once the stage is closed or paused. ⌘/Ctrl+↵ sends. */
+function StageComposer(
+  { disabled, onSubmit }: { disabled: boolean; onSubmit: (text: string) => Promise<void> },
+) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = () => {
+    const trimmed = text.trim();
+    if (trimmed === '' || busy || disabled) return;
+    setBusy(true);
+    setError(null);
+    onSubmit(trimmed)
+      .then(() => setText(''))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to send'))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="composer" aria-label="Stage composer">
+      <textarea
+        className="t"
+        rows={2}
+        value={text}
+        disabled={disabled || busy}
+        placeholder={disabled ? 'Steering unavailable on a closed stage' : 'Steer this stage… (⌘↵ to send)'}
+        aria-label="Steering message"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
+        }}
+      />
+      <button
+        type="button"
+        className="send-icon"
+        disabled={disabled || busy || text.trim() === ''}
+        aria-label="Send steering message"
+        onClick={submit}
+      >↑</button>
+      {error !== null && <div className="composer-error" role="alert">{error}</div>}
+    </div>
+  );
+}
+
 export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenStage }: Props) {
-  const { data } = useStageDetailData(stageId);
+  const { data, refresh } = useStageDetailData(stageId);
   const bandRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
 
   if (data === null) {
@@ -145,11 +189,15 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
           {iterations.length === 0 && (
             <p className="log-empty">This stage has no iterations to show yet.</p>
           )}
-          {/* Steering is a later milestone (no per-stage agent today). */}
-          <div className="composer" aria-label="Stage composer (disabled)">
-            <textarea className="t" rows={2} disabled placeholder="Steering coming in a future release" />
-            <button type="button" className="send-icon" disabled aria-label="Send (disabled)">↑</button>
-          </div>
+          <StageComposer
+            disabled={stage.state === 'CLOSED' || stage.state === 'PAUSED'}
+            onSubmit={async (text) => {
+              const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+              if (bridge?.steerStage === undefined) return;
+              await bridge.steerStage(stage.id, text);
+              refresh();
+            }}
+          />
         </main>
 
         <RightRail stage={stage} context={context} />
@@ -292,13 +340,21 @@ function RightRail({ stage, context }: { stage: StageDetailData['stage']; contex
     if (value !== undefined) metricRows.push([label, `${value}${suffix}`]);
   };
   push('Wall time', m.wallTimeSec, 's');
+  push('Active time', m.activeTimeSec, 's');
+  push('Waiting on you', m.waitingUserTimeSec, 's');
   push('Iterations', m.loopIterations);
   push('Tool calls', m.toolCallsCount);
   push('Turns', m.turnsCount);
   push('Messages', m.messagesCount);
+  push('Interventions', m.interventionsCount);
+  push('Backflows', m.backflowsCount);
   push('Tokens', m.tokensCount);
   push('Cost', m.costCents, '¢');
   metricRows.push(['Panels', String(m.panelInvocationsCount)]);
+  if (m.operationsCount !== undefined) {
+    const ops = Object.entries(m.operationsCount).map(([k, n]) => `${k} ${n}`).join(' · ');
+    if (ops.length > 0) metricRows.push(['Operations', ops]);
+  }
 
   return (
     <aside className="right-rail" aria-label="Stage details">
@@ -319,7 +375,6 @@ function RightRail({ stage, context }: { stage: StageDetailData['stage']; contex
             <span className="metric-value">{value}</span>
           </div>
         ))}
-        <div className="metric-footnote">More metrics in a future release.</div>
       </section>
 
       {budget !== undefined && (

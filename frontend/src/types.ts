@@ -2289,6 +2289,14 @@ export type WorkspaceBehaviorDto = {
  *  Insights surface. Per-repo shipped-tasks breakdown is not yet
  *  served (the work-unit Task doesn't carry repo today); the
  *  frontend continues to render placeholder data for that card. */
+export type AiLedgerDto = {
+  month: string;  // YYYY-MM
+  totalCents: number;
+  totalCalls: number;
+  byProvider: { provider: string; callsCount: number; costCents: number }[];
+  byTaskType: { type: string; callsCount: number; costCents: number }[];
+};
+
 export type WorkspaceInsightsDto = {
   window: string;
   activeThreads: number;
@@ -3480,6 +3488,9 @@ export type Bridge = {
    *  {@code "24h" | "7d" | "30d"}; the backend defaults to {@code 7d}
    *  on unknown values. */
   getWorkspaceInsights: (workspaceId: string, window: string) => Promise<WorkspaceInsightsDto>;
+  /** Monthly AI usage ledger — total spend/calls + per-provider and
+   *  per-task-type breakdowns. Month is YYYY-MM ('' = current month). */
+  getAiLedger: (month: string) => Promise<AiLedgerDto>;
   /** Workspace-level reviewer persona — a user-editable nudge that
    *  prepends to every panel reviewer's skill-context at request
    *  time. Empty string when unset. */

@@ -49,6 +49,21 @@ interface ThreadMessageJpaRepository
     List<ThreadMessageEntity> findByThreadIdAndRoleAndTypeAndSeqLessThanOrderBySeqDesc(
             String threadId, String role, String type, long beforeSeq, Pageable page);
 
+    /** AI spend in a time window, grouped by the owning thread's provider,
+     *  flow, and kind — backs the AI usage ledger. Returns rows of
+     *  {@code [provider, flow, kind, costMilliSum, callCount]} over
+     *  cost-bearing messages. Native because it joins across threads. */
+    @Query(value = """
+            SELECT t.provider, t.flow, t.kind,
+                   SUM(m.cost_usd_milli), COUNT(*)
+            FROM thread_messages m
+            JOIN threads t ON m.thread_id = t.id
+            WHERE m.ts_ms >= :startMs AND m.ts_ms < :endMs
+              AND m.cost_usd_milli IS NOT NULL AND m.cost_usd_milli > 0
+            GROUP BY t.provider, t.flow, t.kind
+            """, nativeQuery = true)
+    List<Object[]> aggregateAiSpend(@Param("startMs") long startMs, @Param("endMs") long endMs);
+
     /** Count of user-role text prompts in a thread. Used by the index
      *  header's "N of M" widget so the user knows how many prompts
      *  exist beyond the loaded window. role='user' AND type='text'

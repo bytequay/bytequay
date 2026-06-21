@@ -3792,6 +3792,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('ai:ledger:get', async (_event, month: unknown) => {
+    const m = typeof month === 'string' && month.length > 0 ? month : '';
+    const url = new URL(`${BACKEND_BASE}/api/ai/ledger`);
+    if (m.length > 0) url.searchParams.set('month', m);
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/ai/ledger returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspace:behavior:set', async (_event, body: unknown) => {
     if (typeof body !== 'object' || body === null) {
       throw new Error('workspace behavior settings must be an object');

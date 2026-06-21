@@ -113,6 +113,26 @@ export function authorAssociationLabel(association: string | null | undefined): 
   }
 }
 
+/** Whether a reviewer's GitHub author_association implies write access to
+ *  the repo — i.e. their approval is one GitHub would count toward a
+ *  branch-protection requirement. OWNER / MEMBER / COLLABORATOR carry
+ *  write; CONTRIBUTOR, first-timers, mannequins, and NONE / null are
+ *  drive-by reviewers whose approval github.com shows but does not count.
+ *  author_association is a proxy (a read-only collaborator can't really
+ *  approve, an org member may lack write on a specific repo) — it's the
+ *  signal the review payload carries, and it matches how github.com
+ *  de-emphasises outside-contributor reviews. */
+export function approvalCountsTowardMerge(association: string | null | undefined): boolean {
+  switch (association) {
+    case 'OWNER':
+    case 'MEMBER':
+    case 'COLLABORATOR':
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Conversation tab filters out bot-authored activity (dependabot, renovate,
  *  codecov, etc.). GitHub marks service-account logins with a `[bot]` suffix;
  *  we also catch the `-bot` convention used by a handful of first-party bots. */

@@ -684,6 +684,9 @@ button.prc-branches__ref--clickable:hover {
 .prc-approved-row__check--approved { background: #2ea043; }
 .prc-approved-row__check--changes-requested { background: #cf222e; }
 .prc-approved-row__check--commented { background: var(--text-3); }
+/* Approval from a reviewer without write access — shown but doesn't count
+   toward merge, so it's gray rather than the authoritative green. */
+.prc-approved-row__check--approved-muted { background: var(--text-3); }
 .prc-approved-row__text {
   flex: 1;
   min-width: 0;

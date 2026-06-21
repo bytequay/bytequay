@@ -21,6 +21,7 @@ import Avatar from './Avatar';
 import ResizeHandle from './ResizeHandle';
 import {
   activityVerb,
+  approvalCountsTowardMerge,
   authorAssociationLabel,
   conclusionLabel,
   displayActor,
@@ -2719,8 +2720,14 @@ function PullRequestPreview({
       // indented beneath it, and finally the inline threads. github.com
       // keeps the verdict line and the comment dialog as distinct blocks
       // rather than merging them into one card.
+      // An approval from a reviewer without write access (a drive-by
+      // CONTRIBUTOR / outside user) is shown by GitHub but doesn't count
+      // toward the merge requirement — render it muted (gray) instead of
+      // the authoritative green so it doesn't read as a blocking approval.
+      const approvalDoesNotCount = item.state === 'APPROVED'
+        && !approvalCountsTowardMerge(item.authorAssociation);
       const variant = item.state === 'APPROVED'
-        ? 'approved'
+        ? (approvalDoesNotCount ? 'approved-muted' : 'approved')
         : item.state === 'CHANGES_REQUESTED'
           ? 'changes-requested'
           : 'commented';
@@ -2734,7 +2741,13 @@ function PullRequestPreview({
         <div key={`a-${key}`} className="prc-review-event">
           <div className={`prc-approved-row prc-approved-row--${variant}`}>
             <Avatar login={item.actor} size={40} className="prc-approved-row__avatar" />
-            <span className={`prc-approved-row__check prc-approved-row__check--${variant}`} aria-hidden>
+            <span
+              className={`prc-approved-row__check prc-approved-row__check--${variant}`}
+              aria-hidden
+              title={approvalDoesNotCount
+                ? 'Approved by a reviewer without write access — does not count toward merge'
+                : undefined}
+            >
               {glyph}
             </span>
             <span className="prc-approved-row__text">

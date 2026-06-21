@@ -20,6 +20,8 @@ import { AggregateMetricsStrip } from './AggregateMetricsStrip';
 import { StageNavigatorRail } from './StageNavigatorRail';
 import { BrainFeedColumn } from './BrainFeedColumn';
 import { RightRail } from './RightRail';
+import { ConfirmDialog } from '../../workspace/ConfirmDialog';
+import PromptContextInspector from '../../inspector/PromptContextInspector';
 
 type Props = {
   taskId: string;
@@ -59,7 +61,7 @@ function liveLabelFor(type: StageType): string {
  * now; the real-data swap changes only that hook.
  */
 export default function TaskBrainView({
-  taskId, threadId: _threadId, threadTitle = 'Cost & tokens',
+  taskId, threadId, threadTitle = 'Cost & tokens',
   onBack, onOpenThread, onOpenStage, onOpenPr, onOpenReviewThread, nowMs,
 }: Props) {
   const { data, pollFast } = useBrainViewData(taskId);
@@ -126,8 +128,31 @@ export default function TaskBrainView({
     if (onOpenReviewThread !== undefined) onOpenReviewThread(result.reviewThreadId);
   };
 
-  // M2 stubs — the brain agent and the stage actions don't exist yet.
-  const stub = (what: string) => () => console.log(`[brain view] ${what} (not wired in M2)`);
+  // Task lifecycle actions, wired to the existing per-task endpoints. Pause
+  // is reversible (→ Resume); Close is destructive (reaps the worktree), so
+  // it confirms first. A shared busy flag blocks a double-fire mid-request.
+  const [taskActionBusy, setTaskActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+
+  const runTaskAction = (fn: () => Promise<unknown>, after?: () => void) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (bridge === undefined || taskActionBusy) return;
+    setTaskActionBusy(true);
+    setActionError(null);
+    fn()
+      .then(() => { pollFast(); after?.(); })
+      .catch((e: unknown) => setActionError(e instanceof Error ? e.message : 'Task action failed'))
+      .finally(() => setTaskActionBusy(false));
+  };
+
+  const onPause = () => runTaskAction(() => window.bridge.pauseTask(threadId, task.id));
+  const onResume = () => runTaskAction(() => window.bridge.resumePausedTask(threadId, task.id));
+  const doClose = () => {
+    setConfirmCloseOpen(false);
+    runTaskAction(() => window.bridge.cancelTask(threadId, task.id), () => onBack());
+  };
 
   return (
     <div className="task-brain">
@@ -165,15 +190,42 @@ export default function TaskBrainView({
             rail={rightRail}
             nowMs={clock}
             onApprove={approval => openStage(approval.stageId)}
-            onMerge={stub('merge PR')}
-            onViewDiff={stub('view code diff')}
-            onViewContext={stub('view full context')}
-            onPause={stub('pause task')}
-            onClose={stub('close task')}
+            onMerge={openPr}
+            onViewDiff={openPr}
+            onViewContext={() => setInspectorOpen(true)}
+            onPause={onPause}
+            onResume={onResume}
+            onClose={() => setConfirmCloseOpen(true)}
+            paused={task.paused}
+            taskActionBusy={taskActionBusy}
             onSpawnReview={spawnReview}
           />
         </div>
       </div>
+      {actionError !== null && (
+        <div className="tbv-action-error" role="alert">{actionError}</div>
+      )}
+      {confirmCloseOpen && (
+        <ConfirmDialog
+          title={`Close “${task.title}”?`}
+          body={'This stops the agent, marks the task canceled, and reaps its '
+            + 'worktree and branch. Unpushed local work is lost. The PR on '
+            + 'GitHub is not affected. This cannot be undone.'}
+          confirmLabel="Close task"
+          destructive
+          busy={taskActionBusy}
+          onConfirm={doClose}
+          onCancel={() => setConfirmCloseOpen(false)}
+        />
+      )}
+      {inspectorOpen && (
+        <PromptContextInspector
+          scope="TASK"
+          threadId={threadId}
+          taskId={taskId}
+          onClose={() => setInspectorOpen(false)}
+        />
+      )}
     </div>
   );
 }

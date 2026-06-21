@@ -146,4 +146,90 @@ describe('TaskBrainView', () => {
     // Optimistic bubble appears immediately, before any round-trip.
     expect(screen.getByText('How many pushes have we done?')).toBeTruthy();
   });
+
+  // ── lifecycle / action buttons (formerly silent stubs) ──────────────
+
+  function brainWith(
+    taskOver: Record<string, unknown> = {},
+    railOver: Record<string, unknown> = {},
+  ) {
+    const v = buildMockBrainView(FROZEN);
+    return {
+      ...v,
+      task: { ...v.task, id: 'task-9', ...taskOver },
+      rightRail: { ...v.rightRail, ...railOver },
+    };
+  }
+
+  it('wires the Pause button to the pause endpoint', async () => {
+    const pauseTask = vi.fn().mockResolvedValue({});
+    const getBrainView = vi.fn().mockResolvedValue(brainWith());
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView, pauseTask };
+
+    renderView();
+    fireEvent.click(await screen.findByRole('button', { name: '⏸ Pause task' }));
+
+    await waitFor(() => expect(pauseTask).toHaveBeenCalledWith('thread-1', 'task-9'));
+  });
+
+  it('shows Resume on a paused task and wires it to the resume endpoint', async () => {
+    const resumePausedTask = vi.fn().mockResolvedValue({});
+    const getBrainView = vi.fn().mockResolvedValue(brainWith({ paused: true }));
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView, resumePausedTask };
+
+    renderView();
+    fireEvent.click(await screen.findByRole('button', { name: '▶ Resume task' }));
+
+    await waitFor(() => expect(resumePausedTask).toHaveBeenCalledWith('thread-1', 'task-9'));
+  });
+
+  it('confirms before closing, then cancels the task and navigates back', async () => {
+    const cancelTask = vi.fn().mockResolvedValue({});
+    const getBrainView = vi.fn().mockResolvedValue(brainWith());
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView, cancelTask };
+    const onBack = vi.fn();
+
+    renderView({ onBack });
+    fireEvent.click(await screen.findByRole('button', { name: '⏹ Close task' }));
+    // Destructive → a confirm dialog gates the cancel.
+    fireEvent.click(await screen.findByRole('button', { name: 'Close task' }));
+
+    await waitFor(() => expect(cancelTask).toHaveBeenCalledWith('thread-1', 'task-9'));
+    await waitFor(() => expect(onBack).toHaveBeenCalled());
+  });
+
+  it('routes the Merge button to the in-app PR page', async () => {
+    const base = buildMockBrainView(FROZEN);
+    const getBrainView = vi.fn().mockResolvedValue(
+      brainWith({}, { linkedPr: { ...base.rightRail.linkedPr, mergeable: true } }));
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView };
+    const onOpenPr = vi.fn();
+
+    renderView({ onOpenPr });
+    fireEvent.click(await screen.findByRole('button', { name: /Merge — finalize PR/ }));
+
+    expect(onOpenPr).toHaveBeenCalledWith('trinodb', 'trino', 5680);
+  });
+
+  it('routes View code diff to the in-app PR page', async () => {
+    const getBrainView = vi.fn().mockResolvedValue(brainWith());
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView };
+    const onOpenPr = vi.fn();
+
+    renderView({ onOpenPr });
+    fireEvent.click(await screen.findByRole('button', { name: /View code diff/ }));
+
+    expect(onOpenPr).toHaveBeenCalledWith('trinodb', 'trino', 5680);
+  });
+
+  it('opens the prompt context inspector from View full context', async () => {
+    const getBrainView = vi.fn().mockResolvedValue(brainWith());
+    const getTaskContext = vi.fn().mockRejectedValue(new Error('no context in test'));
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView, getTaskContext };
+
+    renderView();
+    fireEvent.click(await screen.findByRole('button', { name: /View full context/ }));
+
+    expect(await screen.findByLabelText('Prompt context inspector')).toBeTruthy();
+  });
 });

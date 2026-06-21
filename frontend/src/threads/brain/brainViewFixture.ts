@@ -52,6 +52,7 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     statusLabel: 'CI FIXING · iter #3',
     agentRuntime: 'CLI',
     agentModel: 'sonnet-3.7',
+    paused: false,
   },
   aggregate: {
     pushes: 4,

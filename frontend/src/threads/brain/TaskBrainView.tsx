@@ -64,7 +64,7 @@ export default function TaskBrainView({
   taskId, threadId, threadTitle = 'Cost & tokens',
   onBack, onOpenThread, onOpenStage, onOpenPr, onOpenReviewThread, nowMs,
 }: Props) {
-  const { data, pollFast } = useBrainViewData(taskId);
+  const { data, error: loadError, pollFast } = useBrainViewData(taskId);
   const { task, aggregate, stages, subStages, brainFeed, rightRail, scrubbers } = data;
   const clock = nowMs ?? Date.now();
 
@@ -164,6 +164,11 @@ export default function TaskBrainView({
           onOpenPr={task.prNumber !== null && onOpenPr !== undefined ? openPr : undefined}
         />
         <AggregateMetricsStrip aggregate={aggregate} liveLabel={liveLabel} />
+        {loadError !== null && (
+          <div className="tbv-load-error" role="alert">
+            Couldn't refresh the brain view: {loadError}. Showing the last loaded state.
+          </div>
+        )}
         {/* Grid columns are set inline as well as in CSS: this is the
             load-bearing layout value (252 / fluid center / 308) and the
             minmax(0, 1fr) center column is what stops long unbreakable

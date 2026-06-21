@@ -297,3 +297,6 @@
 .brain .brain-filter__q { flex: 1; min-width: 120px; font-size: 12px; padding: 3px 8px; border: 1px solid var(--tbv-border); border-radius: 6px; }
 .brain .brain-filter select { font-size: 11px; padding: 2px 4px; border: 1px solid var(--tbv-border); border-radius: 6px; }
 .brain .brain-filter__empty { padding: 24px 12px; text-align: center; color: var(--tbv-text-subtle); font-size: 12px; }
+
+/* Non-blocking brain-view load-error banner (last good data stays shown). */
+.task-brain .tbv-load-error { margin: 6px 28px 0; padding: 7px 12px; border-radius: 6px; font-size: 12px; color: #b91c1c; background: rgba(185,28,28,0.06); border: 1px solid rgba(185,28,28,0.3); }

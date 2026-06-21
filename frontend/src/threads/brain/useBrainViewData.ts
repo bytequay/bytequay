@@ -29,6 +29,9 @@ type BrainViewState = {
    *  absent) have content; replaced by real backend data once a fetch
    *  resolves. */
   data: TaskBrainViewData;
+  /** The last fetch error, or null when the latest fetch succeeded. The
+   *  view keeps showing the last good data (or the seed) underneath. */
+  error: string | null;
   /** Re-fetch now. */
   refresh: () => void;
   /** Tighten the cadence for a short window — call after a submit. */
@@ -44,6 +47,7 @@ type BrainViewState = {
  */
 export function useBrainViewData(taskId: string): BrainViewState {
   const [data, setData] = useState<TaskBrainViewData>(() => buildMockBrainView(Date.now()));
+  const [error, setError] = useState<string | null>(null);
   const fastUntilRef = useRef<number>(0);
 
   const fetchOnce = useCallback(() => {
@@ -52,8 +56,8 @@ export function useBrainViewData(taskId: string): BrainViewState {
       return;
     }
     bridge.getBrainView(taskId)
-      .then(setData)
-      .catch(() => { /* transient; the next poll retries */ });
+      .then(d => { setData(d); setError(null); })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load the brain view'));
   }, [taskId]);
 
   const refresh = useCallback(() => fetchOnce(), [fetchOnce]);
@@ -74,5 +78,5 @@ export function useBrainViewData(taskId: string): BrainViewState {
     return () => clearTimeout(timer);
   }, [fetchOnce]);
 
-  return { data, refresh, pollFast };
+  return { data, error, refresh, pollFast };
 }

@@ -83,6 +83,34 @@ import static java.util.Objects.requireNonNull;
 public class PublishService
 {
     private static final Logger log = LoggerFactory.getLogger(PublishService.class);
+    private static final String ACTION_REQUEST_REVIEW = "request_review";
+    private static final String ACTION_NEXT_TASK = "next_task";
+    private static final String ACTION_SHIP_TASK = "ship_task";
+    private static final String RESOLUTION_APPROVED = "approved";
+    private static final String RESOLUTION_APPROVED_CONCURRENT = "approved_concurrent";
+    private static final String RESOLUTION_DISCARDED = "discarded";
+    private static final String RESOLUTION_DISCARDED_AFTER_INTERRUPT = "discarded_after_interrupt";
+    private static final String RESOLUTION_INTERRUPTED = "interrupted";
+    private static final String RESOLUTION_INTERRUPTED_CONFIRMED = "interrupted_confirmed";
+    private static final String RESOLUTION_INTERRUPTED_UNCONFIRMED = "interrupted_unconfirmed";
+    private static final String RESOLUTION_RECOVERED = "recovered";
+    private static final String BASE_MODE_MAIN = "main";
+    private static final String BASE_MODE_STACKED = "stacked";
+    private static final String ISSUE_STATE_OPEN = "open";
+    private static final String ISSUE_STATE_CLOSED = "closed";
+    private static final String MERGE_STRATEGY_MERGE = "merge";
+    private static final String MERGE_STRATEGY_REBASE = "rebase";
+    private static final String MERGE_STRATEGY_SQUASH = "squash";
+    private static final String REVIEW_EVENT_APPROVE = "APPROVE";
+    private static final String REVIEW_EVENT_REQUEST_CHANGES = "REQUEST_CHANGES";
+    private static final String REVIEW_EVENT_COMMENT = "COMMENT";
+    private static final String REVIEW_SIDE_RIGHT = "RIGHT";
+    private static final String LINKED_PULL_REQUEST_STATUS_OPEN = "open";
+    private static final String LINKED_PULL_REQUEST_STATUS_DRAFT = "draft";
+    private static final String JSON_FIELD_ACTION = "action";
+    private static final String JSON_FIELD_SOURCE = "source";
+    private static final String JSON_FIELD_SUMMARY = "summary";
+    private static final String LEGACY_REQUEST_REVIEW_SOURCE = "mcp:request_review";
 
     private final NotificationService notifications;
     private final TaskStore taskStore;
@@ -174,7 +202,7 @@ public class PublishService
             }
             log.warn("publish approve {} ({}) interrupted before remote returned: {}",
                     notificationId, action, e.getMessage());
-            writeAuditRow(original, "interrupted_unconfirmed", action,
+            writeAuditRow(original, RESOLUTION_INTERRUPTED_UNCONFIRMED, action,
                     "publish outcome unknown — the remote action may or may not have run: "
                             + e.getMessage());
             return interruptedResult(action);
@@ -186,14 +214,14 @@ public class PublishService
             // only, never repeats the publish.
             log.warn("publish approve {} ({}) interrupted before remote returned: {}",
                     notificationId, action, e.getMessage());
-            writeAuditRow(original, "interrupted_unconfirmed", action,
+            writeAuditRow(original, RESOLUTION_INTERRUPTED_UNCONFIRMED, action,
                     "publish outcome unknown — the remote action may or may not have run: "
                             + e.getMessage());
             return interruptedResult(action);
         }
 
         try {
-            boolean taskAlreadyAdvanced = "next_task".equals(action) || "ship_task".equals(action);
+            boolean taskAlreadyAdvanced = isAdvanceAction(action);
             parkedProposals.finishApproved(original, taskAlreadyAdvanced);
         }
         catch (ResponseStatusException e) {
@@ -209,25 +237,25 @@ public class PublishService
             if (e.getStatusCode().value() == 409) {
                 log.warn("publish approve {} ({}) raced a concurrent resolver: {}",
                         notificationId, action, e.getMessage());
-                writeAuditRow(original, "approved_concurrent", action,
+                writeAuditRow(original, RESOLUTION_APPROVED_CONCURRENT, action,
                         "remote action completed; another resolver finalized this row first: "
                                 + e.getMessage());
                 return result;
             }
             log.warn("local finalization of publish {} ({}) failed: {}",
                     notificationId, action, e.getMessage());
-            writeAuditRow(original, "interrupted_confirmed", action,
+            writeAuditRow(original, RESOLUTION_INTERRUPTED_CONFIRMED, action,
                     "remote action completed; local finalization failed: " + e.getMessage());
             return interruptedResult(action);
         }
         catch (RuntimeException e) {
             log.warn("local finalization of publish {} ({}) failed: {}",
                     notificationId, action, e.getMessage());
-            writeAuditRow(original, "interrupted_confirmed", action,
+            writeAuditRow(original, RESOLUTION_INTERRUPTED_CONFIRMED, action,
                     "remote action completed; local finalization failed: " + e.getMessage());
             return interruptedResult(action);
         }
-        writeAuditRow(original, "approved", action, result.message());
+        writeAuditRow(original, RESOLUTION_APPROVED, action, result.message());
         // Close the review→build loop: if this thread was spawned from a
         // review pass, resolve any AGREED finding its just-published work
         // references. Best-effort — it never affects the publish outcome.
@@ -273,7 +301,7 @@ public class PublishService
      *  applied. They must never auto-release a claim for retry. */
     private static boolean isAdvanceAction(String action)
     {
-        return "next_task".equals(action) || "ship_task".equals(action);
+        return ACTION_NEXT_TASK.equals(action) || ACTION_SHIP_TASK.equals(action);
     }
 
     private static void requireExpectedAction(String expectedAction, String actualAction)
@@ -337,10 +365,10 @@ public class PublishService
                     editedBody -> preflightRequestReview(requestReview),
                     editedBody -> doRequestReview());
             case ParkedProposal.NextTask nextTask -> action(
-                    editedBody -> preflightAdvance(nextTask.baseMode(), original, "next_task"),
+                    editedBody -> preflightAdvance(nextTask.baseMode(), original, nextTask.action()),
                     editedBody -> doNextTask(nextTask, original));
             case ParkedProposal.ShipTask shipTask -> action(
-                    editedBody -> preflightAdvance(shipTask.baseMode(), original, "ship_task"),
+                    editedBody -> preflightAdvance(shipTask.baseMode(), original, shipTask.action()),
                     editedBody -> doShipTask(shipTask, original));
         };
     }
@@ -375,14 +403,14 @@ public class PublishService
 
     private static void preflightPostComment(ParkedProposal.PostComment postComment, String editedBody)
     {
-        requirePrRef(postComment.pr(), "post_comment");
+        requirePrRef(postComment.pr(), postComment.action());
         requireEditableBody(postComment.body(), editedBody, "comment body is blank — nothing to post");
     }
 
     private static void preflightReplyReviewThread(
             ParkedProposal.ReplyReviewThread replyReviewThread, String editedBody)
     {
-        requirePrRef(replyReviewThread.pr(), "reply_review_thread");
+        requirePrRef(replyReviewThread.pr(), replyReviewThread.action());
         if (replyReviewThread.rootCommentId() <= 0L) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked reply_review_thread notification has no rootCommentId");
@@ -392,18 +420,18 @@ public class PublishService
 
     private static void preflightApprovePr(ParkedProposal.ApprovePr approvePullRequest)
     {
-        requirePrRef(approvePullRequest.pr(), "approve_pr");
+        requirePrRef(approvePullRequest.pr(), approvePullRequest.action());
     }
 
     private static void preflightMergePr(ParkedProposal.MergePr mergePullRequest)
     {
-        requirePrRef(mergePullRequest.pr(), "merge_pr");
+        requirePrRef(mergePullRequest.pr(), mergePullRequest.action());
     }
 
     private static void preflightCreateReviewComment(
             ParkedProposal.CreateReviewComment createReviewComment, String editedBody)
     {
-        requirePrRef(createReviewComment.pr(), "create_review_comment");
+        requirePrRef(createReviewComment.pr(), createReviewComment.action());
         requireEditableBody(createReviewComment.body(), editedBody, "review comment body is blank — nothing to post");
         if (nullToEmpty(createReviewComment.filePath()).isBlank()
                 || createReviewComment.line() <= 0
@@ -415,13 +443,13 @@ public class PublishService
 
     private static void preflightUpdatePrBody(ParkedProposal.UpdatePrBody updatePullRequestBody, String editedBody)
     {
-        requirePrRef(updatePullRequestBody.pr(), "update_pr_body");
+        requirePrRef(updatePullRequestBody.pr(), updatePullRequestBody.action());
         requireEditableBody(updatePullRequestBody.body(), editedBody, "PR body is blank — nothing to update");
     }
 
     private static void preflightRequestReviewer(ParkedProposal.RequestReviewer requestReviewer)
     {
-        requirePrRef(requestReviewer.pr(), "request_reviewer");
+        requirePrRef(requestReviewer.pr(), requestReviewer.action());
         if (nullToEmpty(requestReviewer.reviewer()).trim().isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked request_reviewer notification has no reviewer login");
@@ -430,14 +458,14 @@ public class PublishService
 
     private static void preflightCommentOnIssue(ParkedProposal.CommentOnIssue commentOnIssue, String editedBody)
     {
-        requireIssueRef(commentOnIssue.issue(), "comment_on_issue");
+        requireIssueRef(commentOnIssue.issue(), commentOnIssue.action());
         requireEditableBody(commentOnIssue.body(), editedBody, "comment body is blank — nothing to post");
     }
 
     private static void preflightSetIssueState(ParkedProposal.SetIssueState setIssueState)
     {
-        requireIssueRef(setIssueState.issue(), "set_issue_state");
-        if (!"open".equals(setIssueState.state()) && !"closed".equals(setIssueState.state())) {
+        requireIssueRef(setIssueState.issue(), setIssueState.action());
+        if (!ISSUE_STATE_OPEN.equals(setIssueState.state()) && !ISSUE_STATE_CLOSED.equals(setIssueState.state())) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked set_issue_state notification has invalid state: " + setIssueState.state());
         }
@@ -477,7 +505,7 @@ public class PublishService
 
     private static void preflightPublishReview(ParkedProposal.PublishReview publishReview)
     {
-        requirePrRef(publishReview.pr(), "publish_review");
+        requirePrRef(publishReview.pr(), publishReview.action());
         List<ParkedProposal.PublishReview.InlineComment> comments = publishReview.comments();
         if (comments == null) {
             return;
@@ -528,8 +556,8 @@ public class PublishService
         // The original nextTitle JsonNode type check (textual-or-absent)
         // is now enforced by Jackson at deserialisation — a non-string
         // value lands the same 400 via parseProposal.
-        String resolvedBaseMode = baseMode == null ? "main" : baseMode;
-        if (!"main".equals(resolvedBaseMode) && !"stacked".equals(resolvedBaseMode)) {
+        String resolvedBaseMode = baseMode == null ? BASE_MODE_MAIN : baseMode;
+        if (!BASE_MODE_MAIN.equals(resolvedBaseMode) && !BASE_MODE_STACKED.equals(resolvedBaseMode)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has an invalid baseMode");
         }
@@ -540,13 +568,13 @@ public class PublishService
         parkedProposals.finishInterruptedApproval(original, action);
         String message = "Closed the interrupted approval locally without repeating "
                 + "its publish action. Check the remote state before proposing it again.";
-        writeAuditRow(original, "recovered", action, message);
-        return new PublishResult(true, "recovered", message, action);
+        writeAuditRow(original, RESOLUTION_RECOVERED, action, message);
+        return new PublishResult(true, RESOLUTION_RECOVERED, message, action);
     }
 
     private static PublishResult interruptedResult(String action)
     {
-        return new PublishResult(false, "interrupted",
+        return new PublishResult(false, RESOLUTION_INTERRUPTED,
                 "The approval attempt did not finish cleanly. Check remote state, then "
                         + "choose Finish locally or Discard; publishing will not be repeated automatically.",
                 action);
@@ -590,9 +618,9 @@ public class PublishService
         //      shipped, and (when the advance produced a successor)
         //      revive the prior task into a second active sibling.
         boolean resumeTask = !interrupted
-                || "request_review".equals(action);
+                || ACTION_REQUEST_REVIEW.equals(action);
         parkedProposals.finishDiscarded(original, resumeTask);
-        String auditResolution = interrupted ? "discarded_after_interrupt" : "discarded";
+        String auditResolution = interrupted ? RESOLUTION_DISCARDED_AFTER_INTERRUPT : RESOLUTION_DISCARDED;
         // For an interrupted discard we deliberately don't reassert
         // the remote outcome here — the prior `interrupted_unconfirmed`
         // or `interrupted_confirmed` audit row records what we know,
@@ -604,7 +632,7 @@ public class PublishService
                         + " approval; see the prior interrupted audit row for the remote outcome"
                 : "user discarded the proposed " + action;
         writeAuditRow(original, auditResolution, action, auditMessage);
-        return new PublishResult(true, "discarded",
+        return new PublishResult(true, RESOLUTION_DISCARDED,
                 "Discarded.", action);
     }
 
@@ -653,10 +681,10 @@ public class PublishService
         try {
             JsonNode tree = mapper.readTree(json);
             if (tree instanceof ObjectNode obj
-                    && obj.path("action").asText("").isBlank()
-                    && "mcp:request_review".equals(obj.path("source").asText(""))
-                    && obj.path("summary").isTextual()) {
-                obj.put("action", "request_review");
+                    && obj.path(JSON_FIELD_ACTION).asText("").isBlank()
+                    && LEGACY_REQUEST_REVIEW_SOURCE.equals(obj.path(JSON_FIELD_SOURCE).asText(""))
+                    && obj.path(JSON_FIELD_SUMMARY).isTextual()) {
+                obj.put(JSON_FIELD_ACTION, ACTION_REQUEST_REVIEW);
             }
             return mapper.treeToValue(tree, ParkedProposal.class);
         }
@@ -686,8 +714,8 @@ public class PublishService
         // show "on remote" instead of looking stuck. Best-effort: a
         // bookkeeping miss must not fail an already-applied push.
         markTaskPushed(original);
-        return new PublishResult(true, "approved",
-                "Pushed " + branch + " from " + worktree + ".", "push");
+        return new PublishResult(true, RESOLUTION_APPROVED,
+                "Pushed " + branch + " from " + worktree + ".", push.action());
     }
 
     /** Stamp the proposal's task as pushed-to-remote. Resolved by the
@@ -708,7 +736,7 @@ public class PublishService
 
     private PublishResult doPostComment(ParkedProposal.PostComment postComment, String editedBody)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(postComment.pr(), "post_comment");
+        ParkedProposal.PrRef pullRequest = requirePrRef(postComment.pr(), postComment.action());
         String effectiveBody = effectiveBody(postComment.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -717,15 +745,15 @@ public class PublishService
         PullRequestRef ref = toPullRequestRef(pullRequest);
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
         pullRequests.createIssueComment(pat, ref, effectiveBody);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Posted comment on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + ".",
-                "post_comment");
+                postComment.action());
     }
 
     private PublishResult doReplyReviewThread(ParkedProposal.ReplyReviewThread replyReviewThread, String editedBody)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(replyReviewThread.pr(), "reply_review_thread");
+        ParkedProposal.PrRef pullRequest = requirePrRef(replyReviewThread.pr(), replyReviewThread.action());
         if (replyReviewThread.rootCommentId() <= 0L) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked reply_review_thread notification has no rootCommentId");
@@ -738,15 +766,15 @@ public class PublishService
         PullRequestRef ref = toPullRequestRef(pullRequest);
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
         pullRequests.replyToReviewComment(pat, ref, replyReviewThread.rootCommentId(), effectiveBody);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Replied in review thread on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + ".",
-                "reply_review_thread");
+                replyReviewThread.action());
     }
 
     private PublishResult doApprovePr(ParkedProposal.ApprovePr approvePullRequest, String editedBody)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(approvePullRequest.pr(), "approve_pr");
+        ParkedProposal.PrRef pullRequest = requirePrRef(approvePullRequest.pr(), approvePullRequest.action());
         // approve_pr's body is optional. Distinguish "user never
         // overrode the textarea" (editedBody == null — for callers
         // that don't render an editor at all) from "user explicitly
@@ -762,21 +790,21 @@ public class PublishService
         CreateReviewCommand command = new CreateReviewCommand(
                 Optional.empty(),
                 effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
-                "APPROVE",
+                REVIEW_EVENT_APPROVE,
                 ImmutableList.of());
         pullRequests.createReview(pat, toPullRequestRef(pullRequest), command);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Approved " + pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number() + ".",
-                "approve_pr");
+                approvePullRequest.action());
     }
 
     private PublishResult doMergePr(ParkedProposal.MergePr mergePullRequest)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(mergePullRequest.pr(), "merge_pr");
-        String strategy = orElse(mergePullRequest.strategy(), "squash");
+        ParkedProposal.PrRef pullRequest = requirePrRef(mergePullRequest.pr(), mergePullRequest.action());
+        String strategy = orElse(mergePullRequest.strategy(), MERGE_STRATEGY_SQUASH);
         MergePullRequestCommand command = switch (strategy) {
-            case "merge" -> MergePullRequestCommand.mergeCommit();
-            case "rebase" -> MergePullRequestCommand.rebase();
+            case MERGE_STRATEGY_MERGE -> MergePullRequestCommand.mergeCommit();
+            case MERGE_STRATEGY_REBASE -> MergePullRequestCommand.rebase();
             default -> MergePullRequestCommand.squash();
         };
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
@@ -784,16 +812,16 @@ public class PublishService
         // Advance a shipped task that owns this PR to COMPLETED — the
         // dashboard merge does the same via PullRequestMergedEvent.
         taskService.completeTasksForMergedPr(pullRequest.owner() + "/" + pullRequest.repo(), pullRequest.number());
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Merged " + pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number()
                         + " (" + strategy + ").",
-                "merge_pr");
+                mergePullRequest.action());
     }
 
     private PublishResult doCreateReviewComment(
             ParkedProposal.CreateReviewComment createReviewComment, String editedBody)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(createReviewComment.pr(), "create_review_comment");
+        ParkedProposal.PrRef pullRequest = requirePrRef(createReviewComment.pr(), createReviewComment.action());
         String effectiveBody = effectiveBody(createReviewComment.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -806,7 +834,7 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked create_review_comment notification is missing filePath / line / commitId");
         }
-        String side = orElse(createReviewComment.side(), "RIGHT");
+        String side = orElse(createReviewComment.side(), REVIEW_SIDE_RIGHT);
         String startSide = nullToEmpty(createReviewComment.startSide());
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
         pullRequests.createInlineReviewComment(
@@ -814,15 +842,15 @@ public class PublishService
                 effectiveBody, filePath, line, side, commitId,
                 createReviewComment.startLine(),
                 startSide.isBlank() ? null : startSide);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Posted review comment on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + " · " + filePath + ":" + line + ".",
-                "create_review_comment");
+                createReviewComment.action());
     }
 
     private PublishResult doUpdatePrBody(ParkedProposal.UpdatePrBody updatePullRequestBody, String editedBody)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(updatePullRequestBody.pr(), "update_pr_body");
+        ParkedProposal.PrRef pullRequest = requirePrRef(updatePullRequestBody.pr(), updatePullRequestBody.action());
         String effectiveBody = effectiveBody(updatePullRequestBody.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -836,15 +864,15 @@ public class PublishService
                 Optional.empty(),
                 Optional.empty());
         pullRequests.updatePullRequest(pat, toPullRequestRef(pullRequest), command);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Updated PR body on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + ".",
-                "update_pr_body");
+                updatePullRequestBody.action());
     }
 
     private PublishResult doRequestReviewer(ParkedProposal.RequestReviewer requestReviewer)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(requestReviewer.pr(), "request_reviewer");
+        ParkedProposal.PrRef pullRequest = requirePrRef(requestReviewer.pr(), requestReviewer.action());
         String reviewer = nullToEmpty(requestReviewer.reviewer()).trim();
         if (reviewer.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -855,15 +883,15 @@ public class PublishService
                 ImmutableList.of(reviewer),
                 ImmutableList.of());
         pullRequests.requestReviewers(pat, toPullRequestRef(pullRequest), command);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Requested " + reviewer + " on " + pullRequest.owner() + "/"
                         + pullRequest.repo() + "#" + pullRequest.number() + ".",
-                "request_reviewer");
+                requestReviewer.action());
     }
 
     private PublishResult doCommentOnIssue(ParkedProposal.CommentOnIssue commentOnIssue, String editedBody)
     {
-        ParkedProposal.IssueRef issue = requireIssueRef(commentOnIssue.issue(), "comment_on_issue");
+        ParkedProposal.IssueRef issue = requireIssueRef(commentOnIssue.issue(), commentOnIssue.action());
         String effectiveBody = effectiveBody(commentOnIssue.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -875,25 +903,25 @@ public class PublishService
         PullRequestRef forApi = new PullRequestRef(issue.owner(), issue.repo(), issue.number());
         String pat = patResolver.resolve(issue.owner() + "/" + issue.repo());
         pullRequests.createIssueComment(pat, forApi, effectiveBody);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Posted comment on " + issue.owner() + "/" + issue.repo() + "#" + issue.number() + ".",
-                "comment_on_issue");
+                commentOnIssue.action());
     }
 
     private PublishResult doSetIssueState(ParkedProposal.SetIssueState setIssueState)
     {
-        ParkedProposal.IssueRef issue = requireIssueRef(setIssueState.issue(), "set_issue_state");
+        ParkedProposal.IssueRef issue = requireIssueRef(setIssueState.issue(), setIssueState.action());
         String state = nullToEmpty(setIssueState.state());
-        if (!"open".equals(state) && !"closed".equals(state)) {
+        if (!ISSUE_STATE_OPEN.equals(state) && !ISSUE_STATE_CLOSED.equals(state)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked set_issue_state notification has invalid state: " + state);
         }
         String pat = patResolver.resolve(issue.owner() + "/" + issue.repo());
         pullRequests.setIssueState(pat, new RepoRef(issue.owner(), issue.repo()), issue.number(), state);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Set " + issue.owner() + "/" + issue.repo() + "#" + issue.number()
                         + " to " + state + ".",
-                "set_issue_state");
+                setIssueState.action());
     }
 
     private PublishResult doOpenPr(ParkedProposal.OpenPr openPullRequest, String editedBody, Notification original)
@@ -956,7 +984,9 @@ public class PublishService
         if (task != null && opened != null) {
             try {
                 // Push was already recorded right after ensureBranchPushed.
-                taskStore.linkPullRequest(task.id(), opened.number(), opened.draft() ? "draft" : "open");
+                taskStore.linkPullRequest(
+                        task.id(), opened.number(),
+                        opened.draft() ? LINKED_PULL_REQUEST_STATUS_DRAFT : LINKED_PULL_REQUEST_STATUS_OPEN);
                 // Also record the canonical "owner/repo#n" ref so the
                 // lifecycle driver can fetch this PR directly by number.
                 taskStore.linkTaskToPr(task.id(), opened.repo() + "#" + opened.number());
@@ -967,10 +997,10 @@ public class PublishService
             }
         }
         String prRef = opened == null ? "" : " #" + opened.number();
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Opened PR" + prRef + " " + owner + "/" + repoName + " · " + head + " → " + base
                         + (draft ? " (draft)" : "") + ".",
-                "open_pr");
+                openPullRequest.action());
     }
 
     /** Push {@code head} from the task's worktree when it isn't already
@@ -1003,10 +1033,12 @@ public class PublishService
 
     private PublishResult doPublishReview(ParkedProposal.PublishReview review, String editedBody)
     {
-        ParkedProposal.PrRef pullRequest = requirePrRef(review.pr(), "publish_review");
+        ParkedProposal.PrRef pullRequest = requirePrRef(review.pr(), review.action());
         String event = nullToEmpty(review.event());
-        if (!"APPROVE".equals(event) && !"REQUEST_CHANGES".equals(event) && !"COMMENT".equals(event)) {
-            event = "COMMENT";
+        if (!REVIEW_EVENT_APPROVE.equals(event)
+                && !REVIEW_EVENT_REQUEST_CHANGES.equals(event)
+                && !REVIEW_EVENT_COMMENT.equals(event)) {
+            event = REVIEW_EVENT_COMMENT;
         }
         // publish_review's review-level body is optional. null = no
         // override; "" = user explicitly cleared (APPROVE/REQUEST_CHANGES
@@ -1023,7 +1055,7 @@ public class PublishService
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "publish_review comment is missing file_path / line / body");
                 }
-                String side = orElse(comment.side(), "RIGHT");
+                String side = orElse(comment.side(), REVIEW_SIDE_RIGHT);
                 Optional<Integer> startLine = Optional.ofNullable(comment.startLine());
                 String startSideRaw = nullToEmpty(comment.startSide());
                 Optional<String> startSide = startSideRaw.isBlank()
@@ -1040,37 +1072,37 @@ public class PublishService
                 commentsBuilder.build());
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
         pullRequests.createReview(pat, toPullRequestRef(pullRequest), command);
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Published review on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + " (" + event + ").",
-                "publish_review");
+                review.action());
     }
 
     /** Accepts a review-ready marker without running a remote side
      *  effect. The user has acknowledged the locally parked result. */
     private PublishResult doRequestReview()
     {
-        return new PublishResult(true, "approved",
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Accepted review-ready work. No remote changes were published.",
-                "request_review");
+                ACTION_REQUEST_REVIEW);
     }
 
     private PublishResult doNextTask(ParkedProposal.NextTask nextTask, Notification original)
     {
-        Task next = runApprovedAdvance(nextTask.nextTitle(), nextTask.baseMode(), original, "next_task");
-        return new PublishResult(true, "approved",
+        Task next = runApprovedAdvance(nextTask.nextTitle(), nextTask.baseMode(), original, nextTask.action());
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Advanced from task " + original.taskId() + " to " + next.id()
                         + " on " + next.branchName() + ".",
-                "next_task");
+                nextTask.action());
     }
 
     private PublishResult doShipTask(ParkedProposal.ShipTask shipTask, Notification original)
     {
-        Task next = runApprovedAdvance(shipTask.nextTitle(), shipTask.baseMode(), original, "ship_task");
-        return new PublishResult(true, "approved",
+        Task next = runApprovedAdvance(shipTask.nextTitle(), shipTask.baseMode(), original, shipTask.action());
+        return new PublishResult(true, RESOLUTION_APPROVED,
                 "Shipped task " + original.taskId() + " → created " + next.id()
                         + " on " + next.branchName() + ".",
-                "ship_task");
+                shipTask.action());
     }
 
     /**
@@ -1084,17 +1116,17 @@ public class PublishService
         String threadId = parked.threadId();
         String taskId = parked.id();
         String nextTitle = nullToEmpty(nextTitleRaw);
-        String baseMode = baseModeRaw == null ? "main" : baseModeRaw;
-        if (!"main".equals(baseMode) && !"stacked".equals(baseMode)) {
+        String baseMode = baseModeRaw == null ? BASE_MODE_MAIN : baseModeRaw;
+        if (!BASE_MODE_MAIN.equals(baseMode) && !BASE_MODE_STACKED.equals(baseMode)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has an invalid baseMode");
         }
-        TaskService.BaseMode mode = "stacked".equals(baseMode)
+        TaskService.BaseMode mode = BASE_MODE_STACKED.equals(baseMode)
                 ? TaskService.BaseMode.STACKED
                 : TaskService.BaseMode.MAIN;
         TaskService.ShipRequest request = new TaskService.ShipRequest(
                 nextTitle.isBlank() ? null : nextTitle, mode);
-        return "next_task".equals(action)
+        return ACTION_NEXT_TASK.equals(action)
                 ? taskService.startNextFromApprovedParkedTask(threadId, taskId, request)
                 : taskService.shipApprovedParkedTask(threadId, taskId, request);
     }

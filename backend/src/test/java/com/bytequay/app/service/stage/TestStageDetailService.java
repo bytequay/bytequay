@@ -88,9 +88,10 @@ class TestStageDetailService
         // predates the query's wall-clock now.
         appendMessage(threadId, taskId, 1, "assistant", "tool_call",
                 "{\"name\":\"read_file\",\"path\":\"Foo.java\"}", open);
-        // A MUTEX_SKIPPED stage event (recorded ~now, inside iter #1's window).
-        stageStore.recordEvent(stage.id(), taskId, StageEventType.MUTEX_SKIPPED,
-                Map.of("skipReason", "mutex_held"));
+        // A stage event (recorded ~now, inside iter #1's window) so the
+        // iteration log surfaces a stage_event row.
+        stageStore.recordEvent(stage.id(), taskId, StageEventType.NOTIFY_FIRED,
+                Map.of("reason", "ready_for_merge"));
 
         StageDetailData detail = detailService.getDetail(stage.id());
 
@@ -108,7 +109,6 @@ class TestStageDetailService
         StageDetailData.StageMetricsSubset m = detail.stage().metrics();
         assertThat(m.loopIterations()).isEqualTo(2);
         assertThat(m.toolCallsCount()).isEqualTo(1);
-        assertThat(m.mutexSkipsCount()).isEqualTo(1);
         assertThat(m.panelInvocationsCount()).isZero();
 
         // CI-fix history is the simple iteration-summary list (no fabrication).

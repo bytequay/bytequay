@@ -16,8 +16,8 @@ package com.bytequay.app.domain;
 /**
  * The event kinds recorded in {@code task_stage_event} for measurement and
  * audit. Only {@link #OPENED} and {@link #CLOSED} are written today; the
- * rest are declared so the loop, mutex, notify, and operation write sites
- * that land later have their vocabulary ready.
+ * rest are declared so the loop, notify, and operation write sites that
+ * land later have their vocabulary ready.
  */
 public enum StageEventType
 {
@@ -26,8 +26,6 @@ public enum StageEventType
     PAUSED,
     RESUMED,
     LOOP_ITERATION_STARTED,
-    MUTEX_ACQUIRED,
-    MUTEX_SKIPPED,
     NOTIFY_FIRED,
     NOTIFY_SKIPPED,
     OPERATION_STARTED,

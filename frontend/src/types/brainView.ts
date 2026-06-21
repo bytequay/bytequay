@@ -210,7 +210,6 @@ export type StageMetricsSubset = {
   toolCallsCount?: number;
   turnsCount?: number;
   messagesCount?: number;
-  mutexSkipsCount?: number;
   tokensCount?: number;
   costCents?: number;
   panelInvocationsCount: number;

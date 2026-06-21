@@ -66,28 +66,6 @@ interface TaskJpaRepository
      *  oldest first — backs the PR's linked-task surface. */
     List<TaskEntity> findByLinkedPrRefOrderBySeqAsc(String linkedPrRef);
 
-    // ── write mutex (V118): atomic compare-and-set, never load-then-set ──
-
-    /** Acquire the write mutex iff it's free. Returns 1 when this caller
-     *  won the lock, 0 when another stage already holds it. */
-    @Modifying(clearAutomatically = true)
-    @Query("UPDATE TaskEntity t SET t.activeWriteOpStageId = :stageId "
-            + "WHERE t.id = :taskId AND t.activeWriteOpStageId IS NULL")
-    int acquireWriteMutex(@Param("taskId") String taskId, @Param("stageId") String stageId);
-
-    /** Release the mutex iff this stage holds it. Returns rows affected. */
-    @Modifying(clearAutomatically = true)
-    @Query("UPDATE TaskEntity t SET t.activeWriteOpStageId = null "
-            + "WHERE t.id = :taskId AND t.activeWriteOpStageId = :stageId")
-    int releaseWriteMutex(@Param("taskId") String taskId, @Param("stageId") String stageId);
-
-    /** Release the mutex regardless of holder — the safety release fired
-     *  when a task's turn finishes, so the lock can't leak. */
-    @Modifying(clearAutomatically = true)
-    @Query("UPDATE TaskEntity t SET t.activeWriteOpStageId = null "
-            + "WHERE t.id = :taskId AND t.activeWriteOpStageId IS NOT NULL")
-    int releaseWriteMutexForTask(@Param("taskId") String taskId);
-
     // ── ready-to-merge notify sentinel (V116): atomic CAS dedup ─────────
 
     /** Stamp the sentinel iff unset. Returns 1 when this caller is the

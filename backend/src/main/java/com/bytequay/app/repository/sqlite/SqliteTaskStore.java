@@ -239,33 +239,6 @@ class SqliteTaskStore
 
     @Override
     @Transactional
-    public boolean tryAcquireWriteMutex(String taskId, String stageId)
-    {
-        return tasks.acquireWriteMutex(taskId, stageId) == 1;
-    }
-
-    @Override
-    @Transactional
-    public void releaseWriteMutex(String taskId, String stageId)
-    {
-        tasks.releaseWriteMutex(taskId, stageId);
-    }
-
-    @Override
-    @Transactional
-    public boolean releaseWriteMutexForTask(String taskId)
-    {
-        return tasks.releaseWriteMutexForTask(taskId) == 1;
-    }
-
-    @Override
-    public Optional<String> writeMutexHolder(String taskId)
-    {
-        return tasks.findById(taskId).map(TaskEntity::getActiveWriteOpStageId);
-    }
-
-    @Override
-    @Transactional
     public boolean markMergeNotificationSentIfUnset(String taskId, Instant at)
     {
         return tasks.setMergeNotificationSentAtIfNull(taskId, at.toEpochMilli()) == 1;

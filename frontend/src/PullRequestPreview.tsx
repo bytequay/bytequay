@@ -46,6 +46,7 @@ import { CiChecksRow, CiSummary } from './pr/Ci';
 import LogoLoading from './LogoLoading';
 import { DescriptionCard } from './pr/DescriptionCard';
 import { PrCommentBox, type PrCommentBoxHandle } from './pr/PrCommentBox';
+import { describePrChange } from './pr/prFreshness';
 import { ReviewerEditor } from './pr/ReviewerEditor';
 import { ReviewThreadCard } from './pr/ReviewThreadCard';
 import { RelativeTime } from './pr/RelativeTime';
@@ -1305,6 +1306,27 @@ function PullRequestPreview({
     }
   };
 
+  /** Revalidate-before-submit guard handed to the comment composer. Forces
+   *  a fresh probe of GitHub (maxAge 0), swaps the latest detail onto the
+   *  page, and — if the PR moved since the snapshot the user was looking
+   *  at — returns a description of what changed so the composer holds the
+   *  post. Returns null (proceed) when nothing change-sensitive moved, or
+   *  when we couldn't reach GitHub (best-effort: never block on our own
+   *  failure to verify). */
+  const guardFreshBeforePost = async (): Promise<string | null> => {
+    const shown = detail;
+    if (!shown) return null;
+    let fresh: PullRequestDetailDto;
+    try {
+      fresh = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number, 0);
+    }
+    catch {
+      return null;
+    }
+    setDetail(fresh);
+    return describePrChange(shown, fresh);
+  };
+
   const handleSideResize = (clientX: number) => {
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -1832,6 +1854,7 @@ function PullRequestPreview({
                 <PrCommentBox
                   pr={pr}
                   mentionCandidates={mentionCandidates}
+                  beforeSubmit={guardFreshBeforePost}
                   onClosed={() => { void handleClosed(); }}
                   onCommented={() => { void refreshDetail(); }}
                 />
@@ -2405,6 +2428,7 @@ function PullRequestPreview({
               ref={commentBoxRef}
               pr={pr}
               mentionCandidates={mentionCandidates}
+              beforeSubmit={guardFreshBeforePost}
               onClosed={() => { void handleClosed(); }}
               onCommented={() => { void refreshDetail(); }}
             />

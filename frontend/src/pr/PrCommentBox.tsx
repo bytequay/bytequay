@@ -34,13 +34,23 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
   /** Logins offered as @mention autocomplete (PR author, reviewers,
    *  commenters). Empty/undefined disables the picker. */
   mentionCandidates?: string[];
+  /** Revalidate-before-submit guard. Run just before the comment / close
+   *  is sent to GitHub; return a warning string to abort (the composer
+   *  keeps the user's draft and shows the warning) or null to proceed.
+   *  Used to catch a PR that moved on GitHub since the user opened it so
+   *  they don't post into stale context. Undefined skips the check. */
+  beforeSubmit?: () => Promise<string | null>;
   onCommented?: () => void;
   onClosed?: () => void;
-}>(function PrCommentBox({ pr, mentionCandidates, onCommented, onClosed }, ref) {
+}>(function PrCommentBox({ pr, mentionCandidates, beforeSubmit, onCommented, onClosed }, ref) {
   const [body, setBody] = useState('');
   const [tab, setTab] = useState<'write' | 'preview'>('write');
   const [pending, setPending] = useState<'idle' | 'comment' | 'close'>('idle');
   const [error, setError] = useState<string | null>(null);
+  // Amber "this PR changed, review first" notice from the beforeSubmit
+  // guard. Separate from `error` (red, a real failure) — a notice means
+  // the post was held back on purpose, not that anything broke.
+  const [notice, setNotice] = useState<string | null>(null);
   // Expanded by default so the user can start typing immediately. The
   // collapse-after-send behaviour stays — once a comment is sent the box
   // returns to its closed state, and the user can re-open with one click.
@@ -68,6 +78,9 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
 
   const onBodyChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setBody(e.target.value);
+    // Editing the draft after a stale-PR notice clears it — the user is
+    // reacting to the change they were just shown.
+    if (notice) setNotice(null);
     syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
   };
 
@@ -138,7 +151,19 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
     if (!bodyTrim && !close) return;
     setPending(close ? 'close' : 'comment');
     setError(null);
+    setNotice(null);
     try {
+      // Revalidate against GitHub before writing: if the PR moved since
+      // the user loaded it, hold the post and surface what changed so
+      // they don't comment into stale context.
+      if (beforeSubmit) {
+        const warning = await beforeSubmit();
+        if (warning) {
+          setNotice(warning);
+          setPending('idle');
+          return;
+        }
+      }
       await window.bridge.commentPr(pr.id, pr.repo, pr.number, bodyTrim, close);
       setBody('');
       setMention(null);
@@ -263,10 +288,22 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
           Cancel
         </button>
       </div>
+      {notice && <div style={noticeStyle} role="status">{notice}</div>}
       {error && <div className="pr-comment-box__error">{error}</div>}
     </section>
   );
 });
+
+const noticeStyle: CSSProperties = {
+  marginTop: 8,
+  padding: '8px 10px',
+  fontSize: 13,
+  lineHeight: 1.4,
+  borderRadius: 6,
+  border: '1px solid #E0B24D',
+  background: '#FEF6E6',
+  color: '#7A571A',
+};
 
 const mentionListStyle: CSSProperties = {
   position: 'absolute',

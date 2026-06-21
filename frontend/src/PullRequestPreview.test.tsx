@@ -544,12 +544,42 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.commentPr).toHaveBeenCalledWith(1, 'trinodb/trino', 42, 'plain comment', false);
-    // A plain comment has no optimistic append, so the focus page must
-    // refetch right away rather than wait for the next poll tick: one
-    // refresh on mount + one triggered by the post = 2.
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(2);
+    // Posting first revalidates against GitHub (maxAge 0) to catch a PR
+    // that moved under the user; the mock returns the same snapshot so
+    // nothing is stale and the post proceeds. A plain comment has no
+    // optimistic append, so the page then refetches to reflect the new
+    // comment. With the mount refresh that's three calls:
+    // mount(20) + guard(0) + post(20).
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(3);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 0);
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
+  });
+
+  it('holds the comment and warns when the PR changed on GitHub since load', async () => {
+    const bridge = await render(makeDetail({ approvalCount: 1 }));
+    // The next probe (the pre-submit guard) reports a new approval, so the
+    // snapshot the user composed against is stale.
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail({ approvalCount: 2 }));
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.pr-comment-box__input');
+    await act(async () => {
+      updateTextarea(textarea!, 'my comment');
+    });
+    const comment = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Comment');
+    await act(async () => {
+      comment!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    // The post is held back — nothing is written to GitHub — the draft is
+    // preserved, and the composer explains what changed.
+    expect(bridge.commentPr).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('changed on GitHub since you opened it');
+    expect(container.querySelector<HTMLTextAreaElement>('.pr-comment-box__input')?.value)
+      .toBe('my comment');
   });
 
   it('offers @mention autocomplete from PR participants and inserts the pick', async () => {

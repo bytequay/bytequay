@@ -102,6 +102,22 @@ describe('TaskStageDetailView', () => {
     expect((box as HTMLTextAreaElement).disabled).toBe(true);
   });
 
+  it('renders the enriched failing-check detail on the CI fix history', async () => {
+    const enriched = fixture();
+    enriched.ciFixHistory = [{
+      iterationNumber: 1, endedReason: 'fixing', summaryText: 'retry bump',
+      failedCheck: 'frontend / lint', errorMessage: 'ESLint: 3 problems',
+      actionsRunUrl: 'https://github.com/acme/widget/actions/runs/42',
+    }];
+    mockBridge(vi.fn().mockResolvedValue(enriched));
+
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+
+    expect(await screen.findByText('frontend / lint')).toBeTruthy();
+    const link = screen.getByLabelText('Open the Actions run');
+    expect(link.getAttribute('href')).toContain('/actions/runs/42');
+  });
+
   it('navigates between stages from the left-rail navigator', async () => {
     mockBridge();
     const onOpenStage = vi.fn();

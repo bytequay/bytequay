@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -66,11 +67,14 @@ public class WorkspaceInsightsService
 
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
+    private final GitHubRateLimitMonitor rateLimitMonitor;
 
-    public WorkspaceInsightsService(ThreadStore threadStore, TaskStore taskStore)
+    public WorkspaceInsightsService(
+            ThreadStore threadStore, TaskStore taskStore, GitHubRateLimitMonitor rateLimitMonitor)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.rateLimitMonitor = requireNonNull(rateLimitMonitor, "rateLimitMonitor is null");
     }
 
     /** Page size when scanning shipped tasks. Single-user local app,
@@ -142,7 +146,10 @@ public class WorkspaceInsightsService
                 spendInWindowMilli,
                 tasksShipped,
                 series,
-                tasksByRepo(windowStart));
+                tasksByRepo(windowStart),
+                rateLimitMonitor.latest()
+                        .map(s -> new GitHubRateLimit(s.remaining(), s.limit(), s.resetAt().toString()))
+                        .orElse(null));
     }
 
     /** Per-repo split of PR-linked tasks: shipped (reached COMPLETED, cut
@@ -249,9 +256,13 @@ public class WorkspaceInsightsService
             long spendInWindowMilli,
             int tasksShippedInWindow,
             List<DayPoint> spendByDay,
-            List<RepoTaskBreakdown> tasksByRepo) {}
+            List<RepoTaskBreakdown> tasksByRepo,
+            GitHubRateLimit githubRateLimit) {}
 
     public record DayPoint(String date, String label, long costUsdMilli) {}
 
     public record RepoTaskBreakdown(String repoFullName, int tasksShipped, int tasksOpen) {}
+
+    /** Latest GitHub REST quota, or null if no call has landed since boot. */
+    public record GitHubRateLimit(int remaining, int limit, String resetAt) {}
 }

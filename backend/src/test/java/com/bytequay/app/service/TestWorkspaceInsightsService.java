@@ -18,6 +18,7 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +44,8 @@ class TestWorkspaceInsightsService
         ThreadStore threadStore = mock(ThreadStore.class);
         taskStore = mock(TaskStore.class);
         when(threadStore.listThreadsUpdatedSince(any())).thenReturn(List.of());
-        service = new WorkspaceInsightsService(threadStore, taskStore);
+        service = new WorkspaceInsightsService(
+                threadStore, taskStore, new GitHubRateLimitMonitor());
     }
 
     @Test

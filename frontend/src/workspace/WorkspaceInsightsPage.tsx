@@ -92,6 +92,14 @@ function WorkspaceInsightsPage() {
         <KpiCard label={spendCardLabel}
                  icon="$" iconColor="#d97706"
                  value={loading ? '—' : formatMilliUsd(spendForCard)} />
+        <KpiCard label="GitHub API"
+                 icon="◴" iconColor="#0066cc"
+                 value={loading || insights?.githubRateLimit == null
+                   ? '—'
+                   : `${insights.githubRateLimit.remaining}/${insights.githubRateLimit.limit}`}
+                 sub={insights?.githubRateLimit == null
+                   ? undefined
+                   : `resets ${new Date(insights.githubRateLimit.resetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
       </div>
 
       <div style={chartRowStyle}>
@@ -143,11 +151,12 @@ function WorkspaceInsightsPage() {
   );
 }
 
-function KpiCard({ label, icon, iconColor, value }: {
+function KpiCard({ label, icon, iconColor, value, sub }: {
   label: string;
   icon: string;
   iconColor: string;
   value: string;
+  sub?: string;
 }) {
   return (
     <div className="workspace-card" style={{ padding: 14 }}>
@@ -156,6 +165,9 @@ function KpiCard({ label, icon, iconColor, value }: {
         <div style={{ flex: 1 }}>
           <div style={kpiValueStyle}>{value}</div>
           <div style={kpiLabelStyle}>{label}</div>
+          {sub !== undefined && (
+            <div style={{ fontSize: 10, color: 'var(--text-4)', marginTop: 1 }}>{sub}</div>
+          )}
         </div>
       </div>
     </div>

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ThreadKind;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -54,6 +56,15 @@ public @interface AgentTool
     /** Roles allowed to discover and call this tool. An empty array
      *  is treated as {@code {AgentRole.ANY}}. */
     AgentRole[] roles() default {AgentRole.ANY};
+
+    /** Thread kinds allowed to discover and call this tool on the MCP
+     *  path, on top of the {@link #roles()} check. An empty array (the
+     *  default) means no kind restriction. Used to gate brain-only tools
+     *  ({@code BRAIN_AGENT}) or dev-only tools (the CLI/logic-loop task
+     *  agents) where {@link AgentRole} can't tell them apart — both a
+     *  brain thread and a dev thread on the same task resolve to the same
+     *  role. The in-JVM lane filters by its own name allowlist, not this. */
+    ThreadKind[] kinds() default {};
 
     /** Optional usage-pattern hint surfaced to the model alongside
      *  the description. Empty by default — most tools' description

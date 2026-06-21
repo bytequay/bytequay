@@ -22,6 +22,9 @@ import com.bytequay.app.beans.mcp.RunShellArgs;
 import com.bytequay.app.beans.mcp.ServerInfo;
 import com.bytequay.app.beans.mcp.ToolCallParams;
 import com.bytequay.app.beans.mcp.ToolDescriptor;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.PermissionResolver;
@@ -76,17 +79,20 @@ public class McpServiceImpl
     private final AgentToolRegistry registry;
     private final PermissionResolver permissions;
     private final McpResponses responses;
+    private final ThreadStore threadStore;
     private final Map<String, ToolHandler> handlersByName;
 
     public McpServiceImpl(
             AgentToolRegistry registry,
             PermissionResolver permissions,
             McpResponses responses,
+            ThreadStore threadStore,
             List<ToolHandler> handlers)
     {
         this.registry = requireNonNull(registry, "registry is null");
         this.permissions = requireNonNull(permissions, "permissions is null");
         this.responses = requireNonNull(responses, "responses is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
         // Build the strategy map at construction. Spring injects
         // every ToolHandler bean; failing fast on a duplicate name
         // catches an accidental two-bean-registers-the-same-tool
@@ -170,6 +176,17 @@ public class McpServiceImpl
                 new ServerInfo("bytequay", "1.0.0")));
     }
 
+    /** The connecting thread's kind, or null when it can't be resolved
+     *  (an unknown / blank thread id) — {@link ToolSpec#availableToKind}
+     *  treats null as "fails any kind-restricted tool". */
+    private ThreadKind kindFor(String threadId)
+    {
+        if (threadId == null || threadId.isBlank()) {
+            return null;
+        }
+        return threadStore.findThreadById(threadId).map(Thread::kind).orElse(null);
+    }
+
     private JsonNode listTools(String threadId, JsonNode id)
     {
         // Tools are declared via @AgentTool on the stub methods below;
@@ -178,8 +195,15 @@ public class McpServiceImpl
         // spec into the wire shape, filtered to the caller's role so
         // a trunk agent doesn't even see task-only tools.
         AgentRole role = permissions.roleFor(threadId);
+        ThreadKind kind = kindFor(threadId);
         List<ToolDescriptor> tools = new ArrayList<>();
         for (ToolSpec spec : registry.visibleTo(role)) {
+            // Beyond role, some tools are gated to a thread kind (e.g.
+            // record_plan to the brain) — hide those the caller's kind
+            // can't reach.
+            if (!spec.availableToKind(kind)) {
+                continue;
+            }
             JsonNode schema;
             try {
                 schema = responses.mapper().readTree(spec.inputSchema());
@@ -245,6 +269,15 @@ public class McpServiceImpl
             deferred.setResult(responses.toolResponse(id, responses.deny(
                     "tool '" + name + "' is not available to the current role ("
                             + role + ")")));
+            return;
+        }
+        ThreadKind kind = kindFor(threadId);
+        if (!spec.availableToKind(kind)) {
+            // Kind gate (e.g. record_plan is brain-only) — same dual role as
+            // the role check: hidden in tools/list and refused at call time.
+            deferred.setResult(responses.toolResponse(id, responses.deny(
+                    "tool '" + name + "' is not available to the current thread kind ("
+                            + kind + ")")));
             return;
         }
         Set<SecurityType> grants = permissions.grants(threadId);

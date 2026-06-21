@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -275,6 +276,9 @@ public class AgentToolRegistry
         Set<AgentRole> roleSet = annotation.roles().length == 0
                 ? ImmutableSet.of(AgentRole.ANY)
                 : ImmutableSet.copyOf(annotation.roles());
+        Set<ThreadKind> kindSet = annotation.kinds().length == 0
+                ? ImmutableSet.of()
+                : ImmutableSet.copyOf(annotation.kinds());
         return new ToolSpec(
                 annotation.name(),
                 annotation.description(),
@@ -282,6 +286,7 @@ public class AgentToolRegistry
                 annotation.security(),
                 annotation.gating(),
                 roleSet,
+                kindSet,
                 inputSchema,
                 argsType,
                 bean,

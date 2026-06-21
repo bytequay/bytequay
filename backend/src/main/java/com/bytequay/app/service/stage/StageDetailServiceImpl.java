@@ -33,6 +33,7 @@ import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StageEvent;
+import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
@@ -57,8 +58,10 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -140,7 +143,7 @@ public class StageDetailServiceImpl
                 subStages,
                 iterations,
                 buildRealtimeCi(task),
-                buildCiFixHistory(stage, iters),
+                buildCiFixHistory(stage, iters, events),
                 new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe"),
                 new Scrubber(List.<ScrubberDash>of()));
     }
@@ -317,14 +320,51 @@ public class StageDetailServiceImpl
                 Instant.now().toString());
     }
 
-    private List<CiFixHistoryEntry> buildCiFixHistory(StageInstance stage, List<TaskStageIteration> iters)
+    private List<CiFixHistoryEntry> buildCiFixHistory(
+            StageInstance stage, List<TaskStageIteration> iters, List<StageEvent> events)
     {
         if (stage.type() != StageType.CI_FIXING_STAGE) {
             return List.of();
         }
+        // The per-fix detail (failing check + error + Actions URL) rides the
+        // LOOP_ITERATION_STARTED event payload, keyed by iteration number;
+        // absent on iters written before the payload enrichment landed.
+        Map<Integer, JsonNode> startedByIter = new HashMap<>();
+        for (StageEvent e : events) {
+            if (e.eventType() != StageEventType.LOOP_ITERATION_STARTED || e.payloadJson() == null) {
+                continue;
+            }
+            try {
+                JsonNode node = mapper.readTree(e.payloadJson());
+                JsonNode num = node.get("iterationNumber");
+                if (num != null && num.isInt()) {
+                    startedByIter.put(num.asInt(), node);
+                }
+            }
+            catch (JsonProcessingException ignored) {
+                // malformed payload → no enrichment for this iter
+            }
+        }
         return iters.stream()
-                .map(it -> new CiFixHistoryEntry(it.iterationNumber(), it.endedReason(), it.summaryText()))
+                .map(it -> {
+                    JsonNode started = startedByIter.get(it.iterationNumber());
+                    return new CiFixHistoryEntry(
+                            it.iterationNumber(), it.endedReason(), it.summaryText(),
+                            text(started, "failedCheck"),
+                            text(started, "errorMessage"),
+                            text(started, "actionsRunUrl"));
+                })
                 .toList();
+    }
+
+    /** Read a string field from a payload node, or null when absent/blank. */
+    private static String text(JsonNode node, String field)
+    {
+        if (node == null) {
+            return null;
+        }
+        JsonNode v = node.get(field);
+        return v == null || v.isNull() || v.asText().isBlank() ? null : v.asText();
     }
 
     // ── tool-call + text decoding ───────────────────────────────────────

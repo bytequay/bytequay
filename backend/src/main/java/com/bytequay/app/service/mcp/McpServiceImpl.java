@@ -25,6 +25,7 @@ import com.bytequay.app.beans.mcp.ToolDescriptor;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.LogicLoopThreadAgent;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.PermissionResolver;
@@ -204,6 +205,13 @@ public class McpServiceImpl
             if (!spec.availableToKind(kind)) {
                 continue;
             }
+            // A brain connection is further scoped to the read-only brain
+            // allowlist (+ record_plan), matching the in-JVM brain — so a
+            // claude-code brain can't reach create_task / publish tools.
+            if (kind == ThreadKind.BRAIN_AGENT
+                    && !LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST.contains(spec.name())) {
+                continue;
+            }
             JsonNode schema;
             try {
                 schema = responses.mapper().readTree(spec.inputSchema());
@@ -272,9 +280,12 @@ public class McpServiceImpl
             return;
         }
         ThreadKind kind = kindFor(threadId);
-        if (!spec.availableToKind(kind)) {
-            // Kind gate (e.g. record_plan is brain-only) — same dual role as
-            // the role check: hidden in tools/list and refused at call time.
+        if (!spec.availableToKind(kind)
+                || (kind == ThreadKind.BRAIN_AGENT
+                        && !LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST.contains(name))) {
+            // Kind gate (e.g. record_plan is brain-only) + the brain allowlist
+            // scoping — same dual role as the role check: hidden in tools/list
+            // and refused at call time.
             deferred.setResult(responses.toolResponse(id, responses.deny(
                     "tool '" + name + "' is not available to the current thread kind ("
                             + kind + ")")));

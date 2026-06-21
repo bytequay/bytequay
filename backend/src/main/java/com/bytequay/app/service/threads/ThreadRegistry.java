@@ -458,12 +458,13 @@ public class ThreadRegistry
     }
 
     /**
-     * Build the read-only brain agent for a brain thread. It's a
-     * {@link LogicLoopThreadAgent} (API lane) whose tool surface and system
-     * prompt are driven by {@link ThreadKind#BRAIN_AGENT} internally; the
-     * working directory is the parent task's so file/git read tools resolve
-     * against the right clone. Role skill is null — the brain prompt is
-     * composed from the task's iteration digest, not a dev role skill.
+     * Build the brain agent for a brain thread, following its resolved work
+     * model: a claude-code CLI subprocess on a CLI install, or the in-JVM
+     * {@link LogicLoopThreadAgent} on an API install. Either way its system
+     * prompt is the read-only brain template + the task's iteration digest,
+     * and its working directory is the parent task's so file/git read tools
+     * resolve against the right clone. (Codex-as-brain and per-provider API
+     * keys are a follow-up; CLI here means claude-code.)
      */
     private ThreadAgent buildBrain(Thread thread)
     {
@@ -473,6 +474,16 @@ public class ThreadRegistry
                 : taskStore.findTaskById(thread.parentTaskId())
                         .map(Task::workingDir)
                         .orElse(null);
+        if (resolved.kind() == WorkModelKind.CLI) {
+            // Runs without a focused Task in the parent task's worktree, with
+            // the brain prompt as its role block. Its tool surface is scoped
+            // to the brain allowlist by the MCP server (ThreadKind=BRAIN_AGENT).
+            return new ClaudeCodeCliThreadAgent(
+                    thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                    workspaceMemoryProvider, skillMaterializer,
+                    brainSystemPrompt(thread), workingDir,
+                    ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+        }
         return new LogicLoopThreadAgent(
                 thread, store, taskStore, mapper, executor,
                 credentialService, resolved, workingDir,

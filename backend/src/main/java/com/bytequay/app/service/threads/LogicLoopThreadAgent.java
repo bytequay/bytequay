@@ -239,7 +239,7 @@ public class LogicLoopThreadAgent
      *  tool list is filtered to these names, so the brain agent never even
      *  sees a write tool. The handlers register in {@code LogicLoopToolRegistry}
      *  via {@code @AgentTool}; until they land the list renders empty. */
-    static final Set<String> BRAIN_TOOL_ALLOWLIST = Set.of(
+    public static final Set<String> BRAIN_TOOL_ALLOWLIST = Set.of(
             "count_operations",
             "read_commit_summary",
             "read_diff_summary",

@@ -217,13 +217,19 @@ public class StageDetailServiceImpl
         // Read-time operation grouping over the window's tool calls — no
         // OPERATION_* events are written (CLI agents give no real-time
         // boundary); activeTime + operationsCount derive from the grouping.
-        List<OperationRun> ops = groupOperations(inWindow);
+        List<ThreadMessage> toolCallMsgs = inWindow.stream()
+                .filter(m -> "tool_call".equals(m.type()))
+                .sorted(Comparator.comparing(ThreadMessage::ts))
+                .toList();
+        List<OperationGroup> ops = operationGroups(toolCallMsgs).stream()
+                .filter(g -> g.kind() != null)
+                .toList();
         long activeTimeSec = ops.stream()
-                .mapToLong(r -> Math.max(0, (r.end().toEpochMilli() - r.start().toEpochMilli()) / 1000))
+                .mapToLong(StageDetailServiceImpl::groupDurationSec)
                 .sum();
         Map<String, Integer> operationsCount = new LinkedHashMap<>();
-        for (OperationRun r : ops) {
-            operationsCount.merge(r.kind(), 1, Integer::sum);
+        for (OperationGroup g : ops) {
+            operationsCount.merge(g.kind(), 1, Integer::sum);
         }
         List<TaskPhaseEvent> phaseEvents = taskStore.listPhaseEvents(stage.taskId());
         long waitingUserSec = waitingUserTimeSec(phaseEvents, openedAt, windowEnd);
@@ -249,9 +255,16 @@ public class StageDetailServiceImpl
                 terminalState(stage.state()));
     }
 
-    /** A run of consecutive same-kind tool calls (no OPERATION_* events;
-     *  derived at read time). */
-    private record OperationRun(String kind, Instant start, Instant end) {}
+    /** A run of consecutive tool calls grouped at read time. {@code kind} is
+     *  null for ungrouped calls (each is its own single-message group). */
+    private record OperationGroup(String kind, List<ThreadMessage> messages) {}
+
+    private static long groupDurationSec(OperationGroup g)
+    {
+        Instant first = g.messages().get(0).ts();
+        Instant last = g.messages().get(g.messages().size() - 1).ts();
+        return Math.max(0, (last.toEpochMilli() - first.toEpochMilli()) / 1000);
+    }
 
     private static final long OPERATION_GAP_SECONDS = 60;
 
@@ -279,38 +292,38 @@ public class StageDetailServiceImpl
                 && BACKFLOWS.contains(Map.entry(e.fromPhase(), e.toPhase()));
     }
 
-    /** Group the window's tool-call messages into operation runs: a new run
-     *  starts when the inferred kind changes or a gap exceeds the threshold.
-     *  Ungrouped (null-kind) tool calls don't form runs. */
-    private List<OperationRun> groupOperations(List<ThreadMessage> inWindow)
+    /** Group sorted tool-call messages into operation runs: a new run starts
+     *  when the inferred kind changes or the gap exceeds the threshold. A
+     *  null-kind call always starts its own single-message group (rendered
+     *  free-floating). */
+    private List<OperationGroup> operationGroups(List<ThreadMessage> sortedToolCalls)
     {
-        List<ThreadMessage> calls = inWindow.stream()
-                .filter(m -> "tool_call".equals(m.type()))
-                .sorted(Comparator.comparing(ThreadMessage::ts))
-                .toList();
-        List<OperationRun> runs = new ArrayList<>();
-        String kind = null;
-        Instant start = null;
+        List<OperationGroup> groups = new ArrayList<>();
+        String curKind = null;
+        List<ThreadMessage> cur = null;
         Instant last = null;
-        for (ThreadMessage m : calls) {
+        for (ThreadMessage m : sortedToolCalls) {
             String k = operationKind(m);
-            boolean continues = k != null && k.equals(kind)
-                    && last != null && m.ts().toEpochMilli() - last.toEpochMilli() <= OPERATION_GAP_SECONDS * 1000;
+            boolean continues = cur != null && k != null && k.equals(curKind)
+                    && last != null
+                    && m.ts().toEpochMilli() - last.toEpochMilli() <= OPERATION_GAP_SECONDS * 1000;
             if (continues) {
+                cur.add(m);
                 last = m.ts();
                 continue;
             }
-            if (kind != null) {
-                runs.add(new OperationRun(kind, start, last));
+            if (cur != null) {
+                groups.add(new OperationGroup(curKind, cur));
             }
-            kind = k;
-            start = m.ts();
+            cur = new ArrayList<>();
+            cur.add(m);
+            curKind = k;
             last = m.ts();
         }
-        if (kind != null) {
-            runs.add(new OperationRun(kind, start, last));
+        if (cur != null) {
+            groups.add(new OperationGroup(curKind, cur));
         }
-        return runs;
+        return groups;
     }
 
     /** Infer an operation kind from a tool-call message, or null when it
@@ -383,17 +396,39 @@ public class StageDetailServiceImpl
         Instant end = it.endedAt() == null ? Instant.now() : it.endedAt();
         List<LogRow> rows = new ArrayList<>();
 
-        for (ThreadMessage m : devMessages) {
-            if (!inWindow(m.ts(), start, end)) {
+        List<ThreadMessage> windowMsgs = devMessages.stream()
+                .filter(m -> inWindow(m.ts(), start, end))
+                .toList();
+
+        // Group consecutive same-kind tool calls into operation cards (no
+        // OPERATION_* events; derived at read time). A non-null kind becomes
+        // one operation row holding its tool calls; ungrouped tool calls
+        // render free-floating, so older iterations degrade gracefully.
+        List<ThreadMessage> toolCallMsgs = windowMsgs.stream()
+                .filter(m -> "tool_call".equals(m.type()))
+                .sorted(Comparator.comparing(ThreadMessage::ts))
+                .toList();
+        for (OperationGroup g : operationGroups(toolCallMsgs)) {
+            List<LogRow> nested = g.messages().stream()
+                    .map(m -> new LogRow(m.id(), m.ts().toString(), "tool_call",
+                            toolCall(m), null, null, null, null))
+                    .toList();
+            if (g.kind() == null) {
+                rows.addAll(nested);
                 continue;
             }
-            if ("tool_call".equals(m.type())) {
-                rows.add(new LogRow(m.id(), m.ts().toString(), "tool_call",
-                        toolCall(m), null, null, null));
-            }
-            else if ("user".equals(m.role()) && "text".equals(m.type())) {
+            Instant first = g.messages().get(0).ts();
+            Instant lastTs = g.messages().get(g.messages().size() - 1).ts();
+            rows.add(new LogRow("op:" + g.messages().get(0).id(), first.toString(), "operation",
+                    null, null, null, null,
+                    new StageDetailData.OperationPayload(g.kind(), first.toString(), lastTs.toString(),
+                            Math.max(0, (lastTs.toEpochMilli() - first.toEpochMilli()) / 1000),
+                            nested.size(), "ok", nested)));
+        }
+        for (ThreadMessage m : windowMsgs) {
+            if ("user".equals(m.role()) && "text".equals(m.type())) {
                 rows.add(new LogRow(m.id(), m.ts().toString(), "user_message",
-                        null, null, null, new UserMessagePayload(decodeText(m.contentJson()))));
+                        null, null, null, new UserMessagePayload(decodeText(m.contentJson())), null));
             }
         }
         for (StageEvent e : events) {
@@ -401,7 +436,7 @@ public class StageDetailServiceImpl
                 rows.add(new LogRow(e.id().toString(), e.eventAt().toString(), "stage_event",
                         null, new StageEventPayload(
                                 e.eventType().name(), humanizeEvent(e.eventType().name()), e.payloadJson()),
-                        null, null));
+                        null, null, null));
             }
         }
         String recordedBy = it.summaryText() == null ? null : recordedBy(it);
@@ -410,7 +445,7 @@ public class StageDetailServiceImpl
             rows.add(new LogRow(it.id() + ":summary", at.toString(), "iteration_summary",
                     null, null,
                     new StageDetailData.IterationSummaryPayload(it.summaryText(), recordedBy, at.toString()),
-                    null));
+                    null, null));
         }
         rows.sort(Comparator.comparing(LogRow::ts));
 

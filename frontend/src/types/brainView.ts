@@ -236,11 +236,21 @@ export type IterationDetail = {
 export type StageLogRow = {
   id: string;
   ts: string;
-  kind: 'tool_call' | 'stage_event' | 'iteration_summary' | 'user_message';
+  kind: 'tool_call' | 'stage_event' | 'iteration_summary' | 'user_message' | 'operation';
   toolCall?: { tag: string; label: string; detail: string | null };
   stageEvent?: { eventType: string; message: string; dataJson: string | null };
   iterationSummary?: { text: string; recordedBy: string | null; recordedAt: string };
   userMessage?: { text: string };
+  // Operation card: a run of same-kind tool calls grouped at read time.
+  operation?: {
+    operation: 'code' | 'validate' | 'push' | 'publish' | string;
+    startedAt: string;
+    completedAt: string;
+    durationSec: number;
+    toolCallCount: number;
+    status: 'ok' | 'failed' | string;
+    toolCalls: StageLogRow[];
+  };
 };
 
 export type RealtimeCi = {

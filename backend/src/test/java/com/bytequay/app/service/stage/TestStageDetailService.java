@@ -106,7 +106,12 @@ class TestStageDetailService
         StageDetailData.IterationDetail iter1 = detail.iterations().get(0);
         assertThat(iter1.summaryText()).isEqualTo("fix #1: bumped retry default");
         assertThat(iter1.recordedBy()).isEqualTo("agent");
-        assertThat(iter1.log()).anyMatch(r -> r.kind().equals("tool_call"));
+        // The read tool call groups into a 'code' operation card with the
+        // tool call nested inside.
+        StageDetailData.LogRow op = iter1.log().stream()
+                .filter(r -> r.kind().equals("operation")).findFirst().orElseThrow();
+        assertThat(op.operation().operation()).isEqualTo("code");
+        assertThat(op.operation().toolCalls()).anyMatch(r -> r.kind().equals("tool_call"));
         assertThat(iter1.log()).anyMatch(r -> r.kind().equals("iteration_summary"));
         assertThat(iter1.log()).anyMatch(r -> r.kind().equals("stage_event"));
 

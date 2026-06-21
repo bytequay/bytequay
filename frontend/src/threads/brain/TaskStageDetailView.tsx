@@ -302,7 +302,35 @@ function IterationBand({
   );
 }
 
+/** Left-border accent per operation kind (color-codes the card). */
+const OPERATION_COLORS: Record<string, string> = {
+  code: '#d97706',     // amber
+  validate: '#2563eb', // blue
+  push: '#16a34a',     // green
+  publish: '#7c3aed',  // purple
+};
+
 function LogRow({ row }: { row: StageLogRow }) {
+  if (row.kind === 'operation' && row.operation) {
+    const op = row.operation;
+    return (
+      <div
+        className={`operation-card operation-${op.operation}`}
+        style={{ borderLeft: `3px solid ${OPERATION_COLORS[op.operation] ?? '#6b7280'}` }}
+      >
+        <div className="operation-head">
+          <span className="operation-kind">{op.operation}</span>
+          <span className="operation-meta">
+            {op.toolCallCount} {op.toolCallCount === 1 ? 'tool call' : 'tool calls'} · {op.durationSec}s
+            {op.status === 'failed' ? ' · failed' : ''}
+          </span>
+        </div>
+        <div className="operation-tools">
+          {op.toolCalls.map(tc => <LogRow key={tc.id} row={tc} />)}
+        </div>
+      </div>
+    );
+  }
   if (row.kind === 'tool_call' && row.toolCall) {
     return (
       <div className={`tool-row tool-${row.toolCall.tag.toLowerCase()}`}>

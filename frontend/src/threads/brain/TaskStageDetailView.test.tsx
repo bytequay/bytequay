@@ -102,6 +102,30 @@ describe('TaskStageDetailView', () => {
     expect((box as HTMLTextAreaElement).disabled).toBe(true);
   });
 
+  it('renders an operation card with its nested tool calls', async () => {
+    const withOp = fixture();
+    withOp.iterations[0].log = [{
+      id: 'op:r1', ts: '2026-06-21T10:00:05Z', kind: 'operation',
+      operation: {
+        operation: 'code', startedAt: '2026-06-21T10:00:05Z', completedAt: '2026-06-21T10:00:09Z',
+        durationSec: 4, toolCallCount: 2, status: 'ok',
+        toolCalls: [
+          { id: 't1', ts: '2026-06-21T10:00:05Z', kind: 'tool_call', toolCall: { tag: 'Read', label: 'read_file', detail: 'A.java' } },
+          { id: 't2', ts: '2026-06-21T10:00:09Z', kind: 'tool_call', toolCall: { tag: 'Write', label: 'edit_file', detail: 'A.java' } },
+        ],
+      },
+    }];
+    mockBridge(vi.fn().mockResolvedValue(withOp));
+
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+
+    expect(await screen.findByText('code')).toBeTruthy();
+    expect(screen.getByText('2 tool calls · 4s')).toBeTruthy();
+    // Nested tool calls render inside the card.
+    expect(screen.getByText('read_file')).toBeTruthy();
+    expect(screen.getByText('edit_file')).toBeTruthy();
+  });
+
   it('renders the enriched failing-check detail on the CI fix history', async () => {
     const enriched = fixture();
     enriched.ciFixHistory = [{

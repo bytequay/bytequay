@@ -149,7 +149,8 @@ public record StageDetailData(
             ToolCallPayload toolCall,
             StageEventPayload stageEvent,
             IterationSummaryPayload iterationSummary,
-            UserMessagePayload userMessage)
+            UserMessagePayload userMessage,
+            OperationPayload operation)
     {
     }
 
@@ -157,6 +158,25 @@ public record StageDetailData(
      * @param tag Read | Write | Run | MCP | Tool (coarse category from the tool name)
      */
     public record ToolCallPayload(String tag, String label, String detail)
+    {
+    }
+
+    /**
+     * A run of consecutive same-kind tool calls, grouped at read time (no
+     * OPERATION_* events are written — the CLI agents give no real-time
+     * boundary). The nested {@code toolCalls} render inside the card.
+     *
+     * @param operation code | validate | push | publish
+     * @param status    ok (we don't track per-tool failure yet)
+     */
+    public record OperationPayload(
+            String operation,
+            String startedAt,
+            String completedAt,
+            long durationSec,
+            int toolCallCount,
+            String status,
+            List<LogRow> toolCalls)
     {
     }
 

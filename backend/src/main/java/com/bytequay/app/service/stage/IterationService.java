@@ -63,6 +63,9 @@ public class IterationService
 
     public static final String TRIGGER_RED_CI = "red_ci";
     public static final String TRIGGER_NEW_COMMENTS = "new_comments";
+    /** A user steering message kicked this iteration off, rather than a
+     *  monitor poll — see the stage steering endpoint. */
+    public static final String TRIGGER_USER_STEERING = "user_steering";
 
     private static final Logger log = LoggerFactory.getLogger(IterationService.class);
 

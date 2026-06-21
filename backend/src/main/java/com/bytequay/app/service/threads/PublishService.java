@@ -51,6 +51,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Strings.nullToEmpty;
@@ -66,11 +67,10 @@ import static java.util.Objects.requireNonNull;
  * <p>The parked notification body is a typed {@link ParkedProposal} —
  * Jackson polymorphism on the {@code "action"} discriminator deserialises
  * the stored JSON straight into the matching variant, and the dispatcher
- * is a pattern-switch over the sealed type. {@code do*} branches read
- * fields via record accessors rather than {@code JsonNode.path("...")}
- * lookups, so missing-field validation lives in one place per field
- * (constructor + preflight) and the action surface is exhaustively
- * checked at compile time.
+ * routes each sealed subtype through its own action handler. {@code do*}
+ * branches read fields via record accessors rather than {@code
+ * JsonNode.path("...")} lookups, so missing-field validation lives in
+ * one place per field (constructor + preflight).
  *
  * <p>Audit rows are AUTO_FIX_DONE notifications carrying the
  * resolution (approved / discarded / discarded_after_interrupt /
@@ -84,6 +84,107 @@ import static java.util.Objects.requireNonNull;
 public class PublishService
 {
     private static final Logger log = LoggerFactory.getLogger(PublishService.class);
+    private static final Map<Class<? extends ParkedProposal>, PublishActionHandler<ParkedProposal>> ACTION_HANDLERS = Map.ofEntries(
+            handler(ParkedProposal.Push.class,
+                    (service, p, editedBody, original) -> preflightPush(p),
+                    (service, p, editedBody, original) -> service.doPush(p, original)),
+            handler(ParkedProposal.PostComment.class,
+                    (service, pc, editedBody, original) -> preflightPostComment(pc, editedBody),
+                    (service, pc, editedBody, original) -> service.doPostComment(pc, editedBody)),
+            handler(ParkedProposal.ReplyReviewThread.class,
+                    (service, rrt, editedBody, original) -> preflightReplyReviewThread(rrt, editedBody),
+                    (service, rrt, editedBody, original) -> service.doReplyReviewThread(rrt, editedBody)),
+            handler(ParkedProposal.ApprovePr.class,
+                    (service, a, editedBody, original) -> preflightApprovePr(a),
+                    (service, a, editedBody, original) -> service.doApprovePr(a, editedBody)),
+            handler(ParkedProposal.MergePr.class,
+                    (service, m, editedBody, original) -> preflightMergePr(m),
+                    (service, m, editedBody, original) -> service.doMergePr(m)),
+            handler(ParkedProposal.CreateReviewComment.class,
+                    (service, c, editedBody, original) -> preflightCreateReviewComment(c, editedBody),
+                    (service, c, editedBody, original) -> service.doCreateReviewComment(c, editedBody)),
+            handler(ParkedProposal.UpdatePrBody.class,
+                    (service, u, editedBody, original) -> preflightUpdatePrBody(u, editedBody),
+                    (service, u, editedBody, original) -> service.doUpdatePrBody(u, editedBody)),
+            handler(ParkedProposal.RequestReviewer.class,
+                    (service, r, editedBody, original) -> preflightRequestReviewer(r),
+                    (service, r, editedBody, original) -> service.doRequestReviewer(r)),
+            handler(ParkedProposal.CommentOnIssue.class,
+                    (service, c, editedBody, original) -> preflightCommentOnIssue(c, editedBody),
+                    (service, c, editedBody, original) -> service.doCommentOnIssue(c, editedBody)),
+            handler(ParkedProposal.SetIssueState.class,
+                    (service, s, editedBody, original) -> preflightSetIssueState(s),
+                    (service, s, editedBody, original) -> service.doSetIssueState(s)),
+            handler(ParkedProposal.OpenPr.class,
+                    (service, o, editedBody, original) -> preflightOpenPr(o),
+                    (service, o, editedBody, original) -> service.doOpenPr(o, editedBody, original)),
+            handler(ParkedProposal.PublishReview.class,
+                    (service, pr, editedBody, original) -> preflightPublishReview(pr),
+                    (service, pr, editedBody, original) -> service.doPublishReview(pr, editedBody)),
+            handler(ParkedProposal.RequestReview.class,
+                    (service, ignored, editedBody, original) -> preflightRequestReview(ignored),
+                    (service, ignored, editedBody, original) -> service.doRequestReview()),
+            handler(ParkedProposal.NextTask.class,
+                    (service, n, editedBody, original) -> service.preflightAdvance(n.baseMode(), original, "next_task"),
+                    (service, n, editedBody, original) -> service.doNextTask(n, original)),
+            handler(ParkedProposal.ShipTask.class,
+                    (service, s, editedBody, original) -> service.preflightAdvance(s.baseMode(), original, "ship_task"),
+                    (service, s, editedBody, original) -> service.doShipTask(s, original)));
+
+    static {
+        for (Class<?> proposalType : ParkedProposal.class.getPermittedSubclasses()) {
+            if (!ACTION_HANDLERS.containsKey(proposalType)) {
+                throw new ExceptionInInitializerError(
+                        "missing publish action handler for " + proposalType.getName());
+            }
+        }
+    }
+
+    private static <P extends ParkedProposal> Map.Entry<Class<? extends ParkedProposal>, PublishActionHandler<ParkedProposal>> handler(
+            Class<P> proposalType,
+            PublishActionPreflight<P> preflight,
+            PublishActionRunner<P> runner)
+    {
+        return Map.entry(proposalType, new TypedPublishActionHandler<>(proposalType, preflight, runner));
+    }
+
+    private interface PublishActionHandler<P extends ParkedProposal>
+    {
+        void preflight(PublishService service, P proposal, String editedBody, Notification original);
+
+        PublishResult run(PublishService service, P proposal, String editedBody, Notification original);
+    }
+
+    @FunctionalInterface
+    private interface PublishActionPreflight<P extends ParkedProposal>
+    {
+        void preflight(PublishService service, P proposal, String editedBody, Notification original);
+    }
+
+    @FunctionalInterface
+    private interface PublishActionRunner<P extends ParkedProposal>
+    {
+        PublishResult run(PublishService service, P proposal, String editedBody, Notification original);
+    }
+
+    private record TypedPublishActionHandler<P extends ParkedProposal>(
+            Class<P> proposalType,
+            PublishActionPreflight<P> preflight,
+            PublishActionRunner<P> runner)
+            implements PublishActionHandler<ParkedProposal>
+    {
+        @Override
+        public void preflight(PublishService service, ParkedProposal proposal, String editedBody, Notification original)
+        {
+            preflight.preflight(service, proposalType.cast(proposal), editedBody, original);
+        }
+
+        @Override
+        public PublishResult run(PublishService service, ParkedProposal proposal, String editedBody, Notification original)
+        {
+            return runner.run(service, proposalType.cast(proposal), editedBody, original);
+        }
+    }
 
     private final NotificationService notifications;
     private final TaskStore taskStore;
@@ -292,23 +393,7 @@ public class PublishService
     private PublishResult runApprovedAction(
             ParkedProposal proposal, String editedBody, Notification original)
     {
-        return switch (proposal) {
-            case ParkedProposal.Push p -> doPush(p, original);
-            case ParkedProposal.PostComment pc -> doPostComment(pc, editedBody);
-            case ParkedProposal.ReplyReviewThread rrt -> doReplyReviewThread(rrt, editedBody);
-            case ParkedProposal.ApprovePr a -> doApprovePr(a, editedBody);
-            case ParkedProposal.MergePr m -> doMergePr(m);
-            case ParkedProposal.CreateReviewComment c -> doCreateReviewComment(c, editedBody);
-            case ParkedProposal.UpdatePrBody u -> doUpdatePrBody(u, editedBody);
-            case ParkedProposal.RequestReviewer r -> doRequestReviewer(r);
-            case ParkedProposal.CommentOnIssue c -> doCommentOnIssue(c, editedBody);
-            case ParkedProposal.SetIssueState s -> doSetIssueState(s);
-            case ParkedProposal.OpenPr o -> doOpenPr(o, editedBody, original);
-            case ParkedProposal.PublishReview pr -> doPublishReview(pr, editedBody);
-            case ParkedProposal.RequestReview ignored -> doRequestReview();
-            case ParkedProposal.NextTask n -> doNextTask(n, original);
-            case ParkedProposal.ShipTask s -> doShipTask(s, original);
-        };
+        return handlerFor(proposal).run(this, proposal, editedBody, original);
     }
 
     /**
@@ -319,60 +404,16 @@ public class PublishService
     private void preflightApprovedAction(
             ParkedProposal proposal, String editedBody, Notification original)
     {
-        switch (proposal) {
-            case ParkedProposal.Push p -> preflightPush(p);
-            case ParkedProposal.PostComment pc -> {
-                requirePrRef(pc.pr(), "post_comment");
-                requireEditableBody(pc.body(), editedBody, "comment body is blank — nothing to post");
-            }
-            case ParkedProposal.ReplyReviewThread rrt -> {
-                requirePrRef(rrt.pr(), "reply_review_thread");
-                if (rrt.rootCommentId() <= 0L) {
-                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                            "parked reply_review_thread notification has no rootCommentId");
-                }
-                requireEditableBody(rrt.body(), editedBody, "reply body is blank — nothing to post");
-            }
-            case ParkedProposal.ApprovePr a -> requirePrRef(a.pr(), "approve_pr");
-            case ParkedProposal.MergePr m -> requirePrRef(m.pr(), "merge_pr");
-            case ParkedProposal.CreateReviewComment c -> {
-                requirePrRef(c.pr(), "create_review_comment");
-                requireEditableBody(c.body(), editedBody, "review comment body is blank — nothing to post");
-                if (nullToEmpty(c.filePath()).isBlank() || c.line() <= 0 || nullToEmpty(c.commitId()).isBlank()) {
-                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                            "parked create_review_comment notification is missing filePath / line / commitId");
-                }
-            }
-            case ParkedProposal.UpdatePrBody u -> {
-                requirePrRef(u.pr(), "update_pr_body");
-                requireEditableBody(u.body(), editedBody, "PR body is blank — nothing to update");
-            }
-            case ParkedProposal.RequestReviewer r -> {
-                requirePrRef(r.pr(), "request_reviewer");
-                if (nullToEmpty(r.reviewer()).trim().isBlank()) {
-                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                            "parked request_reviewer notification has no reviewer login");
-                }
-            }
-            case ParkedProposal.CommentOnIssue c -> {
-                requireIssueRef(c.issue(), "comment_on_issue");
-                requireEditableBody(c.body(), editedBody, "comment body is blank — nothing to post");
-            }
-            case ParkedProposal.SetIssueState s -> {
-                requireIssueRef(s.issue(), "set_issue_state");
-                if (!"open".equals(s.state()) && !"closed".equals(s.state())) {
-                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                            "parked set_issue_state notification has invalid state: " + s.state());
-                }
-            }
-            case ParkedProposal.OpenPr o -> preflightOpenPr(o);
-            case ParkedProposal.PublishReview pr -> preflightPublishReview(pr);
-            case ParkedProposal.RequestReview ignored -> {
-                // The MCP park path has already verified it has a diff.
-            }
-            case ParkedProposal.NextTask n -> preflightAdvance(n.baseMode(), original, "next_task");
-            case ParkedProposal.ShipTask s -> preflightAdvance(s.baseMode(), original, "ship_task");
+        handlerFor(proposal).preflight(this, proposal, editedBody, original);
+    }
+
+    private static PublishActionHandler<ParkedProposal> handlerFor(ParkedProposal proposal)
+    {
+        PublishActionHandler<ParkedProposal> handler = ACTION_HANDLERS.get(proposal.getClass());
+        if (handler == null) {
+            throw new IllegalStateException("missing publish action handler for " + proposal.getClass().getName());
         }
+        return handler;
     }
 
     /** The parked push's worktree path, or 400 when it's missing. Shared
@@ -401,6 +442,77 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked push notification has an invalid worktreePath");
         }
+    }
+
+    private static void preflightPostComment(ParkedProposal.PostComment pc, String editedBody)
+    {
+        requirePrRef(pc.pr(), "post_comment");
+        requireEditableBody(pc.body(), editedBody, "comment body is blank — nothing to post");
+    }
+
+    private static void preflightReplyReviewThread(ParkedProposal.ReplyReviewThread rrt, String editedBody)
+    {
+        requirePrRef(rrt.pr(), "reply_review_thread");
+        if (rrt.rootCommentId() <= 0L) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked reply_review_thread notification has no rootCommentId");
+        }
+        requireEditableBody(rrt.body(), editedBody, "reply body is blank — nothing to post");
+    }
+
+    private static void preflightApprovePr(ParkedProposal.ApprovePr a)
+    {
+        requirePrRef(a.pr(), "approve_pr");
+    }
+
+    private static void preflightMergePr(ParkedProposal.MergePr m)
+    {
+        requirePrRef(m.pr(), "merge_pr");
+    }
+
+    private static void preflightCreateReviewComment(ParkedProposal.CreateReviewComment c, String editedBody)
+    {
+        requirePrRef(c.pr(), "create_review_comment");
+        requireEditableBody(c.body(), editedBody, "review comment body is blank — nothing to post");
+        if (nullToEmpty(c.filePath()).isBlank() || c.line() <= 0 || nullToEmpty(c.commitId()).isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked create_review_comment notification is missing filePath / line / commitId");
+        }
+    }
+
+    private static void preflightUpdatePrBody(ParkedProposal.UpdatePrBody u, String editedBody)
+    {
+        requirePrRef(u.pr(), "update_pr_body");
+        requireEditableBody(u.body(), editedBody, "PR body is blank — nothing to update");
+    }
+
+    private static void preflightRequestReviewer(ParkedProposal.RequestReviewer r)
+    {
+        requirePrRef(r.pr(), "request_reviewer");
+        if (nullToEmpty(r.reviewer()).trim().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked request_reviewer notification has no reviewer login");
+        }
+    }
+
+    private static void preflightCommentOnIssue(ParkedProposal.CommentOnIssue c, String editedBody)
+    {
+        requireIssueRef(c.issue(), "comment_on_issue");
+        requireEditableBody(c.body(), editedBody, "comment body is blank — nothing to post");
+    }
+
+    private static void preflightSetIssueState(ParkedProposal.SetIssueState s)
+    {
+        requireIssueRef(s.issue(), "set_issue_state");
+        if (!"open".equals(s.state()) && !"closed".equals(s.state())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked set_issue_state notification has invalid state: " + s.state());
+        }
+    }
+
+    private static void preflightRequestReview(ParkedProposal.RequestReview ignored)
+    {
+        // The MCP park path has already verified it has a diff.
     }
 
     private static void requireEditableBody(String parkedBody, String editedBody, String message)

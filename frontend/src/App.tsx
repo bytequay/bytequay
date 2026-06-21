@@ -25,7 +25,6 @@ import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import ThreadTrunkPage from './threads/ThreadTrunkPage';
-import TaskDetailPage from './threads/TaskDetailPage';
 import TaskBrainView from './threads/brain/TaskBrainView';
 import TaskStageDetailView from './threads/brain/TaskStageDetailView';
 import TaskCodePage from './threads/TaskCodePage';
@@ -682,7 +681,7 @@ function App() {
             onGoToMyPrs={() => setNav({ view: 'my-prs' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onGoToTeams={() => setNav({ view: 'teams' })}
-            onOpenTask={(threadId, taskId) => setNav({ view: 'thread-detail', threadId, taskId })}
+            onOpenTask={(threadId, taskId) => setNav({ view: 'task-brain', threadId, taskId })}
             onOpenThread={openThread}
           />
         )}
@@ -760,27 +759,12 @@ function App() {
               : { view: 'thread-detail', threadId })}
           />
         )}
-        {nav.view === 'thread-detail' && nav.taskId === undefined && (
+        {nav.view === 'thread-detail' && (
           <ThreadTrunkPage
             threadId={nav.threadId}
             onBack={() => setNav({ view: 'workspace', section: 'threads' })}
             onOpenTask={taskId => setNav({
-              view: 'thread-detail', threadId: nav.threadId, taskId,
-            })}
-          />
-        )}
-        {nav.view === 'thread-detail' && nav.taskId !== undefined && (
-          <TaskDetailPage
-            threadId={nav.threadId}
-            taskId={nav.taskId}
-            onBackToTrunk={() => setNav({
-              view: 'thread-detail', threadId: nav.threadId,
-            })}
-            onOpenBrainView={() => setNav({
-              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId as string,
-            })}
-            onOpenPr={(owner, repo, prNumber) => setNav({
-              view: 'repo', owner, repo, prNumber, back: nav,
+              view: 'task-brain', threadId: nav.threadId, taskId,
             })}
           />
         )}
@@ -789,7 +773,7 @@ function App() {
             threadId={nav.threadId}
             taskId={nav.taskId}
             onBack={() => setNav({
-              view: 'thread-detail', threadId: nav.threadId, taskId: nav.taskId,
+              view: 'thread-detail', threadId: nav.threadId,
             })}
             onOpenThread={() => setNav({
               view: 'thread-detail', threadId: nav.threadId,

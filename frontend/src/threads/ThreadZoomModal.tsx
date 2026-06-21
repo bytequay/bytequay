@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import ThreadTrunkPage from './ThreadTrunkPage';
-import TaskDetailPage from './TaskDetailPage';
+import TaskBrainView from './brain/TaskBrainView';
 import type { ThreadDto } from '../types';
 
 /**
@@ -154,10 +154,11 @@ export default function ThreadZoomModal({
               onOpenTask={onOpenTask}
             />
           ) : (
-            <TaskDetailPage
+            <TaskBrainView
               threadId={thread.id}
               taskId={taskId}
-              onBackToTrunk={onBackToTrunk}
+              onBack={onBackToTrunk}
+              onOpenThread={onBackToTrunk}
             />
           )}
           {/* Floating "reopens here next time" pill — sits on top-right

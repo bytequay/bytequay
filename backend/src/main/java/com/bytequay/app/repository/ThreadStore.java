@@ -112,6 +112,17 @@ public interface ThreadStore
      */
     List<Thread> listThreadsUpdatedSince(Instant since);
 
+    /** One aggregation bucket of AI spend, grouped by the owning thread's
+     *  provider / flow / kind — backs the AI usage ledger. */
+    record AiSpendRow(String provider, String flow, String kind, long costMilli, long calls) {}
+
+    /** AI spend over {@code [start, end)}, grouped by provider / flow / kind.
+     *  Empty default for in-memory test stores; the SQLite store aggregates. */
+    default List<AiSpendRow> aggregateAiSpend(Instant start, Instant end)
+    {
+        return List.of();
+    }
+
     // ── messages ─────────────────────────────────────────────────────
 
     /**

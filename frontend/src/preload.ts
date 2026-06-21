@@ -13,6 +13,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AiLedgerDto,
   AiProviderInfo,
   AiReviewDraftDto,
   AiSettingsDto,
@@ -728,6 +729,8 @@ const bridge: Bridge = {
   }) => ipcRenderer.invoke('workspace:behavior:set', settings),
   getWorkspaceInsights: (workspaceId: string, window: string) =>
     ipcRenderer.invoke('workspace:insights:get', { workspaceId, window }),
+  getAiLedger: (month: string): Promise<AiLedgerDto> =>
+    ipcRenderer.invoke('ai:ledger:get', month),
   getReviewPersona: () =>
     ipcRenderer.invoke('reviews:persona:get'),
   setReviewPersona: (persona: string) =>

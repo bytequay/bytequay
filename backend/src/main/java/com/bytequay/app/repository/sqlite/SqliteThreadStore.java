@@ -255,6 +255,16 @@ class SqliteThreadStore
     }
 
     @Override
+    public List<AiSpendRow> aggregateAiSpend(Instant start, Instant end)
+    {
+        return messages.aggregateAiSpend(start.toEpochMilli(), end.toEpochMilli()).stream()
+                .map(r -> new AiSpendRow(
+                        (String) r[0], (String) r[1], (String) r[2],
+                        ((Number) r[3]).longValue(), ((Number) r[4]).longValue()))
+                .toList();
+    }
+
+    @Override
     @Transactional
     public void appendMessage(ThreadMessage message)
     {

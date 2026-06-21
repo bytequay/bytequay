@@ -70,6 +70,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.function.UnaryOperator;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
@@ -477,8 +478,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         gitHub.setPullRequestDraft(pat, parseRef(repo, number), draft);
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
     }
 
     /** The result of a title edit, returned to the caller so the UI can
@@ -521,8 +521,7 @@ public class PullRequestService
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
                     "GitHub rejected the title update", e);
         }
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
         return new PrTitleUpdate(number, trimmed, Instant.now());
     }
 
@@ -701,8 +700,7 @@ public class PullRequestService
         if (close) {
             gitHub.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());
             viewStateStore.markReviewed(prId, HandledAction.DISMISSED);
-            invalidatePullRequestDetail(repo, number);
-            repoListCache.invalidatePulls(parseRepoRef(repo));
+            invalidatePullRequestCaches(repo, number);
         }
     }
 
@@ -721,9 +719,8 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         requireNotBlank(body, "reply body must not be blank");
         PrReviewThreadMessage created = gitHub.replyToReviewComment(pat, parseRef(repo, number), rootCommentId, body);
-        store.findIdByRepoAndNumber(repo, number).ifPresent(prId ->
-                detailStore.find(prId).ifPresent(cached ->
-                        detailStore.save(prId, PullRequestDetailPatcher.withReviewThreadReplyAppended(cached, created))));
+        patchCachedDetail(store.findIdByRepoAndNumber(repo, number),
+                cached -> PullRequestDetailPatcher.withReviewThreadReplyAppended(cached, created));
     }
 
     /**
@@ -742,9 +739,8 @@ public class PullRequestService
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
         gitHub.editIssueComment(pat, ref.owner(), ref.repo(), commentId, body);
-        detailStore.findPrIdByIssueCommentId(commentId).ifPresent(prId ->
-                detailStore.find(prId).ifPresent(cached ->
-                        detailStore.save(prId, PullRequestDetailPatcher.withTimelineCommentBody(cached, commentId, body))));
+        patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
+                cached -> PullRequestDetailPatcher.withTimelineCommentBody(cached, commentId, body));
     }
 
     /**
@@ -762,9 +758,8 @@ public class PullRequestService
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
         gitHub.editReviewComment(pat, ref.owner(), ref.repo(), commentId, body);
-        detailStore.findPrIdByReviewCommentId(commentId).ifPresent(prId ->
-                detailStore.find(prId).ifPresent(cached ->
-                        detailStore.save(prId, PullRequestDetailPatcher.withReviewCommentBody(cached, commentId, body))));
+        patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
+                cached -> PullRequestDetailPatcher.withReviewCommentBody(cached, commentId, body));
     }
 
     /**
@@ -782,9 +777,8 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         RepoRef ref = parseRepoRef(repo);
         gitHub.deleteIssueComment(pat, ref.owner(), ref.repo(), commentId);
-        detailStore.findPrIdByIssueCommentId(commentId).ifPresent(prId ->
-                detailStore.find(prId).ifPresent(cached ->
-                        detailStore.save(prId, PullRequestDetailPatcher.withTimelineCommentRemoved(cached, commentId))));
+        patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
+                cached -> PullRequestDetailPatcher.withTimelineCommentRemoved(cached, commentId));
     }
 
     /**
@@ -796,9 +790,8 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         RepoRef ref = parseRepoRef(repo);
         gitHub.deleteReviewComment(pat, ref.owner(), ref.repo(), commentId);
-        detailStore.findPrIdByReviewCommentId(commentId).ifPresent(prId ->
-                detailStore.find(prId).ifPresent(cached ->
-                        detailStore.save(prId, PullRequestDetailPatcher.withReviewCommentRemoved(cached, commentId))));
+        patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
+                cached -> PullRequestDetailPatcher.withReviewCommentRemoved(cached, commentId));
     }
 
     /**
@@ -853,19 +846,14 @@ public class PullRequestService
     public void addReviewCommentReaction(String repo, long commentId, String content)
     {
         String pat = patResolver.resolve(repo);
-        if (!PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT.contains(content)) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400),
-                    "reaction content must be one of " + PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT);
-        }
+        requireAllowedReactionContent(content);
         // The reactions endpoint targets a repo + comment id; PR number
         // isn't part of the URL. parseRepoRef avoids parseRef's
         // number-must-be-positive invariant.
         RepoRef ref = parseRepoRef(repo);
         gitHub.addReviewCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
-        detailStore.findPrIdByReviewCommentId(commentId).ifPresent(prId ->
-                detailStore.find(prId).ifPresent(cached ->
-                        detailStore.save(prId, PullRequestDetailPatcher.withReviewCommentReaction(cached, commentId, content))));
+        patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
+                cached -> PullRequestDetailPatcher.withReviewCommentReaction(cached, commentId, content));
     }
 
     /**
@@ -882,16 +870,11 @@ public class PullRequestService
     public void addIssueCommentReaction(String repo, long commentId, String content)
     {
         String pat = patResolver.resolve(repo);
-        if (!PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT.contains(content)) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400),
-                    "reaction content must be one of " + PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT);
-        }
+        requireAllowedReactionContent(content);
         RepoRef ref = parseRepoRef(repo);
         gitHub.addIssueCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
-        detailStore.findPrIdByIssueCommentId(commentId).ifPresent(prId ->
-                detailStore.find(prId).ifPresent(cached ->
-                        detailStore.save(prId, PullRequestDetailPatcher.withTimelineCommentReaction(cached, commentId, content))));
+        patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
+                cached -> PullRequestDetailPatcher.withTimelineCommentReaction(cached, commentId, content));
     }
 
     /**
@@ -907,8 +890,7 @@ public class PullRequestService
                 pat,
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
     }
 
     /** Removes one user from the PR's requested reviewers. */
@@ -920,8 +902,7 @@ public class PullRequestService
                 pat,
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
     }
 
     /**
@@ -1018,8 +999,7 @@ public class PullRequestService
         // timeline and the new "reviewed APPROVED" event shows up in the
         // conversation immediately. Without this the user waits for the
         // next background sync (~2 min) to see their own approval land.
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
     }
 
     /**
@@ -1064,8 +1044,7 @@ public class PullRequestService
             // Drop the cached detail so the next /prs/detail call reflects
             // the new "queued" state without waiting for the background
             // sync. Don't markReviewed — the merge hasn't actually happened.
-            invalidatePullRequestDetail(repo, number);
-            repoListCache.invalidatePulls(parseRepoRef(repo));
+            invalidatePullRequestCaches(repo, number);
             return queued;
         }
         MergePullRequestCommand command = strategyCommand(strategy);
@@ -1078,8 +1057,7 @@ public class PullRequestService
         // timeline and the new "merged" / "closed" events surface
         // immediately, instead of waiting for the next background sync
         // (~2 min) to refresh the cached StoredPrDetail.
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
         return result;
     }
 
@@ -1107,8 +1085,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         gitHub.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
     }
 
     /**
@@ -1121,8 +1098,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         gitHub.disableAutoMerge(pat, ref);
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
     }
 
     /**
@@ -1136,8 +1112,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         gitHub.dequeuePullRequest(pat, ref);
-        invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
+        invalidatePullRequestCaches(repo, number);
     }
 
     /**
@@ -1490,6 +1465,29 @@ public class PullRequestService
     private void invalidatePullRequestDetail(String repo, int number)
     {
         detailInvalidator.invalidate(repo, number);
+    }
+
+    private static void requireAllowedReactionContent(String content)
+    {
+        if (!PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT.contains(content)) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400),
+                    "reaction content must be one of " + PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT);
+        }
+    }
+
+    private void invalidatePullRequestCaches(String repo, int number)
+    {
+        invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
+    }
+
+    private void patchCachedDetail(Optional<Long> prId, UnaryOperator<StoredPrDetail> patcher)
+    {
+        requireNonNull(patcher, "patcher is null");
+        prId.ifPresent(id -> detailStore.find(id)
+                .map(patcher)
+                .ifPresent(patched -> detailStore.save(id, patched)));
     }
 
     private static PullRequest withOrigin(PullRequest pr, PullRequest.Origin origin)

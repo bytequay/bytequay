@@ -44,6 +44,7 @@ import { useThreadTasks } from './useThreadTasks';
 import { DiffModeToggle, ThreadDiffPane, useTaskDiffState, type DiffMode } from './ThreadChangesTab';
 import { findPendingPermission } from './permissions';
 import { threadAgentCwd, threadDisplayBranch, threadModelLabel, threadTokenLabel } from './threadDisplay';
+import { EditableTitle } from '../components/EditableTitle';
 
 type Props = {
   threadId: string;
@@ -815,80 +816,6 @@ function BackBar({ onBack, title }: { onBack: () => void; title: string }) {
  *  reverts. The pencil glyph is decorative — the whole heading is
  *  the click target so the affordance is generous without crowding
  *  the layout. */
-function EditableTitle({ title, onRename, maxDisplayWords, titleStyleOverride }: {
-  title: string;
-  onRename: (next: string) => void | Promise<void>;
-  /** Optional cap on how many whitespace-separated words of the title
-   *  are rendered in the resting state. Anything past the cap is
-   *  replaced with `…`. The editor still operates on the full title —
-   *  the cap only affects the display chip. Used by the terminal
-   *  toolbar where the badge is content-sized; a 25-word essay-style
-   *  title would balloon it. */
-  maxDisplayWords?: number;
-  /** Style merged into the inner title span. The shared default
-   *  (`thTitleStyle`) carries `overflow:hidden + ellipsis + nowrap`,
-   *  which interacts badly with the terminal-mode badge that wants
-   *  to size to its full content — passing `{ overflow: 'visible',
-   *  textOverflow: 'clip' }` here suppresses that truncation. */
-  titleStyleOverride?: React.CSSProperties;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(title);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => { if (!editing) setDraft(title); }, [title, editing]);
-  useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [editing]);
-
-  function commit() {
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== title) {
-      void onRename(trimmed);
-    }
-    setEditing(false);
-  }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type="text"
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { e.preventDefault(); commit(); }
-          else if (e.key === 'Escape') { e.preventDefault(); setDraft(title); setEditing(false); }
-        }}
-        style={titleEditInputStyle}
-      />
-    );
-  }
-  const displayTitle = (() => {
-    if (!maxDisplayWords) return title;
-    const words = title.trim().split(/\s+/).filter(Boolean);
-    if (words.length <= maxDisplayWords) return title;
-    return `${words.slice(0, maxDisplayWords).join(' ')}…`;
-  })();
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      style={titleEditTriggerStyle}
-      title={title.length > displayTitle.length
-        ? `${title} — click to rename (Enter saves, Esc cancels)`
-        : 'Click to rename — Enter to save, Esc to cancel'}
-    >
-      <span style={{ ...thTitleStyle, ...titleStyleOverride }}>{displayTitle}</span>
-      <span style={titleEditPencilStyle} aria-hidden>✎</span>
-    </button>
-  );
-}
-
 /**
  * Structured detail view — three deliberately distinct zones:
  *
@@ -3310,41 +3237,6 @@ const crumbCurrentStyle: React.CSSProperties = {
   maxWidth: 600,
 };
 
-const thTitleStyle: React.CSSProperties = {
-  fontSize: 13, fontWeight: 600, color: 'var(--text-1)',
-  letterSpacing: '-0.005em',
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-};
-const titleEditTriggerStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 8,
-  background: 'transparent', border: '1px dashed transparent',
-  padding: '2px 6px',
-  margin: '-2px -6px',
-  borderRadius: 6,
-  cursor: 'text',
-  color: 'var(--text-1)',
-  maxWidth: '100%',
-  textAlign: 'left',
-};
-const titleEditPencilStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: 'var(--text-4)',
-  opacity: 0.6,
-  flexShrink: 0,
-};
-const titleEditInputStyle: React.CSSProperties = {
-  fontSize: 13, fontWeight: 600,
-  letterSpacing: '-0.005em',
-  color: 'var(--text-1)',
-  background: 'var(--bg-input)',
-  border: '1px solid var(--accent-a40)',
-  borderRadius: 6,
-  padding: '2px 6px',
-  margin: '-3px -7px',
-  outline: 'none',
-  width: '100%',
-  fontFamily: 'inherit',
-};
 const thStatusStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
   padding: '5px 12px',

@@ -157,6 +157,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:prCheckLog', repo, checkRunId),
   setPrDraft: (repo: string, number: number, draft: boolean) =>
     ipcRenderer.invoke('backend:setPrDraft', repo, number, draft),
+  updatePrTitle: (repo: string, number: number, title: string): Promise<{ number: number; title: string; updatedAt: string }> =>
+    ipcRenderer.invoke('backend:updatePrTitle', repo, number, title),
   fetchPrDiffFiles: (repo: string, number: number) =>
     ipcRenderer.invoke('backend:prDiffFiles', repo, number),
   fetchPrCommits: (repo: string, number: number) =>

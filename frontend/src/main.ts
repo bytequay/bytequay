@@ -1035,6 +1035,22 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:updatePrTitle', async (_event, repo: string, number: number, title: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/title`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(body || `backend /prs/title returned ${res.status}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:prDiffFiles', async (_event, repo: string, number: number) => {
 const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('repo', repo);

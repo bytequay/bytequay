@@ -16,6 +16,7 @@ import { renderMarkdown } from './markdown';
 import type { ActivityItemDto, CheckRunDto, MergeConflictPathsDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, TaskRefDto, UserProfileDto } from './types';
 import { getCached as getCachedValue } from './dataCache';
 import { EditableMarkdownBody } from './pr/EditableMarkdownBody';
+import { EditableTitle } from './components/EditableTitle';
 import Avatar from './Avatar';
 import ResizeHandle from './ResizeHandle';
 import {
@@ -55,30 +56,6 @@ const SIDE_WIDTH_MIN = 180;
 const SIDE_WIDTH_MAX = 520;
 const SIDE_WIDTH_DEFAULT = 260;
 const SIDEBAR_COLLAPSED_KEY = 'settings:pr-detail-sidebar-collapsed';
-
-/** Renders a PR title string with backtick-wrapped segments turned into
- *  inline `<code>` spans. We don't run the title through a full markdown
- *  pass — github.com only honours inline code in titles, and pulling in
- *  marked here would also enable headings / lists / images, none of
- *  which make sense in a single-line title. Unbalanced trailing
- *  backticks fall through as literal text so a malformed title still
- *  renders. */
-function renderTitleWithInlineCode(title: string): ReactNode[] {
-  const parts = title.split('`');
-  const out: ReactNode[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    if (i % 2 === 1 && i < parts.length - 1) {
-      out.push(<code key={i} className="prc-title__code">{parts[i]}</code>);
-    } else if (i % 2 === 1) {
-      // Trailing unmatched backtick — keep both the ` and the text after
-      // it so users see exactly what was typed instead of a silent drop.
-      out.push(<span key={i}>{'`' + parts[i]}</span>);
-    } else {
-      out.push(parts[i]);
-    }
-  }
-  return out;
-}
 
 /** Threshold past which the failure summary auto-collapses to a teaser
  *  with a "Show more" button. Long check outputs (think a CI log dump
@@ -1161,6 +1138,11 @@ function PullRequestPreview({
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Optimistic title after an inline rename — the title lives on `pr` (a
+  // prop), so we hold the new value locally until the next detail sync
+  // brings it through. Reset when navigating to a different PR.
+  const [titleOverride, setTitleOverride] = useState<string | null>(null);
+  useEffect(() => { setTitleOverride(null); }, [pr.number, pr.repo]);
 
   const [handledState, setHandledState] = useState<ActionState>('idle');
   const [handledError, setHandledError] = useState<string | null>(null);
@@ -2173,16 +2155,20 @@ function PullRequestPreview({
   return (
     <div className="prc-page">
       <header className="prc-header">
-        {/* Row 1: large title with the #N link folded in at the end —
-            matches docs/mockups/v2/detail/pr-header.png. The ✎ pencil
-            in the mockup is intentionally omitted: there is no
-            updatePrTitle bridge / backend endpoint yet, and a
-            non-functional control would be worse than no control.
-            Wire title editing in a follow-up commit alongside the
-            backend handler. */}
+        {/* Row 1: large title, inline-editable (click to rename — saves
+            via the PATCH /prs/title endpoint), with the #N link folded in
+            at the end. Matches docs/mockups/v2/detail/pr-header.png. */}
         <div className="prc-header__title-row">
           <h1 className="prc-title">
-            {renderTitleWithInlineCode(pr.title)}
+            <EditableTitle
+              title={titleOverride ?? pr.title}
+              titleStyleOverride={{ fontSize: 'inherit', fontWeight: 'inherit', overflow: 'visible', textOverflow: 'clip', whiteSpace: 'normal' }}
+              inputStyleOverride={{ fontSize: 'inherit', fontWeight: 'inherit' }}
+              onRename={async next => {
+                const updated = await window.bridge.updatePrTitle(pr.repo, pr.number, next);
+                setTitleOverride(updated.title);
+              }}
+            />
             {/* No target="_blank": main.ts's will-navigate handler
                 routes plain clicks into the in-app browser overlay,
                 whereas window-open clicks (target="_blank") spawn a

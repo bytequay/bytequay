@@ -135,7 +135,7 @@ public class StageDetailServiceImpl
 
         return new StageDetailData(
                 buildTask(task),
-                buildStageInfo(stage, iters, openedAt, closedAt, windowEnd, events, devMessages),
+                buildStageInfo(stage, iters, openedAt, closedAt, windowEnd, devMessages),
                 topLevel,
                 subStages,
                 iterations,
@@ -165,7 +165,7 @@ public class StageDetailServiceImpl
 
     private StageInfo buildStageInfo(
             StageInstance stage, List<TaskStageIteration> iters, Instant openedAt,
-            Instant closedAt, Instant windowEnd, List<StageEvent> events, List<ThreadMessage> devMessages)
+            Instant closedAt, Instant windowEnd, List<ThreadMessage> devMessages)
     {
         StageMetrics metrics = budgetService.readMetrics(stage.id());
         Integer currentIter = iters.stream()
@@ -187,12 +187,12 @@ public class StageDetailServiceImpl
                 iters.size(),
                 currentIter,
                 config,
-                buildMetrics(stage, iters, openedAt, windowEnd, events, devMessages));
+                buildMetrics(stage, iters, openedAt, windowEnd, devMessages));
     }
 
     private StageMetricsSubset buildMetrics(
             StageInstance stage, List<TaskStageIteration> iters, Instant openedAt,
-            Instant windowEnd, List<StageEvent> events, List<ThreadMessage> devMessages)
+            Instant windowEnd, List<ThreadMessage> devMessages)
     {
         List<ThreadMessage> inWindow = devMessages.stream()
                 .filter(m -> inWindow(m.ts(), openedAt, windowEnd))
@@ -201,8 +201,6 @@ public class StageDetailServiceImpl
         long tokens = inWindow.stream()
                 .mapToLong(m -> nz(m.tokensIn()) + nz(m.tokensOut())).sum();
         long costMilli = inWindow.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
-        long mutexSkips = events.stream()
-                .filter(e -> e.eventType().name().equals("MUTEX_SKIPPED")).count();
         long turns = turnStore.listTurnsByTaskId(stage.taskId(), TURN_SCAN_CAP).stream()
                 .filter(t -> inWindow(t.createdAt(), openedAt, windowEnd)).count();
 
@@ -212,7 +210,6 @@ public class StageDetailServiceImpl
                 (int) toolCalls,
                 (int) turns,
                 inWindow.size(),
-                (int) mutexSkips,
                 tokens,
                 Math.round(costMilli * 0.1),
                 /* panelInvocationsCount */ 0,

@@ -296,7 +296,6 @@ function RightRail({ stage, context }: { stage: StageDetailData['stage']; contex
   push('Tool calls', m.toolCallsCount);
   push('Turns', m.turnsCount);
   push('Messages', m.messagesCount);
-  push('Mutex skips', m.mutexSkipsCount);
   push('Tokens', m.tokensCount);
   push('Cost', m.costCents, '¢');
   metricRows.push(['Panels', String(m.panelInvocationsCount)]);

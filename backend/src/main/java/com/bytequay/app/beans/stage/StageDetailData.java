@@ -99,7 +99,6 @@ public record StageDetailData(
             Integer toolCallsCount,
             Integer turnsCount,
             Integer messagesCount,
-            Integer mutexSkipsCount,
             Long tokensCount,
             Long costCents,
             int panelInvocationsCount,

@@ -32,7 +32,7 @@ function fixture(): StageDetailData {
       config: { autoPushBudget: { used: 2, limit: 5 }, internalReviewEnabled: false },
       metrics: {
         wallTimeSec: 120, loopIterations: 1, toolCallsCount: 3, turnsCount: 2,
-        messagesCount: 9, mutexSkipsCount: 0, tokensCount: 4200, costCents: 7,
+        messagesCount: 9, tokensCount: 4200, costCents: 7,
         panelInvocationsCount: 0,
       },
     },

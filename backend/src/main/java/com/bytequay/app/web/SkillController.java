@@ -33,6 +33,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
@@ -110,6 +111,7 @@ public class SkillController
     @PostMapping("/skills")
     public Skill create(@RequestBody SkillRequest req)
     {
+        req = requireBody(req);
         return service.create(
                 req.scope(),
                 req.repo(),
@@ -128,6 +130,7 @@ public class SkillController
     @PutMapping("/skills/{id}")
     public Skill update(@PathVariable long id, @RequestBody SkillRequest req)
     {
+        req = requireBody(req);
         return service.update(
                 id,
                 req.scope(),
@@ -165,12 +168,10 @@ public class SkillController
     @PostMapping("/skills/draft")
     public SkillDraft draft(@RequestBody DraftRequest body)
     {
-        if (body == null || body.prompt() == null || body.prompt().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "prompt must not be blank");
-        }
+        DraftRequest request = requireBody(body);
+        requireNotBlank(request.prompt(), "prompt must not be blank");
         try {
-            return reviewers.active().draftSkill(body.prompt(), body.scope());
+            return reviewers.active().draftSkill(request.prompt(), request.scope());
         }
         catch (UnsupportedOperationException e) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(501), e.getMessage());

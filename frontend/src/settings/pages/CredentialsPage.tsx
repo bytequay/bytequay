@@ -22,9 +22,8 @@ import {
 } from '../../types';
 import CredentialEditorModal from './credentials/CredentialEditorModal';
 
-/** Three top-level groups for the kind nav. The Tools/MCP body is
- *  intentionally a placeholder for now — the column lights up when
- *  the MCP credential type lands. */
+/** Three top-level groups for the kind nav (LLM keys, Git PATs, and
+ *  MCP server secrets) — each supports add / edit / delete. */
 type Tab = 'llm' | 'pat' | 'tools';
 
 const TAB_DEFS: { id: Tab; label: string; meta: string; addLabel: string; emptyHint: string }[] = [
@@ -48,7 +47,7 @@ const TAB_DEFS: { id: Tab; label: string; meta: string; addLabel: string; emptyH
     label: 'Tools / MCP',
     meta: 'MCP server secrets',
     addLabel: '+ Add server',
-    emptyHint: 'MCP credentials land in a follow-up; the row groups + remote/local transport are scaffolded.',
+    emptyHint: 'No MCP server secrets yet. Add a remote (URL + bearer/OAuth) or local (launch command) server.',
   },
 ];
 

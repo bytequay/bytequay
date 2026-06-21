@@ -39,7 +39,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -51,6 +50,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.service.pr.PrActivitySupport.cutoffFor;
+import static com.bytequay.app.service.pr.PrActivitySupport.dailyStartDate;
+import static com.bytequay.app.service.pr.PrActivitySupport.formatCount;
+import static com.bytequay.app.service.pr.PrActivitySupport.formatDate;
+import static com.bytequay.app.service.pr.PrActivitySupport.isAllTime;
+import static com.bytequay.app.service.pr.PrActivitySupport.normalizeScope;
+import static com.bytequay.app.service.pr.PrActivitySupport.resolveZone;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -78,10 +84,6 @@ public class PrAnalyticsService
     // "not enough data" empty state — one or two reviews don't
     // make a median.
     private static final int RESPONSE_MIN_SAMPLES = 3;
-    // Cap daily-bar history for "all" scope so the chart doesn't try to
-    // render 5 years of one-pixel columns.
-    private static final int DAILY_MAX_DAYS_ALL = 90;
-    private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final List<String> OUTCOME_ORDER = ImmutableList.of(
             GithubReviewState.APPROVED, GithubReviewState.CHANGES_REQUESTED,
             GithubReviewState.COMMENTED, GithubReviewState.DISMISSED);
@@ -162,46 +164,6 @@ public class PrAnalyticsService
                 reviewAggregate.reviewHeatmap(),
                 reviewAggregate.reviewNetwork(),
                 stale);
-    }
-
-    private static String normalizeScope(String raw)
-    {
-        if (raw == null) {
-            return "30d";
-        }
-        String normalized = raw.toLowerCase(Locale.ROOT);
-        return switch (normalized) {
-            case "7d", "30d", "90d", "all" -> normalized;
-            default -> "30d";
-        };
-    }
-
-    private static ZoneId resolveZone(String requested)
-    {
-        if (requested == null || requested.isBlank()) {
-            return ZoneId.systemDefault();
-        }
-        try {
-            return ZoneId.of(requested);
-        }
-        catch (Exception e) {
-            // Unknown zone id (e.g. an obsolete alias or a typo) —
-            // silently fall back to the JVM default rather than 4xx
-            // the caller. The renderer's "your local time" copy is
-            // already best-effort.
-            return ZoneId.systemDefault();
-        }
-    }
-
-    private static Instant cutoffFor(String scope)
-    {
-        Instant now = Instant.now();
-        return switch (scope) {
-            case "7d" -> now.minus(Duration.ofDays(7));
-            case "30d" -> now.minus(Duration.ofDays(30));
-            case "90d" -> now.minus(Duration.ofDays(90));
-            default -> Instant.EPOCH;
-        };
     }
 
     private ReviewAggregate aggregateReviews(List<PullRequest> all, String currentLogin, Instant cutoff, ZoneId zone)
@@ -446,19 +408,11 @@ public class PrAnalyticsService
             return ImmutableList.of();
         }
         LocalDate today = LocalDate.now(zone);
-        LocalDate from;
-        if (isAllTime(cutoff)) {
-            // "all" — cap to a manageable window so the renderer doesn't
-            // try to lay out years of empty days.
-            from = today.minusDays(DAILY_MAX_DAYS_ALL - 1L);
-        }
-        else {
-            from = cutoff.atZone(zone).toLocalDate();
-        }
+        LocalDate from = dailyStartDate(cutoff, zone, today);
         ImmutableList.Builder<DailyActivity> out = ImmutableList.builder();
         for (LocalDate day = from; !day.isAfter(today); day = day.plusDays(1)) {
             int[] cell = counts.getOrDefault(day, new int[4]);
-            out.add(new DailyActivity(day.format(ISO_DATE), cell[0], cell[1], cell[2], cell[3]));
+            out.add(new DailyActivity(formatDate(day), cell[0], cell[1], cell[2], cell[3]));
         }
         return out.build();
     }
@@ -590,22 +544,9 @@ public class PrAnalyticsService
         return pr.closedAt() == null && pr.mergedAt() == null;
     }
 
-    private static String formatCount(long n)
-    {
-        if (n < 1000) {
-            return Long.toString(n);
-        }
-        return String.format(Locale.ROOT, "%,d", n);
-    }
-
     private static String formatPercent(double fraction)
     {
         return Math.round(fraction * 100) + "%";
-    }
-
-    private static boolean isAllTime(Instant cutoff)
-    {
-        return Instant.EPOCH.equals(cutoff);
     }
 
     private record ReviewAggregate(

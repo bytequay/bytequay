@@ -30,6 +30,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.repository.StageStore;
@@ -197,7 +198,8 @@ public class StageServiceImpl
                 task.phase().name(),
                 statusLabel(task),
                 "CLI",
-                "");
+                "",
+                task.status() == TaskStatus.PAUSED);
     }
 
     private TaskBrainViewData.Aggregate buildAggregate(List<StageInstance> stages)

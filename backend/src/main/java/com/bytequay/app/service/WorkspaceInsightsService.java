@@ -14,6 +14,8 @@
 package com.bytequay.app.service;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
@@ -26,6 +28,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -138,7 +141,56 @@ public class WorkspaceInsightsService
                 spendTodayMilli,
                 spendInWindowMilli,
                 tasksShipped,
-                series);
+                series,
+                tasksByRepo(windowStart));
+    }
+
+    /** Per-repo split of PR-linked tasks: shipped (reached COMPLETED, cut
+     *  inside the window) vs still-open (not yet terminal). Attribution is
+     *  by the {@code owner/repo#n} link ref — the only repo signal a Task
+     *  carries today. Tasks with no linked PR (no repo signal) are omitted.
+     *  Sorted by shipped count, then open. */
+    private List<RepoTaskBreakdown> tasksByRepo(Instant windowStart)
+    {
+        Map<String, int[]> byRepo = new LinkedHashMap<>(); // repo -> [shipped, open]
+        for (Task t : taskStore.listWithLinkedPr(SHIPPED_TASKS_PAGE)) {
+            String repo = repoFromLinkedPrRef(t.linkedPrRef());
+            if (repo == null) {
+                continue;
+            }
+            int[] counts = byRepo.computeIfAbsent(repo, k -> new int[2]);
+            if (t.phase() == TaskPhase.COMPLETED) {
+                if (!t.createdAt().isBefore(windowStart)) {
+                    counts[0]++;
+                }
+            }
+            else if (!isTerminal(t.status())) {
+                counts[1]++;
+            }
+        }
+        return byRepo.entrySet().stream()
+                .map(e -> new RepoTaskBreakdown(e.getKey(), e.getValue()[0], e.getValue()[1]))
+                .filter(r -> r.tasksShipped() > 0 || r.tasksOpen() > 0)
+                .sorted(Comparator.comparingInt(RepoTaskBreakdown::tasksShipped)
+                        .thenComparingInt(RepoTaskBreakdown::tasksOpen).reversed())
+                .toList();
+    }
+
+    /** Parse {@code owner/repo} out of an {@code owner/repo#n} link ref. */
+    private static String repoFromLinkedPrRef(String linkedPrRef)
+    {
+        if (linkedPrRef == null || linkedPrRef.isBlank()) {
+            return null;
+        }
+        int hash = linkedPrRef.indexOf('#');
+        return hash < 0 ? linkedPrRef : linkedPrRef.substring(0, hash);
+    }
+
+    private static boolean isTerminal(TaskStatus status)
+    {
+        return status == TaskStatus.COMPLETED
+                || status == TaskStatus.CANCELED
+                || status == TaskStatus.ERRORED;
     }
 
     /** Tasks linked to a PR that updated inside the window. The
@@ -196,7 +248,10 @@ public class WorkspaceInsightsService
             long spendTodayMilli,
             long spendInWindowMilli,
             int tasksShippedInWindow,
-            List<DayPoint> spendByDay) {}
+            List<DayPoint> spendByDay,
+            List<RepoTaskBreakdown> tasksByRepo) {}
 
     public record DayPoint(String date, String label, long costUsdMilli) {}
+
+    public record RepoTaskBreakdown(String repoFullName, int tasksShipped, int tasksOpen) {}
 }

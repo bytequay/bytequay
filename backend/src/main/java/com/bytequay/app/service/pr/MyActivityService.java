@@ -38,15 +38,20 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import static com.bytequay.app.service.pr.PrActivitySupport.cutoffFor;
+import static com.bytequay.app.service.pr.PrActivitySupport.dailyStartDate;
+import static com.bytequay.app.service.pr.PrActivitySupport.formatCount;
+import static com.bytequay.app.service.pr.PrActivitySupport.formatDate;
+import static com.bytequay.app.service.pr.PrActivitySupport.isAllTime;
+import static com.bytequay.app.service.pr.PrActivitySupport.normalizeScope;
+import static com.bytequay.app.service.pr.PrActivitySupport.resolveZone;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -62,8 +67,6 @@ public class MyActivityService
 {
     private static final Logger log = LoggerFactory.getLogger(MyActivityService.class);
     private static final int REPOS_MAX_ROWS = 8;
-    private static final int DAILY_MAX_DAYS_ALL = 90;
-    private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     // The calendar GraphQL call is uncached upstream, so we hold the
     // last fetch per login in-process for a short TTL. Cheap to keep
     // (≤366 days of small day records); refreshes silently on miss.
@@ -139,42 +142,6 @@ public class MyActivityService
                 buildReposByActivity(agg.repoOpened, agg.repoMerged),
                 currentStreak,
                 longestStreak);
-    }
-
-    private static String normalizeScope(String raw)
-    {
-        if (raw == null) {
-            return "30d";
-        }
-        String n = raw.toLowerCase(Locale.ROOT);
-        return switch (n) {
-            case "7d", "30d", "90d", "all" -> n;
-            default -> "30d";
-        };
-    }
-
-    private static Instant cutoffFor(String scope)
-    {
-        Instant now = Instant.now();
-        return switch (scope) {
-            case "7d" -> now.minus(Duration.ofDays(7));
-            case "30d" -> now.minus(Duration.ofDays(30));
-            case "90d" -> now.minus(Duration.ofDays(90));
-            default -> Instant.EPOCH;
-        };
-    }
-
-    private static ZoneId resolveZone(String requested)
-    {
-        if (requested == null || requested.isBlank()) {
-            return ZoneId.systemDefault();
-        }
-        try {
-            return ZoneId.of(requested);
-        }
-        catch (Exception e) {
-            return ZoneId.systemDefault();
-        }
     }
 
     private Aggregate aggregate(List<PullRequest> all, String currentLogin, Instant cutoff, ZoneId zone)
@@ -273,13 +240,11 @@ public class MyActivityService
             return ImmutableList.of();
         }
         LocalDate today = LocalDate.now(zone);
-        LocalDate from = isAllTime(cutoff)
-                ? today.minusDays(DAILY_MAX_DAYS_ALL - 1L)
-                : cutoff.atZone(zone).toLocalDate();
+        LocalDate from = dailyStartDate(cutoff, zone, today);
         ImmutableList.Builder<DailyAuthored> out = ImmutableList.builder();
         for (LocalDate day = from; !day.isAfter(today); day = day.plusDays(1)) {
             out.add(new DailyAuthored(
-                    day.format(ISO_DATE),
+                    formatDate(day),
                     opened.getOrDefault(day, 0),
                     merged.getOrDefault(day, 0)));
         }
@@ -407,19 +372,6 @@ public class MyActivityService
     }
 
     private record CachedCalendar(ContributionCalendar value, Instant fetchedAt) {}
-
-    private static String formatCount(long n)
-    {
-        if (n < 1000) {
-            return Long.toString(n);
-        }
-        return String.format(Locale.ROOT, "%,d", n);
-    }
-
-    private static boolean isAllTime(Instant cutoff)
-    {
-        return Instant.EPOCH.equals(cutoff);
-    }
 
     private record Aggregate(
             int opened,

@@ -46,10 +46,7 @@ public class StalePrFilter
     @Override
     public boolean matches(PullRequest pr, Instant now)
     {
-        if (pr.mergedAt() != null || "closed".equalsIgnoreCase(pr.state()) || pr.draft()) {
-            return false;
-        }
-        if (pr.reviewerVerdicts() != null && !pr.reviewerVerdicts().isEmpty()) {
+        if (!PullRequestFilters.isOpen(pr) || pr.draft() || !PullRequestFilters.hasNoReviewerVerdicts(pr)) {
             return false;
         }
         Instant updated = pr.updatedAt();

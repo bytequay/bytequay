@@ -48,10 +48,9 @@ public class BlockedPrFilter
         if (pr.origin() != PullRequest.Origin.AUTHORED) {
             return false;
         }
-        if (pr.mergedAt() != null || "closed".equalsIgnoreCase(pr.state())) {
+        if (!PullRequestFilters.isOpen(pr)) {
             return false;
         }
-        return pr.reviewerVerdicts() != null
-                && pr.reviewerVerdicts().containsValue(GithubReviewState.CHANGES_REQUESTED);
+        return PullRequestFilters.hasReviewerVerdict(pr, GithubReviewState.CHANGES_REQUESTED);
     }
 }

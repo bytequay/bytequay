@@ -52,12 +52,9 @@ public class AwaitingMePrFilter
         if (pr.origin() != PullRequest.Origin.REVIEW_REQUESTED) {
             return false;
         }
-        if (pr.mergedAt() != null || "closed".equalsIgnoreCase(pr.state())) {
+        if (!PullRequestFilters.isOpen(pr) || pr.draft()) {
             return false;
         }
-        if (pr.draft()) {
-            return false;
-        }
-        return pr.reviewerVerdicts() == null || pr.reviewerVerdicts().isEmpty();
+        return PullRequestFilters.hasNoReviewerVerdicts(pr);
     }
 }

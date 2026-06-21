@@ -537,14 +537,15 @@ public class ThreadService
                 roleSkillText,
                 /* workModel */ null);
         taskStore.saveTask(task);
-        // Open the Development stage at creation. Guarded because the
-        // publisher is only wired under Spring (see the field's note).
+        // Open the PlanStage at creation and kick off planning. Guarded
+        // because the publisher is only wired under Spring (see the field's
+        // note). Planning is the brain's job: the opening prompt seeds a
+        // planning turn on the task's brain thread rather than starting dev
+        // work — the DevelopmentStage (and any dev turn) only opens once the
+        // user approves the plan.
         if (events != null) {
             events.publishEvent(new TaskCreatedEvent(task.id()));
-        }
-        Thread refreshed = store.findThreadById(threadId).orElse(thread);
-        if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
-            scheduler.enqueueTurn(refreshed, request.initialPrompt());
+            events.publishEvent(new PlanKickoffRequested(task.id(), request.initialPrompt()));
         }
         return task;
     }

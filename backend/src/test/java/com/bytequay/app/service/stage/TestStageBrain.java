@@ -242,6 +242,17 @@ class TestStageBrain
         assertThat(brain.rightRail().parentStageId()).isNull();
     }
 
+    @Test
+    void brainTaskReflectsPausedStatus()
+    {
+        String taskId = seedTask();
+        assertThat(stageService.getBrain(taskId).task().paused()).isFalse();
+
+        taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withStatus(TaskStatus.PAUSED));
+
+        assertThat(stageService.getBrain(taskId).task().paused()).isTrue();
+    }
+
     private StageInstance openCiFixing(String taskId)
     {
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);

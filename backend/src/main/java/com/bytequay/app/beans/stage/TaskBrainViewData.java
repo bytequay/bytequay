@@ -47,7 +47,10 @@ public record TaskBrainViewData(
             String currentPhase,
             String statusLabel,
             String agentRuntime,
-            String agentModel)
+            String agentModel,
+            /** True when the task is parked at PAUSED — drives the rail's
+             *  Pause/Resume button so it never offers Pause on a paused task. */
+            boolean paused)
     {
     }
 

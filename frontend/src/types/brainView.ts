@@ -213,6 +213,11 @@ export type StageMetricsSubset = {
   tokensCount?: number;
   costCents?: number;
   panelInvocationsCount: number;
+  activeTimeSec?: number;
+  waitingUserTimeSec?: number;
+  operationsCount?: Record<string, number>;  // by inferred op kind
+  interventionsCount?: number;
+  backflowsCount?: number;
   terminalState?: 'succeeded' | 'failed' | 'paused' | 'aborted';
 };
 

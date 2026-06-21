@@ -876,6 +876,22 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('stages:steer', async (_event, stageId: string, text: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/steer`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(body || `backend steer returned ${res.status}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('stages:spawnReview', async (_event, parentStageId: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(parentStageId)}/spawn-review`,

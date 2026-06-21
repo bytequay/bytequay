@@ -121,14 +121,16 @@ public class StageServiceImpl
         // Index of stage display names → id for resolving drill-in chips.
         Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
+        TaskBrainViewData.CostBreakdown cost = buildCostBreakdown(task, allStages, brainMessages);
+
         return new TaskBrainViewData(
                 buildTask(task),
-                buildAggregate(allStages),
+                buildAggregate(allStages, cost.totalCents()),
                 topLevel,
                 subStages,
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
                         brainMessages, steeringMessages, allStages, stageNameIndex),
-                buildRightRail(task, allStages),
+                buildRightRail(task, allStages, cost),
                 buildScrubbers(allEvents, brainMessages));
     }
 
@@ -233,29 +235,80 @@ public class StageServiceImpl
                 task.status() == TaskStatus.PAUSED);
     }
 
-    private TaskBrainViewData.Aggregate buildAggregate(List<StageInstance> stages)
+    private TaskBrainViewData.Aggregate buildAggregate(List<StageInstance> stages, long costCents)
     {
         long activeTimeSec = stages.stream()
                 .filter(s -> s.closedAt().isPresent())
                 .mapToLong(s -> Math.max(0,
                         (s.closedAt().get().toEpochMilli() - s.openedAt().toEpochMilli()) / 1000))
                 .sum();
-        // Autonomous pushes = budget spent across the task's ci-fixing stages.
-        int pushes = stages.stream()
-                .filter(s -> s.type() == StageType.CI_FIXING_STAGE)
-                .map(s -> budgetService.readMetrics(s.id()).autoPushBudget())
-                .filter(b -> b != null)
-                .mapToInt(StageMetrics.AutoPushBudget::used)
-                .sum();
+        int pushes = autonomousPushes(stages);
         int panels = (int) stages.stream()
                 .filter(s -> s.type() == StageType.REVIEW_STAGE)
                 .count();
         TaskBrainViewData.AutoPushBudget budget = latestCiFixingBudget(stages)
                 .map(b -> new TaskBrainViewData.AutoPushBudget(b.used(), b.limit()))
                 .orElse(null);
-        // Tool calls / turns / messages / waiting-time / cost depend on
-        // machinery that lands later; left at zero.
-        return new TaskBrainViewData.Aggregate(pushes, activeTimeSec, 0, 0, 0, 0, panels, 0, budget);
+        // Tool calls / turns / messages / waiting-time depend on machinery
+        // that lands later; cost is summed from thread messages.
+        return new TaskBrainViewData.Aggregate(
+                pushes, activeTimeSec, 0, 0, 0, 0, panels, (int) costCents, budget);
+    }
+
+    /** Autonomous pushes = auto-push budget spent across ci-fixing stages. */
+    private int autonomousPushes(List<StageInstance> stages)
+    {
+        return stages.stream()
+                .filter(s -> s.type() == StageType.CI_FIXING_STAGE)
+                .map(s -> budgetService.readMetrics(s.id()).autoPushBudget())
+                .filter(b -> b != null)
+                .mapToInt(StageMetrics.AutoPushBudget::used)
+                .sum();
+    }
+
+    /**
+     * Per-Task spend, attributed from {@code thread_messages} costs (the
+     * thread-level counter is lifetime-cumulative across the task chain, so
+     * it can't be used per-task). Dev-thread cost is split across stages by
+     * the same time window the metrics use; the brain agent is its own
+     * bucket. Panel-reviewer spend isn't attributed here (the review
+     * subsystem owns its own cost surface).
+     */
+    private TaskBrainViewData.CostBreakdown buildCostBreakdown(
+            Task task, List<StageInstance> stages, List<ThreadMessage> brainMessages)
+    {
+        List<ThreadMessage> devMessages = task.threadId() == null ? List.of()
+                : threadStore.listMessages(task.threadId()).stream()
+                        .filter(m -> task.id().equals(m.taskId()))
+                        .toList();
+        long devMilli = devMessages.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
+        long brainMilli = brainMessages.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
+        long totalCents = (devMilli + brainMilli) / 10;
+
+        List<TaskBrainViewData.StageCost> perStage = stages.stream()
+                .filter(s -> s.callerStageId().isEmpty())
+                .map(s -> {
+                    Instant end = s.closedAt().orElse(Instant.now());
+                    long milli = devMessages.stream()
+                            .filter(m -> inWindow(m.ts(), s.openedAt(), end))
+                            .mapToLong(m -> nz(m.costUsdMilli())).sum();
+                    return new TaskBrainViewData.StageCost(
+                            s.id().toString(), s.type().name(), milli / 10);
+                })
+                .filter(c -> c.costCents() > 0)
+                .toList();
+
+        List<TaskBrainViewData.AgentCost> perAgent = new ArrayList<>();
+        if (devMilli > 0) {
+            perAgent.add(new TaskBrainViewData.AgentCost("dev", devMilli / 10));
+        }
+        if (brainMilli > 0) {
+            perAgent.add(new TaskBrainViewData.AgentCost("brain", brainMilli / 10));
+        }
+
+        int pushes = autonomousPushes(stages);
+        Long costPerPush = pushes > 0 ? totalCents / pushes : null;
+        return new TaskBrainViewData.CostBreakdown(totalCents, perStage, perAgent, costPerPush);
     }
 
     /** The most-recent ci-fixing stage's budget, if any has one. */
@@ -464,7 +517,8 @@ public class StageServiceImpl
         }
     }
 
-    private TaskBrainViewData.RightRail buildRightRail(Task task, List<StageInstance> stages)
+    private TaskBrainViewData.RightRail buildRightRail(
+            Task task, List<StageInstance> stages, TaskBrainViewData.CostBreakdown costBreakdown)
     {
         boolean mergeable = taskStore.mergeNotificationSentAt(task.id()).isPresent();
         LinkedPrDto linkedPr = task.prNumber() == null ? null : buildLinkedPr(task, mergeable);
@@ -479,7 +533,19 @@ public class StageServiceImpl
         return new TaskBrainViewData.RightRail(
                 buildApproval(stages), linkedPr, context, List.<CommitDto>of(),
                 parentStage != null,
-                parentStage == null ? null : parentStage.id().toString());
+                parentStage == null ? null : parentStage.id().toString(),
+                costBreakdown);
+    }
+
+    /** Whether {@code ts} falls in the half-open window {@code [start, end)}. */
+    private static boolean inWindow(Instant ts, Instant start, Instant end)
+    {
+        return ts != null && !ts.isBefore(start) && ts.isBefore(end);
+    }
+
+    private static long nz(Long v)
+    {
+        return v == null ? 0 : v;
     }
 
     /** The phases in which a callable panel review can be spawned — kept in

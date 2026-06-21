@@ -92,9 +92,27 @@ public record TaskBrainViewData(
             ContextWindowDto context,
             List<CommitDto> recentCommits,
             boolean panelSpawnable,
-            String parentStageId)
+            String parentStageId,
+            CostBreakdown costBreakdown)
     {
     }
+
+    /**
+     * Per-Task spend, attributed from {@code thread_messages} costs.
+     *
+     * @param costPerPush total / autonomous pushes, or null when pushes == 0
+     */
+    public record CostBreakdown(
+            long totalCents,
+            List<StageCost> perStage,
+            List<AgentCost> perAgent,
+            Long costPerPush)
+    {
+    }
+
+    public record StageCost(String stageId, String stageType, long costCents) {}
+
+    public record AgentCost(String agentKind, long costCents) {}
 
     public record Scrubbers(
             List<ScrubberDash> stageEvents,

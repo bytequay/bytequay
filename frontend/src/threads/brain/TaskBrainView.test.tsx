@@ -42,9 +42,11 @@ describe('TaskBrainView', () => {
     // Identity bar
     expect(screen.getByText('● TASK 2')).toBeTruthy();
     expect(screen.getByText('Cost-meter widget · workspace sidebar')).toBeTruthy();
-    // Aggregate strip
-    expect(screen.getByText('$1.47')).toBeTruthy();
+    // Aggregate strip + cost-breakdown card both surface the total.
+    expect(screen.getAllByText('$1.47').length).toBeGreaterThan(0);
     expect(screen.getByText('CI FIX RUNNING')).toBeTruthy();
+    // Cost breakdown card.
+    expect(screen.getByText('Cost breakdown')).toBeTruthy();
     // Brain feed: user question + brain reply + time dividers
     expect(screen.getByText('Are all the changes covered by tests?')).toBeTruthy();
     expect(screen.getByText('14 minutes ago')).toBeTruthy();

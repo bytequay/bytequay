@@ -72,6 +72,13 @@ export type ApprovalDto = {
   primaryAction: { label: string; href: string };  // "Review & approve push"
 };
 
+export type CostBreakdown = {
+  totalCents: number;
+  perStage: { stageId: string; stageType: string; costCents: number }[];
+  perAgent: { agentKind: string; costCents: number }[];
+  costPerPush: number | null;
+};
+
 export type LinkedPrDto = {
   number: number;
   branch: string;
@@ -141,6 +148,7 @@ export type TaskBrainViewData = {
     recentCommits: CommitDto[];       // limit 5
     panelSpawnable: boolean;          // true in an internal-review phase over a PR
     parentStageId: string | null;     // the stage a panel review is called from
+    costBreakdown: CostBreakdown;
   };
   scrubbers: {
     stageEvents: ScrubberDash[];      // for the LEFT scrubber

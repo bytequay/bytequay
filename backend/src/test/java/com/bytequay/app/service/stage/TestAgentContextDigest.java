@@ -97,6 +97,17 @@ class TestAgentContextDigest
         assertThat(out).doesNotContain("OLDEST summary line");
     }
 
+    @Test
+    void estimateTokensIsZeroForBlankAndPositiveOtherwise()
+    {
+        assertThat(digest.estimateTokens("")).isZero();
+        assertThat(digest.estimateTokens("   ")).isZero();
+        String text = "the quick brown fox jumps over the lazy dog";
+        assertThat(digest.estimateTokens(text)).isPositive();
+        // The blended heuristic never under-reads the char/4 floor.
+        assertThat(digest.estimateTokens(text)).isGreaterThanOrEqualTo(text.length() / 4);
+    }
+
     private void summary(String taskId, UUID stageId, int n, String text, Instant at)
     {
         UUID id = UUID.randomUUID();

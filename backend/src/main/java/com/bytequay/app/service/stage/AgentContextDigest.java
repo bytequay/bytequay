@@ -31,10 +31,9 @@ import static java.util.Objects.requireNonNull;
  * capped to a token budget. The brain agent prepends this to its system
  * prompt at session creation; review-panel agents reuse it later.
  *
- * <p>The token budget is enforced by a rough {@code length / 4} estimate
- * and trimming from the oldest end, so the newest summaries always survive.
- * Good enough for v1's cost band; a real tokenizer can replace
- * {@link #estimateTokens} when per-task token accounting lands.
+ * <p>The token budget is enforced by a dependency-free heuristic estimate
+ * ({@link #estimateTokens}) and trimming from the oldest end, so the newest
+ * summaries always survive.
  */
 @Component
 public class AgentContextDigest
@@ -107,8 +106,27 @@ public class AgentContextDigest
         return "## Recent task activity\n_(no iteration summaries yet)_";
     }
 
+    /**
+     * Heuristic token estimate — a blended char + word-boundary approach,
+     * dependency-free. English BPE averages ~1.3 tokens per whitespace word
+     * (short words tokenize 1:1, longer ones split into sub-tokens); the
+     * char/4 fallback catches token-dense content (code, non-English) the
+     * word count under-reads. Taking the max over-estimates slightly, which
+     * is the safe direction for cap truncation: we'd rather drop one extra
+     * summary than blow the model's real context window.
+     *
+     * <p>If exact BPE accuracy ever matters (e.g. brain turns failing on
+     * context overflow right at the cap), revisit by adding jtokkit — not
+     * worth a dependency at this scale.
+     */
     int estimateTokens(String text)
     {
-        return text == null ? 0 : text.length() / 4;
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+        int words = text.trim().split("\\s+").length;
+        int wordBased = (int) Math.ceil(words * 1.3);
+        int charBased = (int) Math.ceil(text.length() / 4.0);
+        return Math.max(wordBased, charBased);
     }
 }

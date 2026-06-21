@@ -266,7 +266,14 @@ function LeftRail({
           : ciFixHistory.map(f => (
             <div key={f.iterationNumber} className="ci-fix-card">
               <span className="ci-fix-iter">#{f.iterationNumber}</span>{' '}
-              <span className="ci-fix-reason">{f.endedReason ?? 'in progress'}</span>
+              {/* Enriched red-CI iters lead with the failing check (hover for
+                  the full error); older iters fall back to the ended reason. */}
+              {f.failedCheck !== undefined
+                ? <span className="ci-fix-check" title={f.errorMessage ?? f.failedCheck}>{f.failedCheck}</span>
+                : <span className="ci-fix-reason">{f.endedReason ?? 'in progress'}</span>}
+              {f.actionsRunUrl !== undefined && (
+                <a className="ci-fix-link" href={f.actionsRunUrl} aria-label="Open the Actions run">↗</a>
+              )}
               {f.summaryText !== null && <div className="ci-fix-summary">{f.summaryText}</div>}
             </div>
           ))}

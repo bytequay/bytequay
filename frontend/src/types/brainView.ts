@@ -254,4 +254,7 @@ export type CiFixHistoryEntry = {
   iterationNumber: number;
   endedReason: string | null;
   summaryText: string | null;
+  failedCheck?: string;     // enriched red-CI iters; absent on older ones
+  errorMessage?: string;    // full text for the hover tooltip
+  actionsRunUrl?: string;   // GitHub Actions run link
 };

@@ -18,12 +18,14 @@ import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.ReviewStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -48,17 +50,20 @@ public class StageController
     private final StageDetailService detailService;
     private final ReviewStageService reviewStageService;
     private final StageSteeringService steeringService;
+    private final PlanStageService planStageService;
 
     public StageController(
             StageService service,
             StageDetailService detailService,
             ReviewStageService reviewStageService,
-            StageSteeringService steeringService)
+            StageSteeringService steeringService,
+            PlanStageService planStageService)
     {
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
         this.reviewStageService = requireNonNull(reviewStageService, "reviewStageService is null");
         this.steeringService = requireNonNull(steeringService, "steeringService is null");
+        this.planStageService = requireNonNull(planStageService, "planStageService is null");
     }
 
     @GetMapping("/api/tasks/{taskId}/brain")
@@ -104,6 +109,30 @@ public class StageController
             @PathVariable String stageId, @RequestBody SteerRequest req)
     {
         return steeringService.steer(parseStageId(stageId), req == null ? null : req.text());
+    }
+
+    @PostMapping("/api/stages/{planStageId}/approve")
+    public PlanStageService.ApproveResult approvePlan(@PathVariable String planStageId)
+    {
+        return planStageService.approveByStage(parseStageId(planStageId));
+    }
+
+    @PostMapping("/api/tasks/{taskId}/replan")
+    public PlanStageService.ReplanResult replan(@PathVariable String taskId)
+    {
+        return planStageService.replan(taskId);
+    }
+
+    public record FollowupPatch(String status) {}
+
+    @PatchMapping("/api/stages/{planStageId}/followups/{followupEventId}")
+    public void resolveFollowup(
+            @PathVariable String planStageId,
+            @PathVariable String followupEventId,
+            @RequestBody FollowupPatch patch)
+    {
+        planStageService.resolveFollowup(
+                parseStageId(followupEventId), patch == null ? null : patch.status());
     }
 
     private static UUID parseStageId(String raw)

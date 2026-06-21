@@ -35,9 +35,27 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class SkillService
 {
-    public static final Set<String> SCOPES = ImmutableSet.of("global", "repo", "thread");
-    public static final Set<String> KINDS = ImmutableSet.of("library", "persona", "rubric");
-    public static final Set<String> SOURCES = ImmutableSet.of("authored", "ai_drafted");
+    private static final String SCOPE_ALL = "all";
+    private static final String SCOPE_GLOBAL = "global";
+    private static final String SCOPE_REPO = "repo";
+    private static final String SCOPE_THREAD = "thread";
+    private static final String KIND_LIBRARY = "library";
+    private static final String KIND_PERSONA = "persona";
+    private static final String KIND_RUBRIC = "rubric";
+    private static final String SOURCE_AUTHORED = "authored";
+    private static final String SOURCE_AI_DRAFTED = "ai_drafted";
+    private static final String USAGE_KIND_DEVELOPMENT = "development";
+    private static final String USAGE_BUILD = "build";
+    private static final String USAGE_REVIEW = "review";
+    private static final String ROLE_TRUNK = "trunk";
+    private static final String ROLE_TASK = "task";
+    private static final String ROLE_REVIEWER = "reviewer";
+    private static final String ROLE_LEAD = "lead";
+    private static final String DEFAULT_REVIEW_SKILL_ERROR = "default_only_for_review_skills";
+
+    public static final Set<String> SCOPES = ImmutableSet.of(SCOPE_GLOBAL, SCOPE_REPO, SCOPE_THREAD);
+    public static final Set<String> KINDS = ImmutableSet.of(KIND_LIBRARY, KIND_PERSONA, KIND_RUBRIC);
+    public static final Set<String> SOURCES = ImmutableSet.of(SOURCE_AUTHORED, SOURCE_AI_DRAFTED);
 
     private final SkillStore store;
 
@@ -61,13 +79,13 @@ public class SkillService
     public List<Skill> query(String usageKind, String scope, String repoId, String q)
     {
         String usage = usageKind == null || usageKind.isBlank() ? null
-                : "development".equals(usageKind) ? "build" : usageKind;
+                : USAGE_KIND_DEVELOPMENT.equals(usageKind) ? USAGE_BUILD : usageKind;
         String needle = q == null ? "" : q.strip().toLowerCase(Locale.ROOT);
         return store.list().stream()
                 .filter(s -> usage == null || usage.equals(s.usage()))
-                .filter(s -> scope == null || scope.isBlank() || "all".equals(scope)
-                        || ("global".equals(scope) && "global".equals(s.scope()))
-                        || ("repo".equals(scope) && "repo".equals(s.scope())
+                .filter(s -> scope == null || scope.isBlank() || SCOPE_ALL.equals(scope)
+                        || (SCOPE_GLOBAL.equals(scope) && SCOPE_GLOBAL.equals(s.scope()))
+                        || (SCOPE_REPO.equals(scope) && SCOPE_REPO.equals(s.scope())
                                 && (repoId == null || repoId.equals(s.repo()))))
                 .filter(s -> needle.isEmpty()
                         || s.name().toLowerCase(Locale.ROOT).contains(needle)
@@ -85,8 +103,8 @@ public class SkillService
     {
         String r = role == null ? "" : role.toLowerCase(Locale.ROOT);
         String usage = switch (r) {
-            case "trunk", "task" -> "build";
-            case "reviewer", "lead" -> "review";
+            case ROLE_TRUNK, ROLE_TASK -> USAGE_BUILD;
+            case ROLE_REVIEWER, ROLE_LEAD -> USAGE_REVIEW;
             default -> throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "role must be one of trunk|task|reviewer|lead, got: " + role);
         };
@@ -101,9 +119,9 @@ public class SkillService
     public Skill setDefault(long id)
     {
         Skill skill = get(id);
-        if (!"review".equals(skill.usage())) {
+        if (!USAGE_REVIEW.equals(skill.usage())) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(422),
-                    "default_only_for_review_skills");
+                    DEFAULT_REVIEW_SKILL_ERROR);
         }
         try {
             return store.setDefault(id);
@@ -142,25 +160,31 @@ public class SkillService
             String source,
             String provenance)
     {
-        validateScope(scope);
-        validateKind(kind);
-        String resolvedUsage = resolveUsage(usage);
-        validateName(name);
-        validateScopeFields(scope, repo, threadId);
-        String resolvedSource = source == null || source.isBlank() ? "authored" : source;
+        SkillFields fields = validateFields(
+                scope,
+                repo,
+                threadId,
+                name,
+                description,
+                body,
+                kind,
+                usage,
+                roleTag,
+                isDefault);
+        String resolvedSource = source == null || source.isBlank() ? SOURCE_AUTHORED : source;
         validateSource(resolvedSource);
         try {
             return store.create(
-                    scope,
-                    repo,
-                    threadId,
-                    name.strip(),
-                    description,
-                    body,
-                    kind,
-                    resolvedUsage,
-                    roleTag,
-                    isDefault,
+                    fields.scope(),
+                    fields.repo(),
+                    fields.threadId(),
+                    fields.name(),
+                    fields.description(),
+                    fields.body(),
+                    fields.kind(),
+                    fields.usage(),
+                    fields.roleTag(),
+                    fields.isDefault(),
                     resolvedSource,
                     provenance);
         }
@@ -182,32 +206,19 @@ public class SkillService
             String roleTag,
             boolean isDefault)
     {
-        validateScope(scope);
-        validateKind(kind);
-        String resolvedUsage = resolveUsage(usage);
-        validateName(name);
-        validateScopeFields(scope, repo, threadId);
-        try {
-            return store.update(
-                    id,
-                    scope,
-                    repo,
-                    threadId,
-                    name.strip(),
-                    description,
-                    body,
-                    kind,
-                    resolvedUsage,
-                    roleTag,
-                    isDefault);
-        }
-        catch (IllegalStateException e) {
-            String msg = e.getMessage();
-            if (msg != null && msg.contains("not found")) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(404), msg);
-            }
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409), msg);
-        }
+        return update(
+                id,
+                validateFields(
+                        scope,
+                        repo,
+                        threadId,
+                        name,
+                        description,
+                        body,
+                        kind,
+                        usage,
+                        roleTag,
+                        isDefault));
     }
 
     public void delete(long id)
@@ -223,6 +234,61 @@ public class SkillService
         catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(404), e.getMessage());
         }
+    }
+
+    private Skill update(long id, SkillFields fields)
+    {
+        try {
+            return store.update(
+                    id,
+                    fields.scope(),
+                    fields.repo(),
+                    fields.threadId(),
+                    fields.name(),
+                    fields.description(),
+                    fields.body(),
+                    fields.kind(),
+                    fields.usage(),
+                    fields.roleTag(),
+                    fields.isDefault());
+        }
+        catch (IllegalStateException e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("not found")) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404), msg);
+            }
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409), msg);
+        }
+    }
+
+    private static SkillFields validateFields(
+            String scope,
+            String repo,
+            String threadId,
+            String name,
+            String description,
+            String body,
+            String kind,
+            String usage,
+            String roleTag,
+            boolean isDefault)
+    {
+        validateScope(scope);
+        validateKind(kind);
+        String resolvedUsage = resolveUsage(usage);
+        validateName(name);
+        validateScopeFields(scope, repo, threadId);
+        return new SkillFields(
+                scope,
+                repo,
+                threadId,
+                name.strip(),
+                description,
+                body,
+                kind,
+                resolvedUsage,
+                roleTag,
+                isDefault);
     }
 
     private static void validateScope(String scope)
@@ -248,9 +314,9 @@ public class SkillService
     private static String resolveUsage(String usage)
     {
         if (usage == null || usage.isBlank()) {
-            return "build";
+            return USAGE_BUILD;
         }
-        if (!usage.equals("build") && !usage.equals("review")) {
+        if (!usage.equals(USAGE_BUILD) && !usage.equals(USAGE_REVIEW)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "usage must be 'build' or 'review', got: " + usage);
         }
@@ -276,15 +342,28 @@ public class SkillService
 
     private static void validateScopeFields(String scope, String repo, String threadId)
     {
-        if ("repo".equals(scope) && (repo == null || repo.isBlank())) {
+        if (SCOPE_REPO.equals(scope) && (repo == null || repo.isBlank())) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(400),
                     "repo is required when scope='repo'");
         }
-        if ("thread".equals(scope) && (threadId == null || threadId.isBlank())) {
+        if (SCOPE_THREAD.equals(scope) && (threadId == null || threadId.isBlank())) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(400),
                     "thread_id is required when scope='thread'");
         }
     }
+
+    private record SkillFields(
+            String scope,
+            String repo,
+            String threadId,
+            String name,
+            String description,
+            String body,
+            String kind,
+            String usage,
+            String roleTag,
+            boolean isDefault)
+    {}
 }

@@ -24,17 +24,23 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.brain.BrainServiceImpl;
 import com.bytequay.app.service.threads.AgentScheduler;
+import com.bytequay.app.service.threads.PlanKickoffRequested;
+import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -44,15 +50,17 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * The PlanStage REST surface: approve (with its validations), replan, and the
  * follow-up note status flip.
  */
 @SpringBootTest
-@TestExecutionListeners(
-        listeners = DependencyInjectionTestExecutionListener.class,
-        mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestPlanStageService
 {
     @Autowired
@@ -63,6 +71,10 @@ class TestPlanStageService
     private TaskStore taskStore;
     @Autowired
     private ThreadStore threadStore;
+    @Autowired
+    private ThreadTurnStore turnStore;
+    @Autowired
+    private BrainServiceImpl brainService;
     /** Mocked so the approval / replan kickoff enqueues a turn without the
      *  real scheduler dispatching an agent on a background thread (which would
      *  race this test's own SQLite writes). */
@@ -186,6 +198,59 @@ class TestPlanStageService
                 .isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> planStageService.resolveFollowup(UUID.randomUUID(), "addressed"))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void planKickoffTurnFinishingWithoutAPlanNudgesTheBrain()
+    {
+        String taskId = seedTask();
+        // Create the brain thread (the kickoff enqueue is mocked away).
+        brainService.onPlanKickoff(new PlanKickoffRequested(taskId, "do the thing", null));
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        String brainId = threadStore.findBrainThreadByTask(taskId).orElseThrow().id();
+        String turnId = saveKickoffTurn(taskId, brainId, "plan-kickoff");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
+
+        verify(scheduler).enqueueTurn(any(), contains("ended without recording a plan"), any());
+    }
+
+    @Test
+    void planKickoffTurnFinishingWithARecordedPlanDoesNotNudge()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        String turnId = saveKickoffTurn(taskId, devThread, "plan-kickoff");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
+
+        verify(scheduler, never()).enqueueTurn(any(), contains("ended without recording"), any());
+    }
+
+    @Test
+    void aNonKickoffTurnFinishingNeverNudges()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        String turnId = saveKickoffTurn(taskId, devThread, "monitor");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
+
+        verify(scheduler, never()).enqueueTurn(any(), eq("plan-followup"), any());
+        verify(scheduler, never()).enqueueTurn(any(), contains("ended without recording"), any());
+    }
+
+    private String saveKickoffTurn(String taskId, String threadId, String source)
+    {
+        String turnId = UUID.randomUUID().toString();
+        Instant now = Instant.parse("2026-06-20T09:30:00Z");
+        turnStore.saveTurn(new ThreadTurn(
+                turnId, threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.QUEUED,
+                "plan", now, now, now, now, null, TurnInitiator.unattended(source)));
+        return turnId;
     }
 
     private void recordPlan(StageInstance plan, String taskId, String status, String revId)

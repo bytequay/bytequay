@@ -28,6 +28,7 @@ import ThreadTrunkPage from './threads/ThreadTrunkPage';
 import TaskDetailPage from './threads/TaskDetailPage';
 import TaskBrainView from './threads/brain/TaskBrainView';
 import TaskStageDetailView from './threads/brain/TaskStageDetailView';
+import TaskCodePage from './threads/TaskCodePage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import type {
@@ -73,6 +74,9 @@ export type Nav =
   /** Stage drill-in — the detailed per-stage view reached from a brain-
    *  view stage chip or a brain-agent response's drill-in chip. */
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
+  /** Standalone code page — the task's commit/diff/files viewer, reached
+   *  from a "View code diff" button on the brain view or a stage detail. */
+  | { view: 'task-code'; threadId: string; taskId: string; back?: Nav }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -798,6 +802,18 @@ function App() {
             })}
             onOpenReviewThread={threadId => setNav({
               view: 'review-thread', threadId, back: nav,
+            })}
+            onOpenCode={() => setNav({
+              view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
+            })}
+          />
+        )}
+        {nav.view === 'task-code' && (
+          <TaskCodePage
+            threadId={nav.threadId}
+            taskId={nav.taskId}
+            onBack={() => setNav(nav.back ?? {
+              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
             })}
           />
         )}

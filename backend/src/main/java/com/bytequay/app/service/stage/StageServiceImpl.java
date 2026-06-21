@@ -115,6 +115,9 @@ public class StageServiceImpl
         // Brain conversation: user questions + agent replies on the task's
         // brain thread, surfaced in the feed and the user-message scrubber.
         List<ThreadMessage> brainMessages = brainMessages(taskId);
+        // Steering: user messages on the Task's dev thread, attributed to a
+        // stage by time window (see the window-based interventions metric).
+        List<ThreadMessage> steeringMessages = steeringMessages(task);
         // Index of stage display names → id for resolving drill-in chips.
         Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
@@ -124,9 +127,37 @@ public class StageServiceImpl
                 topLevel,
                 subStages,
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
-                        brainMessages, stageNameIndex),
+                        brainMessages, steeringMessages, allStages, stageNameIndex),
                 buildRightRail(task, allStages),
                 buildScrubbers(allEvents, brainMessages));
+    }
+
+    /** User messages on the Task's dev thread — steering the dev agent. Each
+     *  is attributed to the stage whose open window contains it (read-time,
+     *  window-based; there's no stage tag on the row). Oldest-first. */
+    private List<ThreadMessage> steeringMessages(Task task)
+    {
+        if (task.threadId() == null) {
+            return List.of();
+        }
+        return threadStore.listMessages(task.threadId()).stream()
+                .filter(m -> "text".equals(m.type()))
+                .filter(m -> "user".equals(m.role()))
+                .toList();
+    }
+
+    /** The id of the stage whose half-open window {@code [openedAt, closedAt)}
+     *  contains {@code ts}, or null when none does. */
+    private static String stageIdForTs(Instant ts, List<StageInstance> stages)
+    {
+        for (StageInstance s : stages) {
+            boolean afterOpen = !ts.isBefore(s.openedAt());
+            boolean beforeClose = s.closedAt().map(ts::isBefore).orElse(true);
+            if (afterOpen && beforeClose) {
+                return s.id().toString();
+            }
+        }
+        return null;
     }
 
     /** The task's brain-thread conversation (user + assistant text rows),
@@ -252,6 +283,8 @@ public class StageServiceImpl
             Map<UUID, StageType> stageTypes,
             List<ThreadTurnEvent> summaries,
             List<ThreadMessage> brainMessages,
+            List<ThreadMessage> steeringMessages,
+            List<StageInstance> allStages,
             Map<String, String> stageNameIndex)
     {
         List<FeedEntry> entries = new ArrayList<>();
@@ -264,6 +297,13 @@ public class StageServiceImpl
         }
         for (ThreadMessage m : brainMessages) {
             entries.add(new FeedEntry(m.ts(), brainMessageRow(m, stageNameIndex)));
+        }
+        for (ThreadMessage m : steeringMessages) {
+            String stageId = stageIdForTs(m.ts(), allStages);
+            entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
+                    m.id(), "USER_MESSAGE", stageId,
+                    stageId == null ? null : stageTypes.get(UUID.fromString(stageId)).name(),
+                    m.ts().toString(), decodeText(m.contentJson()), stageId)));
         }
         entries.sort(Comparator.comparing(FeedEntry::ts));
         return entries.stream().map(FeedEntry::row).toList();

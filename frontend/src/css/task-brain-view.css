@@ -246,6 +246,12 @@
 .task-brain .plan-card .followup-actions { display: flex; gap: 6px; }
 .task-brain .plan-card .followup-actions button { flex: 1; padding: 5px; border: 1px solid var(--tbv-border-strong); border-radius: 6px; background: rgba(255,255,255,0.8); font-size: 10px; font-weight: 700; cursor: pointer; font-family: inherit; color: var(--tbv-text-secondary); }
 
+/* Closed-stage fold bar — collapses a closed stage's within-stage chatter
+   behind a single expandable row; boundary events stay outside it. */
+.task-brain .stage-fold { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 6px 10px; border: 1px dashed var(--tbv-border-strong); border-radius: 8px; background: var(--tbv-surface-soft); color: var(--tbv-text-muted); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.task-brain .stage-fold:hover { border-color: var(--tbv-primary-border); color: var(--tbv-text-secondary); }
+.task-brain .stage-fold--collapse { border-style: solid; opacity: 0.8; }
+
 /* Plan-related brain-feed event-row icons (match the existing .ev .ic.* set). */
 .task-brain .ev .ic.plan-rec { background: linear-gradient(135deg, #a78bfa, #7c5cff); color: #fff; }
 .task-brain .ev .ic.plan-approved { background: linear-gradient(135deg, #4ade80, #22c55e); color: #fff; }

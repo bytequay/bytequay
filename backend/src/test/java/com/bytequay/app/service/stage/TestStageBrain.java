@@ -243,6 +243,24 @@ class TestStageBrain
     }
 
     @Test
+    void brainFeedIncludesDevThreadSteeringMessagesAttributedByWindow()
+    {
+        String taskId = seedTask();
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        appendBrainMsg(devThread, 1, "user", "try bumping the retry default",
+                stage.openedAt().plusSeconds(5));
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        BrainFeedRow steer = brain.brainFeed().stream()
+                .filter(r -> r.type().equals("USER_MESSAGE") && r.body().contains("retry default"))
+                .findFirst().orElseThrow();
+        // Window-based attribution: the message falls inside the open stage.
+        assertThat(steer.referencedStageId()).isEqualTo(stage.id().toString());
+    }
+
+    @Test
     void brainTaskReflectsPausedStatus()
     {
         String taskId = seedTask();

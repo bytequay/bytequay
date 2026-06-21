@@ -21,6 +21,7 @@ import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -522,9 +523,12 @@ public class AgentScheduler
     {
         return switch (thread.kind()) {
             case CLI_AGENT -> CLI;
-            // Brain agents run in-JVM against a model API, same lane as a
-            // logic-loop agent.
-            case LOGIC_LOOP, BRAIN_AGENT -> API;
+            case LOGIC_LOOP -> API;
+            // A brain agent follows its resolved work model: a CLI install
+            // runs it as a claude-code subprocess (CLI lane), an API install
+            // runs it in-JVM (API lane). Default to API when unset.
+            case BRAIN_AGENT -> thread.workModel() != null
+                    && thread.workModel().kind() == WorkModelKind.CLI ? CLI : API;
         };
     }
 

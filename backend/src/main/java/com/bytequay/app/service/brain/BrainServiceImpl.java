@@ -27,6 +27,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,17 +58,20 @@ public class BrainServiceImpl
     private final ThreadStore threadStore;
     private final ThreadTurnScheduler scheduler;
     private final IdGenerator idGenerator;
+    private final WorkModelResolver workModelResolver;
 
     public BrainServiceImpl(
             TaskStore taskStore,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
-            IdGenerator idGenerator)
+            IdGenerator idGenerator,
+            WorkModelResolver workModelResolver)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
+        this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
     }
 
     @Override
@@ -144,15 +148,22 @@ public class BrainServiceImpl
                 .map(Thread::workspaceId)
                 .filter(w -> w != null && !w.isBlank())
                 .orElse(DEFAULT_WORKSPACE_ID);
+        // The brain follows the task's resolved work model (the project
+        // default), so it runs as a claude-code CLI subprocess on a CLI
+        // install or in-JVM against the API provider on an API install —
+        // rather than being hardwired to one. Stored on the thread so the
+        // registry (which agent to build) and the scheduler (which lane)
+        // both read the same choice. Falls back to the cheap API default.
+        WorkModel resolved = resolveBrainWorkModel(task.threadId());
         Instant now = Instant.now();
         Thread brain = new Thread(
                 idGenerator.newThreadId(workspaceId, now),
                 ThreadKind.BRAIN_AGENT,
-                DEFAULT_BRAIN_PROVIDER,
+                resolved.agentOrProvider(),
                 /* agentSessionId */ null,
                 "Brain · " + task.id(),
                 ThreadStatus.IDLE,
-                DEFAULT_BRAIN_MODEL,
+                resolved.model() == null ? DEFAULT_BRAIN_MODEL : resolved.model(),
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
                 /* tokensOut */ 0L,
@@ -162,7 +173,7 @@ public class BrainServiceImpl
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 workspaceId,
-                new WorkModel(WorkModelKind.API, DEFAULT_BRAIN_PROVIDER, DEFAULT_BRAIN_MODEL, null),
+                resolved,
                 /* activeTask */ null,
                 /* parentReviewPassId */ null,
                 List.of(),
@@ -170,5 +181,22 @@ public class BrainServiceImpl
                 /* parentTaskId */ task.id());
         threadStore.saveThread(brain);
         return brain;
+    }
+
+    /** Resolve the brain's work model from the task's dev thread (the project
+     *  default cascade), falling back to the cheap API default if the resolver
+     *  isn't wired or the thread can't be resolved. */
+    private WorkModel resolveBrainWorkModel(String devThreadId)
+    {
+        try {
+            WorkModel choice = workModelResolver.resolveForThread(devThreadId).choice();
+            if (choice != null) {
+                return choice;
+            }
+        }
+        catch (RuntimeException e) {
+            log.debug("brain work-model resolve failed for {}: {}", devThreadId, e.getMessage());
+        }
+        return new WorkModel(WorkModelKind.API, DEFAULT_BRAIN_PROVIDER, DEFAULT_BRAIN_MODEL, null);
     }
 }

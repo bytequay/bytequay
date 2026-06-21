@@ -17,11 +17,14 @@ import com.bytequay.app.beans.brain.BrainMessageResponse;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
@@ -47,9 +50,10 @@ class TestBrainService
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final IdGenerator idGenerator = mock(IdGenerator.class);
+    private final WorkModelResolver workModelResolver = mock(WorkModelResolver.class);
 
     private final BrainServiceImpl service =
-            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator);
+            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator, workModelResolver);
 
     @Test
     void createsBrainThreadOnFirstMessageAndEnqueuesTurn()
@@ -76,6 +80,34 @@ class TestBrainService
         verify(scheduler).enqueueTurn(eq(saved.getValue()), eq("How many pushes?"), any());
         assertThat(out.turnId()).isEqualTo("turn-1");
         assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-1");
+    }
+
+    @Test
+    void brainThreadFollowsTheResolvedCliWorkModel()
+    {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(task.threadId()).thenReturn(DEV_THREAD);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
+        Thread devThread = mock(Thread.class);
+        when(devThread.workspaceId()).thenReturn("ws-default");
+        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
+        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
+        // Project default resolves to a claude-code CLI model.
+        WorkModelResolver.Resolved resolved = mock(WorkModelResolver.Resolved.class);
+        when(resolved.choice()).thenReturn(
+                new WorkModel(WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null));
+        when(workModelResolver.resolveForThread(DEV_THREAD)).thenReturn(resolved);
+
+        service.sendMessage(TASK_ID, "How many pushes?");
+
+        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
+        verify(threadStore).saveThread(saved.capture());
+        assertThat(saved.getValue().workModel()).isNotNull();
+        assertThat(saved.getValue().workModel().kind()).isEqualTo(WorkModelKind.CLI);
+        assertThat(saved.getValue().workModel().agentOrProvider()).isEqualTo("claude-code");
     }
 
     @Test

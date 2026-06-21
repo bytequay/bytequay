@@ -30,6 +30,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * SSE stream — must come back a clean {@code 405} with an {@code Allow} header,
  * not the {@code 500} the catch-all handler would otherwise emit. A 500 there
  * makes the client tear down the MCP session and drop the bytequay tools.
+ *
+ * <p>The 405 is body-less on purpose: the SSE probe's {@code Accept:
+ * text/event-stream} can't be satisfied by a JSON body, and a body would make
+ * the resolver raise "No acceptable representation" while writing the 405.
  */
 class TestGlobalExceptionHandler
 {
@@ -43,12 +47,11 @@ class TestGlobalExceptionHandler
         HttpRequestMethodNotSupportedException exception =
                 new HttpRequestMethodNotSupportedException("GET", List.of("POST"));
 
-        ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
-                handler.handleMethodNotSupported(exception, request);
+        ResponseEntity<Void> response = handler.handleMethodNotSupported(exception, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().status()).isEqualTo(405);
+        // Body-less: nothing to content-negotiate against the SSE probe's Accept.
+        assertThat(response.getBody()).isNull();
         assertThat(response.getHeaders().getFirst(HttpHeaders.ALLOW)).contains("POST");
     }
 }

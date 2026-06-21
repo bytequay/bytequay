@@ -56,6 +56,17 @@ describe('TaskBrainView', () => {
     expect(screen.getByText('#5680 · jack/cost-meter')).toBeTruthy();
   });
 
+  it('shows a non-blocking load-error banner when the fetch fails', async () => {
+    const getBrainView = vi.fn().mockRejectedValue(new Error('backend down'));
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView };
+
+    renderView();
+
+    // The seeded data still renders underneath the banner.
+    expect(screen.getByText('● TASK 2')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('backend down'));
+  });
+
   it('filters the brain feed by free text', () => {
     renderView();
     // The seeded user question is visible before filtering.

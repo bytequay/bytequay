@@ -24,7 +24,13 @@ type Props = {
   onViewDiff: () => void;
   onViewContext: () => void;
   onPause: () => void;
+  onResume: () => void;
   onClose: () => void;
+  /** True when the task is parked at PAUSED — the rail offers Resume. */
+  paused: boolean;
+  /** Disables the pause/resume/close controls while a task action is in
+   *  flight, so a double-click can't fire two cancels. */
+  taskActionBusy: boolean;
   /** Launch a multi-agent panel review of the task's own PR. Resolves once
    *  the panel is seated and the view has navigated to it. */
   onSpawnReview: () => Promise<void>;
@@ -133,7 +139,8 @@ function ContextWindowCard({ ctx, onViewContext }: { ctx: ContextWindowDto; onVi
  * the pause/close controls.
  */
 export function RightRail({
-  rail, nowMs, onApprove, onMerge, onViewDiff, onViewContext, onPause, onClose, onSpawnReview,
+  rail, nowMs, onApprove, onMerge, onViewDiff, onViewContext,
+  onPause, onResume, onClose, paused, taskActionBusy, onSpawnReview,
 }: Props) {
   return (
     <aside className="right-rail">
@@ -159,8 +166,18 @@ export function RightRail({
       <ContextWindowCard ctx={rail.context} onViewContext={onViewContext} />
 
       <div className="pause-card">
-        <button type="button" className="pause-btn" onClick={onPause}>⏸ Pause task</button>
-        <button type="button" className="close-btn" onClick={onClose}>⏹ Close task</button>
+        {paused ? (
+          <button type="button" className="pause-btn" onClick={onResume} disabled={taskActionBusy}>
+            ▶ Resume task
+          </button>
+        ) : (
+          <button type="button" className="pause-btn" onClick={onPause} disabled={taskActionBusy}>
+            ⏸ Pause task
+          </button>
+        )}
+        <button type="button" className="close-btn" onClick={onClose} disabled={taskActionBusy}>
+          ⏹ Close task
+        </button>
       </div>
     </aside>
   );

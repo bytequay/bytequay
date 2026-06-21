@@ -284,3 +284,10 @@
 }
 
 @keyframes tbv-pg { 50% { opacity: .5; } }
+
+/* Stage detail — read-time operation cards (a run of same-kind tool calls). */
+.operation-card { margin: 6px 0; padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.55); }
+.operation-head { display: flex; align-items: baseline; gap: 8px; }
+.operation-kind { font-weight: 700; font-size: 11px; text-transform: capitalize; }
+.operation-meta { font-size: 10px; color: var(--tbv-text-subtle); }
+.operation-tools { margin-top: 4px; padding-left: 8px; }

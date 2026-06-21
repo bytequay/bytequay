@@ -3791,6 +3791,16 @@ export type Bridge = {
   /** Steer a stage's dev agent: enqueue the user's message as a turn on the
    *  task's dev thread. Returns the enqueued turn id. */
   steerStage: (stageId: string, text: string) => Promise<{ turnId: string }>;
+  /** Approve the task's plan: closes the PlanStage, opens the
+   *  DevelopmentStage, and returns its id (+ redirect path) so the view can
+   *  auto-navigate to the dev stage detail page. */
+  approvePlan: (planStageId: string) => Promise<{ devStageId: string; redirectUrl: string }>;
+  /** Open a fresh PlanStage after a prior plan was approved (re-plan). */
+  replan: (taskId: string) => Promise<{ planStageId: string }>;
+  /** Mark a plan follow-up note addressed / dismissed. */
+  updateFollowup: (
+    planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed',
+  ) => Promise<void>;
 
   // ── Thread tabs: working-tree changes + commits ──────────────────
   /** Files modified by the AI session but not yet committed. Returns

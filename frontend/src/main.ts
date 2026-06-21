@@ -904,6 +904,47 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('plans:approve', async (_event, planStageId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/stages/${encodeURIComponent(planStageId)}/approve`,
+      { method: 'POST' },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend approve returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('plans:replan', async (_event, taskId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/replan`,
+      { method: 'POST' },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend replan returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('plans:updateFollowup',
+    async (_event, planStageId: string, followupEventId: string, status: string) => {
+      const res = await fetch(
+        `${BACKEND_BASE}/api/stages/${encodeURIComponent(planStageId)}`
+          + `/followups/${encodeURIComponent(followupEventId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`backend updateFollowup returned ${res.status}: ${body}`);
+      }
+    });
+
   ipcMain.handle('backend:myActivity', async (_event, scope: string, tz?: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/my-activity`);
     url.searchParams.set('scope', scope);

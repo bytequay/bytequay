@@ -93,9 +93,40 @@ public record TaskBrainViewData(
             List<CommitDto> recentCommits,
             boolean panelSpawnable,
             String parentStageId,
-            CostBreakdown costBreakdown)
+            CostBreakdown costBreakdown,
+            PlanCard plan)
     {
     }
+
+    /**
+     * The structured plan card. {@code state} is {@code draft} while the brain
+     * is still recording it, {@code awaiting} once a finalized plan is pending
+     * the user, {@code locked} after approval (the PlanStage is closed). Null
+     * on the rail when the task has no PlanStage data.
+     */
+    public record PlanCard(
+            String planStageId,
+            String state,
+            String status,
+            String source,
+            String understandingSummary,
+            String intentSummary,
+            List<PlanStep> steps,
+            String validationStrategy,
+            String pushStrategy,
+            PlanSignals signals,
+            int revisionCount,
+            List<PlanFollowup> followups)
+    {
+    }
+
+    public record PlanStep(int ordinal, String action) {}
+
+    public record PlanSignals(
+            String riskLevel, String estimatedComplexity, int componentsCount, String expectedGain) {}
+
+    public record PlanFollowup(
+            String eventId, String note, String sourceAgent, String createdAt, String status) {}
 
     /**
      * Per-Task spend, attributed from {@code thread_messages} costs.

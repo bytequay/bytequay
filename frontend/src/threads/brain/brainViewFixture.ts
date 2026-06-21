@@ -195,6 +195,10 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
       perStage: [{ stageId: 'cifix', stageType: 'CI_FIXING_STAGE', costCents: 88 }],
       costPerPush: 49,
     },
+    // The mock fixture is a mid-development task whose plan is already
+    // approved-and-locked; PlanStage-specific frames are exercised in the
+    // PlanCard component test.
+    plan: null,
   },
   scrubbers: {
     stageEvents: [

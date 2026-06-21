@@ -13,6 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlanCardDto } from '../../types/brainView';
 import TaskBrainView from './TaskBrainView';
 import { buildMockBrainView } from './brainViewFixture';
 
@@ -246,6 +247,29 @@ describe('TaskBrainView', () => {
     fireEvent.click(await screen.findByRole('button', { name: /View code diff/ }));
 
     expect(onOpenPr).toHaveBeenCalledWith('trinodb', 'trino', 5680);
+  });
+
+  it('approves the plan and auto-navigates to the new development stage', async () => {
+    const base = buildMockBrainView(FROZEN);
+    const planDto: PlanCardDto = {
+      planStageId: 'plan-1', state: 'awaiting', status: 'finalized',
+      source: 'brain', understandingSummary: 'bump retry', intentSummary: 'change default',
+      steps: [{ ordinal: 1, action: 'edit RetryConfig' }],
+      validationStrategy: 'unit tests', pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 1, expectedGain: 'fewer flakes' },
+      revisionCount: 1, followups: [],
+    };
+    const withPlan = { ...base, rightRail: { ...base.rightRail, plan: planDto } };
+    const getBrainView = vi.fn().mockResolvedValue(withPlan);
+    const approvePlan = vi.fn().mockResolvedValue({ devStageId: 'dev-9', redirectUrl: '/x' });
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView, approvePlan };
+    const onOpenStage = vi.fn();
+
+    renderView({ onOpenStage });
+    fireEvent.click(await screen.findByRole('button', { name: /Approve & start development/ }));
+
+    expect(approvePlan).toHaveBeenCalledWith('plan-1');
+    await waitFor(() => expect(onOpenStage).toHaveBeenCalledWith('dev-9'));
   });
 
   it('opens the prompt context inspector from View full context', async () => {

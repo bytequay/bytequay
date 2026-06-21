@@ -163,6 +163,22 @@ describe('TaskStageDetailView', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('renders a stage with no auto-push budget without crashing', async () => {
+    // The development stage carries autoPushBudget: null over the wire (JSON
+    // null, not undefined). The budget card must be skipped, not throw on
+    // null.used.
+    const noBudget = fixture();
+    noBudget.stage.type = 'DEVELOPMENT_STAGE';
+    noBudget.stage.config.autoPushBudget = null;
+    mockBridge(vi.fn().mockResolvedValue(noBudget));
+
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+
+    // The metrics card still renders; the budget card is absent.
+    expect(await screen.findByText('Metrics')).toBeTruthy();
+    expect(screen.queryByLabelText('Auto-push budget')).toBeNull();
+  });
+
   it('shows a loading state before data arrives (no bridge)', () => {
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
     expect(screen.getByText('Loading stage…')).toBeTruthy();

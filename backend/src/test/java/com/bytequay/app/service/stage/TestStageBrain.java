@@ -293,6 +293,45 @@ class TestStageBrain
     }
 
     @Test
+    void rightRailPlanCardReflectsAnAwaitingFinalizedPlan()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
+                "id", "rev-1",
+                "status", "finalized",
+                "source", "brain",
+                "understanding", Map.of("summary", "bump the retry default"),
+                "intent", Map.of(
+                        "summary", "change the default and add a test",
+                        "steps", List.of(Map.of("ordinal", 1, "action", "edit RetryConfig"))),
+                "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small",
+                        "componentsCount", 2, "expectedGain", "fewer flakes")));
+
+        TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
+
+        assertThat(card).isNotNull();
+        assertThat(card.state()).isEqualTo("awaiting");
+        assertThat(card.understandingSummary()).isEqualTo("bump the retry default");
+        assertThat(card.steps()).singleElement()
+                .satisfies(s -> assertThat(s.action()).isEqualTo("edit RetryConfig"));
+        assertThat(card.signals().riskLevel()).isEqualTo("low");
+    }
+
+    @Test
+    void rightRailPlanCardIsLockedAfterApproval()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED,
+                Map.of("id", "rev-1", "status", "finalized"));
+        planStageService.approve(taskId, "rev-1");
+
+        TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
+        assertThat(card.state()).isEqualTo("locked");
+    }
+
+    @Test
     void brainTaskReflectsPausedStatus()
     {
         String taskId = seedTask();

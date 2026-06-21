@@ -22,12 +22,15 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -74,6 +77,7 @@ public class PlanStageService
     private final TaskPhaseMachine phaseMachine;
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
+    private final ThreadTurnStore turnStore;
     private final ThreadTurnScheduler scheduler;
     private final ApplicationEventPublisher events;
     private final ObjectMapper mapper;
@@ -83,6 +87,7 @@ public class PlanStageService
             TaskPhaseMachine phaseMachine,
             TaskStore taskStore,
             ThreadStore threadStore,
+            ThreadTurnStore turnStore,
             ThreadTurnScheduler scheduler,
             ApplicationEventPublisher events,
             ObjectMapper mapper)
@@ -91,9 +96,49 @@ public class PlanStageService
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.events = requireNonNull(events, "events is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+    }
+
+    /**
+     * Orchestrator follow-up enforcement (mirrors the iteration-summary
+     * pattern): if the brain's planning turn finishes without recording a
+     * plan, nudge it once with a follow-up turn. The nudge turn carries the
+     * {@code plan-followup} source, so when <em>it</em> finishes this listener
+     * skips (gated on {@code plan-kickoff}) — at most one nudge per kickoff,
+     * with the hard guarantee still being the approve endpoint's reject.
+     */
+    @EventListener
+    @Transactional
+    public void onTurnFinished(TaskTurnFinishedEvent event)
+    {
+        ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
+        if (turn == null || turn.initiator() == null
+                || !"plan-kickoff".equals(turn.initiator().source())) {
+            return;
+        }
+        StageInstance plan = stageStore.findActiveStage(event.taskId())
+                .filter(s -> s.type() == StageType.PLAN_STAGE)
+                .orElse(null);
+        if (plan == null) {
+            return;
+        }
+        boolean recorded = stageStore.findEventsByStage(plan.id()).stream()
+                .anyMatch(e -> e.eventType() == StageEventType.PLAN_RECORDED);
+        if (recorded) {
+            return;
+        }
+        threadStore.findBrainThreadByTask(event.taskId()).ifPresent(brain -> {
+            scheduler.enqueueTurn(brain,
+                    "Your planning turn ended without recording a plan. Call "
+                            + "record_plan(task_id='" + event.taskId() + "', plan={…}) now with a "
+                            + "structured plan (status='finalized' when ready for review). Do not "
+                            + "do any other work this turn.",
+                    TurnInitiator.unattended("plan-followup"));
+            log.debug("nudged brain {} to record a plan for task {}", brain.id(), event.taskId());
+        });
     }
 
     /**

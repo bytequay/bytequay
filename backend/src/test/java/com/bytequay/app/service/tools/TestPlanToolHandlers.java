@@ -109,6 +109,56 @@ class TestPlanToolHandlers
     }
 
     @Test
+    void readPlanSummaryReturnsTheLatestFinalizedPlan()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        tools.recordPlan(new RecordPlanArgs(taskId, planJson("suggested")), CALL);
+        tools.recordPlan(new RecordPlanArgs(taskId, planJson("finalized")), CALL);
+
+        ToolOutcome.Completed out = completed(tools.readPlanSummary(
+                new PlanToolHandlers.ReadPlanSummaryArgs(taskId), CALL));
+
+        assertThat(out.isError()).isFalse();
+        assertThat(out.text())
+                .contains("\"plan\":")
+                .contains("\"status\":\"finalized\"")
+                .contains("\"conversationSummaries\":[]");
+    }
+
+    @Test
+    void readPlanSummaryErrorsWhenNoFinalizedPlan()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        tools.recordPlan(new RecordPlanArgs(taskId, planJson("suggested")), CALL);
+
+        ToolOutcome.Completed out = completed(tools.readPlanSummary(
+                new PlanToolHandlers.ReadPlanSummaryArgs(taskId), CALL));
+
+        assertThat(out.isError()).isTrue();
+    }
+
+    @Test
+    void notePlanConcernWritesAFollowupEvent()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        ToolOutcome.Completed out = completed(tools.notePlanConcern(
+                new PlanToolHandlers.NotePlanConcernArgs(taskId, "the retry default is wrong"), CALL));
+
+        assertThat(out.isError()).isFalse();
+        assertThat(out.text()).contains("\"eventId\":");
+        assertThat(stageStore.findEventsByStage(plan.id()))
+                .anySatisfy(e -> {
+                    assertThat(e.eventType()).isEqualTo(StageEventType.PLAN_FOLLOWUP_NOTED);
+                    assertThat(e.payloadJson()).contains("the retry default is wrong")
+                            .contains("\"status\":\"open\"");
+                });
+    }
+
+    @Test
     void recordingAfterTheStageClosedErrors()
     {
         String taskId = seedTask();

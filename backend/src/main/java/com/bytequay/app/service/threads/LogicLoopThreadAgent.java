@@ -252,7 +252,9 @@ public class LogicLoopThreadAgent
             // The brain's one write tool — records the structured plan during
             // a PlanStage. The handler no-ops (errors) when no PlanStage is
             // open, so it's inert outside planning.
-            "record_plan");
+            "record_plan",
+            // Lets the brain re-read the finalized plan it (or the trunk) recorded.
+            "read_plan_summary");
 
     /** System prompt for the read-only brain agent. A later change prepends
      *  a digest of the task's recent iteration summaries; this is the static

@@ -54,6 +54,7 @@ public final class TaskFlowLabels
             case COMPLETED -> "Merged";
             case NEEDS_ATTENTION -> "Parked";
             case QUEUED -> "Queued";
+            case PLANNING -> "Plan";
         };
     }
 
@@ -71,6 +72,7 @@ public final class TaskFlowLabels
     public static String nodeLabel(TaskPhase phase)
     {
         return switch (phase) {
+            case PLANNING -> "Plan";
             case QUEUED -> "Queued";
             case IMPLEMENTING -> "Implement";
             case CI_FIXING -> "Fix CI";
@@ -106,6 +108,7 @@ public final class TaskFlowLabels
             case PUSHED_AWAITING_CI -> "on push approved";
             case NEEDS_ATTENTION -> "if blocked";
             case QUEUED -> "queued";
+            case PLANNING -> "needs a plan";
         };
     }
 }

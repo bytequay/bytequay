@@ -32,6 +32,13 @@ package com.bytequay.app.domain;
  */
 public enum TaskPhase
 {
+    /** A freshly-created task's first phase: the brain agent is producing a
+     *  structured plan in the open {@code PlanStage}, and the user reviews
+     *  it. No development work happens here — the {@code DevelopmentStage}
+     *  cannot open until the plan is approved. Promotes to
+     *  {@link #IMPLEMENTING} on approval. */
+    PLANNING,
+
     /** Materialised from the thread's queue and waiting for a compute
      *  slot. The agent session pre-warms; the composer feeds the task's
      *  opening prompt. Promotes to {@link #IMPLEMENTING} when a slot

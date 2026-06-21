@@ -113,8 +113,10 @@ class TaskEntity
     // Defaulted so a freshly-inserted task (saveTask deliberately never
     // maps phase, to avoid clobbering it on a full-row update) satisfies
     // the NOT NULL column; the phase machine writes it via load-set-save.
+    // Every task starts in PLANNING — the brain agent plans in the open
+    // PlanStage and the DevelopmentStage only opens once the user approves.
     @Column(name = "phase", nullable = false)
-    private String phase = "IMPLEMENTING";
+    private String phase = "PLANNING";
 
     @Column(name = "agenda_json")
     private String agendaJson;

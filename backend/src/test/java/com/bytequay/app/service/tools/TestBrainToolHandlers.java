@@ -27,6 +27,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.tools.BrainToolHandlers.CheckCoverageArgs;
 import com.bytequay.app.service.tools.BrainToolHandlers.CountOperationsArgs;
@@ -66,6 +67,8 @@ class TestBrainToolHandlers
     @Autowired
     private TaskPhaseMachine machine;
     @Autowired
+    private PlanStageService planStageService;
+    @Autowired
     private StageStore stageStore;
     @Autowired
     private TaskStore taskStore;
@@ -103,6 +106,7 @@ class TestBrainToolHandlers
     void readPhaseHistoryReturnsTransitions()
     {
         String taskId = seedTask();
+        approvePlan(taskId);
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
 
         ToolOutcome.Completed out = completed(tools.readPhaseHistory(
@@ -175,6 +179,7 @@ class TestBrainToolHandlers
     void cannedScenariosAnswerCanonicalQuestionsFromState()
     {
         String taskId = seedTask();
+        approvePlan(taskId);
         stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
         stageStore.openStage(taskId, StageType.REVIEW_MONITOR_STAGE, null);
         machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
@@ -204,6 +209,14 @@ class TestBrainToolHandlers
     private static ToolOutcome.Completed completed(ToolOutcome outcome)
     {
         return (ToolOutcome.Completed) outcome;
+    }
+
+    /** Approve a plan so the DevelopmentStage opens and the task is at
+     *  IMPLEMENTING — the precondition for the dev-phase walk. */
+    private void approvePlan(String taskId)
+    {
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        planStageService.approve(taskId, "rev-1");
     }
 
     private String seedTask()

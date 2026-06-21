@@ -56,6 +56,19 @@ describe('TaskBrainView', () => {
     expect(screen.getByText('#5680 · jack/cost-meter')).toBeTruthy();
   });
 
+  it('filters the brain feed by free text', () => {
+    renderView();
+    // The seeded user question is visible before filtering.
+    expect(screen.getByText('Are all the changes covered by tests?')).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search the brain feed' }), {
+      target: { value: 'zzz-no-such-text' },
+    });
+
+    expect(screen.queryByText('Are all the changes covered by tests?')).toBeNull();
+    expect(screen.getByText('No feed entries match the filter.')).toBeTruthy();
+  });
+
   it('lays out the body as a 252 / fluid / 308 grid', () => {
     const { container } = renderView();
     const body = container.querySelector('.tbv-body') as HTMLElement;

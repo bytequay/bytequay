@@ -121,13 +121,7 @@ public class SqliteSkillStore
         e.setSource(source == null ? "authored" : source);
         e.setProvenance(blankToNull(provenance));
         e.setContentHash(hash(body));
-        try {
-            return toDomain(this.repo.save(e));
-        }
-        catch (DataIntegrityViolationException ex) {
-            throw new IllegalStateException(
-                    "skill name '" + name + "' already exists", ex);
-        }
+        return saveSkill(e, name);
     }
 
     @Override
@@ -158,6 +152,11 @@ public class SqliteSkillStore
         e.setRoleTag(blankToNull(roleTag));
         e.setDefault(isDefault);
         e.setContentHash(hash(body));
+        return saveSkill(e, name);
+    }
+
+    private Skill saveSkill(SkillEntity e, String name)
+    {
         try {
             return toDomain(this.repo.save(e));
         }

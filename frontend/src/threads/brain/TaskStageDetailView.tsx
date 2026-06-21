@@ -412,7 +412,7 @@ function RightRail({ stage, context }: { stage: StageDetailData['stage']; contex
         ))}
       </section>
 
-      {budget !== undefined && (
+      {budget !== undefined && budget !== null && (
         <section className="budget-card" aria-label="Auto-push budget">
           <h3>Auto-push budget</h3>
           <div className="budget-pips">{budget.used} / {budget.limit}</div>

@@ -149,6 +149,29 @@ export default function TaskBrainView({
 
   const onPause = () => runTaskAction(() => window.bridge.pauseTask(threadId, task.id));
   const onResume = () => runTaskAction(() => window.bridge.resumePausedTask(threadId, task.id));
+
+  // Plan card actions. Approving closes the PlanStage, opens the
+  // DevelopmentStage, and auto-navigates to its detail page.
+  const onApprovePlan = () => {
+    const planStageId = rightRail.plan?.planStageId;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (planStageId === undefined || bridge?.approvePlan === undefined || taskActionBusy) return;
+    setTaskActionBusy(true);
+    setActionError(null);
+    bridge.approvePlan(planStageId)
+      .then(result => { if (onOpenStage !== undefined) onOpenStage(result.devStageId); })
+      .catch((e: unknown) => setActionError(e instanceof Error ? e.message : 'Approve failed'))
+      .finally(() => setTaskActionBusy(false));
+  };
+  const onResolveFollowup = (eventId: string, status: 'addressed' | 'dismissed') => {
+    const planStageId = rightRail.plan?.planStageId;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (planStageId === undefined || bridge?.updateFollowup === undefined) return;
+    bridge.updateFollowup(planStageId, eventId, status).then(() => pollFast()).catch(() => { /* poll reconciles */ });
+  };
+  // "Request changes" just surfaces the composer the user types into; it's
+  // already visible in the center column, so this is a no-op hook for now.
+  const onRequestPlanChanges = () => { /* composer is always visible */ };
   const doClose = () => {
     setConfirmCloseOpen(false);
     runTaskAction(() => window.bridge.cancelTask(threadId, task.id), () => onBack());
@@ -204,6 +227,9 @@ export default function TaskBrainView({
             paused={task.paused}
             taskActionBusy={taskActionBusy}
             onSpawnReview={spawnReview}
+            onApprovePlan={onApprovePlan}
+            onRequestPlanChanges={onRequestPlanChanges}
+            onResolveFollowup={onResolveFollowup}
           />
         </div>
       </div>

@@ -52,7 +52,8 @@ export type StageDto = {
 export type BrainFeedRowType =
   | 'STAGE_OPENED' | 'STAGE_CLOSED' | 'PANEL_REVIEW_COMPLETED'
   | 'PUSHED_PR_CREATED' | 'ITERATION_SUMMARY' | 'USER_MESSAGE'
-  | 'BRAIN_AGENT_RESPONSE' | 'NEEDS_ATTENTION' | 'NOTIFY_READY_FOR_MERGE';
+  | 'BRAIN_AGENT_RESPONSE' | 'NEEDS_ATTENTION' | 'NOTIFY_READY_FOR_MERGE'
+  | 'PLAN_RECORDED' | 'PLAN_APPROVED' | 'PLAN_FOLLOWUP_NOTED';
 
 export type BrainFeedRow = {
   id: string;
@@ -89,6 +90,41 @@ export type LinkedPrDto = {
   reviewersTotal: number;
   conflictsState: 'none' | 'has_conflicts' | 'unknown';
   mergeable: boolean;
+};
+
+/** The structured plan card on the right rail. Lifecycle: a purple `draft`
+ *  while the brain is recording it, an amber `awaiting` once finalized and
+ *  pending the user, a green `locked` after approval (read-only). */
+export type PlanCardState = 'draft' | 'awaiting' | 'locked';
+
+export type PlanCardSignals = {
+  riskLevel: 'low' | 'medium' | 'high';
+  estimatedComplexity: 'trivial' | 'small' | 'medium' | 'large';
+  componentsCount: number;
+  expectedGain: string;
+};
+
+export type PlanFollowupDto = {
+  eventId: string;
+  note: string;
+  sourceAgent: string;                  // "dev" — the agent that raised it
+  createdAt: string;                    // ISO 8601
+  status: 'open' | 'addressed' | 'dismissed';
+};
+
+export type PlanCardDto = {
+  planStageId: string;
+  state: PlanCardState;
+  status: 'suggested' | 'finalized';
+  source: string;                       // brain | brain-revision | trunk | brain-confirmation
+  understandingSummary: string;
+  intentSummary: string;
+  steps: { ordinal: number; action: string }[];
+  validationStrategy: string;
+  pushStrategy: 'autonomous' | 'await_approval';
+  signals: PlanCardSignals;
+  revisionCount: number;                // number of PLAN_RECORDED revisions
+  followups: PlanFollowupDto[];         // dev-agent notes (locked state)
 };
 
 export type ContextWindowDto = {
@@ -149,6 +185,7 @@ export type TaskBrainViewData = {
     panelSpawnable: boolean;          // true in an internal-review phase over a PR
     parentStageId: string | null;     // the stage a panel review is called from
     costBreakdown: CostBreakdown;
+    plan: PlanCardDto | null;         // the plan card (draft/awaiting/locked), null if no PlanStage
   };
   scrubbers: {
     stageEvents: ScrubberDash[];      // for the LEFT scrubber
@@ -196,7 +233,7 @@ export type StageDetailData = {
     iterationCount: number;
     currentIterationNumber: number | null;
     config: {
-      autoPushBudget?: { used: number; limit: number };
+      autoPushBudget?: { used: number; limit: number } | null;
       internalReviewEnabled: boolean;
     };
     metrics: StageMetricsSubset;

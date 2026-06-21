@@ -889,6 +889,10 @@ const bridge: Bridge = {
   spawnReview: (parentStageId: string) => ipcRenderer.invoke('stages:spawnReview', parentStageId),
   steerStage: (stageId: string, text: string): Promise<{ turnId: string }> =>
     ipcRenderer.invoke('stages:steer', stageId, text),
+  approvePlan: (planStageId: string) => ipcRenderer.invoke('plans:approve', planStageId),
+  replan: (taskId: string) => ipcRenderer.invoke('plans:replan', taskId),
+  updateFollowup: (planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed') =>
+    ipcRenderer.invoke('plans:updateFollowup', planStageId, followupEventId, status),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

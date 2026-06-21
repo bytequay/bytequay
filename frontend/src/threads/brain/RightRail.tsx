@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import type { ApprovalDto, CommitDto, ContextWindowDto, CostBreakdown, TaskBrainViewData } from '../../types/brainView';
 import { LinkedPRCard } from './LinkedPRCard';
+import { PlanCard } from './PlanCard';
 import { formatTokensK, relativeShort } from './format';
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -86,6 +87,12 @@ type Props = {
   /** Launch a multi-agent panel review of the task's own PR. Resolves once
    *  the panel is seated and the view has navigated to it. */
   onSpawnReview: () => Promise<void>;
+  /** Approve the plan (awaiting state) → opens the DevelopmentStage. */
+  onApprovePlan: () => void;
+  /** Focus the composer so the user can ask the brain to revise the plan. */
+  onRequestPlanChanges: () => void;
+  /** Mark a locked plan's follow-up note addressed / dismissed. */
+  onResolveFollowup: (eventId: string, status: 'addressed' | 'dismissed') => void;
 };
 
 /**
@@ -193,9 +200,20 @@ function ContextWindowCard({ ctx, onViewContext }: { ctx: ContextWindowDto; onVi
 export function RightRail({
   rail, nowMs, onApprove, onMerge, onViewDiff, onViewContext,
   onPause, onResume, onClose, paused, taskActionBusy, onSpawnReview,
+  onApprovePlan, onRequestPlanChanges, onResolveFollowup,
 }: Props) {
   return (
     <aside className="right-rail">
+      {rail.plan != null && (
+        <PlanCard
+          plan={rail.plan}
+          onApprove={onApprovePlan}
+          onRequestChanges={onRequestPlanChanges}
+          onResolveFollowup={onResolveFollowup}
+          busy={taskActionBusy}
+        />
+      )}
+
       {rail.approval !== null && (
         <ApprovalCard approval={rail.approval} onApprove={() => onApprove(rail.approval as ApprovalDto)} />
       )}

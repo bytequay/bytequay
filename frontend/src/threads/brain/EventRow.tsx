@@ -43,6 +43,9 @@ const ICONS: Record<BrainFeedRowType, IconSpec> = {
   BRAIN_AGENT_RESPONSE: { cls: 'brain', glyph: '⊕' },
   NEEDS_ATTENTION: { cls: 'notify', glyph: '⚠' },
   NOTIFY_READY_FOR_MERGE: { cls: 'notify', glyph: '📣' },
+  PLAN_RECORDED: { cls: 'plan-rec', glyph: '📋' },
+  PLAN_APPROVED: { cls: 'plan-approved', glyph: '✓' },
+  PLAN_FOLLOWUP_NOTED: { cls: 'followup', glyph: '⚠' },
 };
 
 function shortStageName(type: StageType | null): string {
@@ -68,6 +71,9 @@ function eventTitle(row: BrainFeedRow, live: boolean): string {
     case 'BRAIN_AGENT_RESPONSE': return 'BRAIN';
     case 'NEEDS_ATTENTION': return 'NEEDS ATTENTION';
     case 'NOTIFY_READY_FOR_MERGE': return 'READY FOR MERGE';
+    case 'PLAN_RECORDED': return live ? 'RECORDING PLAN' : 'PLAN RECORDED';
+    case 'PLAN_APPROVED': return 'PLAN APPROVED';
+    case 'PLAN_FOLLOWUP_NOTED': return 'FOLLOW-UP NOTE';
   }
 }
 

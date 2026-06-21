@@ -534,7 +534,88 @@ public class StageServiceImpl
                 buildApproval(stages), linkedPr, context, List.<CommitDto>of(),
                 parentStage != null,
                 parentStage == null ? null : parentStage.id().toString(),
-                costBreakdown);
+                costBreakdown,
+                buildPlanCard(stages));
+    }
+
+    /**
+     * The plan card for the task's most-recent PlanStage, or null when none
+     * exists. State: {@code locked} when that PlanStage is closed (approved),
+     * {@code awaiting} when its latest plan is finalized, {@code draft}
+     * otherwise. Built from the {@code PLAN_RECORDED} payloads + the
+     * {@code PLAN_FOLLOWUP_NOTED} events on the stage.
+     */
+    private TaskBrainViewData.PlanCard buildPlanCard(List<StageInstance> stages)
+    {
+        StageInstance plan = stages.stream()
+                .filter(s -> s.type() == StageType.PLAN_STAGE)
+                .reduce((first, second) -> second)
+                .orElse(null);
+        if (plan == null) {
+            return null;
+        }
+        List<StageEvent> events = stageStore.findEventsByStage(plan.id());
+        List<JsonNode> recorded = events.stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_RECORDED)
+                .map(e -> parseJson(e.payloadJson()))
+                .toList();
+        JsonNode latest = recorded.isEmpty() ? mapper.createObjectNode()
+                : recorded.get(recorded.size() - 1);
+        String status = latest.path("status").asText("suggested");
+        String state = plan.state() == StageState.CLOSED ? "locked"
+                : "finalized".equals(status) ? "awaiting" : "draft";
+
+        List<TaskBrainViewData.PlanStep> steps = new ArrayList<>();
+        JsonNode stepNodes = latest.path("intent").path("steps");
+        if (stepNodes.isArray()) {
+            for (JsonNode s : stepNodes) {
+                steps.add(new TaskBrainViewData.PlanStep(
+                        s.path("ordinal").asInt(), s.path("action").asText("")));
+            }
+        }
+        JsonNode signals = latest.path("signals");
+        TaskBrainViewData.PlanSignals planSignals = new TaskBrainViewData.PlanSignals(
+                signals.path("riskLevel").asText("low"),
+                signals.path("estimatedComplexity").asText("small"),
+                signals.path("componentsCount").asInt(0),
+                signals.path("expectedGain").asText(""));
+
+        List<TaskBrainViewData.PlanFollowup> followups = events.stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_FOLLOWUP_NOTED)
+                .map(e -> {
+                    JsonNode p = parseJson(e.payloadJson());
+                    return new TaskBrainViewData.PlanFollowup(
+                            e.id().toString(),
+                            p.path("note").asText(""),
+                            "dev",
+                            p.path("createdAt").asText(""),
+                            p.path("status").asText("open"));
+                })
+                .toList();
+
+        return new TaskBrainViewData.PlanCard(
+                plan.id().toString(),
+                state,
+                status,
+                latest.path("source").asText(""),
+                latest.path("understanding").path("summary").asText(""),
+                latest.path("intent").path("summary").asText(""),
+                steps,
+                latest.path("intent").path("validationStrategy").asText(""),
+                latest.path("intent").path("pushStrategy").asText("await_approval"),
+                planSignals,
+                recorded.size(),
+                followups);
+    }
+
+    private JsonNode parseJson(String json)
+    {
+        try {
+            return mapper.readTree(json == null ? "{}" : json);
+        }
+        catch (JsonProcessingException e) {
+            return mapper.createObjectNode();
+        }
     }
 
     /** Whether {@code ts} falls in the half-open window {@code [start, end)}. */

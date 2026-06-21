@@ -163,6 +163,44 @@ class TestBrainToolHandlers
         assertThat(cov.text()).contains("\"hasTest\":false");
     }
 
+    /**
+     * Canned-scenario coverage: seed one Task with known state, then run the
+     * canonical brain-agent questions through the tools that ground each
+     * answer, asserting the facts surface. (We test the tools, not a mocked
+     * LLM — asserting a stubbed model's own output would be circular. The
+     * cost / steering / cross-task questions are answered from the context
+     * digest, which has no dedicated tool, so they're out of scope here.)
+     */
+    @Test
+    void cannedScenariosAnswerCanonicalQuestionsFromState()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        stageStore.openStage(taskId, StageType.REVIEW_MONITOR_STAGE, null);
+        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+
+        // "What's the status of CiFixingStage / the review monitor?"
+        ToolOutcome.Completed metrics = completed(tools.readStageMetrics(
+                new StageMetricsArgs(taskId, "all"), CALL));
+        assertThat(metrics.text()).contains("CI_FIXING_STAGE").contains("REVIEW_MONITOR_STAGE");
+
+        // "Why are we here / what happened phase-wise?"
+        ToolOutcome.Completed phases = completed(tools.readPhaseHistory(
+                new PhaseHistoryArgs(taskId, null), CALL));
+        assertThat(phases.text()).contains("VALIDATING").contains("INTERNAL_REVIEW");
+
+        // "How many operations have run?" (none yet — OPERATION_* aren't written)
+        ToolOutcome.Completed ops = completed(tools.countOperations(
+                new CountOperationsArgs(taskId, null), CALL));
+        assertThat(ops.text()).contains("\"count\":0");
+
+        // "What's blocking the merge?" — no linked PR yet, so the tool says so
+        // rather than fabricating an answer.
+        ToolOutcome.Completed pr = completed(tools.readRemotePrStatus(new PrStatusArgs(taskId), CALL));
+        assertThat(pr.isError()).isTrue();
+    }
+
     private static ToolOutcome.Completed completed(ToolOutcome outcome)
     {
         return (ToolOutcome.Completed) outcome;

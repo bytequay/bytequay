@@ -866,24 +866,14 @@ public class ReviewPassService
     @Transactional
     public ReviewPassDetail arbitrateFinding(String passId, String findingId, String resolution)
     {
-        requireNonNull(passId, "passId is null");
-        requireNonNull(findingId, "findingId is null");
         requireNonNull(resolution, "resolution is null");
 
-        ReviewPass pass = reviewStore.findPassById(passId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no review pass: " + passId));
+        ReviewPass pass = requirePass(passId);
         if (pass.phase() != ReviewPhase.ARBITRATE) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "pass " + passId + " is not in ARBITRATE — current phase is " + pass.phase());
         }
-        ReviewFinding finding = reviewStore.findFindingById(findingId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no finding: " + findingId));
-        if (!finding.reviewPassId().equals(passId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "finding " + findingId + " does not belong to pass " + passId);
-        }
+        ReviewFinding finding = requireFindingOnPass(passId, findingId);
         if (finding.status() != ReviewFindingStatus.DISPUTED
                 && finding.status() != ReviewFindingStatus.REPORTED) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
@@ -937,29 +927,14 @@ public class ReviewPassService
      */
     public ReviewPassDetail editFindingBody(String passId, String findingId, String body)
     {
-        requireNonNull(passId, "passId is null");
-        requireNonNull(findingId, "findingId is null");
-        requireNonNull(body, "body is null");
-        if (body.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "Finding comment cannot be empty.");
-        }
-        if (reviewStore.findPassById(passId).isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(404), "no review pass: " + passId);
-        }
-        ReviewFinding finding = reviewStore.findFindingById(findingId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no finding: " + findingId));
-        if (!finding.reviewPassId().equals(passId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "finding " + findingId + " does not belong to pass " + passId);
-        }
+        String strippedBody = requireFindingBody(body);
+        requirePass(passId);
+        ReviewFinding finding = requireFindingOnPass(passId, findingId);
         reviewStore.saveFinding(new ReviewFinding(
                 finding.id(), finding.reviewPassId(),
                 finding.path(), finding.line(),
                 finding.severity(), finding.status(),
-                body.strip(),
+                strippedBody,
                 finding.resolution(), finding.postedCommentId(),
                 finding.createdAt(),
                 finding.debateStatus(), finding.debateRounds()));
@@ -975,19 +950,8 @@ public class ReviewPassService
      */
     public ReviewPassDetail dropFinding(String passId, String findingId)
     {
-        requireNonNull(passId, "passId is null");
-        requireNonNull(findingId, "findingId is null");
-        if (reviewStore.findPassById(passId).isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(404), "no review pass: " + passId);
-        }
-        ReviewFinding finding = reviewStore.findFindingById(findingId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no finding: " + findingId));
-        if (!finding.reviewPassId().equals(passId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "finding " + findingId + " does not belong to pass " + passId);
-        }
+        requirePass(passId);
+        ReviewFinding finding = requireFindingOnPass(passId, findingId);
         reviewStore.saveFinding(new ReviewFinding(
                 finding.id(), finding.reviewPassId(),
                 finding.path(), finding.line(),
@@ -1006,24 +970,47 @@ public class ReviewPassService
     public ReviewPassDetail addFinding(
             String passId, String severity, String path, Integer line, String body)
     {
-        requireNonNull(passId, "passId is null");
-        requireNonNull(body, "body is null");
-        if (body.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "Finding comment cannot be empty.");
-        }
-        if (reviewStore.findPassById(passId).isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(404), "no review pass: " + passId);
-        }
+        String strippedBody = requireFindingBody(body);
+        requirePass(passId);
         reviewStore.saveFinding(new ReviewFinding(
                 UUID.randomUUID().toString(), passId,
                 path == null || path.isBlank() ? null : path.strip(),
                 line != null && line > 0 ? line : null,
                 SeatToolset.severityFrom(severity), ReviewFindingStatus.AGREED,
-                body.strip(), /* resolution */ null, /* postedCommentId */ null,
+                strippedBody, /* resolution */ null, /* postedCommentId */ null,
                 Instant.now(), /* debateStatus */ null, /* debateRounds */ 0));
         return findPassWithDetail(passId).orElseThrow();
+    }
+
+    private ReviewPass requirePass(String passId)
+    {
+        requireNonNull(passId, "passId is null");
+        return reviewStore.findPassById(passId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no review pass: " + passId));
+    }
+
+    private ReviewFinding requireFindingOnPass(String passId, String findingId)
+    {
+        requireNonNull(findingId, "findingId is null");
+        ReviewFinding finding = reviewStore.findFindingById(findingId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no finding: " + findingId));
+        if (!finding.reviewPassId().equals(passId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "finding " + findingId + " does not belong to pass " + passId);
+        }
+        return finding;
+    }
+
+    private static String requireFindingBody(String body)
+    {
+        requireNonNull(body, "body is null");
+        if (body.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "Finding comment cannot be empty.");
+        }
+        return body.strip();
     }
 
     /**

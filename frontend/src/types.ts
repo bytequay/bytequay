@@ -2684,6 +2684,9 @@ export type Bridge = {
   /** Toggle a PR between draft and ready-for-review. true = convert
    *  to draft, false = mark as ready. Routes through GitHub GraphQL. */
   setPrDraft: (repo: string, number: number, draft: boolean) => Promise<{ result: string }>;
+  /** Rename a PR on GitHub. Returns the updated {number, title, updatedAt}.
+   *  Rejects (throws) on validation / permission / GitHub failure. */
+  updatePrTitle: (repo: string, number: number, title: string) => Promise<{ number: number; title: string; updatedAt: string }>;
   getTaskTrace: (taskId: string) => Promise<TaskTraceDto>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;

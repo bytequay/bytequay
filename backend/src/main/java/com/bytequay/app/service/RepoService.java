@@ -61,6 +61,7 @@ import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -141,9 +142,7 @@ public class RepoService
     public ContributionCalendar getContributionCalendar(String login)
     {
         String pat = patResolver.resolve();
-        if (login == null || login.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "login must not be blank");
-        }
+        requireNotBlank(login, "login must not be blank");
         return gitHub.fetchContributionCalendar(pat, login);
     }
 
@@ -157,9 +156,7 @@ public class RepoService
     public List<UserCommitSummary> getUserCommitsOnDate(String login, String isoDate)
     {
         String pat = patResolver.resolve();
-        if (login == null || login.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "login must not be blank");
-        }
+        requireNotBlank(login, "login must not be blank");
         if (isoDate == null || !ISO_DATE.matcher(isoDate).matches()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be yyyy-MM-dd");
         }
@@ -371,9 +368,7 @@ public class RepoService
     public IssueDetail.Comment createIssueComment(String owner, String repo, int number, String body)
     {
         String pat = patResolver.resolve(owner + "/" + repo);
-        if (body == null || body.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Comment body must not be blank");
-        }
+        requireNotBlank(body, "Comment body must not be blank");
         return gitHub.postIssueComment(pat, RepoRef.of(owner, repo), number, body);
     }
 

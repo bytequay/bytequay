@@ -343,7 +343,7 @@ class TestLogicLoopThreadAgentCharacterization
                     .getDeclaredMethod("pushHandler");
             return new ToolSpec(
                     "push", "Push commits to the remote.", "",
-                    SecurityType.GIT_PUSH, Gating.PARKED, Set.of(AgentRole.ANY),
+                    SecurityType.GIT_PUSH, Gating.PARKED, Set.of(AgentRole.ANY), Set.of(),
                     "{\"type\":\"object\"}", Object.class, this, handler);
         }
         catch (NoSuchMethodException e) {

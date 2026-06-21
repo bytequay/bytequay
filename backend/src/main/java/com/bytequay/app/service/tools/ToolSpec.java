@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ThreadKind;
+
 import java.lang.reflect.Method;
 import java.util.Set;
 
@@ -28,6 +30,8 @@ import java.util.Set;
  * @param security       coarse capability axis the tool exercises
  * @param gating         AUTO / GATED / PARKED admission mode
  * @param roles          which agent roles may discover + call it
+ * @param kinds          which thread kinds may discover + call it on the
+ *                       MCP path; empty means no kind restriction
  * @param inputSchema    JSON Schema (Anthropic / MCP shape) string
  *                       generated from the handler's args record
  * @param argsType       the typed args record class — used by the
@@ -42,6 +46,7 @@ public record ToolSpec(
         SecurityType security,
         Gating gating,
         Set<AgentRole> roles,
+        Set<ThreadKind> kinds,
         String inputSchema,
         Class<?> argsType,
         Object handlerBean,
@@ -55,5 +60,17 @@ public record ToolSpec(
             return true;
         }
         return roles.contains(role);
+    }
+
+    /** True when this tool is callable by a thread of {@code kind}. An
+     *  empty {@code kinds} set means no kind restriction (every kind). A
+     *  null kind (caller kind couldn't be resolved) passes only when the
+     *  tool declares no kind restriction. */
+    public boolean availableToKind(ThreadKind kind)
+    {
+        if (kinds.isEmpty()) {
+            return true;
+        }
+        return kind != null && kinds.contains(kind);
     }
 }

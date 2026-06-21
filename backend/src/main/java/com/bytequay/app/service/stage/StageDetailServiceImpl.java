@@ -38,6 +38,8 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.IterationStore;
@@ -58,11 +60,14 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -206,6 +211,26 @@ public class StageDetailServiceImpl
         long costMilli = inWindow.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
         long turns = turnStore.listTurnsByTaskId(stage.taskId(), TURN_SCAN_CAP).stream()
                 .filter(t -> inWindow(t.createdAt(), openedAt, windowEnd)).count();
+        // Steering (interventions): user messages on the dev thread in window.
+        long interventions = inWindow.stream()
+                .filter(m -> "user".equals(m.role()) && "text".equals(m.type())).count();
+        // Read-time operation grouping over the window's tool calls — no
+        // OPERATION_* events are written (CLI agents give no real-time
+        // boundary); activeTime + operationsCount derive from the grouping.
+        List<OperationRun> ops = groupOperations(inWindow);
+        long activeTimeSec = ops.stream()
+                .mapToLong(r -> Math.max(0, (r.end().toEpochMilli() - r.start().toEpochMilli()) / 1000))
+                .sum();
+        Map<String, Integer> operationsCount = new LinkedHashMap<>();
+        for (OperationRun r : ops) {
+            operationsCount.merge(r.kind(), 1, Integer::sum);
+        }
+        List<TaskPhaseEvent> phaseEvents = taskStore.listPhaseEvents(stage.taskId());
+        long waitingUserSec = waitingUserTimeSec(phaseEvents, openedAt, windowEnd);
+        long backflows = phaseEvents.stream()
+                .filter(e -> inWindow(e.transitionedAt(), openedAt, windowEnd))
+                .filter(StageDetailServiceImpl::isBackflow)
+                .count();
 
         return new StageMetricsSubset(
                 Math.max(0, (windowEnd.toEpochMilli() - openedAt.toEpochMilli()) / 1000),
@@ -216,7 +241,128 @@ public class StageDetailServiceImpl
                 tokens,
                 Math.round(costMilli * 0.1),
                 /* panelInvocationsCount */ 0,
+                activeTimeSec,
+                waitingUserSec,
+                operationsCount,
+                (int) interventions,
+                (int) backflows,
                 terminalState(stage.state()));
+    }
+
+    /** A run of consecutive same-kind tool calls (no OPERATION_* events;
+     *  derived at read time). */
+    private record OperationRun(String kind, Instant start, Instant end) {}
+
+    private static final long OPERATION_GAP_SECONDS = 60;
+
+    /** Phases where the loop is parked on the user — counted as waiting time. */
+    private static final Set<TaskPhase> USER_GATED_PHASES = EnumSet.of(
+            TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.NEEDS_ATTENTION);
+
+    /** Backward (rework) phase transitions — moving back to redo earlier work
+     *  rather than progressing. Kept as an explicit set since the natural
+     *  progression isn't a strict enum ordering (CI red sends a "later" phase
+     *  back to CI_FIXING). */
+    private static final Set<Map.Entry<TaskPhase, TaskPhase>> BACKFLOWS =
+            Set.of(
+                    Map.entry(TaskPhase.INTERNAL_REVIEW, TaskPhase.IMPLEMENTING),
+                    Map.entry(TaskPhase.VALIDATING, TaskPhase.IMPLEMENTING),
+                    Map.entry(TaskPhase.PUSHED_AWAITING_CI, TaskPhase.CI_FIXING),
+                    Map.entry(TaskPhase.AWAITING_READY, TaskPhase.CI_FIXING),
+                    Map.entry(TaskPhase.AWAITING_UPDATE_PUSH, TaskPhase.CI_FIXING),
+                    Map.entry(TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.ADDRESSING_COMMENTS),
+                    Map.entry(TaskPhase.AGENT_RE_REVIEW, TaskPhase.ADDRESSING_COMMENTS));
+
+    private static boolean isBackflow(TaskPhaseEvent e)
+    {
+        return e.fromPhase() != null && e.toPhase() != null
+                && BACKFLOWS.contains(Map.entry(e.fromPhase(), e.toPhase()));
+    }
+
+    /** Group the window's tool-call messages into operation runs: a new run
+     *  starts when the inferred kind changes or a gap exceeds the threshold.
+     *  Ungrouped (null-kind) tool calls don't form runs. */
+    private List<OperationRun> groupOperations(List<ThreadMessage> inWindow)
+    {
+        List<ThreadMessage> calls = inWindow.stream()
+                .filter(m -> "tool_call".equals(m.type()))
+                .sorted(Comparator.comparing(ThreadMessage::ts))
+                .toList();
+        List<OperationRun> runs = new ArrayList<>();
+        String kind = null;
+        Instant start = null;
+        Instant last = null;
+        for (ThreadMessage m : calls) {
+            String k = operationKind(m);
+            boolean continues = k != null && k.equals(kind)
+                    && last != null && m.ts().toEpochMilli() - last.toEpochMilli() <= OPERATION_GAP_SECONDS * 1000;
+            if (continues) {
+                last = m.ts();
+                continue;
+            }
+            if (kind != null) {
+                runs.add(new OperationRun(kind, start, last));
+            }
+            kind = k;
+            start = m.ts();
+            last = m.ts();
+        }
+        if (kind != null) {
+            runs.add(new OperationRun(kind, start, last));
+        }
+        return runs;
+    }
+
+    /** Infer an operation kind from a tool-call message, or null when it
+     *  doesn't map to a known operation (renders ungrouped). */
+    private String operationKind(ThreadMessage m)
+    {
+        ToolCallPayload tc = toolCall(m);
+        String name = tc.label() == null ? "" : tc.label().toLowerCase(Locale.ROOT);
+        String detail = tc.detail() == null ? "" : tc.detail().toLowerCase(Locale.ROOT);
+        if (name.contains("read") || name.contains("edit") || name.contains("write")
+                || name.contains("notebook")) {
+            return "code";
+        }
+        boolean run = name.contains("run") || name.contains("bash") || name.contains("shell")
+                || name.contains("exec");
+        if (run && detail.contains("git push")) {
+            return "push";
+        }
+        if (run && detail.contains("gh pr")) {
+            return "publish";
+        }
+        if (run && (detail.contains("mvn verify") || detail.contains("npm test") || detail.contains("tsc")
+                || detail.contains("pytest") || detail.contains("npm run test") || detail.contains("lint"))) {
+            return "validate";
+        }
+        return null;
+    }
+
+    /** Sum of time the stage spent in user-gated phases, clipped to its
+     *  window. Walks consecutive phase events; the final phase runs to the
+     *  window end. */
+    private static long waitingUserTimeSec(
+            List<TaskPhaseEvent> events, Instant openedAt, Instant windowEnd)
+    {
+        List<TaskPhaseEvent> sorted = events.stream()
+                .sorted(Comparator.comparing(TaskPhaseEvent::transitionedAt))
+                .toList();
+        long sec = 0;
+        for (int i = 0; i < sorted.size(); i++) {
+            TaskPhaseEvent e = sorted.get(i);
+            if (!USER_GATED_PHASES.contains(e.toPhase())) {
+                continue;
+            }
+            Instant from = e.transitionedAt();
+            Instant to = i + 1 < sorted.size() ? sorted.get(i + 1).transitionedAt() : windowEnd;
+            Instant clipFrom = from.isBefore(openedAt) ? openedAt : from;
+            Instant clipTo = to.isAfter(windowEnd) ? windowEnd : to;
+            if (clipTo.isAfter(clipFrom)) {
+                sec += (clipTo.toEpochMilli() - clipFrom.toEpochMilli()) / 1000;
+            }
+        }
+        return sec;
     }
 
     private static String terminalState(StageState state)

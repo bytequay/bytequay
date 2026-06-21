@@ -88,6 +88,10 @@ class TestStageDetailService
         // predates the query's wall-clock now.
         appendMessage(threadId, taskId, 1, "assistant", "tool_call",
                 "{\"name\":\"read_file\",\"path\":\"Foo.java\"}", open);
+        // A user steering message in the window — drives interventionsCount.
+        // Anchor at openedAt so it predates the open stage's wall-clock window end.
+        appendMessage(threadId, taskId, 2, "user", "text",
+                "{\"text\":\"bump the retry default\"}", open);
         // A stage event (recorded ~now, inside iter #1's window) so the
         // iteration log surfaces a stage_event row.
         stageStore.recordEvent(stage.id(), taskId, StageEventType.NOTIFY_FIRED,
@@ -110,6 +114,13 @@ class TestStageDetailService
         assertThat(m.loopIterations()).isEqualTo(2);
         assertThat(m.toolCallsCount()).isEqualTo(1);
         assertThat(m.panelInvocationsCount()).isZero();
+        // New metrics: the read tool call infers a 'code' operation run; the
+        // user message counts as one intervention.
+        assertThat(m.operationsCount()).containsEntry("code", 1);
+        assertThat(m.interventionsCount()).isEqualTo(1);
+        assertThat(m.backflowsCount()).isZero();
+        assertThat(m.activeTimeSec()).isNotNull();
+        assertThat(m.waitingUserTimeSec()).isNotNull();
 
         // CI-fix history is the simple iteration-summary list (no fabrication).
         assertThat(detail.ciFixHistory()).hasSize(2);

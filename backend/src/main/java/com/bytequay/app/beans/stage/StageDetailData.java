@@ -16,6 +16,7 @@ package com.bytequay.app.beans.stage;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * The drill-in stage-detail payload for {@code GET /api/stages/{id}/detail}.
@@ -102,6 +103,16 @@ public record StageDetailData(
             Long tokensCount,
             Long costCents,
             int panelInvocationsCount,
+            /** Sum of inferred-operation run durations in the window. */
+            Long activeTimeSec,
+            /** Time the stage spent in user-gated phases in its window. */
+            Long waitingUserTimeSec,
+            /** Inferred-operation run counts by kind: code/validate/push/publish. */
+            Map<String, Integer> operationsCount,
+            /** Steering messages on the dev thread within the stage window. */
+            Integer interventionsCount,
+            /** Backward (rework) phase transitions within the stage window. */
+            Integer backflowsCount,
             String terminalState)
     {
     }

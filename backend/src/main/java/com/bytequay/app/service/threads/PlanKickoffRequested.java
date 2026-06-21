@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 /**
  * Fired the moment a Task is materialised, to start the brain agent's
  * planning turn on the task's PlanStage. Carries the user's opening prompt
@@ -23,5 +25,8 @@ package com.bytequay.app.service.threads;
  * @param taskId        the freshly-created task
  * @param initialPrompt the user's opening request, or null/blank when the
  *                      task was created without one
+ * @param trunkPlan     optional trunk-supplied {@code PlanResult} JSON to
+ *                      seed the PlanStage with ({@code source=trunk}); null
+ *                      when the task was cut without a prior plan
  */
-public record PlanKickoffRequested(String taskId, String initialPrompt) {}
+public record PlanKickoffRequested(String taskId, String initialPrompt, JsonNode trunkPlan) {}

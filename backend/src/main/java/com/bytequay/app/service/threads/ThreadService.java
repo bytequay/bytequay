@@ -37,6 +37,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.RoleSkillService;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -545,7 +546,8 @@ public class ThreadService
         // user approves the plan.
         if (events != null) {
             events.publishEvent(new TaskCreatedEvent(task.id()));
-            events.publishEvent(new PlanKickoffRequested(task.id(), request.initialPrompt()));
+            events.publishEvent(new PlanKickoffRequested(
+                    task.id(), request.initialPrompt(), request.trunkPlan()));
         }
         return task;
     }
@@ -1098,7 +1100,28 @@ public class ThreadService
             /** Optional per-thread work-model override. Null inherits
              *  from the workspace default. The resolver picks it up on
              *  the next turn. */
-            WorkModel workModel) {}
+            WorkModel workModel,
+            /** Optional trunk-supplied {@code PlanResult} (raw JSON). When
+             *  present it seeds the new PlanStage's first {@code PLAN_RECORDED}
+             *  event with {@code source=trunk}; the brain then validates or
+             *  revises it. Null for a task cut without a prior plan. */
+            JsonNode trunkPlan)
+    {
+        /** Backwards-compatible constructor for the common no-trunk-plan
+         *  path — leaves {@code trunkPlan} null so existing callers (and
+         *  request bodies that omit it) are unchanged. */
+        public NewTaskRequest(
+                ThreadKind kind, String provider, String model, String title,
+                String workingDir, String branchName, String initialPrompt,
+                List<String> initialGroupIds, String taskType, Integer linkedPrNumber,
+                Integer linkedIssueNumber, ThreadFlow flow, String workspaceId,
+                WorkModel workModel)
+        {
+            this(kind, provider, model, title, workingDir, branchName, initialPrompt,
+                    initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
+                    workspaceId, workModel, null);
+        }
+    }
 
     /** Inputs from the create-group dialog. The redesign requires
      *  a non-empty group, so {@code initialTaskIds} is required (≥1

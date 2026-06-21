@@ -19,15 +19,20 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
@@ -47,11 +52,46 @@ public class PlanStageService
 
     private final StageStore stageStore;
     private final TaskPhaseMachine phaseMachine;
+    private final ObjectMapper mapper;
 
-    public PlanStageService(StageStore stageStore, TaskPhaseMachine phaseMachine)
+    public PlanStageService(StageStore stageStore, TaskPhaseMachine phaseMachine, ObjectMapper mapper)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
+    }
+
+    /**
+     * Seed a trunk-supplied plan onto the freshly-opened PlanStage. Runs on
+     * the same {@link PlanKickoffRequested} that starts the brain's planning
+     * turn; if the create request carried a {@code trunkPlan}, it lands as the
+     * stage's first {@code PLAN_RECORDED} event with {@code source=trunk}, so
+     * the brain's own plan(s) record as revisions on top of it. A no-op when
+     * no trunk plan was supplied.
+     */
+    @EventListener
+    @Transactional
+    public void onPlanKickoff(PlanKickoffRequested event)
+    {
+        JsonNode trunkPlan = event.trunkPlan();
+        if (trunkPlan == null || !trunkPlan.isObject()) {
+            return;
+        }
+        stageStore.findActiveStage(event.taskId())
+                .filter(stage -> stage.type() == StageType.PLAN_STAGE)
+                .ifPresent(plan -> {
+                    Map<String, Object> payload = new LinkedHashMap<>();
+                    trunkPlan.fields().forEachRemaining(field ->
+                            payload.put(field.getKey(),
+                                    mapper.convertValue(field.getValue(), Object.class)));
+                    payload.put("id", UUID.randomUUID().toString());
+                    payload.put("plannedAt", Instant.now().toString());
+                    payload.put("source", "trunk");
+                    stageStore.recordEvent(
+                            plan.id(), event.taskId(), StageEventType.PLAN_RECORDED, payload);
+                    log.debug("seeded trunk plan on PlanStage {} for task {}",
+                            plan.id(), event.taskId());
+                });
     }
 
     /**

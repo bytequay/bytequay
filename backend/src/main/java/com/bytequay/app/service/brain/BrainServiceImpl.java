@@ -27,6 +27,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -106,21 +107,27 @@ public class BrainServiceImpl
         Thread brain = threadStore.findBrainThreadByTask(event.taskId())
                 .orElseGet(() -> createBrainThread(task));
         String turnId = scheduler.enqueueTurn(
-                brain, planningPrompt(event.taskId(), event.initialPrompt()),
+                brain, planningPrompt(event.taskId(), event.initialPrompt(), event.trunkPlan()),
                 TurnInitiator.unattended("plan-kickoff"));
         log.debug("kicked off planning turn {} on brain thread {} for task {}",
                 turnId, brain.id(), event.taskId());
     }
 
-    private static String planningPrompt(String taskId, String initialPrompt)
+    private static String planningPrompt(String taskId, String initialPrompt, JsonNode trunkPlan)
     {
         String request = initialPrompt == null || initialPrompt.isBlank()
                 ? "(No opening prompt was given — infer the intent from the task and branch.)"
                 : initialPrompt.trim();
+        String trunkNote = trunkPlan == null || trunkPlan.isNull() || trunkPlan.isMissingNode()
+                ? ""
+                : "\n\nA draft plan was handed off from the parent thread (already recorded on "
+                        + "this PlanStage). Validate it against the project: if you agree, record "
+                        + "it largely unchanged; if not, record a revision explaining what you "
+                        + "changed and why.";
         return """
                 You are the planning agent for a new development task. The user's request:
 
-                %s
+                %s%s
 
                 Investigate the project as needed with your read-only introspection tools, \
                 then call record_plan(task_id='%s', plan={…}) with a structured plan: what you \
@@ -128,7 +135,7 @@ public class BrainServiceImpl
                 you intend to do (numbered steps, validation strategy, push strategy), and the \
                 risk / effort / value signals. Set status to "finalized" when the plan is ready \
                 for the user to review. Do NOT write code — the user approves the plan before \
-                any development starts.""".formatted(request, taskId);
+                any development starts.""".formatted(request, trunkNote, taskId);
     }
 
     private Thread createBrainThread(Task task)

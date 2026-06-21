@@ -39,6 +39,7 @@ import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.TaskQueueService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
@@ -248,7 +249,8 @@ public class ThreadController
                 // but the record requires it — surface the body value
                 // anyway so a future code path picks it up.
                 body.workspaceId(),
-                body.workModel()));
+                body.workModel(),
+                body.trunkPlan()));
         // Permanent task→PR link (drives the 1:1-active index + the PR
         // card's linked-task chip).
         linkPrRef.ifPresent(ref -> taskStore.linkTaskToPr(created.id(), ref));
@@ -750,7 +752,11 @@ public class ThreadController
             String workspaceId,
             /** Optional per-thread work-model override set at creation
              *  time. Null inherits from the workspace. */
-            WorkModel workModel) {}
+            WorkModel workModel,
+            /** Optional trunk-supplied {@code PlanResult} JSON. When present,
+             *  seeds the new PlanStage's first plan ({@code source=trunk}) so
+             *  the brain validates or revises it instead of planning cold. */
+            JsonNode trunkPlan) {}
 
     public record SendBody(String input) {}
 

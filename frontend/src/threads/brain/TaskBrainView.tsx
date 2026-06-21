@@ -38,6 +38,8 @@ type Props = {
   /** Open the multi-agent review panel for a freshly-spawned pass, keyed by
    *  its review thread id. */
   onOpenReviewThread?: (threadId: string) => void;
+  /** Open the standalone code (commit/diff/files) page for this task. */
+  onOpenCode?: () => void;
   /** Injectable clock for deterministic relative-time rendering in
    *  tests. Defaults to the real wall clock. */
   nowMs?: number;
@@ -62,7 +64,7 @@ function liveLabelFor(type: StageType): string {
  */
 export default function TaskBrainView({
   taskId, threadId, threadTitle = 'Cost & tokens',
-  onBack, onOpenThread, onOpenStage, onOpenPr, onOpenReviewThread, nowMs,
+  onBack, onOpenThread, onOpenStage, onOpenPr, onOpenReviewThread, onOpenCode, nowMs,
 }: Props) {
   const { data, error: loadError, pollFast } = useBrainViewData(taskId);
   const { task, aggregate, stages, subStages, brainFeed, rightRail, scrubbers } = data;
@@ -219,7 +221,7 @@ export default function TaskBrainView({
             nowMs={clock}
             onApprove={approval => openStage(approval.stageId)}
             onMerge={openPr}
-            onViewDiff={openPr}
+            onViewDiff={onOpenCode ?? openPr}
             onViewContext={() => setInspectorOpen(true)}
             onPause={onPause}
             onResume={onResume}
@@ -230,6 +232,8 @@ export default function TaskBrainView({
             onApprovePlan={onApprovePlan}
             onRequestPlanChanges={onRequestPlanChanges}
             onResolveFollowup={onResolveFollowup}
+            threadId={threadId}
+            taskId={taskId}
           />
         </div>
       </div>

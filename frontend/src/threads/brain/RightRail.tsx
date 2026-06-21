@@ -15,6 +15,7 @@ import { useState } from 'react';
 import type { ApprovalDto, CommitDto, ContextWindowDto, CostBreakdown, TaskBrainViewData } from '../../types/brainView';
 import { LinkedPRCard } from './LinkedPRCard';
 import { PlanCard } from './PlanCard';
+import { WorkModelPill } from '../../workspace/WorkModelPill';
 import { formatTokensK, relativeShort } from './format';
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -93,6 +94,9 @@ type Props = {
   onRequestPlanChanges: () => void;
   /** Mark a locked plan's follow-up note addressed / dismissed. */
   onResolveFollowup: (eventId: string, status: 'addressed' | 'dismissed') => void;
+  /** Task identity for the migrated WORK MODEL card's scope. */
+  threadId: string;
+  taskId: string;
 };
 
 /**
@@ -200,7 +204,7 @@ function ContextWindowCard({ ctx, onViewContext }: { ctx: ContextWindowDto; onVi
 export function RightRail({
   rail, nowMs, onApprove, onMerge, onViewDiff, onViewContext,
   onPause, onResume, onClose, paused, taskActionBusy, onSpawnReview,
-  onApprovePlan, onRequestPlanChanges, onResolveFollowup,
+  onApprovePlan, onRequestPlanChanges, onResolveFollowup, threadId, taskId,
 }: Props) {
   return (
     <aside className="right-rail">
@@ -234,6 +238,13 @@ export function RightRail({
       <CommitsCard commits={rail.recentCommits} nowMs={nowMs} onViewDiff={onViewDiff} />
 
       <CostBreakdownCard cost={rail.costBreakdown} />
+
+      <div>
+        <div className="sec-h">Work model <span className="r">this task</span></div>
+        <div style={{ marginTop: 7 }}>
+          <WorkModelPill scope={{ kind: 'task', threadId, taskId }} />
+        </div>
+      </div>
 
       <ContextWindowCard ctx={rail.context} onViewContext={onViewContext} />
 

@@ -1611,6 +1611,38 @@ exports[`TaskBrainView > matches the snapshot for the mock fixture 1`] = `
             <div
               class="sec-h"
             >
+              Work model 
+              <span
+                class="r"
+              >
+                this task
+              </span>
+            </div>
+            <div
+              style="margin-top: 7px;"
+            >
+              <button
+                style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; height: 26px; border: 1px solid rgba(124, 58, 237, 0.25); background: rgba(124, 58, 237, 0.08); color: rgb(91, 33, 182); border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 500; white-space: nowrap;"
+                title="Cannot read properties of undefined (reading 'getTaskWorkModel')"
+                type="button"
+              >
+                <span
+                  style="font-size: 11px; line-height: 1;"
+                >
+                  !
+                </span>
+                <span
+                  style="display: inline-block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                >
+                  Work model error
+                </span>
+              </button>
+            </div>
+          </div>
+          <div>
+            <div
+              class="sec-h"
+            >
               Context window 
               <span
                 class="r"

@@ -109,7 +109,7 @@ class TestBrainService
         when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("plan-turn-1");
 
-        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "fix the flaky retry test"));
+        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "fix the flaky retry test", null));
 
         // The brain thread is created and a planning turn is enqueued on it,
         // carrying the seed prompt and the record_plan instruction.

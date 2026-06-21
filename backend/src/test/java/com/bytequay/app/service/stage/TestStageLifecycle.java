@@ -14,6 +14,8 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.StageEvent;
+import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
@@ -27,8 +29,11 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -69,6 +74,8 @@ class TestStageLifecycle
     private ThreadStore threadStore;
     @Autowired
     private ApplicationEventPublisher events;
+    @Autowired
+    private ObjectMapper mapper;
 
     @Test
     void taskCreatedEventOpensPlanStageOnce()
@@ -114,6 +121,28 @@ class TestStageLifecycle
         assertThat(only(taskId, StageType.PLAN_STAGE).state()).isEqualTo(StageState.CLOSED);
         assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
                 .isEqualTo(TaskPhase.IMPLEMENTING);
+    }
+
+    @Test
+    void trunkPlanSeedsAPlanRecordedEventWithSourceTrunk()
+    {
+        String taskId = seedTask();
+        events.publishEvent(new TaskCreatedEvent(taskId));
+
+        ObjectNode trunk = mapper.createObjectNode();
+        trunk.put("status", "suggested");
+        trunk.put("source", "overwritten-to-trunk");
+        // Call the seed listener directly so we don't also fire the brain's
+        // planning turn (that path is covered by the brain-service test).
+        planStageService.onPlanKickoff(new PlanKickoffRequested(taskId, "fix it", trunk));
+
+        StageInstance plan = only(taskId, StageType.PLAN_STAGE);
+        List<StageEvent> recorded = stageStore.findEventsByStage(plan.id()).stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_RECORDED).toList();
+        assertThat(recorded).hasSize(1);
+        assertThat(recorded.get(0).payloadJson())
+                .contains("\"source\":\"trunk\"")
+                .contains("\"status\":\"suggested\"");
     }
 
     @Test

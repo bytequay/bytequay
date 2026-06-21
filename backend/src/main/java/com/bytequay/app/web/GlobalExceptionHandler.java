@@ -78,9 +78,17 @@ public class GlobalExceptionHandler
      * otherwise produce. A 500 makes the client treat the whole MCP session as
      * broken and discard the tools it just enumerated via {@code tools/list},
      * which is exactly what stranded Codex on its built-in sub-agent fallback.
+     *
+     * <p>The response is deliberately body-less. The SSE probe sends
+     * {@code Accept: text/event-stream}, which no message converter can satisfy
+     * for a JSON {@code ErrorResponse}; returning a body here made the resolver
+     * raise {@code HttpMediaTypeNotAcceptableException} ("No acceptable
+     * representation") while writing the 405, defeating the whole point of this
+     * handler. A 405 carries its meaning in the status line and {@code Allow}
+     * header, so we skip the body and skip content negotiation entirely.
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ErrorResponse> handleMethodNotSupported(
+    public ResponseEntity<Void> handleMethodNotSupported(
             HttpRequestMethodNotSupportedException exception, HttpServletRequest request)
     {
         log.debug("Method {} not supported for {}", exception.getMethod(), request.getRequestURI());
@@ -89,8 +97,7 @@ public class GlobalExceptionHandler
         if (allowed != null && !allowed.isEmpty()) {
             builder.allow(allowed.toArray(new HttpMethod[0]));
         }
-        return builder.body(new ErrorResponse(Instant.now(), HttpStatus.METHOD_NOT_ALLOWED.value(),
-                "Method not allowed", request.getRequestURI()));
+        return builder.build();
     }
 
     @ExceptionHandler(Exception.class)

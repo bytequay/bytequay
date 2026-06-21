@@ -43,6 +43,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -117,11 +119,10 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestBody CloneRequest body)
     {
-        if (body == null || body.destination() == null || body.destination().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "destination is required");
-        }
+        CloneRequest request = requireBody(body);
+        requireNotBlank(request.destination(), "destination is required");
         try {
-            return localRepoService.cloneFresh(owner, repo, Path.of(body.destination()));
+            return localRepoService.cloneFresh(owner, repo, Path.of(request.destination()));
         }
         catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
@@ -148,11 +149,10 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestBody PathRequest body)
     {
-        if (body == null || body.path() == null || body.path().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path is required");
-        }
+        PathRequest request = requireBody(body);
+        requireNotBlank(request.path(), "path is required");
         try {
-            return localRepoService.locateExisting(owner, repo, Path.of(body.path()));
+            return localRepoService.locateExisting(owner, repo, Path.of(request.path()));
         }
         catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
@@ -482,11 +482,10 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestBody CreateBranchRequest body)
     {
-        if (body == null || body.name() == null || body.name().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
-        }
+        CreateBranchRequest request = requireBody(body);
+        requireNotBlank(request.name(), "name is required");
         return runLocalRepoOperation(
-                () -> localRepoService.createBranch(owner, repo, body.name(), body.base()),
+                () -> localRepoService.createBranch(owner, repo, request.name(), request.base()),
                 "git operation interrupted");
     }
 
@@ -501,11 +500,10 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestBody SwitchBranchRequest body)
     {
-        if (body == null || body.name() == null || body.name().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
-        }
+        SwitchBranchRequest request = requireBody(body);
+        requireNotBlank(request.name(), "name is required");
         return runLocalRepoOperation(
-                () -> localRepoService.switchBranch(owner, repo, body.name()),
+                () -> localRepoService.switchBranch(owner, repo, request.name()),
                 "git operation interrupted");
     }
 
@@ -522,11 +520,10 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestBody SwitchBranchRequest body)
     {
-        if (body == null || body.name() == null || body.name().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
-        }
+        SwitchBranchRequest request = requireBody(body);
+        requireNotBlank(request.name(), "name is required");
         return runLocalRepoOperation(
-                () -> localRepoService.checkoutRemoteBranch(owner, repo, body.name()),
+                () -> localRepoService.checkoutRemoteBranch(owner, repo, request.name()),
                 "git operation interrupted");
     }
 
@@ -575,13 +572,12 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestBody CreatePrRequest body)
     {
-        if (body == null || body.title() == null || body.title().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required");
-        }
+        CreatePrRequest request = requireBody(body);
+        requireNotBlank(request.title(), "title is required");
         return runLocalRepoOperation(() -> {
             PullRequest created = localRepoService.createPullRequest(
-                    owner, repo, body.title(), body.body(),
-                    body.base(), body.draft());
+                    owner, repo, request.title(), request.body(),
+                    request.base(), request.draft());
             return new CreatePrResponse(created.number(), created.htmlUrl());
         }, "PR creation interrupted");
     }

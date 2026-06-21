@@ -591,7 +591,7 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void materialiseTaskCutsAWorktreeAndQueuesAgentAgainstIt()
+    void materialiseTaskCutsAWorktreeAndDefersDevWorkToPlanApproval()
     {
         InMemoryTaskStore store = new InMemoryTaskStore();
         RecordingScheduler scheduler = new RecordingScheduler();
@@ -654,9 +654,11 @@ class TestThreadServiceScheduler
         assertThat(refreshed.activeTask().worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
         assertThat(refreshed.activeTask().branchName()).isEqualTo("dev/task-1");
         assertThat(refreshed.agentCwd()).isEqualTo(refreshed.activeTask().worktreePath());
-        assertThat(scheduler.requests)
-                .extracting(request -> request.thread().agentCwd())
-                .containsExactly(refreshed.activeTask().worktreePath());
+        // materialiseTask cuts the worktree but no longer enqueues a dev turn:
+        // development is gated on plan approval, and planning is kicked off via
+        // a PlanKickoffRequested event handled by the brain layer (covered by an
+        // integration test), so this unit-level scheduler sees no turn.
+        assertThat(scheduler.requests).isEmpty();
         assertThat(worktrees.createRequests)
                 .singleElement()
                 .extracting(WorktreeCreateRequest::repoRoot, WorktreeCreateRequest::title)

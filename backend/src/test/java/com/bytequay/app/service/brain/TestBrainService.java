@@ -20,6 +20,7 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
+import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -92,6 +93,34 @@ class TestBrainService
 
         verify(threadStore, never()).saveThread(any());
         assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-existing");
+    }
+
+    @Test
+    void planKickoffCreatesBrainThreadAndEnqueuesPlanningTurn()
+    {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(task.threadId()).thenReturn(DEV_THREAD);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
+        Thread devThread = mock(Thread.class);
+        when(devThread.workspaceId()).thenReturn("ws-default");
+        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
+        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("plan-turn-1");
+
+        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "fix the flaky retry test"));
+
+        // The brain thread is created and a planning turn is enqueued on it,
+        // carrying the seed prompt and the record_plan instruction.
+        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
+        verify(threadStore).saveThread(saved.capture());
+        assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(scheduler).enqueueTurn(eq(saved.getValue()), prompt.capture(), any());
+        assertThat(prompt.getValue())
+                .contains("fix the flaky retry test")
+                .contains("record_plan");
     }
 
     @Test

@@ -25,7 +25,11 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
+import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +49,8 @@ public class BrainServiceImpl
     private static final String DEFAULT_BRAIN_PROVIDER = "anthropic";
     private static final String DEFAULT_BRAIN_MODEL = "claude-haiku-4-5-20251001";
     private static final String DEFAULT_WORKSPACE_ID = "ws-default";
+
+    private static final Logger log = LoggerFactory.getLogger(BrainServiceImpl.class);
 
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
@@ -81,6 +87,48 @@ public class BrainServiceImpl
         // itself when the turn runs; the reply streams via the thread SSE.
         String turnId = scheduler.enqueueTurn(brain, text.trim(), TurnInitiator.user());
         return new BrainMessageResponse(turnId, brain.id());
+    }
+
+    /**
+     * Start the brain agent's planning turn when a task is materialised.
+     * Ensures the task's brain thread exists, then enqueues a planning turn
+     * seeded from the user's opening prompt. The brain investigates and calls
+     * {@code record_plan}; the user approves before any development begins.
+     */
+    @EventListener
+    @Transactional
+    public void onPlanKickoff(PlanKickoffRequested event)
+    {
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null) {
+            return;
+        }
+        Thread brain = threadStore.findBrainThreadByTask(event.taskId())
+                .orElseGet(() -> createBrainThread(task));
+        String turnId = scheduler.enqueueTurn(
+                brain, planningPrompt(event.taskId(), event.initialPrompt()),
+                TurnInitiator.unattended("plan-kickoff"));
+        log.debug("kicked off planning turn {} on brain thread {} for task {}",
+                turnId, brain.id(), event.taskId());
+    }
+
+    private static String planningPrompt(String taskId, String initialPrompt)
+    {
+        String request = initialPrompt == null || initialPrompt.isBlank()
+                ? "(No opening prompt was given — infer the intent from the task and branch.)"
+                : initialPrompt.trim();
+        return """
+                You are the planning agent for a new development task. The user's request:
+
+                %s
+
+                Investigate the project as needed with your read-only introspection tools, \
+                then call record_plan(task_id='%s', plan={…}) with a structured plan: what you \
+                understand (affected components, existing patterns to follow, constraints), what \
+                you intend to do (numbered steps, validation strategy, push strategy), and the \
+                risk / effort / value signals. Set status to "finalized" when the plan is ready \
+                for the user to review. Do NOT write code — the user approves the plan before \
+                any development starts.""".formatted(request, taskId);
     }
 
     private Thread createBrainThread(Task task)

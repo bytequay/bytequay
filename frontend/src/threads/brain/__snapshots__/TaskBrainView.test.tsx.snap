@@ -1435,6 +1435,73 @@ exports[`TaskBrainView > matches the snapshot for the mock fixture 1`] = `
             <div
               class="sec-h"
             >
+              Cost breakdown 
+              <span
+                class="r"
+              >
+                $1.47
+              </span>
+            </div>
+            <div
+              class="cost-card"
+              style="margin-top: 7px; font-size: 12px;"
+            >
+              <div
+                class="cost-row"
+                style="display: flex; justify-content: space-between; gap: 8px; padding: 2px 0px;"
+              >
+                <span
+                  style="text-transform: capitalize;"
+                >
+                  dev
+                   agent
+                </span>
+                <span>
+                  $1.32
+                </span>
+              </div>
+              <div
+                class="cost-row"
+                style="display: flex; justify-content: space-between; gap: 8px; padding: 2px 0px;"
+              >
+                <span
+                  style="text-transform: capitalize;"
+                >
+                  brain
+                   agent
+                </span>
+                <span>
+                  $0.15
+                </span>
+              </div>
+              <div
+                class="cost-row"
+                style="display: flex; justify-content: space-between; gap: 8px; padding: 2px 0px; color: var(--tbv-text-subtle);"
+              >
+                <span>
+                  CI fixing
+                </span>
+                <span>
+                  $0.88
+                </span>
+              </div>
+              <div
+                class="cost-row"
+                style="display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--tbv-border-soft); padding: 4px 0px 2px; margin-top: 4px;"
+              >
+                <span>
+                  Cost / push
+                </span>
+                <span>
+                  $0.49
+                </span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div
+              class="sec-h"
+            >
               Context window 
               <span
                 class="r"

@@ -261,6 +261,34 @@ class TestStageBrain
     }
 
     @Test
+    void rightRailCostBreakdownSumsDevMessagesByStage()
+    {
+        String taskId = seedTask();
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        // Two cost-bearing dev-thread messages for this task, inside the window.
+        threadStore.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), devThread, taskId, 1, "assistant", "text",
+                "{\"text\":\"working\"}", null, 100L, 50L, 300L, stage.openedAt()));
+        threadStore.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), devThread, taskId, 2, "assistant", "text",
+                "{\"text\":\"more\"}", null, 100L, 50L, 200L, stage.openedAt()));
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        // 500 milli → 50 cents, all attributed to the dev agent + the stage.
+        assertThat(brain.rightRail().costBreakdown().totalCents()).isEqualTo(50);
+        assertThat(brain.aggregate().costCents()).isEqualTo(50);
+        assertThat(brain.rightRail().costBreakdown().perAgent())
+                .anySatisfy(a -> {
+                    assertThat(a.agentKind()).isEqualTo("dev");
+                    assertThat(a.costCents()).isEqualTo(50);
+                });
+        assertThat(brain.rightRail().costBreakdown().perStage())
+                .anySatisfy(s -> assertThat(s.stageId()).isEqualTo(stage.id().toString()));
+    }
+
+    @Test
     void brainTaskReflectsPausedStatus()
     {
         String taskId = seedTask();

@@ -12,9 +12,61 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { ApprovalDto, CommitDto, ContextWindowDto, TaskBrainViewData } from '../../types/brainView';
+import type { ApprovalDto, CommitDto, ContextWindowDto, CostBreakdown, TaskBrainViewData } from '../../types/brainView';
 import { LinkedPRCard } from './LinkedPRCard';
 import { formatTokensK, relativeShort } from './format';
+
+const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/** Per-Task spend: total, per-agent, per-stage, and cost-per-push. */
+function CostBreakdownCard({ cost }: { cost: CostBreakdown }) {
+  return (
+    <div>
+      <div className="sec-h">Cost breakdown <span className="r">{usd(cost.totalCents)}</span></div>
+      <div className="cost-card" style={{ marginTop: 7, fontSize: 12 }}>
+        {cost.perAgent.length === 0 && cost.perStage.length === 0 ? (
+          <div style={{ color: 'var(--tbv-text-subtle)' }}>No spend recorded yet.</div>
+        ) : (
+          <>
+            {cost.perAgent.map(a => (
+              <div key={`agent-${a.agentKind}`} className="cost-row" style={costRowStyle}>
+                <span style={{ textTransform: 'capitalize' }}>{a.agentKind} agent</span>
+                <span>{usd(a.costCents)}</span>
+              </div>
+            ))}
+            {cost.perStage.map(s => (
+              <div key={`stage-${s.stageId}`} className="cost-row" style={{ ...costRowStyle, color: 'var(--tbv-text-subtle)' }}>
+                <span>{stageLabel(s.stageType)}</span>
+                <span>{usd(s.costCents)}</span>
+              </div>
+            ))}
+            {cost.costPerPush !== null && (
+              <div className="cost-row" style={{ ...costRowStyle, borderTop: '1px solid var(--tbv-border-soft)', paddingTop: 4, marginTop: 4 }}>
+                <span>Cost / push</span>
+                <span>{usd(cost.costPerPush)}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const costRowStyle: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', gap: 8, padding: '2px 0',
+};
+
+function stageLabel(stageType: string): string {
+  switch (stageType) {
+    case 'DEVELOPMENT_STAGE': return 'Development';
+    case 'CI_FIXING_STAGE': return 'CI fixing';
+    case 'REVIEW_MONITOR_STAGE': return 'Review monitor';
+    case 'CLEANUP_STAGE': return 'Cleanup';
+    case 'REVIEW_STAGE': return 'Review panel';
+    default: return stageType;
+  }
+}
 
 type Props = {
   rail: TaskBrainViewData['rightRail'];
@@ -162,6 +214,8 @@ export function RightRail({
       )}
 
       <CommitsCard commits={rail.recentCommits} nowMs={nowMs} onViewDiff={onViewDiff} />
+
+      <CostBreakdownCard cost={rail.costBreakdown} />
 
       <ContextWindowCard ctx={rail.context} onViewContext={onViewContext} />
 

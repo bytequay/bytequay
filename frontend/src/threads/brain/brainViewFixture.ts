@@ -189,6 +189,12 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     ],
     panelSpawnable: false,
     parentStageId: null,
+    costBreakdown: {
+      totalCents: 147,
+      perAgent: [{ agentKind: 'dev', costCents: 132 }, { agentKind: 'brain', costCents: 15 }],
+      perStage: [{ stageId: 'cifix', stageType: 'CI_FIXING_STAGE', costCents: 88 }],
+      costPerPush: 49,
+    },
   },
   scrubbers: {
     stageEvents: [

@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import type { ThreadCheckpointDto, WorkUnitTaskDto } from '../types';
 import { threadTokenLabel } from './threadDisplay';
 import { useCheckpoints } from './useCheckpoints';
+import { renderMarkdown } from '../markdown';
 
 type Props = {
   threadId: string;
@@ -39,6 +40,7 @@ type Props = {
  */
 export function CheckpointsSection({ threadId, sseRef }: Props) {
   const cp = useCheckpoints(threadId);
+  const [drawerCp, setDrawerCp] = useState<ThreadCheckpointDto | null>(null);
 
   // Register the refetch trigger with the parent's SSE handler.
   useEffect(() => {
@@ -82,7 +84,7 @@ export function CheckpointsSection({ threadId, sseRef }: Props) {
         </div>
       )}
       {overall && (
-        <CheckpointCard cp={overall} variant="overall" />
+        <CheckpointCard cp={overall} variant="overall" onOpen={() => setDrawerCp(overall)} />
       )}
       {grouped.map(group => (
         <div key={group.key} style={groupStyle}>
@@ -90,7 +92,7 @@ export function CheckpointsSection({ threadId, sseRef }: Props) {
             <div style={groupHeaderStyle}>{group.header}</div>
           )}
           {group.segments.map(seg => (
-            <CheckpointCard key={seg.id} cp={seg} variant="segment" />
+            <CheckpointCard key={seg.id} cp={seg} variant="segment" onOpen={() => setDrawerCp(seg)} />
           ))}
         </div>
       ))}
@@ -107,6 +109,9 @@ export function CheckpointsSection({ threadId, sseRef }: Props) {
       </div>
       {cp.generateError !== null && (
         <div style={errorStyle}>{cp.generateError}</div>
+      )}
+      {drawerCp !== null && (
+        <CheckpointDrawer cp={drawerCp} onClose={() => setDrawerCp(null)} />
       )}
     </div>
   );
@@ -175,12 +180,12 @@ function groupSegmentsByTask(
 }
 
 function CheckpointCard({
-  cp, variant,
+  cp, variant, onOpen,
 }: {
   cp: ThreadCheckpointDto;
   variant: 'overall' | 'segment';
+  onOpen: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const ago = relativeAgo(cp.generatedAt);
   const tokenLabel = threadTokenLabel(cp.tokensCovered);
   const isOverall = variant === 'overall';
@@ -189,7 +194,12 @@ function CheckpointCard({
     : `cp-${cp.seq} · turns ${cp.firstMsgSeq}–${cp.lastMsgSeq}`;
   const cardStyle = isOverall ? cardOverallStyle : cardSegmentStyle;
   return (
-    <div style={cardStyle}>
+    <button
+      type="button"
+      style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', width: '100%' }}
+      onClick={onOpen}
+      aria-label={`Open checkpoint ${titleParts}`}
+    >
       <div style={cardHeaderStyle}>
         <span style={isOverall ? titleOverallStyle : titleStyle}>{titleParts}</span>
         <span style={metaStyle}>{tokenLabel} · {ago}</span>
@@ -201,18 +211,56 @@ function CheckpointCard({
           ))}
         </ul>
       )}
-      {expanded && cp.summaryMd && (
-        <pre style={summaryStyle}>{cp.summaryMd}</pre>
-      )}
-      {cp.summaryMd && (
-        <button
-          type="button"
-          onClick={() => setExpanded(v => !v)}
-          style={expandBtnStyle}
-        >
-          {expanded ? 'hide details' : 'show details'}
-        </button>
-      )}
+    </button>
+  );
+}
+
+/**
+ * Click-through detail drawer for a checkpoint: the full Markdown body
+ * rendered, model + cost + token metadata, and a "Continue this work"
+ * shortcut that copies the summary so it can seed a new thread (the
+ * full auto-seeded deep-link target is a later product decision).
+ */
+function CheckpointDrawer({ cp, onClose }: { cp: ThreadCheckpointDto; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const cents = (cp.costUsdMilli / 10).toFixed(1);
+  const tokens = cp.promptTokens + cp.completionTokens;
+  const title = cp.isOverall
+    ? `Overall · turns ${cp.firstMsgSeq}–${cp.lastMsgSeq}`
+    : `cp-${cp.seq} · turns ${cp.firstMsgSeq}–${cp.lastMsgSeq}`;
+  return (
+    <div style={drawerBackdropStyle} role="presentation" onClick={onClose}>
+      <div
+        style={drawerStyle}
+        role="dialog"
+        aria-label="Checkpoint detail"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={drawerHeadStyle}>
+          <strong>{title}</strong>
+          <button type="button" style={drawerCloseStyle} aria-label="Close" onClick={onClose}>×</button>
+        </div>
+        <div style={drawerMetaStyle}>
+          {cp.modelUsed} · {cents}¢ · {threadTokenLabel(tokens)} tokens · {relativeAgo(cp.generatedAt)}
+        </div>
+        <div
+          className="md-body"
+          style={drawerBodyStyle}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(cp.summaryMd) }}
+        />
+        <div style={drawerFootStyle}>
+          <button
+            type="button"
+            style={continueBtnStyle}
+            onClick={() => {
+              void navigator.clipboard.writeText(cp.summaryMd);
+              setCopied(true);
+            }}
+          >
+            {copied ? '✓ Copied — paste into a new thread' : '↗ Continue this work'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -311,29 +359,44 @@ const bulletStyle: React.CSSProperties = {
   marginBottom: 1,
 };
 
-const summaryStyle: React.CSSProperties = {
-  margin: 0,
-  padding: '6px 8px',
-  background: 'var(--bg-card)',
-  border: '1px solid var(--border)',
-  borderRadius: 4,
-  fontSize: 11,
-  lineHeight: 1.45,
-  color: 'var(--text-2)',
-  whiteSpace: 'pre-wrap',
-  overflowWrap: 'anywhere',
-  fontFamily: 'inherit',
+const drawerBackdropStyle: React.CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.32)',
+  display: 'flex', justifyContent: 'flex-end', zIndex: 50,
 };
 
-const expandBtnStyle: React.CSSProperties = {
-  alignSelf: 'flex-start',
-  border: 'none',
-  background: 'transparent',
-  padding: 0,
-  color: 'var(--accent-dark)',
-  fontSize: 10,
-  cursor: 'pointer',
-  textDecoration: 'underline',
+const drawerStyle: React.CSSProperties = {
+  width: 'min(480px, 92vw)', height: '100%', background: 'var(--bg-elevated)',
+  borderLeft: '1px solid var(--border)', boxShadow: '-8px 0 24px rgba(0,0,0,0.18)',
+  display: 'flex', flexDirection: 'column', padding: '14px 16px', gap: 10, overflowY: 'auto',
+};
+
+const drawerHeadStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  fontSize: 13, color: 'var(--text-1)',
+};
+
+const drawerCloseStyle: React.CSSProperties = {
+  border: 'none', background: 'transparent', fontSize: 20, lineHeight: 1,
+  color: 'var(--text-3)', cursor: 'pointer', padding: 0,
+};
+
+const drawerMetaStyle: React.CSSProperties = {
+  fontSize: 11, color: 'var(--text-4)',
+};
+
+const drawerBodyStyle: React.CSSProperties = {
+  fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2)',
+  borderTop: '1px solid var(--border)', paddingTop: 10,
+};
+
+const drawerFootStyle: React.CSSProperties = {
+  marginTop: 'auto', paddingTop: 10, borderTop: '1px solid var(--border)',
+};
+
+const continueBtnStyle: React.CSSProperties = {
+  padding: '7px 12px', fontSize: 12, fontWeight: 600,
+  border: '1px solid var(--accent-a40)', background: 'var(--accent-a10)',
+  color: 'var(--accent-dark)', borderRadius: 6, cursor: 'pointer',
 };
 
 const footerStyle: React.CSSProperties = {

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.config;
 
+import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
+import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -65,13 +67,26 @@ public class WebConfig
     }
 
     @Bean
-    public RestClient gitHubRestClient()
+    public GitHubRateLimitMonitor gitHubRateLimitMonitor()
+    {
+        return new GitHubRateLimitMonitor();
+    }
+
+    @Bean
+    public GitHubRateLimitInterceptor gitHubRateLimitInterceptor(GitHubRateLimitMonitor monitor)
+    {
+        return new GitHubRateLimitInterceptor(monitor);
+    }
+
+    @Bean
+    public RestClient gitHubRestClient(GitHubRateLimitInterceptor rateLimitInterceptor)
     {
         return RestClient.builder()
                 .baseUrl(GITHUB_API_BASE_URL)
                 .defaultHeader("Accept", GITHUB_ACCEPT)
                 .defaultHeader("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 .defaultHeader("User-Agent", USER_AGENT)
+                .requestInterceptor(rateLimitInterceptor)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
                 .build();
     }
@@ -121,7 +136,7 @@ public class WebConfig
     }
 
     @Bean
-    public RestClient gitHubGraphQLRestClient()
+    public RestClient gitHubGraphQLRestClient(GitHubRateLimitInterceptor rateLimitInterceptor)
     {
         // GitHub's GraphQL endpoint takes a single POST with
         // { query, variables }. We use it for review-thread resolution
@@ -134,6 +149,7 @@ public class WebConfig
                 .defaultHeader("Accept", "application/json")
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
+                .requestInterceptor(rateLimitInterceptor)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
                 .build();
     }

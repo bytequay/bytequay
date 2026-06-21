@@ -2311,6 +2311,8 @@ export type WorkspaceInsightsDto = {
   /** Per-repo split of PR-linked tasks (attributed via the link ref):
    *  shipped (reached COMPLETED in window) vs still-open. */
   tasksByRepo: { repoFullName: string; tasksShipped: number; tasksOpen: number }[];
+  /** Latest GitHub REST quota, or null if no call has landed since boot. */
+  githubRateLimit: { remaining: number; limit: number; resetAt: string } | null;
 };
 
 export type WorkspaceMemoryProposalDto = {

@@ -17,6 +17,7 @@ import com.bytequay.app.beans.brain.BrainMessageResponse;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
@@ -25,10 +26,13 @@ import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,9 +55,10 @@ class TestBrainService
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final IdGenerator idGenerator = mock(IdGenerator.class);
     private final WorkModelResolver workModelResolver = mock(WorkModelResolver.class);
+    private final ObjectMapper mapper = new ObjectMapper();
 
     private final BrainServiceImpl service =
-            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator, workModelResolver);
+            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator, workModelResolver, mapper);
 
     @Test
     void createsBrainThreadOnFirstMessageAndEnqueuesTurn()
@@ -153,6 +158,43 @@ class TestBrainService
         assertThat(prompt.getValue())
                 .contains("fix the flaky retry test")
                 .contains("record_plan");
+    }
+
+    @Test
+    void planKickoffSeedsThePromptWithTheTrunkConversation()
+    {
+        Instant cut = Instant.parse("2026-06-22T10:00:00Z");
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(task.threadId()).thenReturn(DEV_THREAD);
+        when(task.createdAt()).thenReturn(cut);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(taskStore.listTasksByThread(DEV_THREAD)).thenReturn(List.of(task));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
+        Thread devThread = mock(Thread.class);
+        when(devThread.workspaceId()).thenReturn("ws-default");
+        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
+        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(threadStore.listMessages(DEV_THREAD)).thenReturn(List.of(
+                msg(1, "user", "{\"text\":\"let's tidy the AssertJ nits\"}", cut.minusSeconds(60)),
+                msg(2, "assistant", "{\"text\":\"Got it — cutting the task.\"}", cut.minusSeconds(30))));
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("plan-turn-1");
+
+        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "tidy nits", null));
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(scheduler).enqueueTurn(any(), prompt.capture(), any());
+        assertThat(prompt.getValue())
+                .contains("planning seed")
+                .contains("let's tidy the AssertJ nits")
+                .contains("Got it — cutting the task.");
+    }
+
+    private static ThreadMessage msg(long seq, String role, String contentJson, Instant ts)
+    {
+        return new ThreadMessage(
+                "m" + seq, DEV_THREAD, null, seq, role, "text", contentJson,
+                null, null, null, null, ts);
     }
 
     @Test

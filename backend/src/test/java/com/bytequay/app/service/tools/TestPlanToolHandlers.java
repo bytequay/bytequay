@@ -22,6 +22,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -183,6 +184,43 @@ class TestPlanToolHandlers
     private static ToolOutcome.Completed completed(ToolOutcome outcome)
     {
         return (ToolOutcome.Completed) outcome;
+    }
+
+    @Test
+    void readPlanConversationIncludesTheTrunkSeedThenBrainPlanning()
+    {
+        String taskId = seedTask();
+        String threadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        // Trunk seed on the task thread, before the cut (task createdAt 09:00).
+        threadStore.appendMessage(message(threadId, 1, "user", "let's tidy the assertj nits",
+                Instant.parse("2026-06-20T08:59:00Z")));
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        // Brain thread + a planning turn inside the PlanStage window.
+        String brainId = "ws-default.brain-" + UUID.randomUUID();
+        threadStore.saveThread(new Thread(
+                brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
+                "claude-haiku-4-5-20251001", 0L, 0L, 0L, plan.openedAt(), plan.openedAt(), null, null,
+                ThreadFlow.BUILD, "ws-default", null, null, null, List.of(), 1, taskId));
+        threadStore.appendMessage(message(brainId, 1, "assistant", "here is the structured plan",
+                plan.openedAt().plusSeconds(1)));
+
+        ToolOutcome.Completed out = completed(tools.readPlanConversation(
+                new PlanToolHandlers.ReadPlanConversationArgs(taskId, null, null), CALL));
+
+        assertThat(out.isError()).isFalse();
+        // Both halves of the full plan stage are present, trunk seed first.
+        assertThat(out.text())
+                .contains("let's tidy the assertj nits")
+                .contains("here is the structured plan");
+        assertThat(out.text().indexOf("let's tidy the assertj nits"))
+                .isLessThan(out.text().indexOf("here is the structured plan"));
+    }
+
+    private static ThreadMessage message(String threadId, long seq, String role, String text, Instant ts)
+    {
+        return new ThreadMessage(
+                "m" + seq + "-" + threadId, threadId, null, seq, role, "text",
+                "{\"text\":\"" + text + "\"}", null, null, null, null, ts);
     }
 
     private String seedTask()

@@ -109,17 +109,26 @@
 .stage-detail .left-rail,
 .stage-detail .right-rail { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; padding-bottom: 12px; }
 .stage-detail .log-col { display: flex; flex-direction: column; min-width: 0; overflow-y: auto; min-height: 0; position: relative; gap: 10px; padding: 14px 22px; }
-/* The conversation sits in a bordered card, like the thread window. */
-.stage-detail .conv-card { display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.55); border: 1px solid var(--sd-border-soft); border-radius: 12px; padding: 14px 14px; }
-/* Conversation transcript rows (the stage-detail base timeline). */
-.stage-detail .conv-agent { align-self: flex-start; max-width: 88%; background: #fff; border: 1px solid var(--sd-border-soft); border-radius: 11px; padding: 8px 12px; }
-.stage-detail .conv-user { align-self: flex-end; max-width: 82%; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.28); color: var(--sd-text-primary); border-radius: 12px 12px 3px 12px; padding: 8px 12px; }
-.stage-detail .conv-md { min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.5; }
-.stage-detail .conv-md > :first-child { margin-top: 0; }
-.stage-detail .conv-md > :last-child { margin-bottom: 0; }
-.stage-detail .conv-md p { margin: 0 0 6px; }
-.stage-detail .conv-md code { font-family: var(--sd-mono); font-size: 11px; background: rgba(124,92,255,0.08); border: 1px solid var(--sd-border-soft); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
-.stage-detail .conv-md pre { overflow-x: auto; }
+/* The conversation sits in a bordered card, like the thread window — the
+   rows below mirror the brain feed's .ev layout (persona icon + label +
+   text for the agent; a soft-mint right-aligned bubble for the user). */
+.stage-detail .conv-card { display: flex; flex-direction: column; gap: 12px; background: rgba(255,255,255,0.5); border: 1px solid var(--sd-border-soft); border-radius: 12px; padding: 15px 16px; }
+.stage-detail .ev { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 11px; align-items: start; }
+.stage-detail .ev .ic { width: 24px; height: 24px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; background: rgba(124,92,255,0.10); color: var(--sd-primary-deep); }
+.stage-detail .ev .who-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.stage-detail .ev .who { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--sd-primary-deep); }
+.stage-detail .ev .ts { font-size: 9px; color: var(--sd-text-subtle); font-family: var(--sd-mono); }
+.stage-detail .ev .tx { min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.55; color: var(--sd-text-secondary); }
+.stage-detail .ev .tx > :first-child { margin-top: 0; }
+.stage-detail .ev .tx > :last-child { margin-bottom: 0; }
+.stage-detail .ev .tx p { margin: 0 0 6px; }
+.stage-detail .ev .tx code { font-family: var(--sd-mono); font-size: 11px; background: rgba(124,92,255,0.08); border: 1px solid var(--sd-border-soft); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+.stage-detail .ev .tx pre { overflow-x: auto; }
+.stage-detail .ev.you-msg { grid-template-columns: minmax(0, 1fr); max-width: 84%; margin-left: auto; }
+.stage-detail .ev.you-msg .body { background: linear-gradient(135deg, #d1fae5, #a7f3d0); border: 1px solid #86efac; border-radius: 14px 4px 14px 14px; padding: 8px 12px; }
+.stage-detail .ev.you-msg .tx { color: #0c2a13; font-weight: 500; }
+.stage-detail .ev.you-msg .tx strong { color: #0c2a13; font-weight: 800; }
+.stage-detail .ev.you-msg .tx code { background: rgba(255,255,255,0.55); border-color: rgba(12,42,19,0.2); color: #0c2a13; }
 /* Iteration boundary marker, layered into the transcript for looping stages. */
 .stage-detail .sd-iter-marker { display: flex; align-items: baseline; gap: 9px; margin: 8px 0 2px; padding: 5px 11px; border-left: 3px solid var(--sd-primary); background: rgba(245,158,11,0.08); border-radius: 0 8px 8px 0; }
 .stage-detail .sd-iter-marker__n { font-family: var(--sd-mono); font-size: 11px; font-weight: 800; color: #92400e; }

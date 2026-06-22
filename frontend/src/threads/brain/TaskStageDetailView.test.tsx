@@ -109,9 +109,9 @@ describe('TaskStageDetailView', () => {
     mockBridge();
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
 
-    // Tool call surfaces its command detail and an elapsed offset.
+    // Tool call surfaces its command detail and a relative time.
     expect(await screen.findByText('CostMeter.tsx')).toBeTruthy();
-    expect(screen.getByText(/t\+00:05/)).toBeTruthy();
+    expect(screen.getAllByText(/ago|now/).length).toBeGreaterThan(0);
     // User message renders, but the "YOU" avatar label is gone.
     expect(screen.getByText('try a smaller diff')).toBeTruthy();
     expect(screen.queryByText('YOU')).toBeNull();

@@ -248,12 +248,81 @@
 .task-brain .plan-card .followup-meta { font-size: 9.5px; color: var(--tbv-text-subtle); margin: 3px 0 5px; }
 .task-brain .plan-card .followup-actions { display: flex; gap: 6px; }
 .task-brain .plan-card .followup-actions button { flex: 1; padding: 5px; border: 1px solid var(--tbv-border-strong); border-radius: 6px; background: rgba(255,255,255,0.8); font-size: 10px; font-weight: 700; cursor: pointer; font-family: inherit; color: var(--tbv-text-secondary); }
+/* Markdown inside the rail card: flatten the auto <p>/list margins so
+   short prose and step actions stay tight in the narrow card. */
+.task-brain .plan-card .kv-val.md > :first-child { margin-top: 0; }
+.task-brain .plan-card .kv-val.md > :last-child { margin-bottom: 0; }
+.task-brain .plan-card .kv-val.md p { margin: 0; }
+.task-brain .plan-card .plan-steps li p { margin: 0; }
+/* The rail is narrow; long prose and inline code (e.g. assertThat(…))
+   must wrap/break rather than overflow the card edge. */
+.task-brain .plan-card .kv-val.md,
+.task-brain .plan-card .plan-steps { overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+.task-brain .plan-card .kv-val.md code,
+.task-brain .plan-card .plan-steps code { overflow-wrap: anywhere; word-break: break-all; white-space: pre-wrap; }
+.task-brain .plan-card .plan-steps { padding-left: 18px; }
+.task-brain .plan-card .plan-steps li { overflow-wrap: anywhere; }
+/* Zoom affordance in the plan-card header — opens the centered full view. */
+.task-brain .plan-card .plan-zoom-btn { border: none; background: transparent; cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px; color: inherit; opacity: 0.65; }
+.task-brain .plan-card .plan-zoom-btn--start { margin-left: auto; }
+.task-brain .plan-card .plan-zoom-btn:hover { opacity: 1; }
+
+/* Centered "zoom" read of the full plan, overlaying the window middle. */
+.plan-zoom-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(15,23,42,0.45); padding: 24px; }
+.plan-zoom { width: min(720px, 92vw); max-height: 86vh; overflow: auto; background: #fff; border-radius: 14px; box-shadow: 0 20px 60px rgba(15,23,42,0.35); display: flex; flex-direction: column; }
+.plan-zoom__hd { position: sticky; top: 0; display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--tbv-border, #e2e8f0); background: #fff; border-radius: 14px 14px 0 0; }
+.plan-zoom__title { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--tbv-primary-deep, #5b3fff); }
+.plan-zoom__title .rev { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--tbv-text-subtle, #94a3b8); }
+.plan-zoom__close { margin-left: auto; border: none; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--tbv-text-muted, #64748b); padding: 0 4px; }
+.plan-zoom__close:hover { color: var(--tbv-text-primary, #0f172a); }
+.plan-zoom__body { padding: 16px 20px 22px; }
+.plan-zoom__body section { margin-bottom: 18px; }
+.plan-zoom__body h4 { margin: 0 0 6px; font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--tbv-text-subtle, #94a3b8); }
+.plan-zoom__body .md { font-size: 13.5px; line-height: 1.6; color: var(--tbv-text-primary, #0f172a); }
+.plan-zoom__body .md p { margin: 0 0 8px; }
+.plan-zoom__body .plan-steps { margin: 8px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; line-height: 1.55; }
+.plan-zoom__body .plan-steps li p { margin: 0; }
+.plan-zoom__signals { display: flex; flex-wrap: wrap; gap: 6px; }
+.plan-zoom__signals .pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #f1f5f9; border: 1px solid var(--tbv-border, #e2e8f0); color: var(--tbv-text-secondary, #475569); }
+.plan-zoom__signals .pill.risk-low { color: #15803d; border-color: rgba(22,163,74,0.3); }
+.plan-zoom__signals .pill.risk-medium { color: #92400e; border-color: rgba(245,158,11,0.3); }
+.plan-zoom__signals .pill.risk-high { color: #b91c1c; border-color: rgba(220,38,38,0.3); }
+
+/* Each section reads as its own card with a distinct tint, so Understanding /
+   Intent / Strategy separate at a glance. */
+.plan-zoom__body .plan-zoom__sec { margin-bottom: 14px; padding: 12px 14px 14px; border: 1px solid #eef0f3; border-radius: 10px; background: #fff; }
+.plan-zoom__body .plan-zoom__sec--understanding { background: #f7f9fc; border-color: #e7edf5; }
+.plan-zoom__body .plan-zoom__sec--intent { background: #f7f5ff; border-color: #e6e0fb; }
+.plan-zoom__body .plan-zoom__sec--strategy { background: #f2fbf7; border-color: #cfeede; }
+.plan-zoom__body .plan-zoom__sec h4 { margin-top: 0; }
+
+/* Code rendered with highlight.js token colors (light theme → dark text on a
+   light surface). Inline reads as a chip; fenced blocks become a code card. */
+.plan-zoom .plan-code { font-family: "SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,ui-monospace,monospace; color: #1f2328; }
+.plan-zoom .plan-code--inline { font-size: 12px; padding: 1px 5px; border-radius: 4px; background: #eef1f6; border: 1px solid #e1e6ee; white-space: pre-wrap; overflow-wrap: anywhere; }
+.plan-zoom .plan-code--block { display: block; padding: 10px 12px; border-radius: 8px; background: #f6f8fa; border: 1px solid #e1e6ee; overflow-x: auto; font-size: 12px; line-height: 1.5; }
+.plan-zoom pre { margin: 8px 0; }
+
+/* Approve / request-changes — a sticky footer so the action stays in reach. */
+.plan-zoom__footer { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid #e2e8f0; background: #fff; border-radius: 0 0 14px 14px; }
+.plan-zoom__footer .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border: 0; border-radius: 9px; background: linear-gradient(135deg,#fbbf24,#d97706); color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit; }
+.plan-zoom__footer .btn:hover:not(:disabled) { filter: brightness(1.03); }
+.plan-zoom__footer .btn-secondary { flex: 1; padding: 10px; border: 1px solid #d1d5db; border-radius: 9px; background: #fff; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.plan-zoom__footer .btn-secondary:hover:not(:disabled) { background: #f8fafc; }
+.plan-zoom__footer .btn:disabled, .plan-zoom__footer .btn-secondary:disabled { opacity: 0.55; cursor: default; }
 
 /* Closed-stage fold bar — collapses a closed stage's within-stage chatter
    behind a single expandable row; boundary events stay outside it. */
 .task-brain .stage-fold { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 6px 10px; border: 1px dashed var(--tbv-border-strong); border-radius: 8px; background: var(--tbv-surface-soft); color: var(--tbv-text-muted); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .task-brain .stage-fold:hover { border-color: var(--tbv-primary-border); color: var(--tbv-text-secondary); }
 .task-brain .stage-fold--collapse { border-style: solid; opacity: 0.8; }
+/* Fold header for the previous task's carried-over recap. */
+.task-brain .carried-fold { border-style: solid; opacity: 0.85; }
+/* Marker delineating where this task's own conversation begins, below any
+   carried-over context. Reads like a .tdiv but accented so it stands out. */
+.task-brain .task-boundary { display: flex; align-items: center; gap: 10px; margin: 10px 0; color: var(--tbv-primary, #7c5cff); font-size: 10.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.task-brain .task-boundary .ln { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--tbv-primary-border, #c9bcff) 30%, var(--tbv-primary-border, #c9bcff) 70%, transparent); }
+.task-brain .task-boundary__lbl { white-space: nowrap; }
 
 /* Plan-related brain-feed event-row icons (match the existing .ev .ic.* set). */
 .task-brain .ev .ic.plan-rec { background: linear-gradient(135deg, #a78bfa, #7c5cff); color: #fff; }

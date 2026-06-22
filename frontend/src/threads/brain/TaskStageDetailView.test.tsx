@@ -149,7 +149,7 @@ describe('TaskStageDetailView', () => {
     const onOpenStage = vi.fn();
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={onOpenStage} />);
 
-    const devChip = await screen.findByText('DevelopmentStage · CLOSED');
+    const devChip = await screen.findByRole('button', { name: /DevelopmentStage · CLOSED/ });
     fireEvent.click(devChip);
     expect(onOpenStage).toHaveBeenCalledWith('stage-dev');
   });

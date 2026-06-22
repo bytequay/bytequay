@@ -112,20 +112,21 @@
 .stage-detail .left-rail { border-right: 1px solid var(--sd-border); padding-right: 14px; }
 .stage-detail .right-rail { border-left: 1px solid var(--sd-border); padding-left: 14px; }
 /* Center column: scrolling transcript + a composer pinned at the bottom. */
-.stage-detail .center-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.stage-detail .center-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
 .stage-detail .log-col { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; min-height: 0; position: relative; gap: 10px; padding: 14px 22px; }
 /* The conversation sits in a bordered card, like the thread window — the
    rows below mirror the brain feed's .ev layout (persona icon + label +
    text for the agent; a soft-mint right-aligned bubble for the user). */
-.stage-detail .conv-card { display: flex; flex-direction: column; gap: 12px; background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.5)); border: 1px solid var(--sd-border-soft); border-radius: 12px; padding: 15px 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+.stage-detail .conv-card { display: flex; flex-direction: column; gap: 12px; background: rgba(124,92,255,0.045); border: 1px solid var(--sd-border-soft); border-radius: 12px; padding: 15px 16px; box-shadow: inset 0 1px 3px rgba(15,23,42,0.04); }
 .stage-detail .ev { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 11px; align-items: start; }
 .stage-detail .ev .ic { width: 24px; height: 24px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; background: rgba(124,92,255,0.10); color: var(--sd-primary-deep); }
 .stage-detail .ev .who-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
 .stage-detail .ev .who { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--sd-primary-deep); }
 .stage-detail .ev .ts { font-size: 9px; color: var(--sd-text-subtle); font-family: var(--sd-mono); }
 .stage-detail .ev .tx { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.6; color: var(--sd-text-secondary); }
-/* Agent turns sit in a textured card (the user bubble already has its own). */
-.stage-detail .ev:not(.you-msg) .body { background: linear-gradient(180deg, #ffffff, #fbfbfe); border: 1px solid var(--sd-border-soft); border-radius: 11px; padding: 9px 13px; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+/* Agent turns sit in a solid white card that stands out from the tinted
+   conversation backdrop. */
+.stage-detail .ev:not(.you-msg) .body { background: #fff; border: 1px solid var(--sd-border); border-radius: 11px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.07); }
 .stage-detail .ev .tx > :first-child { margin-top: 0; }
 .stage-detail .ev .tx > :last-child { margin-bottom: 0; }
 .stage-detail .ev .tx p { margin: 0 0 6px; }
@@ -170,6 +171,9 @@
 .stage-detail .stage-nav-chip:last-child { margin-bottom: 0; }
 .stage-detail .stage-nav-chip:hover { border-color: var(--sd-primary-border); }
 .stage-detail .stage-nav-chip.current { border-color: var(--sd-primary-border); background: rgba(124,92,255,0.08); color: var(--sd-primary-deep); font-weight: 700; }
+/* A closed stage reads in purple (its state label tinted deep purple). */
+.stage-detail .stage-nav-chip.closed .stage-nav-chip__state { color: var(--sd-primary-deep); font-weight: 800; }
+.stage-detail .stage-nav-chip.closed { border-color: var(--sd-primary-border); }
 .stage-detail .ci-status { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px; display: inline-block; margin-bottom: 6px; }
 .stage-detail .ci-status.ci-passing, .stage-detail .ci-status.ci-success { background: rgba(34,197,94,0.10); color: #15803d; }
 .stage-detail .ci-status.ci-failing, .stage-detail .ci-status.ci-failure { background: rgba(220,38,38,0.10); color: #b91c1c; }
@@ -229,7 +233,7 @@
 /* ── steering composer ───────────────────────────────────────────── */
 /* Composer pinned at the bottom of the center column (doesn't scroll). */
 .stage-detail .composer { position: relative; flex-shrink: 0; padding: 12px 22px 16px; border-top: 1px solid var(--sd-border); background: rgba(255,255,255,0.6); }
-.stage-detail .composer .t { width: 100%; box-sizing: border-box; resize: vertical; min-height: 84px; padding: 11px 42px 11px 13px; border: 1px solid var(--sd-border-strong); border-radius: 11px; font-family: inherit; font-size: 13px; line-height: 1.5; background: rgba(255,255,255,0.95); color: var(--sd-text-primary); }
+.stage-detail .composer .t { width: 100%; box-sizing: border-box; resize: vertical; min-height: 96px; padding: 12px 44px 12px 14px; border: 1px solid var(--sd-border-strong); border-radius: 11px; font-family: inherit; font-size: 15px; line-height: 1.55; background: rgba(255,255,255,0.95); color: var(--sd-text-primary); }
 .stage-detail .composer .t:disabled { background: var(--sd-surface-soft); color: var(--sd-text-subtle); }
 .stage-detail .composer .send-icon { position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px; border-radius: 7px; border: none; background: linear-gradient(135deg, #b794f4, #7c5cff); color: #fff; cursor: pointer; font-size: 13px; }
 .stage-detail .composer .send-icon:disabled { opacity: 0.4; cursor: default; }
@@ -258,7 +262,7 @@
 }
 .stage-detail .sd-iter-status--open,
 .stage-detail .sd-iter-status--active { background: rgba(245,158,11,0.14); color: #92400e; border-color: rgba(245,158,11,0.32); }
-.stage-detail .sd-iter-status--closed { background: rgba(34,197,94,0.12); color: #15803d; border-color: rgba(22,163,74,0.30); }
+.stage-detail .sd-iter-status--closed { background: rgba(124,92,255,0.12); color: var(--sd-primary-deep); border-color: var(--sd-primary-border); }
 
 .stage-detail .iter-strip-lbl { font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--sd-text-muted); padding-right: 8px; border-right: 1px dashed var(--sd-border); }
 .stage-detail .iter-strip-totals { margin-left: auto; font-size: 10.5px; color: var(--sd-text-muted); }
@@ -274,7 +278,7 @@
 /* stage identity rows */
 .stage-detail .si-state { font-size: 12px; font-weight: 800; letter-spacing: .04em; margin-bottom: 6px; }
 .stage-detail .si-state--open, .stage-detail .si-state--active, .stage-detail .si-state--paused { color: #92400e; }
-.stage-detail .si-state--closed { color: #15803d; }
+.stage-detail .si-state--closed { color: var(--sd-primary-deep); }
 .stage-detail .si-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; font-size: 10.5px; color: var(--sd-text-muted); }
 .stage-detail .si-mono { font-family: var(--sd-mono); color: var(--sd-text-secondary); font-weight: 700; font-size: 10px; }
 

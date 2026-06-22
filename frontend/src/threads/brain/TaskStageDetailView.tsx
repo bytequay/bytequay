@@ -164,10 +164,10 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
         ))}
         {iterations.length === 0 && <span className="iter-empty">No iterations yet.</span>}
         <span className="iter-strip-totals">
-          {stage.metrics.wallTimeSec !== undefined && <><b>{stage.metrics.wallTimeSec}s</b> wall</>}
+          {stage.metrics.wallTimeSec !== undefined && <><b>{fmtDuration(stage.metrics.wallTimeSec)}</b> wall</>}
           {stage.metrics.toolCallsCount !== undefined && <> · <b>{stage.metrics.toolCallsCount}</b> tool calls</>}
           {stage.metrics.turnsCount !== undefined && <> · <b>{stage.metrics.turnsCount}</b> turns</>}
-          {stage.metrics.costCents !== undefined && <> · <b>{stage.metrics.costCents}¢</b></>}
+          {stage.metrics.costCents !== undefined && <> · <b>{fmtCost(stage.metrics.costCents)}</b></>}
         </span>
       </nav>
 
@@ -396,6 +396,18 @@ function tokensShort(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
+/** Human duration: "3h 56m" / "8m 12s" / "15s". */
+function fmtDuration(sec: number): string {
+  if (sec >= 3600) return `${Math.floor(sec / 3600)}h ${Math.round((sec % 3600) / 60)}m`;
+  if (sec >= 60) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  return `${sec}s`;
+}
+
+/** Cents → dollars: 31 → "$0.31". */
+function fmtCost(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 function RightRail({ stage, context }: { stage: StageDetailData['stage']; context: StageDetailData['context'] }) {
   const m = stage.metrics;
   const budget = stage.config.autoPushBudget;
@@ -438,19 +450,21 @@ function RightRail({ stage, context }: { stage: StageDetailData['stage']; contex
 
       <section className="metrics-card" aria-label="Stage metrics">
         <h3>Metrics <span className="metrics-sub">this stage</span></h3>
-        <MetricGroup title="Time" rows={rows(
-          ['Wall time', m.wallTimeSec, 's'],
-          ['Active time', m.activeTimeSec, 's'],
-          ['Waiting on you', m.waitingUserTimeSec, 's'],
-        )} />
+        <MetricGroup title="Time" rows={[
+          ...(m.wallTimeSec !== undefined ? [['Wall time', fmtDuration(m.wallTimeSec)] as [string, string]] : []),
+          ...(m.activeTimeSec !== undefined ? [['Active time', fmtDuration(m.activeTimeSec)] as [string, string]] : []),
+          ...(m.waitingUserTimeSec !== undefined ? [['Waiting on you', fmtDuration(m.waitingUserTimeSec)] as [string, string]] : []),
+        ]} />
         <MetricGroup title="Operations" rows={opsRows} />
-        <MetricGroup title="Agent work" rows={rows(
-          ['Tool calls', m.toolCallsCount],
-          ['Turns', m.turnsCount],
-          ['Messages', m.messagesCount],
-          ['Tokens', m.tokensCount],
-          ['Cost', m.costCents, '¢'],
-        )} />
+        <MetricGroup title="Agent work" rows={[
+          ...rows(
+            ['Tool calls', m.toolCallsCount],
+            ['Turns', m.turnsCount],
+            ['Messages', m.messagesCount],
+            ['Tokens', m.tokensCount],
+          ),
+          ...(m.costCents !== undefined ? [['Cost', fmtCost(m.costCents)] as [string, string]] : []),
+        ]} />
         <MetricGroup title="Health" rows={[
           ...rows(['Interventions', m.interventionsCount], ['Backflows', m.backflowsCount]),
           ['Panels', String(m.panelInvocationsCount)],

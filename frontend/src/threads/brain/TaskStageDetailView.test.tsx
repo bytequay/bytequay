@@ -51,6 +51,7 @@ function fixture(): StageDetailData {
       { id: 'm1', kind: 'iteration_marker', text: 'red_ci', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: 1, ts: '2026-06-21T10:00:00Z' },
       { id: 'm2', kind: 'agent', text: 'Lint failed on an unused import. Removing it.', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: null, ts: '2026-06-21T10:00:03Z' },
       { id: 'm3', kind: 'tool_call', text: null, toolTag: 'Read', toolLabel: 'read_file', toolDetail: 'CostMeter.tsx', iterationNumber: null, ts: '2026-06-21T10:00:05Z' },
+      { id: 'm4', kind: 'user', text: 'try a smaller diff', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: null, ts: '2026-06-21T10:00:10Z' },
     ],
     realtimeCi: null,
     ciFixHistory: [{ iterationNumber: 1, endedReason: null, summaryText: 'fix #1: bumped retry default' }],
@@ -102,6 +103,18 @@ describe('TaskStageDetailView', () => {
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
     const box = await screen.findByLabelText('Steering message');
     expect((box as HTMLTextAreaElement).disabled).toBe(true);
+  });
+
+  it('shows tool detail + time and renders the user message without a YOU label', async () => {
+    mockBridge();
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+
+    // Tool call surfaces its command detail and an elapsed offset.
+    expect(await screen.findByText('CostMeter.tsx')).toBeTruthy();
+    expect(screen.getByText(/t\+00:05/)).toBeTruthy();
+    // User message renders, but the "YOU" avatar label is gone.
+    expect(screen.getByText('try a smaller diff')).toBeTruthy();
+    expect(screen.queryByText('YOU')).toBeNull();
   });
 
   it('layers an iteration marker over the transcript for a looping stage', async () => {

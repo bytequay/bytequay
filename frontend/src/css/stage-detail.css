@@ -67,7 +67,8 @@
 .stage-detail .sd-iter-pill {
   font-family: var(--sd-mono); font-size: 10.5px; color: var(--sd-text-muted);
 }
-.stage-detail .sd-repo-chip { display: inline-flex; align-items: center; gap: 7px; }
+.stage-detail .sd-repo-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border: 1px solid var(--sd-border); background: rgba(255,255,255,0.78); border-radius: 999px; color: var(--sd-text-secondary); }
+.stage-detail .sd-repo-chip svg { color: var(--sd-text-primary); flex-shrink: 0; }
 .stage-detail .sd-branch { color: var(--sd-text-secondary); }
 .stage-detail .sd-diff-btn {
   display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px;
@@ -107,11 +108,12 @@
 }
 .stage-detail .left-rail,
 .stage-detail .right-rail { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; padding-bottom: 12px; }
-.stage-detail .log-col { display: flex; flex-direction: column; min-width: 0; overflow-y: auto; min-height: 0; gap: 8px; padding: 14px 20px; }
+.stage-detail .log-col { display: flex; flex-direction: column; min-width: 0; overflow-y: auto; min-height: 0; position: relative; gap: 10px; padding: 14px 22px; }
+/* The conversation sits in a bordered card, like the thread window. */
+.stage-detail .conv-card { display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.55); border: 1px solid var(--sd-border-soft); border-radius: 12px; padding: 14px 14px; }
 /* Conversation transcript rows (the stage-detail base timeline). */
-.stage-detail .conv-agent { align-self: flex-start; max-width: 88%; background: rgba(255,255,255,0.82); border: 1px solid var(--sd-border-soft); border-radius: 11px; padding: 8px 12px; }
-.stage-detail .conv-user { align-self: flex-end; max-width: 82%; display: flex; align-items: flex-start; gap: 7px; background: linear-gradient(135deg, #34d399, #10b981); color: #04241a; border-radius: 12px 12px 3px 12px; padding: 7px 11px; }
-.stage-detail .conv-user .you-avatar { font-size: 8.5px; font-weight: 800; opacity: 0.7; padding-top: 3px; }
+.stage-detail .conv-agent { align-self: flex-start; max-width: 88%; background: #fff; border: 1px solid var(--sd-border-soft); border-radius: 11px; padding: 8px 12px; }
+.stage-detail .conv-user { align-self: flex-end; max-width: 82%; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.28); color: var(--sd-text-primary); border-radius: 12px 12px 3px 12px; padding: 8px 12px; }
 .stage-detail .conv-md { min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.5; }
 .stage-detail .conv-md > :first-child { margin-top: 0; }
 .stage-detail .conv-md > :last-child { margin-bottom: 0; }
@@ -166,6 +168,14 @@
 
 /* ── center log column: iteration bands + rows ──────────────────── */
 .stage-detail .log-empty { color: var(--sd-text-subtle); font-style: italic; font-size: 11px; padding: 8px 2px; }
+/* Conversation scrubber indexing the user's messages (mirrors the brain feed). */
+.stage-detail .conv-scrub-wrap { position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; pointer-events: none; }
+.stage-detail .conv-scrub-wrap.right { right: 8px; }
+.stage-detail .conv-scrub-wrap.left { left: 8px; }
+.stage-detail .conv-scrub { width: 18px; background: rgba(255,255,255,0.90); border: 1px solid var(--sd-border); border-radius: 999px; padding: 6px 0; display: flex; flex-direction: column; align-items: center; gap: 4px; box-shadow: 0 2px 8px rgba(15,23,42,0.06); pointer-events: auto; }
+.stage-detail .conv-scrub .dash { width: 9px; height: 1.5px; min-height: 1.5px; padding: 0; border: none; background: #94a3b8; border-radius: 999px; cursor: pointer; transition: .15s; position: relative; }
+.stage-detail .conv-scrub .dash:hover { background: var(--sd-text-primary); width: 13px; }
+.stage-detail .conv-scrub-wrap.right .dash:hover::after { content: attr(data-label); position: absolute; right: 18px; top: 50%; transform: translateY(-50%); background: var(--sd-text-primary); color: #fff; font-size: 9.5px; padding: 2px 7px; border-radius: 5px; white-space: nowrap; font-family: var(--sd-mono); pointer-events: none; z-index: 10; }
 .stage-detail .iter-band { border-radius: 10px; background: rgba(255,255,255,0.5); border: 1px solid var(--sd-border-soft); overflow: hidden; }
 .stage-detail .iter-band-header { font-size: 10.5px; color: var(--sd-text-secondary); }
 .stage-detail .iter-reason { color: var(--sd-text-muted); }
@@ -176,6 +186,7 @@
 .stage-detail .operation-meta { font-size: 9.5px; color: var(--sd-text-subtle); font-family: var(--sd-mono); }
 .stage-detail .operation-tools { display: flex; flex-direction: column; gap: 4px; }
 .stage-detail .tool-row { display: flex; align-items: baseline; gap: 7px; font-size: 11px; color: var(--sd-text-secondary); overflow-wrap: anywhere; }
+.stage-detail .tool-time { margin-left: auto; font-family: var(--sd-mono); font-size: 9px; color: var(--sd-text-subtle); flex-shrink: 0; padding-left: 8px; }
 .stage-detail .tool-tag { font-family: var(--sd-mono); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: #fff; background: #64748b; border-radius: 5px; padding: 1px 5px; flex-shrink: 0; }
 /* Tool-tag color per kind, matching the mockup (read=blue, write=amber,
    run=teal, mcp=purple). The wrapper carries tool-<tag-lowercase>. */
@@ -184,7 +195,7 @@
 .stage-detail .tool-row.tool-run .tool-tag { background: #0f766e; }
 .stage-detail .tool-row.tool-mcp .tool-tag { background: #7c3aed; }
 .stage-detail .tool-label { font-family: var(--sd-mono); font-size: 10.5px; color: var(--sd-text-primary); }
-.stage-detail .tool-detail { color: var(--sd-text-muted); }
+.stage-detail .tool-detail { color: var(--sd-text-muted); font-family: var(--sd-mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stage-detail .stage-event-row { font-size: 10.5px; color: var(--sd-text-muted); border: 1px dashed var(--sd-border); border-radius: 7px; padding: 5px 8px; }
 .stage-detail .event-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--sd-text-secondary); margin-right: 5px; }
 .stage-detail .iter-sum { display: flex; align-items: flex-start; gap: 10px; background: linear-gradient(90deg, rgba(124,92,255,0.06), rgba(56,189,248,0.04)); border: 1.5px dashed var(--sd-primary-border); border-radius: 9px; padding: 9px 12px; }

@@ -138,26 +138,34 @@ public class ThreadController
             @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit)
     {
         int cap = Math.min(limit, DEFAULT_LIMIT);
+        List<Thread> result;
         if (groupId != null && !groupId.isBlank()) {
             List<Thread> page = threads.listByGroup(groupId, cap);
+            result = status == null ? page : page.stream().filter(t -> t.status() == status).toList();
+        }
+        else {
+            boolean wsScoped = workspaceId != null && !workspaceId.isBlank();
             if (status == null) {
-                return page;
+                ImmutableList.Builder<Thread> all = ImmutableList.builder();
+                for (ThreadStatus s : ThreadStatus.values()) {
+                    all.addAll(wsScoped
+                            ? threads.listByWorkspaceAndStatus(workspaceId, s, cap)
+                            : threads.listByStatus(s, cap));
+                }
+                result = all.build();
             }
-            return page.stream().filter(t -> t.status() == status).toList();
-        }
-        boolean wsScoped = workspaceId != null && !workspaceId.isBlank();
-        if (status == null) {
-            ImmutableList.Builder<Thread> all = ImmutableList.builder();
-            for (ThreadStatus s : ThreadStatus.values()) {
-                all.addAll(wsScoped
-                        ? threads.listByWorkspaceAndStatus(workspaceId, s, cap)
-                        : threads.listByStatus(s, cap));
+            else {
+                result = wsScoped
+                        ? threads.listByWorkspaceAndStatus(workspaceId, status, cap)
+                        : threads.listByStatus(status, cap);
             }
-            return all.build();
         }
-        return wsScoped
-                ? threads.listByWorkspaceAndStatus(workspaceId, status, cap)
-                : threads.listByStatus(status, cap);
+        // Brain-agent threads are per-task internal children (the read-only
+        // planning / brain agent), reached through the task brain view — they
+        // must never surface as top-level threads in the workspace list.
+        return result.stream()
+                .filter(t -> t.kind() != ThreadKind.BRAIN_AGENT)
+                .toList();
     }
 
     /** GET /api/threads/turns/active — queued/running turns across threads. */

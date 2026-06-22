@@ -1144,16 +1144,17 @@
    white" on bright displays and made changed lines hard to scan at a
    glance. The gutter column stays a step deeper than the row so line
    numbers on changed lines pop. */
+/* GitHub review-page palette (see docs/mockups/design/diff-view/reference.html). */
 .diff-row--add {
-  background: #cef5d6;
+  background: #e6ffec;
 }
-.diff-row--add .diff-row__gutter { background: #9be3a9; }
+.diff-row--add .diff-row__gutter { background: #ccffd8; }
 .diff-row--add .diff-row__sigil { color: #1a7f37; }
 
 .diff-row--del {
-  background: #ffd0cf;
+  background: #ffebe9;
 }
-.diff-row--del .diff-row__gutter { background: #f5a3a1; }
+.diff-row--del .diff-row__gutter { background: #ffd7d5; }
 .diff-row--del .diff-row__sigil { color: #cf222e; }
 
 [data-theme="atom-one-dark"] .diff-row--add,
@@ -1183,8 +1184,8 @@
 }
 
 .diff-row--hunk-header {
-  background: var(--bg-elevated);
-  color: var(--text-3);
+  background: #ddf4ff;
+  color: #0550ae;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }

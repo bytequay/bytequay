@@ -35,9 +35,9 @@ import PolishButtons from './ai/PolishButtons';
 import MarkdownComposer from './MarkdownComposer';
 import { statusBadge } from './diffStatusBadge';
 import { DiffFileTreePane } from './diff/DiffFileTreePane';
-import { CommitsSelector } from './diff/CommitsSelector';
+import { CommitsColumn } from './diff/CommitsColumn';
+import { contiguousRange } from './diff/commitRange';
 import { unionCommitFiles } from './diff/unionCommitFiles';
-import { commitSubject } from './diff/commitDisplay';
 import { MarkdownProse } from './threads/MarkdownProse';
 import AssignReviewTaskDialog from './workspace/AssignReviewTaskDialog';
 
@@ -60,6 +60,11 @@ const AI_WIDTH_MIN = 280;
 const AI_WIDTH_MAX = 900;
 const AI_WIDTH_DEFAULT = 380;
 const AI_RAIL_WIDTH = 36;
+// Commits column: a fixed-width first lane (not user-resizable — only the
+// files↔diff split has a handle). Folds to a slim rail like the files pane.
+const COMMITS_COLLAPSED_KEY = 'settings:diff-commits-collapsed';
+const COMMITS_WIDTH = 208;
+const COMMITS_RAIL_WIDTH = 32;
 
 function loadWidth(): number {
   const raw = localStorage.getItem(FILES_WIDTH_KEY);
@@ -2093,6 +2098,10 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
   const [selectedCommits, setSelectedCommits] = useState<Set<string>>(
     () => new Set(initialCommitSha ? [initialCommitSha] : []),
   );
+  // Anchor for contiguous-range selection: shift-clicking another commit
+  // fills the run between this anchor and that commit. A plain click resets
+  // it. Seeded from a deep-linked single commit.
+  const [rangeAnchor, setRangeAnchor] = useState<string | null>(initialCommitSha ?? null);
   const [commitDiffLoading, setCommitDiffLoading] = useState(false);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
   const [filesWidth, setFilesWidth] = useState<number>(loadWidth);
@@ -2104,6 +2113,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
   // Once the user explicitly expands it, that choice sticks (we write
   // '0' on expand and '1' on collapse). No prior choice ⇒ collapsed.
   const [filesCollapsed, setFilesCollapsed] = useState<boolean>(() => localStorage.getItem(FILES_COLLAPSED_KEY) !== '0');
+  const [commitsCollapsed, setCommitsCollapsed] = useState<boolean>(() => localStorage.getItem(COMMITS_COLLAPSED_KEY) === '1');
   const [aiCollapsed, setAiCollapsed] = useState<boolean>(() => localStorage.getItem(AI_COLLAPSED_KEY) === '1');
   const [aiWidth, setAiWidth] = useState<number>(loadAiWidth);
   const [aiDraft, setAiDraft] = useState<AiReviewDraftDto | null>(null);
@@ -2409,18 +2419,56 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
     }
   };
 
-  const toggleCommit = (sha: string) => {
-    const next = new Set(selectedCommits);
-    if (next.has(sha)) next.delete(sha);
-    else next.add(sha);
-    void applyCommitSelection(next);
+  // Contiguous-range selection. A plain click selects a single commit and
+  // resets the anchor; a shift-click fills the run between the anchor and the
+  // clicked commit. A non-contiguous pick can't be represented — clicking
+  // outside the current run just starts a new single selection.
+  const selectCommit = (sha: string, extend: boolean) => {
+    const ordered = (commits ?? []).map(c => c.sha);
+    if (extend && rangeAnchor !== null && selectedCommits.size > 0) {
+      void applyCommitSelection(contiguousRange(ordered, rangeAnchor, sha));
+      return;
+    }
+    setRangeAnchor(sha);
+    void applyCommitSelection(new Set([sha]));
   };
 
   const clearCommitSelection = () => {
+    setRangeAnchor(null);
     if (selectedCommits.size === 0) return;
     void applyCommitSelection(new Set());
   };
 
+  const toggleCommitsCollapsed = () => {
+    setCommitsCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem(COMMITS_COLLAPSED_KEY, next ? '1' : '0');
+      return next;
+    });
+  };
+
+  // Footer "Review selected" — selection already drives the diff live, so this
+  // just brings the diff back into view (handy on narrow screens / after a
+  // long scroll).
+  const handleReviewSelected = () => {
+    const scroll = bodyRef.current?.querySelector<HTMLElement>('.diff-viewer__pane-scroll');
+    if (scroll && typeof scroll.scrollTo === 'function') {
+      scroll.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // Running +/− across the current selection, for the commits-column footer.
+  // Computed from the already-fetched union (each DiffFileDto carries its
+  // own counts), so no per-commit stats are needed.
+  const commitsSummary = useMemo(() => {
+    const list = files ?? [];
+    return {
+      additions: list.reduce((sum, f) => sum + (f.additions ?? 0), 0),
+      deletions: list.reduce((sum, f) => sum + (f.deletions ?? 0), 0),
+    };
+  }, [files]);
+
+  const hasCommits = (commits?.length ?? 0) > 0;
   const selectedFile = files?.find((f) => f.filename === selectedPath) ?? null;
 
   return (
@@ -2515,30 +2563,19 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
         )}
       </div>
 
-      {commits && commits.length > 0 && (() => {
-        // Email "↗ ByteQuay" deep-links may carry a SHA that's no
-        // longer in the PR (force-pushed away, rebased out, etc.).
-        // Detect that case and surface a small notice so the user
-        // doesn't wonder why the cumulative-diff banner is showing.
+      {(() => {
+        // Email "↗ ByteQuay" deep-links may carry a SHA that's no longer in
+        // the PR (force-pushed away, rebased out, etc.). Surface a small
+        // notice so the user understands why the cumulative diff is showing.
         const deepLinkSha = initialCommitSha;
-        const deepLinkMissing = deepLinkSha != null
+        const deepLinkMissing = commits != null && deepLinkSha != null
           && !commits.some(c => c.sha.startsWith(deepLinkSha) || deepLinkSha.startsWith(c.sha));
+        if (!deepLinkMissing) return null;
         return (
-          <CommitsSelector
-            commits={commits.map(c => ({
-              sha: c.sha,
-              subject: commitSubject(c.message),
-              authoredAt: c.authoredAt,
-            }))}
-            selected={selectedCommits}
-            onToggle={toggleCommit}
-            onClear={clearCommitSelection}
-            loading={commitDiffLoading}
-            rightChrome={<span className="diff-viewer__sub-stat">{files?.length ?? 0} files</span>}
-            notice={deepLinkMissing
-              ? <>Commit <code>{deepLinkSha?.slice(0, 7)}</code> is no longer in this PR — likely force-pushed. Showing the cumulative diff instead.</>
-              : undefined}
-          />
+          <div className="diff-viewer__notice">
+            Commit <code>{deepLinkSha?.slice(0, 7)}</code> is no longer in this PR — likely
+            force-pushed. Showing the cumulative diff instead.
+          </div>
         );
       })()}
 
@@ -2546,18 +2583,32 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
         className="diff-viewer__body"
         ref={bodyRef}
         style={{
-          // When the file list is collapsed, the resize-handle column is
-          // also dropped — there's nothing to resize when the panel is a
-          // 36px rail. Mirrors the AI sidebar's collapse behaviour.
-          // The AI panel gets its own 5px resize handle on its left edge
-          // when expanded, so the user can drag it wider for long comments.
+          // Lanes: commits | files (+resize) | diff | ai (+resize). A
+          // collapsed side column drops to a slim rail and its resize handle
+          // disappears (nothing to resize). The commits lane is fixed-width,
+          // so it never carries a handle. Omitted entirely when no commits.
           gridTemplateColumns: [
+            hasCommits ? (commitsCollapsed ? `${COMMITS_RAIL_WIDTH}px` : `${COMMITS_WIDTH}px`) : null,
             filesCollapsed ? `${FILES_RAIL_WIDTH}px` : `${filesWidth}px 5px`,
             'minmax(0, 1fr)',
             aiCollapsed ? `${AI_RAIL_WIDTH}px` : `5px ${aiWidth}px`,
-          ].join(' '),
+          ].filter(Boolean).join(' '),
         }}
       >
+        {hasCommits && (
+          <CommitsColumn
+            commits={(commits ?? []).map(c => ({ sha: c.sha, subject: c.message ?? '' }))}
+            selected={selectedCommits}
+            onSelectCommit={selectCommit}
+            onSelectAll={clearCommitSelection}
+            onReview={handleReviewSelected}
+            summary={commitsSummary}
+            loading={commitDiffLoading}
+            collapsed={commitsCollapsed}
+            onToggleCollapsed={toggleCommitsCollapsed}
+          />
+        )}
+
         {filesCollapsed ? (
           <aside className="diff-viewer__files diff-viewer__files--collapsed">
             <button
@@ -2568,8 +2619,9 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
                 localStorage.setItem(FILES_COLLAPSED_KEY, '0');
               }}
               title="Expand changed-files panel"
+              aria-label="Expand changed-files panel"
             >
-              ▶
+              ›
             </button>
             <div className="diff-viewer__files-rail-label" aria-hidden="true">
               Files{files !== null && <span className="diff-viewer__files-rail-count"> · {files.length}</span>}
@@ -2610,8 +2662,9 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
                 localStorage.setItem(FILES_COLLAPSED_KEY, '1');
               }}
               title="Collapse changed-files panel"
+              aria-label="Collapse changed-files panel"
             >
-              ◀
+              ‹
             </button>
           </div>
           <DiffFileTreePane

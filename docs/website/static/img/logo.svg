@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="ByteQuay logo">
+  <rect width="32" height="32" rx="7" fill="#2563eb"/>
+  <path d="M9 9h7a4.5 4.5 0 0 1 1.2 8.84A4.5 4.5 0 0 1 16 23H9V9zm3 2.6v3.1h3.6a1.55 1.55 0 0 0 0-3.1H12zm0 5.6v3.2h3.9a1.6 1.6 0 0 0 0-3.2H12z" fill="#fff"/>
+  <circle cx="23" cy="22.5" r="2.4" fill="#93c5fd"/>
+  <path d="M24.6 24.1l2 2" stroke="#93c5fd" stroke-width="1.6" stroke-linecap="round"/>
+</svg>

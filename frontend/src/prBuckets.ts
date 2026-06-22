@@ -504,8 +504,15 @@ export function isMyReviewTurn(pr: PullRequestDto, me: string | null): boolean {
 
 /**
  * Returns the To-review column for a review-requested PR, or null when
- * it doesn't belong (wrong origin, cleared > today, or no longer my
- * turn). `me` is the current GitHub login — see isMyReviewTurn.
+ * it doesn't belong (wrong origin, or cleared > today).
+ *
+ * A REVIEW_REQUESTED origin is trusted as "my turn" on its own: the
+ * backend only tags it when the PR came back from the
+ * user-review-requested search, which already means my review is asked
+ * for — directly or through a team I'm on. We deliberately don't
+ * re-derive "my turn" from the individual requestedReviewers list, which
+ * omits the user on a team request and used to drop those PRs. `me` is
+ * retained for callers but no longer gates needs_attention.
  */
 export function categorizeToReview(pr: PullRequestDto, now: number = Date.now(), me: string | null = null): ToReviewColumn | null {
   if (pr.origin !== 'REVIEW_REQUESTED') return null;
@@ -524,10 +531,9 @@ export function categorizeToReview(pr: PullRequestDto, now: number = Date.now(),
   // is always my turn (I reviewed it; the author just pushed back).
   if (isResurfaced(pr)) return 'needs_attention';
 
-  // Attention-flagged → needs_attention, but only when it's actually my
-  // turn. A stale / blocking flag on a PR I was never asked to review and
-  // have never touched isn't mine to chase.
-  if ((pr.attentionReason ?? null) !== null && isMyReviewTurn(pr, me)) {
+  // Attention-flagged → needs_attention. The origin already means the
+  // review is asked of me (or my team), so any flag on it is mine to chase.
+  if ((pr.attentionReason ?? null) !== null) {
     return 'needs_attention';
   }
 
@@ -544,11 +550,10 @@ export function categorizeToReview(pr: PullRequestDto, now: number = Date.now(),
   // User has peeked but not reviewed → still in progress for them.
   if (pr.viewedAt !== null && pr.reviewedAt === null) return 'in_progress';
 
-  // Brand-new review request → Needs attention, but only when it's my
-  // turn (requested of me, or I've participated). A review-requested PR
-  // I'm no longer on the hook for and have never touched drops off.
-  if (isMyReviewTurn(pr, me)) return 'needs_attention';
-  return null;
+  // Brand-new review request → Needs attention. The origin is the proof
+  // it's my turn (direct or team request), so it lands here regardless of
+  // whether my login appears in the individual requestedReviewers list.
+  return 'needs_attention';
 }
 
 export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Record<MyPrColumn, PullRequestDto[]> {

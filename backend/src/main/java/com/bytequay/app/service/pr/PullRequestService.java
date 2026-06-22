@@ -1280,8 +1280,12 @@ public class PullRequestService
     {
         CompletableFuture<List<PullRequest>> authoredFuture = CompletableFuture.supplyAsync(
                 () -> searchAllPages(pat, "is:pr is:open author:@me"), executor);
+        // user-review-requested (not review-requested) so a review asked of
+        // a TEAM the user belongs to is included, not just direct requests —
+        // GitHub files team requests under the team, so review-requested:@me
+        // misses them and the PR never reaches the board.
         CompletableFuture<List<PullRequest>> reviewFuture = CompletableFuture.supplyAsync(
-                () -> searchAllPages(pat, "is:pr is:open review-requested:@me"), executor);
+                () -> searchAllPages(pat, "is:pr is:open user-review-requested:@me"), executor);
         // Open PRs I've already reviewed. GitHub drops a PR from
         // `review-requested:@me` the moment a verdict is submitted, so
         // without this an already-reviewed PR vanishes from the list

@@ -603,7 +603,12 @@ public class StageDetailServiceImpl
             try {
                 JsonNode node = mapper.readTree(m.contentJson());
                 name = firstText(node, "name", "tool", "toolName");
-                detail = firstText(node, "path", "file", "filePath", "command", "cmd", "input");
+                // Tool args usually nest under an "input" object (the
+                // claude-code stream-json shape); fall back to the top level.
+                JsonNode args = node.get("input");
+                JsonNode argSource = args != null && args.isObject() ? args : node;
+                detail = firstText(argSource,
+                        "file_path", "path", "file", "filePath", "command", "cmd", "pattern", "query");
             }
             catch (JsonProcessingException ignore) {
                 name = null;

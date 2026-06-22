@@ -18,6 +18,7 @@ import type {
   CiFixHistoryEntry, RealtimeCi, StageConversationRow, StageDetailData,
 } from '../../types/brainView';
 import type { StageDto, StageType } from '../../types/brainView';
+import { ConversationScrubber } from './ConversationScrubber';
 import { useStageDetailData } from './useStageDetailData';
 
 type Props = {
@@ -28,6 +29,15 @@ type Props = {
   /** Open the standalone code (commit/diff/files) page for this task. */
   onOpenCode?: () => void;
 };
+
+/** Compact GitHub mark for the repo chip. */
+function GithubMark() {
+  return (
+    <svg viewBox="0 0 16 16" width={13} height={13} role="img" aria-label="GitHub repo" fill="currentColor">
+      <path fillRule="evenodd" clipRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.66 7.66 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
 
 /** PascalCase label for a stage type (mirrors StageType.displayName()). */
 function stageLabel(type: StageType): string {
@@ -107,6 +117,11 @@ function StageComposer(
 export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenStage, onOpenCode }: Props) {
   const { data, refresh } = useStageDetailData(stageId);
   const bandRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const jumpToRow = (rowId: string) => {
+    scrollRef.current?.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   if (data === null) {
     return (
@@ -133,8 +148,8 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
         <span className="sd-stage-chip" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 6 }}>
           {stageLabel(stage.type)}
         </span>
-        <span className="sd-repo-chip">
-          {task.repoFullName}
+        <span className="sd-repo-chip" title={task.repoFullName}>
+          <GithubMark />
           <span className="sd-branch">⎇ {task.branch}</span>
         </span>
         {task.prNumber !== null && (
@@ -191,20 +206,30 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
           onOpenStage={onOpenStage}
         />
 
-        <main className="log-col" aria-label="Stage log">
-          {conversation.map(row => (
-            <ConversationRowView
-              key={row.id}
-              row={row}
-              accent={accent}
-              registerRef={row.kind === 'iteration_marker' && row.iterationNumber !== null
-                ? (el) => bandRefs.current.set(row.iterationNumber as number, el)
-                : undefined}
-            />
-          ))}
-          {conversation.length === 0 && (
-            <p className="log-empty">No activity in this stage yet.</p>
-          )}
+        <main className="log-col" aria-label="Stage log" ref={scrollRef}>
+          <ConversationScrubber
+            position="right"
+            dashes={conversation
+              .filter(r => r.kind === 'user')
+              .map(r => ({ id: r.id, label: (r.text ?? '').slice(0, 60), active: false }))}
+            onJumpTo={jumpToRow}
+          />
+          <div className="conv-card">
+            {conversation.map(row => (
+              <ConversationRowView
+                key={row.id}
+                row={row}
+                accent={accent}
+                stageOpenedAt={stage.openedAt}
+                registerRef={row.kind === 'iteration_marker' && row.iterationNumber !== null
+                  ? (el) => bandRefs.current.set(row.iterationNumber as number, el)
+                  : undefined}
+              />
+            ))}
+            {conversation.length === 0 && (
+              <p className="log-empty">No activity in this stage yet.</p>
+            )}
+          </div>
           <StageComposer
             disabled={stage.state === 'CLOSED' || stage.state === 'PAUSED'}
             onSubmit={async (text) => {
@@ -275,11 +300,12 @@ function LeftRail({
           )}
       </section>
 
-      <section className="ci-fix-history" aria-label="CI fix history">
-        <h3>CI fix history{ciFixHistory.length > 0 && <span className="lr-count">{ciFixHistory.length} fixes</span>}</h3>
-        {ciFixHistory.length === 0
-          ? <p className="muted">—</p>
-          : ciFixHistory.map(f => (
+      {/* CI fix history is a CI-fixing-stage concept — only show it when the
+          stage actually accumulated fixes (never on the dev/plan stage). */}
+      {ciFixHistory.length > 0 && (
+        <section className="ci-fix-history" aria-label="CI fix history">
+          <h3>CI fix history<span className="lr-count">{ciFixHistory.length} fixes</span></h3>
+          {ciFixHistory.map(f => (
             <div key={f.iterationNumber} className="ci-fix-card">
               <span className="ci-fix-iter">#{f.iterationNumber}</span>{' '}
               {/* Enriched red-CI iters lead with the failing check (hover for
@@ -293,7 +319,8 @@ function LeftRail({
               {f.summaryText !== null && <div className="ci-fix-summary">{f.summaryText}</div>}
             </div>
           ))}
-      </section>
+        </section>
+      )}
     </aside>
   );
 }
@@ -305,15 +332,17 @@ function LeftRail({
  * tagged rows.
  */
 function ConversationRowView({
-  row, accent, registerRef,
+  row, accent, stageOpenedAt, registerRef,
 }: {
   row: StageConversationRow;
   accent: string;
+  stageOpenedAt: string;
   registerRef?: (el: HTMLDivElement | null) => void;
 }) {
   if (row.kind === 'iteration_marker') {
     return (
-      <div className="sd-iter-marker" ref={registerRef} style={{ borderLeftColor: accent }}>
+      <div className="sd-iter-marker" id={row.id} data-row-id={row.id} ref={registerRef}
+        style={{ borderLeftColor: accent }}>
         <span className="sd-iter-marker__n">#{row.iterationNumber}</span>
         {row.text !== null && row.text !== '' && (
           <span className="sd-iter-marker__trigger">{row.text}</span>
@@ -323,19 +352,19 @@ function ConversationRowView({
   }
   if (row.kind === 'tool_call') {
     return (
-      <div className={`tool-row tool-${(row.toolTag ?? '').toLowerCase()}`}>
+      <div className={`tool-row tool-${(row.toolTag ?? '').toLowerCase()}`} id={row.id} data-row-id={row.id}>
         <span className="tool-tag">{row.toolTag ?? 'tool'}</span>
         <span className="tool-label">{row.toolLabel ?? ''}</span>
         {row.toolDetail !== null && row.toolDetail !== '' && (
-          <span className="tool-detail"> {row.toolDetail}</span>
+          <span className="tool-detail">{row.toolDetail}</span>
         )}
+        <span className="tool-time">{offsetLabel(row.ts, stageOpenedAt)}</span>
       </div>
     );
   }
   if (row.kind === 'user') {
     return (
-      <div className="conv-user">
-        <span className="you-avatar" aria-hidden>YOU</span>
+      <div className="conv-user" id={row.id} data-row-id={row.id}>
         <div className="conv-md">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
         </div>
@@ -343,12 +372,21 @@ function ConversationRowView({
     );
   }
   return (
-    <div className="conv-agent">
+    <div className="conv-agent" id={row.id} data-row-id={row.id}>
       <div className="conv-md">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
       </div>
     </div>
   );
+}
+
+/** Elapsed offset from the stage open as {@code t+MM:SS}; blank if unknown. */
+function offsetLabel(ts: string, openedAt: string): string {
+  const d = Date.parse(ts) - Date.parse(openedAt);
+  if (!Number.isFinite(d) || d < 0) return '';
+  const total = Math.floor(d / 1000);
+  const m = Math.floor(total / 60);
+  return `t+${String(m).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
 /** A labelled metrics group; renders nothing when it has no present rows. */

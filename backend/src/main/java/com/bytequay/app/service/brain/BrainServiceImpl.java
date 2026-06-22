@@ -25,10 +25,12 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
+import com.bytequay.app.service.stage.PlanSeedWindow;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -59,19 +61,22 @@ public class BrainServiceImpl
     private final ThreadTurnScheduler scheduler;
     private final IdGenerator idGenerator;
     private final WorkModelResolver workModelResolver;
+    private final ObjectMapper mapper;
 
     public BrainServiceImpl(
             TaskStore taskStore,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             IdGenerator idGenerator,
-            WorkModelResolver workModelResolver)
+            WorkModelResolver workModelResolver,
+            ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Override
@@ -110,18 +115,27 @@ public class BrainServiceImpl
         }
         Thread brain = threadStore.findBrainThreadByTask(event.taskId())
                 .orElseGet(() -> createBrainThread(task));
+        // The trunk's discussion since the last task — what led to this cut —
+        // is the seed for planning; feed it to the brain so it plans with the
+        // full context, not just the one-line opening prompt.
+        String seed = PlanSeedWindow.seedTranscript(taskStore, threadStore, mapper, task);
         String turnId = scheduler.enqueueTurn(
-                brain, planningPrompt(event.taskId(), event.initialPrompt(), event.trunkPlan()),
+                brain, planningPrompt(event.taskId(), event.initialPrompt(), event.trunkPlan(), seed),
                 TurnInitiator.unattended("plan-kickoff"));
         log.debug("kicked off planning turn {} on brain thread {} for task {}",
                 turnId, brain.id(), event.taskId());
     }
 
-    private static String planningPrompt(String taskId, String initialPrompt, JsonNode trunkPlan)
+    private static String planningPrompt(
+            String taskId, String initialPrompt, JsonNode trunkPlan, String seedConversation)
     {
         String request = initialPrompt == null || initialPrompt.isBlank()
                 ? "(No opening prompt was given — infer the intent from the task and branch.)"
                 : initialPrompt.trim();
+        String seedNote = seedConversation == null || seedConversation.isBlank()
+                ? ""
+                : "\n\nThe trunk conversation that led to this task (your planning seed):\n\n"
+                        + seedConversation;
         String trunkNote = trunkPlan == null || trunkPlan.isNull() || trunkPlan.isMissingNode()
                 ? ""
                 : "\n\nA draft plan was handed off from the parent thread (already recorded on "
@@ -131,7 +145,7 @@ public class BrainServiceImpl
         return """
                 You are the planning agent for a new development task. The user's request:
 
-                %s%s
+                %s%s%s
 
                 Investigate the project as needed with your read-only introspection tools, \
                 then call record_plan(task_id='%s', plan={…}) with a structured plan: what you \
@@ -139,7 +153,7 @@ public class BrainServiceImpl
                 you intend to do (numbered steps, validation strategy, push strategy), and the \
                 risk / effort / value signals. Set status to "finalized" when the plan is ready \
                 for the user to review. Do NOT write code — the user approves the plan before \
-                any development starts.""".formatted(request, trunkNote, taskId);
+                any development starts.""".formatted(request, seedNote, trunkNote, taskId);
     }
 
     private Thread createBrainThread(Task task)

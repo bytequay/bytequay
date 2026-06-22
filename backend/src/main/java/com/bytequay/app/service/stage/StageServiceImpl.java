@@ -364,6 +364,17 @@ public class StageServiceImpl
             Map<String, String> stageNameIndex)
     {
         List<FeedEntry> entries = new ArrayList<>();
+        // The trunk and the dev agent share one thread (altitude switch). Up
+        // to the moment dev work begins — the first non-PLAN stage opening —
+        // the thread's agent side is the trunk's planning discussion; after
+        // it, the same thread carries the dev agent's implementation turns,
+        // which belong to the stage-detail log, not the high-level brain feed.
+        Instant devStartedAt = allStages.stream()
+                .filter(s -> s.type() != StageType.PLAN_STAGE)
+                .map(StageInstance::openedAt)
+                .filter(o -> o != null)
+                .min(Comparator.naturalOrder())
+                .orElse(null);
         for (StageEvent e : events) {
             brainFeedRow(e, stageTypes)
                     .ifPresent(row -> entries.add(new FeedEntry(e.eventAt(), row)));
@@ -387,7 +398,13 @@ public class StageServiceImpl
             }
             else {
                 // The thread's agent side is the trunk's planning discussion
-                // (distinct from the brain's own replies).
+                // (distinct from the brain's own replies) — but only before dev
+                // work starts. Once a non-plan stage opens, the same thread's
+                // agent turns are the dev worker's implementation transcript,
+                // which lives in the stage-detail log, not here.
+                if (devStartedAt != null && !m.ts().isBefore(devStartedAt)) {
+                    continue;
+                }
                 entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
                         m.id(), "TRUNK_MESSAGE", null, null,
                         m.ts().toString(), decodeText(m.contentJson()), null)));
@@ -603,9 +620,30 @@ public class StageServiceImpl
         List<TaskBrainViewData.PlanStep> steps = new ArrayList<>();
         JsonNode stepNodes = latest.path("intent").path("steps");
         if (stepNodes.isArray()) {
+            int index = 0;
             for (JsonNode s : stepNodes) {
-                steps.add(new TaskBrainViewData.PlanStep(
-                        s.path("ordinal").asInt(), s.path("action").asText("")));
+                index++;
+                // record_plan takes free-form JSON, so the brain emits steps as
+                // either {ordinal, action, …} objects or plain strings. Accept
+                // both, and fall back to a few common text keys so the step
+                // never renders as a blank numbered line when the text is just
+                // under a different name.
+                String action = s.isTextual()
+                        ? s.asText("")
+                        : firstNonBlank(
+                                s.path("action").asText(""),
+                                s.path("step").asText(""),
+                                s.path("description").asText(""),
+                                s.path("text").asText(""),
+                                s.path("summary").asText(""));
+                if (action.isBlank()) {
+                    continue;
+                }
+                // The brain often prefixes the action with its own ordinal
+                // ("1. edit X"); the rendered <ol> already numbers each step,
+                // so strip a leading "N." / "N)" to avoid double numbering.
+                action = action.replaceFirst("^\\s*\\d+[.)]\\s+", "");
+                steps.add(new TaskBrainViewData.PlanStep(s.path("ordinal").asInt(index), action));
             }
         }
         JsonNode signals = latest.path("signals");
@@ -779,6 +817,17 @@ public class StageServiceImpl
             return "";
         }
         return text.length() <= SCRUBBER_LABEL_MAX ? text : text.substring(0, SCRUBBER_LABEL_MAX) + "…";
+    }
+
+    /** First non-blank candidate, or "" when all are blank. */
+    private static String firstNonBlank(String... candidates)
+    {
+        for (String candidate : candidates) {
+            if (candidate != null && !candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return "";
     }
 
     // ── mappers + placeholders ──────────────────────────────────────────

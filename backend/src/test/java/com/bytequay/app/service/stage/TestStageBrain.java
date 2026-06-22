@@ -153,6 +153,31 @@ class TestStageBrain
                 .contains("How many pushes");
     }
 
+    @Test
+    void brainFeedShowsTrunkPlanningButNotDevImplementationTurns()
+    {
+        String taskId = seedTask();
+        String threadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        // Dev work begins when the DevelopmentStage opens; the same thread's
+        // agent turns flip from trunk planning to dev implementation here.
+        var dev = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant devAt = dev.openedAt();
+        appendBrainMsg(threadId, 1, "assistant", "Got it — cutting the task now.",
+                devAt.minusSeconds(120));
+        appendBrainMsg(threadId, 2, "assistant", "Now I'll make the six edits.",
+                devAt.plusSeconds(120));
+
+        List<String> trunkBodies = stageService.getBrain(taskId).brainFeed().stream()
+                .filter(r -> r.type().equals("TRUNK_MESSAGE"))
+                .map(BrainFeedRow::body)
+                .toList();
+
+        // The pre-dev planning turn shows; the post-open dev turn is excluded
+        // (it lives in the stage-detail log, not the high-level brain feed).
+        assertThat(trunkBodies).contains("Got it — cutting the task now.");
+        assertThat(trunkBodies).doesNotContain("Now I'll make the six edits.");
+    }
+
     private void appendBrainMsg(String threadId, long seq, String role, String text, Instant ts)
     {
         String contentJson = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
@@ -376,6 +401,32 @@ class TestStageBrain
         assertThat(card.steps()).singleElement()
                 .satisfies(s -> assertThat(s.action()).isEqualTo("edit RetryConfig"));
         assertThat(card.signals().riskLevel()).isEqualTo("low");
+    }
+
+    @Test
+    void rightRailPlanCardAcceptsStringStepsAndAlternateKeysAndDropsBlanks()
+    {
+        // record_plan is free-form JSON, so the brain may emit steps as plain
+        // strings or objects keyed by something other than 'action'. The card
+        // must surface the text rather than render blank numbered lines, and a
+        // step with no recoverable text is dropped entirely.
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        List<Object> steps = List.of(
+                "1. plain string step",
+                Map.of("ordinal", 2, "description", "keyed by description"),
+                Map.of("ordinal", 3));
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
+                "id", "rev-1",
+                "status", "finalized",
+                "source", "brain",
+                "intent", Map.of("summary", "do the thing", "steps", steps)));
+
+        TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
+
+        assertThat(card.steps()).hasSize(2);
+        assertThat(card.steps().get(0).action()).isEqualTo("plain string step");
+        assertThat(card.steps().get(1).action()).isEqualTo("keyed by description");
     }
 
     @Test

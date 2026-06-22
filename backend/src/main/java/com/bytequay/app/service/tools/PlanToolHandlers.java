@@ -74,8 +74,10 @@ public class PlanToolHandlers
             String taskId,
             @ToolParam(description = "The structured PlanResult object: status, understanding "
                     + "(summary, affectedComponents, existingPatterns, constraints), intent "
-                    + "(summary, numbered steps, validationStrategy, pushStrategy), and signals "
-                    + "(riskLevel, riskNotes, componentsCount, estimatedComplexity, expectedGain). "
+                    + "(summary; steps — an array of objects each {ordinal, action, files, "
+                    + "rationale} where action is the step text, not a bare string; "
+                    + "validationStrategy, pushStrategy), and signals (riskLevel, riskNotes, "
+                    + "componentsCount, estimatedComplexity, expectedGain). "
                     + "Set status='finalized' when ready for the user to approve.",
                     required = true)
             JsonNode plan) {}

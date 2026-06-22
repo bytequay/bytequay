@@ -123,7 +123,7 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
   return (
     <div className="stage-detail">
       {/* ── Breadcrumb top bar ─────────────────────────────────────── */}
-      <header className="sd-breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #e2e8f0' }}>
+      <header className="sd-breadcrumb">
         <button type="button" onClick={onBack} aria-label="Back to brain view">← Brain</button>
         <span className="sd-task-chip">● TASK {task.taskNumber}</span>
         <span className="sd-stage-chip" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 6 }}>
@@ -141,20 +141,21 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
           </a>
         )}
         <span className="sd-agent-pill">{task.agentRuntime}{task.agentModel ? ` · ${task.agentModel}` : ''}</span>
-        <span className="sd-iter-pill">
+        <span className={`sd-iter-status sd-iter-status--${stage.state.toLowerCase()}`}>
           {stage.currentIterationNumber !== null
-            ? `iter #${stage.currentIterationNumber}`
-            : `${stage.iterationCount} iterations`}
+            ? `ITERATION #${stage.currentIterationNumber} · ${stage.state}`
+            : `${stage.iterationCount} ITERATION${stage.iterationCount === 1 ? '' : 'S'} · ${stage.state}`}
         </span>
       </header>
 
       {/* ── Iteration nav strip ────────────────────────────────────── */}
-      <nav className="iter-strip" aria-label="Iterations" style={{ display: 'flex', gap: 6, padding: '6px 12px', borderBottom: '1px solid #e2e8f0' }}>
+      <nav className="iter-strip" aria-label="Iterations">
+        <span className="iter-strip-lbl">Iterations</span>
         {iterations.map(it => (
           <button
             key={it.id}
             type="button"
-            className="iter-pill"
+            className={`iter-pill${it.endedAt === null ? ' iter-pill--running' : ' iter-pill--done'}`}
             onClick={() => jumpToIteration(it.iterationNumber)}
             aria-label={`Jump to iteration ${it.iterationNumber}`}
           >
@@ -162,12 +163,15 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
           </button>
         ))}
         {iterations.length === 0 && <span className="iter-empty">No iterations yet.</span>}
+        <span className="iter-strip-totals">
+          {stage.metrics.wallTimeSec !== undefined && <><b>{stage.metrics.wallTimeSec}s</b> wall</>}
+          {stage.metrics.toolCallsCount !== undefined && <> · <b>{stage.metrics.toolCallsCount}</b> tool calls</>}
+          {stage.metrics.turnsCount !== undefined && <> · <b>{stage.metrics.turnsCount}</b> turns</>}
+          {stage.metrics.costCents !== undefined && <> · <b>{stage.metrics.costCents}¢</b></>}
+        </span>
       </nav>
 
-      <div
-        className="stage-body"
-        style={{ display: 'grid', gridTemplateColumns: '252px minmax(0, 1fr) 308px', gap: 12 }}
-      >
+      <div className="stage-body">
         <LeftRail
           allStages={allStages}
           subStages={subStages}
@@ -219,7 +223,7 @@ function LeftRail({
   return (
     <aside className="left-rail" aria-label="Stage navigator">
       <section className="lr-section">
-        <h3>Stages</h3>
+        <h3>Stages <span className="lr-count">{allStages.length}</span></h3>
         {allStages.map(s => (
           <button
             key={s.id}
@@ -234,7 +238,7 @@ function LeftRail({
       </section>
       {subStages.length > 0 && (
         <section className="lr-section">
-          <h3>Sub-stages</h3>
+          <h3>Sub-stages <span className="lr-count">{subStages.length} panels</span></h3>
           {subStages.map(s => (
             <button key={s.id} type="button" className="stage-nav-chip" onClick={() => onOpenStage(s.id)}>
               {stageLabel(s.type)}
@@ -244,7 +248,7 @@ function LeftRail({
       )}
 
       <section className="realtime-ci" aria-label="Realtime CI">
-        <h3>Realtime CI</h3>
+        <h3>Realtime CI{realtimeCi !== null && <span className="lr-badge">polling</span>}</h3>
         {realtimeCi === null
           ? <p className="muted">No linked PR.</p>
           : (
@@ -260,7 +264,7 @@ function LeftRail({
       </section>
 
       <section className="ci-fix-history" aria-label="CI fix history">
-        <h3>CI fix history</h3>
+        <h3>CI fix history{ciFixHistory.length > 0 && <span className="lr-count">{ciFixHistory.length} fixes</span>}</h3>
         {ciFixHistory.length === 0
           ? <p className="muted">—</p>
           : ciFixHistory.map(f => (
@@ -367,62 +371,111 @@ function LogRow({ row }: { row: StageLogRow }) {
   return null;
 }
 
+/** A labelled metrics group; renders nothing when it has no present rows. */
+function MetricGroup({ title, rows }: { title: string; rows: Array<[string, string]> }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="metric-group">
+      <div className="metric-group-h">{title}</div>
+      {rows.map(([label, value]) => (
+        <div key={label} className="metric-row">
+          <span className="metric-label">{label}</span>
+          <span className="metric-value">{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Compact token count (122400 → "122.4k"). */
+function tokensShort(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
 function RightRail({ stage, context }: { stage: StageDetailData['stage']; context: StageDetailData['context'] }) {
   const m = stage.metrics;
   const budget = stage.config.autoPushBudget;
-  const metricRows: Array<[string, string]> = [];
-  const push = (label: string, value: number | undefined, suffix = '') => {
-    if (value !== undefined) metricRows.push([label, `${value}${suffix}`]);
-  };
-  push('Wall time', m.wallTimeSec, 's');
-  push('Active time', m.activeTimeSec, 's');
-  push('Waiting on you', m.waitingUserTimeSec, 's');
-  push('Iterations', m.loopIterations);
-  push('Tool calls', m.toolCallsCount);
-  push('Turns', m.turnsCount);
-  push('Messages', m.messagesCount);
-  push('Interventions', m.interventionsCount);
-  push('Backflows', m.backflowsCount);
-  push('Tokens', m.tokensCount);
-  push('Cost', m.costCents, '¢');
-  metricRows.push(['Panels', String(m.panelInvocationsCount)]);
+  const rows = (...entries: Array<[string, number | undefined, string?]>): Array<[string, string]> =>
+    entries.filter(([, v]) => v !== undefined).map(([l, v, s = '']) => [l, `${v}${s}`]);
+
+  const opsRows: Array<[string, string]> = [];
   if (m.operationsCount !== undefined) {
-    const ops = Object.entries(m.operationsCount).map(([k, n]) => `${k} ${n}`).join(' · ');
-    if (ops.length > 0) metricRows.push(['Operations', ops]);
+    const total = Object.values(m.operationsCount).reduce((a, b) => a + b, 0);
+    opsRows.push(['Operations', String(total)]);
+    for (const [kind, n] of Object.entries(m.operationsCount)) opsRows.push([`· ${kind}`, String(n)]);
   }
+  if (m.loopIterations !== undefined) opsRows.push(['Loop iterations', String(m.loopIterations)]);
+
+  const pct = context.tokensLimit > 0
+    ? Math.round((context.tokensUsed / context.tokensLimit) * 100) : 0;
 
   return (
     <aside className="right-rail" aria-label="Stage details">
       <section className="stage-identity-card">
         <h3>{stageLabel(stage.type)}</h3>
-        <div className="si-state">{stage.state}</div>
-        <div className="si-times">
-          opened {stage.openedAt}{stage.closedAt !== null ? ` · closed ${stage.closedAt}` : ''}
+        <div className={`si-state si-state--${stage.state.toLowerCase()}`}>{stage.state}</div>
+        <div className="si-row"><span>Opened</span><span className="si-mono">{stage.openedAt}</span></div>
+        {stage.closedAt !== null && (
+          <div className="si-row"><span>Closed</span><span className="si-mono">{stage.closedAt}</span></div>
+        )}
+        {stage.currentIterationNumber !== null && (
+          <div className="si-row">
+            <span>Iteration</span><span className="si-mono">{stage.currentIterationNumber} / loop</span>
+          </div>
+        )}
+        <div className="si-row">
+          <span>internal_review</span>
+          <span className="si-mono">{stage.config.internalReviewEnabled ? 'ON' : 'OFF'}</span>
         </div>
-        {m.terminalState !== undefined && <div className="si-terminal">{m.terminalState}</div>}
+        {m.terminalState !== undefined && (
+          <div className="si-row"><span>Terminal state</span><span className="si-mono">{m.terminalState}</span></div>
+        )}
       </section>
 
       <section className="metrics-card" aria-label="Stage metrics">
-        <h3>Metrics</h3>
-        {metricRows.map(([label, value]) => (
-          <div key={label} className="metric-row">
-            <span className="metric-label">{label}</span>
-            <span className="metric-value">{value}</span>
-          </div>
-        ))}
+        <h3>Metrics <span className="metrics-sub">this stage</span></h3>
+        <MetricGroup title="Time" rows={rows(
+          ['Wall time', m.wallTimeSec, 's'],
+          ['Active time', m.activeTimeSec, 's'],
+          ['Waiting on you', m.waitingUserTimeSec, 's'],
+        )} />
+        <MetricGroup title="Operations" rows={opsRows} />
+        <MetricGroup title="Agent work" rows={rows(
+          ['Tool calls', m.toolCallsCount],
+          ['Turns', m.turnsCount],
+          ['Messages', m.messagesCount],
+          ['Tokens', m.tokensCount],
+          ['Cost', m.costCents, '¢'],
+        )} />
+        <MetricGroup title="Health" rows={[
+          ...rows(['Interventions', m.interventionsCount], ['Backflows', m.backflowsCount]),
+          ['Panels', String(m.panelInvocationsCount)],
+        ]} />
       </section>
 
       {budget !== undefined && budget !== null && (
         <section className="budget-card" aria-label="Auto-push budget">
           <h3>Auto-push budget</h3>
-          <div className="budget-pips">{budget.used} / {budget.limit}</div>
+          <div className="budget-pips" aria-hidden>
+            {Array.from({ length: budget.limit }, (_, i) => (
+              <span key={i} className={i < budget.used ? 'pip pip--used' : 'pip'} />
+            ))}
+          </div>
+          <div className="budget-label">
+            {budget.used} / {budget.limit}
+            {budget.used >= budget.limit && <span className="budget-exhausted"> · EXHAUSTED</span>}
+          </div>
         </section>
       )}
 
       <section className="context-card" aria-label="Context window">
-        <h3>Context</h3>
-        <div className={`context-band context-${context.safeBand}`}>
-          {context.tokensUsed} / {context.tokensLimit} tokens
+        <h3>Context <span className="metrics-sub">dev agent</span></h3>
+        <div className={`context-pct context-${context.safeBand}`}>{pct}% · {context.safeBand}</div>
+        <div className="context-bar" aria-hidden>
+          <span className={`context-bar-fill context-${context.safeBand}`} style={{ width: `${pct}%` }} />
+        </div>
+        <div className="context-nums">
+          {tokensShort(context.tokensUsed)} / {tokensShort(context.tokensLimit)} tokens
         </div>
       </section>
     </aside>

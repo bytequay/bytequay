@@ -117,7 +117,7 @@ public class StageServiceImpl
         List<ThreadMessage> brainMessages = brainMessages(taskId);
         // Steering: user messages on the Task's dev thread, attributed to a
         // stage by time window (see the window-based interventions metric).
-        List<ThreadMessage> steeringMessages = steeringMessages(task);
+        List<ThreadMessage> threadMessages = threadWindowMessages(task);
         // Index of stage display names → id for resolving drill-in chips.
         Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
@@ -129,17 +129,18 @@ public class StageServiceImpl
                 topLevel,
                 subStages,
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
-                        brainMessages, steeringMessages, allStages, stageNameIndex),
+                        brainMessages, threadMessages, allStages, stageNameIndex),
                 buildRightRail(task, allStages, cost),
                 buildScrubbers(allEvents, brainMessages));
     }
 
-    /** User messages on the Task's thread — steering the dev agent (or the
-     *  trunk discussion that led here, when the task's thread is the trunk).
-     *  Scoped to this task's slice of the conversation: from the previous
-     *  task's creation onward, so the brain feed shows only "since the last
-     *  task," not the whole multi-task thread history. Oldest-first. */
-    private List<ThreadMessage> steeringMessages(Task task)
+    /** The Task's thread conversation in this task's window — both the user's
+     *  messages and the agent's replies (the trunk discussion that led here,
+     *  when the task's thread is the trunk), so the brain feed shows the full
+     *  exchange, not just one side. Scoped from the previous task's creation
+     *  onward so it doesn't replay the whole multi-task thread history.
+     *  Oldest-first. */
+    private List<ThreadMessage> threadWindowMessages(Task task)
     {
         if (task.threadId() == null) {
             return List.of();
@@ -147,7 +148,7 @@ public class StageServiceImpl
         Instant windowStart = previousTaskBoundary(task);
         return threadStore.listMessages(task.threadId()).stream()
                 .filter(m -> "text".equals(m.type()))
-                .filter(m -> "user".equals(m.role()))
+                .filter(m -> "user".equals(m.role()) || "assistant".equals(m.role()))
                 .filter(m -> !m.ts().isBefore(windowStart))
                 .toList();
     }
@@ -358,7 +359,7 @@ public class StageServiceImpl
             Map<UUID, StageType> stageTypes,
             List<ThreadTurnEvent> summaries,
             List<ThreadMessage> brainMessages,
-            List<ThreadMessage> steeringMessages,
+            List<ThreadMessage> threadMessages,
             List<StageInstance> allStages,
             Map<String, String> stageNameIndex)
     {
@@ -373,12 +374,22 @@ public class StageServiceImpl
         for (ThreadMessage m : brainMessages) {
             entries.add(new FeedEntry(m.ts(), brainMessageRow(m, stageNameIndex)));
         }
-        for (ThreadMessage m : steeringMessages) {
-            String stageId = stageIdForTs(m.ts(), allStages);
-            entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
-                    m.id(), "USER_MESSAGE", stageId,
-                    stageId == null ? null : stageTypes.get(UUID.fromString(stageId)).name(),
-                    m.ts().toString(), decodeText(m.contentJson()), stageId)));
+        for (ThreadMessage m : threadMessages) {
+            // The user's messages are the YOU bubble (attributed to the stage
+            // whose window holds them); the agent's replies render as an agent
+            // bubble so the brain feed shows both halves of the conversation.
+            if ("user".equals(m.role())) {
+                String stageId = stageIdForTs(m.ts(), allStages);
+                entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
+                        m.id(), "USER_MESSAGE", stageId,
+                        stageId == null ? null : stageTypes.get(UUID.fromString(stageId)).name(),
+                        m.ts().toString(), decodeText(m.contentJson()), stageId)));
+            }
+            else {
+                entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
+                        m.id(), "BRAIN_AGENT_RESPONSE", null, null,
+                        m.ts().toString(), decodeText(m.contentJson()), null)));
+            }
         }
         entries.sort(Comparator.comparing(FeedEntry::ts));
         return entries.stream().map(FeedEntry::row).toList();

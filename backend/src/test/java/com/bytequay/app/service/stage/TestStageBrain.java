@@ -247,6 +247,29 @@ class TestStageBrain
     }
 
     @Test
+    void brainFeedShowsBothSidesOfTheThreadConversation()
+    {
+        String taskId = seedTask();
+        String thread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        appendBrainMsg(thread, 1, "user", "what should we refactor?",
+                Instant.parse("2026-06-20T09:05:00Z"));
+        appendBrainMsg(thread, 2, "assistant", "I'd consolidate the duplicate helpers",
+                Instant.parse("2026-06-20T09:06:00Z"));
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        // The user's message is a YOU bubble; the agent's reply is an agent row.
+        assertThat(brain.brainFeed()).anySatisfy(r -> {
+            assertThat(r.type()).isEqualTo("USER_MESSAGE");
+            assertThat(r.body()).contains("what should we refactor?");
+        });
+        assertThat(brain.brainFeed()).anySatisfy(r -> {
+            assertThat(r.type()).isEqualTo("BRAIN_AGENT_RESPONSE");
+            assertThat(r.body()).contains("consolidate the duplicate helpers");
+        });
+    }
+
+    @Test
     void brainFeedExcludesTrunkMessagesBeforeThePreviousTask()
     {
         Instant t0 = Instant.parse("2026-06-20T08:00:00Z");   // before task 1

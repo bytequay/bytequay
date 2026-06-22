@@ -213,6 +213,8 @@ export default function TaskBrainView({
             stageLabels={stageLabels}
             activeStageIds={activeStageIds}
             nowMs={clock}
+            taskNumber={task.taskNumber}
+            taskBranch={task.branch}
             onOpenStage={openStage}
             onSubmitMessage={submitMessage}
           />

@@ -12,12 +12,17 @@
  * limitations under the License.
  */
 import { commitSubject, formatShortSha } from './commitDisplay';
+import { formatRelativeTime } from '../pr/utils';
 
 export type CommitsColumnCommit = {
   sha: string;
   /** First line of the commit message (caller passes the raw message; we
    *  run it through commitSubject for display). */
   subject: string;
+  /** Author login (preferred) or name, shown in the meta line. */
+  author?: string | null;
+  /** ISO authored timestamp, rendered as a relative time. */
+  authoredAt?: string | null;
 };
 
 type Props = {
@@ -120,8 +125,12 @@ export function CommitsColumn({
                 {isSel ? '✓' : ''}
               </span>
               <span className="diff-viewer__commit-text">
-                <span className="diff-viewer__commit-sha">{formatShortSha(c.sha)}</span>
                 <span className="diff-viewer__commit-subject">{commitSubject(c.subject)}</span>
+                <span className="diff-viewer__commit-meta">
+                  <span className="diff-viewer__commit-sha">{formatShortSha(c.sha)}</span>
+                  {c.author && <span className="diff-viewer__commit-author"> · {c.author}</span>}
+                  {c.authoredAt && <span> · {formatRelativeTime(c.authoredAt)}</span>}
+                </span>
               </span>
             </button>
           );

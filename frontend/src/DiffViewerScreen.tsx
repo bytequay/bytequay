@@ -63,7 +63,10 @@ const AI_RAIL_WIDTH = 36;
 // Commits column: a fixed-width first lane (not user-resizable — only the
 // files↔diff split has a handle). Folds to a slim rail like the files pane.
 const COMMITS_COLLAPSED_KEY = 'settings:diff-commits-collapsed';
-const COMMITS_WIDTH = 208;
+const COMMITS_WIDTH_KEY = 'settings:diff-commits-width';
+const COMMITS_WIDTH_MIN = 160;
+const COMMITS_WIDTH_MAX = 420;
+const COMMITS_WIDTH_DEFAULT = 208;
 const COMMITS_RAIL_WIDTH = 32;
 
 function loadWidth(): number {
@@ -71,6 +74,13 @@ function loadWidth(): number {
   const n = raw ? parseInt(raw, 10) : NaN;
   if (!Number.isFinite(n)) return FILES_WIDTH_DEFAULT;
   return Math.max(FILES_WIDTH_MIN, Math.min(FILES_WIDTH_MAX, n));
+}
+
+function loadCommitsWidth(): number {
+  const raw = localStorage.getItem(COMMITS_WIDTH_KEY);
+  const n = raw ? parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(n)) return COMMITS_WIDTH_DEFAULT;
+  return Math.max(COMMITS_WIDTH_MIN, Math.min(COMMITS_WIDTH_MAX, n));
 }
 
 function loadMode(): FilesMode {
@@ -2114,6 +2124,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
   // '0' on expand and '1' on collapse). No prior choice ⇒ collapsed.
   const [filesCollapsed, setFilesCollapsed] = useState<boolean>(() => localStorage.getItem(FILES_COLLAPSED_KEY) !== '0');
   const [commitsCollapsed, setCommitsCollapsed] = useState<boolean>(() => localStorage.getItem(COMMITS_COLLAPSED_KEY) === '1');
+  const [commitsWidth, setCommitsWidth] = useState<number>(loadCommitsWidth);
   const [aiCollapsed, setAiCollapsed] = useState<boolean>(() => localStorage.getItem(AI_COLLAPSED_KEY) === '1');
   const [aiWidth, setAiWidth] = useState<number>(loadAiWidth);
   const [aiDraft, setAiDraft] = useState<AiReviewDraftDto | null>(null);
@@ -2319,10 +2330,27 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
       return next;
     });
 
+  // Width of the commits lane to the left of the files column — the files
+  // handle measures from the body's left edge, so the commits lane has to be
+  // subtracted out or files would be over-sized by that amount.
+  // Includes the 5px resize-handle track that follows the expanded commits
+  // column, so the files handle's left-edge math stays exact.
+  const commitsLaneWidth = (commits?.length ?? 0) === 0
+    ? 0
+    : (commitsCollapsed ? COMMITS_RAIL_WIDTH : commitsWidth + 5);
+
+  const handleCommitsResize = (clientX: number) => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = Math.max(COMMITS_WIDTH_MIN, Math.min(COMMITS_WIDTH_MAX, clientX - rect.left));
+    setCommitsWidth(next);
+    localStorage.setItem(COMMITS_WIDTH_KEY, String(next));
+  };
+
   const handleFilesResize = (clientX: number) => {
     const rect = bodyRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const next = Math.max(FILES_WIDTH_MIN, Math.min(FILES_WIDTH_MAX, clientX - rect.left));
+    const next = Math.max(FILES_WIDTH_MIN, Math.min(FILES_WIDTH_MAX, clientX - rect.left - commitsLaneWidth));
     setFilesWidth(next);
     localStorage.setItem(FILES_WIDTH_KEY, String(next));
   };
@@ -2588,7 +2616,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
           // disappears (nothing to resize). The commits lane is fixed-width,
           // so it never carries a handle. Omitted entirely when no commits.
           gridTemplateColumns: [
-            hasCommits ? (commitsCollapsed ? `${COMMITS_RAIL_WIDTH}px` : `${COMMITS_WIDTH}px`) : null,
+            hasCommits ? (commitsCollapsed ? `${COMMITS_RAIL_WIDTH}px` : `${commitsWidth}px 5px`) : null,
             filesCollapsed ? `${FILES_RAIL_WIDTH}px` : `${filesWidth}px 5px`,
             'minmax(0, 1fr)',
             aiCollapsed ? `${AI_RAIL_WIDTH}px` : `5px ${aiWidth}px`,
@@ -2597,7 +2625,12 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
       >
         {hasCommits && (
           <CommitsColumn
-            commits={(commits ?? []).map(c => ({ sha: c.sha, subject: c.message ?? '' }))}
+            commits={(commits ?? []).map(c => ({
+              sha: c.sha,
+              subject: c.message ?? '',
+              author: c.authorLogin ?? c.authorName,
+              authoredAt: c.authoredAt,
+            }))}
             selected={selectedCommits}
             onSelectCommit={selectCommit}
             onSelectAll={clearCommitSelection}
@@ -2607,6 +2640,9 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
             collapsed={commitsCollapsed}
             onToggleCollapsed={toggleCommitsCollapsed}
           />
+        )}
+        {hasCommits && !commitsCollapsed && (
+          <ResizeHandle onResize={handleCommitsResize} ariaLabel="Resize commits panel" />
         )}
 
         {filesCollapsed ? (

@@ -484,12 +484,19 @@ public class AgentScheduler
         boolean failed = unwrapped != null
                 || (session != null && session.status() == ThreadStatus.ERRORED);
         Instant now = Instant.now();
+        // Prefer the thrown exception's message; when the session failed
+        // without throwing (a subprocess that exited non-zero and went
+        // ERRORED internally), fall back to its retained failure detail so
+        // the turn records the real cause instead of an empty message.
+        String errorMessage = unwrapped != null
+                ? unwrapped.getMessage()
+                : (failed && session != null ? session.lastErrorDetail() : null);
         ThreadTurn finished = updateTurn(
                 runningTurn,
                 failed ? FAILED : COMPLETED,
                 runningTurn.startedAt(),
                 now,
-                unwrapped == null ? null : unwrapped.getMessage());
+                errorMessage);
         turns.saveTurn(finished);
         appendEvent(finished, failed ? TURN_FAILED : TURN_FINISHED, finished.errorMessage());
 

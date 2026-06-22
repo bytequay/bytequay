@@ -71,6 +71,11 @@ type Props = {
   /** Stage ids currently ACTIVE — used to flag a row as live. */
   activeStageIds: Set<string>;
   nowMs: number;
+  /** Current task's number — labels the "task started" marker that
+   *  delineates this task's feed from any carried-over context. */
+  taskNumber: number;
+  /** Current task's branch — shown on the marker. */
+  taskBranch: string;
   onOpenStage: (stageId: string) => void;
   onSubmitMessage: (text: string) => void;
 };
@@ -134,11 +139,17 @@ function lastRowIdByStage(feed: BrainFeedRow[]): Map<string, string> {
 }
 
 export function BrainFeedColumn({
-  feed, scrubbers, stageLabels, activeStageIds, nowMs, onOpenStage, onSubmitMessage,
+  feed, scrubbers, stageLabels, activeStageIds, nowMs, taskNumber, taskBranch,
+  onOpenStage, onSubmitMessage,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pulsingId, setPulsingId] = useState<string | null>(null);
   const pulseTimer = useRef<number | undefined>(undefined);
+  // The brain window carries the previous task's trailing recap in as
+  // lead-in context. Everything before this task's first user message is
+  // that carry-over; fold it (collapsed by default) behind a header, then
+  // a marker delineates where this task actually begins.
+  const [carriedExpanded, setCarriedExpanded] = useState(false);
 
   const [query, setQuery] = useState('');
   const [stageType, setStageType] = useState<StageType | 'all'>('all');
@@ -186,17 +197,33 @@ export function BrainFeedColumn({
     pulseTimer.current = window.setTimeout(() => setPulsingId(null), 1500);
   }, []);
 
-  const lastByStage = lastRowIdByStage(filtered);
+  // Split off the carried-over previous-task recap: the leading
+  // stage-less trunk messages before this task's first user message. The
+  // recap is trunk chatter (stageId null); this task's own stage events
+  // always come after its first user message, so a leading row that
+  // carries a stageId means there's no clean recap to fold. Only while
+  // unfiltered — a search/filter shows flat results, where a fold confuses.
+  const { carriedOver, mainRows } = useMemo(() => {
+    const none = { carriedOver: [] as BrainFeedRow[], mainRows: filtered };
+    if (filterActive) return none;
+    const boundary = filtered.findIndex(r => r.type === 'USER_MESSAGE');
+    if (boundary <= 0) return none;
+    const lead = filtered.slice(0, boundary);
+    if (!lead.every(r => r.stageId === null)) return none;
+    return { carriedOver: lead, mainRows: filtered.slice(boundary) };
+  }, [filtered, filterActive]);
+
+  const lastByStage = lastRowIdByStage(mainRows);
   const closedStageIds = useMemo(() => {
     const closed = new Set<string>();
-    for (const row of filtered) {
+    for (const row of mainRows) {
       if (row.type === 'STAGE_CLOSED' && row.stageId !== null) closed.add(row.stageId);
     }
     return closed;
-  }, [filtered]);
+  }, [mainRows]);
   const items = useMemo(
-    () => groupFolds(filtered, closedStageIds, expanded),
-    [filtered, closedStageIds, expanded]);
+    () => groupFolds(mainRows, closedStageIds, expanded),
+    [mainRows, closedStageIds, expanded]);
 
   return (
     <main className="brain">
@@ -228,6 +255,35 @@ export function BrainFeedColumn({
       <div className="scroll" ref={scrollRef}>
         {filterActive && filtered.length === 0 && (
           <div className="brain-filter__empty">No feed entries match the filter.</div>
+        )}
+        {carriedOver.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="stage-fold carried-fold"
+              aria-expanded={carriedExpanded}
+              onClick={() => setCarriedExpanded(v => !v)}
+            >
+              {carriedExpanded ? '▴ Hide' : '▸ Show'} carried-over context from the previous task
+              {' · '}{carriedOver.length} message{carriedOver.length === 1 ? '' : 's'}
+            </button>
+            {carriedExpanded && carriedOver.map(row => (
+              <EventRow
+                key={row.id}
+                row={row}
+                stageLabel={row.stageId !== null ? stageLabels.get(row.stageId) ?? null : null}
+                nowMs={nowMs}
+                live={false}
+                pulsing={pulsingId === row.id}
+                onOpenStage={onOpenStage}
+              />
+            ))}
+            <div className="task-boundary" role="separator">
+              <span className="ln" />
+              <span className="task-boundary__lbl">◆ Task {taskNumber} started · {taskBranch}</span>
+              <span className="ln" />
+            </div>
+          </>
         )}
         {(() => {
           let prevTs: number | null = null;

@@ -34,19 +34,50 @@ const FEED: BrainFeedRow[] = [
   row({ id: 'r3', type: 'STAGE_CLOSED', body: 'closed' }),
 ];
 
-function renderColumn() {
+function renderColumn(feed: BrainFeedRow[] = FEED) {
   return render(
     <BrainFeedColumn
-      feed={FEED}
+      feed={feed}
       scrubbers={{ stageEvents: [], userMessages: [] }}
       stageLabels={new Map([['s1', 'CiFixingStage']])}
       activeStageIds={new Set()}
       nowMs={Date.parse('2026-06-21T10:05:00Z')}
+      taskNumber={2}
+      taskBranch="dev/foo"
       onOpenStage={() => {}}
       onSubmitMessage={() => {}}
     />,
   );
 }
+
+// A previous task's trunk recap (stage-less) carried in ahead of this
+// task's first user message.
+const CARRIED: BrainFeedRow[] = [
+  row({ id: 'p1', type: 'TRUNK_MESSAGE', stageId: null, stageType: null, body: 'previous task recap' }),
+  row({ id: 'u1', type: 'USER_MESSAGE', stageId: null, stageType: null,
+    ts: '2026-06-21T10:01:00Z', body: 'new task request' }),
+  row({ id: 't1', type: 'TRUNK_MESSAGE', stageId: null, stageType: null,
+    ts: '2026-06-21T10:01:30Z', body: 'planning this task' }),
+];
+
+describe('BrainFeedColumn carried-over context', () => {
+  it('folds the previous-task recap behind a header and marks the task start', () => {
+    renderColumn(CARRIED);
+    // The recap is hidden by default behind the carried-over header.
+    expect(screen.queryByText('previous task recap')).toBeNull();
+    expect(screen.getByText(/carried-over context from the previous task/)).toBeTruthy();
+    // The task-start marker delineates this task's own conversation.
+    expect(screen.getByText(/Task 2 started · dev\/foo/)).toBeTruthy();
+    expect(screen.getByText('new task request')).toBeTruthy();
+    expect(screen.getByText('planning this task')).toBeTruthy();
+  });
+
+  it('expands the recap on click', () => {
+    renderColumn(CARRIED);
+    fireEvent.click(screen.getByText(/carried-over context from the previous task/));
+    expect(screen.getByText('previous task recap')).toBeTruthy();
+  });
+});
 
 describe('BrainFeedColumn closed-stage fold', () => {
   it('folds a closed stage chatter behind a bar, keeping boundary events visible', () => {

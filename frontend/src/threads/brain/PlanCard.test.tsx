@@ -90,6 +90,15 @@ describe('PlanCard', () => {
     expect(onResolveFollowup).toHaveBeenCalledWith('fu-1', 'dismissed');
   });
 
+  it('surfaces a planning failure in an alert banner', () => {
+    render(
+      <PlanCard plan={plan({ state: 'draft', error: 'claude-code exited with code 1' })}
+        onApprove={noop} onRequestChanges={noop} onResolveFollowup={noop} />,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('claude-code exited with code 1');
+    expect(screen.getByText(/Planning didn't complete/)).toBeTruthy();
+  });
+
   it('addressed/dismissed follow-ups are not shown', () => {
     const locked = plan({
       state: 'locked',

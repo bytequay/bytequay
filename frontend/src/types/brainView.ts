@@ -125,6 +125,7 @@ export type PlanCardDto = {
   signals: PlanCardSignals;
   revisionCount: number;                // number of PLAN_RECORDED revisions
   followups: PlanFollowupDto[];         // dev-agent notes (locked state)
+  error?: string | null;                // set when the latest planning turn failed
 };
 
 export type ContextWindowDto = {

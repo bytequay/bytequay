@@ -116,7 +116,10 @@ public record TaskBrainViewData(
             String pushStrategy,
             PlanSignals signals,
             int revisionCount,
-            List<PlanFollowup> followups)
+            List<PlanFollowup> followups,
+            /** Set when the latest planning turn failed before recording a
+             *  plan — surfaced on the card instead of a silent empty draft. */
+            String error)
     {
     }
 

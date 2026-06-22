@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PlanCardDto } from '../../types/brainView';
 import { PlanCard } from './PlanCard';
@@ -97,6 +97,28 @@ describe('PlanCard', () => {
     );
     expect(screen.getByRole('alert').textContent).toContain('claude-code exited with code 1');
     expect(screen.getByText(/Planning didn't complete/)).toBeTruthy();
+  });
+
+  it('renders plan prose as markdown', () => {
+    const { container } = render(
+      <PlanCard plan={plan({ understandingSummary: 'Bump the **retry** default' })}
+        onApprove={noop} onRequestChanges={noop} onResolveFollowup={noop} />,
+    );
+    expect(container.querySelector('strong')?.textContent).toBe('retry');
+  });
+
+  it('opens a centered zoom view of the full plan and closes it', () => {
+    render(
+      <PlanCard plan={plan()} onApprove={noop} onRequestChanges={noop} onResolveFollowup={noop} />,
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'View full plan' }));
+    const dialog = screen.getByRole('dialog', { name: 'Full plan' });
+    expect(within(dialog).getByText('Understanding')).toBeTruthy();
+    expect(within(dialog).getByText('Intent')).toBeTruthy();
+    expect(within(dialog).getByText('Strategy')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('addressed/dismissed follow-ups are not shown', () => {

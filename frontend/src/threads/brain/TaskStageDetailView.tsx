@@ -19,6 +19,7 @@ import type {
 } from '../../types/brainView';
 import type { StageDto, StageType } from '../../types/brainView';
 import { ConversationScrubber } from './ConversationScrubber';
+import { relativeShort } from './format';
 import { useStageDetailData } from './useStageDetailData';
 
 type Props = {
@@ -134,6 +135,7 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
 
   const { task, stage, allStages, subStages, iterations, conversation, realtimeCi, ciFixHistory, context } = data;
   const accent = stageAccent(stage.type);
+  const nowMs = Date.now();
 
   const jumpToIteration = (n: number) => {
     bandRefs.current.get(n)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -220,7 +222,7 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
                 key={row.id}
                 row={row}
                 accent={accent}
-                stageOpenedAt={stage.openedAt}
+                nowMs={nowMs}
                 registerRef={row.kind === 'iteration_marker' && row.iterationNumber !== null
                   ? (el) => bandRefs.current.set(row.iterationNumber as number, el)
                   : undefined}
@@ -332,11 +334,11 @@ function LeftRail({
  * tagged rows.
  */
 function ConversationRowView({
-  row, accent, stageOpenedAt, registerRef,
+  row, accent, nowMs, registerRef,
 }: {
   row: StageConversationRow;
   accent: string;
-  stageOpenedAt: string;
+  nowMs: number;
   registerRef?: (el: HTMLDivElement | null) => void;
 }) {
   if (row.kind === 'iteration_marker') {
@@ -358,36 +360,40 @@ function ConversationRowView({
         {row.toolDetail !== null && row.toolDetail !== '' && (
           <span className="tool-detail">{row.toolDetail}</span>
         )}
-        <span className="tool-time">{offsetLabel(row.ts, stageOpenedAt)}</span>
+        <span className="tool-time">{relativeShort(row.ts, nowMs)}</span>
       </div>
     );
   }
   if (row.kind === 'user') {
+    // Soft-mint right-aligned bubble, matching the brain feed's you-msg
+    // (no YOU label/avatar).
     return (
-      <div className="conv-user" id={row.id} data-row-id={row.id}>
-        <div className="conv-md">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
+      <div className="ev you-msg" id={row.id} data-row-id={row.id}>
+        <div className="body">
+          <div className="tx">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
+          </div>
         </div>
       </div>
     );
   }
+  // Agent turn: persona icon + label + text, matching the brain feed's .ev row.
   return (
-    <div className="conv-agent" id={row.id} data-row-id={row.id}>
-      <div className="conv-md">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
+    <div className="ev" id={row.id} data-row-id={row.id}>
+      <span className="ic agent" aria-hidden>⊹</span>
+      <div className="body">
+        <div className="who-row">
+          <span className="who agent">AGENT</span>
+          <span className="ts">{relativeShort(row.ts, nowMs)}</span>
+        </div>
+        <div className="tx">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
+        </div>
       </div>
     </div>
   );
 }
 
-/** Elapsed offset from the stage open as {@code t+MM:SS}; blank if unknown. */
-function offsetLabel(ts: string, openedAt: string): string {
-  const d = Date.parse(ts) - Date.parse(openedAt);
-  if (!Number.isFinite(d) || d < 0) return '';
-  const total = Math.floor(d / 1000);
-  const m = Math.floor(total / 60);
-  return `t+${String(m).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-}
 
 /** A labelled metrics group; renders nothing when it has no present rows. */
 function MetricGroup({ title, rows }: { title: string; rows: Array<[string, string]> }) {

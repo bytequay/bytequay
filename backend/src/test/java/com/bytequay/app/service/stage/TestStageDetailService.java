@@ -189,6 +189,27 @@ class TestStageDetailService
     }
 
     @Test
+    void toolCallDetailComesFromTheNestedInputArgs()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant open = stage.openedAt();
+        // The real claude-code shape: name under toolName, args nested in input.
+        appendMessage(threadId, taskId, 1, "tool", "tool_call",
+                "{\"callId\":\"c1\",\"toolName\":\"Read\",\"input\":{\"file_path\":\"CostMeter.tsx\"}}", open);
+        appendMessage(threadId, taskId, 2, "tool", "tool_call",
+                "{\"callId\":\"c2\",\"toolName\":\"Bash\",\"input\":{\"command\":\"grep -rn useMemo\"}}", open);
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("tool_call") && "CostMeter.tsx".equals(r.toolDetail()));
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("tool_call") && "grep -rn useMemo".equals(r.toolDetail()));
+    }
+
+    @Test
     void planStageConversationReadsTheBrainThread()
     {
         String threadId = seedThread();

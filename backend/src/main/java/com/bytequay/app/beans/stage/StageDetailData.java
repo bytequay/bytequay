@@ -32,11 +32,35 @@ public record StageDetailData(
         List<StageDto> allStages,
         List<StageDto> subStages,
         List<IterationDetail> iterations,
+        /** The stage's conversation transcript — the base timeline the detail
+         *  view renders. For a PlanStage it's the brain thread (seed → planning
+         *  → plan); for other stages it's the dev agent's turns + tool calls
+         *  within the stage window. Iteration boundaries (CI-fixing /
+         *  addressing-comments loops) are interleaved as {@code iteration_marker}
+         *  rows so the same flat timeline works whether a stage looped or not. */
+        List<ConversationRow> conversation,
         RealtimeCi realtimeCi,
         List<CiFixHistoryEntry> ciFixHistory,
         ContextWindowDto context,
         Scrubber scrubber)
 {
+    /**
+     * One row of the stage transcript. {@code kind} selects which fields are
+     * meaningful: {@code agent}/{@code user} use {@code text}; {@code tool_call}
+     * uses {@code toolTag}/{@code toolLabel}/{@code toolDetail}; {@code
+     * iteration_marker} uses {@code iterationNumber}/{@code text} (the loop
+     * trigger). All carry {@code ts} for ordering.
+     */
+    public record ConversationRow(
+            String id,
+            String kind,
+            String text,
+            String toolTag,
+            String toolLabel,
+            String toolDetail,
+            Integer iterationNumber,
+            String ts) {}
+
     /**
      * @param prNumber null when the task has no PR
      * @param agentRuntime CLI | API

@@ -12,8 +12,10 @@
  * limitations under the License.
  */
 import { useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type {
-  CiFixHistoryEntry, IterationDetail, RealtimeCi, StageDetailData, StageLogRow,
+  CiFixHistoryEntry, RealtimeCi, StageConversationRow, StageDetailData,
 } from '../../types/brainView';
 import type { StageDto, StageType } from '../../types/brainView';
 import { useStageDetailData } from './useStageDetailData';
@@ -115,7 +117,7 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
     );
   }
 
-  const { task, stage, allStages, subStages, iterations, realtimeCi, ciFixHistory, context } = data;
+  const { task, stage, allStages, subStages, iterations, conversation, realtimeCi, ciFixHistory, context } = data;
   const accent = stageAccent(stage.type);
 
   const jumpToIteration = (n: number) => {
@@ -190,16 +192,18 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
         />
 
         <main className="log-col" aria-label="Stage log">
-          {iterations.map(it => (
-            <IterationBand
-              key={it.id}
-              iteration={it}
+          {conversation.map(row => (
+            <ConversationRowView
+              key={row.id}
+              row={row}
               accent={accent}
-              registerRef={(el) => bandRefs.current.set(it.iterationNumber, el)}
+              registerRef={row.kind === 'iteration_marker' && row.iterationNumber !== null
+                ? (el) => bandRefs.current.set(row.iterationNumber as number, el)
+                : undefined}
             />
           ))}
-          {iterations.length === 0 && (
-            <p className="log-empty">This stage has no iterations to show yet.</p>
+          {conversation.length === 0 && (
+            <p className="log-empty">No activity in this stage yet.</p>
           )}
           <StageComposer
             disabled={stage.state === 'CLOSED' || stage.state === 'PAUSED'}
@@ -294,93 +298,57 @@ function LeftRail({
   );
 }
 
-function IterationBand({
-  iteration, accent, registerRef,
+/**
+ * One row of the stage transcript. The conversation is the base timeline;
+ * an {@code iteration_marker} renders as a band header (layered in for the
+ * looping stages), agent/user turns as bubbles, and tool calls as compact
+ * tagged rows.
+ */
+function ConversationRowView({
+  row, accent, registerRef,
 }: {
-  iteration: IterationDetail;
+  row: StageConversationRow;
   accent: string;
-  registerRef: (el: HTMLDivElement | null) => void;
+  registerRef?: (el: HTMLDivElement | null) => void;
 }) {
-  return (
-    <div className="iter-band" ref={registerRef} style={{ borderLeft: `3px solid ${accent}`, marginBottom: 16 }}>
-      <div className="iter-band-header" style={{ background: `${accent}14`, padding: '4px 8px' }}>
-        <strong>#{iteration.iterationNumber}</strong> · {iteration.trigger}
-        {iteration.endedReason !== null && <span className="iter-reason"> · {iteration.endedReason}</span>}
+  if (row.kind === 'iteration_marker') {
+    return (
+      <div className="sd-iter-marker" ref={registerRef} style={{ borderLeftColor: accent }}>
+        <span className="sd-iter-marker__n">#{row.iterationNumber}</span>
+        {row.text !== null && row.text !== '' && (
+          <span className="sd-iter-marker__trigger">{row.text}</span>
+        )}
       </div>
-      <div className="iter-log">
-        {iteration.log.map(row => <LogRow key={row.id} row={row} />)}
+    );
+  }
+  if (row.kind === 'tool_call') {
+    return (
+      <div className={`tool-row tool-${(row.toolTag ?? '').toLowerCase()}`}>
+        <span className="tool-tag">{row.toolTag ?? 'tool'}</span>
+        <span className="tool-label">{row.toolLabel ?? ''}</span>
+        {row.toolDetail !== null && row.toolDetail !== '' && (
+          <span className="tool-detail"> {row.toolDetail}</span>
+        )}
+      </div>
+    );
+  }
+  if (row.kind === 'user') {
+    return (
+      <div className="conv-user">
+        <span className="you-avatar" aria-hidden>YOU</span>
+        <div className="conv-md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="conv-agent">
+      <div className="conv-md">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.text ?? ''}</ReactMarkdown>
       </div>
     </div>
   );
-}
-
-/** Left-border accent per operation kind (color-codes the card). */
-const OPERATION_COLORS: Record<string, string> = {
-  code: '#d97706',     // amber
-  validate: '#2563eb', // blue
-  push: '#16a34a',     // green
-  publish: '#7c3aed',  // purple
-};
-
-function LogRow({ row }: { row: StageLogRow }) {
-  if (row.kind === 'operation' && row.operation) {
-    const op = row.operation;
-    return (
-      <div
-        className={`operation-card operation-${op.operation}`}
-        style={{ borderLeft: `3px solid ${OPERATION_COLORS[op.operation] ?? '#6b7280'}` }}
-      >
-        <div className="operation-head">
-          <span className="operation-kind">{op.operation}</span>
-          <span className="operation-meta">
-            {op.toolCallCount} {op.toolCallCount === 1 ? 'tool call' : 'tool calls'} · {op.durationSec}s
-            {op.status === 'failed' ? ' · failed' : ''}
-          </span>
-        </div>
-        <div className="operation-tools">
-          {op.toolCalls.map(tc => <LogRow key={tc.id} row={tc} />)}
-        </div>
-      </div>
-    );
-  }
-  if (row.kind === 'tool_call' && row.toolCall) {
-    return (
-      <div className={`tool-row tool-${row.toolCall.tag.toLowerCase()}`}>
-        <span className="tool-tag">{row.toolCall.tag}</span>
-        <span className="tool-label">{row.toolCall.label}</span>
-        {row.toolCall.detail !== null && <span className="tool-detail"> {row.toolCall.detail}</span>}
-      </div>
-    );
-  }
-  if (row.kind === 'stage_event' && row.stageEvent) {
-    return (
-      <div className="stage-event-row" style={{ borderStyle: 'dashed' }}>
-        <span className="event-badge">{row.stageEvent.eventType}</span> {row.stageEvent.message}
-      </div>
-    );
-  }
-  if (row.kind === 'iteration_summary' && row.iterationSummary) {
-    return (
-      <div className="iter-sum">
-        <span className="iter-sum-ic" aria-hidden>⊕</span>
-        <div className="iter-sum-body">
-          <div className="iter-sum-hd">Iteration summary</div>
-          <div className="iter-sum-text">{row.iterationSummary.text}</div>
-          <div className="iter-sum-meta">
-            summarize_iteration() · {row.iterationSummary.recordedBy ?? 'recorded'}
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (row.kind === 'user_message' && row.userMessage) {
-    return (
-      <div className="you-bubble" style={{ textAlign: 'right' }}>
-        <span className="you-avatar" aria-hidden>YOU</span> {row.userMessage.text}
-      </div>
-    );
-  }
-  return null;
 }
 
 /** A labelled metrics group; renders nothing when it has no present rows. */

@@ -242,6 +242,36 @@ class TestPullRequestService
         verify(responseCache).getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any());
     }
 
+    @Test
+    void testGetPullRequestCiSnapshotRefreshesCachedDetailCheckRuns()
+    {
+        PrRawDetail raw = new PrRawDetail(
+                "body", ImmutableList.of(), false, true, "clean", 10, 0, 0, 0,
+                ImmutableList.of(), "sha",
+                "feat/foo", "owner/repo", "main", "owner/repo");
+        // Cached detail blob still holds the pre-rerun failure.
+        StoredPrDetail stale = new StoredPrDetail(
+                raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "failure", null, null, null)),
+                ImmutableList.of(), ImmutableList.of());
+        // GitHub now reports that check re-running.
+        when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(raw);
+        when(gitHub.fetchPrCheckRuns("pat", "owner", "repo", "sha"))
+                .thenReturn(ImmutableList.of(new PrCheckRunState(1L, "build", "in_progress", null, null, null, null)));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
+        when(detailStore.find(7L)).thenReturn(Optional.of(stale));
+        when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any()))
+                .thenReturn(true);
+
+        PrCiSnapshot result = pullRequestService.getPullRequestCiSnapshot("owner/repo", 7);
+
+        // Live aggregate is PENDING, and the cached blob is rewritten with the
+        // fresh runs so the detail-page poll won't revert the pill to FAILING.
+        assertThat(result.ciStatus()).isEqualTo(PENDING);
+        verify(detailStore).save(eq(7L), argThat(d ->
+                d.checkRuns().size() == 1 && "in_progress".equals(d.checkRuns().get(0).status())));
+    }
+
     // ── countApprovals ─────────────────────────────────────────────────────────
 
     @Test

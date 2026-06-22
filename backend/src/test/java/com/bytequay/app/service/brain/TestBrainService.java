@@ -26,7 +26,6 @@ import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
@@ -42,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,10 +55,9 @@ class TestBrainService
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final IdGenerator idGenerator = mock(IdGenerator.class);
     private final WorkModelResolver workModelResolver = mock(WorkModelResolver.class);
-    private final ObjectMapper mapper = new ObjectMapper();
 
     private final BrainServiceImpl service =
-            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator, workModelResolver, mapper);
+            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator, workModelResolver);
 
     @Test
     void createsBrainThreadOnFirstMessageAndEnqueuesTurn()
@@ -161,7 +160,7 @@ class TestBrainService
     }
 
     @Test
-    void planKickoffSeedsThePromptWithTheTrunkConversation()
+    void planKickoffCopiesTheTrunkSeedOntoTheBrainThread()
     {
         Instant cut = Instant.parse("2026-06-22T10:00:00Z");
         Task task = mock(Task.class);
@@ -182,12 +181,15 @@ class TestBrainService
 
         service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "tidy nits", null));
 
-        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTurn(any(), prompt.capture(), any());
-        assertThat(prompt.getValue())
-                .contains("planning seed")
-                .contains("let's tidy the AssertJ nits")
-                .contains("Got it — cutting the task.");
+        // The trunk seed is copied onto the brain thread (single source),
+        // preserving roles — not inlined into the prompt.
+        ArgumentCaptor<ThreadMessage> copied = ArgumentCaptor.forClass(ThreadMessage.class);
+        verify(threadStore, times(2)).appendMessage(copied.capture());
+        assertThat(copied.getAllValues()).extracting(ThreadMessage::role)
+                .containsExactly("user", "assistant");
+        assertThat(copied.getAllValues().get(0).threadId()).isEqualTo("ws-default.brain-1");
+        assertThat(copied.getAllValues().get(0).contentJson()).contains("let's tidy the AssertJ nits");
+        assertThat(copied.getAllValues().get(1).contentJson()).contains("Got it — cutting the task.");
     }
 
     private static ThreadMessage msg(long seq, String role, String contentJson, Instant ts)

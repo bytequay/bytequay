@@ -17,8 +17,6 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -27,10 +25,10 @@ import java.util.List;
 /**
  * The trunk's seed conversation for a task — the messages on the task's
  * (trunk) thread from the previous task's creation up to this task's cut.
- * That discussion is what led the trunk to cut the task, so it's the seed
- * both for the brain agent's planning turn and for the full plan-stage view
- * the development agent can read. Centralised here so the brain kickoff and
- * {@code read_plan_conversation} compute the same window.
+ * That discussion is what led the trunk to cut the task; it's copied onto
+ * the task's brain thread as the first messages of the plan stage, so the
+ * brain agent, the brain feed, and the development agent all read it from
+ * the brain thread alone (single source — no on-the-fly cross-thread reads).
  */
 public final class PlanSeedWindow
 {
@@ -69,33 +67,5 @@ public final class PlanSeedWindow
                 .filter(m -> to == null || !m.ts().isAfter(to))
                 .sorted(Comparator.comparingLong(ThreadMessage::seq))
                 .toList();
-    }
-
-    /** The seed conversation rendered as a readable transcript
-     *  ({@code User: …} / {@code Trunk: …}), or "" when there is none. */
-    public static String seedTranscript(TaskStore tasks, ThreadStore threads, ObjectMapper mapper, Task task)
-    {
-        StringBuilder sb = new StringBuilder();
-        for (ThreadMessage m : trunkSeedMessages(tasks, threads, task)) {
-            String text = messageText(mapper, m.contentJson());
-            if (text.isBlank()) {
-                continue;
-            }
-            sb.append("user".equals(m.role()) ? "User: " : "Trunk: ").append(text).append("\n\n");
-        }
-        return sb.toString().strip();
-    }
-
-    private static String messageText(ObjectMapper mapper, String contentJson)
-    {
-        if (contentJson == null || contentJson.isBlank()) {
-            return "";
-        }
-        try {
-            return mapper.readTree(contentJson).path("text").asText("");
-        }
-        catch (JsonProcessingException e) {
-            return "";
-        }
     }
 }

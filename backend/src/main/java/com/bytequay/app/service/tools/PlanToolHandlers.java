@@ -17,14 +17,11 @@ import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
-import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.stage.PlanSeedWindow;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,7 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -63,15 +59,12 @@ public class PlanToolHandlers
 
     private final StageStore stageStore;
     private final ThreadStore threadStore;
-    private final TaskStore taskStore;
     private final ObjectMapper mapper;
 
-    public PlanToolHandlers(
-            StageStore stageStore, ThreadStore threadStore, TaskStore taskStore, ObjectMapper mapper)
+    public PlanToolHandlers(StageStore stageStore, ThreadStore threadStore, ObjectMapper mapper)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -196,23 +189,14 @@ public class PlanToolHandlers
         }
         Optional<StageInstance> planStage = latestPlanStage(args.taskId());
         Optional<Thread> brain = threadStore.findBrainThreadByTask(args.taskId());
-        Optional<Task> task = taskStore.findTaskById(args.taskId());
-        if (planStage.isEmpty() || brain.isEmpty() || task.isEmpty()) {
+        if (planStage.isEmpty() || brain.isEmpty()) {
             return ToolOutcome.Completed.error("no planning conversation for task " + args.taskId());
         }
-        Instant from = planStage.get().openedAt();
-        Instant to = planStage.get().closedAtOrNull();
-        // The full plan stage is the trunk's seed conversation (the discussion
-        // that led to this cut) followed by the brain agent's planning turns;
-        // merge both, time-ordered, so the dev agent reads the whole story.
-        List<ThreadMessage> brainWindow = threadStore.listMessages(brain.get().id()).stream()
-                .filter(m -> !m.ts().isBefore(from))
-                .filter(m -> to == null || m.ts().isBefore(to))
-                .toList();
-        List<ThreadMessage> window = Stream.concat(
-                        PlanSeedWindow.trunkSeedMessages(taskStore, threadStore, task.get()).stream(),
-                        brainWindow.stream())
-                .sorted(Comparator.comparing(ThreadMessage::ts).thenComparingLong(ThreadMessage::seq))
+        // The brain thread is the full plan stage: the trunk's seed
+        // conversation (copied onto it at creation) followed by the brain
+        // agent's planning turns. Read it in seq order — one source, no merge.
+        List<ThreadMessage> window = threadStore.listMessages(brain.get().id()).stream()
+                .sorted(Comparator.comparingLong(ThreadMessage::seq))
                 .toList();
         int limit = args.limit() == null ? CONVO_DEFAULT_LIMIT
                 : Math.min(Math.max(1, args.limit()), CONVO_MAX_LIMIT);

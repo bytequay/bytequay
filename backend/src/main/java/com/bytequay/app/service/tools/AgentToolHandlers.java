@@ -31,6 +31,7 @@ import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
@@ -594,7 +595,15 @@ public class AgentToolHandlers
                     + "(for review / fix-up tasks bound to an existing PR).",
                     wireName = "linked_pr_number") Integer linkedPrNumber,
             @ToolParam(description = "Optional GitHub issue number to link the task to.",
-                    wireName = "linked_issue_number") Integer linkedIssueNumber) {}
+                    wireName = "linked_issue_number") Integer linkedIssueNumber,
+            @ToolParam(description = "Optional trunk-supplied PlanResult (the plan you already "
+                    + "worked out): an object with understanding (summary, affectedComponents, "
+                    + "existingPatterns, constraints), intent (summary, numbered steps, "
+                    + "validationStrategy, pushStrategy), and signals. Set status='finalized' if "
+                    + "it's ready, or 'suggested' / include uncertainAreas to have the task's brain "
+                    + "finalize it. When given, it seeds the task's plan so the brain validates or "
+                    + "revises it instead of planning from scratch.",
+                    wireName = "trunk_plan") JsonNode trunkPlan) {}
 
     @AgentTool(
             name = "create_task",
@@ -688,7 +697,9 @@ public class AgentToolHandlers
                 thread.kind(),
                 thread.provider(),
                 thread.model(),
-                /* title — reuse the thread title */ thread.title(),
+                // Title from the task's own purpose (so the branch reads like
+                // dev/clean-duplicate-code), falling back to the thread title.
+                createTaskTitle(initialPrompt, thread.title()),
                 /* workingDir */ watched.localClonePath(),
                 /* branchName — let worktree create derive it */ null,
                 initialPrompt.isBlank() ? null : initialPrompt,
@@ -698,7 +709,9 @@ public class AgentToolHandlers
                 args.linkedIssueNumber(),
                 thread.flow(),
                 thread.workspaceId(),
-                /* workModel — inherit thread's override */ thread.workModel());
+                /* workModel — inherit thread's override */ thread.workModel(),
+                /* trunkPlan — seeds the PlanStage when the trunk hands off a plan */
+                args.trunkPlan());
         try {
             Task created = threads.materialiseTask(threadId, request);
             return toolOutcome(new CreatedTaskResult(
@@ -714,6 +727,18 @@ public class AgentToolHandlers
         catch (IllegalArgumentException | IllegalStateException e) {
             return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
         }
+    }
+
+    /** A task title from its opening prompt's first line (capped), so the
+     *  worktree branch reads like the work — not the generic thread title.
+     *  Falls back to the thread title when there's no prompt. */
+    private static String createTaskTitle(String initialPrompt, String threadTitle)
+    {
+        if (initialPrompt == null || initialPrompt.isBlank()) {
+            return threadTitle;
+        }
+        String firstLine = initialPrompt.strip().lines().findFirst().orElse(initialPrompt).strip();
+        return firstLine.length() > 72 ? firstLine.substring(0, 72).strip() : firstLine;
     }
 
     /** Wire shape for {@code create_task}'s result — the just-cut task's

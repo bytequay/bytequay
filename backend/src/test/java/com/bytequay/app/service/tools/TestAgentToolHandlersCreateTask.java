@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -29,16 +30,21 @@ import com.bytequay.app.service.threads.TaskQueueMaterialiser;
 import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -57,6 +63,7 @@ class TestAgentToolHandlersCreateTask
     private final TaskStore taskStore = mock(TaskStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
+    private final ThreadService threads = mock(ThreadService.class);
 
     private AgentToolHandlers handlers;
 
@@ -74,7 +81,7 @@ class TestAgentToolHandlersCreateTask
                 mock(TestRunnerDetector.class),
                 mock(ShellRunner.class),
                 watchedRepos,
-                mock(ThreadService.class),
+                threads,
                 mock(TaskQueueMaterialiser.class),
                 mock(TaskQueueScheduler.class),
                 new ObjectMapper());
@@ -113,10 +120,32 @@ class TestAgentToolHandlersCreateTask
         assertThat(result.text()).contains("not in watched repos");
     }
 
+    @Test
+    void derivesTaskTitleFromPromptAndForwardsTheTrunkPlan()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(mock(Task.class));
+        JsonNode plan = new ObjectMapper().createObjectNode().put("status", "finalized");
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Clean duplicate and unused code",
+                        null, null, null, plan),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        ArgumentCaptor<ThreadService.NewTaskRequest> req =
+                ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
+        verify(threads).materialiseTask(eq(THREAD_ID), req.capture());
+        // Title comes from the prompt (→ branch dev/clean-…), not the thread title.
+        assertThat(req.getValue().title()).isEqualTo("Clean duplicate and unused code");
+        assertThat(req.getValue().trunkPlan()).isSameAs(plan);
+    }
+
     private ToolOutcome.Completed createTask(String repo)
     {
         ToolOutcome outcome = handlers.createTask(
-                new AgentToolHandlers.CreateTaskArgs(repo, null, null, null, null),
+                new AgentToolHandlers.CreateTaskArgs(repo, null, null, null, null, null),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
         return (ToolOutcome.Completed) outcome;
     }

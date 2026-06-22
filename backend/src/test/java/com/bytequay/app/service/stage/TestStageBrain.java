@@ -247,6 +247,43 @@ class TestStageBrain
     }
 
     @Test
+    void brainFeedExcludesTrunkMessagesBeforeThePreviousTask()
+    {
+        Instant t0 = Instant.parse("2026-06-20T08:00:00Z");   // before task 1
+        Instant t1 = Instant.parse("2026-06-20T09:00:00Z");   // task 1 created
+        Instant t1b = Instant.parse("2026-06-20T09:30:00Z");  // between tasks
+        Instant t2 = Instant.parse("2026-06-20T10:00:00Z");   // task 2 created
+        Instant t2b = Instant.parse("2026-06-20T10:30:00Z");  // this task's chatter
+
+        Thread thread = new Thread(
+                UUID.randomUUID().toString(), ThreadKind.CLI_AGENT, "claude-code",
+                null, "Trunk", ThreadStatus.RUNNING, "claude-sonnet-4-6",
+                0L, 0L, 0L, t0, t0, null, null, ThreadFlow.BUILD, "ws-default", null, null);
+        threadStore.saveThread(thread);
+        String task1 = UUID.randomUUID().toString();
+        taskStore.saveTask(new Task(
+                task1, thread.id(), 1L, TaskStatus.COMPLETED, "feature", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, t1, null, null, null, null, null));
+        String task2 = UUID.randomUUID().toString();
+        taskStore.saveTask(new Task(
+                task2, thread.id(), 2L, TaskStatus.RUNNING, "feature", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, t2, null, null, null, null, null));
+        appendBrainMsg(thread.id(), 1, "user", "old task-1 chatter", t0);
+        appendBrainMsg(thread.id(), 2, "user", "between-tasks chatter", t1b);
+        appendBrainMsg(thread.id(), 3, "user", "current chatter", t2b);
+
+        List<String> bodies = stageService.getBrain(task2).brainFeed().stream()
+                .filter(r -> r.type().equals("USER_MESSAGE"))
+                .map(BrainFeedRow::body)
+                .toList();
+        // From the previous task (task 1) onward — not the whole thread history.
+        assertThat(bodies).contains("current chatter", "between-tasks chatter")
+                .doesNotContain("old task-1 chatter");
+    }
+
+    @Test
     void brainFeedIncludesDevThreadSteeringMessagesAttributedByWindow()
     {
         String taskId = seedTask();

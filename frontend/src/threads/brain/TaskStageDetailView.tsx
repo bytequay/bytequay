@@ -209,14 +209,14 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
         />
 
         <div className="center-col">
+          <ConversationScrubber
+            position="right"
+            dashes={conversation
+              .filter(r => r.kind === 'user')
+              .map(r => ({ id: r.id, label: (r.text ?? '').slice(0, 60), active: false }))}
+            onJumpTo={jumpToRow}
+          />
           <main className="log-col" aria-label="Stage log" ref={scrollRef}>
-            <ConversationScrubber
-              position="right"
-              dashes={conversation
-                .filter(r => r.kind === 'user')
-                .map(r => ({ id: r.id, label: (r.text ?? '').slice(0, 60), active: false }))}
-              onJumpTo={jumpToRow}
-            />
             <div className="conv-card">
               {conversation.map(row => (
                 <ConversationRowView
@@ -269,11 +269,12 @@ function LeftRail({
           <button
             key={s.id}
             type="button"
-            className={s.id === currentStageId ? 'stage-nav-chip current' : 'stage-nav-chip'}
+            className={`stage-nav-chip${s.id === currentStageId ? ' current' : ''}`
+              + `${s.state === 'CLOSED' ? ' closed' : ''}`}
             aria-current={s.id === currentStageId ? 'true' : undefined}
             onClick={() => onOpenStage(s.id)}
           >
-            {stageLabel(s.type)} · {s.state}
+            {stageLabel(s.type)} · <span className="stage-nav-chip__state">{s.state}</span>
           </button>
         ))}
       </section>

@@ -2259,3 +2259,196 @@
   cursor: pointer;
 }
 .ai-summary__rerun:hover { color: #6d28d9; border-color: rgba(139, 92, 246, 0.3); }
+
+/* ═══════════ Three-column diff view: commits lane ═══════════
+   Lane backgrounds step brighter toward the code (commits → files →
+   diff) instead of solid divider lines, pulling focus to the diff. */
+.diff-viewer__files { background: #fbfcfd; }
+.diff-viewer__pane { background: #ffffff; }
+
+.diff-viewer__commits {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: #f6f8fa;
+}
+.diff-viewer__commits--collapsed {
+  align-items: center;
+  padding-top: 8px;
+  gap: 8px;
+}
+
+/* Column header + bare-chevron fold toggle (no border / no button box). */
+.diff-viewer__col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  flex: 0 0 auto;
+}
+.diff-viewer__col-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.diff-viewer__col-status { color: var(--text-4); margin-left: 2px; }
+.diff-viewer__chev {
+  margin-left: auto;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 2px;
+  font-size: 14px;
+  line-height: 1;
+  color: #8c959f;
+  cursor: pointer;
+}
+.diff-viewer__chev:hover { color: var(--text-2); }
+.diff-viewer__col-rail-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.diff-viewer__commits-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* "All commits" reuses the commit-row shape so it reads as the first item in
+   the list (not a heavy standalone block), with a slim divider under it. */
+.diff-viewer__commit-all {
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e6e9ec;
+  border-radius: 0;
+}
+.diff-viewer__commit-chk--all {
+  border: none;
+  background: none;
+  color: var(--text-4);
+  font-size: 12px;
+}
+.diff-viewer__commit-subject--all { font-weight: 600; }
+.diff-viewer__commit-meta { font-size: 9.5px; color: var(--text-4); }
+
+.diff-viewer__commit-row {
+  appearance: none;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  padding: 6px var(--space-3);
+  margin: 0 6px;
+  border-radius: var(--radius-sm);
+}
+.diff-viewer__commit-row:hover { background: rgba(0, 0, 0, 0.04); }
+.diff-viewer__commit-row--sel { background: #ddf4ff; }
+.diff-viewer__commit-row--sel:hover { background: #cfe8ff; }
+.diff-viewer__commit-row--dim { opacity: 0.55; }
+
+.diff-viewer__commit-chk {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border-radius: 3px;
+  border: 1px solid #8c959f;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #fff;
+}
+.diff-viewer__commit-chk--on { background: #0969da; border-color: #0969da; }
+
+.diff-viewer__commit-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.diff-viewer__commit-sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10px;
+  color: #0550ae;
+}
+.diff-viewer__commit-subject {
+  font-size: 11px;
+  color: var(--text-1);
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.diff-viewer__commits-foot {
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid #e6e9ec;
+}
+.diff-viewer__commits-sum { font-size: 10px; color: var(--text-3); margin-bottom: 5px; }
+.diff-viewer__commits-go {
+  width: 100%;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-md);
+  background: #1f883d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 0;
+  cursor: pointer;
+}
+.diff-viewer__commits-go:hover { background: #1a7f37; }
+
+.diff-viewer__stat-add { color: #1a7f37; }
+.diff-viewer__stat-del { color: #cf222e; }
+
+/* Files-pane fold toggles restyled to the same bare chevron (override the
+   earlier bordered-button rules). */
+.diff-viewer__files-collapse-btn,
+.diff-viewer__files-rail-toggle {
+  appearance: none;
+  width: auto;
+  height: auto;
+  border: none;
+  background: none;
+  padding: 2px;
+  color: #8c959f;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.diff-viewer__files-collapse-btn:hover,
+.diff-viewer__files-rail-toggle:hover {
+  color: var(--text-2);
+  background: none;
+  border: none;
+}
+
+/* Deep-linked SHA no longer in the PR (force-pushed) — slim banner. */
+.diff-viewer__notice {
+  padding: 6px var(--space-3);
+  font-size: var(--font-size-xs);
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.10);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.30);
+}
+.diff-viewer__notice code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}

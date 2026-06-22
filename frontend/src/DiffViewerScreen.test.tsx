@@ -478,3 +478,68 @@ describe('DiffViewerScreen panel-findings overlay', () => {
     expect(addBtn).toBeTruthy();
   });
 });
+
+describe('DiffViewerScreen commits column', () => {
+  const commits = [
+    makeCommit({ sha: 'c0', message: 'First commit' }),
+    makeCommit({ sha: 'c1', message: 'Second commit' }),
+    makeCommit({ sha: 'c2', message: 'Third commit' }),
+  ];
+
+  function commitRows() {
+    return Array.from(container.querySelectorAll<HTMLElement>(
+      '.diff-viewer__commit-row:not(.diff-viewer__commit-all)'));
+  }
+
+  it('renders a row per commit plus the All-commits affordance', async () => {
+    await render(makeDetail(), { files: [makeDiffFile()], commits });
+    expect(commitRows()).toHaveLength(3);
+    expect(container.textContent).toContain('First commit');
+    expect(container.textContent).toContain('Third commit');
+    const all = container.querySelector('.diff-viewer__commit-all');
+    expect(all?.textContent).toContain('All 3 commits');
+  });
+
+  it('selects a single commit on a plain click', async () => {
+    const bridge = await render(makeDetail(), { files: [makeDiffFile()], commits });
+    await act(async () => {
+      commitRows()[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.fetchPrCommitDiff).toHaveBeenCalledWith('trinodb/trino', 42, 'c1');
+  });
+
+  it('selects a contiguous range on shift-click and shows the footer summary', async () => {
+    const bridge = await render(makeDetail(), { files: [makeDiffFile()], commits });
+    await act(async () => {
+      commitRows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      commitRows()[2].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    // The whole c0..c2 run is selected → the union fetches each commit's diff.
+    expect(bridge.fetchPrCommitDiff).toHaveBeenCalledWith('trinodb/trino', 42, 'c0');
+    expect(bridge.fetchPrCommitDiff).toHaveBeenCalledWith('trinodb/trino', 42, 'c1');
+    expect(bridge.fetchPrCommitDiff).toHaveBeenCalledWith('trinodb/trino', 42, 'c2');
+    expect(container.textContent).toContain('Reviewing 3 commits');
+  });
+
+  it('returns to the cumulative diff via the All-commits affordance', async () => {
+    const bridge = await render(makeDetail(), { files: [makeDiffFile()], commits });
+    await act(async () => {
+      commitRows()[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    bridge.fetchPrDiffFiles.mockClear();
+    const all = container.querySelector<HTMLElement>('.diff-viewer__commit-all');
+    await act(async () => {
+      all!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.fetchPrDiffFiles).toHaveBeenCalledWith('trinodb/trino', 42);
+  });
+});

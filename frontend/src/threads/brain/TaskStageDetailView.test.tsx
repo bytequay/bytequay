@@ -45,11 +45,13 @@ function fixture(): StageDetailData {
       id: 'iter-1', iterationNumber: 1, trigger: 'red_ci',
       startedAt: '2026-06-21T10:00:00Z', endedAt: null, endedReason: null,
       summaryText: 'fix #1: bumped retry default', recordedBy: 'agent',
-      log: [
-        { id: 'r1', ts: '2026-06-21T10:00:05Z', kind: 'tool_call', toolCall: { tag: 'Read', label: 'read_file', detail: 'RetryConfig.java' } },
-        { id: 'r2', ts: '2026-06-21T10:00:50Z', kind: 'iteration_summary', iterationSummary: { text: 'fix #1: bumped retry default', recordedBy: 'agent', recordedAt: '2026-06-21T10:00:50Z' } },
-      ],
+      log: [],
     }],
+    conversation: [
+      { id: 'm1', kind: 'iteration_marker', text: 'red_ci', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: 1, ts: '2026-06-21T10:00:00Z' },
+      { id: 'm2', kind: 'agent', text: 'Lint failed on an unused import. Removing it.', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: null, ts: '2026-06-21T10:00:03Z' },
+      { id: 'm3', kind: 'tool_call', text: null, toolTag: 'Read', toolLabel: 'read_file', toolDetail: 'CostMeter.tsx', iterationNumber: null, ts: '2026-06-21T10:00:05Z' },
+    ],
     realtimeCi: null,
     ciFixHistory: [{ iterationNumber: 1, endedReason: null, summaryText: 'fix #1: bumped retry default' }],
     context: { tokensUsed: 0, tokensLimit: 200000, safeBand: 'safe' },
@@ -63,16 +65,16 @@ function mockBridge(getStageDetail = vi.fn().mockResolvedValue(fixture())) {
 }
 
 describe('TaskStageDetailView', () => {
-  it('renders breadcrumb, iteration band, log rows, metrics, and disabled composer', async () => {
+  it('renders breadcrumb, conversation transcript, metrics, and the composer', async () => {
     mockBridge();
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
 
     // Breadcrumb / identity carry the stage label.
     expect(await screen.findAllByText('CiFixingStage')).not.toHaveLength(0);
-    // Iteration band + its log.
+    // Iteration strip jump + the transcript: agent turn + tool-call row.
     expect(screen.getByLabelText('Jump to iteration 1')).toBeTruthy();
+    expect(screen.getByText('Lint failed on an unused import. Removing it.')).toBeTruthy();
     expect(screen.getByText('read_file')).toBeTruthy();
-    expect(screen.getAllByText('fix #1: bumped retry default').length).toBeGreaterThan(0);
     // Derivable metric is shown.
     expect(screen.getByText('Tool calls')).toBeTruthy();
     // Steering composer is live (no longer a disabled placeholder).
@@ -102,28 +104,15 @@ describe('TaskStageDetailView', () => {
     expect((box as HTMLTextAreaElement).disabled).toBe(true);
   });
 
-  it('renders an operation card with its nested tool calls', async () => {
-    const withOp = fixture();
-    withOp.iterations[0].log = [{
-      id: 'op:r1', ts: '2026-06-21T10:00:05Z', kind: 'operation',
-      operation: {
-        operation: 'code', startedAt: '2026-06-21T10:00:05Z', completedAt: '2026-06-21T10:00:09Z',
-        durationSec: 4, toolCallCount: 2, status: 'ok',
-        toolCalls: [
-          { id: 't1', ts: '2026-06-21T10:00:05Z', kind: 'tool_call', toolCall: { tag: 'Read', label: 'read_file', detail: 'A.java' } },
-          { id: 't2', ts: '2026-06-21T10:00:09Z', kind: 'tool_call', toolCall: { tag: 'Write', label: 'edit_file', detail: 'A.java' } },
-        ],
-      },
-    }];
-    mockBridge(vi.fn().mockResolvedValue(withOp));
-
+  it('layers an iteration marker over the transcript for a looping stage', async () => {
+    mockBridge();
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
 
-    expect(await screen.findByText('code')).toBeTruthy();
-    expect(screen.getByText('2 tool calls · 4s')).toBeTruthy();
-    // Nested tool calls render inside the card.
+    // The marker (its loop trigger) delineates the iteration over the
+    // transcript; the tool tag + label render as a compact row.
+    expect(await screen.findByText('red_ci')).toBeTruthy();
+    expect(screen.getByText('Read')).toBeTruthy();
     expect(screen.getByText('read_file')).toBeTruthy();
-    expect(screen.getByText('edit_file')).toBeTruthy();
   });
 
   it('renders the enriched failing-check detail on the CI fix history', async () => {

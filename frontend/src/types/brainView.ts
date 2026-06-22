@@ -242,10 +242,28 @@ export type StageDetailData = {
   allStages: StageDto[];
   subStages: StageDto[];
   iterations: IterationDetail[];
+  /** The stage's conversation transcript — the base timeline the detail view
+   *  renders (agent turns + tool calls + your steering), with iteration
+   *  boundaries interleaved as `iteration_marker` rows. */
+  conversation: StageConversationRow[];
   realtimeCi: RealtimeCi | null;
   ciFixHistory: CiFixHistoryEntry[];
   context: ContextWindowDto;
   scrubber: { userMessages: ScrubberDash[] };
+};
+
+/** One row of the stage transcript. `kind` selects which fields apply:
+ *  agent/user → text; tool_call → toolTag/toolLabel/toolDetail;
+ *  iteration_marker → iterationNumber + text (the loop trigger). */
+export type StageConversationRow = {
+  id: string;
+  kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker';
+  text: string | null;
+  toolTag: string | null;
+  toolLabel: string | null;
+  toolDetail: string | null;
+  iterationNumber: number | null;
+  ts: string;
 };
 
 /** Uncomputed catalog fields are absent (not zero); panelInvocationsCount

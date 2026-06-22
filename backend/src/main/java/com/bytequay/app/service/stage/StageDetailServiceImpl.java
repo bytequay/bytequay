@@ -18,6 +18,7 @@ import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailData.CiCheck;
 import com.bytequay.app.beans.stage.StageDetailData.CiFixHistoryEntry;
+import com.bytequay.app.beans.stage.StageDetailData.ConversationRow;
 import com.bytequay.app.beans.stage.StageDetailData.DetailTask;
 import com.bytequay.app.beans.stage.StageDetailData.IterationDetail;
 import com.bytequay.app.beans.stage.StageDetailData.LogRow;
@@ -145,6 +146,7 @@ public class StageDetailServiceImpl
                 topLevel,
                 subStages,
                 iterations,
+                buildConversation(stage, task, window, devMessages, iters),
                 buildRealtimeCi(task),
                 buildCiFixHistory(stage, iters, events),
                 new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe"),
@@ -459,6 +461,49 @@ public class StageDetailServiceImpl
                 it.summaryText(),
                 recordedBy,
                 rows);
+    }
+
+    /**
+     * The stage's conversation transcript — the base timeline the detail view
+     * renders. A PlanStage is the brain thread (seed → planning → plan); every
+     * other stage is the dev agent's turns + tool calls on the task thread
+     * within the stage window. Loop boundaries (CI-fixing / addressing-comments)
+     * are interleaved as {@code iteration_marker} rows so the same flat timeline
+     * renders whether the stage looped or ran once.
+     */
+    private List<ConversationRow> buildConversation(
+            StageInstance stage, Task task, TimeWindow window,
+            List<ThreadMessage> devMessages, List<TaskStageIteration> iters)
+    {
+        List<ThreadMessage> source = stage.type() == StageType.PLAN_STAGE
+                ? threadStore.findBrainThreadByTask(task.id())
+                        .map(t -> threadStore.listMessages(t.id()))
+                        .orElseGet(List::of)
+                : window.messages(devMessages);
+
+        List<ConversationRow> rows = new ArrayList<>();
+        for (ThreadMessage m : source) {
+            if ("tool_call".equals(m.type())) {
+                ToolCallPayload tc = toolCall(m);
+                rows.add(new ConversationRow(m.id(), "tool_call", null,
+                        tc.tag(), tc.label(), tc.detail(), null, m.ts().toString()));
+            }
+            else if ("text".equals(m.type())) {
+                String text = decodeText(m.contentJson());
+                if (text == null || text.isBlank()) {
+                    continue;
+                }
+                rows.add(new ConversationRow(m.id(), "user".equals(m.role()) ? "user" : "agent",
+                        text, null, null, null, null, m.ts().toString()));
+            }
+        }
+        for (TaskStageIteration it : iters) {
+            rows.add(new ConversationRow(it.id() + ":marker", "iteration_marker",
+                    it.trigger(), null, null, null, it.iterationNumber(),
+                    TimeWindow.forIteration(it).start().toString()));
+        }
+        rows.sort(Comparator.comparing(ConversationRow::ts));
+        return rows;
     }
 
     /** Heuristic for how a summary landed (M3.5's three paths). */

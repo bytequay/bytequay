@@ -37,6 +37,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -160,6 +161,56 @@ class TestStageDetailService
         assertThat(entry.failedCheck()).isEqualTo("frontend / lint");
         assertThat(entry.errorMessage()).isEqualTo("ESLint: 3 problems");
         assertThat(entry.actionsRunUrl()).contains("/actions/runs/42");
+    }
+
+    @Test
+    void conversationCarriesAgentTurnsToolCallsAndIterationMarkers()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        Instant open = stage.openedAt();
+        iterationStore.save(TaskStageIteration
+                .opened(UUID.randomUUID(), stage.id(), taskId, "turn-1", 1, "red_ci", open));
+        // A dev-agent text turn + a tool call on the task thread, in the window.
+        appendMessage(threadId, taskId, 1, "assistant", "text",
+                "{\"text\":\"Removing the unused import.\"}", open);
+        appendMessage(threadId, taskId, 2, "assistant", "tool_call",
+                "{\"name\":\"read_file\",\"path\":\"Foo.java\"}", open);
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("agent") && "Removing the unused import.".equals(r.text()));
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("tool_call") && "read_file".equals(r.toolLabel()));
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("iteration_marker") && r.iterationNumber() == 1);
+    }
+
+    @Test
+    void planStageConversationReadsTheBrainThread()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        String brainId = "ws-default.brain-" + UUID.randomUUID();
+        threadStore.saveThread(new Thread(
+                brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
+                "claude-haiku-4-5-20251001", 0L, 0L, 0L, plan.openedAt(), plan.openedAt(), null, null,
+                ThreadFlow.BUILD, "ws-default", null, null, null, List.of(), 1, taskId));
+        appendMessage(brainId, null, 1, "user", "text",
+                "{\"text\":\"tidy the nits\"}", plan.openedAt());
+        appendMessage(brainId, null, 2, "assistant", "text",
+                "{\"text\":\"Here is the plan.\"}", plan.openedAt().plusSeconds(1));
+
+        StageDetailData detail = detailService.getDetail(plan.id());
+
+        // The plan stage's transcript is the brain conversation, not the dev thread.
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("user") && "tidy the nits".equals(r.text()));
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("agent") && "Here is the plan.".equals(r.text()));
     }
 
     @Test

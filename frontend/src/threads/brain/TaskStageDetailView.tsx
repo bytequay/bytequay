@@ -23,6 +23,8 @@ type Props = {
   stageId: string;
   onBack: () => void;
   onOpenStage: (stageId: string) => void;
+  /** Open the standalone code (commit/diff/files) page for this task. */
+  onOpenCode?: () => void;
 };
 
 /** PascalCase label for a stage type (mirrors StageType.displayName()). */
@@ -100,7 +102,7 @@ function StageComposer(
   );
 }
 
-export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenStage }: Props) {
+export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenStage, onOpenCode }: Props) {
   const { data, refresh } = useStageDetailData(stageId);
   const bandRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
 
@@ -129,7 +131,10 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
         <span className="sd-stage-chip" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 6 }}>
           {stageLabel(stage.type)}
         </span>
-        <span className="sd-repo-chip">{task.repoFullName}</span>
+        <span className="sd-repo-chip">
+          {task.repoFullName}
+          <span className="sd-branch">⎇ {task.branch}</span>
+        </span>
         {task.prNumber !== null && (
           <a
             className="sd-pr-chip"
@@ -139,6 +144,9 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
           >
             PR #{task.prNumber}{task.prDraft ? ' (draft)' : ''}
           </a>
+        )}
+        {onOpenCode !== undefined && (
+          <button type="button" className="sd-diff-btn" onClick={onOpenCode}>⇄ View code diff</button>
         )}
         <span className="sd-agent-pill">{task.agentRuntime}{task.agentModel ? ` · ${task.agentModel}` : ''}</span>
         <span className={`sd-iter-status sd-iter-status--${stage.state.toLowerCase()}`}>

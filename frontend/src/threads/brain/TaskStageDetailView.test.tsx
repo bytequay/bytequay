@@ -163,6 +163,17 @@ describe('TaskStageDetailView', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the code diff from the breadcrumb', async () => {
+    mockBridge();
+    const onOpenCode = vi.fn();
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}}
+      onOpenStage={() => {}} onOpenCode={onOpenCode} />);
+
+    await screen.findByText('read_file');
+    fireEvent.click(screen.getByRole('button', { name: /View code diff/ }));
+    expect(onOpenCode).toHaveBeenCalledTimes(1);
+  });
+
   it('renders a stage with no auto-push budget without crashing', async () => {
     // The development stage carries autoPushBudget: null over the wire (JSON
     // null, not undefined). The budget card must be skipped, not throw on

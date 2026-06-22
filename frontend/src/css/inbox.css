@@ -2232,12 +2232,6 @@
   border-bottom: 1px solid #e6e9ec;
   border-radius: 0;
 }
-.diff-viewer__commit-chk--all {
-  border: none;
-  background: none;
-  color: var(--text-4);
-  font-size: 12px;
-}
 .diff-viewer__commit-subject--all { font-weight: 600; }
 .diff-viewer__commit-meta {
   margin-top: 2px;

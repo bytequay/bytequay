@@ -93,7 +93,7 @@ function StageComposer(
     <div className="composer" aria-label="Stage composer">
       <textarea
         className="t"
-        rows={2}
+        rows={4}
         value={text}
         disabled={disabled || busy}
         placeholder={disabled ? 'Steering unavailable on a closed stage' : 'Steer this stage… (⌘↵ to send)'}
@@ -208,30 +208,32 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
           onOpenStage={onOpenStage}
         />
 
-        <main className="log-col" aria-label="Stage log" ref={scrollRef}>
-          <ConversationScrubber
-            position="right"
-            dashes={conversation
-              .filter(r => r.kind === 'user')
-              .map(r => ({ id: r.id, label: (r.text ?? '').slice(0, 60), active: false }))}
-            onJumpTo={jumpToRow}
-          />
-          <div className="conv-card">
-            {conversation.map(row => (
-              <ConversationRowView
-                key={row.id}
-                row={row}
-                accent={accent}
-                nowMs={nowMs}
-                registerRef={row.kind === 'iteration_marker' && row.iterationNumber !== null
-                  ? (el) => bandRefs.current.set(row.iterationNumber as number, el)
-                  : undefined}
-              />
-            ))}
-            {conversation.length === 0 && (
-              <p className="log-empty">No activity in this stage yet.</p>
-            )}
-          </div>
+        <div className="center-col">
+          <main className="log-col" aria-label="Stage log" ref={scrollRef}>
+            <ConversationScrubber
+              position="right"
+              dashes={conversation
+                .filter(r => r.kind === 'user')
+                .map(r => ({ id: r.id, label: (r.text ?? '').slice(0, 60), active: false }))}
+              onJumpTo={jumpToRow}
+            />
+            <div className="conv-card">
+              {conversation.map(row => (
+                <ConversationRowView
+                  key={row.id}
+                  row={row}
+                  accent={accent}
+                  nowMs={nowMs}
+                  registerRef={row.kind === 'iteration_marker' && row.iterationNumber !== null
+                    ? (el) => bandRefs.current.set(row.iterationNumber as number, el)
+                    : undefined}
+                />
+              ))}
+              {conversation.length === 0 && (
+                <p className="log-empty">No activity in this stage yet.</p>
+              )}
+            </div>
+          </main>
           <StageComposer
             disabled={stage.state === 'CLOSED' || stage.state === 'PAUSED'}
             onSubmit={async (text) => {
@@ -241,7 +243,7 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
               refresh();
             }}
           />
-        </main>
+        </div>
 
         <RightRail stage={stage} context={context} />
       </div>
@@ -357,10 +359,10 @@ function ConversationRowView({
       <div className={`tool-row tool-${(row.toolTag ?? '').toLowerCase()}`} id={row.id} data-row-id={row.id}>
         <span className="tool-tag">{row.toolTag ?? 'tool'}</span>
         <span className="tool-label">{row.toolLabel ?? ''}</span>
+        <span className="tool-time">{relativeShort(row.ts, nowMs)}</span>
         {row.toolDetail !== null && row.toolDetail !== '' && (
           <span className="tool-detail">{row.toolDetail}</span>
         )}
-        <span className="tool-time">{relativeShort(row.ts, nowMs)}</span>
       </div>
     );
   }

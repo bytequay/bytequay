@@ -353,10 +353,14 @@ function LogRow({ row }: { row: StageLogRow }) {
   }
   if (row.kind === 'iteration_summary' && row.iterationSummary) {
     return (
-      <div className="iter-sum" style={{ borderStyle: 'dashed' }}>
-        <div className="iter-sum-text">{row.iterationSummary.text}</div>
-        <div className="iter-sum-meta">
-          summarize_iteration() · {row.iterationSummary.recordedBy ?? 'recorded'}
+      <div className="iter-sum">
+        <span className="iter-sum-ic" aria-hidden>⊕</span>
+        <div className="iter-sum-body">
+          <div className="iter-sum-hd">Iteration summary</div>
+          <div className="iter-sum-text">{row.iterationSummary.text}</div>
+          <div className="iter-sum-meta">
+            summarize_iteration() · {row.iterationSummary.recordedBy ?? 'recorded'}
+          </div>
         </div>
       </div>
     );

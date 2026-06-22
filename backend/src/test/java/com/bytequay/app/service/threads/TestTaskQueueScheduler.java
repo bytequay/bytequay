@@ -28,6 +28,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Instant;
 import java.util.List;
@@ -51,7 +52,7 @@ class TestTaskQueueScheduler
     private TaskQueueService queue;
     private TaskQueueMaterialiser materialiser;
     private TaskPhaseMachine phaseMachine;
-    private AgentScheduler scheduler;
+    private ApplicationEventPublisher events;
     private NotificationService notifications;
     private TaskQueueScheduler queueScheduler;
 
@@ -63,10 +64,10 @@ class TestTaskQueueScheduler
         queue = mock(TaskQueueService.class);
         materialiser = mock(TaskQueueMaterialiser.class);
         phaseMachine = mock(TaskPhaseMachine.class);
-        scheduler = mock(AgentScheduler.class);
+        events = mock(ApplicationEventPublisher.class);
         notifications = mock(NotificationService.class);
         queueScheduler = new TaskQueueScheduler(
-                taskStore, threadStore, queue, materialiser, phaseMachine, scheduler, notifications);
+                taskStore, threadStore, queue, materialiser, phaseMachine, events, notifications);
     }
 
     @Test
@@ -88,8 +89,8 @@ class TestTaskQueueScheduler
 
         verify(queue).markCompleted(THREAD_ID, 1);
         verify(materialiser).materialiseHead(any(), eq(head), eq("/clone"));
-        verify(phaseMachine).transition("t1.k2", TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
-        verify(scheduler).enqueueTurn(thread, "go");
+        verify(phaseMachine).transition("t1.k2", TaskPhase.PLANNING, "slot_opened", Actor.SCHEDULER);
+        verify(events).publishEvent(new PlanKickoffRequested("t1.k2", "go", null));
     }
 
     @Test
@@ -140,7 +141,7 @@ class TestTaskQueueScheduler
         queueScheduler.advance(completed);
 
         verify(notifications).notifyAwaitingReview(eq(THREAD_ID), eq("t1.k2"), any());
-        verify(phaseMachine).transition("t1.k2", TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
+        verify(phaseMachine).transition("t1.k2", TaskPhase.PLANNING, "slot_opened", Actor.SCHEDULER);
     }
 
     @Test
@@ -164,7 +165,7 @@ class TestTaskQueueScheduler
 
         assertThat(started).isPresent();
         verify(materialiser).materialiseHead(any(), eq(head), eq("/clone"));
-        verify(phaseMachine).transition("t1.k1", TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
+        verify(phaseMachine).transition("t1.k1", TaskPhase.PLANNING, "slot_opened", Actor.SCHEDULER);
     }
 
     @Test
@@ -185,7 +186,7 @@ class TestTaskQueueScheduler
         queueScheduler.startPendingQueuesOnStartup();
 
         verify(materialiser).materialiseHead(any(), eq(head), eq("/clone"));
-        verify(phaseMachine).transition("t1.k1", TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
+        verify(phaseMachine).transition("t1.k1", TaskPhase.PLANNING, "slot_opened", Actor.SCHEDULER);
     }
 
     @Test

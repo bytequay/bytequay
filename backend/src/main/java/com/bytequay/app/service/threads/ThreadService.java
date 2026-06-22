@@ -546,8 +546,13 @@ public class ThreadService
         // user approves the plan.
         if (events != null) {
             events.publishEvent(new TaskCreatedEvent(task.id()));
-            events.publishEvent(new PlanKickoffRequested(
-                    task.id(), request.initialPrompt(), request.trunkPlan()));
+            // A queued task opens its PlanStage now but defers the brain's
+            // planning turn until the scheduler promotes it to PLANNING on a
+            // free slot — otherwise it would plan while still waiting in line.
+            if (!request.deferPlanKickoff()) {
+                events.publishEvent(new PlanKickoffRequested(
+                        task.id(), request.initialPrompt(), request.trunkPlan()));
+            }
         }
         return task;
     }
@@ -1105,7 +1110,15 @@ public class ThreadService
              *  present it seeds the new PlanStage's first {@code PLAN_RECORDED}
              *  event with {@code source=trunk}; the brain then validates or
              *  revises it. Null for a task cut without a prior plan. */
-            JsonNode trunkPlan)
+            JsonNode trunkPlan,
+            /** Defer the planning kickoff: the PlanStage still opens at
+             *  creation, but the brain's planning turn is <em>not</em> started.
+             *  The queue path sets this so a task materialised into
+             *  {@link TaskPhase#QUEUED} waits for a compute slot before
+             *  planning — the scheduler fires the kickoff when it promotes the
+             *  task to {@link TaskPhase#PLANNING}. Direct creations leave it
+             *  false and plan immediately. */
+            boolean deferPlanKickoff)
     {
         /** Backwards-compatible constructor for the common no-trunk-plan
          *  path — leaves {@code trunkPlan} null so existing callers (and
@@ -1119,7 +1132,22 @@ public class ThreadService
         {
             this(kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
-                    workspaceId, workModel, null);
+                    workspaceId, workModel, null, false);
+        }
+
+        /** Constructor for callers that supply a trunk plan but plan
+         *  immediately (the {@code create_task} path) — leaves
+         *  {@code deferPlanKickoff} false. */
+        public NewTaskRequest(
+                ThreadKind kind, String provider, String model, String title,
+                String workingDir, String branchName, String initialPrompt,
+                List<String> initialGroupIds, String taskType, Integer linkedPrNumber,
+                Integer linkedIssueNumber, ThreadFlow flow, String workspaceId,
+                WorkModel workModel, JsonNode trunkPlan)
+        {
+            this(kind, provider, model, title, workingDir, branchName, initialPrompt,
+                    initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
+                    workspaceId, workModel, trunkPlan, false);
         }
     }
 

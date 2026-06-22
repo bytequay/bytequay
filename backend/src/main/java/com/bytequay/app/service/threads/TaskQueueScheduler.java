@@ -24,6 +24,7 @@ import com.bytequay.app.repository.ThreadStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -67,9 +68,13 @@ public class TaskQueueScheduler
 {
     private static final Logger log = LoggerFactory.getLogger(TaskQueueScheduler.class);
 
-    /** Phases in which the agent loop is actively running the task and so
-     *  holds the thread's compute slot. */
+    /** Phases in which the thread's agent is actively working the task and so
+     *  holds the thread's compute slot. PLANNING counts: the brain plans on
+     *  the thread, so the queue must not pull the next entry forward while a
+     *  task is still being planned (doing so would race two unapproved tasks
+     *  and try to start dev work before any plan is approved). */
     private static final Set<TaskPhase> SLOT_OCCUPYING = EnumSet.of(
+            TaskPhase.PLANNING,
             TaskPhase.IMPLEMENTING,
             TaskPhase.VALIDATING,
             TaskPhase.INTERNAL_REVIEW,
@@ -82,7 +87,7 @@ public class TaskQueueScheduler
     private final TaskQueueService queue;
     private final TaskQueueMaterialiser materialiser;
     private final TaskPhaseMachine phaseMachine;
-    private final AgentScheduler scheduler;
+    private final ApplicationEventPublisher events;
     private final NotificationService notifications;
 
     public TaskQueueScheduler(
@@ -91,7 +96,7 @@ public class TaskQueueScheduler
             TaskQueueService queue,
             TaskQueueMaterialiser materialiser,
             TaskPhaseMachine phaseMachine,
-            AgentScheduler scheduler,
+            ApplicationEventPublisher events,
             NotificationService notifications)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -99,7 +104,7 @@ public class TaskQueueScheduler
         this.queue = requireNonNull(queue, "queue is null");
         this.materialiser = requireNonNull(materialiser, "materialiser is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.events = requireNonNull(events, "events is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
     }
 
@@ -219,13 +224,14 @@ public class TaskQueueScheduler
 
     private void promote(Task task)
     {
-        phaseMachine.transition(task.id(), TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
+        // A freed slot moves the queued task into PLANNING, not straight to
+        // dev: every task plans first and reaches IMPLEMENTING only once the
+        // plan is approved. The kickoff (deferred at materialisation) fires
+        // here with the entry's opening prompt as the planning seed.
+        phaseMachine.transition(task.id(), TaskPhase.PLANNING, "slot_opened", Actor.SCHEDULER);
         Task fresh = taskStore.findTaskById(task.id()).orElse(task);
-        String openingPrompt = fresh.openingPrompt();
-        if (openingPrompt != null && !openingPrompt.isBlank()) {
-            threadStore.findThreadById(task.threadId())
-                    .ifPresent(thread -> scheduler.enqueueTurn(thread, openingPrompt));
-        }
+        events.publishEvent(new PlanKickoffRequested(
+                task.id(), fresh.openingPrompt(), /* trunkPlan */ null));
     }
 
     private int occupiedSlots(String threadId)

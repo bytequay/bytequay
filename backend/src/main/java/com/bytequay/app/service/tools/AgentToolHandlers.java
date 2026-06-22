@@ -607,14 +607,11 @@ public class AgentToolHandlers
 
     @AgentTool(
             name = "create_task",
-            description = "Cut a new task on this thread. Trunk-only — the trunk role "
-                    + "plans + cuts tasks; task / reviewer roles can't reach this. "
-                    + "Returns the new task's id, branch, worktree path, and seq. "
-                    + "Valid whenever the thread has no active task: on a brand-new "
-                    + "0-task thread (the bootstrap), or after the chain has run dry "
-                    + "(prior tasks all COMPLETED — the trunk re-enters as creator). "
-                    + "Fails when there's already an active task — use next_task / "
-                    + "ship_task to propose a successor instead.",
+            description = "Cut a new task on this thread. Trunk-only. Returns the new task's "
+                    + "id, branch, worktree path, and seq. Cuts immediately only when the "
+                    + "thread has no active task (a brand-new 0-task thread, or after the chain "
+                    + "ran dry). When a task is already active, use queue_task to line this one "
+                    + "up behind it (or next_task / ship_task to chain off the current task).",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)
@@ -637,9 +634,10 @@ public class AgentToolHandlers
         // chain runs dry."
         if (taskStore.findActiveTaskForThread(threadId).isPresent()) {
             return ToolOutcome.Completed.error(
-                    "thread has an active task — use next_task or ship_task to "
-                            + "propose a successor. create_task only runs when the "
-                            + "chain has no live task.");
+                    "thread has an active task — use queue_task to line a new task up "
+                            + "behind it, or next_task / ship_task to chain off the current "
+                            + "task. create_task only cuts immediately when the chain has no "
+                            + "live task.");
         }
         // GitHub owner/name slugs are case-insensitive (trino/Trino,
         // spark/Spark resolve to the same repo), so match the same way —

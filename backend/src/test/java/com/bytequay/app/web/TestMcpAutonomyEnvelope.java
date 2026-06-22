@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -171,16 +172,19 @@ class TestMcpAutonomyEnvelope
                 "Autonomy-envelope fixture", ThreadStatus.RUNNING, "test",
                 0L, 0L, 0L, now, now, null, null,
                 ThreadFlow.BUILD, "ws-default", null, null));
-        // A RUNNING task makes the thread TASK-role (grants CODE_*) and
-        // keeps the park-guard happy (an active, unparked task). The
-        // worktree path is unique per thread so the shared worktree
-        // lease doesn't collide across tests in this class.
+        // A RUNNING task at dev altitude makes the thread TASK-role (grants
+        // CODE_*) and keeps the park-guard happy (an active, unparked task).
+        // A PLANNING task (saveTask's default phase) stays TRUNK, so move it
+        // to IMPLEMENTING. The worktree path is unique per thread so the
+        // shared worktree lease doesn't collide across tests in this class.
         String worktree = "/tmp/bytequay-test-envelope-" + threadId;
+        String taskId = UUID.randomUUID().toString();
         tasks.saveTask(new Task(
-                UUID.randomUUID().toString(), threadId, 1L, TaskStatus.RUNNING,
+                taskId, threadId, 1L, TaskStatus.RUNNING,
                 "feature/auto", worktree, "main", worktree,
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, now, null, null, null, null, null));
+        tasks.updatePhase(taskId, TaskPhase.IMPLEMENTING);
         return threadId;
     }
 

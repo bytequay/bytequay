@@ -65,11 +65,11 @@ public class TaskQueueToolHandlers
 
     @AgentTool(
             name = "queue_task",
-            description = "Append a planned task to the trunk's queue. Trunk-only; task / "
-                    + "reviewer roles can't reach this. The entry stays PENDING until the "
-                    + "queue head materialises (the active task on this thread reaches "
-                    + "COMPLETED). branch_base is 'main' (default) or 'stacked-on-previous'. "
-                    + "Returns the entry's position.",
+            description = "Append a planned task to the trunk's queue — the way to line up "
+                    + "follow-ups while planning. Trunk-only. The entry stays PENDING until "
+                    + "the queue head materialises (the active task reaches COMPLETED); on an "
+                    + "idle thread it starts immediately. branch_base is 'main' (default) or "
+                    + "'stacked-on-previous'. Returns the entry's position.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)

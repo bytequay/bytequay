@@ -94,7 +94,7 @@ class TestMcpPublishGate
     {
         String threadId = newThread("Push gate fixture");
         Task seeded = newTask(threadId, "feature/push-gate", "/tmp/bytequay-test-fake-worktree-push");
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         JsonNode response = invokePush(threadId);
 
@@ -148,7 +148,7 @@ class TestMcpPublishGate
         // that got a Task without an isolated branch) have nothing for
         // push to act on — the gate must refuse without parking.
         Task seeded = newTask(threadId, /* branchName */ null, /* worktreePath */ null);
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         JsonNode response = invokePush(threadId);
 
@@ -167,7 +167,7 @@ class TestMcpPublishGate
         watchedRepos.setLocalClonePath("acme", "widget", workingDir);
         String threadId = newThread("Post-comment fixture");
         Task seeded = newTaskWithLinkedPr(threadId, workingDir, 42);
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         String body = "LGTM, ship it once CI is green.";
         JsonNode response = invokePostComment(threadId, body);
@@ -192,7 +192,7 @@ class TestMcpPublishGate
     {
         String threadId = newThread("Post-comment blank body");
         Task seeded = newTaskWithLinkedPr(threadId, "/tmp/whatever", 1);
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         JsonNode response = invokePostComment(threadId, "   ");
 
@@ -212,7 +212,7 @@ class TestMcpPublishGate
         // rather than fall through and emit an AWAITING_REVIEW row that
         // the user could never actually approve.
         Task seeded = newTask(threadId, "main", null);
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         JsonNode response = invokePostComment(threadId, "Hi");
 
@@ -233,7 +233,7 @@ class TestMcpPublishGate
         // state or the notification.
         String threadId = newThread("Request-review refactor anchor");
         Task seeded = newTask(threadId, "feature/req-review", "/tmp/bytequay-test-req-review");
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         JsonNode response = invokeRequestReview(threadId,
                 "Done, please review.", "Approved with one nit.");
@@ -268,7 +268,7 @@ class TestMcpPublishGate
     {
         String threadId = newThread("Request-review without worktree");
         Task seeded = newTask(threadId, /* branchName */ null, /* worktreePath */ null);
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         JsonNode response = invokeRequestReview(threadId, "Done.", "");
 
@@ -284,7 +284,7 @@ class TestMcpPublishGate
     {
         String threadId = newThread("Approval null expected action");
         Task seeded = newTask(threadId, "feature/null-action", "/tmp/bytequay-test-null-action");
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
         invokeRequestReview(threadId, "Ready.", "");
         Notification latest = newestAwaitingReviewFor(threadId);
 
@@ -301,7 +301,7 @@ class TestMcpPublishGate
     {
         String threadId = newThread("Next task gate fixture");
         Task seeded = newTask(threadId, "feature/current", "/tmp/bytequay-test-next-current");
-        tasks.saveTask(seeded);
+        saveActiveTask(seeded);
 
         JsonNode response = invokeNextTask(threadId, "Follow-up", "stacked");
 
@@ -726,6 +726,17 @@ class TestMcpPublishGate
     {
         stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
         planStageService.approve(taskId, "rev-1");
+    }
+
+    /** Seed a task that's already at dev altitude. The publish gates
+     *  (push / post_comment / request_review / next_task) act on an
+     *  in-flight, plan-approved task — one still PLANNING resolves to the
+     *  TRUNK role and never reaches the per-tool handler. {@code saveTask}
+     *  doesn't map the phase column, so move it to IMPLEMENTING explicitly. */
+    private void saveActiveTask(Task seeded)
+    {
+        tasks.saveTask(seeded);
+        tasks.updatePhase(seeded.id(), TaskPhase.IMPLEMENTING);
     }
 
     private String newThread(String title)

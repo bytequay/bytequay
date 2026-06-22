@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -213,6 +214,9 @@ class TestMcpPermissionFilter
                 Instant.now(), /* endedAt */ null, /* errorMessage */ null,
                 /* name */ null, /* roleSkill */ null, /* workModel */ null);
         tasks.saveTask(task);
+        // The thread is at TASK altitude only once the task is doing dev
+        // work; a PLANNING task (the default after saveTask) stays TRUNK.
+        tasks.updatePhase(task.id(), TaskPhase.IMPLEMENTING);
         return id;
     }
 }

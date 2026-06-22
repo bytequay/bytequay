@@ -22,7 +22,7 @@ type Props = {
 };
 
 /** One tile in the Workspaces landing grid. Mirrors the structure of
- *  the design mockup: avatar + name + CURRENT chip + ⋯ menu in the
+ *  the design mockup: avatar + name + CURRENT chip in the
  *  header, repo chips, a three-stat row, a memory strip with a budget
  *  bar, and a footer that surfaces the "N needs you" amber chip,
  *  last-edited time, and the Enter affordance. The whole tile is a
@@ -63,7 +63,6 @@ function WorkspaceCard({ card, isCurrent, onEnter }: Props) {
             <span>{relativeTime(card.lastActivityMs)}</span>
           </div>
         </div>
-        <span className="workspace-landing-card__menu" aria-hidden>⋯</span>
       </header>
 
       {card.repos.length > 0 && (

@@ -914,14 +914,6 @@
   box-shadow: 0 0 6px rgba(16, 185, 129, 0.45);
 }
 
-.workspace-landing-card__menu {
-  color: var(--ws-text-3);
-  font-size: 16px;
-  letter-spacing: 0.1em;
-  align-self: flex-start;
-  padding: 0 4px;
-}
-
 .workspace-landing-card__repos {
   display: flex;
   flex-wrap: wrap;

@@ -100,7 +100,12 @@ export function CommitsColumn({
           onClick={onSelectAll}
           title="Show the cumulative diff across all commits"
         >
-          <span className="diff-viewer__commit-chk diff-viewer__commit-chk--all" aria-hidden="true">≡</span>
+          <span
+            className={'diff-viewer__commit-chk' + (selectionActive ? '' : ' diff-viewer__commit-chk--on')}
+            aria-hidden="true"
+          >
+            {selectionActive ? '' : '✓'}
+          </span>
           <span className="diff-viewer__commit-text">
             <span className="diff-viewer__commit-subject diff-viewer__commit-subject--all">
               All {commits.length} commit{commits.length === 1 ? '' : 's'}

@@ -25,6 +25,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.PullRequestRepository;
@@ -50,6 +51,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -657,7 +659,14 @@ public class TaskService
     {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("no task " + taskId));
-        registry.find(threadId).ifPresent(ThreadAgent::interrupt);
+        // Interrupt the subprocess and wait for it to actually exit before we
+        // reap the worktree. interrupt() only sends destroy() (SIGTERM); without
+        // the wait, `git worktree remove` can race a still-live process that's
+        // mid-tool-call inside the worktree we're deleting.
+        registry.find(threadId).ifPresent(agent -> {
+            agent.interrupt();
+            awaitAgentStopped(agent);
+        });
         taskStore.cancelTask(taskId, Instant.now());
         // Drive the phase terminal so the lifecycle reconciler stops polling
         // the task and the queue scheduler frees its slot.
@@ -666,6 +675,30 @@ public class TaskService
         }
         worktreeService.reap(task);
         return taskStore.findTaskById(taskId).orElse(task);
+    }
+
+    /** Longest we block a cancel waiting for the interrupted subprocess to die
+     *  before reaping anyway. destroy() is graceful; a few hundred ms is the
+     *  norm, and reap is --force + best-effort so a timeout is no worse than
+     *  the pre-wait behaviour. */
+    private static final Duration AGENT_STOP_TIMEOUT = Duration.ofSeconds(3);
+
+    /** Block until the agent leaves RUNNING (its turn thread transitions to
+     *  IDLE once the destroyed subprocess exits) or the timeout elapses. */
+    private void awaitAgentStopped(ThreadAgent agent)
+    {
+        // Fully qualified: this file imports the domain Thread, which shadows
+        // java.lang.Thread.
+        long deadlineNanos = System.nanoTime() + AGENT_STOP_TIMEOUT.toNanos();
+        while (agent.status() == ThreadStatus.RUNNING && System.nanoTime() < deadlineNanos) {
+            try {
+                java.lang.Thread.sleep(50);
+            }
+            catch (InterruptedException e) {
+                java.lang.Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     /**

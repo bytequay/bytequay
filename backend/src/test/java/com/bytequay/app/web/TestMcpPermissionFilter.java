@@ -112,6 +112,27 @@ class TestMcpPermissionFilter
     }
 
     @Test
+    void brainThreadSeesApprovalPromptAndReadToolsButNoWriteTools()
+            throws Exception
+    {
+        String threadId = newBrainThread();
+
+        JsonNode listing = await(controller.handle(threadId,
+                jsonRpc("tools/list", null)));
+
+        JsonNode tools = listing.path("result").path("tools");
+        // approval_prompt is the claude --permission-prompt-tool target;
+        // the brain subprocess validates it exists in the advertised list
+        // at startup and exits 1 if it's missing, so the brain scoping must
+        // not strip it even though it isn't in the read-only allowlist.
+        assertThat(toolNames(tools)).contains(
+                "approval_prompt", "record_plan", "read_plan_summary", "read_diff_summary");
+        // The brain stays read-only: no create_task / publish tools leak in.
+        assertThat(toolNames(tools))
+                .doesNotContain("create_task", "queue_task", "push", "post_comment");
+    }
+
+    @Test
     void recallThreadIsAllowedForBothRoles()
             throws Exception
     {
@@ -182,6 +203,33 @@ class TestMcpPermissionFilter
                 /* provider */ "claude-code",
                 /* agentSessionId */ null,
                 "Trunk fixture",
+                ThreadStatus.IDLE,
+                /* model */ "test",
+                /* costUsdMilli */ 0L,
+                /* tokensIn */ 0L,
+                /* tokensOut */ 0L,
+                /* createdAt */ now,
+                /* updatedAt */ now,
+                /* endedAt */ null,
+                /* errorMessage */ null,
+                ThreadFlow.BUILD,
+                /* workspaceId */ "ws-default",
+                /* workModel */ null,
+                /* activeTask */ null);
+        threads.saveThread(thread);
+        return id;
+    }
+
+    private String newBrainThread()
+    {
+        String id = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+        Thread thread = new Thread(
+                id,
+                ThreadKind.BRAIN_AGENT,
+                /* provider */ "claude-code",
+                /* agentSessionId */ null,
+                "Brain fixture",
                 ThreadStatus.IDLE,
                 /* model */ "test",
                 /* costUsdMilli */ 0L,

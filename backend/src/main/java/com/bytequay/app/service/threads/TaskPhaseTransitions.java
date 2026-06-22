@@ -47,10 +47,12 @@ final class TaskPhaseTransitions
         // other forward target for a task whose plan-approval routes it
         // through the scheduler before a compute slot frees.
         m.put(TaskPhase.PLANNING, EnumSet.of(TaskPhase.IMPLEMENTING, TaskPhase.QUEUED));
-        // A queued task promotes to IMPLEMENTING when the scheduler frees
-        // a slot; that's its only forward edge (besides the universal
-        // NEEDS_ATTENTION / COMPLETED escapes a cancel can take).
-        m.put(TaskPhase.QUEUED, EnumSet.of(TaskPhase.IMPLEMENTING));
+        // A queued task promotes to PLANNING when the scheduler frees a slot
+        // — it then plans like any task and reaches IMPLEMENTING only once the
+        // plan is approved. (IMPLEMENTING stays legal for a recovered park /
+        // direct promotion; the universal NEEDS_ATTENTION / COMPLETED escapes
+        // also apply.)
+        m.put(TaskPhase.QUEUED, EnumSet.of(TaskPhase.PLANNING, TaskPhase.IMPLEMENTING));
         m.put(TaskPhase.IMPLEMENTING, EnumSet.of(TaskPhase.VALIDATING));
         m.put(TaskPhase.VALIDATING, EnumSet.of(TaskPhase.INTERNAL_REVIEW));
         // Internal review either surfaces findings to address, or is clean

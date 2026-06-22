@@ -95,7 +95,9 @@ public class TaskQueueMaterialiser
                 /* linkedIssueNumber */ null,
                 thread.flow(),
                 thread.workspaceId(),
-                thread.workModel());
+                thread.workModel(),
+                /* trunkPlan */ null,
+                /* deferPlanKickoff — the scheduler plans on promotion */ true);
         Task task = threadService.materialiseTask(thread.id(), request);
         taskStore.updatePhase(task.id(), TaskPhase.QUEUED);
         if (head.initialPrompt() != null && !head.initialPrompt().isBlank()) {

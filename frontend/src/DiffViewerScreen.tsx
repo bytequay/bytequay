@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
 import { highlightToHtml, languageForPath } from './highlight';
 import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewFindingDto, ReviewFindingSeverityDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
@@ -1051,7 +1051,12 @@ function InlineExistingThread({
  * scroll-area's top edge, and clicking a file in the rail scrolls smoothly
  * to its header.
  */
-function ContinuousFilesPane({
+// Memoized: the concatenated diff (every file + syntax highlighting) is the
+// heaviest subtree on the page. Without memo it re-renders on every resize
+// mousemove tick and every commit-selection click — the source of the drag
+// jank and slow selection. With stable props (see the call site) it only
+// re-renders when the diff content actually changes.
+const ContinuousFilesPane = memo(function ContinuousFilesPane({
   files,
   selectedPath,
   onActiveFileChange,
@@ -1215,7 +1220,7 @@ function ContinuousFilesPane({
       ))}
     </div>
   );
-}
+});
 
 type FileDiffProps = {
   file: DiffFileDto;
@@ -2499,6 +2504,28 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
   const hasCommits = (commits?.length ?? 0) > 0;
   const selectedFile = files?.find((f) => f.filename === selectedPath) ?? null;
 
+  // Stable props for the memoized diff pane, so a resize drag or a commit
+  // click doesn't re-render the whole diff. aiComments keeps one identity
+  // while the draft is unchanged; the two callbacks are wrapped so their
+  // identity is stable while still calling the latest logic.
+  const aiComments = useMemo(() => aiDraft?.comments ?? [], [aiDraft]);
+  const onThreadRepliedRef = useRef<(rootGithubId?: number, optimisticReply?: ReviewMessageDto) => void>(() => {});
+  onThreadRepliedRef.current = (rootGithubId, optimisticReply) => {
+    if (rootGithubId != null && optimisticReply) {
+      setReviewThreads(prev => prev.map(t =>
+        t.rootGithubId === rootGithubId
+          ? { ...t, messages: [...t.messages, optimisticReply] }
+          : t));
+      return;
+    }
+    void refreshReviewThreads(true);
+  };
+  const handleThreadReplied = useCallback(
+    (rootGithubId?: number, optimisticReply?: ReviewMessageDto) =>
+      onThreadRepliedRef.current(rootGithubId, optimisticReply),
+    [],
+  );
+
   return (
     <div className="diff-viewer">
       <div className="diff-viewer__toolbar">
@@ -2726,8 +2753,8 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
             <ContinuousFilesPane
               files={orderedFiles}
               selectedPath={selectedPath}
-              onActiveFileChange={(path) => setSelectedPath(path)}
-              aiComments={aiDraft?.comments ?? []}
+              onActiveFileChange={setSelectedPath}
+              aiComments={aiComments}
               panelFindings={panelFindings}
               draftId={aiDraft?.id ?? null}
               draftPublished={aiDraft?.status === 'PUBLISHED'}
@@ -2737,19 +2764,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
               prNumber={pr.number}
               headSha={commits && commits.length > 0 ? commits[commits.length - 1].sha : null}
               threads={reviewThreads}
-              onThreadReplied={(rootGithubId, optimisticReply) => {
-                // Patch local state right away so the user sees their
-                // reply land without pulling a stale SQLite snapshot over it.
-                if (rootGithubId != null && optimisticReply) {
-                  setReviewThreads(prev => prev.map(t =>
-                    t.rootGithubId === rootGithubId
-                      ? { ...t, messages: [...t.messages, optimisticReply] }
-                      : t,
-                  ));
-                  return;
-                }
-                void refreshReviewThreads(true);
-              }}
+              onThreadReplied={handleThreadReplied}
               prAuthor={pr.author}
             />
           ) : files === null ? null : (

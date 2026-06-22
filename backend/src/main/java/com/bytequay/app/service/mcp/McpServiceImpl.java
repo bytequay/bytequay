@@ -208,7 +208,12 @@ public class McpServiceImpl
             // A brain connection is further scoped to the read-only brain
             // allowlist (+ record_plan), matching the in-JVM brain — so a
             // claude-code brain can't reach create_task / publish tools.
+            // approval_prompt is exempt: it's not a capability but the
+            // CLI's --permission-prompt-tool target, which claude-code
+            // validates exists in the advertised list at startup — strip it
+            // and the brain subprocess exits before it can plan.
             if (kind == ThreadKind.BRAIN_AGENT
+                    && !ApprovalPromptHandler.NAME.equals(spec.name())
                     && !LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST.contains(spec.name())) {
                 continue;
             }
@@ -282,6 +287,7 @@ public class McpServiceImpl
         ThreadKind kind = kindFor(threadId);
         if (!spec.availableToKind(kind)
                 || (kind == ThreadKind.BRAIN_AGENT
+                        && !ApprovalPromptHandler.NAME.equals(name)
                         && !LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST.contains(name))) {
             // Kind gate (e.g. record_plan is brain-only) + the brain allowlist
             // scoping — same dual role as the role check: hidden in tools/list

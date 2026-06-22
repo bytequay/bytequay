@@ -18,6 +18,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkModel;
@@ -30,7 +31,6 @@ import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -41,6 +41,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
@@ -61,22 +62,19 @@ public class BrainServiceImpl
     private final ThreadTurnScheduler scheduler;
     private final IdGenerator idGenerator;
     private final WorkModelResolver workModelResolver;
-    private final ObjectMapper mapper;
 
     public BrainServiceImpl(
             TaskStore taskStore,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             IdGenerator idGenerator,
-            WorkModelResolver workModelResolver,
-            ObjectMapper mapper)
+            WorkModelResolver workModelResolver)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Override
@@ -115,27 +113,19 @@ public class BrainServiceImpl
         }
         Thread brain = threadStore.findBrainThreadByTask(event.taskId())
                 .orElseGet(() -> createBrainThread(task));
-        // The trunk's discussion since the last task — what led to this cut —
-        // is the seed for planning; feed it to the brain so it plans with the
-        // full context, not just the one-line opening prompt.
-        String seed = PlanSeedWindow.seedTranscript(taskStore, threadStore, mapper, task);
         String turnId = scheduler.enqueueTurn(
-                brain, planningPrompt(event.taskId(), event.initialPrompt(), event.trunkPlan(), seed),
+                brain, planningPrompt(event.taskId(), event.initialPrompt(), event.trunkPlan()),
                 TurnInitiator.unattended("plan-kickoff"));
         log.debug("kicked off planning turn {} on brain thread {} for task {}",
                 turnId, brain.id(), event.taskId());
     }
 
-    private static String planningPrompt(
-            String taskId, String initialPrompt, JsonNode trunkPlan, String seedConversation)
+    private static String planningPrompt(String taskId, String initialPrompt, JsonNode trunkPlan)
     {
         String request = initialPrompt == null || initialPrompt.isBlank()
-                ? "(No opening prompt was given — infer the intent from the task and branch.)"
+                ? "(No opening prompt was given — infer the intent from the trunk conversation "
+                        + "above, the task, and the branch.)"
                 : initialPrompt.trim();
-        String seedNote = seedConversation == null || seedConversation.isBlank()
-                ? ""
-                : "\n\nThe trunk conversation that led to this task (your planning seed):\n\n"
-                        + seedConversation;
         String trunkNote = trunkPlan == null || trunkPlan.isNull() || trunkPlan.isMissingNode()
                 ? ""
                 : "\n\nA draft plan was handed off from the parent thread (already recorded on "
@@ -143,9 +133,10 @@ public class BrainServiceImpl
                         + "it largely unchanged; if not, record a revision explaining what you "
                         + "changed and why.";
         return """
-                You are the planning agent for a new development task. The user's request:
+                You are the planning agent for a new development task. The conversation above is \
+                the trunk discussion that led to this task — your planning seed. The user's request:
 
-                %s%s%s
+                %s%s
 
                 Investigate the project as needed with your read-only introspection tools, \
                 then call record_plan(task_id='%s', plan={…}) with a structured plan: what you \
@@ -153,7 +144,7 @@ public class BrainServiceImpl
                 you intend to do (numbered steps, validation strategy, push strategy), and the \
                 risk / effort / value signals. Set status to "finalized" when the plan is ready \
                 for the user to review. Do NOT write code — the user approves the plan before \
-                any development starts.""".formatted(request, seedNote, trunkNote, taskId);
+                any development starts.""".formatted(request, trunkNote, taskId);
     }
 
     private Thread createBrainThread(Task task)
@@ -194,7 +185,26 @@ public class BrainServiceImpl
                 /* parallelSlots */ 1,
                 /* parentTaskId */ task.id());
         threadStore.saveThread(brain);
+        seedFromTrunk(brain.id(), task);
         return brain;
+    }
+
+    /** Copy the trunk's seed conversation (previous task → this cut) onto the
+     *  brain thread as its first messages, preserving roles and original
+     *  timestamps. The brain thread is the single source for the plan stage:
+     *  the brain agent reads the seed as conversation history, the feed shows
+     *  it, and the dev agent's read_plan_conversation reads it — all from this
+     *  one thread, with no on-the-fly cross-thread reads. */
+    private void seedFromTrunk(String brainThreadId, Task task)
+    {
+        long seq = 1;
+        for (ThreadMessage m : PlanSeedWindow.trunkSeedMessages(taskStore, threadStore, task)) {
+            threadStore.appendMessage(new ThreadMessage(
+                    UUID.randomUUID().toString(), brainThreadId, /* taskId */ null, seq++,
+                    m.role(), m.type(), m.contentJson(),
+                    /* durationMs */ null, /* tokensIn */ null, /* tokensOut */ null,
+                    /* costUsdMilli */ null, m.ts()));
+        }
     }
 
     /** Resolve the brain's work model from the task's dev thread (the project

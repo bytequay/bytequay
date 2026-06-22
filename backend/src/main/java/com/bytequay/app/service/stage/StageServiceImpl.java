@@ -112,12 +112,12 @@ public class StageServiceImpl
         Map<UUID, StageType> stageTypes = allStages.stream()
                 .collect(Collectors.toMap(StageInstance::id, StageInstance::type, (a, b) -> a));
 
-        // Brain conversation: user questions + agent replies on the task's
-        // brain thread, surfaced in the feed and the user-message scrubber.
+        // The brain thread is the single source for the plan-stage
+        // conversation: the trunk's seed (copied onto it when the brain thread
+        // was created) followed by the brain agent's planning and any user
+        // steering. The feed never reads the trunk/dev thread on the fly — dev
+        // work shows only as stage-event checkpoints below.
         List<ThreadMessage> brainMessages = brainMessages(taskId);
-        // Steering: user messages on the Task's dev thread, attributed to a
-        // stage by time window (see the window-based interventions metric).
-        List<ThreadMessage> threadMessages = threadWindowMessages(task);
         // Index of stage display names → id for resolving drill-in chips.
         Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
@@ -129,60 +129,9 @@ public class StageServiceImpl
                 topLevel,
                 subStages,
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
-                        brainMessages, threadMessages, allStages, stageNameIndex),
+                        brainMessages, stageNameIndex),
                 buildRightRail(task, allStages, cost),
                 buildScrubbers(allEvents, brainMessages));
-    }
-
-    /** The Task's thread conversation in this task's window — both the user's
-     *  messages and the agent's replies (the trunk discussion that led here,
-     *  when the task's thread is the trunk), so the brain feed shows the full
-     *  exchange, not just one side. Scoped from the previous task's creation
-     *  onward so it doesn't replay the whole multi-task thread history.
-     *  Oldest-first. */
-    private List<ThreadMessage> threadWindowMessages(Task task)
-    {
-        if (task.threadId() == null) {
-            return List.of();
-        }
-        Instant windowStart = previousTaskBoundary(task);
-        return threadStore.listMessages(task.threadId()).stream()
-                .filter(m -> "text".equals(m.type()))
-                .filter(m -> "user".equals(m.role()) || "assistant".equals(m.role()))
-                .filter(m -> !m.ts().isBefore(windowStart))
-                .toList();
-    }
-
-    /** The creation time of the most recent task on this thread created
-     *  before {@code task} — the lower bound for this task's brain feed so it
-     *  doesn't replay earlier tasks' conversation. {@link Instant#MIN} (show
-     *  all) when this is the thread's first task or createdAt is unknown. */
-    private Instant previousTaskBoundary(Task task)
-    {
-        Instant self = task.createdAt();
-        if (self == null) {
-            return Instant.MIN;
-        }
-        return taskStore.listTasksByThread(task.threadId()).stream()
-                .filter(t -> !t.id().equals(task.id()))
-                .map(Task::createdAt)
-                .filter(c -> c != null && c.isBefore(self))
-                .max(Comparator.naturalOrder())
-                .orElse(Instant.MIN);
-    }
-
-    /** The id of the stage whose half-open window {@code [openedAt, closedAt)}
-     *  contains {@code ts}, or null when none does. */
-    private static String stageIdForTs(Instant ts, List<StageInstance> stages)
-    {
-        for (StageInstance s : stages) {
-            boolean afterOpen = !ts.isBefore(s.openedAt());
-            boolean beforeClose = s.closedAt().map(ts::isBefore).orElse(true);
-            if (afterOpen && beforeClose) {
-                return s.id().toString();
-            }
-        }
-        return null;
     }
 
     /** The task's brain-thread conversation (user + assistant text rows),
@@ -359,22 +308,9 @@ public class StageServiceImpl
             Map<UUID, StageType> stageTypes,
             List<ThreadTurnEvent> summaries,
             List<ThreadMessage> brainMessages,
-            List<ThreadMessage> threadMessages,
-            List<StageInstance> allStages,
             Map<String, String> stageNameIndex)
     {
         List<FeedEntry> entries = new ArrayList<>();
-        // The trunk and the dev agent share one thread (altitude switch). Up
-        // to the moment dev work begins — the first non-PLAN stage opening —
-        // the thread's agent side is the trunk's planning discussion; after
-        // it, the same thread carries the dev agent's implementation turns,
-        // which belong to the stage-detail log, not the high-level brain feed.
-        Instant devStartedAt = allStages.stream()
-                .filter(s -> s.type() != StageType.PLAN_STAGE)
-                .map(StageInstance::openedAt)
-                .filter(o -> o != null)
-                .min(Comparator.naturalOrder())
-                .orElse(null);
         for (StageEvent e : events) {
             brainFeedRow(e, stageTypes)
                     .ifPresent(row -> entries.add(new FeedEntry(e.eventAt(), row)));
@@ -382,33 +318,10 @@ public class StageServiceImpl
         for (ThreadTurnEvent s : summaries) {
             entries.add(new FeedEntry(s.createdAt(), summaryRow(s, stageTypes)));
         }
+        // The whole plan-stage conversation lives on the brain thread (trunk
+        // seed copied in + the brain's planning + user steering); render it.
         for (ThreadMessage m : brainMessages) {
             entries.add(new FeedEntry(m.ts(), brainMessageRow(m, stageNameIndex)));
-        }
-        for (ThreadMessage m : threadMessages) {
-            // The user's messages are the YOU bubble (attributed to the stage
-            // whose window holds them); the agent's replies render as an agent
-            // bubble so the brain feed shows both halves of the conversation.
-            if ("user".equals(m.role())) {
-                String stageId = stageIdForTs(m.ts(), allStages);
-                entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
-                        m.id(), "USER_MESSAGE", stageId,
-                        stageId == null ? null : stageTypes.get(UUID.fromString(stageId)).name(),
-                        m.ts().toString(), decodeText(m.contentJson()), stageId)));
-            }
-            else {
-                // The thread's agent side is the trunk's planning discussion
-                // (distinct from the brain's own replies) — but only before dev
-                // work starts. Once a non-plan stage opens, the same thread's
-                // agent turns are the dev worker's implementation transcript,
-                // which lives in the stage-detail log, not here.
-                if (devStartedAt != null && !m.ts().isBefore(devStartedAt)) {
-                    continue;
-                }
-                entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
-                        m.id(), "TRUNK_MESSAGE", null, null,
-                        m.ts().toString(), decodeText(m.contentJson()), null)));
-            }
         }
         entries.sort(Comparator.comparing(FeedEntry::ts));
         return entries.stream().map(FeedEntry::row).toList();

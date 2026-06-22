@@ -187,31 +187,37 @@ class TestPlanToolHandlers
     }
 
     @Test
-    void readPlanConversationIncludesTheTrunkSeedThenBrainPlanning()
+    void readPlanConversationReadsTheBrainThreadSeedThenPlanning()
     {
         String taskId = seedTask();
-        String threadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        // Trunk seed on the task thread, before the cut (task createdAt 09:00).
-        threadStore.appendMessage(message(threadId, 1, "user", "let's tidy the assertj nits",
-                Instant.parse("2026-06-20T08:59:00Z")));
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        // Brain thread + a planning turn inside the PlanStage window.
+        String devThreadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        // A message on the dev/trunk thread must not leak into the plan stage —
+        // read_plan_conversation reads only the brain thread.
+        threadStore.appendMessage(message(devThreadId, 9, "user", "unrelated dev-thread chatter",
+                Instant.parse("2026-06-20T08:00:00Z")));
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        // The brain thread is the full plan stage: the trunk seed copied in
+        // (low seq) followed by the brain's planning turn.
         String brainId = "ws-default.brain-" + UUID.randomUUID();
         threadStore.saveThread(new Thread(
                 brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
-                "claude-haiku-4-5-20251001", 0L, 0L, 0L, plan.openedAt(), plan.openedAt(), null, null,
-                ThreadFlow.BUILD, "ws-default", null, null, null, List.of(), 1, taskId));
-        threadStore.appendMessage(message(brainId, 1, "assistant", "here is the structured plan",
-                plan.openedAt().plusSeconds(1)));
+                "claude-haiku-4-5-20251001", 0L, 0L, 0L,
+                Instant.parse("2026-06-20T09:00:00Z"), Instant.parse("2026-06-20T09:00:00Z"),
+                null, null, ThreadFlow.BUILD, "ws-default", null, null, null, List.of(), 1, taskId));
+        threadStore.appendMessage(message(brainId, 1, "user", "let's tidy the assertj nits",
+                Instant.parse("2026-06-20T08:59:00Z")));
+        threadStore.appendMessage(message(brainId, 2, "assistant", "here is the structured plan",
+                Instant.parse("2026-06-20T09:01:00Z")));
 
         ToolOutcome.Completed out = completed(tools.readPlanConversation(
                 new PlanToolHandlers.ReadPlanConversationArgs(taskId, null, null), CALL));
 
         assertThat(out.isError()).isFalse();
-        // Both halves of the full plan stage are present, trunk seed first.
         assertThat(out.text())
                 .contains("let's tidy the assertj nits")
-                .contains("here is the structured plan");
+                .contains("here is the structured plan")
+                .doesNotContain("unrelated dev-thread chatter");
+        // Seed (seq 1) precedes the planning turn (seq 2).
         assertThat(out.text().indexOf("let's tidy the assertj nits"))
                 .isLessThan(out.text().indexOf("here is the structured plan"));
     }

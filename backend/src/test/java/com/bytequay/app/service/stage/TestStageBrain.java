@@ -154,28 +154,32 @@ class TestStageBrain
     }
 
     @Test
-    void brainFeedShowsTrunkPlanningButNotDevImplementationTurns()
+    void brainFeedReadsOnlyTheBrainThreadNotTheDevThread()
     {
         String taskId = seedTask();
-        String threadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        // Dev work begins when the DevelopmentStage opens; the same thread's
-        // agent turns flip from trunk planning to dev implementation here.
-        var dev = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
-        Instant devAt = dev.openedAt();
-        appendBrainMsg(threadId, 1, "assistant", "Got it — cutting the task now.",
-                devAt.minusSeconds(120));
-        appendBrainMsg(threadId, 2, "assistant", "Now I'll make the six edits.",
-                devAt.plusSeconds(120));
+        String devThreadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        // A dev-agent turn on the task/dev thread must NOT surface in the brain
+        // feed — the feed reads only the brain thread; dev work shows as stage
+        // checkpoints, not as transcript.
+        appendBrainMsg(devThreadId, 1, "assistant", "Now I'll make the six edits.",
+                Instant.parse("2026-06-20T10:00:00Z"));
+        // The brain thread carries the plan-stage conversation (the trunk seed
+        // copied in + the brain's planning).
+        String brainId = "ws-default.brain-" + UUID.randomUUID();
+        threadStore.saveThread(new Thread(
+                brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
+                "claude-haiku-4-5-20251001", 0L, 0L, 0L,
+                Instant.parse("2026-06-20T09:00:00Z"), Instant.parse("2026-06-20T09:00:00Z"),
+                null, null, ThreadFlow.BUILD, "ws-default", null, null, null, List.of(), 1, taskId));
+        appendBrainMsg(brainId, 1, "assistant", "Here is the plan.",
+                Instant.parse("2026-06-20T09:01:00Z"));
 
-        List<String> trunkBodies = stageService.getBrain(taskId).brainFeed().stream()
-                .filter(r -> r.type().equals("TRUNK_MESSAGE"))
+        List<String> bodies = stageService.getBrain(taskId).brainFeed().stream()
                 .map(BrainFeedRow::body)
                 .toList();
 
-        // The pre-dev planning turn shows; the post-open dev turn is excluded
-        // (it lives in the stage-detail log, not the high-level brain feed).
-        assertThat(trunkBodies).contains("Got it — cutting the task now.");
-        assertThat(trunkBodies).doesNotContain("Now I'll make the six edits.");
+        assertThat(bodies).contains("Here is the plan.");
+        assertThat(bodies).doesNotContain("Now I'll make the six edits.");
     }
 
     private void appendBrainMsg(String threadId, long seq, String role, String text, Instant ts)
@@ -269,84 +273,6 @@ class TestStageBrain
 
         assertThat(brain.rightRail().panelSpawnable()).isFalse();
         assertThat(brain.rightRail().parentStageId()).isNull();
-    }
-
-    @Test
-    void brainFeedShowsBothSidesOfTheThreadConversation()
-    {
-        String taskId = seedTask();
-        String thread = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        appendBrainMsg(thread, 1, "user", "what should we refactor?",
-                Instant.parse("2026-06-20T09:05:00Z"));
-        appendBrainMsg(thread, 2, "assistant", "I'd consolidate the duplicate helpers",
-                Instant.parse("2026-06-20T09:06:00Z"));
-
-        TaskBrainViewData brain = stageService.getBrain(taskId);
-
-        // The user's message is a YOU bubble; the agent's reply is an agent row.
-        assertThat(brain.brainFeed()).anySatisfy(r -> {
-            assertThat(r.type()).isEqualTo("USER_MESSAGE");
-            assertThat(r.body()).contains("what should we refactor?");
-        });
-        assertThat(brain.brainFeed()).anySatisfy(r -> {
-            assertThat(r.type()).isEqualTo("TRUNK_MESSAGE");
-            assertThat(r.body()).contains("consolidate the duplicate helpers");
-        });
-    }
-
-    @Test
-    void brainFeedExcludesTrunkMessagesBeforeThePreviousTask()
-    {
-        Instant t0 = Instant.parse("2026-06-20T08:00:00Z");   // before task 1
-        Instant t1 = Instant.parse("2026-06-20T09:00:00Z");   // task 1 created
-        Instant t1b = Instant.parse("2026-06-20T09:30:00Z");  // between tasks
-        Instant t2 = Instant.parse("2026-06-20T10:00:00Z");   // task 2 created
-        Instant t2b = Instant.parse("2026-06-20T10:30:00Z");  // this task's chatter
-
-        Thread thread = new Thread(
-                UUID.randomUUID().toString(), ThreadKind.CLI_AGENT, "claude-code",
-                null, "Trunk", ThreadStatus.RUNNING, "claude-sonnet-4-6",
-                0L, 0L, 0L, t0, t0, null, null, ThreadFlow.BUILD, "ws-default", null, null);
-        threadStore.saveThread(thread);
-        String task1 = UUID.randomUUID().toString();
-        taskStore.saveTask(new Task(
-                task1, thread.id(), 1L, TaskStatus.COMPLETED, "feature", null, "main", "/tmp",
-                null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, t1, null, null, null, null, null));
-        String task2 = UUID.randomUUID().toString();
-        taskStore.saveTask(new Task(
-                task2, thread.id(), 2L, TaskStatus.RUNNING, "feature", null, "main", "/tmp",
-                null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, t2, null, null, null, null, null));
-        appendBrainMsg(thread.id(), 1, "user", "old task-1 chatter", t0);
-        appendBrainMsg(thread.id(), 2, "user", "between-tasks chatter", t1b);
-        appendBrainMsg(thread.id(), 3, "user", "current chatter", t2b);
-
-        List<String> bodies = stageService.getBrain(task2).brainFeed().stream()
-                .filter(r -> r.type().equals("USER_MESSAGE"))
-                .map(BrainFeedRow::body)
-                .toList();
-        // From the previous task (task 1) onward — not the whole thread history.
-        assertThat(bodies).contains("current chatter", "between-tasks chatter")
-                .doesNotContain("old task-1 chatter");
-    }
-
-    @Test
-    void brainFeedIncludesDevThreadSteeringMessagesAttributedByWindow()
-    {
-        String taskId = seedTask();
-        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
-        appendBrainMsg(devThread, 1, "user", "try bumping the retry default",
-                stage.openedAt().plusSeconds(5));
-
-        TaskBrainViewData brain = stageService.getBrain(taskId);
-
-        BrainFeedRow steer = brain.brainFeed().stream()
-                .filter(r -> r.type().equals("USER_MESSAGE") && r.body().contains("retry default"))
-                .findFirst().orElseThrow();
-        // Window-based attribution: the message falls inside the open stage.
-        assertThat(steer.referencedStageId()).isEqualTo(stage.id().toString());
     }
 
     @Test

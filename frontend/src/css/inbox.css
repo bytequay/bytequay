@@ -1599,9 +1599,14 @@
 .diff-viewer__pane-scroll--continuous {
   scroll-behavior: smooth;
   /* Breathing room so each file card floats off the pane edges, the way
-     GitHub's "Files changed" tab insets its file boxes. */
-  padding: var(--space-3);
+     GitHub's "Files changed" tab insets its file boxes. No TOP padding,
+     though: a sticky `top: 0` header in a top-padded scroll container sticks
+     *below* the padding, leaving a persistent gap above it that the previous
+     file's content shows through while scrolling. The top inset comes from a
+     first-child margin instead. */
+  padding: 0 var(--space-3) var(--space-3);
 }
+.diff-file-section:first-child { margin-top: var(--space-3); }
 .diff-file-section {
   display: flex;
   flex-direction: column;
@@ -2290,7 +2295,7 @@
 /* Commit title (subject) reads first/prominent; the sha · author · date
    meta sits under it on a single truncating line. */
 .diff-viewer__commit-subject {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-1);
   line-height: 1.3;

@@ -134,18 +134,40 @@ public class StageServiceImpl
                 buildScrubbers(allEvents, brainMessages));
     }
 
-    /** User messages on the Task's dev thread — steering the dev agent. Each
-     *  is attributed to the stage whose open window contains it (read-time,
-     *  window-based; there's no stage tag on the row). Oldest-first. */
+    /** User messages on the Task's thread — steering the dev agent (or the
+     *  trunk discussion that led here, when the task's thread is the trunk).
+     *  Scoped to this task's slice of the conversation: from the previous
+     *  task's creation onward, so the brain feed shows only "since the last
+     *  task," not the whole multi-task thread history. Oldest-first. */
     private List<ThreadMessage> steeringMessages(Task task)
     {
         if (task.threadId() == null) {
             return List.of();
         }
+        Instant windowStart = previousTaskBoundary(task);
         return threadStore.listMessages(task.threadId()).stream()
                 .filter(m -> "text".equals(m.type()))
                 .filter(m -> "user".equals(m.role()))
+                .filter(m -> !m.ts().isBefore(windowStart))
                 .toList();
+    }
+
+    /** The creation time of the most recent task on this thread created
+     *  before {@code task} — the lower bound for this task's brain feed so it
+     *  doesn't replay earlier tasks' conversation. {@link Instant#MIN} (show
+     *  all) when this is the thread's first task or createdAt is unknown. */
+    private Instant previousTaskBoundary(Task task)
+    {
+        Instant self = task.createdAt();
+        if (self == null) {
+            return Instant.MIN;
+        }
+        return taskStore.listTasksByThread(task.threadId()).stream()
+                .filter(t -> !t.id().equals(task.id()))
+                .map(Task::createdAt)
+                .filter(c -> c != null && c.isBefore(self))
+                .max(Comparator.naturalOrder())
+                .orElse(Instant.MIN);
     }
 
     /** The id of the stage whose half-open window {@code [openedAt, closedAt)}

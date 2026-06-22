@@ -627,8 +627,8 @@ describe('categorizeToReview', () => {
   });
 });
 
-describe('categorizeToReview — needs_attention is gated to my turn', () => {
-  it('login unknown (null) → ungated, brand-new request still needs_attention', () => {
+describe('categorizeToReview — a REVIEW_REQUESTED origin is trusted as my turn', () => {
+  it('login unknown (null) → brand-new request still needs_attention', () => {
     expect(categorizeToReview(pr({ origin: 'REVIEW_REQUESTED' }), NOW, null)).toBe('needs_attention');
   });
 
@@ -648,20 +648,20 @@ describe('categorizeToReview — needs_attention is gated to my turn', () => {
     }), NOW, 'me')).toBe('needs_attention');
   });
 
-  it('not requested, no verdict, never touched → drops off the board (null)', () => {
+  it('team request (my login not in requestedReviewers) → needs_attention', () => {
     expect(categorizeToReview(pr({
       origin: 'REVIEW_REQUESTED',
       requestedReviewers: ['someone-else'],
       reviewerVerdicts: { 'someone-else': 'APPROVED' },
-    }), NOW, 'me')).toBeNull();
+    }), NOW, 'me')).toBe('needs_attention');
   });
 
-  it('stale flag on a PR that is not my turn → dropped, not needs_attention', () => {
+  it('attention flag on a team-requested PR → needs_attention', () => {
     expect(categorizeToReview(pr({
       origin: 'REVIEW_REQUESTED',
       requestedReviewers: [],
       attentionReason: 'STALE',
-    }), NOW, 'me')).toBeNull();
+    }), NOW, 'me')).toBe('needs_attention');
   });
 
   it('not requested but I opened it locally → in_progress (local engagement counts)', () => {
@@ -672,12 +672,15 @@ describe('categorizeToReview — needs_attention is gated to my turn', () => {
     }), NOW, 'me')).toBe('in_progress');
   });
 
-  it('groupToReview drops not-my-turn PRs from every column', () => {
-    const mine = pr({ id: 1, origin: 'REVIEW_REQUESTED', requestedReviewers: ['me'] });
-    const notMine = pr({ id: 2, origin: 'REVIEW_REQUESTED', requestedReviewers: ['bob'] });
-    const groups = groupToReview([mine, notMine], NOW, 'me');
-    const all = Object.values(groups).flat().map(p => p.id);
-    expect(all).toEqual([1]);
+  it('groupToReview keeps every REVIEW_REQUESTED PR, incl. team requests', () => {
+    const direct = pr({ id: 1, origin: 'REVIEW_REQUESTED', requestedReviewers: ['me'] });
+    // Requested via a team I'm on: my login isn't in requestedReviewers,
+    // but the origin (from the user-review-requested search) means it's
+    // still my turn — it must not be dropped.
+    const team = pr({ id: 2, origin: 'REVIEW_REQUESTED', requestedReviewers: ['bob'] });
+    const groups = groupToReview([direct, team], NOW, 'me');
+    const all = Object.values(groups).flat().map(p => p.id).sort();
+    expect(all).toEqual([1, 2]);
   });
 });
 

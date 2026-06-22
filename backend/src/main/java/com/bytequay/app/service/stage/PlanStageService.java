@@ -103,20 +103,28 @@ public class PlanStageService
     }
 
     /**
-     * Orchestrator follow-up enforcement (mirrors the iteration-summary
-     * pattern): if the brain's planning turn finishes without recording a
-     * plan, nudge it once with a follow-up turn. The nudge turn carries the
-     * {@code plan-followup} source, so when <em>it</em> finishes this listener
-     * skips (gated on {@code plan-kickoff}) — at most one nudge per kickoff,
-     * with the hard guarantee still being the approve endpoint's reject.
+     * Reacts to a planning turn finishing. Two behaviours, both keyed off the
+     * turn's {@code plan-kickoff} / {@code plan-followup} initiator source:
+     * <ul>
+     *   <li><b>Failed</b> (the brain errored / produced nothing) — record a
+     *       {@code PLAN_FAILED} event carrying the turn's error so the plan
+     *       card and feed surface it instead of a silent empty draft.</li>
+     *   <li><b>Succeeded but no plan recorded</b> — nudge once with a
+     *       follow-up turn (only after the kickoff, so a second miss doesn't
+     *       loop). The hard guarantee remains the approve endpoint's reject.</li>
+     * </ul>
      */
     @EventListener
     @Transactional
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {
         ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
-        if (turn == null || turn.initiator() == null
-                || !"plan-kickoff".equals(turn.initiator().source())) {
+        if (turn == null || turn.initiator() == null) {
+            return;
+        }
+        String source = turn.initiator().source();
+        boolean planningTurn = "plan-kickoff".equals(source) || "plan-followup".equals(source);
+        if (!planningTurn) {
             return;
         }
         StageInstance plan = stageStore.findActiveStage(event.taskId())
@@ -130,15 +138,29 @@ public class PlanStageService
         if (recorded) {
             return;
         }
-        threadStore.findBrainThreadByTask(event.taskId()).ifPresent(brain -> {
-            scheduler.enqueueTurn(brain,
-                    "Your planning turn ended without recording a plan. Call "
-                            + "record_plan(task_id='" + event.taskId() + "', plan={…}) now with a "
-                            + "structured plan (status='finalized' when ready for review). Do not "
-                            + "do any other work this turn.",
-                    TurnInitiator.unattended("plan-followup"));
-            log.debug("nudged brain {} to record a plan for task {}", brain.id(), event.taskId());
-        });
+        if (event.failed()) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            String msg = turn.errorMessage();
+            payload.put("error", msg == null || msg.isBlank()
+                    ? "The planning turn failed before recording a plan." : msg);
+            payload.put("failedAt", Instant.now().toString());
+            stageStore.recordEvent(plan.id(), event.taskId(), StageEventType.PLAN_FAILED, payload);
+            log.debug("surfaced planning failure on PlanStage {} for task {}: {}",
+                    plan.id(), event.taskId(), msg);
+            return;
+        }
+        // Succeeded without recording — nudge once (after the kickoff only).
+        if ("plan-kickoff".equals(source)) {
+            threadStore.findBrainThreadByTask(event.taskId()).ifPresent(brain -> {
+                scheduler.enqueueTurn(brain,
+                        "Your planning turn ended without recording a plan. Call "
+                                + "record_plan(task_id='" + event.taskId() + "', plan={…}) now with a "
+                                + "structured plan (status='finalized' when ready for review). Do not "
+                                + "do any other work this turn.",
+                        TurnInitiator.unattended("plan-followup"));
+                log.debug("nudged brain {} to record a plan for task {}", brain.id(), event.taskId());
+            });
+        }
     }
 
     /**

@@ -55,6 +55,12 @@ export function PlanCard({ plan, onApprove, onRequestChanges, onResolveFollowup,
         )}
       </div>
 
+      {plan.error != null && plan.error !== '' && (
+        <div className="plan-error" role="alert">
+          ⚠ Planning didn't complete: {plan.error}
+        </div>
+      )}
+
       <div className="kv">
         <div className="kv-row">
           <div className="kv-lbl">Understanding</div>

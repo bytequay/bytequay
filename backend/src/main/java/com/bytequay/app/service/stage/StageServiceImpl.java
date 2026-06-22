@@ -580,6 +580,20 @@ public class StageServiceImpl
                 signals.path("componentsCount").asInt(0),
                 signals.path("expectedGain").asText(""));
 
+        // Surface the latest planning failure, but only when it's the most
+        // recent planning outcome (a later PLAN_RECORDED clears it).
+        Optional<StageEvent> lastFailed = events.stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_FAILED)
+                .max(Comparator.comparing(StageEvent::eventAt));
+        Optional<StageEvent> lastRecorded = events.stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_RECORDED)
+                .max(Comparator.comparing(StageEvent::eventAt));
+        String error = null;
+        if (lastFailed.isPresent() && (lastRecorded.isEmpty()
+                || lastFailed.get().eventAt().isAfter(lastRecorded.get().eventAt()))) {
+            error = parseJson(lastFailed.get().payloadJson()).path("error").asText("");
+        }
+
         List<TaskBrainViewData.PlanFollowup> followups = events.stream()
                 .filter(e -> e.eventType() == StageEventType.PLAN_FOLLOWUP_NOTED)
                 .map(e -> {
@@ -605,7 +619,8 @@ public class StageServiceImpl
                 latest.path("intent").path("pushStrategy").asText("await_approval"),
                 planSignals,
                 recorded.size(),
-                followups);
+                followups,
+                error);
     }
 
     private JsonNode parseJson(String json)

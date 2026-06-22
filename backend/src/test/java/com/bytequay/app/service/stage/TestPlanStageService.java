@@ -243,13 +243,37 @@ class TestPlanStageService
         verify(scheduler, never()).enqueueTurn(any(), contains("ended without recording"), any());
     }
 
+    @Test
+    void aFailedPlanningTurnSurfacesTheErrorOnThePlanStage()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        String turnId = saveKickoffTurn(taskId, devThread, "plan-kickoff",
+                "claude-code exited with code 1");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, true));
+
+        StageEvent failed = stageStore.findEventsByStage(plan.id()).stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_FAILED)
+                .findFirst().orElseThrow();
+        assertThat(failed.payloadJson()).contains("claude-code exited with code 1");
+        // A failure must not also enqueue a nudge turn.
+        verify(scheduler, never()).enqueueTurn(any(), contains("record_plan"), any());
+    }
+
     private String saveKickoffTurn(String taskId, String threadId, String source)
+    {
+        return saveKickoffTurn(taskId, threadId, source, null);
+    }
+
+    private String saveKickoffTurn(String taskId, String threadId, String source, String errorMessage)
     {
         String turnId = UUID.randomUUID().toString();
         Instant now = Instant.parse("2026-06-20T09:30:00Z");
         turnStore.saveTurn(new ThreadTurn(
                 turnId, threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.QUEUED,
-                "plan", now, now, now, now, null, TurnInitiator.unattended(source)));
+                "plan", now, now, now, now, errorMessage, TurnInitiator.unattended(source)));
         return turnId;
     }
 

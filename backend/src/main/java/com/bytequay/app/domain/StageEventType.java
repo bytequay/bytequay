@@ -44,5 +44,10 @@ public enum StageEventType
 
     /** The dev agent flagged a plan-adequacy concern during development.
      *  Non-blocking; payload is the note + source stage + timestamp. */
-    PLAN_FOLLOWUP_NOTED
+    PLAN_FOLLOWUP_NOTED,
+
+    /** A planning turn finished without producing a plan (the brain agent
+     *  errored or never recorded one). Payload carries the failure reason so
+     *  the plan card / feed can surface it instead of a silent empty draft. */
+    PLAN_FAILED
 }

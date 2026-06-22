@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
@@ -502,11 +503,23 @@ public class AgentScheduler
             lock.notifyAll();
         }
 
-        // Outside the lock: let listeners (e.g. the write-mutex release)
-        // react to a finished task turn. Trunk turns carry no taskId.
-        if (eventPublisher != null && finished.taskId() != null) {
-            eventPublisher.publishEvent(
-                    new TaskTurnFinishedEvent(finished.taskId(), finished.id(), failed));
+        // Outside the lock: let listeners react to a finished turn. Task
+        // turns carry their taskId directly; a brain turn carries none, so
+        // resolve its parent task so plan-stage listeners (the record_plan
+        // nudge + failure surfacing) can react. Pure trunk turns stay
+        // unlinked.
+        if (eventPublisher != null) {
+            String taskId = finished.taskId();
+            if (taskId == null) {
+                taskId = threads.findThreadById(finished.threadId())
+                        .filter(t -> t.kind() == ThreadKind.BRAIN_AGENT)
+                        .map(Thread::parentTaskId)
+                        .orElse(null);
+            }
+            if (taskId != null) {
+                eventPublisher.publishEvent(
+                        new TaskTurnFinishedEvent(taskId, finished.id(), failed));
+            }
         }
     }
 

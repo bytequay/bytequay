@@ -386,8 +386,10 @@ public class StageServiceImpl
                         m.ts().toString(), decodeText(m.contentJson()), stageId)));
             }
             else {
+                // The thread's agent side is the trunk's planning discussion
+                // (distinct from the brain's own replies).
                 entries.add(new FeedEntry(m.ts(), new BrainFeedRow(
-                        m.id(), "BRAIN_AGENT_RESPONSE", null, null,
+                        m.id(), "TRUNK_MESSAGE", null, null,
                         m.ts().toString(), decodeText(m.contentJson()), null)));
             }
         }

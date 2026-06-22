@@ -123,7 +123,7 @@
 .task-brain .stages-list.sub .stage-chip .nm { font-size: 11px; }
 
 /* ── center — brain feed ─────────────────────────────────────────── */
-.task-brain .brain { display: flex; flex-direction: column; min-width: 0; background: rgba(255,255,255,0.36); position: relative; }
+.task-brain .brain { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: rgba(255,255,255,0.36); position: relative; }
 .task-brain .scroll { flex: 1; overflow-y: auto; padding: 18px 28px 6px; display: flex; flex-direction: column; gap: 14px; align-items: stretch; min-width: 0; }
 
 /* time divider */
@@ -146,6 +146,7 @@
 .task-brain .ev .ic.review      { background: linear-gradient(135deg,#ede9fe,#ddd6fe); color: var(--tbv-primary-deep); }
 .task-brain .ev .ic.user        { background: linear-gradient(135deg,#bbf7d0,#86efac); color:#047857; }
 .task-brain .ev .ic.brain       { background: linear-gradient(135deg,#ddd6fe,#c4b5fd); color: var(--tbv-primary-deep); }
+.task-brain .ev .ic.trunk       { background: linear-gradient(135deg,#fde68a,#fbbf24); color: #92400e; }
 .task-brain .ev .ic.notify      { background: linear-gradient(135deg,#fee2e2,#fecaca); color: #b91c1c; }
 
 /* "YOU" message — WeChat-style: right-aligned, green bubble, avatar right */
@@ -161,6 +162,7 @@
 .task-brain .ev .who { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .task-brain .ev .who.system { color: var(--tbv-text-muted); }
 .task-brain .ev .who.brain  { color: var(--tbv-primary-deep); }
+.task-brain .ev .who.trunk  { color: #b45309; }
 .task-brain .ev .who.user   { color: #047857; }
 .task-brain .ev .ts { font-size: 9px; color: var(--tbv-text-subtle); font-family: var(--tbv-mono); }
 .task-brain .ev .tx strong { color: var(--tbv-text-primary); font-weight: 700; }

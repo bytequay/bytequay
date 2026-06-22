@@ -46,6 +46,7 @@ const ICONS: Record<BrainFeedRowType, IconSpec> = {
   PLAN_RECORDED: { cls: 'plan-rec', glyph: '📋' },
   PLAN_APPROVED: { cls: 'plan-approved', glyph: '✓' },
   PLAN_FOLLOWUP_NOTED: { cls: 'followup', glyph: '⚠' },
+  TRUNK_MESSAGE: { cls: 'trunk', glyph: '⌥' },
 };
 
 function shortStageName(type: StageType | null): string {
@@ -74,12 +75,14 @@ function eventTitle(row: BrainFeedRow, live: boolean): string {
     case 'PLAN_RECORDED': return live ? 'RECORDING PLAN' : 'PLAN RECORDED';
     case 'PLAN_APPROVED': return 'PLAN APPROVED';
     case 'PLAN_FOLLOWUP_NOTED': return 'FOLLOW-UP NOTE';
+    case 'TRUNK_MESSAGE': return 'TRUNK';
   }
 }
 
 function whoClass(type: BrainFeedRowType): string {
   if (type === 'USER_MESSAGE') return 'user';
   if (type === 'BRAIN_AGENT_RESPONSE') return 'brain';
+  if (type === 'TRUNK_MESSAGE') return 'trunk';
   return 'system';
 }
 

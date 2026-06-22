@@ -264,7 +264,7 @@ class TestStageBrain
             assertThat(r.body()).contains("what should we refactor?");
         });
         assertThat(brain.brainFeed()).anySatisfy(r -> {
-            assertThat(r.type()).isEqualTo("BRAIN_AGENT_RESPONSE");
+            assertThat(r.type()).isEqualTo("TRUNK_MESSAGE");
             assertThat(r.body()).contains("consolidate the duplicate helpers");
         });
     }

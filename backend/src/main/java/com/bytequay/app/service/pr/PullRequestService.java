@@ -614,8 +614,17 @@ public class PullRequestService
         // a click on the merge bar's ↻ refresh also re-routes the
         // kanban card (categorizeMyPr / categorizeToReview both read
         // ciStatus from the row, not the detail blob).
-        store.findIdByRepoAndNumber(repo, number).ifPresent(id ->
-                store.updateCiStatus(id, aggregate));
+        store.findIdByRepoAndNumber(repo, number).ifPresent(id -> {
+            store.updateCiStatus(id, aggregate);
+            // Also patch the cached detail blob's check runs. The detail-page
+            // poll serves that snapshot, and aggregateCiStatus recomputes the
+            // pill from it — so a stale blob (e.g. right after a re-run, while
+            // the 60s sync hasn't re-fetched) would otherwise overwrite this
+            // fresh PENDING with the old FAILING on the next tick.
+            detailStore.find(id).ifPresent(d -> detailStore.save(id, new StoredPrDetail(
+                    d.raw(), d.reviews(), d.files(), d.timeline(), runs,
+                    d.reviewComments(), d.linkedIssues(), d.mergeQueueState(), d.mergeQueueEnabled())));
+        });
         return new PrCiSnapshot(
                 aggregate,
                 PullRequestDetailMapper.toCheckRuns(runs),

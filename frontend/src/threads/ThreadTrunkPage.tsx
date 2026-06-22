@@ -20,6 +20,7 @@ import type {
   WorkUnitTaskDto,
 } from '../types';
 import TrunkChat from './TrunkChat';
+import { deriveTrunkActivity } from './trunkActivity';
 import { ConvIndex } from './ConvIndex';
 import { PermissionCard } from './PermissionCard';
 import { findPendingPermission } from './permissions';
@@ -748,6 +749,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   userInitials={userInitials}
                   onOpenTask={onOpenTask}
                   isInFlight={trunkInFlight || sending}
+                  activity={deriveTrunkActivity(trunkMessages, pendingPermission, pendingQuestion !== null)}
                   onInterrupt={() => { void onInterrupt(); }}
                   interrupting={interrupting}
                   outerRef={chatScrollRef}

@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderChatMarkdown } from '../markdown';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { assistantLabel, type AssistantLabel } from './assistantLabel';
+import type { TrunkActivity } from './trunkActivity';
 
 const SLATE = '#475569';
 
@@ -42,6 +43,10 @@ type Props = {
    *  scrollback so the user has a visible "the agent is working"
    *  cue while the CLI subprocess spawns + spins up. */
   isInFlight?: boolean;
+  /** What the agent is doing right now (thinking / calling a tool /
+   *  awaiting approval), shown in the in-flight pulse card. Defaults to
+   *  a generic "Working…" when the parent doesn't derive one. */
+  activity?: TrunkActivity;
   /** Fired from the Stop button inside the working… card. The parent
    *  owns the actual interrupt call so optimistic UI + error states
    *  stay co-located with the composer's send flow. Omit to hide
@@ -79,7 +84,7 @@ type Props = {
  */
 export default function TrunkChat({
   messages, tasks, foregroundTaskId, userInitials, onOpenTask, isInFlight = false,
-  onInterrupt, interrupting = false, outerRef,
+  activity, onInterrupt, interrupting = false, outerRef,
   canLoadOlder = false, loadingOlder = false, onLoadOlder,
   thread = null,
 }: Props) {
@@ -176,17 +181,25 @@ export default function TrunkChat({
         }
         return <SystemLine key={`sys-${i}`} text={item.text} />;
       })}
-      {isInFlight && <ThinkingCard onInterrupt={onInterrupt} interrupting={interrupting} speaker={speaker} />}
+      {isInFlight && (
+        <ThinkingCard
+          onInterrupt={onInterrupt}
+          interrupting={interrupting}
+          speaker={speaker}
+          activity={activity ?? { meta: 'working', text: 'Working…' }}
+        />
+      )}
     </div>
   );
 }
 
 function ThinkingCard({
-  onInterrupt, interrupting, speaker,
+  onInterrupt, interrupting, speaker, activity,
 }: {
   onInterrupt?: () => void;
   interrupting: boolean;
   speaker: AssistantLabel;
+  activity: TrunkActivity;
 }) {
   return (
     <div style={thinkingRowStyle}>
@@ -195,7 +208,7 @@ function ThinkingCard({
         <div style={assistantHeaderStyle}>
           <span style={assistantNameStyle}>{speaker.name}</span>
           <span style={assistantMetaStyle}>trunk</span>
-          <span style={assistantMetaStyle}>· thinking</span>
+          <span style={assistantMetaStyle}>· {activity.meta}</span>
         </div>
         <div style={thinkingBubbleStyle}>
           <span style={thinkingDotsStyle} aria-hidden>
@@ -203,7 +216,7 @@ function ThinkingCard({
             <span style={{ ...thinkingDotStyle, animationDelay: '180ms' }} />
             <span style={{ ...thinkingDotStyle, animationDelay: '360ms' }} />
           </span>
-          <span style={thinkingTextStyle}>working…</span>
+          <span style={thinkingTextStyle}>{activity.text}</span>
           {onInterrupt !== undefined && (
             <button
               type="button"
@@ -301,8 +314,12 @@ function buildTimeline(
     // planning, not transcripts of tool I/O (those live in the task window).
   }
   flushTurn();
-  // Inject a task-launch card at each task's createdAt so the user
-  // sees the same chronology as the agent: "I'll start task N → card".
+  // Inject a task-launch card at each task's createdAt. The card is
+  // anchored to the moment the task was cut and never moves afterwards:
+  // later trunk messages (the agent explaining the cut, queueing the
+  // next one) sort after it by timestamp, so the card stays put in the
+  // chronology where it was created rather than drifting down into a
+  // following task's discussion.
   for (const t of tasks) {
     const ts = Date.parse(t.createdAt);
     if (!Number.isFinite(ts)) continue;

@@ -811,6 +811,9 @@ function App() {
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
+            onOpenCode={() => setNav({
+              view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
+            })}
           />
         )}
         {nav.view === 'notifications' && (

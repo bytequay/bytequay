@@ -124,6 +124,11 @@ public abstract class AbstractCliThreadAgent
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
+    /** Detail of the most recent failure that drove the session to
+     *  ERRORED (exit code + stderr tail, or an I/O message). Surfaced via
+     *  {@link #lastErrorDetail} so the scheduler can attach the real cause
+     *  to a turn that ended ERRORED without throwing. */
+    private final AtomicReference<String> lastError = new AtomicReference<>();
     private final AtomicReference<String> agentSessionId = new AtomicReference<>();
     /** Id of the Task this agent is bound to (= the foreground task at
      *  spawn time). Every persisted ThreadMessage and every captured
@@ -365,6 +370,12 @@ public abstract class AbstractCliThreadAgent
     public final ThreadStatus status()
     {
         return status.get();
+    }
+
+    @Override
+    public final String lastErrorDetail()
+    {
+        return lastError.get();
     }
 
     @Override
@@ -627,12 +638,16 @@ public abstract class AbstractCliThreadAgent
         // Clear any stale interrupt flag from a prior turn so a fresh
         // turn's non-zero exit isn't misread as a user cancellation.
         userInterrupted.set(false);
+        // Drop a prior turn's failure detail so it can't leak onto a later
+        // turn's outcome.
+        lastError.set(null);
         Process process;
         try {
             process = pb.start();
         }
         catch (IOException e) {
             log.warn("Failed to spawn {} for thread {}: {}", binary, threadId, e.getMessage());
+            lastError.set("failed to spawn " + binary + ": " + e.getMessage());
             transition(ThreadStatus.ERRORED);
             publish(new StreamEvent.ErrorOccurred(Instant.now(),
                     "failed to spawn " + binary + ": " + e.getMessage(), false));
@@ -672,6 +687,7 @@ public abstract class AbstractCliThreadAgent
                     String detail = binary + " exited with code " + exit
                             + (tail.isBlank() ? "" : ":\n" + tail);
                     log.warn("CLI thread {} ({}) failed: {}", threadId, binary, detail);
+                    lastError.set(detail);
                     publish(new StreamEvent.ErrorOccurred(Instant.now(), detail, true));
                     transition(ThreadStatus.ERRORED);
                     publish(new StreamEvent.SessionEnded(Instant.now(), exit, "non-zero exit"));
@@ -691,6 +707,7 @@ public abstract class AbstractCliThreadAgent
             }
             else {
                 log.warn("I/O error talking to {} for thread {}: {}", binary, threadId, e.getMessage());
+                lastError.set("I/O error talking to " + binary + ": " + e.getMessage());
                 transition(ThreadStatus.ERRORED);
                 publish(new StreamEvent.ErrorOccurred(Instant.now(), e.getMessage(), false));
             }

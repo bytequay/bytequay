@@ -176,12 +176,22 @@ public class LogicLoopThreadAgent
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
+    /** Detail of the most recent fatal failure, surfaced via
+     *  {@link #lastErrorDetail} so the scheduler can record the real cause
+     *  on a turn that ended ERRORED without throwing. */
+    private final AtomicReference<String> lastError = new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> currentTurn = new AtomicReference<>();
     private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
     private final AtomicLong runningTokensIn = new AtomicLong();
     private final AtomicLong runningTokensOut = new AtomicLong();
     private final AtomicLong runningCostUsdMilli = new AtomicLong();
+    // Per-turn token overlay: rounds accumulate here as they complete so
+    // the polled thread vitals climb mid-turn. Folded into the running
+    // totals (and reset) when the turn finalises or errors, leaving the
+    // committed total identical to summing the turn once at the end.
+    private final AtomicLong liveTurnTokensIn = new AtomicLong();
+    private final AtomicLong liveTurnTokensOut = new AtomicLong();
     private final AtomicReference<String> activeModel = new AtomicReference<>("");
     /** Per-tool auto-approval budget the user granted via "Allow next
      *  N". {@code -1} is the sentinel for "always for this tool" until
@@ -427,6 +437,12 @@ public class LogicLoopThreadAgent
     }
 
     @Override
+    public String lastErrorDetail()
+    {
+        return lastError.get();
+    }
+
+    @Override
     public AgentMetrics metrics()
     {
         long runtime = Math.max(0L, System.currentTimeMillis() - sessionStartedMs);
@@ -469,6 +485,7 @@ public class LogicLoopThreadAgent
             return done;
         }
         userInterrupted.set(false);
+        lastError.set(null);
         status.set(ThreadStatus.RUNNING);
         CompletableFuture<Void> turn = CompletableFuture.runAsync(
                 () -> runTurn(userInput), executor);
@@ -481,6 +498,8 @@ public class LogicLoopThreadAgent
     private void runTurn(String userInput)
     {
         Instant now = Instant.now();
+        liveTurnTokensIn.set(0);
+        liveTurnTokensOut.set(0);
         persistUserMessage(userInput, now);
         publish(new StreamEvent.UserMessage(now, userInput));
         publish(new StreamEvent.SessionStarted(now, sessionId, workingDir, model()));
@@ -686,6 +705,12 @@ public class LogicLoopThreadAgent
             public void onRoundCompleted(long tokensIn, long tokensOut, long elapsedNanos)
             {
                 recordLocalDs4Sample(isLocalDs4, tokensIn, tokensOut, elapsedNanos);
+                // Fold the round's tokens into the live overlay and flush so
+                // the thread vitals grow during the turn rather than jumping
+                // only at turn end.
+                liveTurnTokensIn.addAndGet(tokensIn);
+                liveTurnTokensOut.addAndGet(tokensOut);
+                persistThreadProgress();
             }
 
             @Override
@@ -964,6 +989,11 @@ public class LogicLoopThreadAgent
     {
         Instant finishedAt = Instant.now();
         long durationMs = Math.max(0L, finishedAt.toEpochMilli() - turnStart.toEpochMilli());
+        // The overlay already reflected these tokens live during the turn;
+        // clear it before committing the authoritative total so the persist
+        // below lands baseline + total exactly once.
+        liveTurnTokensIn.set(0);
+        liveTurnTokensOut.set(0);
         runningTokensIn.addAndGet(totalTokensIn);
         runningTokensOut.addAndGet(totalTokensOut);
         long turnCostMilli = estimateCostMilli(modelId, totalTokensIn, totalTokensOut);
@@ -1058,11 +1088,16 @@ public class LogicLoopThreadAgent
     private void emitFatal(String message, Instant turnStart)
     {
         Instant now = Instant.now();
+        lastError.set(message);
         publish(new StreamEvent.ErrorOccurred(now, message, /* recoverable */ false));
         publish(new StreamEvent.SessionEnded(now, /* exitCode */ 1, message));
         status.set(ThreadStatus.ERRORED);
         long durationMs = Math.max(0L, now.toEpochMilli() - turnStart.toEpochMilli());
         publish(new StreamEvent.TurnDone(now, durationMs, 0L, 0L, 0L));
+        // Commit whatever tokens the failed turn did consume so the count
+        // doesn't snap back to the pre-turn baseline on the next poll.
+        runningTokensIn.addAndGet(liveTurnTokensIn.getAndSet(0));
+        runningTokensOut.addAndGet(liveTurnTokensOut.getAndSet(0));
         persistThreadProgress();
     }
 
@@ -1079,7 +1114,9 @@ public class LogicLoopThreadAgent
                 t.id(), t.kind(), t.provider(), t.agentSessionId(),
                 t.title(), status.get(),
                 model(),
-                runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
+                runningCostUsdMilli.get(),
+                runningTokensIn.get() + liveTurnTokensIn.get(),
+                runningTokensOut.get() + liveTurnTokensOut.get(),
                 t.createdAt(), Instant.now(),
                 t.endedAt(), t.errorMessage(),
                 t.flow(), t.workspaceId(), t.workModel(), t.activeTask());

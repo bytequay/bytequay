@@ -106,6 +106,18 @@ public interface ThreadAgent
 
     ThreadStatus status();
 
+    /** Human-readable detail of the most recent failure that drove the
+     *  session to {@link ThreadStatus#ERRORED} — e.g. the CLI's exit code
+     *  and stderr tail. Null when the session never failed, or failed by
+     *  throwing (the thrown exception's message is used instead). The
+     *  scheduler surfaces this on a failed turn that ended ERRORED without
+     *  an exception, so a swallowed subprocess failure doesn't reduce to a
+     *  generic "the turn failed" with no cause. */
+    default String lastErrorDetail()
+    {
+        return null;
+    }
+
     /** Cheap snapshot for the header strip — no I/O. */
     AgentMetrics metrics();
 

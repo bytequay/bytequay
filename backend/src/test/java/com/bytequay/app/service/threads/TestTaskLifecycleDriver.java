@@ -32,8 +32,11 @@ import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -66,6 +69,39 @@ class TestTaskLifecycleDriver
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     reviewMarkers, threadStore, scheduler, notifications, mapper,
                     commentIngestor, readyToMerge, iterationService);
+
+    @TempDir
+    private Path tempDir;
+
+    @Test
+    void sweepReapsTerminalTaskWhoseWorktreeStillExists()
+            throws Exception
+    {
+        Path orphan = Files.createDirectory(tempDir.resolve("orphan-wt"));
+        Task canceled = task(null, TaskPhase.COMPLETED)
+                .withStatus(TaskStatus.CANCELED)
+                .withWorktreePath(orphan.toString());
+        when(taskStore.listByStatus(eq(TaskStatus.CANCELED), anyInt())).thenReturn(List.of(canceled));
+        when(taskStore.listByStatus(eq(TaskStatus.COMPLETED), anyInt())).thenReturn(List.of());
+
+        driver.sweepOrphanedWorktrees();
+
+        verify(worktrees).reap(canceled);
+    }
+
+    @Test
+    void sweepSkipsTerminalTaskWhoseWorktreeIsAlreadyGone()
+    {
+        Task canceled = task(null, TaskPhase.COMPLETED)
+                .withStatus(TaskStatus.CANCELED)
+                .withWorktreePath(tempDir.resolve("already-reaped").toString());
+        when(taskStore.listByStatus(eq(TaskStatus.CANCELED), anyInt())).thenReturn(List.of(canceled));
+        when(taskStore.listByStatus(eq(TaskStatus.COMPLETED), anyInt())).thenReturn(List.of());
+
+        driver.sweepOrphanedWorktrees();
+
+        verify(worktrees, never()).reap(any());
+    }
 
     @Test
     void greenDraftRecordsTheReadyGateAndAutonomouslyUnDraftsThePr()

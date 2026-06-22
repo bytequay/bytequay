@@ -36,9 +36,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -137,6 +140,44 @@ public class TaskLifecycleDriver
             catch (RuntimeException e) {
                 log.warn("lifecycle reconcile for task {} (PR {}) failed: {}",
                         task.id(), task.linkedPrRef(), e.getMessage());
+            }
+        }
+    }
+
+    /** Terminal states whose worktree should already be gone — if one still
+     *  has a worktree on disk, an earlier reap failed (or raced) and we retry. */
+    private static final List<TaskStatus> REAPABLE_TERMINAL =
+            List.of(TaskStatus.CANCELED, TaskStatus.COMPLETED);
+    private static final int ORPHAN_SWEEP_LIMIT = 200;
+
+    /**
+     * Backstop for the close/merge reap: reap is best-effort and swallows
+     * failures, so a worktree can be orphaned if its removal failed or raced a
+     * still-live subprocess. This sweep finds terminal (canceled/completed)
+     * tasks whose worktree directory is still present and reaps it again. A
+     * task whose worktree is already gone is skipped — a single {@code stat}.
+     */
+    @Scheduled(fixedDelay = 600_000, initialDelay = 120_000)
+    public void sweepOrphanedWorktrees()
+    {
+        for (TaskStatus status : REAPABLE_TERMINAL) {
+            for (Task task : taskStore.listByStatus(status, ORPHAN_SWEEP_LIMIT)) {
+                String worktreePath = task.worktreePath();
+                if (worktreePath == null || worktreePath.isBlank()) {
+                    continue;
+                }
+                if (!Files.isDirectory(Path.of(worktreePath))) {
+                    continue;
+                }
+                log.info("Reaping orphaned worktree for {} task {}: {}",
+                        status, task.id(), worktreePath);
+                try {
+                    worktrees.reap(task);
+                }
+                catch (RuntimeException e) {
+                    log.warn("orphan worktree reap for task {} failed: {}",
+                            task.id(), e.getMessage());
+                }
             }
         }
     }

@@ -146,12 +146,22 @@
 .stage-detail .operation-meta { font-size: 9.5px; color: var(--sd-text-subtle); font-family: var(--sd-mono); }
 .stage-detail .operation-tools { display: flex; flex-direction: column; gap: 4px; }
 .stage-detail .tool-row { display: flex; align-items: baseline; gap: 7px; font-size: 11px; color: var(--sd-text-secondary); overflow-wrap: anywhere; }
-.stage-detail .tool-tag { font-family: var(--sd-mono); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--sd-primary-deep); background: rgba(124,92,255,0.10); border-radius: 5px; padding: 1px 5px; flex-shrink: 0; }
+.stage-detail .tool-tag { font-family: var(--sd-mono); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: #fff; background: #64748b; border-radius: 5px; padding: 1px 5px; flex-shrink: 0; }
+/* Tool-tag color per kind, matching the mockup (read=blue, write=amber,
+   run=teal, mcp=purple). The wrapper carries tool-<tag-lowercase>. */
+.stage-detail .tool-row.tool-read .tool-tag { background: #2563eb; }
+.stage-detail .tool-row.tool-write .tool-tag { background: #d97706; }
+.stage-detail .tool-row.tool-run .tool-tag { background: #0f766e; }
+.stage-detail .tool-row.tool-mcp .tool-tag { background: #7c3aed; }
 .stage-detail .tool-label { font-family: var(--sd-mono); font-size: 10.5px; color: var(--sd-text-primary); }
 .stage-detail .tool-detail { color: var(--sd-text-muted); }
 .stage-detail .stage-event-row { font-size: 10.5px; color: var(--sd-text-muted); border: 1px dashed var(--sd-border); border-radius: 7px; padding: 5px 8px; }
 .stage-detail .event-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--sd-text-secondary); margin-right: 5px; }
-.stage-detail .iter-sum { font-size: 11px; color: var(--sd-text-secondary); background: rgba(124,92,255,0.05); border: 1px dashed var(--sd-primary-border); border-radius: 7px; padding: 6px 9px; line-height: 1.45; }
+.stage-detail .iter-sum { display: flex; align-items: flex-start; gap: 10px; background: linear-gradient(90deg, rgba(124,92,255,0.06), rgba(56,189,248,0.04)); border: 1.5px dashed var(--sd-primary-border); border-radius: 9px; padding: 9px 12px; }
+.stage-detail .iter-sum-ic { width: 22px; height: 22px; border-radius: 7px; background: linear-gradient(135deg, #ddd6fe, #c4b5fd); color: var(--sd-primary-deep); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+.stage-detail .iter-sum-body { flex: 1; min-width: 0; }
+.stage-detail .iter-sum-hd { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--sd-primary-deep); margin-bottom: 3px; }
+.stage-detail .iter-sum-text { font-size: 12px; color: var(--sd-text-primary); line-height: 1.5; }
 .stage-detail .iter-sum-meta { font-size: 9px; color: var(--sd-text-subtle); font-family: var(--sd-mono); margin-top: 4px; }
 .stage-detail .you-bubble { align-self: flex-end; max-width: 80%; background: linear-gradient(135deg, #34d399, #10b981); color: #04241a; border-radius: 12px 12px 3px 12px; padding: 7px 11px; font-size: 11.5px; line-height: 1.4; }
 .stage-detail .you-avatar { font-size: 8.5px; font-weight: 800; opacity: 0.7; margin-right: 5px; }

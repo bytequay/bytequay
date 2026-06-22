@@ -15,6 +15,7 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.PermissionGrant;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.PermissionGrantStore;
 import com.bytequay.app.repository.TaskStore;
@@ -42,10 +43,11 @@ import static java.util.Objects.requireNonNull;
  * capability is denied at, say, the workspace, no thread- or
  * task-level grant can bring it back.
  *
- * <p>Role derivation is unchanged from the earlier role-map resolver:
- * a 0-task (planning) thread is {@link AgentRole#TRUNK}; a thread with
- * any task is {@link AgentRole#TASK}. The {@code roles} filter on each
- * tool still governs discovery; this resolver governs capability.
+ * <p>Role derivation: a thread with no task — or whose active task is only
+ * PLANNING / QUEUED (pre-dev) — is {@link AgentRole#TRUNK}; a thread whose
+ * active task is doing development work is {@link AgentRole#TASK}. The
+ * {@code roles} filter on each tool still governs discovery; this resolver
+ * governs capability.
  */
 @Component
 public class CascadingPermissionResolver
@@ -73,15 +75,27 @@ public class CascadingPermissionResolver
         if (threadId == null || threadId.isBlank()) {
             return AgentRole.TRUNK;
         }
-        // Role is determined by whether an *active* (non-terminal) task
-        // exists, not by whether any task ever existed. A thread whose
-        // entire chain has COMPLETED hands control back to the trunk so
-        // it can plan / queue more work. See
-        // workspace-thread-task-design.md §"Trunk re-enters when the
+        // The thread is at TASK altitude only while its active task is doing
+        // dev work; a task that's merely PLANNING (the brain plans on its own
+        // thread) or QUEUED (not started) leaves the trunk free to plan and
+        // queue more work — otherwise the trunk loses create_task / queue_task
+        // the moment a plan opens, which reads as the tool going offline. A
+        // thread whose chain has fully COMPLETED likewise hands back to the
+        // trunk. See workspace-thread-task-design.md §"Trunk re-enters when the
         // chain runs dry" and §"TaskQueue — planning ahead."
-        return taskStore.findActiveTaskForThread(threadId).isPresent()
+        return taskStore.findActiveTaskForThread(threadId)
+                .filter(t -> isDevAltitude(t.phase()))
+                .isPresent()
                 ? AgentRole.TASK
                 : AgentRole.TRUNK;
+    }
+
+    /** True when an active task's phase means the thread's own agent is doing
+     *  the task's development work (so it's at TASK altitude). PLANNING and
+     *  QUEUED are pre-dev: the trunk stays in control. */
+    private static boolean isDevAltitude(TaskPhase phase)
+    {
+        return phase != TaskPhase.PLANNING && phase != TaskPhase.QUEUED;
     }
 
     @Override

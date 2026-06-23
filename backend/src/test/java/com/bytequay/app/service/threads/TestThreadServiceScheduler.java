@@ -880,6 +880,23 @@ class TestThreadServiceScheduler
         }
 
         @Override
+        public boolean refExists(Path workingDir, String ref)
+        {
+            // The commit surface resolves its base ref before diffing; the
+            // configured "main" is treated as present so listCommitsAhead is
+            // exercised with it.
+            return "main".equals(ref);
+        }
+
+        @Override
+        public Optional<String> mergeBase(Path workingDir, String branch, String base)
+        {
+            // No history in this stub, so the resolver falls back to the
+            // base ref name itself.
+            return Optional.empty();
+        }
+
+        @Override
         public List<GitRunner.CommitEntry> listCommitsAhead(Path workingDir, String base, int limit)
         {
             listCommitsAheadPaths.add(workingDir);

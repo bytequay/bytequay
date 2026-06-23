@@ -805,6 +805,7 @@ function App() {
           <TaskStageDetailView
             taskId={nav.taskId}
             stageId={nav.stageId}
+            threadId={nav.threadId}
             onBack={() => setNav({
               view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
             })}

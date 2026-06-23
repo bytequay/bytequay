@@ -12,63 +12,11 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { ApprovalDto, CommitDto, ContextWindowDto, CostBreakdown, TaskBrainViewData } from '../../types/brainView';
+import type { ApprovalDto, CommitDto, ContextWindowDto, TaskBrainViewData } from '../../types/brainView';
 import { LinkedPRCard } from './LinkedPRCard';
 import { PlanCard } from './PlanCard';
-import { WorkModelPill } from '../../workspace/WorkModelPill';
 import { formatTokensK, relativeShort } from './format';
 
-const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-
-/** Per-Task spend: total, per-agent, per-stage, and cost-per-push. */
-function CostBreakdownCard({ cost }: { cost: CostBreakdown }) {
-  return (
-    <div>
-      <div className="sec-h">Cost breakdown <span className="r">{usd(cost.totalCents)}</span></div>
-      <div className="cost-card" style={{ marginTop: 7, fontSize: 12 }}>
-        {cost.perAgent.length === 0 && cost.perStage.length === 0 ? (
-          <div style={{ color: 'var(--tbv-text-subtle)' }}>No spend recorded yet.</div>
-        ) : (
-          <>
-            {cost.perAgent.map(a => (
-              <div key={`agent-${a.agentKind}`} className="cost-row" style={costRowStyle}>
-                <span style={{ textTransform: 'capitalize' }}>{a.agentKind} agent</span>
-                <span>{usd(a.costCents)}</span>
-              </div>
-            ))}
-            {cost.perStage.map(s => (
-              <div key={`stage-${s.stageId}`} className="cost-row" style={{ ...costRowStyle, color: 'var(--tbv-text-subtle)' }}>
-                <span>{stageLabel(s.stageType)}</span>
-                <span>{usd(s.costCents)}</span>
-              </div>
-            ))}
-            {cost.costPerPush !== null && (
-              <div className="cost-row" style={{ ...costRowStyle, borderTop: '1px solid var(--tbv-border-soft)', paddingTop: 4, marginTop: 4 }}>
-                <span>Cost / push</span>
-                <span>{usd(cost.costPerPush)}</span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const costRowStyle: React.CSSProperties = {
-  display: 'flex', justifyContent: 'space-between', gap: 8, padding: '2px 0',
-};
-
-function stageLabel(stageType: string): string {
-  switch (stageType) {
-    case 'DEVELOPMENT_STAGE': return 'Development';
-    case 'CI_FIXING_STAGE': return 'CI fixing';
-    case 'REVIEW_MONITOR_STAGE': return 'Review monitor';
-    case 'CLEANUP_STAGE': return 'Cleanup';
-    case 'REVIEW_STAGE': return 'Review panel';
-    default: return stageType;
-  }
-}
 
 type Props = {
   rail: TaskBrainViewData['rightRail'];
@@ -82,6 +30,12 @@ type Props = {
   onClose: () => void;
   /** True when the task is parked at PAUSED — the rail offers Resume. */
   paused: boolean;
+  /** True when the task is terminal (closed/canceled/…) — the rail shows a
+   *  closed state instead of Pause/Close controls. */
+  terminal: boolean;
+  /** Server status label (e.g. CANCELLED / COMPLETED) — drives the closed
+   *  note's wording when terminal. */
+  statusLabel: string;
   /** Disables the pause/resume/close controls while a task action is in
    *  flight, so a double-click can't fire two cancels. */
   taskActionBusy: boolean;
@@ -94,9 +48,6 @@ type Props = {
   onRequestPlanChanges: () => void;
   /** Mark a locked plan's follow-up note addressed / dismissed. */
   onResolveFollowup: (eventId: string, status: 'addressed' | 'dismissed') => void;
-  /** Task identity for the migrated WORK MODEL card's scope. */
-  threadId: string;
-  taskId: string;
 };
 
 /**
@@ -152,7 +103,7 @@ function ApprovalCard({ approval, onApprove }: { approval: ApprovalDto; onApprov
   );
 }
 
-function CommitsCard({ commits, nowMs, onViewDiff }: { commits: CommitDto[]; nowMs: number; onViewDiff: () => void }) {
+export function CommitsCard({ commits, nowMs, onViewDiff }: { commits: CommitDto[]; nowMs: number; onViewDiff: () => void }) {
   const latest = commits[0];
   return (
     <div>
@@ -175,7 +126,7 @@ function CommitsCard({ commits, nowMs, onViewDiff }: { commits: CommitDto[]; now
   );
 }
 
-function ContextWindowCard({ ctx, onViewContext }: { ctx: ContextWindowDto; onViewContext: () => void }) {
+export function ContextWindowCard({ ctx, onViewContext }: { ctx: ContextWindowDto; onViewContext: () => void }) {
   const pct = ctx.tokensLimit > 0 ? Math.round((ctx.tokensUsed / ctx.tokensLimit) * 100) : 0;
   const fillCls = ctx.safeBand === 'safe' ? '' : ctx.safeBand;
   return (
@@ -203,8 +154,8 @@ function ContextWindowCard({ ctx, onViewContext }: { ctx: ContextWindowDto; onVi
  */
 export function RightRail({
   rail, nowMs, onApprove, onMerge, onViewDiff, onViewContext,
-  onPause, onResume, onClose, paused, taskActionBusy, onSpawnReview,
-  onApprovePlan, onRequestPlanChanges, onResolveFollowup, threadId, taskId,
+  onPause, onResume, onClose, paused, terminal, statusLabel, taskActionBusy, onSpawnReview,
+  onApprovePlan, onRequestPlanChanges, onResolveFollowup,
 }: Props) {
   return (
     <aside className="right-rail">
@@ -237,30 +188,31 @@ export function RightRail({
 
       <CommitsCard commits={rail.recentCommits} nowMs={nowMs} onViewDiff={onViewDiff} />
 
-      <CostBreakdownCard cost={rail.costBreakdown} />
-
-      <div>
-        <div className="sec-h">Work model <span className="r">this task</span></div>
-        <div style={{ marginTop: 7 }}>
-          <WorkModelPill scope={{ kind: 'task', threadId, taskId }} />
-        </div>
-      </div>
-
       <ContextWindowCard ctx={rail.context} onViewContext={onViewContext} />
 
       <div className="pause-card">
-        {paused ? (
-          <button type="button" className="pause-btn" onClick={onResume} disabled={taskActionBusy}>
-            ▶ Resume task
-          </button>
+        {terminal ? (
+          <div className="task-closed-note">
+            ⏹ {statusLabel === 'CANCELLED'
+              ? 'Task cancelled — closed manually.'
+              : `Task ${statusLabel.toLowerCase()} — no further actions.`}
+          </div>
         ) : (
-          <button type="button" className="pause-btn" onClick={onPause} disabled={taskActionBusy}>
-            ⏸ Pause task
-          </button>
+          <>
+            {paused ? (
+              <button type="button" className="pause-btn" onClick={onResume} disabled={taskActionBusy}>
+                ▶ Resume task
+              </button>
+            ) : (
+              <button type="button" className="pause-btn" onClick={onPause} disabled={taskActionBusy}>
+                ⏸ Pause task
+              </button>
+            )}
+            <button type="button" className="close-btn" onClick={onClose} disabled={taskActionBusy}>
+              ⏹ Close task
+            </button>
+          </>
         )}
-        <button type="button" className="close-btn" onClick={onClose} disabled={taskActionBusy}>
-          ⏹ Close task
-        </button>
       </div>
     </aside>
   );

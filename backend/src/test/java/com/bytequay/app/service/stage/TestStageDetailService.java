@@ -210,6 +210,28 @@ class TestStageDetailService
     }
 
     @Test
+    void toolCallPairsItsResultRowByCallId()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant open = stage.openedAt();
+        appendMessage(threadId, taskId, 1, "tool", "tool_call",
+                "{\"callId\":\"c1\",\"toolName\":\"Bash\",\"input\":{\"command\":\"mvn verify\"}}", open);
+        appendMessage(threadId, taskId, 2, "tool", "tool_result",
+                "{\"callId\":\"c1\",\"isError\":true,\"output\":\"BUILD FAILURE\"}", open);
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        // The result is folded onto the tool_call row, not emitted standalone.
+        assertThat(detail.conversation()).noneMatch(r -> r.kind().equals("tool_result"));
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("tool_call")
+                        && "BUILD FAILURE".equals(r.toolResult())
+                        && Boolean.TRUE.equals(r.toolError()));
+    }
+
+    @Test
     void planStageConversationReadsTheBrainThread()
     {
         String threadId = seedThread();

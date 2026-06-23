@@ -32,23 +32,32 @@ export function personaForStageType(type: StageType | null): Persona {
  *  rail label and as the default stage-tag label. */
 export function stageDisplayName(type: StageType): string {
   switch (type) {
+    case 'PLAN_STAGE': return 'PlanStage';
     case 'DEVELOPMENT_STAGE': return 'DevelopmentStage';
     case 'CI_FIXING_STAGE': return 'CiFixingStage';
     case 'REVIEW_MONITOR_STAGE': return 'ReviewMonitorStage';
     case 'CLEANUP_STAGE': return 'CleanupStage';
     case 'REVIEW_STAGE': return 'ReviewStage';
+    default: return type;
   }
 }
 
 /** Visual state for a rail stage chip, derived from the DTO's lifecycle
- *  state plus loop iteration. The wire format has no "not yet opened"
- *  state, so an OPEN stage that hasn't looped reads as `future`. */
+ *  state. Every stage in the wire format has already been opened, so a
+ *  real chip is never `future` — that variant only survives for any
+ *  placeholder pipeline rendering. OPEN means "opened and live" (the
+ *  backend defines it as active-or-polling), ACTIVE means an operation is
+ *  executing right now; both read as running. PAUSED reads as idle. */
 export type RailState = 'done' | 'active' | 'idle' | 'future';
 
 export function railStateFor(stage: StageDto): RailState {
-  if (stage.state === 'CLOSED') return 'done';
-  if (stage.state === 'ACTIVE') return 'active';
-  return stage.loopIteration > 0 ? 'idle' : 'future';
+  switch (stage.state) {
+    case 'CLOSED': return 'done';
+    case 'ACTIVE': return 'active';
+    case 'PAUSED': return 'idle';
+    case 'OPEN': return 'active';
+    default: return 'idle';
+  }
 }
 
 /** Builds a stageId → display label map across main and sub stages.

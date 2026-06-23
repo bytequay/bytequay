@@ -481,12 +481,28 @@ public class StageDetailServiceImpl
                         .orElseGet(List::of)
                 : window.messages(devMessages);
 
+        // Pair each tool call with its result row (same callId) so the
+        // transcript can show command + outcome on a single card.
+        Map<String, ToolResultPayload> resultsByCallId = new HashMap<>();
+        for (ThreadMessage m : source) {
+            if ("tool_result".equals(m.type())) {
+                ToolResultPayload r = toolResult(m);
+                if (r.callId() != null) {
+                    resultsByCallId.put(r.callId(), r);
+                }
+            }
+        }
+
         List<ConversationRow> rows = new ArrayList<>();
         for (ThreadMessage m : source) {
             if ("tool_call".equals(m.type())) {
                 ToolCallPayload tc = toolCall(m);
+                String callId = callIdOf(m);
+                ToolResultPayload r = callId == null ? null : resultsByCallId.get(callId);
                 rows.add(new ConversationRow(m.id(), "tool_call", null,
-                        tc.tag(), tc.label(), tc.detail(), null, m.ts().toString()));
+                        tc.tag(), tc.label(), tc.detail(),
+                        r == null ? null : r.output(), r == null ? null : r.isError(),
+                        null, m.ts().toString()));
             }
             else if ("text".equals(m.type())) {
                 String text = decodeText(m.contentJson());
@@ -494,12 +510,12 @@ public class StageDetailServiceImpl
                     continue;
                 }
                 rows.add(new ConversationRow(m.id(), "user".equals(m.role()) ? "user" : "agent",
-                        text, null, null, null, null, m.ts().toString()));
+                        text, null, null, null, null, null, null, m.ts().toString()));
             }
         }
         for (TaskStageIteration it : iters) {
             rows.add(new ConversationRow(it.id() + ":marker", "iteration_marker",
-                    it.trigger(), null, null, null, it.iterationNumber(),
+                    it.trigger(), null, null, null, null, null, it.iterationNumber(),
                     TimeWindow.forIteration(it).start().toString()));
         }
         rows.sort(Comparator.comparing(ConversationRow::ts));
@@ -616,6 +632,52 @@ public class StageDetailServiceImpl
         }
         return new ToolCallPayload(tagFor(name), name == null ? "tool" : name, detail);
     }
+
+    /** The {@code callId} that links a tool_call to its tool_result row. */
+    private String callIdOf(ThreadMessage m)
+    {
+        if (m.contentJson() == null) {
+            return null;
+        }
+        try {
+            return firstText(mapper.readTree(m.contentJson()), "callId");
+        }
+        catch (JsonProcessingException ignore) {
+            return null;
+        }
+    }
+
+    /** Max length of a tool result preview surfaced in the transcript. */
+    private static final int TOOL_RESULT_CAP = 2000;
+
+    /** Decode a tool_result row into its callId, error flag, and a text
+     *  preview of the output (the raw string, or compact JSON, capped). */
+    private ToolResultPayload toolResult(ThreadMessage m)
+    {
+        if (m.contentJson() == null) {
+            return new ToolResultPayload(null, false, null);
+        }
+        try {
+            JsonNode node = mapper.readTree(m.contentJson());
+            String callId = firstText(node, "callId");
+            JsonNode err = node.get("isError");
+            boolean isError = err != null && err.asBoolean(false);
+            JsonNode out = node.get("output");
+            String output = null;
+            if (out != null && !out.isNull()) {
+                output = out.isValueNode() ? out.asText() : out.toString();
+                if (output.length() > TOOL_RESULT_CAP) {
+                    output = output.substring(0, TOOL_RESULT_CAP) + "…";
+                }
+            }
+            return new ToolResultPayload(callId, isError, output);
+        }
+        catch (JsonProcessingException ignore) {
+            return new ToolResultPayload(null, false, null);
+        }
+    }
+
+    private record ToolResultPayload(String callId, boolean isError, String output) {}
 
     private static String tagFor(String toolName)
     {

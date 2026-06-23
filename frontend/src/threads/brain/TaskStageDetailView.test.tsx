@@ -48,10 +48,10 @@ function fixture(): StageDetailData {
       log: [],
     }],
     conversation: [
-      { id: 'm1', kind: 'iteration_marker', text: 'red_ci', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: 1, ts: '2026-06-21T10:00:00Z' },
-      { id: 'm2', kind: 'agent', text: 'Lint failed on an unused import. Removing it.', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: null, ts: '2026-06-21T10:00:03Z' },
-      { id: 'm3', kind: 'tool_call', text: null, toolTag: 'Read', toolLabel: 'read_file', toolDetail: 'CostMeter.tsx', iterationNumber: null, ts: '2026-06-21T10:00:05Z' },
-      { id: 'm4', kind: 'user', text: 'try a smaller diff', toolTag: null, toolLabel: null, toolDetail: null, iterationNumber: null, ts: '2026-06-21T10:00:10Z' },
+      { id: 'm1', kind: 'iteration_marker', text: 'red_ci', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, iterationNumber: 1, ts: '2026-06-21T10:00:00Z' },
+      { id: 'm2', kind: 'agent', text: 'Lint failed on an unused import. Removing it.', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, iterationNumber: null, ts: '2026-06-21T10:00:03Z' },
+      { id: 'm3', kind: 'tool_call', text: null, toolTag: 'Read', toolLabel: 'read_file', toolDetail: 'CostMeter.tsx', toolResult: 'export function CostMeter() { ... }', toolError: false, iterationNumber: null, ts: '2026-06-21T10:00:05Z' },
+      { id: 'm4', kind: 'user', text: 'try a smaller diff', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, iterationNumber: null, ts: '2026-06-21T10:00:10Z' },
     ],
     realtimeCi: null,
     ciFixHistory: [{ iterationNumber: 1, endedReason: null, summaryText: 'fix #1: bumped retry default' }],
@@ -109,8 +109,10 @@ describe('TaskStageDetailView', () => {
     mockBridge();
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
 
-    // Tool call surfaces its command detail and a relative time.
-    expect(await screen.findByText('CostMeter.tsx')).toBeTruthy();
+    // Tool call surfaces its command detail (summary + log body) and a relative time.
+    expect((await screen.findAllByText('CostMeter.tsx')).length).toBeGreaterThan(0);
+    // The detailed log card surfaces the tool result.
+    expect(screen.getByText('export function CostMeter() { ... }')).toBeTruthy();
     expect(screen.getAllByText(/ago|now/).length).toBeGreaterThan(0);
     // User message renders, but the "YOU" avatar label is gone.
     expect(screen.getByText('try a smaller diff')).toBeTruthy();
@@ -149,7 +151,7 @@ describe('TaskStageDetailView', () => {
     const onOpenStage = vi.fn();
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={onOpenStage} />);
 
-    const devChip = await screen.findByRole('button', { name: /DevelopmentStage · CLOSED/ });
+    const devChip = await screen.findByRole('button', { name: /DevelopmentStage.*CLOSED/ });
     fireEvent.click(devChip);
     expect(onOpenStage).toHaveBeenCalledWith('stage-dev');
   });
@@ -165,7 +167,7 @@ describe('TaskStageDetailView', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the code diff from the breadcrumb', async () => {
+  it('opens the code diff from the right-rail commits card', async () => {
     mockBridge();
     const onOpenCode = vi.fn();
     render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}}

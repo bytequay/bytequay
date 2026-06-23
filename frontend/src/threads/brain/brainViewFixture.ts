@@ -53,6 +53,7 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     agentRuntime: 'CLI',
     agentModel: 'sonnet-3.7',
     paused: false,
+    terminal: false,
   },
   aggregate: {
     pushes: 4,

@@ -58,6 +58,8 @@ public record StageDetailData(
             String toolTag,
             String toolLabel,
             String toolDetail,
+            String toolResult,
+            Boolean toolError,
             Integer iterationNumber,
             String ts) {}
 

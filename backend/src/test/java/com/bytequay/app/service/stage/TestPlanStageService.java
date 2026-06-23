@@ -244,6 +244,53 @@ class TestPlanStageService
     }
 
     @Test
+    void devKickoffTurnFinishingWhileStillImplementingNudgesToShip()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        // Approve → task IMPLEMENTING, DevelopmentStage open, dev kickoff enqueued.
+        planStageService.approveByStage(plan.id());
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        String turnId = saveKickoffTurn(taskId, devThread, "plan-approved");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
+
+        verify(scheduler).enqueueTurn(any(), contains("ship_task"), any());
+    }
+
+    @Test
+    void aFailedDevKickoffTurnDoesNotNudgeToShip()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        planStageService.approveByStage(plan.id());
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        String turnId = saveKickoffTurn(taskId, devThread, "plan-approved", "claude-code exited 1");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, true));
+
+        verify(scheduler, never()).enqueueTurn(any(), contains("ship_task"), any());
+    }
+
+    @Test
+    void theShipNudgeTurnItselfDoesNotReNudge()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        planStageService.approveByStage(plan.id());
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        // A turn that is itself the ship nudge must not chain another nudge.
+        String turnId = saveKickoffTurn(taskId, devThread, "ship-nudge");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
+
+        verify(scheduler, never()).enqueueTurn(any(), contains("ship_task"), any());
+    }
+
+    @Test
     void aFailedPlanningTurnSurfacesTheErrorOnThePlanStage()
     {
         String taskId = seedTask();

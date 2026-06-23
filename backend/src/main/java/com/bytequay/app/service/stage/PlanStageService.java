@@ -123,10 +123,21 @@ public class PlanStageService
             return;
         }
         String source = turn.initiator().source();
-        boolean planningTurn = "plan-kickoff".equals(source) || "plan-followup".equals(source);
-        if (!planningTurn) {
-            return;
+        if ("plan-kickoff".equals(source) || "plan-followup".equals(source)) {
+            onPlanningTurnFinished(event, turn, source);
         }
+        else if ("plan-approved".equals(source)) {
+            // The development kickoff turn (enqueued by enqueueDevKickoff with
+            // source "plan-approved"). If it ended still implementing without
+            // proposing a push, nudge it once to ship.
+            onDevTurnFinished(event);
+        }
+    }
+
+    /** Plan-stage turn-end handling: surface a failure, else nudge once
+     *  (after the kickoff only) to record a plan. */
+    private void onPlanningTurnFinished(TaskTurnFinishedEvent event, ThreadTurn turn, String source)
+    {
         StageInstance plan = stageStore.findActiveStage(event.taskId())
                 .filter(s -> s.type() == StageType.PLAN_STAGE)
                 .orElse(null);
@@ -161,6 +172,45 @@ public class PlanStageService
                 log.debug("nudged brain {} to record a plan for task {}", brain.id(), event.taskId());
             });
         }
+    }
+
+    /**
+     * Development kickoff turn ended. If the agent finished implementing but
+     * never proposed a push (the task is still IMPLEMENTING — a ship/push
+     * proposal would have fast-forwarded the phase to AWAITING_PUSH), nudge it
+     * once to call {@code ship_task}, which parks a push + draft-PR proposal
+     * for the user's approval. Without this the DevelopmentStage sits "running"
+     * forever after producing a result. Mirrors the plan-stage record_plan
+     * nudge: a one-shot follow-up turn under a distinct initiator source so it
+     * can't loop. Nothing is pushed automatically — the proposal still gates on
+     * the user's approval.
+     */
+    private void onDevTurnFinished(TaskTurnFinishedEvent event)
+    {
+        if (event.failed()) {
+            return;
+        }
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null || task.phase() != TaskPhase.IMPLEMENTING) {
+            return;
+        }
+        boolean devOpen = stageStore.findActiveStage(event.taskId())
+                .map(s -> s.type() == StageType.DEVELOPMENT_STAGE)
+                .orElse(false);
+        if (!devOpen) {
+            return;
+        }
+        threadStore.findThreadById(task.threadId()).ifPresent(dev -> {
+            scheduler.enqueueTurn(dev,
+                    "Your implementation turn ended without proposing to publish. If the "
+                            + "work is complete, call ship_task(...) now to push the branch and open "
+                            + "a DRAFT pull request — it only parks the proposal for the user to "
+                            + "approve and pushes nothing until they do. (Use push(...) then "
+                            + "open_pr(...) if you need finer control.) If the work isn't finished, "
+                            + "keep going instead.",
+                    TurnInitiator.unattended("ship-nudge"));
+            log.debug("nudged dev thread {} to ship task {}", dev.id(), event.taskId());
+        });
     }
 
     /**

@@ -1359,7 +1359,11 @@ public class PullRequestService
     {
         ImmutableList.Builder<PullRequest> all = ImmutableList.builder();
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
-            PullRequestHistoryPage result = gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE);
+            // sort=updated desc so the freshest PRs land on the first pages —
+            // GitHub's default best-match ordering can push the newest past
+            // the MAX_SEARCH_PAGES cap and out of the synced set entirely.
+            PullRequestHistoryPage result =
+                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
             all.addAll(result.items());
             if (!result.hasMore()) {
                 break;

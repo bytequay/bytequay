@@ -85,6 +85,20 @@ public interface PullRequestRepository
      */
     default PullRequestHistoryPage searchPullRequestsPaged(String pat, String query, int page, int perPage)
     {
+        return searchPullRequestsPaged(pat, query, page, perPage, null, null);
+    }
+
+    /**
+     * Sorted variant. {@code sort} and {@code order} map to GitHub's
+     * {@code /search/issues} {@code sort} + {@code order} query params
+     * (e.g. {@code "updated"} / {@code "desc"}). Pass null/null for
+     * GitHub's default best-match ordering. Sorting matters when a result
+     * set can exceed the caller's page cap: best-match can leave the
+     * newest items off the fetched pages entirely.
+     */
+    default PullRequestHistoryPage searchPullRequestsPaged(
+            String pat, String query, int page, int perPage, String sort, String order)
+    {
         throw new UnsupportedOperationException("searchPullRequestsPaged not implemented");
     }
 

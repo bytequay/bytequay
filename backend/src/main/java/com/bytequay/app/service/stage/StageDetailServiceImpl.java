@@ -502,7 +502,7 @@ public class StageDetailServiceImpl
                 rows.add(new ConversationRow(m.id(), "tool_call", null,
                         tc.tag(), tc.label(), tc.detail(),
                         r == null ? null : r.output(), r == null ? null : r.isError(),
-                        null, m.ts().toString()));
+                        editDiff(m), null, m.ts().toString()));
             }
             else if ("text".equals(m.type())) {
                 String text = decodeText(m.contentJson());
@@ -510,12 +510,12 @@ public class StageDetailServiceImpl
                     continue;
                 }
                 rows.add(new ConversationRow(m.id(), "user".equals(m.role()) ? "user" : "agent",
-                        text, null, null, null, null, null, null, m.ts().toString()));
+                        text, null, null, null, null, null, null, null, m.ts().toString()));
             }
         }
         for (TaskStageIteration it : iters) {
             rows.add(new ConversationRow(it.id() + ":marker", "iteration_marker",
-                    it.trigger(), null, null, null, null, null, it.iterationNumber(),
+                    it.trigger(), null, null, null, null, null, null, it.iterationNumber(),
                     TimeWindow.forIteration(it).start().toString()));
         }
         rows.sort(Comparator.comparing(ConversationRow::ts));
@@ -649,6 +649,71 @@ public class StageDetailServiceImpl
 
     /** Max length of a tool result preview surfaced in the transcript. */
     private static final int TOOL_RESULT_CAP = 2000;
+
+    /** Max length of an edit diff surfaced on a tool card. */
+    private static final int TOOL_DIFF_CAP = 6000;
+
+    /**
+     * For an edit/write tool call, a compact +/- diff built from the call
+     * input: {@code old_string} → {@code new_string} (Edit), each entry of
+     * {@code edits} (MultiEdit), or the whole {@code content} as additions
+     * (Write). Null for non-editing tools or input without those fields.
+     */
+    private String editDiff(ThreadMessage m)
+    {
+        if (m.contentJson() == null) {
+            return null;
+        }
+        try {
+            JsonNode input = mapper.readTree(m.contentJson()).get("input");
+            if (input == null || !input.isObject()) {
+                return null;
+            }
+            StringBuilder out = new StringBuilder();
+            JsonNode edits = input.get("edits");
+            if (edits != null && edits.isArray()) {
+                for (JsonNode e : edits) {
+                    appendEditHunk(out, textOf(e, "old_string"), textOf(e, "new_string"));
+                }
+            }
+            else if (input.has("old_string") || input.has("new_string")) {
+                appendEditHunk(out, textOf(input, "old_string"), textOf(input, "new_string"));
+            }
+            else if (input.has("content")) {
+                appendLines(out, textOf(input, "content"), '+');
+            }
+            if (out.length() == 0) {
+                return null;
+            }
+            String diff = out.toString();
+            return diff.length() > TOOL_DIFF_CAP ? diff.substring(0, TOOL_DIFF_CAP) + "\n…" : diff;
+        }
+        catch (JsonProcessingException ignore) {
+            return null;
+        }
+    }
+
+    private static void appendEditHunk(StringBuilder out, String oldText, String newText)
+    {
+        appendLines(out, oldText, '-');
+        appendLines(out, newText, '+');
+    }
+
+    private static void appendLines(StringBuilder out, String text, char sign)
+    {
+        if (text == null) {
+            return;
+        }
+        for (String line : text.split("\n")) {
+            out.append(sign).append(' ').append(line).append('\n');
+        }
+    }
+
+    private static String textOf(JsonNode node, String field)
+    {
+        JsonNode v = node.get(field);
+        return v == null || v.isNull() ? null : v.asText();
+    }
 
     /** Decode a tool_result row into its callId, error flag, and a text
      *  preview of the output (the raw string, or compact JSON, capped). */

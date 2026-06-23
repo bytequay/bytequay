@@ -401,8 +401,11 @@ function ConversationRowView({
     );
   }
   if (row.kind === 'tool_call') {
-    const hasDetail = row.toolDetail !== null && row.toolDetail !== '';
-    const hasResult = row.toolResult !== null && row.toolResult !== '';
+    // Wire fields can be absent (undefined), not just null — guard with a
+    // type check so a missing field never reaches `.split()` / rendering.
+    const detail = typeof row.toolDetail === 'string' && row.toolDetail !== '' ? row.toolDetail : null;
+    const result = typeof row.toolResult === 'string' && row.toolResult !== '' ? row.toolResult : null;
+    const diff = typeof row.toolDiff === 'string' && row.toolDiff !== '' ? row.toolDiff : null;
     const klass = `tool-card tool-${(row.toolTag ?? '').toLowerCase()}`
       + (row.toolError ? ' tool-card--error' : '');
     return (
@@ -410,21 +413,35 @@ function ConversationRowView({
         <summary className="tool-card__head">
           <span className="tool-tag">{row.toolTag ?? 'tool'}</span>
           <span className="tool-label">{row.toolLabel ?? ''}</span>
-          {hasDetail && <code className="tool-detail">{row.toolDetail}</code>}
+          {detail !== null && <code className="tool-detail">{detail}</code>}
           {row.toolError && <span className="tool-card__badge">error</span>}
           <span className="tool-time">{relativeShort(row.ts, nowMs)}</span>
         </summary>
         <div className="tool-card__body">
-          {hasDetail && (
+          {detail !== null && (
             <div className="tool-log">
-              <div className="tool-log__label">Command</div>
-              <pre className="tool-log__pre">{row.toolDetail}</pre>
+              <div className="tool-log__label">{diff !== null ? 'File' : 'Command'}</div>
+              <pre className="tool-log__pre">{detail}</pre>
+            </div>
+          )}
+          {diff !== null && (
+            <div className="tool-log">
+              <div className="tool-log__label">Diff</div>
+              <pre className="tool-log__pre tool-diff">
+                {diff.split('\n').map((line, i) => (
+                  <span
+                    key={i}
+                    className={'tool-diff__line'
+                      + (line.startsWith('+') ? ' diff-add' : line.startsWith('-') ? ' diff-del' : '')}
+                  >{line}{'\n'}</span>
+                ))}
+              </pre>
             </div>
           )}
           <div className="tool-log">
             <div className="tool-log__label">Result</div>
             <pre className={`tool-log__pre${row.toolError ? ' tool-log__pre--error' : ''}`}>
-              {hasResult ? row.toolResult : '(no output captured)'}
+              {result !== null ? result : '(no output captured)'}
             </pre>
           </div>
         </div>

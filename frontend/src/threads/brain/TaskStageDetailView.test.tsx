@@ -48,10 +48,11 @@ function fixture(): StageDetailData {
       log: [],
     }],
     conversation: [
-      { id: 'm1', kind: 'iteration_marker', text: 'red_ci', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, iterationNumber: 1, ts: '2026-06-21T10:00:00Z' },
-      { id: 'm2', kind: 'agent', text: 'Lint failed on an unused import. Removing it.', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, iterationNumber: null, ts: '2026-06-21T10:00:03Z' },
-      { id: 'm3', kind: 'tool_call', text: null, toolTag: 'Read', toolLabel: 'read_file', toolDetail: 'CostMeter.tsx', toolResult: 'export function CostMeter() { ... }', toolError: false, iterationNumber: null, ts: '2026-06-21T10:00:05Z' },
-      { id: 'm4', kind: 'user', text: 'try a smaller diff', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, iterationNumber: null, ts: '2026-06-21T10:00:10Z' },
+      { id: 'm1', kind: 'iteration_marker', text: 'red_ci', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, toolDiff: null, iterationNumber: 1, ts: '2026-06-21T10:00:00Z' },
+      { id: 'm2', kind: 'agent', text: 'Lint failed on an unused import. Removing it.', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, toolDiff: null, iterationNumber: null, ts: '2026-06-21T10:00:03Z' },
+      { id: 'm3', kind: 'tool_call', text: null, toolTag: 'Read', toolLabel: 'read_file', toolDetail: 'CostMeter.tsx', toolResult: 'export function CostMeter() { ... }', toolError: false, toolDiff: null, iterationNumber: null, ts: '2026-06-21T10:00:05Z' },
+      { id: 'm5', kind: 'tool_call', text: null, toolTag: 'Write', toolLabel: 'Edit', toolDetail: 'CostMeter.tsx', toolResult: 'updated successfully', toolError: false, toolDiff: '- const x = 1\n+ const x = 2', iterationNumber: null, ts: '2026-06-21T10:00:07Z' },
+      { id: 'm4', kind: 'user', text: 'try a smaller diff', toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null, toolDiff: null, iterationNumber: null, ts: '2026-06-21T10:00:10Z' },
     ],
     realtimeCi: null,
     ciFixHistory: [{ iterationNumber: 1, endedReason: null, summaryText: 'fix #1: bumped retry default' }],
@@ -113,10 +114,34 @@ describe('TaskStageDetailView', () => {
     expect((await screen.findAllByText('CostMeter.tsx')).length).toBeGreaterThan(0);
     // The detailed log card surfaces the tool result.
     expect(screen.getByText('export function CostMeter() { ... }')).toBeTruthy();
+    // An edit tool call surfaces its +/- diff lines.
+    expect(screen.getByText('- const x = 1')).toBeTruthy();
+    expect(screen.getByText('+ const x = 2')).toBeTruthy();
     expect(screen.getAllByText(/ago|now/).length).toBeGreaterThan(0);
     // User message renders, but the "YOU" avatar label is gone.
     expect(screen.getByText('try a smaller diff')).toBeTruthy();
     expect(screen.queryByText('YOU')).toBeNull();
+  });
+
+  it('renders a tool call whose optional fields are absent (old wire shape) without crashing', async () => {
+    // A backend predating toolDiff/toolResult omits the fields entirely, so
+    // they arrive as undefined (not null). The card must degrade, not throw
+    // on `.split()` of a missing diff. Regression for the "reading 'split'
+    // of undefined" crash.
+    const data = fixture();
+    data.conversation = [
+      {
+        id: 'old', kind: 'tool_call', text: null, toolTag: 'Write', toolLabel: 'Edit',
+        toolDetail: 'Foo.md', iterationNumber: null, ts: '2026-06-21T10:00:00Z',
+      } as unknown as StageDetailData['conversation'][number],
+    ];
+    mockBridge(vi.fn().mockResolvedValue(data));
+
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+    // The card still renders (label + file), and no diff/result throws.
+    expect(await screen.findByText('Edit')).toBeTruthy();
+    expect(screen.getAllByText('Foo.md').length).toBeGreaterThan(0);
+    expect(screen.getByText('(no output captured)')).toBeTruthy();
   });
 
   it('layers an iteration marker over the transcript for a looping stage', async () => {

@@ -979,6 +979,102 @@ public class ThreadService
                 () -> git.commitFileDiff(agentCwd(thread), sha, path, DIFF_MAX_BYTES));
     }
 
+    /**
+     * The task's full diff against its base branch
+     * ({@code git diff <base>..HEAD}), one {@link TaskDiffFile} per
+     * changed file, shaped like the PR review's {@code DiffFileDto} so
+     * the frontend renders it with the same component. Per-file
+     * additions/deletions are counted from the patch ({@link GitRunner}'s
+     * range listing reports 0 for those). Empty when the worktree was
+     * reaped or no base ref resolves.
+     */
+    public List<TaskDiffFile> taskCumulativeDiff(String threadId)
+    {
+        Thread thread = requireTask(threadId);
+        Optional<Path> cwd = existingAgentCwd(thread);
+        if (cwd.isEmpty()) {
+            return List.of();
+        }
+        Task task = taskStore.findActiveTaskForThread(threadId)
+                .or(() -> taskStore.findLatestTaskForThread(threadId))
+                .orElse(null);
+        return runGit("build cumulative diff for " + threadId, () -> {
+            String base = resolveCommitBase(cwd.get(), task);
+            if (base == null) {
+                return List.<TaskDiffFile>of();
+            }
+            List<TaskDiffFile> out = new ArrayList<>();
+            for (GitRunner.CommitFileChange f : git.rangeFiles(cwd.get(), base, "HEAD")) {
+                String patch = git.rangeFileDiff(cwd.get(), base, "HEAD", f.path(), DIFF_MAX_BYTES);
+                int[] counts = countDiffLines(patch);
+                out.add(new TaskDiffFile(
+                        f.path(), statusWord(f.status()), counts[0], counts[1], patch));
+            }
+            return List.copyOf(out);
+        });
+    }
+
+    /**
+     * One commit's diff as {@link TaskDiffFile} rows (same shape as
+     * {@link #taskCumulativeDiff}). {@code git show} already carries the
+     * per-file additions/deletions, so those are used directly rather
+     * than recounted from the patch. Empty when the worktree was reaped.
+     */
+    public List<TaskDiffFile> taskCommitDiffFiles(String threadId, String sha)
+    {
+        requireNonNull(sha, "sha is null");
+        Thread thread = requireTask(threadId);
+        Optional<Path> cwd = existingAgentCwd(thread);
+        if (cwd.isEmpty()) {
+            return List.of();
+        }
+        return runGit("build commit diff " + sha + " for " + threadId, () -> {
+            List<TaskDiffFile> out = new ArrayList<>();
+            for (GitRunner.CommitFileChange f : git.commitFiles(cwd.get(), sha)) {
+                String patch = git.commitFileDiff(cwd.get(), sha, f.path(), DIFF_MAX_BYTES);
+                out.add(new TaskDiffFile(
+                        f.path(), statusWord(f.status()), f.additions(), f.deletions(), patch));
+            }
+            return List.copyOf(out);
+        });
+    }
+
+    /** Count added/removed lines in a unified diff: a line starting
+     *  with '+' (but not the "+++" file header) is an addition, '-'
+     *  (but not "---") a deletion. Returns {@code [additions, deletions]}. */
+    private static int[] countDiffLines(String patch)
+    {
+        int adds = 0;
+        int dels = 0;
+        if (patch != null) {
+            for (String line : patch.split("\n", -1)) {
+                if (line.startsWith("+") && !line.startsWith("+++")) {
+                    adds++;
+                }
+                else if (line.startsWith("-") && !line.startsWith("---")) {
+                    dels++;
+                }
+            }
+        }
+        return new int[] {adds, dels};
+    }
+
+    /** Map a git name-status letter to the PR review's status word so
+     *  the shared diff component reads them identically. */
+    private static String statusWord(String letter)
+    {
+        if (letter == null || letter.isEmpty()) {
+            return "modified";
+        }
+        return switch (letter.charAt(0)) {
+            case 'A' -> "added";
+            case 'D' -> "removed";
+            case 'R' -> "renamed";
+            case 'C' -> "copied";
+            default -> "modified";
+        };
+    }
+
     private Thread requireTask(String threadId)
     {
         requireNonNull(threadId, "threadId is null");
@@ -1210,4 +1306,18 @@ public class ThreadService
      * belong to several groups.
      */
     public record TaskPatch(String title) {}
+
+    /**
+     * One changed file in a task diff, shaped to match the PR review's
+     * {@code DiffFileDto} ({@code filename, status, additions, deletions,
+     * patch}) so the frontend renders both with the same component.
+     * {@code status} is the PR's word ({@code added/removed/renamed/
+     * copied/modified}), not git's single letter.
+     */
+    public record TaskDiffFile(
+            String filename,
+            String status,
+            int additions,
+            int deletions,
+            String patch) {}
 }

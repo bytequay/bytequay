@@ -175,7 +175,7 @@ function loadDiffTab(): DiffMode {
  *  through; otherwise this falls back to managing its own state so
  *  surfaces like {@code ThreadZoomModal} don't need to thread it. */
 export function ThreadDiffPane({
-  threadId, mode, onChangeMode, workingCount, commitsCount, flush,
+  threadId, mode, onChangeMode, workingCount, commitsCount, flush, commitsOnly,
 }: {
   threadId: string;
   mode?: DiffMode;
@@ -186,9 +186,12 @@ export function ThreadDiffPane({
    *  used by the standalone code-diff page to match the PR DiffViewerScreen
    *  shell. */
   flush?: boolean;
+  /** Show only the Commits view (no Working tree tab) — the standalone task
+   *  code-diff page is about the task's commits. */
+  commitsOnly?: boolean;
 }) {
   const internal = useTaskDiffState(threadId);
-  const effectiveMode = mode ?? internal.mode;
+  const effectiveMode = commitsOnly ? 'commits' : (mode ?? internal.mode);
   const effectiveSetMode = onChangeMode ?? internal.setMode;
   const effectiveWorking = workingCount ?? internal.workingCount;
   const effectiveCommits = commitsCount ?? internal.commitsCount;
@@ -201,7 +204,7 @@ export function ThreadDiffPane({
   };
   return effectiveMode === 'files'
     ? <FilesPanel threadId={threadId} {...sharedProps} />
-    : <CommitsPanel threadId={threadId} {...sharedProps} />;
+    : <CommitsPanel threadId={threadId} {...sharedProps} commitsOnly={commitsOnly} />;
 }
 
 // ─── Tree/flat mode persistence ─────────────────────────────────────
@@ -623,6 +626,7 @@ function FilesPanel({
             fetcher={() => window.bridge.getTaskWorkingDiff(threadId, selectedPath)}
             cacheKey={`${threadId}::${selectedPath}`}
             path={selectedPath}
+            status={files?.find(f => f.path === selectedPath)?.status}
           />
         ) : (
           <div className="diff-viewer__empty">Pick a file on the left to view its diff.</div>
@@ -635,7 +639,7 @@ function FilesPanel({
 // ─── Commits (since thread start) ─────────────────────────────────────
 
 function CommitsPanel({
-  threadId, mode, onChangeMode, workingCount, commitsCount, flush,
+  threadId, mode, onChangeMode, workingCount, commitsCount, flush, commitsOnly,
 }: {
   threadId: string;
   mode: DiffMode;
@@ -643,6 +647,7 @@ function CommitsPanel({
   workingCount: number | null;
   commitsCount: number | null;
   flush?: boolean;
+  commitsOnly?: boolean;
 }) {
   const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -677,12 +682,18 @@ function CommitsPanel({
             className="diff-viewer__files"
           >
             <div className="diff-viewer__files-header">
-              <DiffModeToggle
-                mode={mode}
-                onChangeMode={onChangeMode}
-                workingCount={workingCount}
-                commitsCount={commitsCount ?? commits?.length ?? null}
-              />
+              {commitsOnly ? (
+                <span className="diff-viewer__files-label">
+                  Commits{commits !== null && <span className="diff-viewer__files-count"> {commits.length}</span>}
+                </span>
+              ) : (
+                <DiffModeToggle
+                  mode={mode}
+                  onChangeMode={onChangeMode}
+                  workingCount={workingCount}
+                  commitsCount={commitsCount ?? commits?.length ?? null}
+                />
+              )}
               <button
                 type="button"
                 className="diff-viewer__files-collapse-btn"
@@ -802,11 +813,19 @@ function CommitDiffView({ threadId, sha }: { threadId: string; sha: string }) {
       <ColumnSplitter width={filesWidth} onChange={setFilesWidth} />
       <div style={commitDiffPaneStyle}>
         {selectedPath ? (
-          <DiffBody
-            fetcher={() => window.bridge.getTaskCommitDiff(threadId, sha, selectedPath)}
-            cacheKey={`${threadId}::${sha}::${selectedPath}`}
-            path={selectedPath}
-          />
+          (() => {
+            const sel = files?.find(f => f.path === selectedPath);
+            return (
+              <DiffBody
+                fetcher={() => window.bridge.getTaskCommitDiff(threadId, sha, selectedPath)}
+                cacheKey={`${threadId}::${sha}::${selectedPath}`}
+                path={selectedPath}
+                status={sel?.status}
+                additions={sel?.additions}
+                deletions={sel?.deletions}
+              />
+            );
+          })()
         ) : (
           <div className="diff-viewer__empty">Pick a file to view its diff.</div>
         )}
@@ -823,11 +842,16 @@ function CommitDiffView({ threadId, sha }: { threadId: string; sha: string }) {
  *  fetch so switching files / commits triggers a refresh without a
  *  stale render in between. */
 function DiffBody({
-  fetcher, cacheKey, path,
+  fetcher, cacheKey, path, status, additions, deletions,
 }: {
   fetcher: () => Promise<string>;
   cacheKey: string;
   path: string;
+  /** Change status letter/word for the file bar (e.g. "M", "A", "added"). */
+  status?: string;
+  /** Per-file line counts for the file bar; omitted for the working tree. */
+  additions?: number;
+  deletions?: number;
 }) {
   const [diff, setDiff] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -858,9 +882,21 @@ function DiffBody({
     return <div className="diff-viewer__empty">No diff content (file may be binary or unchanged).</div>;
   }
 
+  const badge = status !== undefined && status !== '' ? statusBadgeFromLetter(status) : null;
   return (
     <div style={diffBodyStyle}>
-      <div style={diffPathStyle} title={path}>{path}</div>
+      <div className="diff-viewer__pane-file-bar">
+        <span className="diff-viewer__pane-filename" title={path}>{path}</span>
+        {badge !== null && (
+          <span className={`diff-viewer__pane-status diff-viewer__pane-status--${badge.cls}`}>{badge.cls}</span>
+        )}
+        {(additions !== undefined || deletions !== undefined) && (
+          <span className="diff-viewer__pane-stat">
+            <span className="add">+{additions ?? 0}</span>
+            <span className="del">−{deletions ?? 0}</span>
+          </span>
+        )}
+      </div>
       {hunks.map((hunk, hIdx) => (
         <Fragment key={hIdx}>
           {hunk.rows.map((row, rIdx) => {
@@ -1032,13 +1068,3 @@ const diffBodyStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 12,
 };
-const diffPathStyle: React.CSSProperties = {
-  position: 'sticky', top: 0, zIndex: 1,
-  padding: '6px 14px',
-  borderBottom: '1px solid var(--border)',
-  background: 'var(--bg-elevated)',
-  color: 'var(--text-2)',
-  fontSize: 12, fontWeight: 600,
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-};
-

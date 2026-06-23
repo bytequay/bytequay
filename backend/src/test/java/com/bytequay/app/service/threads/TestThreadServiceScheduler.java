@@ -797,6 +797,90 @@ class TestThreadServiceScheduler
         assertThat(git.workingTreeDiffPaths).isEmpty();
     }
 
+    @Test
+    void cumulativeDiffMapsStatusWordsAndCountsLinesFromPatch(@TempDir Path tmp)
+            throws IOException
+    {
+        Thread thread = threadWithWorktree("thread-1");
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveThread(thread);
+        Path worktree = tmp.resolve(".bytequay/worktrees/dev/thread-1");
+        Files.createDirectories(worktree);
+        Task active = new Task(
+                "task-1", thread.id(), 1L, TaskStatus.IDLE,
+                "dev/thread-1",
+                worktree.toString(),
+                "main", tmp.toString(),
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, /* agentSessionId */ null,
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null);
+        SingleTaskStore tasks = new SingleTaskStore(active);
+        RecordingGitRunner git = new RecordingGitRunner();
+        // A range listing reports A/M letters and 0 counts; the per-file
+        // patch carries the real lines the service must count.
+        git.cannedRangeFiles = List.of(
+                new GitRunner.CommitFileChange("src/New.java", "A", 0, 0),
+                new GitRunner.CommitFileChange("src/Old.java", "M", 0, 0));
+        String newPatch = "@@\n+x\n+x\n-y\n";
+        // +++/--- headers must NOT count as add/del lines.
+        String oldPatch = "--- a/src/Old.java\n+++ b/src/Old.java\n@@\n+keep\n-drop\n";
+        git.cannedRangePatches = Map.of("src/New.java", newPatch, "src/Old.java", oldPatch);
+        ThreadService service = new ThreadService(
+                store, tasks, new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(), new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()), stubIdGenerator());
+
+        List<ThreadService.TaskDiffFile> diff = service.taskCumulativeDiff(thread.id());
+
+        assertThat(diff).hasSize(2);
+        assertThat(diff.get(0))
+                .extracting(
+                        ThreadService.TaskDiffFile::filename,
+                        ThreadService.TaskDiffFile::status,
+                        ThreadService.TaskDiffFile::additions,
+                        ThreadService.TaskDiffFile::deletions,
+                        ThreadService.TaskDiffFile::patch)
+                .containsExactly("src/New.java", "added", 2, 1, newPatch);
+        assertThat(diff.get(1))
+                .extracting(
+                        ThreadService.TaskDiffFile::filename,
+                        ThreadService.TaskDiffFile::status,
+                        ThreadService.TaskDiffFile::additions,
+                        ThreadService.TaskDiffFile::deletions)
+                .containsExactly("src/Old.java", "modified", 1, 1);
+    }
+
+    @Test
+    void cumulativeDiffReturnsEmptyWhenTheWorktreeWasReaped(@TempDir Path tmp)
+    {
+        Thread thread = threadWithWorktree("thread-1");
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveThread(thread);
+        Path reaped = tmp.resolve("reaped/dev/thread-1");
+        Task active = new Task(
+                "task-1", thread.id(), 1L, TaskStatus.COMPLETED,
+                "dev/thread-1",
+                reaped.toString(),
+                "main", tmp.toString(),
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, /* agentSessionId */ null,
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null);
+        SingleTaskStore tasks = new SingleTaskStore(active);
+        RecordingGitRunner git = new RecordingGitRunner();
+        git.cannedRangeFiles = List.of(
+                new GitRunner.CommitFileChange("src/New.java", "A", 0, 0));
+        ThreadService service = new ThreadService(
+                store, tasks, new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(), new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()), stubIdGenerator());
+
+        assertThat(service.taskCumulativeDiff(thread.id())).isEmpty();
+    }
+
     private record WorktreeCreateRequest(Path repoRoot, String sessionId, String title) {}
 
     private record WorktreeRemoveRequest(Path repoRoot, String worktreePath, String localBranch) {}
@@ -864,6 +948,12 @@ class TestThreadServiceScheduler
         private final List<String> listCommitsAheadBases = new ArrayList<>();
         private final List<Path> commitFilesPaths = new ArrayList<>();
         private final List<Path> commitDiffPaths = new ArrayList<>();
+        // Canned returns for the cumulative-diff path; empty by default so
+        // the existing commit-view tests are unaffected.
+        private List<GitRunner.CommitFileChange> cannedRangeFiles = List.of();
+        private Map<String, String> cannedRangePatches = Map.of();
+        private List<GitRunner.CommitFileChange> cannedCommitFiles = List.of();
+        private Map<String, String> cannedCommitPatches = Map.of();
 
         @Override
         public List<GitRunner.WorkingTreeFile> workingTreeFiles(Path workingDir)
@@ -908,14 +998,26 @@ class TestThreadServiceScheduler
         public List<GitRunner.CommitFileChange> commitFiles(Path workingDir, String sha)
         {
             commitFilesPaths.add(workingDir);
-            return List.of();
+            return cannedCommitFiles;
         }
 
         @Override
         public String commitFileDiff(Path workingDir, String sha, String path, int maxBytes)
         {
             commitDiffPaths.add(workingDir);
-            return "";
+            return cannedCommitPatches.getOrDefault(path, "");
+        }
+
+        @Override
+        public List<GitRunner.CommitFileChange> rangeFiles(Path workingDir, String base, String head)
+        {
+            return cannedRangeFiles;
+        }
+
+        @Override
+        public String rangeFileDiff(Path workingDir, String base, String head, String path, int maxBytes)
+        {
+            return cannedRangePatches.getOrDefault(path, "");
         }
     }
 

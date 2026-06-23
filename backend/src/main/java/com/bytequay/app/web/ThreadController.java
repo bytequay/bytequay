@@ -531,6 +531,25 @@ public class ThreadController
         return ImmutableMap.of("diff", threads.getCommitDiff(id, sha, path));
     }
 
+    /** GET /api/threads/{id}/cumulative-diff — the task's full diff
+     *  against its base branch, one {@code DiffFileDto}-shaped row per
+     *  file, so the frontend reuses the PR diff component. */
+    @GetMapping("/{id}/cumulative-diff")
+    public List<ThreadService.TaskDiffFile> cumulativeDiff(@PathVariable String id)
+    {
+        return threads.taskCumulativeDiff(id);
+    }
+
+    /** GET /api/threads/{id}/commits/{sha}/diff-files — one commit's
+     *  diff as {@code DiffFileDto}-shaped rows for the shared diff view. */
+    @GetMapping("/{id}/commits/{sha}/diff-files")
+    public List<ThreadService.TaskDiffFile> commitDiffFiles(
+            @PathVariable String id,
+            @PathVariable String sha)
+    {
+        return threads.taskCommitDiffFiles(id, sha);
+    }
+
     /** POST /api/threads/{id}/messages — send a follow-up turn. */
     @PostMapping("/{id}/messages")
     public Map<String, String> send(@PathVariable String id, @RequestBody SendBody body)

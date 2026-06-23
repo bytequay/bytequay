@@ -3345,6 +3345,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return body.diff ?? '';
   });
 
+  ipcMain.handle('threads:cumulativeDiff', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/cumulative-diff`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:commitDiffFiles', async (_event, id: unknown, sha: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (typeof sha !== 'string' || sha.trim().length === 0) {
+      throw new Error('sha must be a non-empty string');
+    }
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff-files`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:interrupt', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');

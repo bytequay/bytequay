@@ -3816,6 +3816,11 @@ export type Bridge = {
   listTaskCommitFiles: (id: string, sha: string) => Promise<ThreadCommitFileDto[]>;
   /** Unified diff for one file at one of the thread's commits. */
   getTaskCommitDiff: (id: string, sha: string, path: string) => Promise<string>;
+  /** The task's full diff against its base branch, shaped like the PR
+   *  review's DiffFileDto so the same diff component renders it. */
+  getTaskCumulativeDiff: (id: string) => Promise<DiffFileDto[]>;
+  /** One commit's diff as DiffFileDto rows for the shared diff view. */
+  getTaskCommitDiffFiles: (id: string, sha: string) => Promise<DiffFileDto[]>;
 };
 
 /** Mirror of GitRunner.WorkingTreeFile — uncommitted change in a

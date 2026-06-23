@@ -267,6 +267,8 @@ export type StageConversationRow = {
   toolResult: string | null;
   /** True when the tool call failed (non-zero exit / error). */
   toolError: boolean | null;
+  /** For an edit/write tool call, a +/- diff (lines prefixed "+ "/"- "). */
+  toolDiff: string | null;
   iterationNumber: number | null;
   ts: string;
 };

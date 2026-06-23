@@ -312,6 +312,11 @@
 .stage-detail .tool-log__label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--sd-text-subtle); margin-bottom: 4px; }
 .stage-detail .tool-log__pre { margin: 0; font-family: var(--sd-mono); font-size: 12px; line-height: 1.55; color: var(--sd-text-primary); background: #f7f8fa; border: 1px solid var(--sd-border-soft); border-radius: 7px; padding: 8px 10px; max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .stage-detail .tool-log__pre--error { color: #991b1b; background: rgba(220,38,38,0.05); border-color: rgba(220,38,38,0.25); }
+/* Edit/Write diff: removed lines red, added lines green, like a code diff. */
+.stage-detail .tool-diff { background: #fff; }
+.stage-detail .tool-diff__line { display: block; padding: 0 2px; }
+.stage-detail .tool-diff__line.diff-del { background: rgba(220,38,38,0.08); color: #991b1b; }
+.stage-detail .tool-diff__line.diff-add { background: rgba(22,163,74,0.10); color: #15803d; }
 .stage-detail .stage-event-row { font-size: 10.5px; color: var(--sd-text-muted); border: 1px dashed var(--sd-border); border-radius: 7px; padding: 5px 8px; }
 .stage-detail .event-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--sd-text-secondary); margin-right: 5px; }
 .stage-detail .iter-sum { display: flex; align-items: flex-start; gap: 10px; background: linear-gradient(90deg, rgba(124,92,255,0.06), rgba(56,189,248,0.04)); border: 1.5px dashed var(--sd-primary-border); border-radius: 9px; padding: 9px 12px; }

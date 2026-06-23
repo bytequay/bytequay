@@ -60,6 +60,9 @@ public record StageDetailData(
             String toolDetail,
             String toolResult,
             Boolean toolError,
+            /** For an edit/write tool call, a +/- diff built from the call
+             *  input (old_string → new_string, or written content). */
+            String toolDiff,
             Integer iterationNumber,
             String ts) {}
 

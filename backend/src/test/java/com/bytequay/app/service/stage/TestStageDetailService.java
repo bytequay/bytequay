@@ -210,6 +210,26 @@ class TestStageDetailService
     }
 
     @Test
+    void editToolCallSurfacesAnOldNewDiff()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant open = stage.openedAt();
+        appendMessage(threadId, taskId, 1, "tool", "tool_call",
+                "{\"callId\":\"c1\",\"toolName\":\"Edit\",\"input\":{\"file_path\":\"Foo.md\","
+                        + "\"old_string\":\"const x = 1\",\"new_string\":\"const x = 2\"}}", open);
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("tool_call")
+                        && r.toolDiff() != null
+                        && r.toolDiff().contains("- const x = 1")
+                        && r.toolDiff().contains("+ const x = 2"));
+    }
+
+    @Test
     void toolCallPairsItsResultRowByCallId()
     {
         String threadId = seedThread();

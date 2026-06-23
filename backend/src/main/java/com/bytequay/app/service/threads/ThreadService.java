@@ -642,10 +642,27 @@ public class ThreadService
     }
 
     /** Send a follow-up turn to an existing thread. Re-creates the
-     *  in-memory session if it was evicted (e.g. after restart). */
+     *  in-memory session if it was evicted (e.g. after restart).
+     *
+     *  <p>This is the task-altitude composer's path ({@code POST
+     *  /messages}), distinct from the trunk's {@link #sendTrunk}. The
+     *  turn is bound to the thread's task resolved as active-or-latest —
+     *  the same resolution {@link ThreadRegistry#getOrCreate} uses to
+     *  pick which task's session handles the turn. Binding here rather
+     *  than letting the scheduler re-derive from {@code
+     *  Thread.activeTask()} is what keeps a task-window turn out of the
+     *  trunk slice when the task is parked / awaiting review / phase-
+     *  complete: in those states the active-task projection is null, so
+     *  the old path stamped the row {@code task_id = null} and the
+     *  conversation leaked into the trunk planning view. */
     public String send(String threadId, String input)
     {
-        return scheduler.enqueueTurn(requireTask(threadId), input);
+        Thread thread = requireTask(threadId);
+        String taskId = taskStore.findActiveTaskForThread(threadId)
+                .or(() -> taskStore.findLatestTaskForThread(threadId))
+                .map(Task::id)
+                .orElse(null);
+        return scheduler.enqueueTaskTurn(thread, input, taskId);
     }
 
     /** Trunk-scope counterpart of {@link #send} — drives the trunk

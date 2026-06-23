@@ -225,6 +225,43 @@ class TestThreadServiceScheduler
     }
 
     @Test
+    void followUpSendBindsTheTurnToTheLatestTaskWhenNoTaskIsActive()
+    {
+        // The task-window composer sends through /messages while the task
+        // is parked at AWAITING_REVIEW: findActiveTaskForThread is empty but
+        // the task still exists. send() must bind the turn to that task
+        // (active-or-latest) so the row lands in the task's slice — not as a
+        // task_id = null trunk row that leaks into the trunk conversation.
+        Thread thread = thread();
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveThread(thread);
+        Task parked = new Task(
+                "task-9", thread.id(), 1L, TaskStatus.AWAITING_REVIEW,
+                "dev/thread-1", "/tmp/work/.wt/task-9", "main", "/tmp/work",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, /* agentSessionId */ null,
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null);
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ThreadService service = new ThreadService(
+                store,
+                new LatestOnlyTaskStore(parked),
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator());
+
+        service.send(thread.id(), "keep going");
+
+        assertThat(scheduler.taskTurnTaskIds).containsExactly("task-9");
+    }
+
+    @Test
     void turnsReturnDurableHistoryForTaskOnly()
     {
         Thread thread = thread();
@@ -1026,6 +1063,7 @@ class TestThreadServiceScheduler
     {
         private final List<QueuedRequest> requests = new ArrayList<>();
         private final List<String> cancelledTaskIds = new ArrayList<>();
+        private final List<String> taskTurnTaskIds = new ArrayList<>();
         private final List<String> events;
 
         private RecordingScheduler()
@@ -1058,6 +1096,18 @@ class TestThreadServiceScheduler
             // turn ids are still issued in arrival order.
             requests.add(new QueuedRequest(thread, input));
             return "trunk-turn-" + requests.size();
+        }
+
+        @Override
+        public String enqueueTaskTurn(Thread thread, String input, String taskId)
+        {
+            // Capture the task id the service resolved (active-or-latest) so
+            // a test can assert a task-window send binds to its task even
+            // when no task is "active". Still records the QueuedRequest so
+            // the existing arrival-order assertions hold.
+            requests.add(new QueuedRequest(thread, input));
+            taskTurnTaskIds.add(taskId);
+            return "turn-" + requests.size();
         }
 
         @Override
@@ -1366,6 +1416,43 @@ class TestThreadServiceScheduler
         @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Task> findLatestTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
+        @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
+        @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
+        @Override public List<Task> listByPhases(Collection<TaskPhase> phases, int limit) { return List.of(); }
+        @Override public void recordFile(TaskFile file) {}
+        @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
+    }
+
+    /** TaskStore that holds one task which is NOT "active" — {@link
+     *  #findActiveTaskForThread} returns empty (mirroring a task parked at
+     *  AWAITING_REVIEW / phase-complete) while {@link
+     *  #findLatestTaskForThread} still surfaces it. Lets a test assert that
+     *  {@code send} binds a task-window turn to the latest task rather than
+     *  falling back to a trunk turn. */
+    private static final class LatestOnlyTaskStore
+            implements TaskStore
+    {
+        private final Task task;
+
+        LatestOnlyTaskStore(Task task) { this.task = task; }
+
+        @Override public void saveTask(Task t) {}
+        @Override public Optional<Task> findTaskById(String id) {
+            return task.id().equals(id) ? Optional.of(task) : Optional.empty();
+        }
+        @Override public void deleteTask(String id) {}
+        @Override public List<Task> listTasksByThread(String threadId) {
+            return task.threadId().equals(threadId) ? List.of(task) : List.of();
+        }
+        @Override public Optional<Task> findActiveTaskForThread(String threadId) {
+            return Optional.empty();
+        }
+        @Override public Optional<Task> findLatestTaskForThread(String threadId) {
+            return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();
+        }
+        @Override public Optional<Long> maxSeqForThread(String threadId) {
+            return Optional.of(task.seq());
+        }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
         @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
         @Override public List<Task> listByPhases(Collection<TaskPhase> phases, int limit) { return List.of(); }

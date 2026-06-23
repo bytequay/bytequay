@@ -91,7 +91,7 @@ function stageAccent(type: StageType): string {
  */
 
 /** Steer the stage's dev agent: a textarea + send button. Disabled (with a
- *  hint) once the stage is closed or paused. ⌘/Ctrl+↵ sends. */
+ *  hint) once the stage is closed or paused. ↵ sends; ⇧↵ inserts a newline. */
 function StageComposer(
   { disabled, onSubmit }: { disabled: boolean; onSubmit: (text: string) => Promise<void> },
 ) {
@@ -110,25 +110,31 @@ function StageComposer(
   };
   return (
     <div className="composer" aria-label="Stage composer">
-      <textarea
-        className="t"
-        rows={4}
-        value={text}
-        disabled={disabled || busy}
-        placeholder={disabled ? 'Steering unavailable on a closed stage' : 'Steer this stage… (⌘↵ to send)'}
-        aria-label="Steering message"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
-        }}
-      />
-      <button
-        type="button"
-        className="send-icon"
-        disabled={disabled || busy || text.trim() === ''}
-        aria-label="Send steering message"
-        onClick={submit}
-      >↑</button>
+      <div className="composer-box">
+        <textarea
+          className="t"
+          rows={4}
+          value={text}
+          disabled={disabled || busy}
+          placeholder={disabled ? 'Steering unavailable on a closed stage' : 'Steer this stage… (↵ to send, ⇧↵ for newline)'}
+          aria-label="Steering message"
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter sends; Shift+Enter (or ⌘/Ctrl+Enter) inserts a newline.
+            if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="send-icon"
+          disabled={disabled || busy || text.trim() === ''}
+          aria-label="Send steering message"
+          onClick={submit}
+        >↑</button>
+      </div>
       {error !== null && <div className="composer-error" role="alert">{error}</div>}
     </div>
   );

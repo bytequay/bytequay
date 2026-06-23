@@ -1099,7 +1099,10 @@
   padding: 2px 4px 0;
   color: var(--text-3);
   text-align: center;
-  font-size: var(--font-size-xs);
+  /* GitHub's diff sizing: 12px line numbers, 20px line-height. */
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 20px;
   user-select: none;
   background: var(--bg-elevated);
   white-space: nowrap;
@@ -1115,9 +1118,12 @@
 
 .diff-row__content {
   padding: 2px 12px;
-  /* Explicit code-diff size so the shared renderer is identical across the
-     PR, task, and stage surfaces regardless of the ambient inherited base. */
-  font-size: 14px;
+  /* Match github.com's code diff: 12px monospace, 20px line-height. Pinned
+     (not inherited) so the shared renderer is identical across the PR, task,
+     and stage surfaces regardless of the ambient base. */
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 20px;
   /* Preserve indentation (`pre`) but allow wrapping (`wrap`), and break in
      the middle of long unbreakable tokens (URLs, minified text). This is the
      no-horizontal-scroll behavior the user asked for. */

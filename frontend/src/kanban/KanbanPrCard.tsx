@@ -89,9 +89,14 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
   // PrBucketViews cards. Owner-less repo strings (legacy rows without a
   // slash) hide the avatar gracefully.
   const showRepoAvatar = !!repoOwner;
-  const openedLabel = pr.createdAt
-    ? `opened ${formatRelative(pr.createdAt)}`
-    : `updated ${formatRelative(pr.updatedAt)}`;
+  // The card footer shows LAST ACTIVITY (updatedAt), because the columns
+  // sort by updatedAt — labelling it with the open date made the top card
+  // look "6 days old" when it was actually the most recently active one.
+  // The tooltip keeps the open date for reference.
+  const timeTooltip = [
+    pr.createdAt ? `opened ${formatRelative(pr.createdAt)}` : null,
+    pr.updatedAt ? `last active ${formatRelative(pr.updatedAt)}` : null,
+  ].filter(Boolean).join(' · ');
 
   const verdicts = pr.reviewerVerdicts ?? {};
   const requested = pr.requestedReviewers ?? [];
@@ -261,9 +266,9 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
             </span>
           )}
         </div>
-        <span className="kpr-card__time" title={openedLabel}>
+        <span className="kpr-card__time" title={timeTooltip}>
           <span className="kpr-card__time-icon" aria-hidden="true">🕐</span>
-          {compactRelative(pr.createdAt ?? pr.updatedAt)}
+          {compactRelative(pr.updatedAt ?? pr.createdAt)}
         </span>
       </div>
     </button>

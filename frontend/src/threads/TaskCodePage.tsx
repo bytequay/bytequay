@@ -11,26 +11,44 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ResizeHandle from '../ResizeHandle';
+import { CommitsColumn } from '../diff/CommitsColumn';
 import { ContinuousDiff, FileDiffBody } from '../diff/DiffFileList';
 import { DiffFileTreePane, type FilesPaneMode } from '../diff/DiffFileTreePane';
+import { contiguousRange } from '../diff/commitRange';
+import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
-import { relativeTime } from '../notificationDisplay';
 import type { DiffFileDto, ThreadCommitDto } from '../types';
 import { useThreadTasks } from './useThreadTasks';
+
+const COMMITS_WIDTH_KEY = 'bytequay.taskCode.commitsWidth';
+const FILES_WIDTH_KEY = 'bytequay.taskCode.filesWidth';
+const COMMITS_DEFAULT = 230;
+const FILES_DEFAULT = 280;
+const WIDTH_MIN = 160;
+const WIDTH_MAX = 560;
+
+function loadWidth(key: string, fallback: number): number {
+  try {
+    const n = parseInt(window.localStorage.getItem(key) ?? '', 10);
+    return Number.isFinite(n) && n >= WIDTH_MIN && n <= WIDTH_MAX ? n : fallback;
+  }
+  catch { return fallback; }
+}
 
 /**
  * Standalone "Code" page for a task — the diff/files viewer reached from
  * the brain view and the stage detail's "View code diff". It renders the
- * task's diff with the **same component** as the PR review's
- * {@code DiffViewerScreen}: the shared {@link ContinuousDiff} /
- * {@link FileDiffBody} continuous multi-file body, {@link DiffFileTreePane}
- * file tree, and {@code .diff-viewer} shell. So PR-diff rendering changes
- * propagate here automatically. Read-only (no review draft to comment to);
- * the shared renderer keeps its interactive hooks, simply unused here.
+ * task's diff with the **same components** as the PR review's
+ * {@code DiffViewerScreen}: {@link CommitsColumn}, {@link DiffFileTreePane},
+ * {@link ResizeHandle}, and the continuous {@link ContinuousDiff} /
+ * {@link FileDiffBody} body — so PR-diff rendering changes propagate here.
+ * Read-only (no review draft to comment to).
  *
  * Default view is the task's cumulative diff (every commit, base..HEAD);
- * the commits column on the left scopes to a single commit.
+ * the commits column scopes to one commit or a contiguous range (union),
+ * exactly like the PR page.
  */
 export default function TaskCodePage({
   threadId, taskId, onBack,
@@ -46,13 +64,17 @@ export default function TaskCodePage({
     : task.name ?? task.branchName ?? `Task ${task.seq}`;
 
   const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
-  // null selectedSha ⇒ cumulative (all commits); otherwise a single commit.
-  const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  // Empty set ⇒ cumulative (all commits); otherwise a contiguous range.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [rangeAnchor, setRangeAnchor] = useState<string | null>(null);
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [mode, setMode] = useState<FilesPaneMode>('tree');
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
+  const [commitsWidth, setCommitsWidth] = useState(() => loadWidth(COMMITS_WIDTH_KEY, COMMITS_DEFAULT));
+  const [filesWidth, setFilesWidth] = useState(() => loadWidth(FILES_WIDTH_KEY, FILES_DEFAULT));
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   // Commit list for the left column.
   useEffect(() => {
@@ -67,16 +89,26 @@ export default function TaskCodePage({
     return () => { cancelled = true; };
   }, [threadId]);
 
-  // Diff for the active scope (cumulative or one commit).
+  // Diff for the active scope. Empty selection ⇒ cumulative; one commit ⇒
+  // that commit; a range ⇒ the union of the selected commits' diffs.
+  const selKey = useMemo(() => [...selected].sort().join(','), [selected]);
   useEffect(() => {
     let cancelled = false;
     setFiles(null);
     setError(null);
     void (async () => {
       try {
-        const list = selectedSha === null
-          ? await window.bridge.getTaskCumulativeDiff(threadId)
-          : await window.bridge.getTaskCommitDiffFiles(threadId, selectedSha);
+        let list: DiffFileDto[];
+        if (selected.size === 0) {
+          list = await window.bridge.getTaskCumulativeDiff(threadId);
+        }
+        else {
+          // Fetch each selected commit (in commit order) and union by path.
+          const orderedSel = (commits ?? []).map(c => c.sha).filter(sha => selected.has(sha));
+          const perCommit = await Promise.all(
+            orderedSel.map(sha => window.bridge.getTaskCommitDiffFiles(threadId, sha)));
+          list = unionCommitFiles(perCommit, f => f.filename);
+        }
         if (cancelled) return;
         setFiles(list);
         setSelectedPath(prev => (prev && list.some(f => f.filename === prev) ? prev : list[0]?.filename ?? null));
@@ -86,7 +118,26 @@ export default function TaskCodePage({
       }
     })();
     return () => { cancelled = true; };
-  }, [threadId, selectedSha]);
+    // selKey captures the selection contents; commits feed the union order.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, selKey, commits]);
+
+  const orderedShas = useMemo(() => (commits ?? []).map(c => c.sha), [commits]);
+
+  const onSelectCommit = useCallback((sha: string, extend: boolean) => {
+    if (extend && rangeAnchor !== null && selected.size > 0) {
+      setSelected(contiguousRange(orderedShas, rangeAnchor, sha));
+    }
+    else {
+      setSelected(new Set([sha]));
+      setRangeAnchor(sha);
+    }
+  }, [rangeAnchor, selected, orderedShas]);
+
+  const onSelectAll = useCallback(() => {
+    setSelected(new Set());
+    setRangeAnchor(null);
+  }, []);
 
   const toggleDir = useCallback((path: string) => {
     setCollapsedDirs(prev => {
@@ -96,6 +147,26 @@ export default function TaskCodePage({
       return next;
     });
   }, []);
+
+  const summary = useMemo(() => (files ?? []).reduce(
+    (acc, f) => ({ additions: acc.additions + f.additions, deletions: acc.deletions + f.deletions }),
+    { additions: 0, deletions: 0 }), [files]);
+
+  const handleCommitsResize = useCallback((clientX: number) => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, clientX - rect.left));
+    setCommitsWidth(next);
+    try { window.localStorage.setItem(COMMITS_WIDTH_KEY, String(next)); } catch { /* private mode */ }
+  }, []);
+
+  const handleFilesResize = useCallback((clientX: number) => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, clientX - rect.left - commitsWidth - 5));
+    setFilesWidth(next);
+    try { window.localStorage.setItem(FILES_WIDTH_KEY, String(next)); } catch { /* private mode */ }
+  }, [commitsWidth]);
 
   return (
     // .diff-viewer is position:absolute/inset:0 — give it a positioned,
@@ -116,47 +187,23 @@ export default function TaskCodePage({
 
         <div
           className="diff-viewer__body"
-          style={{ gridTemplateColumns: '210px 280px minmax(0, 1fr)' }}
+          ref={bodyRef}
+          style={{ gridTemplateColumns: `${commitsWidth}px 5px ${filesWidth}px 5px minmax(0, 1fr)` }}
         >
-          {/* Commits column — scope from cumulative (all) to one commit.
-              Reuses the PR viewer's commit-column classes. */}
-          <aside className="diff-viewer__commits">
-            <div className="diff-viewer__col-head">
-              <span className="diff-viewer__col-title">Commits</span>
-              {commits !== null && <span className="diff-viewer__col-status">{commits.length}</span>}
-            </div>
-            <div className="diff-viewer__commits-list">
-              <button
-                type="button"
-                className={'diff-viewer__commit-row diff-viewer__commit-all'
-                  + (selectedSha === null ? ' diff-viewer__commit-row--sel' : '')}
-                onClick={() => setSelectedSha(null)}
-              >
-                <span className="diff-viewer__commit-text">
-                  <span className="diff-viewer__commit-subject diff-viewer__commit-subject--all">All commits</span>
-                  <span className="diff-viewer__commit-meta">cumulative diff</span>
-                </span>
-              </button>
-              {(commits ?? []).map(c => (
-                <button
-                  key={c.sha}
-                  type="button"
-                  className={'diff-viewer__commit-row'
-                    + (selectedSha === c.sha ? ' diff-viewer__commit-row--sel' : '')}
-                  onClick={() => setSelectedSha(c.sha)}
-                  title={`${c.sha}\n${c.authorName}\n${c.authoredAt}`}
-                >
-                  <span className="diff-viewer__commit-text">
-                    <span className="diff-viewer__commit-subject">{c.subject}</span>
-                    <span className="diff-viewer__commit-meta">
-                      <span className="diff-viewer__commit-sha">{c.shortSha}</span>
-                      {' · '}{relativeTime(c.authoredAt)}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </aside>
+          {/* Commits column — shared with the PR viewer (checkboxes + range). */}
+          <CommitsColumn
+            commits={(commits ?? []).map(c => ({
+              sha: c.sha, subject: c.subject, author: c.authorName, authoredAt: c.authoredAt,
+            }))}
+            selected={selected}
+            onSelectCommit={onSelectCommit}
+            onSelectAll={onSelectAll}
+            summary={summary}
+            loading={files === null}
+            collapsed={false}
+            onToggleCollapsed={() => { /* task page keeps the column open */ }}
+          />
+          <ResizeHandle onResize={handleCommitsResize} ariaLabel="Resize commits panel" />
 
           {/* Changed-files tree — shared with the PR viewer. */}
           <aside className="diff-viewer__files">
@@ -196,6 +243,7 @@ export default function TaskCodePage({
               onToggleDir={toggleDir}
             />
           </aside>
+          <ResizeHandle onResize={handleFilesResize} ariaLabel="Resize changed-files panel" />
 
           {/* Continuous multi-file diff — the same renderer as the PR page. */}
           <main className="diff-viewer__pane">

@@ -35,8 +35,9 @@ type Props = {
   onSelectCommit: (sha: string, extend: boolean) => void;
   /** Return to the cumulative (all-commits) diff. */
   onSelectAll: () => void;
-  /** Footer "Review selected" action. */
-  onReview: () => void;
+  /** Footer "Review selected" action. Omit it (e.g. the task code-diff page,
+   *  which has no review flow) and the footer shows just the +/- summary. */
+  onReview?: () => void;
   /** Running totals across the current selection, for the footer summary. */
   summary: { additions: number; deletions: number };
   loading?: boolean;
@@ -149,9 +150,11 @@ export function CommitsColumn({
             <span className="diff-viewer__stat-add">+{summary.additions}</span>{' '}
             <span className="diff-viewer__stat-del">−{summary.deletions}</span>
           </div>
-          <button type="button" className="diff-viewer__commits-go" onClick={onReview}>
-            Review selected
-          </button>
+          {onReview && (
+            <button type="button" className="diff-viewer__commits-go" onClick={onReview}>
+              Review selected
+            </button>
+          )}
         </div>
       )}
     </aside>

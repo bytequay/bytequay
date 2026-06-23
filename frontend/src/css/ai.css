@@ -1115,6 +1115,9 @@
 
 .diff-row__content {
   padding: 2px 12px;
+  /* Explicit code-diff size so the shared renderer is identical across the
+     PR, task, and stage surfaces regardless of the ambient inherited base. */
+  font-size: 14px;
   /* Preserve indentation (`pre`) but allow wrapping (`wrap`), and break in
      the middle of long unbreakable tokens (URLs, minified text). This is the
      no-horizontal-scroll behavior the user asked for. */

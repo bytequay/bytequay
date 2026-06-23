@@ -53,7 +53,7 @@ describe('TaskCodePage', () => {
     // Toolbar + title.
     expect(await screen.findByRole('button', { name: '← Back' })).toBeTruthy();
     // Commits column: cumulative entry + the commit.
-    expect(screen.getByText('All commits')).toBeTruthy();
+    expect(await screen.findByText(/All 1 commit/)).toBeTruthy();
     expect(await screen.findByText('Fix typos in docs')).toBeTruthy();
     // Continuous diff body: the changed file header + actual diff rows from
     // its patch (the shared renderer parsed and rendered the hunks).

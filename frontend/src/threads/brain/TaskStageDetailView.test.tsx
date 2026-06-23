@@ -96,6 +96,22 @@ describe('TaskStageDetailView', () => {
     await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-ci', 'bump the retry default'));
   });
 
+  it('Enter sends the steering message; Shift+Enter does not', async () => {
+    const getStageDetail = vi.fn().mockResolvedValue(fixture());
+    const steerStage = vi.fn().mockResolvedValue({ turnId: 'turn-1' });
+    (window as unknown as { bridge: unknown }).bridge = { getStageDetail, steerStage };
+
+    render(<TaskStageDetailView taskId="task-2" stageId="stage-ci" onBack={() => {}} onOpenStage={() => {}} />);
+    const box = await screen.findByLabelText('Steering message');
+    fireEvent.change(box, { target: { value: 'do it' } });
+    // Shift+Enter is a newline — must not send.
+    fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
+    expect(steerStage).not.toHaveBeenCalled();
+    // Plain Enter sends.
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-ci', 'do it'));
+  });
+
   it('disables the composer on a closed stage', async () => {
     const closed = fixture();
     closed.stage.state = 'CLOSED';

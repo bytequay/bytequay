@@ -2264,7 +2264,7 @@
 .diff-viewer__commit-subject--all { font-weight: 600; }
 .diff-viewer__commit-meta {
   margin-top: 2px;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--text-4);
   white-space: nowrap;
   overflow: hidden;
@@ -2313,16 +2313,16 @@
 }
 .diff-viewer__commit-sha {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 10px;
+  font-size: 11px;
   color: #0550ae;
 }
 /* Commit title (subject) reads first/prominent; the sha · author · date
    meta sits under it on a single truncating line. */
 .diff-viewer__commit-subject {
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-1);
-  line-height: 1.3;
+  line-height: 1.35;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;

@@ -334,6 +334,9 @@ public class PublishService
             case ParkedProposal.ReplyReviewThread replyReviewThread -> action(
                     editedBody -> preflightReplyReviewThread(replyReviewThread, editedBody),
                     editedBody -> doReplyReviewThread(replyReviewThread, editedBody));
+            case ParkedProposal.ResolveReviewThread resolveReviewThread -> action(
+                    editedBody -> preflightResolveReviewThread(resolveReviewThread),
+                    editedBody -> doResolveReviewThread(resolveReviewThread));
             case ParkedProposal.ApprovePr approvePullRequest -> action(
                     editedBody -> preflightApprovePr(approvePullRequest),
                     editedBody -> doApprovePr(approvePullRequest, editedBody));
@@ -416,6 +419,49 @@ public class PublishService
                     "parked reply_review_thread notification has no rootCommentId");
         }
         requireEditableBody(replyReviewThread.body(), editedBody, "reply body is blank — nothing to post");
+    }
+
+    private static void preflightResolveReviewThread(ParkedProposal.ResolveReviewThread resolve)
+    {
+        requirePrRef(resolve.pr(), resolve.action());
+        if (resolve.rootCommentId() <= 0L) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked resolve_review_thread notification has no rootCommentId");
+        }
+    }
+
+    /**
+     * Resolve/unresolve happens via GraphQL, which keys off the thread's opaque
+     * node id — not the REST root comment id the agent sees. Map it live (the
+     * PR may not be cached), then call the mutation.
+     */
+    private PublishResult doResolveReviewThread(ParkedProposal.ResolveReviewThread resolve)
+    {
+        ParkedProposal.PrRef pullRequest = requirePrRef(resolve.pr(), resolve.action());
+        if (resolve.rootCommentId() <= 0L) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked resolve_review_thread notification has no rootCommentId");
+        }
+        PullRequestRef ref = toPullRequestRef(pullRequest);
+        String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
+        String nodeId = pullRequests.fetchReviewThreadResolution(pat, ref).stream()
+                .filter(m -> m.rootCommentDatabaseId() == resolve.rootCommentId())
+                .map(PullRequestRepository.ReviewThreadMeta::graphqlNodeId)
+                .filter(id -> id != null && !id.isBlank())
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404),
+                        "no review thread with root comment id " + resolve.rootCommentId() + " on "
+                                + pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number()));
+        if (resolve.resolved()) {
+            pullRequests.resolveReviewThread(pat, nodeId);
+        }
+        else {
+            pullRequests.unresolveReviewThread(pat, nodeId);
+        }
+        return new PublishResult(true, RESOLUTION_APPROVED,
+                (resolve.resolved() ? "Resolved" : "Unresolved") + " review thread on "
+                        + pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number() + ".",
+                resolve.action());
     }
 
     private static void preflightApprovePr(ParkedProposal.ApprovePr approvePullRequest)

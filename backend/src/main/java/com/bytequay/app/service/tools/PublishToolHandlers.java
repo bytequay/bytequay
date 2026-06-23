@@ -23,8 +23,10 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.threads.ParkedProposalService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -81,6 +83,7 @@ public class PublishToolHandlers
     private final GitRunner git;
     private final ObjectMapper mapper;
     private final TaskPhaseMachine taskPhaseMachine;
+    private final PullRequestService pullRequestService;
 
     public PublishToolHandlers(
             TaskStore taskStore,
@@ -88,7 +91,8 @@ public class PublishToolHandlers
             ParkedProposalService parkedProposals,
             GitRunner git,
             ObjectMapper mapper,
-            TaskPhaseMachine taskPhaseMachine)
+            TaskPhaseMachine taskPhaseMachine,
+            PullRequestService pullRequestService)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
@@ -96,6 +100,7 @@ public class PublishToolHandlers
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
+        this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
     }
 
     /** Args record for {@code validate}. */
@@ -288,6 +293,103 @@ public class PublishToolHandlers
                 new ParkedProposal.ReplyReviewThread(rootCommentId, body, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will review the reply and "
                         + "approve, edit, or discard from the thread.");
+    }
+
+    /** Args record for {@code list_pr_review_threads}. */
+    public record ListPrReviewThreadsArgs(
+            @ToolParam(description = "owner/repo of the PR (e.g. \"trinodb/trino\"). "
+                    + "Omit to use the active task's linked PR.") String repo,
+            @ToolParam(description = "PR number. Omit to use the active task's linked PR.",
+                    wireName = "pr_number") Integer prNumber) {}
+
+    @AgentTool(
+            name = "list_pr_review_threads",
+            description = "Read the remote inline review threads + comments on a PR (the "
+                    + "reviewer's per-line feedback), with each thread's resolved state and "
+                    + "root comment id. Pass repo + pr_number, or omit both to use the active "
+                    + "task's linked PR. Use a thread's root comment id with reply_review_thread "
+                    + "or resolve_review_thread.",
+            security = SecurityType.VCS_READ,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public ToolOutcome listPrReviewThreads(ListPrReviewThreadsArgs args, ToolCall call)
+    {
+        Optional<PullRequestRef> prRef = resolvePrRef(args.repo(), args.prNumber(), call.threadId());
+        if (prRef.isEmpty()) {
+            return ToolOutcome.Completed.ok(
+                    "no PR to read — pass repo + pr_number, or link a PR to the active task");
+        }
+        PullRequestRef ref = prRef.get();
+        try {
+            var detail = pullRequestService.getPullRequestDetail(
+                    ref.owner() + "/" + ref.repo(), ref.number());
+            return ToolOutcome.Completed.ok(mapper.writeValueAsString(detail.reviewThreads()));
+        }
+        catch (JsonProcessingException e) {
+            return ToolOutcome.Completed.error("failed to serialise review threads: " + e.getMessage());
+        }
+        catch (RuntimeException e) {
+            return ToolOutcome.Completed.error("failed to read review threads for "
+                    + ref.owner() + "/" + ref.repo() + "#" + ref.number() + ": " + e.getMessage());
+        }
+    }
+
+    /** Args record for {@code resolve_review_thread}. */
+    public record ResolveReviewThreadArgs(
+            @ToolParam(description = "Id of the root review comment whose thread to resolve. "
+                    + "Find it via list_pr_review_threads.",
+                    required = true, wireName = "root_comment_id") Long rootCommentId,
+            @ToolParam(description = "true to resolve the thread, false to re-open it. "
+                    + "Defaults to true.") Boolean resolved,
+            @ToolParam(description = "owner/repo of the PR. Omit to use the active task's linked PR.")
+            String repo,
+            @ToolParam(description = "PR number. Omit to use the active task's linked PR.",
+                    wireName = "pr_number") Integer prNumber) {}
+
+    @AgentTool(
+            name = "resolve_review_thread",
+            description = "Mark a review thread resolved (or re-open it) on a PR. Parked at "
+                    + "AWAITING_REVIEW; the user approves in the publish gate and the server "
+                    + "runs the GitHub GraphQL resolve on Approve. Pass repo + pr_number, or "
+                    + "omit both to use the active task's linked PR.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = {AgentRole.TASK, AgentRole.REVIEWER})
+    public ToolOutcome resolveReviewThread(ResolveReviewThreadArgs args, ToolCall call)
+    {
+        long rootCommentId = args.rootCommentId() == null ? 0L : args.rootCommentId();
+        if (rootCommentId <= 0L) {
+            return ToolOutcome.Completed.ok("root_comment_id is required");
+        }
+        boolean resolved = args.resolved() == null || args.resolved();
+        Optional<PullRequestRef> prRef = resolvePrRef(args.repo(), args.prNumber(), call.threadId());
+        if (prRef.isEmpty()) {
+            return ToolOutcome.Completed.ok(
+                    "no PR to act on — pass repo + pr_number, or link a PR to the active task");
+        }
+        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        if (active.isEmpty()) {
+            return ToolOutcome.Completed.ok("no active task on this thread — nothing to park the resolution on");
+        }
+        return park(active.get(),
+                new ParkedProposal.ResolveReviewThread(rootCommentId, resolved, toPrRef(prRef.get())),
+                "Parked at AWAITING_REVIEW. The user will approve or discard the "
+                        + (resolved ? "resolve" : "re-open") + " from the thread.");
+    }
+
+    /** Resolve a PR from explicit repo + number args, falling back to the active
+     *  task's linked PR when the args are omitted. */
+    private Optional<PullRequestRef> resolvePrRef(String repo, Integer prNumber, String threadId)
+    {
+        if (repo != null && !repo.isBlank() && prNumber != null && prNumber > 0) {
+            int slash = repo.indexOf('/');
+            if (slash <= 0 || slash >= repo.length() - 1) {
+                return Optional.empty();
+            }
+            return Optional.of(new PullRequestRef(
+                    repo.substring(0, slash), repo.substring(slash + 1), prNumber));
+        }
+        return taskStore.findActiveTaskForThread(threadId).flatMap(this::resolvePrRefFromTask);
     }
 
     /** Args record for {@code approve_pr}. */

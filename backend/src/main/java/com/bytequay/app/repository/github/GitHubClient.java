@@ -140,18 +140,27 @@ public class GitHubClient
     }
 
     @Override
-    public PullRequestHistoryPage searchPullRequestsPaged(String pat, String query, int page, int perPage)
+    public PullRequestHistoryPage searchPullRequestsPaged(
+            String pat, String query, int page, int perPage, String sort, String order)
     {
         requirePat(pat);
         int safePage = Math.max(1, page);
         int safePerPage = Math.max(1, Math.min(100, perPage));
         try {
             GitHubSearchResponse response = gitHubRestClient.get()
-                    .uri(uri -> uri.path("/search/issues")
-                            .queryParam("q", query)
-                            .queryParam("per_page", safePerPage)
-                            .queryParam("page", safePage)
-                            .build())
+                    .uri(uri -> {
+                        uri.path("/search/issues")
+                                .queryParam("q", query)
+                                .queryParam("per_page", safePerPage)
+                                .queryParam("page", safePage);
+                        if (sort != null && !sort.isBlank()) {
+                            uri.queryParam("sort", sort);
+                        }
+                        if (order != null && !order.isBlank()) {
+                            uri.queryParam("order", order);
+                        }
+                        return uri.build();
+                    })
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(GitHubSearchResponse.class);

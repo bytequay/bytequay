@@ -845,6 +845,8 @@ const bridge: Bridge = {
   listTaskCommits: (id: string) => ipcRenderer.invoke('threads:listCommits', id),
   listTaskCommitFiles: (id: string, sha: string) => ipcRenderer.invoke('threads:commitFiles', id, sha),
   getTaskCommitDiff: (id: string, sha: string, path: string) => ipcRenderer.invoke('threads:commitDiff', id, sha, path),
+  getTaskCumulativeDiff: (id: string) => ipcRenderer.invoke('threads:cumulativeDiff', id),
+  getTaskCommitDiffFiles: (id: string, sha: string) => ipcRenderer.invoke('threads:commitDiffFiles', id, sha),
 
   /** Wire the renderer to the per-thread SSE stream brokered by the
    *  main process. The contract: ask main to open (or join) a

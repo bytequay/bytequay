@@ -13,7 +13,6 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
-import { highlightToHtml, languageForPath } from './highlight';
 import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewFindingDto, ReviewFindingSeverityDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached } from './dataCache';
 import Avatar from './Avatar';
@@ -21,13 +20,10 @@ import { parseUnifiedDiff } from './diffParse';
 import {
   computeGap,
   computeFetchRange,
-  canExpandUp,
-  canExpandDown,
-  isGapFullyLoaded,
-  EXPAND_INCREMENT,
   type Gap,
   type LoadedGap,
 } from './diffExpand';
+import { FileDiffBody, ContinuousDiff } from './diff/DiffFileList';
 import { treeOrderedFiles } from './fileTree';
 import ResizeHandle from './ResizeHandle';
 import AiReviewSidebar, { type AiReviewSidebarHandle } from './AiReviewSidebar';
@@ -1093,132 +1089,29 @@ const ContinuousFilesPane = memo(function ContinuousFilesPane({
   onThreadReplied: (rootGithubId?: number, optimisticReply?: ReviewMessageDto) => void;
   prAuthor: string | null;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const sectionsRef = useRef<Map<string, HTMLElement>>(new Map());
-  const lastSyncedFromClick = useRef<string | null>(null);
-  // Window during which handleScroll suppresses its active-file sync.
-  // Set when we kick off a programmatic scroll so intermediate files
-  // passing under the top band don't bounce setSelectedPath through
-  // every file en route — those re-renders interrupted the smooth
-  // animation and the scroll would land short of the clicked file
-  // (the "moves only ~8 files at a time" bug).
-  const suppressActiveSyncUntil = useRef(0);
-  // Per-file fold, GitHub-style: click the header chevron to hide a
-  // file's hunks while keeping its header in the scroll flow. Filenames
-  // in the set are collapsed; expanded is the default.
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
-  const toggleFileCollapsed = (filename: string) => {
-    setCollapsedFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(filename)) {
-        next.delete(filename);
-      }
-      else {
-        next.add(filename);
-      }
-      return next;
-    });
-  };
-
-  // Smoothly scroll to the section when the user picks a file in the rail.
-  // We track `lastSyncedFromClick` so the scroll handler doesn't fight the
-  // animation by re-setting the selection every frame.
-  useEffect(() => {
-    if (!selectedPath) return;
-    if (lastSyncedFromClick.current === selectedPath) return;
-    const el = sectionsRef.current.get(selectedPath);
-    if (!el) return;
-    lastSyncedFromClick.current = selectedPath;
-    // Cover any reasonable smooth-scroll duration. 1500ms is generous
-    // enough for cross-document jumps; once it elapses the active-
-    // file detector resumes for genuine user scrolling.
-    suppressActiveSyncUntil.current = Date.now() + 1500;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [selectedPath]);
-
-  // Pick the file whose header is closest to the top of the scroll area.
-  const handleScroll = () => {
-    if (Date.now() < suppressActiveSyncUntil.current) return;
-    const scroller = scrollRef.current;
-    if (!scroller) return;
-    const scrollerTop = scroller.getBoundingClientRect().top;
-    let activePath: string | null = null;
-    let bestOffset = Number.NEGATIVE_INFINITY;
-    sectionsRef.current.forEach((el, path) => {
-      const offset = el.getBoundingClientRect().top - scrollerTop;
-      // Treat any header within 60px of the top as "the active one" — that
-      // band lets the active selection flip slightly before the previous
-      // file scrolls fully out of view, which feels more responsive.
-      if (offset <= 60 && offset > bestOffset) {
-        bestOffset = offset;
-        activePath = path;
-      }
-    });
-    if (activePath && activePath !== selectedPath) {
-      lastSyncedFromClick.current = activePath;
-      onActiveFileChange(activePath);
-    }
-  };
-
   return (
-    <div
-      ref={scrollRef}
-      className="diff-viewer__pane-scroll diff-viewer__pane-scroll--continuous"
-      onScroll={handleScroll}
-    >
-      {files.map((file) => (
-        <section
-          key={file.filename}
-          ref={(el) => {
-            if (el) sectionsRef.current.set(file.filename, el);
-            else sectionsRef.current.delete(file.filename);
-          }}
-          className="diff-file-section"
-          data-path={file.filename}
-          // Anchor used by the AI sidebar's jump fallback when a
-          // finding's line doesn't match any rendered diff row (e.g.
-          // a multi-commit diff where the finding lives outside the
-          // current hunks). Lets the fallback at least scroll the user
-          // to the right file instead of the click looking inert.
-          data-file-anchor={file.filename}
-        >
-          <header className="diff-file-section__header">
-            <button
-              type="button"
-              className="diff-file-section__fold"
-              aria-expanded={!collapsedFiles.has(file.filename)}
-              onClick={() => toggleFileCollapsed(file.filename)}
-              title={collapsedFiles.has(file.filename) ? 'Expand file' : 'Collapse file'}
-            >
-              {collapsedFiles.has(file.filename) ? '▸' : '▾'}
-            </button>
-            <span className="diff-viewer__pane-filename">{file.filename}</span>
-            <span className={`diff-viewer__pane-status diff-viewer__pane-status--${file.status}`}>{file.status}</span>
-            <span className="diff-file-section__stats">
-              <span className="diff-file-row__add">+{file.additions}</span>
-              <span className="diff-file-row__del">−{file.deletions}</span>
-            </span>
-          </header>
-          {!collapsedFiles.has(file.filename) && (
-            <FileDiff
-              file={file}
-              comments={aiComments}
-              panelFindings={panelFindings}
-              draftId={draftId}
-              draftPublished={draftPublished}
-              onDraftUpdated={onDraftUpdated}
-              prId={prId}
-              repo={repo}
-              prNumber={prNumber}
-              headSha={headSha}
-              threads={threads}
-              onThreadReplied={onThreadReplied}
-              prAuthor={prAuthor}
-            />
-          )}
-        </section>
-      ))}
-    </div>
+    <ContinuousDiff
+      files={files}
+      selectedPath={selectedPath}
+      onActiveFileChange={onActiveFileChange}
+      renderFileBody={(file) => (
+        <FileDiff
+          file={file}
+          comments={aiComments}
+          panelFindings={panelFindings}
+          draftId={draftId}
+          draftPublished={draftPublished}
+          onDraftUpdated={onDraftUpdated}
+          prId={prId}
+          repo={repo}
+          prNumber={prNumber}
+          headSha={headSha}
+          threads={threads}
+          onThreadReplied={onThreadReplied}
+          prAuthor={prAuthor}
+        />
+      )}
+    />
   );
 });
 
@@ -1263,105 +1156,10 @@ type ComposerSlot =
     startSide?: 'LEFT' | 'RIGHT';
   };
 
-const ArrowUpIcon = () => (
-  <svg className="diff-expand-btn__svg" viewBox="0 0 12 12" aria-hidden="true">
-    <path d="M6 2 L10 7 L7.5 7 L7.5 10 L4.5 10 L4.5 7 L2 7 Z" />
-  </svg>
-);
-const ArrowDownIcon = () => (
-  <svg className="diff-expand-btn__svg" viewBox="0 0 12 12" aria-hidden="true">
-    <path d="M6 10 L2 5 L4.5 5 L4.5 2 L7.5 2 L7.5 5 L10 5 Z" />
-  </svg>
-);
-
-/** Expand-collapsed-code controls that sit in the gutter of a hunk
- *  header (or its own row for the after-last-hunk gap). The two button
- *  variants mirror docs/mockups/v2/codereview/expand.png:
- *
- *  - Top-of-file gap (no hunk above): single ↕ button — only "up"
- *    direction makes sense (loading lines toward the bottom of the gap,
- *    just above this hunk header).
- *  - Bottom-of-file gap (no hunk below): single ↕ button — only "down"
- *    makes sense (loading lines after the last hunk's content).
- *  - Middle gap: stacked control with an up chevron, a non-interactive
- *    "collapsed content" decoration in the middle, and a down chevron at
- *    the bottom. Either chevron loads the next 20 lines in that
- *    direction.
- */
-function ExpandControls({
-  gap,
-  loaded,
-  onClick,
-  upBusy,
-  downBusy,
-}: {
-  gap: Gap;
-  loaded: LoadedGap;
-  onClick: (gap: Gap, dir: 'up' | 'down') => void;
-  upBusy: boolean;
-  downBusy: boolean;
-}) {
-  const showUp = canExpandUp(gap, loaded);
-  const showDown = canExpandDown(gap, loaded);
-  // Single-button style for top/bottom gaps: only one direction is
-  // meaningful, so we render one big affordance instead of the split.
-  if (gap.isTop || gap.isBottom) {
-    const dir: 'up' | 'down' = gap.isTop ? 'up' : 'down';
-    const busy = dir === 'up' ? upBusy : downBusy;
-    const enabled = dir === 'up' ? showUp : showDown;
-    return (
-      <button
-        type="button"
-        className="diff-expand-btn diff-expand-btn--single"
-        onClick={() => onClick(gap, dir)}
-        disabled={!enabled || busy}
-        title={`Expand ${EXPAND_INCREMENT} more lines`}
-        aria-label={`Expand ${EXPAND_INCREMENT} more lines`}
-      >
-        {dir === 'up' ? <ArrowUpIcon /> : <ArrowDownIcon />}
-      </button>
-    );
-  }
-  // Middle gap: github.com-style split. Dotted strip on top hints at
-  // hidden lines; the two chevrons sit side-by-side below — up on the
-  // left, down on the right. See docs/mockups/issue/code-diff/g-expand-button.png.
-  return (
-    <div className="diff-expand-split">
-      <span className="diff-expand-split__divider" aria-hidden="true">
-        <span /><span /><span /><span />
-      </span>
-      <div className="diff-expand-split__row">
-        <button
-          type="button"
-          className="diff-expand-btn diff-expand-btn--up"
-          onClick={() => onClick(gap, 'up')}
-          disabled={!showUp || upBusy}
-          title={`Expand ${EXPAND_INCREMENT} more lines up`}
-          aria-label={`Expand ${EXPAND_INCREMENT} more lines up`}
-        >
-          <ArrowUpIcon />
-        </button>
-        <button
-          type="button"
-          className="diff-expand-btn diff-expand-btn--down"
-          onClick={() => onClick(gap, 'down')}
-          disabled={!showDown || downBusy}
-          title={`Expand ${EXPAND_INCREMENT} more lines down`}
-          aria-label={`Expand ${EXPAND_INCREMENT} more lines down`}
-        >
-          <ArrowDownIcon />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDraftUpdated, prId, repo, prNumber, headSha, threads, onThreadReplied, prAuthor }: FileDiffProps) {
+  // Parsed once here too (independently of FileDiffBody) so the overlay
+  // index maps below can derive which (side, line) anchors are visible.
   const hunks = useMemo(() => parseUnifiedDiff(file.patch), [file.patch]);
-  // Syntax-highlight every diff line against the file's language. Each line
-  // is highlighted independently (a diff row is one line), so multi-line
-  // constructs don't carry state across rows — fine for GitHub-style diffs.
-  const lang = useMemo(() => languageForPath(file.filename), [file.filename]);
   // Expanded gap state — Map<gapIndex, Map<newLine, content>>. Gap g is
   // the region BEFORE hunks[g]; hunks.length is the after-last gap.
   // Cleared whenever the underlying patch changes (file or commit
@@ -1792,309 +1590,149 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
       {expandError && (
         <div className="diff-expand-error" role="alert">{expandError}</div>
       )}
-      {hunks.map((hunk, hi) => {
-        const gapAbove = computeGap(hunks, hi);
-        const loadedAbove = gapAbove ? (expanded.get(hi) ?? new Map<number, string>()) : new Map<number, string>();
-        // Expanded rows render in newLine-ascending order between the
-        // previous hunk's last row and this hunk's header. They behave
-        // as plain context rows for finding-anchoring purposes.
-        const expandedRows = gapAbove
-          ? [...loadedAbove.entries()].sort((a, b) => a[0] - b[0])
-          : [];
-        return (
-          <div key={hi} className="diff-hunk">
-            {expandedRows.map(([newLine, content]) => {
-              const oldLine = newLine + gapAbove!.oldOffset;
-              const inline = findingsByLine.get(`RIGHT:${newLine}`);
-              return (
-                <div key={`exp-${newLine}`}>
-                  <div className="diff-row diff-row--context diff-row--expanded">
-                    <span className="diff-row__gutter">{oldLine}</span>
-                    <span className="diff-row__gutter">{newLine}</span>
-                    <span className="diff-row__content">
-                      <span className="diff-row__sigil"> </span>
-                      <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(content, lang) }} />
+      <FileDiffBody
+        file={file}
+        expanded={expanded}
+        expandLoading={expandLoading}
+        onExpandClick={onExpandClick}
+        renderAfterRow={(anchorSide, anchorLine) => {
+          const inline = findingsByLine.get(`${anchorSide}:${anchorLine}`);
+          // The composer sits under the END row of a (possibly
+          // multi-line) range. We never render a second composer for
+          // the start row of the same range — there's only one
+          // composer in flight per file at a time.
+          const composerHere = !!composerSlot
+              && composerSlot.side === anchorSide
+              && composerSlot.line === anchorLine;
+          const justPostedHere = postedKeys.has(`${anchorSide}:${anchorLine}`);
+          return (
+            <>
+              {inline?.map(c => (
+                <InlineFinding
+                  key={c.id}
+                  comment={c}
+                  draftId={draftId}
+                  draftPublished={draftPublished}
+                  onDraftUpdated={onDraftUpdated}
+                />
+              ))}
+              {panelFindingsByLine.get(`${anchorSide}:${anchorLine}`)?.map(f => (
+                <PanelFinding key={f.id} finding={f} />
+              ))}
+              {threadsByAnchor.get(`${anchorSide}:${anchorLine}`)?.map(thread => (
+                <InlineExistingThread
+                  key={thread.rootGithubId}
+                  thread={thread}
+                  prAuthor={prAuthor}
+                  repo={repo}
+                  prId={prId}
+                  prNumber={prNumber}
+                  onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
+                />
+              ))}
+              {composerHere && (
+                <div className="diff-inline-composer">
+                  {/* Header — single line vs. multi-line range. Mirrors
+                      github.com's "Comment on lines L455 to R467". */}
+                  <div className="diff-inline-composer__header">
+                    {composerSlot!.startLine != null && composerSlot!.startLine !== composerSlot!.line
+                      ? `Adding a comment on lines ${(composerSlot!.startSide ?? composerSlot!.side) === 'LEFT' ? 'L' : 'R'}${composerSlot!.startLine} to ${composerSlot!.side === 'LEFT' ? 'L' : 'R'}${composerSlot!.line}`
+                      : `Adding a comment on line ${composerSlot!.side === 'LEFT' ? 'L' : 'R'}${composerSlot!.line}`}
+                    <span className="diff-inline-composer__hint">
+                      Shift-click another line to extend the range.
                     </span>
                   </div>
-                  {inline?.map(c => (
-                    <InlineFinding
-                      key={c.id}
-                      comment={c}
-                      draftId={draftId}
-                      draftPublished={draftPublished}
-                      onDraftUpdated={onDraftUpdated}
-                    />
-                  ))}
-                  {panelFindingsByLine.get(`RIGHT:${newLine}`)?.map(f => (
-                    <PanelFinding key={f.id} finding={f} />
-                  ))}
-                  {threadsByAnchor.get(`RIGHT:${newLine}`)?.map(thread => (
-                    <InlineExistingThread
-                      key={thread.rootGithubId}
-                      thread={thread}
-                      prAuthor={prAuthor}
-                      repo={repo}
-                      prId={prId}
-                      prNumber={prNumber}
-                      onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
-                    />
-                  ))}
-                </div>
-              );
-            })}
-            {hunk.rows.map((row, ri) => {
-            if (row.kind === 'hunk-header') {
-              const showExpand = gapAbove != null && !isGapFullyLoaded(gapAbove, loadedAbove);
-              const upBusy = expandLoading.has(`${hi}:up`);
-              const downBusy = expandLoading.has(`${hi}:down`);
-              return (
-                <div key={ri} className="diff-row diff-row--hunk-header">
-                  {showExpand ? (
-                    <span className="diff-row__expand-cell">
-                      <ExpandControls
-                        gap={gapAbove!}
-                        loaded={loadedAbove}
-                        onClick={onExpandClick}
-                        upBusy={upBusy}
-                        downBusy={downBusy}
-                      />
-                    </span>
-                  ) : (
-                    <>
-                      <span className="diff-row__gutter" />
-                      <span className="diff-row__gutter" />
-                    </>
-                  )}
-                  <span className="diff-row__content">{hunk.header}</span>
-                </div>
-              );
-            }
-            // Side key matches anchorSide below — RIGHT for additions /
-            // context, LEFT for deletions. AI findings still slot under
-            // the right side (they always reference the new file).
-            const lookupSide: 'LEFT' | 'RIGHT' = row.kind === 'del' ? 'LEFT' : 'RIGHT';
-            const lookupLine = row.kind === 'del' ? row.oldLine : row.newLine;
-            const inline = lookupLine != null
-              ? findingsByLine.get(`${lookupSide}:${lookupLine}`)
-              : undefined;
-            const hasFinding = !!inline && inline.length > 0;
-            // The line + side this row anchors to. Deletions exist only on
-            // the LEFT side; additions and context default to RIGHT (the
-            // new file). Hunk headers are filtered above.
-            const anchorSide: 'LEFT' | 'RIGHT' = row.kind === 'del' ? 'LEFT' : 'RIGHT';
-            const anchorLine = row.kind === 'del' ? row.oldLine : row.newLine;
-            // The composer sits under the END row of a (possibly
-            // multi-line) range. We never render a second composer for
-            // the start row of the same range — there's only one
-            // composer in flight per file at a time.
-            const composerHere = !!composerSlot
-                && composerSlot.side === anchorSide
-                && composerSlot.line === anchorLine;
-            const inRange = anchorLine != null && isInRange(anchorSide, anchorLine);
-            const justPostedHere = anchorLine != null && postedKeys.has(`${anchorSide}:${anchorLine}`);
-            const canComment = headSha != null && anchorLine != null;
-            return (
-              <div key={ri}>
-                <div
-                  className={
-                    `diff-row diff-row--${row.kind}`
-                    + (hasFinding ? ' diff-row--has-finding' : '')
-                    + (canComment ? ' diff-row--commentable' : '')
-                    + (inRange ? ' diff-row--in-range' : '')
-                  }
-                  // Stable anchor used by the AI sidebar's "jump to line"
-                  // button: file.filename + the new-side line number, since
-                  // AI findings always reference the new file.
-                  data-anchor={anchorLine != null ? `${file.filename}:${anchorSide}:${anchorLine}` : undefined}
-                  onClick={canComment
-                    ? (e) => handleRowClick(e, anchorSide, anchorLine!)
-                    : undefined}
-                  onPointerDown={canComment
-                    ? (e) => onRowPointerDown(e, anchorSide, anchorLine!)
-                    : undefined}
-                  onPointerEnter={canComment
-                    ? () => onRowPointerEnter(anchorSide, anchorLine!)
-                    : undefined}
-                  role={canComment ? 'button' : undefined}
-                  tabIndex={canComment ? 0 : undefined}
-                  title={canComment
-                    ? 'Click to comment, or click-and-drag across rows to comment on a range. Shift-click also extends the range.'
-                    : undefined}
-                >
-                  <span className="diff-row__gutter">{row.oldLine ?? ''}</span>
-                  <span className="diff-row__gutter">
-                    {row.newLine ?? ''}
-                    {canComment && <span className="diff-row__add-comment" aria-hidden="true">+</span>}
-                  </span>
-                  <span className="diff-row__content">
-                    <span className="diff-row__sigil">
-                      {row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' '}
-                    </span>
-                    <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(row.content, lang) }} />
-                  </span>
-                </div>
-                {inline?.map(c => (
-                  <InlineFinding
-                    key={c.id}
-                    comment={c}
-                    draftId={draftId}
-                    draftPublished={draftPublished}
-                    onDraftUpdated={onDraftUpdated}
+                  <MarkdownComposer
+                    value={composerBody}
+                    onChange={setComposerBody}
+                    placeholder="Leave a comment on this line — markdown supported."
+                    rows={3}
+                    disabled={composerPending}
+                    autoFocus
+                    textareaClassName="diff-inline-composer__input"
                   />
-                ))}
-                {anchorLine != null && panelFindingsByLine.get(`${anchorSide}:${anchorLine}`)?.map(f => (
-                  <PanelFinding key={f.id} finding={f} />
-                ))}
-                {anchorLine != null && threadsByAnchor.get(`${anchorSide}:${anchorLine}`)?.map(thread => (
-                  <InlineExistingThread
-                    key={thread.rootGithubId}
-                    thread={thread}
-                    prAuthor={prAuthor}
-                    repo={repo}
-                    prId={prId}
-                    prNumber={prNumber}
-                    onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
-                  />
-                ))}
-                {composerHere && (
-                  <div className="diff-inline-composer">
-                    {/* Header — single line vs. multi-line range. Mirrors
-                        github.com's "Comment on lines L455 to R467". */}
-                    <div className="diff-inline-composer__header">
-                      {composerSlot!.startLine != null && composerSlot!.startLine !== composerSlot!.line
-                        ? `Adding a comment on lines ${(composerSlot!.startSide ?? composerSlot!.side) === 'LEFT' ? 'L' : 'R'}${composerSlot!.startLine} to ${composerSlot!.side === 'LEFT' ? 'L' : 'R'}${composerSlot!.line}`
-                        : `Adding a comment on line ${composerSlot!.side === 'LEFT' ? 'L' : 'R'}${composerSlot!.line}`}
-                      <span className="diff-inline-composer__hint">
-                        Shift-click another line to extend the range.
-                      </span>
-                    </div>
-                    <MarkdownComposer
+                  <div className="diff-inline-composer__actions">
+                    <button
+                      type="button"
+                      className="button button--primary"
+                      onClick={stageComposer}
+                      disabled={composerPending || !composerBody.trim()}
+                      title="Stage this comment into your review — submit them all together when you're done."
+                    >
+                      {composerPending ? 'Staging…' : 'Start a review'}
+                    </button>
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      onClick={submitComposer}
+                      disabled={composerPending || !composerBody.trim()}
+                      title="Post this comment now without starting a batched review."
+                    >
+                      {composerPending ? 'Posting…' : 'Add single comment'}
+                    </button>
+                    <PolishButtons
                       value={composerBody}
                       onChange={setComposerBody}
-                      placeholder="Leave a comment on this line — markdown supported."
-                      rows={3}
+                      onError={setComposerError}
                       disabled={composerPending}
-                      autoFocus
-                      textareaClassName="diff-inline-composer__input"
                     />
-                    <div className="diff-inline-composer__actions">
-                      <button
-                        type="button"
-                        className="button button--primary"
-                        onClick={stageComposer}
-                        disabled={composerPending || !composerBody.trim()}
-                        title="Stage this comment into your review — submit them all together when you're done."
-                      >
-                        {composerPending ? 'Staging…' : 'Start a review'}
-                      </button>
-                      <button
-                        type="button"
-                        className="button button--secondary"
-                        onClick={submitComposer}
-                        disabled={composerPending || !composerBody.trim()}
-                        title="Post this comment now without starting a batched review."
-                      >
-                        {composerPending ? 'Posting…' : 'Add single comment'}
-                      </button>
-                      <PolishButtons
-                        value={composerBody}
-                        onChange={setComposerBody}
-                        onError={setComposerError}
-                        disabled={composerPending}
-                      />
-                      <button
-                        type="button"
-                        className="pr-comment-box__cancel"
-                        onClick={closeComposer}
-                        disabled={composerPending}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    {composerError && (
-                      <div className="diff-inline-composer__error">{composerError}</div>
-                    )}
+                    <button
+                      type="button"
+                      className="pr-comment-box__cancel"
+                      onClick={closeComposer}
+                      disabled={composerPending}
+                    >
+                      Cancel
+                    </button>
                   </div>
-                )}
-                {justPostedHere && !composerHere && (
-                  <div className="diff-inline-composer__posted">
-                    ✓ Comment posted — open the PR detail to see it threaded.
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        );
-      })}
-      {/* After-last-hunk gap. Bottom expand controls live in their own
-          row since there's no hunk header below to attach to. */}
-      {(() => {
-        const bottomGap = computeGap(hunks, hunks.length);
-        if (!bottomGap) return null;
-        const loadedBottom = expanded.get(hunks.length) ?? new Map<number, string>();
-        const expandedRows = [...loadedBottom.entries()].sort((a, b) => a[0] - b[0]);
-        const downBusy = expandLoading.has(`${hunks.length}:down`);
-        const upBusy = expandLoading.has(`${hunks.length}:up`);
-        const showExpand = canExpandUp(bottomGap, loadedBottom) || canExpandDown(bottomGap, loadedBottom);
-        return (
-          <div className="diff-hunk">
-            {expandedRows.map(([newLine, content]) => {
-              const oldLine = newLine + bottomGap.oldOffset;
-              const inline = findingsByLine.get(`RIGHT:${newLine}`);
-              return (
-                <div key={`exp-bot-${newLine}`}>
-                  <div className="diff-row diff-row--context diff-row--expanded">
-                    <span className="diff-row__gutter">{oldLine}</span>
-                    <span className="diff-row__gutter">{newLine}</span>
-                    <span className="diff-row__content">
-                      <span className="diff-row__sigil"> </span>
-                      <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(content, lang) }} />
-                    </span>
-                  </div>
-                  {inline?.map(c => (
-                    <InlineFinding
-                      key={c.id}
-                      comment={c}
-                      draftId={draftId}
-                      draftPublished={draftPublished}
-                      onDraftUpdated={onDraftUpdated}
-                    />
-                  ))}
-                  {panelFindingsByLine.get(`RIGHT:${newLine}`)?.map(f => (
-                    <PanelFinding key={f.id} finding={f} />
-                  ))}
-                  {threadsByAnchor.get(`RIGHT:${newLine}`)?.map(thread => (
-                    <InlineExistingThread
-                      key={thread.rootGithubId}
-                      thread={thread}
-                      prAuthor={prAuthor}
-                      repo={repo}
-                      prId={prId}
-                      prNumber={prNumber}
-                      onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
-                    />
-                  ))}
+                  {composerError && (
+                    <div className="diff-inline-composer__error">{composerError}</div>
+                  )}
                 </div>
-              );
-            })}
-            {showExpand && (
-              <div className="diff-row diff-row--hunk-header">
-                <span className="diff-row__expand-cell">
-                  <ExpandControls
-                    gap={bottomGap}
-                    loaded={loadedBottom}
-                    onClick={onExpandClick}
-                    upBusy={upBusy}
-                    downBusy={downBusy}
-                  />
-                </span>
-                <span className="diff-row__content" />
-              </div>
-            )}
-          </div>
-        );
-      })()}
+              )}
+              {justPostedHere && !composerHere && (
+                <div className="diff-inline-composer__posted">
+                  ✓ Comment posted — open the PR detail to see it threaded.
+                </div>
+              )}
+            </>
+          );
+        }}
+        rowDecoration={(anchorSide, anchorLine, rowKind) => {
+          // Side key matches anchorSide — RIGHT for additions / context,
+          // LEFT for deletions. AI findings still slot under the right
+          // side (they always reference the new file).
+          const inline = findingsByLine.get(`${anchorSide}:${anchorLine}`);
+          const hasFinding = !!inline && inline.length > 0;
+          const inRange = isInRange(anchorSide, anchorLine);
+          const canComment = headSha != null;
+          return {
+            className:
+              (hasFinding ? ' diff-row--has-finding' : '')
+              + (canComment ? ' diff-row--commentable' : '')
+              + (inRange ? ' diff-row--in-range' : ''),
+            // Stable anchor used by the AI sidebar's "jump to line"
+            // button: file.filename + the new-side line number, since
+            // AI findings always reference the new file.
+            dataAnchor: `${file.filename}:${anchorSide}:${anchorLine}`,
+            onClick: canComment
+              ? (e) => handleRowClick(e, anchorSide, anchorLine)
+              : undefined,
+            onPointerDown: canComment
+              ? (e) => onRowPointerDown(e, anchorSide, anchorLine)
+              : undefined,
+            onPointerEnter: canComment
+              ? () => onRowPointerEnter(anchorSide, anchorLine)
+              : undefined,
+            role: canComment ? 'button' : undefined,
+            tabIndex: canComment ? 0 : undefined,
+            title: canComment
+              ? 'Click to comment, or click-and-drag across rows to comment on a range. Shift-click also extends the range.'
+              : undefined,
+            addCommentAffordance: canComment,
+          };
+        }}
+      />
     </div>
   );
 }

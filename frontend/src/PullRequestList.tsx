@@ -626,16 +626,6 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
   const sideNav = (
     <aside className="kanban-sidenav">
       <nav className="kanban-sidenav__nav">
-        <span className="kanban-sidenav__section">Overview</span>
-        <button
-          type="button"
-          className={`kanban-sidenav__item${activeTab === 'inbox' ? ' kanban-sidenav__item--active' : ''}`}
-          onClick={() => switchTab('inbox')}
-        >
-          <span className="kanban-sidenav__item-icon" aria-hidden="true">▦</span>
-          <span className="kanban-sidenav__item-label">Inbox</span>
-          {inbox.length > 0 && <span className="kanban-sidenav__count">{inbox.length}</span>}
-        </button>
         <button
           type="button"
           className={`kanban-sidenav__item${activeTab === 'urgent' ? ' kanban-sidenav__item--active' : ''}`}
@@ -648,6 +638,26 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
             <span className="kanban-sidenav__count kanban-sidenav__count--urgent">{urgentCards.length}</span>
           )}
         </button>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'inbox' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => switchTab('inbox')}
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">▦</span>
+          <span className="kanban-sidenav__item-label">Inbox</span>
+          {inbox.length > 0 && <span className="kanban-sidenav__count">{inbox.length}</span>}
+        </button>
+        {onGoToTeams && (
+          <button
+            type="button"
+            className="kanban-sidenav__item"
+            onClick={onGoToTeams}
+            title="Open the Teams page."
+          >
+            <span className="kanban-sidenav__item-icon" aria-hidden="true">⌬</span>
+            <span className="kanban-sidenav__item-label">Teams</span>
+          </button>
+        )}
         <button
           type="button"
           className={`kanban-sidenav__item${activeTab === 'snoozed' ? ' kanban-sidenav__item--active' : ''}`}
@@ -676,44 +686,6 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
           <span className="kanban-sidenav__item-icon" aria-hidden="true">▥</span>
           <span className="kanban-sidenav__item-label">Analytics</span>
         </button>
-
-        <span className="kanban-sidenav__section">Workflow</span>
-        <button
-          type="button"
-          className={`kanban-sidenav__item${activeTab === 'inbox' && lane === 'mine' ? ' kanban-sidenav__item--active' : ''}`}
-          onClick={() => { switchTab('inbox'); setLane('mine'); }}
-          title="Your authored PRs, grouped by lifecycle state."
-        >
-          <span className="kanban-sidenav__item-icon" aria-hidden="true">⎇</span>
-          <span className="kanban-sidenav__item-label">My PRs</span>
-          {briefing.mineNeedsAction > 0 && (
-            <span
-              className="kanban-sidenav__alert"
-              title={`${briefing.mineNeedsAction} need you`}
-              aria-label={`${briefing.mineNeedsAction} need you`}
-            />
-          )}
-        </button>
-        <button
-          type="button"
-          className={`kanban-sidenav__item${activeTab === 'inbox' && lane === 'to_review' ? ' kanban-sidenav__item--active' : ''}`}
-          onClick={() => { switchTab('inbox'); setLane('to_review'); }}
-          title="PRs awaiting your review."
-        >
-          <span className="kanban-sidenav__item-icon" aria-hidden="true">⊙</span>
-          <span className="kanban-sidenav__item-label">Team Review</span>
-        </button>
-        {onGoToTeams && (
-          <button
-            type="button"
-            className="kanban-sidenav__item"
-            onClick={onGoToTeams}
-            title="Open the Teams page."
-          >
-            <span className="kanban-sidenav__item-icon" aria-hidden="true">⌬</span>
-            <span className="kanban-sidenav__item-label">Teams</span>
-          </button>
-        )}
       </nav>
       <div className="kanban-sidenav__spacer" />
       {onOpenSettings && (
@@ -910,6 +882,37 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
       {error && <div className="repo-error">{error}</div>}
       {!loading && !error && activeTab === 'inbox' && (
         <>
+          {/* Lane filter — the My PRs / To review scope toggle that used to
+              live as separate side-nav items. Sits in the board's top bar
+              so the left nav stays a flat list of destinations. Always
+              shown on the Inbox tab so an empty lane can still be switched. */}
+          <div className="kanban-lane-filter" role="tablist" aria-label="PR scope">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={lane === 'mine'}
+              className={`pr-list-scope-tab${lane === 'mine' ? ' pr-list-scope-tab--active' : ''}`}
+              onClick={() => setLane('mine')}
+            >
+              <span aria-hidden="true">🚀</span> My PRs
+              {briefing.mineNeedsAction > 0 && (
+                <span
+                  className="pr-list-scope-tab__alert"
+                  title={`${briefing.mineNeedsAction} need you`}
+                  aria-label={`${briefing.mineNeedsAction} need you`}
+                />
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={lane === 'to_review'}
+              className={`pr-list-scope-tab${lane === 'to_review' ? ' pr-list-scope-tab--active' : ''}`}
+              onClick={() => setLane('to_review')}
+            >
+              <span aria-hidden="true">📥</span> To review
+            </button>
+          </div>
           {/* The "My open PRs" summary panel that used to live above the
               kanban is now redundant — the kanban's "My PRs" lane shows
               authored PRs in proper columns with richer signals. */}

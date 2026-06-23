@@ -51,6 +51,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -916,13 +917,46 @@ public class ThreadService
         if (cwd.isEmpty()) {
             return List.of();
         }
-        String base = taskStore.findActiveTaskForThread(threadId)
+        Task task = taskStore.findActiveTaskForThread(threadId)
                 .or(() -> taskStore.findLatestTaskForThread(threadId))
-                .map(Task::baseBranch)
-                .filter(b -> b != null && !b.isBlank())
-                .orElse("main");
-        return runGit("list commits for " + threadId,
-                () -> git.listCommitsAhead(cwd.get(), base, COMMITS_LIMIT));
+                .orElse(null);
+        return runGit("list commits for " + threadId, () -> {
+            String base = resolveCommitBase(cwd.get(), task);
+            return base == null ? List.<GitRunner.CommitEntry>of()
+                    : git.listCommitsAhead(cwd.get(), base, COMMITS_LIMIT);
+        });
+    }
+
+    /**
+     * Resolve the ref to list the task's own commits from. The configured
+     * {@code baseBranch} is only a name — in a fresh worktree it may exist
+     * only as a remote-tracking ref ({@code origin/main}) and not locally,
+     * which made the old raw {@code main..HEAD} fail and silently drop every
+     * commit the task added. We probe the local branch, the remote-tracking
+     * branch, then the detected default branch, and diff from the merge-base
+     * so a base branch that has advanced past the cut point neither hides the
+     * task's commits nor over-includes the base's. Null when nothing resolves.
+     */
+    private String resolveCommitBase(Path cwd, Task task)
+            throws IOException, InterruptedException
+    {
+        List<String> candidates = new ArrayList<>();
+        String configured = task == null ? null : task.baseBranch();
+        if (configured != null && !configured.isBlank()) {
+            candidates.add(configured.trim());
+            candidates.add("origin/" + configured.trim());
+        }
+        git.defaultBranch(cwd).ifPresent(b -> {
+            candidates.add(b);
+            candidates.add("origin/" + b);
+        });
+        candidates.addAll(List.of("main", "origin/main", "master", "origin/master"));
+        for (String ref : candidates) {
+            if (git.refExists(cwd, ref)) {
+                return git.mergeBase(cwd, "HEAD", ref).orElse(ref);
+            }
+        }
+        return null;
     }
 
     /** Per-file rollup for one commit (path + status + +/-) so the

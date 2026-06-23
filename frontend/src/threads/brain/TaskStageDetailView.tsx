@@ -18,13 +18,17 @@ import type {
   CiFixHistoryEntry, RealtimeCi, StageConversationRow, StageDetailData,
 } from '../../types/brainView';
 import type { StageDto, StageType } from '../../types/brainView';
+import PromptContextInspector from '../../inspector/PromptContextInspector';
 import { ConversationScrubber } from './ConversationScrubber';
 import { relativeShort } from './format';
+import { CommitsCard, ContextWindowCard } from './RightRail';
 import { useStageDetailData } from './useStageDetailData';
 
 type Props = {
   taskId: string;
   stageId: string;
+  /** The task's thread, for the shared prompt-context inspector. */
+  threadId?: string;
   onBack: () => void;
   onOpenStage: (stageId: string) => void;
   /** Open the standalone code (commit/diff/files) page for this task. */
@@ -43,12 +47,26 @@ function GithubMark() {
 /** PascalCase label for a stage type (mirrors StageType.displayName()). */
 function stageLabel(type: StageType): string {
   switch (type) {
+    case 'PLAN_STAGE': return 'PlanStage';
     case 'DEVELOPMENT_STAGE': return 'DevelopmentStage';
     case 'CI_FIXING_STAGE': return 'CiFixingStage';
     case 'REVIEW_MONITOR_STAGE': return 'ReviewMonitorStage';
     case 'CLEANUP_STAGE': return 'CleanupStage';
     case 'REVIEW_STAGE': return 'ReviewStage';
     default: return type;
+  }
+}
+
+/** A small glyph logo per stage type for the navigator chips. */
+function stageIcon(type: StageType): string {
+  switch (type) {
+    case 'PLAN_STAGE': return '◆';
+    case 'DEVELOPMENT_STAGE': return '⌗';
+    case 'CI_FIXING_STAGE': return '⚙';
+    case 'REVIEW_MONITOR_STAGE': return '⊚';
+    case 'REVIEW_STAGE': return '⊜';
+    case 'CLEANUP_STAGE': return '✦';
+    default: return '▸';
   }
 }
 
@@ -115,8 +133,9 @@ function StageComposer(
   );
 }
 
-export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenStage, onOpenCode }: Props) {
+export default function TaskStageDetailView({ taskId, stageId, threadId, onBack, onOpenStage, onOpenCode }: Props) {
   const { data, refresh } = useStageDetailData(stageId);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const bandRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
   const scrollRef = useRef<HTMLElement | null>(null);
   const jumpToRow = (rowId: string) => {
@@ -141,8 +160,15 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
     bandRefs.current.get(n)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  // A development stage drives in fiery red; when it's actively executing
+  // (a running iteration or an ACTIVE state) the background pulses and 🔥
+  // marks what's running.
+  const isDev = stage.type === 'DEVELOPMENT_STAGE';
+  const isExecuting = stage.state === 'ACTIVE' || iterations.some(it => it.endedAt === null);
+
   return (
-    <div className="stage-detail">
+    <div className={`stage-detail${isDev ? ' stage-detail--dev' : ''}`
+      + `${isDev && isExecuting ? ' stage-detail--executing' : ''}`}>
       {/* ── Breadcrumb top bar ─────────────────────────────────────── */}
       <header className="sd-breadcrumb">
         <button type="button" onClick={onBack} aria-label="Back to brain view">← Brain</button>
@@ -164,11 +190,9 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
             PR #{task.prNumber}{task.prDraft ? ' (draft)' : ''}
           </a>
         )}
-        {onOpenCode !== undefined && (
-          <button type="button" className="sd-diff-btn" onClick={onOpenCode}>⇄ View code diff</button>
-        )}
         <span className="sd-agent-pill">{task.agentRuntime}{task.agentModel ? ` · ${task.agentModel}` : ''}</span>
         <span className={`sd-iter-status sd-iter-status--${stage.state.toLowerCase()}`}>
+          {isExecuting && <span aria-hidden>🔥 </span>}
           {stage.currentIterationNumber !== null
             ? `ITERATION #${stage.currentIterationNumber} · ${stage.state}`
             : `${stage.iterationCount} ITERATION${stage.iterationCount === 1 ? '' : 'S'} · ${stage.state}`}
@@ -186,7 +210,7 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
             onClick={() => jumpToIteration(it.iterationNumber)}
             aria-label={`Jump to iteration ${it.iterationNumber}`}
           >
-            #{it.iterationNumber} {it.endedAt === null ? '◼' : '✓'}
+            #{it.iterationNumber} {it.endedAt === null ? '🔥' : '✓'}
           </button>
         ))}
         {iterations.length === 0 && <span className="iter-empty">No iterations yet.</span>}
@@ -245,8 +269,22 @@ export default function TaskStageDetailView({ taskId, stageId, onBack, onOpenSta
           />
         </div>
 
-        <RightRail stage={stage} context={context} />
+        <RightRail
+          stage={stage}
+          context={context}
+          nowMs={nowMs}
+          onViewDiff={onOpenCode}
+          onViewContext={() => setInspectorOpen(true)}
+        />
       </div>
+      {inspectorOpen && threadId !== undefined && (
+        <PromptContextInspector
+          scope="TASK"
+          threadId={threadId}
+          taskId={taskId}
+          onClose={() => setInspectorOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -274,7 +312,11 @@ function LeftRail({
             aria-current={s.id === currentStageId ? 'true' : undefined}
             onClick={() => onOpenStage(s.id)}
           >
-            {stageLabel(s.type)} · <span className="stage-nav-chip__state">{s.state}</span>
+            <span className="stage-nav-chip__logo" aria-hidden style={{ color: stageAccent(s.type) }}>
+              {stageIcon(s.type)}
+            </span>
+            <span className="stage-nav-chip__name">{stageLabel(s.type)}</span>
+            <span className="stage-nav-chip__state">{s.state}</span>
           </button>
         ))}
       </section>
@@ -283,7 +325,10 @@ function LeftRail({
           <h3>Sub-stages <span className="lr-count">{subStages.length} panels</span></h3>
           {subStages.map(s => (
             <button key={s.id} type="button" className="stage-nav-chip" onClick={() => onOpenStage(s.id)}>
-              {stageLabel(s.type)}
+              <span className="stage-nav-chip__logo" aria-hidden style={{ color: stageAccent(s.type) }}>
+                {stageIcon(s.type)}
+              </span>
+              <span className="stage-nav-chip__name">{stageLabel(s.type)}</span>
             </button>
           ))}
         </section>
@@ -356,15 +401,34 @@ function ConversationRowView({
     );
   }
   if (row.kind === 'tool_call') {
+    const hasDetail = row.toolDetail !== null && row.toolDetail !== '';
+    const hasResult = row.toolResult !== null && row.toolResult !== '';
+    const klass = `tool-card tool-${(row.toolTag ?? '').toLowerCase()}`
+      + (row.toolError ? ' tool-card--error' : '');
     return (
-      <div className={`tool-row tool-${(row.toolTag ?? '').toLowerCase()}`} id={row.id} data-row-id={row.id}>
-        <span className="tool-tag">{row.toolTag ?? 'tool'}</span>
-        <span className="tool-label">{row.toolLabel ?? ''}</span>
-        <span className="tool-time">{relativeShort(row.ts, nowMs)}</span>
-        {row.toolDetail !== null && row.toolDetail !== '' && (
-          <span className="tool-detail">{row.toolDetail}</span>
-        )}
-      </div>
+      <details className={klass} id={row.id} data-row-id={row.id} open={row.toolError === true}>
+        <summary className="tool-card__head">
+          <span className="tool-tag">{row.toolTag ?? 'tool'}</span>
+          <span className="tool-label">{row.toolLabel ?? ''}</span>
+          {hasDetail && <code className="tool-detail">{row.toolDetail}</code>}
+          {row.toolError && <span className="tool-card__badge">error</span>}
+          <span className="tool-time">{relativeShort(row.ts, nowMs)}</span>
+        </summary>
+        <div className="tool-card__body">
+          {hasDetail && (
+            <div className="tool-log">
+              <div className="tool-log__label">Command</div>
+              <pre className="tool-log__pre">{row.toolDetail}</pre>
+            </div>
+          )}
+          <div className="tool-log">
+            <div className="tool-log__label">Result</div>
+            <pre className={`tool-log__pre${row.toolError ? ' tool-log__pre--error' : ''}`}>
+              {hasResult ? row.toolResult : '(no output captured)'}
+            </pre>
+          </div>
+        </div>
+      </details>
     );
   }
   if (row.kind === 'user') {
@@ -415,10 +479,6 @@ function MetricGroup({ title, rows }: { title: string; rows: Array<[string, stri
 }
 
 /** Compact token count (122400 → "122.4k"). */
-function tokensShort(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}
-
 /** Human duration: "3h 56m" / "8m 12s" / "15s". */
 function fmtDuration(sec: number): string {
   if (sec >= 3600) return `${Math.floor(sec / 3600)}h ${Math.round((sec % 3600) / 60)}m`;
@@ -431,7 +491,13 @@ function fmtCost(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function RightRail({ stage, context }: { stage: StageDetailData['stage']; context: StageDetailData['context'] }) {
+function RightRail({ stage, context, nowMs, onViewDiff, onViewContext }: {
+  stage: StageDetailData['stage'];
+  context: StageDetailData['context'];
+  nowMs: number;
+  onViewDiff?: () => void;
+  onViewContext: () => void;
+}) {
   const m = stage.metrics;
   const budget = stage.config.autoPushBudget;
   const rows = (...entries: Array<[string, number | undefined, string?]>): Array<[string, string]> =>
@@ -444,9 +510,6 @@ function RightRail({ stage, context }: { stage: StageDetailData['stage']; contex
     for (const [kind, n] of Object.entries(m.operationsCount)) opsRows.push([`· ${kind}`, String(n)]);
   }
   if (m.loopIterations !== undefined) opsRows.push(['Loop iterations', String(m.loopIterations)]);
-
-  const pct = context.tokensLimit > 0
-    ? Math.round((context.tokensUsed / context.tokensLimit) * 100) : 0;
 
   return (
     <aside className="right-rail" aria-label="Stage details">
@@ -509,16 +572,10 @@ function RightRail({ stage, context }: { stage: StageDetailData['stage']; contex
         </section>
       )}
 
-      <section className="context-card" aria-label="Context window">
-        <h3>Context <span className="metrics-sub">dev agent</span></h3>
-        <div className={`context-pct context-${context.safeBand}`}>{pct}% · {context.safeBand}</div>
-        <div className="context-bar" aria-hidden>
-          <span className={`context-bar-fill context-${context.safeBand}`} style={{ width: `${pct}%` }} />
-        </div>
-        <div className="context-nums">
-          {tokensShort(context.tokensUsed)} / {tokensShort(context.tokensLimit)} tokens
-        </div>
-      </section>
+      {/* Reuse the brain window's commits + context-window cards so every
+          task window (trunk / brain / stage) shares one design. */}
+      <CommitsCard commits={[]} nowMs={nowMs} onViewDiff={onViewDiff ?? (() => {})} />
+      <ContextWindowCard ctx={context} onViewContext={onViewContext} />
     </aside>
   );
 }

@@ -31,7 +31,7 @@ export type TaskPhase =
   | 'AWAITING_UPDATE_PUSH' | 'COMPLETED' | 'NEEDS_ATTENTION' | 'QUEUED';
 
 export type StageType =
-  | 'DEVELOPMENT_STAGE' | 'CI_FIXING_STAGE' | 'REVIEW_MONITOR_STAGE'
+  | 'PLAN_STAGE' | 'DEVELOPMENT_STAGE' | 'CI_FIXING_STAGE' | 'REVIEW_MONITOR_STAGE'
   | 'CLEANUP_STAGE' | 'REVIEW_STAGE';
 
 export type StageState = 'OPEN' | 'ACTIVE' | 'PAUSED' | 'CLOSED';
@@ -160,6 +160,7 @@ export type TaskBrainViewData = {
     agentRuntime: 'CLI' | 'API';
     agentModel: string;               // "sonnet-3.7"
     paused: boolean;                  // true at TaskStatus.PAUSED → rail shows Resume
+    terminal: boolean;                // true at a terminal status (closed/canceled/…) → rail shows closed state
   };
   aggregate: {
     pushes: number;
@@ -262,6 +263,10 @@ export type StageConversationRow = {
   toolTag: string | null;
   toolLabel: string | null;
   toolDetail: string | null;
+  /** Tool result preview (stdout / output), paired by callId; null if none. */
+  toolResult: string | null;
+  /** True when the tool call failed (non-zero exit / error). */
+  toolError: boolean | null;
   iterationNumber: number | null;
   ts: string;
 };

@@ -30,6 +30,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadTurnEvent;
@@ -37,6 +38,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,6 +76,7 @@ public class StageServiceImpl
     private final StageBudgetService budgetService;
     private final ThreadTurnEventStore turnEventStore;
     private final ThreadStore threadStore;
+    private final ThreadTurnStore turnStore;
     private final ObjectMapper mapper;
 
     public StageServiceImpl(
@@ -82,6 +85,7 @@ public class StageServiceImpl
             StageBudgetService budgetService,
             ThreadTurnEventStore turnEventStore,
             ThreadStore threadStore,
+            ThreadTurnStore turnStore,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -89,6 +93,7 @@ public class StageServiceImpl
         this.budgetService = requireNonNull(budgetService, "budgetService is null");
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -125,7 +130,7 @@ public class StageServiceImpl
 
         return new TaskBrainViewData(
                 buildTask(task),
-                buildAggregate(allStages, cost.totalCents()),
+                buildAggregate(task, allStages, brainMessages, cost.totalCents()),
                 topLevel,
                 subStages,
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
@@ -204,10 +209,28 @@ public class StageServiceImpl
                 statusLabel(task),
                 "CLI",
                 "",
-                task.status() == TaskStatus.PAUSED);
+                task.status() == TaskStatus.PAUSED,
+                isTerminal(task.status()));
     }
 
-    private TaskBrainViewData.Aggregate buildAggregate(List<StageInstance> stages, long costCents)
+    /** Terminal task statuses — the rail shows a closed state, not controls. */
+    private static boolean isTerminal(TaskStatus status)
+    {
+        return switch (status) {
+            case COMPLETED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
+    }
+
+    /** Scan cap for counting the task's agent turns. */
+    private static final int TURN_SCAN_CAP = 1000;
+
+    /** Phases where the loop is parked on the user — counted as waiting time. */
+    private static final Set<TaskPhase> USER_GATED_PHASES = EnumSet.of(
+            TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.NEEDS_ATTENTION);
+
+    private TaskBrainViewData.Aggregate buildAggregate(
+            Task task, List<StageInstance> stages, List<ThreadMessage> brainMessages, long costCents)
     {
         long activeTimeSec = stages.stream()
                 .filter(s -> s.closedAt().isPresent())
@@ -221,10 +244,45 @@ public class StageServiceImpl
         TaskBrainViewData.AutoPushBudget budget = latestCiFixingBudget(stages)
                 .map(b -> new TaskBrainViewData.AutoPushBudget(b.used(), b.limit()))
                 .orElse(null);
-        // Tool calls / turns / messages / waiting-time depend on machinery
-        // that lands later; cost is summed from thread messages.
+
+        // Task-wide totals across the dev thread (tool calls + agent messages)
+        // and the brain thread (planning/steering messages); turns and
+        // user-gated waiting time are counted for the whole task.
+        List<ThreadMessage> devMessages = task.threadId() == null ? List.of()
+                : threadStore.listMessages(task.threadId());
+        int toolCalls = (int) devMessages.stream()
+                .filter(m -> "tool_call".equals(m.type()))
+                .count();
+        int turns = task.threadId() == null ? 0
+                : turnStore.listTurnsByTaskId(task.id(), TURN_SCAN_CAP).size();
+        int messages = devMessages.size() + brainMessages.size();
+        long waitingUserTimeSec = waitingUserTimeSec(taskStore.listPhaseEvents(task.id()));
+
         return new TaskBrainViewData.Aggregate(
-                pushes, activeTimeSec, 0, 0, 0, 0, panels, (int) costCents, budget);
+                pushes, activeTimeSec, waitingUserTimeSec, toolCalls, turns, messages,
+                panels, (int) costCents, budget);
+    }
+
+    /** Sum of wall-clock the task spent parked in user-gated phases. Walks
+     *  consecutive phase events; the final phase runs to now. */
+    private static long waitingUserTimeSec(List<TaskPhaseEvent> events)
+    {
+        List<TaskPhaseEvent> sorted = events.stream()
+                .sorted(Comparator.comparing(TaskPhaseEvent::transitionedAt))
+                .toList();
+        long sec = 0;
+        for (int i = 0; i < sorted.size(); i++) {
+            TaskPhaseEvent e = sorted.get(i);
+            if (!USER_GATED_PHASES.contains(e.toPhase())) {
+                continue;
+            }
+            Instant from = e.transitionedAt();
+            Instant to = i + 1 < sorted.size() ? sorted.get(i + 1).transitionedAt() : Instant.now();
+            if (to.isAfter(from)) {
+                sec += (to.toEpochMilli() - from.toEpochMilli()) / 1000;
+            }
+        }
+        return sec;
     }
 
     /** Autonomous pushes = auto-push budget spent across ci-fixing stages. */
@@ -780,8 +838,18 @@ public class StageServiceImpl
 
     private static String statusLabel(Task task)
     {
-        // Server-computed label; a humanised phase name is the placeholder
-        // until the richer "CI FIXING · iter #N" form lands.
+        // A terminal task reports its terminal status (so a manually-closed
+        // task reads CANCELLED, not its last phase); otherwise a humanised
+        // phase name stands in until the richer "CI FIXING · iter #N" lands.
+        if (isTerminal(task.status())) {
+            return switch (task.status()) {
+                case CANCELED -> "CANCELLED";
+                case COMPLETED -> "COMPLETED";
+                case ERRORED -> "ERRORED";
+                case ARCHIVED -> "ARCHIVED";
+                default -> task.status().name();
+            };
+        }
         return task.phase().name().replace('_', ' ');
     }
 

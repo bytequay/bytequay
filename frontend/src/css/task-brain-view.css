@@ -37,7 +37,7 @@
   overflow: hidden;
   background: #fafafe;
   color: var(--tbv-text-primary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* Ambient mesh + noise wash, matching the mockup's backdrop. */
@@ -53,6 +53,8 @@
 
 /* ── unified task identity bar ───────────────────────────────────── */
 .task-brain .unibar { display:flex; align-items:center; gap:9px; padding: 9px 22px; background: linear-gradient(90deg, rgba(124,92,255,0.06), rgba(124,92,255,0.01)); border-bottom: 1px solid rgba(124,92,255,0.16); font-size:11.5px; }
+/* A terminal (closed/canceled) task flags itself with a red top bar. */
+.task-brain .unibar--terminal { background: linear-gradient(90deg, rgba(239,68,68,0.16), rgba(239,68,68,0.05)); border-bottom-color: rgba(185,28,28,0.42); }
 .task-brain .unibar .back { display:inline-flex; align-items:center; gap:5px; padding:3px 8px 3px 6px; border:1px solid var(--tbv-border); background: rgba(255,255,255,0.7); border-radius: 999px; font-size:11px; color: var(--tbv-text-secondary); cursor:pointer; flex-shrink:0; font-family: inherit; }
 .task-brain .unibar .back .wa { width:15px; height:15px; border-radius:4px; background: linear-gradient(135deg,#b794f4,#7c5cff); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:8.5px; font-weight:800; }
 .task-brain .unibar .task-id { display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:999px; background: rgba(124,92,255,0.10); color: var(--tbv-primary-deep); font-size:10px; font-weight:800; letter-spacing:.04em; border:1px solid var(--tbv-primary-border); }
@@ -60,11 +62,16 @@
 .task-brain .unibar .meta { display:inline-flex; align-items:center; gap:7px; min-width:0; font-size:11px; color: var(--tbv-text-muted); }
 .task-brain .unibar .meta .sep { color: var(--tbv-text-subtle); font-size:9px; }
 .task-brain .unibar .meta .branch { font-family: var(--tbv-mono); font-size:10.5px; color: var(--tbv-text-muted); }
+.task-brain .unibar .meta .branch-chip { display:inline-flex; align-items:center; gap:5px; padding:2px 9px 2px 7px; border:1px solid var(--tbv-border); background: rgba(255,255,255,0.7); border-radius:999px; }
+.task-brain .unibar .meta .branch-chip svg { color: var(--tbv-text-primary); flex-shrink:0; }
 .task-brain .unibar .meta .pr { font-family: var(--tbv-mono); font-size:10.5px; color:#16a34a; font-weight:700; background:none; border:none; cursor:pointer; padding:0; }
 .task-brain .unibar .meta .pr:disabled { cursor: default; }
 .task-brain .unibar .grow { flex:1; }
 .task-brain .unibar .stat-pill { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; font-size:10.5px; font-weight:800; background: linear-gradient(135deg, rgba(245,158,11,0.16), rgba(245,158,11,0.06)); color: #92400e; border: 1px solid rgba(245,158,11,0.32); letter-spacing:.04em; }
 .task-brain .unibar .stat-pill .d { width:6px; height:6px; border-radius:50%; background: currentColor; animation: tbv-pg 1.6s infinite; }
+/* Terminal task → red status pill (no pulse). */
+.task-brain .unibar .stat-pill--terminal { background: linear-gradient(135deg, rgba(239,68,68,0.16), rgba(239,68,68,0.06)); color: #b91c1c; border-color: rgba(185,28,28,0.40); }
+.task-brain .unibar .stat-pill--terminal .d { animation: none; }
 .task-brain .unibar .icon-btn { width:28px; height:28px; border:1px solid var(--tbv-border); background: rgba(255,255,255,0.7); border-radius:7px; color: var(--tbv-text-muted); cursor:pointer; font-family: inherit; }
 .task-brain .unibar .agent-pill { display: inline-flex; align-items: center; gap: 0; padding: 0; border-radius: 999px; overflow: hidden; border: 1px solid var(--tbv-border); background: rgba(255,255,255,0.78); flex-shrink: 0; }
 .task-brain .unibar .agent-pill .rt { padding: 3px 8px; font-size: 9px; font-weight: 800; letter-spacing: .05em; color: #fff; text-transform: uppercase; display: inline-flex; align-items: center; gap: 4px; }
@@ -134,7 +141,7 @@
 .task-brain .ev { display:grid; grid-template-columns: 24px minmax(0, 1fr); gap: 11px; width: 100%; align-items: start; }
 .task-brain .ev > .body { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; box-sizing: border-box; background: rgba(255,255,255,0.86); border: 1px solid var(--tbv-border-soft); border-radius: 10px; padding: 9px 13px; }
 .task-brain .ev .who-row { display:flex; align-items:baseline; gap:8px; margin-bottom:3px; width: 100%; flex-wrap: wrap; }
-.task-brain .ev .tx { width: 100%; min-width: 0; word-wrap: break-word; overflow-wrap: break-word; font-size: 13.5px; color: var(--tbv-text-secondary); line-height: 1.6; }
+.task-brain .ev .tx { width: 100%; min-width: 0; word-wrap: break-word; overflow-wrap: break-word; font-size: 15px; color: var(--tbv-text-secondary); line-height: 1.62; }
 .task-brain .ev .tx p { margin: 0; }
 .task-brain .ev .tx p + p { margin-top: 6px; }
 .task-brain .ev .ic { width:24px; height:24px; border-radius: 7px; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; }
@@ -193,7 +200,8 @@
 .task-brain .composer { padding: 11px 28px 16px; border-top: 1px solid var(--tbv-border-soft); background: rgba(255,255,255,0.62); backdrop-filter: blur(10px); }
 .task-brain .cbox { display:flex; align-items:flex-start; gap: 10px; background: rgba(255,255,255,0.96); border: 1px solid var(--tbv-border); border-left: 3px solid var(--tbv-primary); border-radius: 12px; padding: 10px 14px; min-height: 76px; }
 .task-brain .cbox .p { color: var(--tbv-primary); font-weight: 800; font-family: var(--tbv-mono); font-size: 14px; line-height: 1.4; padding-top: 1px; }
-.task-brain .cbox .t { flex: 1; color: var(--tbv-text-primary); font-size: 12.5px; line-height: 1.6; min-height: 56px; border: none; outline: none; resize: none; background: transparent; font-family: inherit; }
+/* The composer font is deliberately larger than the conversation text. */
+.task-brain .cbox .t { flex: 1; color: var(--tbv-text-primary); font-size: 16.5px; line-height: 1.55; min-height: 56px; border: none; outline: none; resize: none; background: transparent; font-family: inherit; }
 .task-brain .cbox .t::placeholder { color: var(--tbv-text-subtle); font-style: italic; }
 .task-brain .cbox .send-icon { align-self: flex-end; width: 26px; height: 26px; border-radius: 7px; border: none; background: linear-gradient(135deg,#7c5cff,#5b3fff); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; cursor: pointer; box-shadow: 0 2px 8px rgba(124,92,255,0.32); flex-shrink: 0; }
 .task-brain .cbox .send-icon:disabled { opacity: .45; cursor: not-allowed; }
@@ -374,6 +382,7 @@
 .task-brain .close-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 9px; border: 1.5px solid rgba(239,68,68,0.32); border-radius: 9px; background: rgba(254,226,226,0.4); color: #b91c1c; font-size: 12px; font-weight: 800; letter-spacing: .03em; cursor: pointer; box-sizing: border-box; font-family: inherit; }
 .task-brain .close-btn:hover { background: linear-gradient(135deg, #fee2e2, #fecaca); border-color: #ef4444; border-style: solid; }
 .task-brain .pause-card .note { font-size: 10.5px; color: var(--tbv-text-muted); font-style: italic; line-height: 1.45; text-align: center; }
+.task-brain .task-closed-note { font-size: 12px; font-weight: 800; color: #fff; text-align: center; padding: 9px 10px; letter-spacing: .02em; border-radius: 9px; background: linear-gradient(135deg, #ef4444, #b91c1c); border: 1px solid #b91c1c; box-shadow: 0 2px 8px rgba(185,28,28,0.28); }
 
 /* conversation scrubbers — floating pills on each edge of the feed */
 .task-brain .conv-scrub-wrap { position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; pointer-events: none; }

@@ -83,6 +83,38 @@ class TestGitRunnerCommitsAhead
         assertThat(git.listCommitsAhead(repo, "", 100)).isEmpty();
     }
 
+    /**
+     * The empty-Commits-panel bug: a worktree whose base branch name does
+     * not resolve to a local ref. Diffing from the named base fails and
+     * drops every commit, but the merge-base SHA (how the task surface now
+     * resolves the base) still lists exactly the task's commits.
+     */
+    @Test
+    void diffsFromMergeBaseWhenTheNamedBaseRefIsMissing(@TempDir Path repo)
+            throws Exception
+    {
+        // The repo's base branch is "work", not "main".
+        git(repo, "init", "-b", "work");
+        git(repo, "config", "user.email", "t@example.com");
+        git(repo, "config", "user.name", "Test");
+        commit(repo, "base.txt", "starting point");
+
+        // The task branch is cut from "work" and adds two commits.
+        git(repo, "checkout", "-b", "dev/test");
+        commit(repo, "a.txt", "task: first change");
+        commit(repo, "b.txt", "task: second change");
+
+        // There is no local "main" ref here — the old raw "main..HEAD" path
+        // failed and returned nothing.
+        assertThat(git.refExists(repo, "main")).isFalse();
+        assertThat(git.refExists(repo, "work")).isTrue();
+
+        // Resolving via the merge-base against the real branch lists exactly
+        // the commits the task added.
+        String mergeBase = git.mergeBase(repo, "HEAD", "work").orElseThrow();
+        assertThat(git.listCommitsAhead(repo, mergeBase, 100)).hasSize(2);
+    }
+
     private static void commit(Path repo, String file, String message)
             throws IOException, InterruptedException
     {

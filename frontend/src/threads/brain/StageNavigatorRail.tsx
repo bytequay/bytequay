@@ -20,6 +20,10 @@ type Props = {
   threadTitle: string;
   /** Size badge for the Brain chip — the brain conversation length. */
   brainCount: number;
+  /** True when the task is terminal (closed/canceled/completed) — open
+   *  stages then read as ended, not "running", to stay consistent with the
+   *  COMPLETED status pill and the closed-task note. */
+  taskTerminal: boolean;
   onOpenThread: () => void;
   onOpenStage: (stageId: string) => void;
 };
@@ -34,20 +38,31 @@ const RAIL_GLYPH: Record<RailState, string> = {
 function subLine(stage: StageDto, state: RailState): string {
   switch (state) {
     case 'done': return `closed · ${stage.loopIteration} iter`;
-    case 'active': return `active · iter #${stage.loopIteration} · running`;
-    case 'idle': return `idle · ${stage.loopIteration} iter so far`;
+    case 'active': return stage.loopIteration > 0
+      ? `active · iter #${stage.loopIteration} · running`
+      : 'open · running';
+    case 'idle': return stage.loopIteration > 0
+      ? `idle · ${stage.loopIteration} iter so far`
+      : 'open · idle';
     case 'future': return 'not yet opened';
   }
 }
 
-function StageChip({ stage, onOpen }: { stage: StageDto; onOpen: () => void }) {
-  const state = railStateFor(stage);
+function StageChip({ stage, taskTerminal, onOpen }: {
+  stage: StageDto; taskTerminal: boolean; onOpen: () => void;
+}) {
+  const raw = railStateFor(stage);
+  // A terminal task halts its open stages — render them as ended (done),
+  // never "running", so the chip agrees with the COMPLETED/closed task.
+  const halted = taskTerminal && raw !== 'done';
+  const state: RailState = halted ? 'done' : raw;
+  const sub = halted ? 'task closed' : subLine(stage, state);
   return (
     <button type="button" className={`stage-chip ${state}`} onClick={onOpen}>
       <span className="gl" aria-hidden>{RAIL_GLYPH[state]}</span>
       <div>
         <div className="nm">{stageDisplayName(stage.type)}</div>
-        <div className="sub">{subLine(stage, state)}</div>
+        <div className="sub">{sub}</div>
       </div>
       {state === 'active'
         ? <span className="ct warn" aria-hidden>⊕</span>
@@ -76,7 +91,7 @@ function SubStageChip({ stage, index, onOpen }: { stage: StageDto; index: number
  * sub-stages. Each stage chip drills into that stage's detail surface.
  */
 export function StageNavigatorRail({
-  stages, subStages, threadTitle, brainCount, onOpenThread, onOpenStage,
+  stages, subStages, threadTitle, brainCount, taskTerminal, onOpenThread, onOpenStage,
 }: Props) {
   return (
     <aside className="rail">
@@ -102,7 +117,8 @@ export function StageNavigatorRail({
         <div className="sec-h">Lifecycle <span className="r">{stages.length} stages</span></div>
         <div className="stages-list">
           {stages.map(stage => (
-            <StageChip key={stage.id} stage={stage} onOpen={() => onOpenStage(stage.id)} />
+            <StageChip key={stage.id} stage={stage} taskTerminal={taskTerminal}
+              onOpen={() => onOpenStage(stage.id)} />
           ))}
         </div>
       </div>

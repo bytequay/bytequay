@@ -43,6 +43,26 @@
     radial-gradient(40% 50% at 12% 92%, rgba(52,211,153,0.10), transparent 70%);
 }
 
+/* A development stage drives in fiery red — the whole surface takes on a
+   heat wash so it reads as "build in progress" at a glance. */
+.stage-detail.stage-detail--dev {
+  background-color: #fff7f4;
+  background-image:
+    radial-gradient(50% 60% at 6% 8%,   rgba(239,68,68,0.22),  transparent 70%),
+    radial-gradient(46% 54% at 96% 4%,  rgba(249,115,22,0.20), transparent 70%),
+    radial-gradient(55% 60% at 88% 96%, rgba(220,38,38,0.18),  transparent 72%),
+    radial-gradient(48% 56% at 10% 96%, rgba(251,146,60,0.16), transparent 72%);
+}
+/* While executing, the heat breathes. */
+.stage-detail.stage-detail--executing { animation: sd-fiery 3.2s ease-in-out infinite; }
+@keyframes sd-fiery {
+  0%, 100% { background-color: #fff7f4; }
+  50%      { background-color: #ffeee7; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-detail.stage-detail--executing { animation: none; }
+}
+
 /* ── breadcrumb top bar ──────────────────────────────────────────── */
 .stage-detail .sd-breadcrumb {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -93,6 +113,10 @@
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   padding: 7px 22px; background: rgba(255,255,255,0.74); border-bottom: 1px solid var(--sd-border-soft);
 }
+/* The iterations strip joins the development stage's fiery theme. */
+.stage-detail.stage-detail--dev .iter-strip {
+  background: rgba(255,237,228,0.78); border-bottom-color: rgba(239,68,68,0.20);
+}
 .stage-detail .iter-pill {
   padding: 3px 11px; border-radius: 999px; background: rgba(255,255,255,0.85);
   border: 1px solid var(--sd-border-soft); color: var(--sd-text-muted);
@@ -103,9 +127,25 @@
 
 /* ── body grid: left rail · log column · right rail ──────────────── */
 .stage-detail .stage-body {
-  display: grid; grid-template-columns: 252px minmax(0, 1fr) 308px; gap: 12px;
+  display: grid; grid-template-columns: 300px minmax(0, 1fr) 308px; gap: 14px;
   flex: 1; min-height: 0; padding: 12px 22px; overflow: hidden;
 }
+/* A development stage gives the conversation window more room — the side
+   rails narrow so the center column (and its input box) grows. */
+.stage-detail.stage-detail--dev .stage-body {
+  grid-template-columns: 248px minmax(0, 1fr) 258px;
+}
+/* …and the conversation window itself expands to fill the center column:
+   minimal padding so the card stretches nearly edge-to-edge and top-to-
+   composer, and the composer footprint shrinks to hand the height back to
+   the conversation. */
+.stage-detail.stage-detail--dev .log-col { padding: 0 6px 4px; }
+.stage-detail.stage-detail--dev .iter-strip { padding-top: 5px; padding-bottom: 5px; }
+.stage-detail.stage-detail--dev .composer { padding: 8px 8px 10px; }
+.stage-detail.stage-detail--dev .composer .t { min-height: 60px; }
+/* The Stages navigator is the primary rail card — give it room to breathe. */
+.stage-detail .left-rail .lr-section:first-child { padding: 13px 13px 15px; }
+.stage-detail .left-rail .stage-nav-chip { padding: 9px 11px; font-size: 12px; }
 .stage-detail .left-rail,
 .stage-detail .right-rail { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; padding: 0 12px 12px; }
 /* Boundaries separating the rails from the center column. */
@@ -113,24 +153,33 @@
 .stage-detail .right-rail { border-left: 1px solid var(--sd-border); padding-left: 14px; }
 /* Center column: scrolling transcript + a composer pinned at the bottom. */
 .stage-detail .center-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
-.stage-detail .log-col { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; min-height: 0; position: relative; gap: 10px; padding: 14px 22px; }
+/* Top padding is small so the conversation window sits just under the
+   iteration strip; horizontal padding matches the composer (22px) so the
+   conversation card lines up exactly with the input box width. */
+.stage-detail .log-col { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; min-height: 0; position: relative; gap: 10px; padding: 6px 22px 10px; }
 /* The conversation sits in a bordered card, like the thread window — the
    rows below mirror the brain feed's .ev layout (persona icon + label +
    text for the agent; a soft-mint right-aligned bubble for the user). */
-.stage-detail .conv-card { display: flex; flex-direction: column; gap: 12px; background: rgba(124,92,255,0.045); border: 1px solid var(--sd-border-soft); border-radius: 12px; padding: 15px 16px; box-shadow: inset 0 1px 3px rgba(15,23,42,0.04); }
+/* The conversation card frame is fixed inside the log column; only its
+   message list scrolls, so the card boundary stays put while you scroll. */
+.stage-detail .conv-card { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; background: rgba(124,92,255,0.045); border: 1px solid var(--sd-border-soft); border-radius: 12px; padding: 15px 16px; box-shadow: inset 0 1px 3px rgba(15,23,42,0.04); }
+/* Each row keeps its natural height — never let the flex column shrink a
+   tool card (overflow:hidden → 0 min-height) into a sliver. Once the rows
+   exceed the card, conv-card's overflow-y scrolls instead of squishing. */
+.stage-detail .conv-card > * { flex-shrink: 0; }
 .stage-detail .ev { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 11px; align-items: start; }
 .stage-detail .ev .ic { width: 24px; height: 24px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; background: rgba(124,92,255,0.10); color: var(--sd-primary-deep); }
 .stage-detail .ev .who-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
 .stage-detail .ev .who { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--sd-primary-deep); }
 .stage-detail .ev .ts { font-size: 9px; color: var(--sd-text-subtle); font-family: var(--sd-mono); }
-.stage-detail .ev .tx { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.6; color: var(--sd-text-secondary); }
+.stage-detail .ev .tx { min-width: 0; overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.62; color: var(--sd-text-primary); }
 /* Agent turns sit in a solid white card that stands out from the tinted
-   conversation backdrop. */
-.stage-detail .ev:not(.you-msg) .body { background: #fff; border: 1px solid var(--sd-border); border-radius: 11px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.07); }
+   conversation backdrop, with a purple accent boundary. */
+.stage-detail .ev:not(.you-msg) .body { background: #fff; border: 1px solid var(--sd-primary-border); border-left: 3px solid var(--sd-primary); border-radius: 11px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.07), inset 0 0 0 1px rgba(245,158,11,0.10); }
 .stage-detail .ev .tx > :first-child { margin-top: 0; }
 .stage-detail .ev .tx > :last-child { margin-bottom: 0; }
 .stage-detail .ev .tx p { margin: 0 0 6px; }
-.stage-detail .ev .tx code { font-family: var(--sd-mono); font-size: 11px; background: rgba(124,92,255,0.08); border: 1px solid var(--sd-border-soft); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+.stage-detail .ev .tx code { font-family: var(--sd-mono); font-size: 12px; background: rgba(124,92,255,0.08); border: 1px solid var(--sd-border-soft); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
 .stage-detail .ev .tx pre { overflow-x: auto; }
 .stage-detail .ev.you-msg { grid-template-columns: minmax(0, 1fr); max-width: 84%; margin-left: auto; }
 .stage-detail .ev.you-msg .body { background: linear-gradient(135deg, #d1fae5, #a7f3d0); border: 1px solid #86efac; border-radius: 14px 4px 14px 14px; padding: 8px 12px; }
@@ -162,18 +211,46 @@
 }
 .stage-detail .muted { color: var(--sd-text-subtle); font-size: 10.5px; margin: 0; }
 
+/* Shared commits + context-window cards, reused verbatim from the task
+   brain window so every task window keeps one design. Mirrors the markup
+   emitted by CommitsCard / ContextWindowCard. */
+.stage-detail .right-rail .sec-h { font-size: 9.5px; font-weight: 800; color: var(--sd-text-muted); text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: baseline; padding: 0 4px; margin-bottom: 6px; }
+.stage-detail .right-rail .sec-h .r { margin-left: auto; color: var(--sd-text-subtle); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 10px; }
+.stage-detail .ctx-card { background: rgba(255,255,255,0.78); border: 1px solid var(--sd-border-soft); border-radius: 11px; padding: 9px 12px; box-sizing: border-box; }
+.stage-detail .ctx-card .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.stage-detail .ctx-card .pct { font-size: 13px; font-weight: 800; letter-spacing: -.01em; }
+.stage-detail .ctx-card .pct.safe { color: #047857; }
+.stage-detail .ctx-card .pct.warn { color: #d97706; }
+.stage-detail .ctx-card .pct.danger { color: #b91c1c; }
+.stage-detail .ctx-card .ratio { margin-left: auto; font-family: var(--sd-mono); font-size: 10.5px; color: var(--sd-text-muted); }
+.stage-detail .ctx-card .track { height: 6px; border-radius: 999px; background: var(--sd-surface-soft); overflow: hidden; margin-bottom: 8px; }
+.stage-detail .ctx-card .fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #34d399, #10b981 60%, #047857); }
+.stage-detail .ctx-card .fill.warn { background: linear-gradient(90deg, #34d399, #fbbf24 60%, #d97706); }
+.stage-detail .ctx-card .fill.danger { background: linear-gradient(90deg, #fbbf24, #ef4444 60%, #b91c1c); }
+.stage-detail .ctx-card .view-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 7px; border: 1.5px dashed rgba(16,185,129,0.32); background: linear-gradient(135deg, rgba(16,185,129,0.04), rgba(52,211,153,0.06)); border-radius: 8px; font-size: 11px; font-weight: 800; color: #047857; cursor: pointer; box-sizing: border-box; font-family: inherit; }
+.stage-detail .ctx-card .view-btn .kbd { background: #fff; border: 1px solid var(--sd-border); padding: 0 5px; border-radius: 4px; font-family: var(--sd-mono); font-size: 9.5px; color: var(--sd-text-secondary); font-weight: 600; }
+.stage-detail .commits-card { background: rgba(255,255,255,0.78); border: 1px solid var(--sd-border-soft); border-radius: 11px; padding: 9px 12px; box-sizing: border-box; }
+.stage-detail .commits-card .msg { font-size: 12px; font-weight: 700; color: var(--sd-text-primary); line-height: 1.35; margin-bottom: 5px; word-wrap: break-word; }
+.stage-detail .commits-card .meta { display: flex; align-items: baseline; gap: 8px; font-size: 10.5px; margin-bottom: 8px; }
+.stage-detail .commits-card .meta .sha { font-family: var(--sd-mono); color: #0d9488; font-weight: 700; }
+.stage-detail .commits-card .meta .when { color: var(--sd-text-subtle); }
+.stage-detail .commits-card .diff-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 7px; border: 1.5px solid rgba(13,148,136,0.30); background: linear-gradient(135deg, rgba(13,148,136,0.06), rgba(20,184,166,0.06)); border-radius: 8px; font-size: 11px; font-weight: 800; color: #0d9488; cursor: pointer; box-sizing: border-box; font-family: inherit; }
+
 /* ── left rail: stage nav + CI ───────────────────────────────────── */
 .stage-detail .stage-nav-chip {
-  display: block; width: 100%; text-align: left; margin-bottom: 5px; padding: 6px 9px;
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; margin-bottom: 5px; padding: 6px 9px;
   border-radius: 8px; background: rgba(255,255,255,0.66); border: 1px solid var(--sd-border-soft);
   font-size: 11px; font-weight: 600; color: var(--sd-text-secondary); cursor: pointer; font-family: inherit;
 }
+.stage-detail .stage-nav-chip__logo { flex-shrink: 0; font-size: 14px; line-height: 1; width: 16px; text-align: center; }
+.stage-detail .stage-nav-chip__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-detail .stage-nav-chip__state { margin-left: auto; flex-shrink: 0; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--sd-text-subtle); }
 .stage-detail .stage-nav-chip:last-child { margin-bottom: 0; }
 .stage-detail .stage-nav-chip:hover { border-color: var(--sd-primary-border); }
 .stage-detail .stage-nav-chip.current { border-color: var(--sd-primary-border); background: rgba(124,92,255,0.08); color: var(--sd-primary-deep); font-weight: 700; }
 /* A closed stage reads in purple (its state label tinted deep purple). */
 .stage-detail .stage-nav-chip.closed .stage-nav-chip__state { color: var(--sd-primary-deep); font-weight: 800; }
-.stage-detail .stage-nav-chip.closed { border-color: var(--sd-primary-border); }
+.stage-detail .stage-nav-chip.closed { border-color: var(--sd-primary-border); background: rgba(124,92,255,0.10); }
 .stage-detail .ci-status { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px; display: inline-block; margin-bottom: 6px; }
 .stage-detail .ci-status.ci-passing, .stage-detail .ci-status.ci-success { background: rgba(34,197,94,0.10); color: #15803d; }
 .stage-detail .ci-status.ci-failing, .stage-detail .ci-status.ci-failure { background: rgba(220,38,38,0.10); color: #b91c1c; }
@@ -208,17 +285,33 @@
 .stage-detail .operation-kind { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--sd-text-secondary); }
 .stage-detail .operation-meta { font-size: 9.5px; color: var(--sd-text-subtle); font-family: var(--sd-mono); }
 .stage-detail .operation-tools { display: flex; flex-direction: column; gap: 4px; }
-.stage-detail .tool-row { display: flex; align-items: baseline; gap: 7px; font-size: 11px; color: var(--sd-text-secondary); overflow-wrap: anywhere; }
-.stage-detail .tool-time { font-family: var(--sd-mono); font-size: 9.5px; color: var(--sd-text-subtle); flex-shrink: 0; }
-.stage-detail .tool-tag { font-family: var(--sd-mono); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: #fff; background: #64748b; border-radius: 5px; padding: 1px 5px; flex-shrink: 0; }
-/* Tool-tag color per kind, matching the mockup (read=blue, write=amber,
-   run=teal, mcp=purple). The wrapper carries tool-<tag-lowercase>. */
-.stage-detail .tool-row.tool-read .tool-tag { background: #2563eb; }
-.stage-detail .tool-row.tool-write .tool-tag { background: #d97706; }
-.stage-detail .tool-row.tool-run .tool-tag { background: #0f766e; }
-.stage-detail .tool-row.tool-mcp .tool-tag { background: #7c3aed; }
-.stage-detail .tool-label { font-family: var(--sd-mono); font-size: 10.5px; color: var(--sd-text-primary); }
-.stage-detail .tool-detail { flex: 1; min-width: 0; color: var(--sd-text-muted); font-family: var(--sd-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A tool call renders as a collapsible log card: the summary row carries
+   tag + label + command + time; expanding reveals the full command and the
+   captured result. The wrapper carries tool-<tag-lowercase>. */
+.stage-detail .tool-card { border: 1px solid var(--sd-border-strong); border-left: 4px solid #64748b; border-radius: 9px; background: #f4f6f9; box-shadow: 0 1px 2px rgba(15,23,42,0.06); overflow: hidden; }
+.stage-detail .tool-card__head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 7px 11px; cursor: pointer; list-style: none; overflow-wrap: anywhere; }
+.stage-detail .tool-card__head::-webkit-details-marker { display: none; }
+.stage-detail .tool-card__head:hover { background: rgba(124,92,255,0.04); }
+.stage-detail .tool-time { font-family: var(--sd-mono); font-size: 10.5px; color: var(--sd-text-subtle); flex-shrink: 0; margin-left: auto; }
+.stage-detail .tool-tag { font-family: var(--sd-mono); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: #fff; background: #64748b; border-radius: 5px; padding: 2px 6px; flex-shrink: 0; }
+.stage-detail .tool-card.tool-read { border-left-color: #2563eb; }
+.stage-detail .tool-card.tool-read .tool-tag { background: #2563eb; }
+.stage-detail .tool-card.tool-write { border-left-color: #d97706; }
+.stage-detail .tool-card.tool-write .tool-tag { background: #d97706; }
+.stage-detail .tool-card.tool-run { border-left-color: #0f766e; }
+.stage-detail .tool-card.tool-run .tool-tag { background: #0f766e; }
+.stage-detail .tool-card.tool-mcp { border-left-color: #7c3aed; }
+.stage-detail .tool-card.tool-mcp .tool-tag { background: #7c3aed; }
+.stage-detail .tool-card--error { border-left-color: #dc2626; }
+.stage-detail .tool-card--error .tool-tag { background: #dc2626; }
+.stage-detail .tool-card__badge { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: #b91c1c; background: rgba(220,38,38,0.10); border: 1px solid rgba(220,38,38,0.30); border-radius: 5px; padding: 1px 6px; flex-shrink: 0; }
+.stage-detail .tool-label { font-family: var(--sd-mono); font-size: 12.5px; font-weight: 600; color: var(--sd-text-primary); flex-shrink: 0; }
+.stage-detail .tool-detail { min-width: 0; color: var(--sd-text-muted); font-family: var(--sd-mono); font-size: 12px; background: var(--sd-border-soft); border-radius: 5px; padding: 1px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-detail .tool-card__body { padding: 2px 11px 11px; border-top: 1px solid var(--sd-border-soft); }
+.stage-detail .tool-log { margin-top: 9px; }
+.stage-detail .tool-log__label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--sd-text-subtle); margin-bottom: 4px; }
+.stage-detail .tool-log__pre { margin: 0; font-family: var(--sd-mono); font-size: 12px; line-height: 1.55; color: var(--sd-text-primary); background: #f7f8fa; border: 1px solid var(--sd-border-soft); border-radius: 7px; padding: 8px 10px; max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.stage-detail .tool-log__pre--error { color: #991b1b; background: rgba(220,38,38,0.05); border-color: rgba(220,38,38,0.25); }
 .stage-detail .stage-event-row { font-size: 10.5px; color: var(--sd-text-muted); border: 1px dashed var(--sd-border); border-radius: 7px; padding: 5px 8px; }
 .stage-detail .event-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--sd-text-secondary); margin-right: 5px; }
 .stage-detail .iter-sum { display: flex; align-items: flex-start; gap: 10px; background: linear-gradient(90deg, rgba(124,92,255,0.06), rgba(56,189,248,0.04)); border: 1.5px dashed var(--sd-primary-border); border-radius: 9px; padding: 9px 12px; }
@@ -244,7 +337,7 @@
 .stage-detail .si-state { font-size: 11px; font-weight: 800; color: #92400e; letter-spacing: .04em; }
 .stage-detail .si-times { font-size: 10px; color: var(--sd-text-subtle); margin-top: 3px; font-family: var(--sd-mono); }
 .stage-detail .si-terminal { font-size: 10px; color: var(--sd-text-muted); margin-top: 3px; }
-.stage-detail .metric-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 2px 0; font-size: 11px; }
+.stage-detail .metric-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 13px; }
 .stage-detail .metric-label { color: var(--sd-text-muted); }
 .stage-detail .metric-value { font-family: var(--sd-mono); font-weight: 800; color: var(--sd-text-primary); }
 .stage-detail .budget-pips { font-family: var(--sd-mono); font-weight: 800; color: #92400e; }
@@ -286,7 +379,7 @@
 .stage-detail .metrics-sub { margin-left: auto; font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--sd-text-subtle); }
 .stage-detail .metric-group { margin-bottom: 9px; }
 .stage-detail .metric-group:last-child { margin-bottom: 0; }
-.stage-detail .metric-group-h { font-size: 8.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--sd-text-subtle); margin-bottom: 3px; }
+.stage-detail .metric-group-h { font-size: 9.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--sd-text-subtle); margin-bottom: 3px; }
 
 /* auto-push budget pips */
 .stage-detail .budget-pips { display: flex; gap: 4px; margin-bottom: 6px; }

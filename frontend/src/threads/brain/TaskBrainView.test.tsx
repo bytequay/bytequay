@@ -43,11 +43,11 @@ describe('TaskBrainView', () => {
     // Identity bar
     expect(screen.getByText('● TASK 2')).toBeTruthy();
     expect(screen.getByText('Cost-meter widget · workspace sidebar')).toBeTruthy();
-    // Aggregate strip + cost-breakdown card both surface the total.
+    // Aggregate strip surfaces the total cost.
     expect(screen.getAllByText('$1.47').length).toBeGreaterThan(0);
     expect(screen.getByText('CI FIX RUNNING')).toBeTruthy();
-    // Cost breakdown card.
-    expect(screen.getByText('Cost breakdown')).toBeTruthy();
+    // The Cost breakdown card was removed from the right rail.
+    expect(screen.queryByText('Cost breakdown')).toBeNull();
     // Brain feed: user question + brain reply + time dividers
     expect(screen.getByText('Are all the changes covered by tests?')).toBeTruthy();
     expect(screen.getByText('14 minutes ago')).toBeTruthy();
@@ -208,6 +208,18 @@ describe('TaskBrainView', () => {
     fireEvent.click(await screen.findByRole('button', { name: '▶ Resume task' }));
 
     await waitFor(() => expect(resumePausedTask).toHaveBeenCalledWith('thread-1', 'task-9'));
+  });
+
+  it('shows a closed state with no Pause/Close controls on a terminal task', async () => {
+    const getBrainView = vi.fn().mockResolvedValue(
+      brainWith({ terminal: true, statusLabel: 'CANCELLED' }));
+    (window as unknown as { bridge: unknown }).bridge = { getBrainView };
+
+    renderView();
+    // A manually-closed task reads as cancelled / closed manually.
+    expect(await screen.findByText(/closed manually/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '⏸ Pause task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '⏹ Close task' })).toBeNull();
   });
 
   it('confirms before closing, then cancels the task and navigates back', async () => {

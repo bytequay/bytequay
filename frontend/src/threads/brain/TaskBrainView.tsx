@@ -204,6 +204,7 @@ export default function TaskBrainView({
             subStages={subStages}
             threadTitle={threadTitle}
             brainCount={brainFeed.length}
+            taskTerminal={task.terminal}
             onOpenThread={onOpenThread}
             onOpenStage={openStage}
           />
@@ -229,13 +230,13 @@ export default function TaskBrainView({
             onResume={onResume}
             onClose={() => setConfirmCloseOpen(true)}
             paused={task.paused}
+            terminal={task.terminal}
+            statusLabel={task.statusLabel}
             taskActionBusy={taskActionBusy}
             onSpawnReview={spawnReview}
             onApprovePlan={onApprovePlan}
             onRequestPlanChanges={onRequestPlanChanges}
             onResolveFollowup={onResolveFollowup}
-            threadId={threadId}
-            taskId={taskId}
           />
         </div>
       </div>

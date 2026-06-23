@@ -37,57 +37,28 @@ export default function TaskCodePage({
   const title = task === null
     ? 'Loading…'
     : task.name ?? task.branchName ?? `Task ${task.seq}`;
+  // Same shell as the PR review's DiffViewerScreen (.diff-viewer toolbar +
+  // body) so the standalone task diff page reads as one UI with it. Only
+  // the toolbar buttons differ — a task diff has no Approve / Run AI review
+  // / publish controls, just Back.
   return (
-    <div style={pageStyle}>
-      <div style={topBarStyle}>
-        <button type="button" onClick={onBack} style={backBtnStyle}>
-          ← Back
-        </button>
-        <span style={pageTitleStyle}>{title}</span>
-      </div>
-      <div style={paneWrapStyle}>
-        <ThreadDiffPane threadId={threadId} />
+    // .diff-viewer is position:absolute/inset:0 — give it a positioned,
+    // full-height host since .app-content isn't a positioning context.
+    <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
+      <div className="diff-viewer">
+        <div className="diff-viewer__toolbar">
+          <button className="button button--secondary" onClick={onBack} type="button">
+            ← Back
+          </button>
+          <div className="diff-viewer__title">
+            {task?.branchName != null && (
+              <span className="diff-viewer__repo">⎇ {task.branchName}</span>
+            )}
+            <span className="diff-viewer__pr-title">{title}</span>
+          </div>
+        </div>
+        <ThreadDiffPane threadId={threadId} flush />
       </div>
     </div>
   );
 }
-
-const pageStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100%',
-  minHeight: 0,
-};
-const topBarStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  padding: '10px 14px',
-  borderBottom: '1px solid rgba(0,0,0,0.06)',
-  flexShrink: 0,
-};
-const backBtnStyle: React.CSSProperties = {
-  flexShrink: 0,
-  padding: '5px 12px',
-  fontSize: 12,
-  fontWeight: 600,
-  color: 'var(--text-2)',
-  background: 'rgba(0,0,0,0.04)',
-  border: '1px solid rgba(0,0,0,0.08)',
-  borderRadius: 7,
-  cursor: 'pointer',
-};
-const pageTitleStyle: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 600,
-  color: 'var(--text-1)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-};
-const paneWrapStyle: React.CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  display: 'flex',
-  flexDirection: 'column',
-};

@@ -175,13 +175,17 @@ function loadDiffTab(): DiffMode {
  *  through; otherwise this falls back to managing its own state so
  *  surfaces like {@code ThreadZoomModal} don't need to thread it. */
 export function ThreadDiffPane({
-  threadId, mode, onChangeMode, workingCount, commitsCount,
+  threadId, mode, onChangeMode, workingCount, commitsCount, flush,
 }: {
   threadId: string;
   mode?: DiffMode;
   onChangeMode?: (next: DiffMode) => void;
   workingCount?: number | null;
   commitsCount?: number | null;
+  /** Drop the outer card border/radius so the pane sits edge-to-edge —
+   *  used by the standalone code-diff page to match the PR DiffViewerScreen
+   *  shell. */
+  flush?: boolean;
 }) {
   const internal = useTaskDiffState(threadId);
   const effectiveMode = mode ?? internal.mode;
@@ -193,6 +197,7 @@ export function ThreadDiffPane({
     onChangeMode: effectiveSetMode,
     workingCount: effectiveWorking,
     commitsCount: effectiveCommits,
+    flush,
   };
   return effectiveMode === 'files'
     ? <FilesPanel threadId={threadId} {...sharedProps} />
@@ -368,6 +373,35 @@ function useCommitFilesHeight(): [number, (next: number) => void] {
   return [height, setHeight];
 }
 
+// The Commits view lays the changed-files list out as its own middle
+// column (commits · files · diff), so the file list is width-resizable
+// rather than height-resizable.
+const COMMIT_FILES_WIDTH_KEY = 'bytequay.threads.detailCommitFilesWidth';
+const DEFAULT_COMMIT_FILES_WIDTH = 240;
+const MIN_COMMIT_FILES_WIDTH = 160;
+const MAX_COMMIT_FILES_WIDTH = 560;
+
+function useCommitFilesWidth(): [number, (next: number) => void] {
+  const [width, setWidthState] = useState<number>(() => {
+    try {
+      const raw = window.localStorage.getItem(COMMIT_FILES_WIDTH_KEY);
+      const n = raw == null ? NaN : parseInt(raw, 10);
+      return Number.isFinite(n) && n >= MIN_COMMIT_FILES_WIDTH && n <= MAX_COMMIT_FILES_WIDTH
+        ? n
+        : DEFAULT_COMMIT_FILES_WIDTH;
+    }
+    catch { return DEFAULT_COMMIT_FILES_WIDTH; }
+  });
+  const setWidth = useCallback((next: number) => {
+    setWidthState(Math.max(MIN_COMMIT_FILES_WIDTH, Math.min(MAX_COMMIT_FILES_WIDTH, next)));
+  }, []);
+  useEffect(() => {
+    try { window.localStorage.setItem(COMMIT_FILES_WIDTH_KEY, String(width)); }
+    catch { /* private browsing — fine to skip */ }
+  }, [width]);
+  return [width, setWidth];
+}
+
 function RowSplitter({
   height, onChange,
 }: {
@@ -506,13 +540,14 @@ function CollapsedRail({
 // ─── Files (uncommitted) ────────────────────────────────────────────
 
 function FilesPanel({
-  threadId, mode, onChangeMode, workingCount, commitsCount,
+  threadId, mode, onChangeMode, workingCount, commitsCount, flush,
 }: {
   threadId: string;
   mode: DiffMode;
   onChangeMode: (next: DiffMode) => void;
   workingCount: number | null;
   commitsCount: number | null;
+  flush?: boolean;
 }) {
   const [files, setFiles] = useState<ThreadWorkingFileDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -548,7 +583,7 @@ function FilesPanel({
   }, []);
 
   return (
-    <div style={panelStyle}>
+    <div style={flush ? flushPanelStyle : panelStyle}>
       {collapsed ? (
         <CollapsedRail label="Files" onExpand={() => setCollapsed(false)} />
       ) : (
@@ -600,13 +635,14 @@ function FilesPanel({
 // ─── Commits (since thread start) ─────────────────────────────────────
 
 function CommitsPanel({
-  threadId, mode, onChangeMode, workingCount, commitsCount,
+  threadId, mode, onChangeMode, workingCount, commitsCount, flush,
 }: {
   threadId: string;
   mode: DiffMode;
   onChangeMode: (next: DiffMode) => void;
   workingCount: number | null;
   commitsCount: number | null;
+  flush?: boolean;
 }) {
   const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -631,7 +667,7 @@ function CommitsPanel({
   useEffect(() => { void refresh(); }, [refresh]);
 
   return (
-    <div style={panelStyle}>
+    <div style={flush ? flushPanelStyle : panelStyle}>
       {collapsed ? (
         <CollapsedRail label="Commits" onExpand={() => setCollapsed(false)} />
       ) : (
@@ -708,7 +744,7 @@ function CommitDiffView({ threadId, sha }: { threadId: string; sha: string }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
   const [filesMode, setFilesMode] = useFilesMode();
-  const [filesHeight, setFilesHeight] = useCommitFilesHeight();
+  const [filesWidth, setFilesWidth] = useCommitFilesWidth();
 
   useEffect(() => {
     let cancelled = false;
@@ -742,11 +778,11 @@ function CommitDiffView({ threadId, sha }: { threadId: string; sha: string }) {
   return (
     <div style={commitDiffLayoutStyle}>
       <div
-        style={{ ...commitFileListStyle, height: filesHeight, flex: `0 0 ${filesHeight}px` }}
+        style={{ ...commitFileListStyle, width: filesWidth, flex: `0 0 ${filesWidth}px` }}
         className="diff-viewer__files"
       >
         <FilesPaneHeader
-          staticLabel={files === null ? 'Files in commit' : `Files in commit · ${files.length}`}
+          staticLabel={files === null ? 'Changed files' : `Changed files · ${files.length}`}
           mode={filesMode}
           onChangeMode={setFilesMode}
           onRefresh={() => { /* commit files don't refresh independently */ }}
@@ -763,7 +799,7 @@ function CommitDiffView({ threadId, sha }: { threadId: string; sha: string }) {
           onToggleDir={onToggleDir}
         />
       </div>
-      <RowSplitter height={filesHeight} onChange={setFilesHeight} />
+      <ColumnSplitter width={filesWidth} onChange={setFilesWidth} />
       <div style={commitDiffPaneStyle}>
         {selectedPath ? (
           <DiffBody
@@ -878,6 +914,14 @@ const panelStyle: React.CSSProperties = {
   flex: 1, minHeight: 0,
 };
 
+// Edge-to-edge variant for the standalone code-diff page, which supplies
+// its own DiffViewerScreen-style shell — no card border/radius.
+const flushPanelStyle: React.CSSProperties = {
+  ...panelStyle,
+  border: 'none',
+  borderRadius: 0,
+};
+
 const listColumnStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -963,14 +1007,17 @@ const commitMetaStyle: React.CSSProperties = {
 
 const commitDiffLayoutStyle: React.CSSProperties = {
   display: 'flex',
-  flexDirection: 'column',
+  flexDirection: 'row',
   minHeight: 0,
+  minWidth: 0,
   height: '100%',
+  width: '100%',
 };
 const commitFileListStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column',
   minHeight: 0,
-  overflow: 'hidden',
+  overflow: 'auto',
+  borderRight: '1px solid var(--border)',
 };
 const commitDiffPaneStyle: React.CSSProperties = {
   flex: 1,

@@ -50,7 +50,11 @@ public record TaskBrainViewData(
             String agentModel,
             /** True when the task is parked at PAUSED — drives the rail's
              *  Pause/Resume button so it never offers Pause on a paused task. */
-            boolean paused)
+            boolean paused,
+            /** True when the task has reached a terminal status (closed,
+             *  canceled, completed, errored, or archived) — the rail then
+             *  shows a closed state instead of Pause/Close controls. */
+            boolean terminal)
     {
     }
 

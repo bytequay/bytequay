@@ -148,6 +148,22 @@ public class AgentScheduler
         return enqueueTurnInternal(thread, input, /* taskId */ null, TurnInitiator.user());
     }
 
+    /**
+     * Queue an attended task-scope turn bound to an explicit {@code
+     * taskId} the caller resolved (active-or-latest), rather than
+     * re-deriving it from {@link Thread#activeTask()}. The task composer
+     * uses this so a turn lands on its task even when that task is parked
+     * / awaiting review / phase-complete — states the active-task
+     * projection drops to null, which would otherwise stamp the row
+     * {@code task_id = null} and surface it in the trunk slice. A null
+     * {@code taskId} falls through to a trunk turn.
+     */
+    @Override
+    public String enqueueTaskTurn(Thread thread, String input, String taskId)
+    {
+        return enqueueTurnInternal(thread, input, taskId, TurnInitiator.user());
+    }
+
     private String enqueueTurnInternal(Thread thread, String input, String taskId, TurnInitiator initiator)
     {
         requireNonNull(thread, "thread is null");

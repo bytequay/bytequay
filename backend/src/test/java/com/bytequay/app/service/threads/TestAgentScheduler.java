@@ -101,6 +101,36 @@ class TestAgentScheduler
     }
 
     @Test
+    void enqueueTaskTurnStampsTheExplicitTaskIdEvenWhenTheActiveProjectionIsNull()
+    {
+        // thread(...) builds a thread whose activeTask projection is null —
+        // the state a task in AWAITING_REVIEW / NEEDS_ATTENTION / phase-
+        // COMPLETED presents. The task composer binds the turn to its task
+        // by explicit id so the row is NOT recorded as a trunk (task_id =
+        // null) turn that would leak into the trunk conversation slice.
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTaskTurn(thread, "steer", "task-42");
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().taskId())
+                .isEqualTo("task-42");
+    }
+
+    @Test
+    void enqueueTaskTurnWithNullTaskIdFallsBackToATrunkTurn()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTaskTurn(thread, "plan", null);
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().taskId()).isNull();
+    }
+
+    @Test
     void apiLaneRunsWhileCliLaneIsFull()
     {
         TestHarness harness = new TestHarness(1, 1);

@@ -34,6 +34,25 @@ public interface ThreadTurnScheduler
      *  of any foreground Task on the thread. */
     String enqueueTrunkTurn(Thread thread, String input);
 
+    /** Queue a task-scope (attended) turn bound to an explicit {@code
+     *  taskId}, bypassing the active-task projection the no-id overloads
+     *  derive. The task-altitude composer uses this so a turn lands on
+     *  its task's conversation slice even when that task isn't in the
+     *  narrow "active" set — parked at {@code AWAITING_REVIEW}, {@code
+     *  NEEDS_ATTENTION}, or with a {@code COMPLETED} dev-lifecycle phase.
+     *  In those states {@code Thread.activeTask()} is null, which used to
+     *  mislabel the turn as a {@code task_id = null} (trunk) row and leak
+     *  the task conversation into the trunk slice. A null {@code taskId}
+     *  falls back to a trunk turn, matching the no-id behaviour.
+     *
+     *  <p>Defaulted to the active-task-derived {@link #enqueueTurn(Thread,
+     *  String)} so simple implementors (test fakes) need no change; the
+     *  production scheduler overrides it to honour {@code taskId}. */
+    default String enqueueTaskTurn(Thread thread, String input, String taskId)
+    {
+        return enqueueTurn(thread, input);
+    }
+
     /** Cancel queued turns for one thread and return the number cancelled. */
     int cancelQueuedTurns(String threadId);
 }

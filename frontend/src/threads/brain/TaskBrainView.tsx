@@ -190,7 +190,7 @@ export default function TaskBrainView({
           onOpenPr={task.prNumber !== null && onOpenPr !== undefined ? openPr : undefined}
         />
         <AggregateMetricsStrip aggregate={aggregate} liveLabel={liveLabel} />
-        <PendingApprovalToast threadId={threadId} onResolved={pollFast} />
+        <PendingApprovalToast threadId={threadId} onResolved={pollFast} onReview={onOpenCode} />
         {loadError !== null && (
           <div className="tbv-load-error" role="alert">
             Couldn't refresh the brain view: {loadError}. Showing the last loaded state.

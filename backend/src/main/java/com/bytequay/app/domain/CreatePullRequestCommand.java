@@ -43,4 +43,15 @@ public record CreatePullRequestCommand(
     {
         return new CreatePullRequestCommand(head, base, title, Optional.empty(), Optional.of(true), Optional.empty());
     }
+
+    public static CreatePullRequestCommand draft(String head, String base, String title, String body)
+    {
+        return new CreatePullRequestCommand(
+                head,
+                base,
+                title,
+                body == null || body.isBlank() ? Optional.empty() : Optional.of(body),
+                Optional.of(true),
+                Optional.empty());
+    }
 }

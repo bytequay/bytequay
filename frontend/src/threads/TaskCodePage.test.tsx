@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import TaskCodePage from './TaskCodePage';
+import type { NotificationDto } from '../types';
 
 // jsdom doesn't implement scrollIntoView; the shared ContinuousDiff calls it
 // when the active file changes.
@@ -39,11 +40,43 @@ function mockBridge(overrides: Record<string, unknown> = {}) {
     ]),
     getTaskCumulativeDiff: vi.fn().mockResolvedValue(CUMULATIVE),
     getTaskCommitDiffFiles: vi.fn().mockResolvedValue(PER_COMMIT),
+    // Review-mode bridge surface — default to "no proposal / no comments"
+    // so the existing read-only tests stay unchanged.
+    listNotificationsForThread: vi.fn().mockResolvedValue([]),
+    listReviewComments: vi.fn().mockResolvedValue([]),
+    addReviewComment: vi.fn().mockResolvedValue({}),
+    resolveReviewComment: vi.fn().mockResolvedValue(undefined),
+    reopenReviewComment: vi.fn().mockResolvedValue(undefined),
+    submitReview: vi.fn().mockResolvedValue({ submitted: 1, turnId: 't1' }),
+    setShipDescription: vi.fn().mockResolvedValue({}),
+    approveNotification: vi.fn().mockResolvedValue({ ok: true, resolution: 'approved', message: '', action: 'ship_task' }),
     ...overrides,
   };
   (window as unknown as { bridge: unknown }).bridge = bridge;
   return bridge;
 }
+
+const SHIP_PROPOSAL: NotificationDto = {
+  id: 'notif-1',
+  kind: 'AWAITING_REVIEW',
+  threadId: 'thread-1',
+  taskId: 'task-1',
+  status: 'UNREAD',
+  payloadJson: JSON.stringify({
+    action: 'ship_task',
+    prTitle: 'Fix the typos',
+    prBody: 'Body of the PR description.',
+    diff: CUMULATIVE[0].patch,
+    diffBase: 'main',
+  }),
+  createdAt: '2026-06-20T10:00:00Z',
+  readAt: null,
+};
+
+const OPEN_COMMENT = {
+  id: 'rc-1', taskId: 'task-1', file: 'src/Foo.ts', line: 1,
+  body: 'please rename this', createdAt: 1, source: 'LOCAL_USER', resolved: false,
+};
 
 describe('TaskCodePage', () => {
   it('renders the cumulative diff via the shared continuous renderer', async () => {
@@ -78,5 +111,81 @@ describe('TaskCodePage', () => {
     render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={onBack} />);
     fireEvent.click(await screen.findByRole('button', { name: '← Back' }));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('no pending proposal → no PR panel and no review actions (read-only)', async () => {
+    mockBridge();
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+    await screen.findByText('Fix typos in docs');
+    expect(screen.queryByText('Pull request description')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Approve & ship/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();
+  });
+
+  it('review mode: renders the PR title/body and disables Approve while a comment is unresolved', async () => {
+    mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([OPEN_COMMENT]),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    // PR description panel seeded from the parked payload.
+    expect(await screen.findByText('Pull request description')).toBeTruthy();
+    await waitFor(() =>
+      expect((screen.getByLabelText('Pull request title') as HTMLInputElement).value).toBe('Fix the typos'));
+
+    // One open comment → Approve & ship disabled with the resolve hint.
+    const approve = await screen.findByRole('button', { name: /Approve & ship/ });
+    expect((approve as HTMLButtonElement).disabled).toBe(true);
+    expect(approve.getAttribute('title')).toBe('resolve the open review comments first');
+  });
+
+  it('review mode: Approve becomes enabled once the comment is resolved', async () => {
+    const resolved = { ...OPEN_COMMENT, resolved: true };
+    mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([resolved]),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    const approve = await screen.findByRole('button', { name: /Approve & ship/ });
+    await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('review mode: "Submit review" calls submitReview', async () => {
+    const bridge = mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([OPEN_COMMENT]),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit review' }));
+    await waitFor(() => expect(bridge.submitReview).toHaveBeenCalledWith('task-1'));
+  });
+
+  it('review mode: clicking a diff line and saving calls addReviewComment', async () => {
+    const bridge = mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([]),
+    });
+    const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    // Wait for review mode + the diff to render, then click a commentable
+    // new-side row (the added line in CUMULATIVE anchors RIGHT:1).
+    await screen.findByText('Pull request description');
+    const row = await waitFor(() => {
+      const el = container.querySelector('.diff-row--add.diff-row--commentable');
+      if (!el) throw new Error('no commentable row yet');
+      return el;
+    });
+    fireEvent.click(row);
+
+    // Composer opens; type a body and save.
+    const textarea = await screen.findByPlaceholderText(/Leave a review comment/);
+    fireEvent.change(textarea, { target: { value: 'nit: rename' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    // The added line `+new line` is new-side line 2 in the patch.
+    await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith('task-1', 'src/Foo.ts', 2, 'nit: rename'));
   });
 });

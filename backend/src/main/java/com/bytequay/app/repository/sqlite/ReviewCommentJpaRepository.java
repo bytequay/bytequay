@@ -24,6 +24,8 @@ interface ReviewCommentJpaRepository
 
     List<ReviewCommentEntity> findByTaskIdAndSource(String taskId, String source);
 
+    List<ReviewCommentEntity> findByTaskIdOrderByCreatedAtMsAsc(String taskId);
+
     /** Dedup guard for remote-comment ingestion — remote_link is unique
      *  per github.com discussion comment. */
     boolean existsByRemoteLink(String remoteLink);

@@ -1180,6 +1180,66 @@
   overflow: hidden;
 }
 
+/* ── Task code page · review mode ──────────────────────────────────────
+   The actions bar lives at the right of the toolbar; the editable PR
+   description panel sits at the top of the diff pane. */
+.diff-viewer__review-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+.diff-viewer__review-note {
+  font-size: var(--font-size-xs);
+  color: var(--text-2);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-viewer__review-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.ship-description {
+  flex: 0 0 auto;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ship-description__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ship-description__label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+.ship-description__saving {
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+}
+.ship-description__title {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas, var(--bg-elevated));
+  color: var(--text-1);
+}
+
 .diff-viewer__repo { font-size: var(--font-size-md); color: var(--text-2); white-space: nowrap; }
 .diff-viewer__num { font-size: var(--font-size-md); color: var(--text-3); }
 .diff-viewer__pr-title {

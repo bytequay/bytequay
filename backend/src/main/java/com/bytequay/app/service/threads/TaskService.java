@@ -331,8 +331,16 @@ public class TaskService
                     // the post-ship loop (CI auto-fix, addressing review
                     // comments) pushes more commits to this branch, and the
                     // lifecycle reconciler marks the PR ready once CI is green.
+                    // Ship opens a draft PR with the agent-proposed (or
+                    // user-edited) title/body when supplied; a blank title
+                    // falls back to the thread title, a blank body opens with
+                    // none. Next keeps the legacy thread-title shape.
+                    String shipTitle = request.prTitle() == null || request.prTitle().isBlank()
+                            ? thread.title()
+                            : request.prTitle();
                     CreatePullRequestCommand command = mode == ParkMode.SHIP
-                            ? CreatePullRequestCommand.draft(current.branchName(), prBase, thread.title())
+                            ? CreatePullRequestCommand.draft(
+                                    current.branchName(), prBase, shipTitle, request.prBody())
                             : CreatePullRequestCommand.of(current.branchName(), prBase, thread.title());
                     PullRequest pr = pullRequestRepository.createPullRequest(pat, repoRef, command);
                     prNumber = pr.number();
@@ -822,14 +830,23 @@ public class TaskService
         NEXT,
     }
 
-    /** Request body for {@code POST /api/threads/{id}/tasks/{id}/ship}. */
-    public record ShipRequest(String nextTitle, BaseMode baseMode)
+    /** Request body for {@code POST /api/threads/{id}/tasks/{id}/ship}.
+     *  {@code prTitle} / {@code prBody} carry the agent-proposed (or
+     *  user-edited) PR description for the draft PR a ship opens; both
+     *  are optional — a blank {@code prTitle} falls back to the thread
+     *  title and a blank {@code prBody} opens the PR with no body. */
+    public record ShipRequest(String nextTitle, BaseMode baseMode, String prTitle, String prBody)
     {
         public ShipRequest
         {
             if (baseMode == null) {
                 baseMode = BaseMode.MAIN;
             }
+        }
+
+        public ShipRequest(String nextTitle, BaseMode baseMode)
+        {
+            this(nextTitle, baseMode, null, null);
         }
     }
 }

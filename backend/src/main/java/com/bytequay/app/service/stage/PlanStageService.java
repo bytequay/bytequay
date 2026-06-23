@@ -204,11 +204,13 @@ public class PlanStageService
             scheduler.enqueueTurn(dev,
                     "Your implementation turn ended without proposing to publish. If the "
                             + "work is complete, call ship_task(...) now — do NOT call push by "
-                            + "itself. ship_task parks ONE proposal that, on the user's approval, "
-                            + "pushes the branch AND opens a draft PR in a single step, so the PR "
-                            + "links and the stage advances together. It parks for approval and "
-                            + "pushes nothing until the user approves. If the work isn't finished, "
-                            + "keep going instead.",
+                            + "itself. When you call ship_task you MUST include a pr_title and a "
+                            + "pr_body (markdown) describing the change, so the draft PR opens with "
+                            + "a useful description. ship_task parks ONE proposal that, on the "
+                            + "user's approval, pushes the branch AND opens a draft PR in a single "
+                            + "step, so the PR links and the stage advances together. It parks for "
+                            + "approval and pushes nothing until the user approves. If the work "
+                            + "isn't finished, keep going instead.",
                     TurnInitiator.unattended("ship-nudge"));
             log.debug("nudged dev thread {} to ship task {}", dev.id(), event.taskId());
         });

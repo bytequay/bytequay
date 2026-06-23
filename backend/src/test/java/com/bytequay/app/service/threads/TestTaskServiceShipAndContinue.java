@@ -172,6 +172,69 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
+    void shipOpensTheDraftPrWithTheProposedTitleAndBody()
+            throws Exception
+    {
+        String workingDir = "/tmp/acme/widget";
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
+        Task shipped = task("task-1", "thread-1", 1L, "dev/task-1",
+                "/tmp/acme/widget/.worktrees/task-1", workingDir);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(shipped));
+        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(shipped));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
+        when(workspaces.findDefaultBaseBranch(anyString(), anyString())).thenReturn(Optional.empty());
+        when(git.defaultBranch(any(Path.class))).thenReturn(Optional.of("main"));
+        when(git.hasUncommittedChanges(any(Path.class))).thenReturn(false);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        ArgumentCaptor<CreatePullRequestCommand> command =
+                ArgumentCaptor.forClass(CreatePullRequestCommand.class);
+        when(pullRequests.createPullRequest(eq("ghp_secret"), any(RepoRef.class), command.capture()))
+                .thenReturn(prWithNumber(42));
+        when(registry.find("thread-1")).thenReturn(Optional.empty());
+
+        service.shipAndContinue("thread-1", "task-1",
+                new TaskService.ShipRequest(
+                        "Next task", TaskService.BaseMode.MAIN,
+                        "Add cache layer", "## Summary\nCaches reads."));
+
+        // The proposed title/body land on the draft PR; thread.title() is
+        // only the fallback when prTitle is blank.
+        assertThat(command.getValue().draft()).contains(true);
+        assertThat(command.getValue().title()).isEqualTo("Add cache layer");
+        assertThat(command.getValue().body()).contains("## Summary\nCaches reads.");
+    }
+
+    @Test
+    void shipFallsBackToThreadTitleWhenNoProposedPrTitle()
+            throws Exception
+    {
+        String workingDir = "/tmp/acme/widget";
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
+        Task shipped = task("task-1", "thread-1", 1L, "dev/task-1",
+                "/tmp/acme/widget/.worktrees/task-1", workingDir);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(shipped));
+        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(shipped));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
+        when(workspaces.findDefaultBaseBranch(anyString(), anyString())).thenReturn(Optional.empty());
+        when(git.defaultBranch(any(Path.class))).thenReturn(Optional.of("main"));
+        when(git.hasUncommittedChanges(any(Path.class))).thenReturn(false);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        ArgumentCaptor<CreatePullRequestCommand> command =
+                ArgumentCaptor.forClass(CreatePullRequestCommand.class);
+        when(pullRequests.createPullRequest(eq("ghp_secret"), any(RepoRef.class), command.capture()))
+                .thenReturn(prWithNumber(42));
+        when(registry.find("thread-1")).thenReturn(Optional.empty());
+
+        service.shipAndContinue("thread-1", "task-1",
+                new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
+
+        assertThat(command.getValue().title()).isEqualTo("Test thread");
+        assertThat(command.getValue().body()).isEmpty();
+    }
+
+    @Test
     void approvedParkedNextAdvancesWithoutReopeningCurrentTaskAsRunning()
             throws Exception
     {

@@ -263,7 +263,8 @@ class TestParkedProposalSerialization
         ParkedProposal.ShipTask original = new ParkedProposal.ShipTask(
                 "thread-1", "task-1", "feature/s", "main", "/tmp/wt/s",
                 "After ship", "main",
-                null, null, "git diff failed");
+                null, null, "git diff failed",
+                "Add cache layer", "## Summary\nCaches reads.");
         roundTripThroughSupertype(original);
     }
 

@@ -227,6 +227,24 @@ class SqliteStageStore
     }
 
     @Override
+    public List<ReviewComment> findCommentsByTask(String taskId)
+    {
+        return comments.findByTaskIdOrderByCreatedAtMsAsc(taskId).stream()
+                .map(SqliteStageStore::toComment)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void setReviewCommentResolved(UUID id, boolean resolved)
+    {
+        comments.findById(id.toString()).ifPresent(entity -> {
+            entity.setResolved(resolved);
+            comments.save(entity);
+        });
+    }
+
+    @Override
     @Transactional
     public StageEvent recordEvent(UUID stageId, String taskId, StageEventType type, Map<String, Object> payload)
     {

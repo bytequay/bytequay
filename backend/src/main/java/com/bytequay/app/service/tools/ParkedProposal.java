@@ -282,7 +282,9 @@ public sealed interface ParkedProposal
             String baseMode,
             String diffBase,
             String diff,
-            String diffError)
+            String diffError,
+            String prTitle,
+            String prBody)
             implements ParkedProposal
     {
         @Override public String action() { return "ship_task"; }

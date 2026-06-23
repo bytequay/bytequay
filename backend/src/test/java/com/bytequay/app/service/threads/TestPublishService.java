@@ -21,10 +21,13 @@ import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.domain.ReviewComment;
+import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -44,6 +47,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -76,6 +80,7 @@ class TestPublishService
     private ParkedProposalService parkedProposals;
     private TaskService taskService;
     private TaskPhaseMachine phaseMachine;
+    private StageStore stageStore;
     private PublishService service;
 
     @BeforeEach
@@ -90,10 +95,12 @@ class TestPublishService
         parkedProposals = mock(ParkedProposalService.class);
         taskService = mock(TaskService.class);
         phaseMachine = mock(TaskPhaseMachine.class);
+        stageStore = mock(StageStore.class);
         service = new PublishService(
                 notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
-                mock(ReviewPassResolver.class), phaseMachine);
+                mock(ReviewPassResolver.class), phaseMachine, stageStore);
         when(notifications.claimResolution(anyString())).thenReturn(true);
+        when(stageStore.findUnresolvedComments(anyString())).thenReturn(List.of());
     }
 
     @Test
@@ -408,6 +415,122 @@ class TestPublishService
         assertThat(request.getValue().baseMode()).isEqualTo(TaskService.BaseMode.MAIN);
         verify(notifications).claimResolution("notif-ship");
         verify(parkedProposals).finishApproved(parked, true);
+    }
+
+    @Test
+    void approveShipTaskThreadsProposedPrTitleAndBodyIntoTheShipRequest()
+    {
+        Notification parked = parkedShipTaskWithPr(
+                "notif-ship-pr", "task-ship-pr", "Add cache layer", "Caches reads.");
+        when(notifications.find("notif-ship-pr")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-ship-pr"))
+                .thenReturn(Optional.of(taskAt("task-ship-pr", TaskStatus.AWAITING_REVIEW)));
+        when(taskService.shipApprovedParkedTask(eq("thread-task-ship-pr"), eq("task-ship-pr"), any()))
+                .thenReturn(taskAt("task-after", TaskStatus.PENDING));
+
+        service.approve("notif-ship-pr", null, "ship_task");
+
+        ArgumentCaptor<TaskService.ShipRequest> request =
+                ArgumentCaptor.forClass(TaskService.ShipRequest.class);
+        verify(taskService).shipApprovedParkedTask(
+                eq("thread-task-ship-pr"), eq("task-ship-pr"), request.capture());
+        assertThat(request.getValue().prTitle()).isEqualTo("Add cache layer");
+        assertThat(request.getValue().prBody()).isEqualTo("Caches reads.");
+    }
+
+    @Test
+    void approveShipTaskRejectedWhenTaskHasUnresolvedLocalReviewComments()
+    {
+        Notification parked = parkedShipTask("notif-ship-gate", "task-ship-gate");
+        when(notifications.find("notif-ship-gate")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-ship-gate"))
+                .thenReturn(Optional.of(taskAt("task-ship-gate", TaskStatus.AWAITING_REVIEW)));
+        when(stageStore.findUnresolvedComments("task-ship-gate"))
+                .thenReturn(List.of(localComment("task-ship-gate")));
+
+        assertThatThrownBy(() -> service.approve("notif-ship-gate", null, "ship_task"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("open review comment");
+
+        // The gate runs in preflight, before any claim or remote side effect.
+        verify(notifications, never()).claimResolution("notif-ship-gate");
+        verify(taskService, never()).shipApprovedParkedTask(anyString(), anyString(), any());
+    }
+
+    @Test
+    void approveShipTaskSucceedsOnceLocalReviewCommentsAreResolved()
+    {
+        Notification parked = parkedShipTask("notif-ship-ok", "task-ship-ok");
+        when(notifications.find("notif-ship-ok")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-ship-ok"))
+                .thenReturn(Optional.of(taskAt("task-ship-ok", TaskStatus.AWAITING_REVIEW)));
+        when(stageStore.findUnresolvedComments("task-ship-ok")).thenReturn(List.of());
+        when(taskService.shipApprovedParkedTask(eq("thread-task-ship-ok"), eq("task-ship-ok"), any()))
+                .thenReturn(taskAt("task-after-ok", TaskStatus.PENDING));
+
+        PublishResult result = service.approve("notif-ship-ok", null, "ship_task");
+
+        assertThat(result.action()).isEqualTo("ship_task");
+        verify(taskService).shipApprovedParkedTask(eq("thread-task-ship-ok"), eq("task-ship-ok"), any());
+    }
+
+    @Test
+    void approvePostCommentNotGatedByUnresolvedReviewComments()
+    {
+        // The ship gate is for advance proposals only — a comment publish
+        // must still work even with open review comments on the task.
+        Notification parked = parkedPostComment(
+                "notif-comment-gate", "task-comment-gate", "acme", "widget", 7, "Looks good.");
+        when(notifications.find("notif-comment-gate")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-comment-gate"))
+                .thenReturn(Optional.of(taskAt("task-comment-gate", TaskStatus.AWAITING_REVIEW)));
+        when(stageStore.findUnresolvedComments("task-comment-gate"))
+                .thenReturn(List.of(localComment("task-comment-gate")));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+
+        PublishResult result = service.approve("notif-comment-gate", null, "post_comment");
+
+        assertThat(result.ok()).isTrue();
+        verify(pullRequests).createIssueComment(eq("ghp_secret"), any(), eq("Looks good."));
+    }
+
+    @Test
+    void updateShipDescriptionRewritesTheParkedPayloadsPrTitleAndBody()
+    {
+        Notification parked = parkedShipTask("notif-edit", "task-edit");
+        when(notifications.find("notif-edit")).thenReturn(Optional.of(parked));
+        Notification rewritten = new Notification(
+                "notif-edit", NotificationKind.AWAITING_REVIEW, "thread-task-edit", "task-edit",
+                NotificationStatus.UNREAD, "{}", Instant.now(), null);
+        when(notifications.updatePayload(eq("notif-edit"), anyString())).thenReturn(rewritten);
+
+        service.updateShipDescription("notif-edit", "Edited title", "Edited body");
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(notifications).updatePayload(eq("notif-edit"), payload.capture());
+        JsonNode tree;
+        try {
+            tree = mapper.readTree(payload.getValue());
+        }
+        catch (Exception e) {
+            throw new AssertionError("payload not valid JSON: " + payload.getValue(), e);
+        }
+        assertThat(tree.path("action").asText()).isEqualTo("ship_task");
+        assertThat(tree.path("prTitle").asText()).isEqualTo("Edited title");
+        assertThat(tree.path("prBody").asText()).isEqualTo("Edited body");
+    }
+
+    @Test
+    void updateShipDescriptionRejectsNonShipProposal()
+    {
+        Notification parked = parkedNextTask("notif-not-ship", "task-not-ship");
+        when(notifications.find("notif-not-ship")).thenReturn(Optional.of(parked));
+
+        assertThatThrownBy(() -> service.updateShipDescription("notif-not-ship", "t", "b"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not a ship proposal");
+
+        verify(notifications, never()).updatePayload(anyString(), anyString());
     }
 
     @Test
@@ -1039,6 +1162,28 @@ class TestPublishService
                 NotificationStatus.UNREAD,
                 "{\"action\":\"ship_task\",\"nextTitle\":\"After ship\",\"baseMode\":\"main\"}",
                 Instant.now(), null);
+    }
+
+    private static Notification parkedShipTaskWithPr(
+            String notificationId, String taskId, String prTitle, String prBody)
+    {
+        String json = "{"
+                + "\"action\":\"ship_task\","
+                + "\"nextTitle\":\"After ship\","
+                + "\"baseMode\":\"main\","
+                + "\"prTitle\":" + quote(prTitle) + ","
+                + "\"prBody\":" + quote(prBody)
+                + "}";
+        return new Notification(
+                notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,
+                NotificationStatus.UNREAD, json, Instant.now(), null);
+    }
+
+    private static ReviewComment localComment(String taskId)
+    {
+        return new ReviewComment(
+                UUID.randomUUID(), taskId, "src/Foo.java", 12, "fix this",
+                Instant.now(), ReviewCommentSource.LOCAL_USER, null, false);
     }
 
     private static Notification parkedApprovePr(

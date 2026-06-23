@@ -96,6 +96,7 @@ import type {
   WorkspaceDto,
   WorkspaceRepoDto,
   CredentialTestResult,
+  ReviewCommentDto,
 } from './types';
 
 const bridge: Bridge = {
@@ -715,6 +716,18 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:complete', passId),
   getReviewThreadPrSummaries: (threadIds: string[]) =>
     ipcRenderer.invoke('reviews:prSummaries', threadIds),
+  addReviewComment: (
+    taskId: string, file: string, line: number, body: string,
+  ): Promise<ReviewCommentDto> =>
+    ipcRenderer.invoke('review:add', { taskId, file, line, body }),
+  listReviewComments: (taskId: string): Promise<ReviewCommentDto[]> =>
+    ipcRenderer.invoke('review:list', taskId),
+  resolveReviewComment: (id: string): Promise<void> =>
+    ipcRenderer.invoke('review:resolve', id),
+  reopenReviewComment: (id: string): Promise<void> =>
+    ipcRenderer.invoke('review:reopen', id),
+  submitReview: (taskId: string): Promise<{ submitted: number; turnId: string | null }> =>
+    ipcRenderer.invoke('review:submit', taskId),
   getScheduledReviewSettings: () =>
     ipcRenderer.invoke('reviews:scheduled:get'),
   setScheduledReviewSettings: (enabled: boolean) =>
@@ -839,6 +852,8 @@ const bridge: Bridge = {
       }),
   discardNotification: (id: string, expectedAction?: string | null) =>
       ipcRenderer.invoke('notifications:discard', { id, expectedAction: expectedAction ?? null }),
+  setShipDescription: (notificationId: string, prTitle: string, prBody: string) =>
+      ipcRenderer.invoke('notifications:shipDescription', { id: notificationId, prTitle, prBody }),
 
   listTaskWorkingChanges: (id: string) => ipcRenderer.invoke('threads:workingChanges', id),
   getTaskWorkingDiff: (id: string, path: string) => ipcRenderer.invoke('threads:workingDiff', id, path),

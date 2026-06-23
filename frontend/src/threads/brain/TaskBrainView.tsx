@@ -17,6 +17,7 @@ import { useBrainViewData } from './useBrainViewData';
 import { buildStageLabels } from './stageMeta';
 import { TaskIdentityBar } from './TaskIdentityBar';
 import { AggregateMetricsStrip } from './AggregateMetricsStrip';
+import { PendingApprovalToast } from '../PendingApprovalToast';
 import { StageNavigatorRail } from './StageNavigatorRail';
 import { BrainFeedColumn } from './BrainFeedColumn';
 import { RightRail } from './RightRail';
@@ -189,6 +190,7 @@ export default function TaskBrainView({
           onOpenPr={task.prNumber !== null && onOpenPr !== undefined ? openPr : undefined}
         />
         <AggregateMetricsStrip aggregate={aggregate} liveLabel={liveLabel} />
+        <PendingApprovalToast threadId={threadId} onResolved={pollFast} />
         {loadError !== null && (
           <div className="tbv-load-error" role="alert">
             Couldn't refresh the brain view: {loadError}. Showing the last loaded state.

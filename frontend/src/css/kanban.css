@@ -24,6 +24,16 @@
   min-height: 0;
 }
 
+/* Lane filter (My PRs / To review) in the full-screen kanban's top bar —
+   the scope toggle that moved out of the side nav. Reuses the
+   .pr-list-scope-tab button styling; this just lays the row out. */
+.kanban-lane-filter {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 20px 0;
+}
+
 .kanban-sidenav {
   flex: 0 0 220px;
   display: flex;
@@ -113,13 +123,6 @@
 .kanban-sidenav__item--active .kanban-sidenav__count--urgent {
   background: #cf222e;
   color: #fff;
-}
-.kanban-sidenav__alert {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #cf222e;
-  flex-shrink: 0;
 }
 .kanban-sidenav__spacer { flex: 1; min-height: var(--space-4); }
 .kanban-sidenav__item--footer { margin-top: var(--space-2); }

@@ -3268,6 +3268,31 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('notifications:shipDescription', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('shipDescription args must be an object');
+    }
+    const a = args as { id?: unknown; prTitle?: unknown; prBody?: unknown };
+    if (typeof a.id !== 'string' || a.id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (typeof a.prTitle !== 'string' || typeof a.prBody !== 'string') {
+      throw new Error('prTitle and prBody must be strings');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/ship-description`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prTitle: a.prTitle, prBody: a.prBody }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/notifications/${a.id}/ship-description returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:workingChanges', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -4078,6 +4103,74 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST complete returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('review:add', async (_event, args: unknown) => {
+    const params = args as { taskId?: unknown; file?: unknown; line?: unknown; body?: unknown };
+    const taskId = params?.taskId;
+    if (typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('taskId must be a non-empty string');
+    }
+    const body = {
+      file: typeof params.file === 'string' ? params.file : '',
+      line: typeof params.line === 'number' ? params.line : 0,
+      body: typeof params.body === 'string' ? params.body : '',
+    };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/review-comments`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST review-comments returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('review:list', async (_event, taskId: unknown) => {
+    if (typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('taskId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/review-comments`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET review-comments returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  for (const action of ['resolve', 'reopen'] as const) {
+    ipcMain.handle(`review:${action}`, async (_event, id: unknown) => {
+      if (typeof id !== 'string' || id.trim().length === 0) {
+        throw new Error('id must be a non-empty string');
+      }
+      const res = await fetch(
+        `${BACKEND_BASE}/api/review-comments/${encodeURIComponent(id)}/${action}`,
+        { method: 'POST' });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`backend POST review-comment ${action} returned ${res.status}: ${text}`);
+      }
+      return undefined;
+    });
+  }
+
+  ipcMain.handle('review:submit', async (_event, taskId: unknown) => {
+    if (typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('taskId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/submit-review`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST submit-review returned ${res.status}: ${text}`);
     }
     return res.json();
   });

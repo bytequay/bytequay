@@ -28,6 +28,7 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -127,6 +128,7 @@ public class PublishService
      *  which fire at most once per parked notification. */
     private final TaskService taskService;
     private final ReviewPassResolver reviewPassResolver;
+    private final StageStore stageStore;
 
     public PublishService(
             NotificationService notifications,
@@ -138,7 +140,8 @@ public class PublishService
             ParkedProposalService parkedProposals,
             @Lazy TaskService taskService,
             ReviewPassResolver reviewPassResolver,
-            TaskPhaseMachine phaseMachine)
+            TaskPhaseMachine phaseMachine,
+            StageStore stageStore)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -150,6 +153,7 @@ public class PublishService
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.reviewPassResolver = requireNonNull(reviewPassResolver, "reviewPassResolver is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
     }
 
     /**
@@ -594,6 +598,15 @@ public class PublishService
     private void preflightAdvance(String baseMode, Notification original, String action)
     {
         Task parked = resolveParkedAdvanceTarget(original, action);
+        // Hard ship gate: a ship/advance must not push or open a PR while
+        // the user still has open local review comments on the task. This
+        // runs before the claim and any remote side effect, so a reject
+        // leaves the proposal parked and re-approvable once they're resolved.
+        int openComments = stageStore.findUnresolvedComments(parked.id()).size();
+        if (openComments > 0) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "resolve the " + openComments + " open review comment(s) before shipping");
+        }
         if (taskStore.findActiveTaskForThread(parked.threadId()).isPresent()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "thread " + parked.threadId() + " already has an active successor");
@@ -680,6 +693,48 @@ public class PublishService
         writeAuditRow(original, auditResolution, action, auditMessage);
         return new PublishResult(true, RESOLUTION_DISCARDED,
                 "Discarded.", action);
+    }
+
+    /**
+     * Rewrite a parked ship proposal's PR title/body before the user
+     * approves it. Loads the AWAITING_REVIEW notification, requires it to
+     * be a {@code ship_task} proposal, replaces the proposed prTitle /
+     * prBody, and re-persists the payload. Blank values are stored as
+     * null so the approve path falls back to the thread title / no body.
+     * Rejects anything that isn't an open ship proposal.
+     */
+    public Notification updateShipDescription(String notificationId, String prTitle, String prBody)
+    {
+        Notification original = requireParked(notificationId);
+        ParkedProposal proposal = parseProposal(original);
+        if (!(proposal instanceof ParkedProposal.ShipTask shipTask)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "notification " + notificationId + " is not a ship proposal");
+        }
+        String title = nullToEmpty(prTitle).trim();
+        String body = nullToEmpty(prBody);
+        ParkedProposal.ShipTask updated = new ParkedProposal.ShipTask(
+                shipTask.threadId(),
+                shipTask.taskId(),
+                shipTask.branch(),
+                shipTask.baseBranch(),
+                shipTask.worktreePath(),
+                shipTask.nextTitle(),
+                shipTask.baseMode(),
+                shipTask.diffBase(),
+                shipTask.diff(),
+                shipTask.diffError(),
+                title.isEmpty() ? null : title,
+                body.isEmpty() ? null : body);
+        String payloadJson;
+        try {
+            payloadJson = mapper.writeValueAsString(updated);
+        }
+        catch (JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(500),
+                    "failed to serialise updated ship proposal: " + e.getMessage());
+        }
+        return notifications.updatePayload(notificationId, payloadJson);
     }
 
     private Notification requireParked(String notificationId)
@@ -1135,7 +1190,8 @@ public class PublishService
 
     private PublishResult doNextTask(ParkedProposal.NextTask nextTask, Notification original)
     {
-        Task next = runApprovedAdvance(nextTask.nextTitle(), nextTask.baseMode(), original, nextTask.action());
+        Task next = runApprovedAdvance(
+                nextTask.nextTitle(), nextTask.baseMode(), null, null, original, nextTask.action());
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Advanced from task " + original.taskId() + " to " + next.id()
                         + " on " + next.branchName() + ".",
@@ -1144,7 +1200,9 @@ public class PublishService
 
     private PublishResult doShipTask(ParkedProposal.ShipTask shipTask, Notification original)
     {
-        Task next = runApprovedAdvance(shipTask.nextTitle(), shipTask.baseMode(), original, shipTask.action());
+        Task next = runApprovedAdvance(
+                shipTask.nextTitle(), shipTask.baseMode(),
+                shipTask.prTitle(), shipTask.prBody(), original, shipTask.action());
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Shipped task " + original.taskId() + " → created " + next.id()
                         + " on " + next.branchName() + ".",
@@ -1154,9 +1212,13 @@ public class PublishService
     /**
      * Approves a parked task advance without reopening it as live
      * agent work. The user's Approve click is the publish
-     * authorisation gate.
+     * authorisation gate. {@code prTitle} / {@code prBody} carry the
+     * proposed (or edited) draft-PR description for a ship; they are
+     * null for a next_task advance.
      */
-    private Task runApprovedAdvance(String nextTitleRaw, String baseModeRaw, Notification original, String action)
+    private Task runApprovedAdvance(
+            String nextTitleRaw, String baseModeRaw,
+            String prTitle, String prBody, Notification original, String action)
     {
         Task parked = resolveParkedAdvanceTarget(original, action);
         String threadId = parked.threadId();
@@ -1171,7 +1233,7 @@ public class PublishService
                 ? TaskService.BaseMode.STACKED
                 : TaskService.BaseMode.MAIN;
         TaskService.ShipRequest request = new TaskService.ShipRequest(
-                nextTitle.isBlank() ? null : nextTitle, mode);
+                nextTitle.isBlank() ? null : nextTitle, mode, prTitle, prBody);
         return ACTION_NEXT_TASK.equals(action)
                 ? taskService.startNextFromApprovedParkedTask(threadId, taskId, request)
                 : taskService.shipApprovedParkedTask(threadId, taskId, request);

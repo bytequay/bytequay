@@ -146,6 +146,43 @@ class TestPublishToolHandlers
         assertThat(completed.text()).contains("acme/widget#42").contains("502 from GitHub");
     }
 
+    @Test
+    void shipTaskParksTheProposedPrTitleAndBody()
+    {
+        Task task = taskAt("task-ship", TaskStatus.RUNNING);
+        when(taskStore.findActiveTaskForThread("thread-ship")).thenReturn(Optional.of(task));
+
+        ToolOutcome outcome = handlers.shipTask(
+                new PublishToolHandlers.ShipTaskArgs(
+                        "Next thing", "main", "Add cache layer", "## Summary\nCaches reads."),
+                new ToolCall("thread-ship", null, AgentRole.TASK));
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
+        verify(parkedProposals).park(eq(task), captor.capture());
+        assertThat(captor.getValue()).isInstanceOf(ParkedProposal.ShipTask.class);
+        ParkedProposal.ShipTask parked = (ParkedProposal.ShipTask) captor.getValue();
+        assertThat(parked.prTitle()).isEqualTo("Add cache layer");
+        assertThat(parked.prBody()).isEqualTo("## Summary\nCaches reads.");
+    }
+
+    @Test
+    void shipTaskNormalisesBlankPrTitleAndBodyToNull()
+    {
+        Task task = taskAt("task-ship-blank", TaskStatus.RUNNING);
+        when(taskStore.findActiveTaskForThread("thread-ship-blank")).thenReturn(Optional.of(task));
+
+        handlers.shipTask(
+                new PublishToolHandlers.ShipTaskArgs(null, null, "   ", ""),
+                new ToolCall("thread-ship-blank", null, AgentRole.TASK));
+
+        ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
+        verify(parkedProposals).park(eq(task), captor.capture());
+        ParkedProposal.ShipTask parked = (ParkedProposal.ShipTask) captor.getValue();
+        assertThat(parked.prTitle()).isNull();
+        assertThat(parked.prBody()).isNull();
+    }
+
     private static Task taskAt(String id, TaskStatus status)
     {
         Instant now = Instant.parse("2026-05-22T12:00:00Z");

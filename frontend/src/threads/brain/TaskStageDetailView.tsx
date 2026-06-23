@@ -244,7 +244,7 @@ export default function TaskStageDetailView({ taskId, stageId, threadId, onBack,
       </nav>
 
       {threadId !== undefined && (
-        <PendingApprovalToast threadId={threadId} onResolved={refresh} />
+        <PendingApprovalToast threadId={threadId} onResolved={refresh} onReview={onOpenCode} />
       )}
 
       <div className="stage-body">

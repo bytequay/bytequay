@@ -845,7 +845,13 @@ public class PublishToolHandlers
                     wireName = "next_title") String nextTitle,
             @ToolParam(description = "Base mode for the next task's branch — 'main' "
                     + "(default) or 'stacked' to chain on this task's branch.",
-                    wireName = "base_mode") String baseMode) {}
+                    wireName = "base_mode") String baseMode,
+            @ToolParam(description = "Proposed title for the draft PR this ship opens. "
+                    + "Falls back to the thread title when omitted.",
+                    wireName = "pr_title") String prTitle,
+            @ToolParam(description = "Proposed PR description (markdown) summarizing the "
+                    + "change. The user can edit it before approving.",
+                    wireName = "pr_body") String prBody) {}
 
     @AgentTool(
             name = "ship_task",
@@ -853,7 +859,9 @@ public class PublishToolHandlers
                     + "the user reviews the diff + PR state, then on Approve the server "
                     + "runs the full ship-and-continue flow (push, open or update PR, "
                     + "mark the task COMPLETED, cut the next task). Use when the unit of "
-                    + "work is genuinely done and ready for human sign-off.",
+                    + "work is genuinely done and ready for human sign-off. You SHOULD "
+                    + "pass a clear pr_title and a pr_body (markdown) summarizing the "
+                    + "change so the draft PR opens with a useful description.",
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
@@ -868,6 +876,8 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("the active task has no worktree — ship needs an isolated branch");
         }
         DiffBundle bundle = collectDiffBundle(Path.of(task.worktreePath()), task);
+        String prTitle = nullToEmpty(args.prTitle()).trim();
+        String prBody = nullToEmpty(args.prBody());
         return park(task, new ParkedProposal.ShipTask(
                         call.threadId(),
                         task.id(),
@@ -878,7 +888,9 @@ public class PublishToolHandlers
                         normaliseBaseMode(args.baseMode()),
                         bundle.diffBase(),
                         bundle.diff(),
-                        bundle.diffError()),
+                        bundle.diffError(),
+                        prTitle.isEmpty() ? null : prTitle,
+                        prBody.isEmpty() ? null : prBody),
                 "Parked at AWAITING_REVIEW (ship_task). The user will review the "
                         + "proposed ship and approve, edit, or discard from the thread.");
     }

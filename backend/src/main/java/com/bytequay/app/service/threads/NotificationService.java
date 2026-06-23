@@ -195,6 +195,27 @@ public class NotificationService
         return store.findById(id);
     }
 
+    /** Rewrite a notification's free-form payload in place, leaving its
+     *  kind / status / timestamps untouched. Used by the publish gate to
+     *  let the user edit a parked proposal's editable copy before
+     *  approving. Returns the persisted row, or 404 when the id is
+     *  unknown. */
+    public Notification updatePayload(String id, String payloadJson)
+    {
+        Notification existing = require(id);
+        Notification updated = new Notification(
+                existing.id(),
+                existing.kind(),
+                existing.threadId(),
+                existing.taskId(),
+                existing.status(),
+                payloadJson == null ? "{}" : payloadJson,
+                existing.createdAt(),
+                existing.readAt());
+        store.save(updated);
+        return updated;
+    }
+
     private Notification require(String id)
     {
         Optional<Notification> existing = store.findById(id);

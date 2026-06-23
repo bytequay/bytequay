@@ -2022,6 +2022,20 @@ export type WorkUnitTaskDto = {
   workModel: WorkModelDto | null;
 };
 
+/** A local pre-push inline review comment on a Task's diff. {@code source}
+ *  is one of LOCAL_USER | LOCAL_AGENT | REMOTE_REVIEWER; the pre-push flow
+ *  creates LOCAL_USER rows. {@code createdAt} is epoch-millis. */
+export type ReviewCommentDto = {
+  id: string;
+  taskId: string;
+  file: string;
+  line: number;
+  body: string;
+  createdAt: number;
+  source: string;
+  resolved: boolean;
+};
+
 /** Conversation-index window response. Carries both the user-prompt
  *  index entries and the matching {@code thread_messages} rows in a
  *  single round-trip so the index and the agent terminal stay in
@@ -2399,6 +2413,11 @@ export type ShipTaskParkedPayload = {
   diffError?: string;
   nextTitle: string;
   baseMode: 'main' | 'stacked';
+  /** The agent's drafted PR title/body for this ship. Reviewable and
+   *  editable on the task code page before approval; persisted back via
+   *  {@link Bridge.setShipDescription}. */
+  prTitle?: string;
+  prBody?: string;
   source: string;
 };
 
@@ -3539,6 +3558,24 @@ export type Bridge = {
     targetParticipantId: string,
     message: string,
   ) => Promise<ReviewPassDetailDto>;
+  /** Add a local pre-push inline review comment on a task's diff at
+   *  file:line (1-based). Returns the persisted comment. */
+  addReviewComment: (
+    taskId: string,
+    file: string,
+    line: number,
+    body: string,
+  ) => Promise<ReviewCommentDto>;
+  /** Every review comment on the task, oldest-first, for the diff page. */
+  listReviewComments: (taskId: string) => Promise<ReviewCommentDto[]>;
+  /** Mark a review comment resolved. */
+  resolveReviewComment: (id: string) => Promise<void>;
+  /** Re-open a resolved review comment. */
+  reopenReviewComment: (id: string) => Promise<void>;
+  /** Submit the task's unresolved local review comments to its dev agent
+   *  as a steering turn. Returns how many were submitted and the enqueued
+   *  turn id (null when there was nothing to submit). */
+  submitReview: (taskId: string) => Promise<{ submitted: number; turnId: string | null }>;
   /** Raise a running pass's budget so the panel keeps reviewing: bumps the
    *  cost cap by addCostMilli and the debate-round cap by addRounds. Returns
    *  the updated detail. */
@@ -3755,6 +3792,14 @@ export type Bridge = {
   /** Discard a parked AWAITING_REVIEW proposal without running its
    *  deferred side effect. */
   discardNotification: (id: string, expectedAction?: string | null) => Promise<PublishResultDto>;
+  /** Persist an edited PR title/body onto a parked {@code ship_task}
+   *  proposal before it's approved. Returns the updated notification (its
+   *  payloadJson carries the new prTitle/prBody). */
+  setShipDescription: (
+    notificationId: string,
+    prTitle: string,
+    prBody: string,
+  ) => Promise<NotificationDto>;
 
   /** Open a Server-Sent Events subscription to the backend for one
    *  thread. Each {@link StreamEvent} the session emits is delivered

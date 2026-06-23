@@ -109,4 +109,17 @@ public interface StageStore
 
     /** A task's comments of a single source. */
     List<ReviewComment> findCommentsBySource(String taskId, ReviewCommentSource source);
+
+    /** All of a task's review comments, any source, oldest-first. The
+     *  diff page reads this to overlay every comment (resolved or not). */
+    default List<ReviewComment> findCommentsByTask(String taskId)
+    {
+        return List.of();
+    }
+
+    /** Flip a comment's {@code resolved} flag. No-op when the id is
+     *  unknown. */
+    default void setReviewCommentResolved(UUID id, boolean resolved)
+    {
+    }
 }

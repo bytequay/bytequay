@@ -40,10 +40,14 @@ function actionLabel(payloadJson: string): string {
  * shared {@link PublishGatePane} (the same diff + Approve/Discard used
  * everywhere). Polls so a freshly-parked proposal appears without a reload.
  */
-export function PendingApprovalToast({ threadId, onResolved }: {
+export function PendingApprovalToast({ threadId, onResolved, onReview }: {
   threadId: string;
   /** Called after the proposal is approved/discarded so the host can refresh. */
   onResolved?: () => void;
+  /** When set and the proposal is a ship_task, "Review & approve" routes to
+   *  the task code-diff page (the full review surface) instead of expanding
+   *  the inline gate here. */
+  onReview?: () => void;
 }) {
   const [pending, setPending] = useState<NotificationDto | null>(null);
   const [open, setOpen] = useState(false);
@@ -68,6 +72,14 @@ export function PendingApprovalToast({ threadId, onResolved }: {
 
   if (pending === null) return null;
 
+  // A ship_task proposal is reviewed on the code-diff page (diff + PR
+  // description + inline comments); route there. Other proposals keep the
+  // lightweight inline gate.
+  let isShip = false;
+  try { isShip = JSON.parse(pending.payloadJson)?.action === 'ship_task'; }
+  catch { /* leave false */ }
+  const routeToReview = isShip && onReview !== undefined;
+
   return (
     <div className="approval-toast" role="status">
       <div className="approval-toast__bar">
@@ -78,12 +90,12 @@ export function PendingApprovalToast({ threadId, onResolved }: {
         <button
           type="button"
           className="approval-toast__btn"
-          onClick={() => setOpen(o => !o)}
+          onClick={() => { if (routeToReview) onReview!(); else setOpen(o => !o); }}
         >
-          {open ? 'Hide' : 'Review & approve'}
+          {routeToReview ? 'Review on the code-diff page →' : open ? 'Hide' : 'Review & approve'}
         </button>
       </div>
-      {open && (
+      {open && !routeToReview && (
         <div className="approval-toast__gate">
           <PublishGatePane
             notification={pending}

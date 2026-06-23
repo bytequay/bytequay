@@ -131,6 +131,22 @@ public class NotificationController
         return publishes.approve(id, editedBody, expectedAction);
     }
 
+    /**
+     * Edit a parked ship proposal's PR title/body before approving it.
+     * Body: {@code {prTitle, prBody}} (both optional). Returns the updated
+     * notification so the gate can re-render. Rejects when the row isn't
+     * an open ship proposal.
+     */
+    @PostMapping("/{id}/ship-description")
+    public Notification updateShipDescription(
+            @PathVariable String id,
+            @RequestBody(required = false) JsonNode body)
+    {
+        String prTitle = optionalText(body, "prTitle");
+        String prBody = optionalText(body, "prBody");
+        return publishes.updateShipDescription(id, prTitle, prBody);
+    }
+
     /** Discard a parked AWAITING_REVIEW publish. Advance proposals
      *  return to local idle work; completed publish proposals close.
      *  The proposed remote side effect never runs. */

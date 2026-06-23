@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {
@@ -19,6 +19,7 @@ import type {
 } from '../../types/brainView';
 import type { StageDto, StageType } from '../../types/brainView';
 import PromptContextInspector from '../../inspector/PromptContextInspector';
+import { PendingApprovalToast } from '../PendingApprovalToast';
 import { ConversationScrubber } from './ConversationScrubber';
 import { relativeShort } from './format';
 import { CommitsCard, ContextWindowCard } from './RightRail';
@@ -143,6 +144,20 @@ export default function TaskStageDetailView({ taskId, stageId, threadId, onBack,
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
+  // Keep the transcript pinned to the newest message: scroll the conversation
+  // card to the bottom whenever it grows, unless the user has scrolled up to
+  // read history (then we leave their position alone).
+  const convRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottom = useRef(true);
+  const convCount = data?.conversation.length ?? 0;
+  const lastRowId = data?.conversation.at(-1)?.id ?? null;
+  useEffect(() => {
+    const el = convRef.current;
+    if (el !== null && stickToBottom.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [convCount, lastRowId]);
+
   if (data === null) {
     return (
       <div className="stage-detail" style={{ padding: 24 }}>
@@ -222,6 +237,10 @@ export default function TaskStageDetailView({ taskId, stageId, threadId, onBack,
         </span>
       </nav>
 
+      {threadId !== undefined && (
+        <PendingApprovalToast threadId={threadId} onResolved={refresh} />
+      )}
+
       <div className="stage-body">
         <LeftRail
           allStages={allStages}
@@ -241,7 +260,15 @@ export default function TaskStageDetailView({ taskId, stageId, threadId, onBack,
             onJumpTo={jumpToRow}
           />
           <main className="log-col" aria-label="Stage log" ref={scrollRef}>
-            <div className="conv-card">
+            <div
+              className="conv-card"
+              ref={convRef}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                // "Near bottom" → keep sticking; scrolled up → stop auto-scroll.
+                stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+              }}
+            >
               {conversation.map(row => (
                 <ConversationRowView
                   key={row.id}

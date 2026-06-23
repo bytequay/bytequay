@@ -258,6 +258,74 @@ class TestPublishService
     }
 
     @Test
+    void approveResolveReviewThreadMapsRootCommentIdToNodeIdAndRunsTheGraphqlResolve()
+    {
+        // Resolve runs over GraphQL keyed on the thread's opaque node id,
+        // not the REST root comment id the agent parks. The approve path
+        // must map root id → node id live, then fire resolveReviewThread.
+        Notification parked = parkedResolveReviewThread("notif-res", "task-res",
+                "acme", "widget", 42, 555L, true);
+        when(notifications.find("notif-res")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-res"))
+                .thenReturn(Optional.of(taskAt("task-res", TaskStatus.AWAITING_REVIEW)));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.fetchReviewThreadResolution("ghp_secret", new PullRequestRef("acme", "widget", 42)))
+                .thenReturn(List.of(
+                        new PullRequestRepository.ReviewThreadMeta(111L, "NODE_OTHER", false),
+                        new PullRequestRepository.ReviewThreadMeta(555L, "NODE_TARGET", false)));
+
+        PublishResult result = service.approve("notif-res", null, "resolve_review_thread");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.action()).isEqualTo("resolve_review_thread");
+        assertThat(result.message()).contains("Resolved").contains("acme/widget#42");
+        verify(pullRequests).resolveReviewThread("ghp_secret", "NODE_TARGET");
+        verify(pullRequests, never()).unresolveReviewThread(anyString(), anyString());
+    }
+
+    @Test
+    void approveResolveReviewThreadCallsUnresolveWhenResolvedFlagIsFalse()
+    {
+        Notification parked = parkedResolveReviewThread("notif-unres", "task-unres",
+                "acme", "widget", 7, 555L, false);
+        when(notifications.find("notif-unres")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-unres"))
+                .thenReturn(Optional.of(taskAt("task-unres", TaskStatus.AWAITING_REVIEW)));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.fetchReviewThreadResolution("ghp_secret", new PullRequestRef("acme", "widget", 7)))
+                .thenReturn(List.of(new PullRequestRepository.ReviewThreadMeta(555L, "NODE_TARGET", true)));
+
+        PublishResult result = service.approve("notif-unres", null, "resolve_review_thread");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.message()).contains("Unresolved");
+        verify(pullRequests).unresolveReviewThread("ghp_secret", "NODE_TARGET");
+        verify(pullRequests, never()).resolveReviewThread(anyString(), anyString());
+    }
+
+    @Test
+    void approveResolveReviewThreadRefusesWithNotFoundWhenNoThreadMatchesTheRootCommentId()
+    {
+        Notification parked = parkedResolveReviewThread("notif-miss", "task-miss",
+                "acme", "widget", 7, 999L, true);
+        when(notifications.find("notif-miss")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-miss"))
+                .thenReturn(Optional.of(taskAt("task-miss", TaskStatus.AWAITING_REVIEW)));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.fetchReviewThreadResolution("ghp_secret", new PullRequestRef("acme", "widget", 7)))
+                .thenReturn(List.of(new PullRequestRepository.ReviewThreadMeta(555L, "NODE_OTHER", false)));
+
+        assertThatThrownBy(() -> service.approve("notif-miss", null, "resolve_review_thread"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no review thread with root comment id 999");
+
+        verify(pullRequests, never()).resolveReviewThread(anyString(), anyString());
+        verify(pullRequests, never()).unresolveReviewThread(anyString(), anyString());
+        // A 4xx-class failure releases the claim so the row stays actionable.
+        verify(notifications).releaseResolution("notif-miss");
+    }
+
+    @Test
     void approveRequestReviewCompletesTaskWithoutPublishingRemotely()
             throws Exception
     {
@@ -923,6 +991,23 @@ class TestPublishService
                 + "\"pr\":{\"owner\":" + quote(owner) + ",\"repo\":" + quote(repo)
                 + ",\"number\":" + number + "},"
                 + "\"source\":\"mcp:post_comment\""
+                + "}";
+        return new Notification(
+                notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,
+                NotificationStatus.UNREAD, json, Instant.now(), null);
+    }
+
+    private static Notification parkedResolveReviewThread(
+            String notificationId, String taskId,
+            String owner, String repo, int number, long rootCommentId, boolean resolved)
+    {
+        String json = "{"
+                + "\"action\":\"resolve_review_thread\","
+                + "\"rootCommentId\":" + rootCommentId + ","
+                + "\"resolved\":" + resolved + ","
+                + "\"pr\":{\"owner\":" + quote(owner) + ",\"repo\":" + quote(repo)
+                + ",\"number\":" + number + "},"
+                + "\"source\":\"mcp:resolve_review_thread\""
                 + "}";
         return new Notification(
                 notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,

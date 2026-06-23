@@ -46,6 +46,7 @@ import java.util.List;
         @JsonSubTypes.Type(value = ParkedProposal.PostComment.class, name = "post_comment"),
         @JsonSubTypes.Type(value = ParkedProposal.Push.class, name = "push"),
         @JsonSubTypes.Type(value = ParkedProposal.ReplyReviewThread.class, name = "reply_review_thread"),
+        @JsonSubTypes.Type(value = ParkedProposal.ResolveReviewThread.class, name = "resolve_review_thread"),
         @JsonSubTypes.Type(value = ParkedProposal.ApprovePr.class, name = "approve_pr"),
         @JsonSubTypes.Type(value = ParkedProposal.MergePr.class, name = "merge_pr"),
         @JsonSubTypes.Type(value = ParkedProposal.CreateReviewComment.class, name = "create_review_comment"),
@@ -61,7 +62,8 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public sealed interface ParkedProposal
         permits ParkedProposal.RequestReview, ParkedProposal.PostComment, ParkedProposal.Push,
-                ParkedProposal.ReplyReviewThread, ParkedProposal.ApprovePr, ParkedProposal.MergePr,
+                ParkedProposal.ReplyReviewThread, ParkedProposal.ResolveReviewThread,
+                ParkedProposal.ApprovePr, ParkedProposal.MergePr,
                 ParkedProposal.CreateReviewComment, ParkedProposal.UpdatePrBody,
                 ParkedProposal.RequestReviewer, ParkedProposal.CommentOnIssue,
                 ParkedProposal.SetIssueState, ParkedProposal.OpenPr, ParkedProposal.PublishReview,
@@ -137,6 +139,14 @@ public sealed interface ParkedProposal
     {
         @Override public String action() { return "reply_review_thread"; }
         @Override @JsonProperty("source") public String source() { return "mcp:reply_review_thread"; }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record ResolveReviewThread(long rootCommentId, boolean resolved, PrRef pr)
+            implements ParkedProposal
+    {
+        @Override public String action() { return "resolve_review_thread"; }
+        @Override @JsonProperty("source") public String source() { return "mcp:resolve_review_thread"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

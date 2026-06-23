@@ -108,6 +108,24 @@ class TestParkedProposalSerialization
     }
 
     @Test
+    void resolveReviewThreadRoundTripsAndCarriesItsResolvedFlag()
+            throws Exception
+    {
+        ParkedProposal.ResolveReviewThread original = new ParkedProposal.ResolveReviewThread(
+                67890L, true, new ParkedProposal.PrRef("acme", "widget", 8));
+
+        JsonNode tree = mapper.valueToTree(original);
+        assertThat(tree.path("action").asText()).isEqualTo("resolve_review_thread");
+        assertThat(tree.path("source").asText()).isEqualTo("mcp:resolve_review_thread");
+        assertThat(tree.path("rootCommentId").asLong()).isEqualTo(67890L);
+        assertThat(tree.path("resolved").asBoolean()).isTrue();
+
+        ParkedProposal back = mapper.readValue(tree.toString(), ParkedProposal.class);
+        assertThat(back).isInstanceOf(ParkedProposal.ResolveReviewThread.class);
+        assertThat(back).isEqualTo(original);
+    }
+
+    @Test
     void approvePrRoundTrips()
             throws Exception
     {

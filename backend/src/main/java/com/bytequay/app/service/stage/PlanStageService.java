@@ -203,10 +203,11 @@ public class PlanStageService
         threadStore.findThreadById(task.threadId()).ifPresent(dev -> {
             scheduler.enqueueTurn(dev,
                     "Your implementation turn ended without proposing to publish. If the "
-                            + "work is complete, call ship_task(...) now to push the branch and open "
-                            + "a DRAFT pull request — it only parks the proposal for the user to "
-                            + "approve and pushes nothing until they do. (Use push(...) then "
-                            + "open_pr(...) if you need finer control.) If the work isn't finished, "
+                            + "work is complete, call ship_task(...) now — do NOT call push by "
+                            + "itself. ship_task parks ONE proposal that, on the user's approval, "
+                            + "pushes the branch AND opens a draft PR in a single step, so the PR "
+                            + "links and the stage advances together. It parks for approval and "
+                            + "pushes nothing until the user approves. If the work isn't finished, "
                             + "keep going instead.",
                     TurnInitiator.unattended("ship-nudge"));
             log.debug("nudged dev thread {} to ship task {}", dev.id(), event.taskId());

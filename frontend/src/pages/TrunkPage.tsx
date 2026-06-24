@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { IconBtn, Pill } from '../ui/primitives';
-import { Composer, Main, Shell, TopBar, TopBarTitle, CrumbSep, CreatedChip, Grow } from '../ui/shell';
+import { Composer, Main, Shell, TopBar, TopBarButton, TopBarTitle, CrumbSep, CreatedChip, Grow } from '../ui/shell';
 import {
   BacklogTabContent, InlineChips, NotificationsTabContent, RightPane, TasksTabContent,
 } from '../ui/pane';
@@ -56,7 +56,7 @@ function signalToNotif(s: ThreadSignalDto, formatTime: (ms: number) => string): 
  */
 export function TrunkPage({
   threadId, thread, sidebar, conversation, collapsed = false, composer,
-  tasks, onOpenTask, formatTime = () => '',
+  tasks, onOpenTask, onCutTask, formatTime = () => '',
 }: {
   threadId: string;
   thread: { title: string; createdLabel?: string };
@@ -73,6 +73,9 @@ export function TrunkPage({
   };
   tasks: { active: TaskCardData[]; queued: TaskCardData[] };
   onOpenTask?: (id: string) => void;
+  /** User-confirmed "cut a task from the plan" — the trunk plans, the
+   *  user cuts. Renders the bright Cut-task button when provided. */
+  onCutTask?: () => void;
   formatTime?: (ms: number) => string;
 }) {
   const pane = useTrunkPane(threadId);
@@ -94,6 +97,9 @@ export function TrunkPage({
         </>
       )}
       <Grow />
+      {onCutTask !== undefined && (
+        <TopBarButton icon="◆" onClick={onCutTask}>Cut task →</TopBarButton>
+      )}
       <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
     </TopBar>
   );

@@ -1,0 +1,344 @@
+/*
+ * V3 workspace-based navigation shell — the Workspace → Repos → Threads
+ * model. Scoped under `.shell`; reuses the existing sidebar chrome
+ * (.sb-traffic / .sb-nav / .sb-footer / .closed-folder) and the warm
+ * tokens from base.css. The repo/workspace logo is the `v3-logo`
+ * primitive; thread status is the `v3-dot` primitive.
+ */
+
+/* Single continuous surface — the sidebar matches the main window, with
+   only the divider border. */
+.shell .sidebar {
+  background: var(--bg);
+}
+.shell .sb-spacer {
+  flex: 1;
+}
+
+/* ── Workspace list (sidebar, no workspace active) ───────────── */
+.shell .ws-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.shell .ws-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.shell .ws-item:hover {
+  background: var(--bg-hover);
+}
+.shell .ws-item.active {
+  background: rgba(0, 0, 0, 0.06);
+}
+.shell .ws-item .ws-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.shell .ws-item .ws-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.2;
+}
+.shell .ws-item .ws-sub {
+  font-size: 10.5px;
+  color: var(--text-3);
+  line-height: 1.2;
+}
+.shell .ws-item .ws-count {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-4);
+  padding: 1px 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+/* ── Workspace switcher (drill-in chip) ──────────────────────── */
+.shell .ws-switcher {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 4px 8px 2px;
+  padding: 8px 9px;
+  background: rgba(0, 0, 0, 0.035);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: calc(100% - 16px);
+}
+.shell .ws-switcher:hover {
+  border-color: var(--border-mid);
+}
+.shell .ws-switcher .ws-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+}
+.shell .ws-switcher .ws-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1.2;
+}
+.shell .ws-switcher .ws-sub {
+  font-size: 10.5px;
+  color: var(--text-3);
+  line-height: 1.2;
+}
+.shell .ws-switcher .chev {
+  color: var(--text-4);
+  font-size: 10px;
+}
+
+/* ── Thread list (sidebar, workspace active) ─────────────────── */
+.shell .thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.shell .thread-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.shell .thread-item:hover {
+  background: var(--bg-hover);
+}
+.shell .thread-item.active {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-1);
+  font-weight: 500;
+}
+.shell .thread-item .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* ── Workspace top bar + tabs (main) ─────────────────────────── */
+.shell .ws-topbar {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.shell .ws-topbar .head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px 9px;
+}
+.shell .ws-topbar .head-row .ws-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.shell .ws-topbar .head-row .ws-repos {
+  font-size: 11.5px;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.shell .ws-topbar .head-row .grow {
+  flex: 1;
+}
+.shell .ws-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 14px;
+}
+.shell .ws-tab {
+  padding: 8px 13px 10px;
+  font-size: 13px;
+  color: var(--text-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.shell .ws-tab:hover {
+  color: var(--text-2);
+}
+.shell .ws-tab.active {
+  color: var(--text-1);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.shell .ws-tab .ic {
+  font-size: 13px;
+}
+.shell .ws-tab .count {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--text-4);
+  padding: 0 6px;
+  background: var(--bg-hover);
+  border-radius: 999px;
+}
+
+/* ── Threads surface (main body) ─────────────────────────────── */
+.shell .surface {
+  flex: 1;
+  padding: 18px 22px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.shell .surface-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.shell .surface-h .t {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.shell .surface-h .grow {
+  flex: 1;
+}
+.shell .surface-h .filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-mid);
+  background: var(--bg-elev);
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.shell .thread-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+}
+.shell .thread-card:hover {
+  border-color: var(--accent);
+}
+.shell .thread-card .col {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.shell .thread-card .title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell .thread-card .sub {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell .thread-card .right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.shell .thread-card .ts {
+  font-size: 10.5px;
+  color: var(--text-4);
+  font-family: var(--mono);
+}
+.shell .tasks-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 2px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.shell .tasks-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+/* Breadcrumb in the top bar when a thread is open. */
+.shell .topbar .crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+}
+.shell .topbar .crumb:hover {
+  color: var(--text-2);
+}
+.shell .topbar .crumb-sep {
+  color: var(--text-4);
+  font-size: 11px;
+  padding: 0 1px;
+}

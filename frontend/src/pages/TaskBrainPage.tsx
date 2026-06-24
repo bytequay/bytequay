@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
@@ -34,7 +34,7 @@ type BrainTab = 'plan' | 'pr' | 'details';
  */
 export function TaskBrainPage({
   task, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, onOpenChanges, onOpenCi,
+  tabs, priorityTab, onOpenChanges, onOpenCi,
 }: {
   task: { pillLabel: string; title: string; branch?: string };
   sidebar?: ReactNode;
@@ -60,6 +60,9 @@ export function TaskBrainPage({
   /** Tab contents; Plan/PR are omitted when not applicable, Details is
    *  always shown. */
   tabs: { plan?: ReactNode; pr?: ReactNode; details: ReactNode };
+  /** When set, the pane snaps to this tab (e.g. 'plan' when a plan is
+   *  awaiting the user's approval) so it can't hide behind the default. */
+  priorityTab?: BrainTab;
   onOpenChanges?: () => void;
   onOpenCi?: () => void;
 }) {
@@ -70,6 +73,16 @@ export function TaskBrainPage({
   ];
   const [activeTab, setActiveTab] = useState<BrainTab>(available[0].key);
   const [paneOpen, setPaneOpen] = useState(true);
+
+  // Snap to (and reveal) the priority tab when it appears — e.g. a plan
+  // that just finished and now awaits approval shouldn't sit hidden
+  // behind whatever tab was the default at mount.
+  useEffect(() => {
+    if (priorityTab !== undefined) {
+      setActiveTab(priorityTab);
+      setPaneOpen(true);
+    }
+  }, [priorityTab]);
 
   const active = available.find(t => t.key === activeTab) ?? available[available.length - 1];
   const paneTabs: PaneTab<BrainTab>[] = available.map(t => ({ key: t.key, label: t.label }));

@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import type { StageConversationRow, StageType } from '../types/brainView';
-import { Conv, EventRow, ToolBlock, UserMsg } from '../ui/conv';
+import { Conv, EventRow, ToolBlock, UserMsg, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
@@ -79,7 +79,13 @@ export function StageDetailRoute({
       .finally(() => setBusy(false));
   };
 
-  const conversation = <Conv>{data?.conversation.map(row)}</Conv>;
+  const working = busy || state === 'ACTIVE';
+  const conversation = (
+    <Conv>
+      {data?.conversation.map(row)}
+      {working && <Working label="Agent is working…" />}
+    </Conv>
+  );
 
   return (
     <StageDetailPage

@@ -19,6 +19,7 @@ export type { EventKind } from './EventRow';
 export { ToolBlock } from './ToolBlock';
 export { UserMsg } from './UserMsg';
 export { Thought } from './Thought';
+export { Working } from './Working';
 export { Callout } from './Callout';
 export { InlineAction } from './InlineAction';
 export { StageFold } from './StageFold';

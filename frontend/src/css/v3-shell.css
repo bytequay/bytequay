@@ -20,6 +20,10 @@
 .shell.sidebar-collapsed {
   grid-template-columns: 48px 1fr;
 }
+/* No per-surface sidebar — the global app rail provides navigation. */
+.shell.full-width {
+  grid-template-columns: 1fr;
+}
 
 /* ── Sidebar ─────────────────────────────────────────────────── */
 .shell .sidebar {

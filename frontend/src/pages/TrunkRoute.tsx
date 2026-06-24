@@ -16,7 +16,6 @@ import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { Conv, EventRow, UserMsg } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
 import type { TaskCardData } from '../ui/pane';
-import { CurrentThreadSidebar } from './CurrentThreadSidebar';
 import { TrunkPage } from './TrunkPage';
 
 /** Best-effort plain text out of a message's JSON envelope. */
@@ -122,7 +121,6 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     <TrunkPage
       threadId={threadId}
       thread={{ title: thread?.title ?? 'Thread' }}
-      sidebar={<CurrentThreadSidebar threadLabel={thread?.title ?? 'Thread'} />}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
       tasks={{ active, queued }}

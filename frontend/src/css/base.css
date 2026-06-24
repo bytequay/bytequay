@@ -587,6 +587,36 @@ pre {
   margin-left: auto;
 }
 
+/* Spacer pushes the bottom nav group (Settings) to the foot of the rail. */
+.global-topbar__spacer {
+  flex: 1;
+  min-height: var(--space-2);
+}
+
+/* Threads section in the rail — the current thread shown as selected. */
+.global-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: var(--space-2);
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--border);
+  -webkit-app-region: no-drag;
+}
+.global-threads__h {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+  padding: var(--space-1) var(--space-3);
+}
+.global-threads__item .global-threads__nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .settings-page {
   height: 100%;
   overflow-y: auto;

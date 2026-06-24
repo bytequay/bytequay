@@ -60,7 +60,7 @@ export function TrunkPage({
 }: {
   threadId: string;
   thread: { title: string; createdLabel?: string };
-  sidebar: ReactNode;
+  sidebar?: ReactNode;
   conversation: ReactNode;
   collapsed?: boolean;
   composer: {
@@ -121,7 +121,7 @@ export function TrunkPage({
   })();
 
   return (
-    <Shell collapsed={collapsed}>
+    <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
       {sidebar}
       <Main topBar={topBar}>
         <div className={paneOpen ? 'body with-pane' : 'body'}>

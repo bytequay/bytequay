@@ -24,7 +24,7 @@ import { Ds4StatusWidget } from './components/Ds4StatusWidget';
 import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
-import ThreadTrunkPage from './threads/ThreadTrunkPage';
+import { TrunkRoute } from './pages/TrunkRoute';
 import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
 import TaskCodePage from './threads/TaskCodePage';
@@ -760,9 +760,8 @@ function App() {
           />
         )}
         {nav.view === 'thread-detail' && (
-          <ThreadTrunkPage
+          <TrunkRoute
             threadId={nav.threadId}
-            onBack={() => setNav({ view: 'workspace', section: 'threads' })}
             onOpenTask={taskId => setNav({
               view: 'task-brain', threadId: nav.threadId, taskId,
             })}

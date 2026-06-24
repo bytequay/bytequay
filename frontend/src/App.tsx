@@ -300,6 +300,12 @@ function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: Globa
         >
           Pull requests
         </button>
+      </nav>
+      {threadId !== null && (
+        <GlobalThreads threadId={threadId} onOpen={() => onNav({ view: 'thread-detail', threadId })} />
+      )}
+      <div className="global-topbar__spacer" />
+      <nav className="global-topbar__nav global-topbar__nav--bottom">
         <button
           className={`global-nav-btn${nav.view === 'repos' ? ' global-nav-btn--active' : ''}`}
           onClick={() => onNav({ view: 'repos' })}
@@ -326,12 +332,6 @@ function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: Globa
             </span>
           )}
         </button>
-      </nav>
-      {threadId !== null && (
-        <GlobalThreads threadId={threadId} onOpen={() => onNav({ view: 'thread-detail', threadId })} />
-      )}
-      <div className="global-topbar__spacer" />
-      <nav className="global-topbar__nav global-topbar__nav--bottom">
         <button
           className={`global-nav-btn${nav.view === 'settings' ? ' global-nav-btn--active' : ''}`}
           onClick={() => onNav({ view: 'settings' })}

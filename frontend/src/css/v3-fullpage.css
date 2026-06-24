@@ -1,0 +1,92 @@
+/*
+ * V3 full-page views — Changes and CI Status.
+ *
+ * Scoped under `.shell`. A 3-column body: a kept-visible conversation
+ * column (with the composer pinned) on the left, a hideable middle
+ * column (file tree / CI panel), and the heavy content (diff / log) on
+ * the right. Mirrors the Copilot-style mockup.
+ */
+
+/* ── Full-page conversation column (left) ────────────────────── */
+.shell .full-page-conv {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.shell .full-page-conv .conv {
+  padding: 16px 20px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+.shell .full-page-conv .composer-wrap {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── 3-column bodies ─────────────────────────────────────────── */
+.shell .changes-body {
+  display: grid;
+  grid-template-columns: 360px 240px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.shell .changes-body.no-files {
+  grid-template-columns: 360px minmax(0, 1fr);
+}
+.shell .ci-body {
+  display: grid;
+  grid-template-columns: 360px 280px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.shell .ci-body.no-panel {
+  grid-template-columns: 360px minmax(0, 1fr);
+}
+
+/* ── A middle / right full-page column ───────────────────────── */
+.shell .fp-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+.shell .fp-col:last-child {
+  border-right: 0;
+}
+.shell .fp-col-h {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--bg);
+}
+.shell .fp-col-h .count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.shell .fp-col-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.shell .fp-diff-body {
+  padding: 12px 14px;
+}

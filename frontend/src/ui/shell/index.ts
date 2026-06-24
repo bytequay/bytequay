@@ -28,3 +28,4 @@ export {
 } from './TopBar';
 export type { StageChip } from './TopBar';
 export { useSidebarCollapsed } from './useSidebarCollapsed';
+export { usePersistentToggle } from './usePersistentToggle';

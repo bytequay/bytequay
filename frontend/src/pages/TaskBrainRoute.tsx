@@ -16,9 +16,9 @@ import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import type { BrainFeedRow, StageDto, StageType } from '../types/brainView';
 import { Conv, EventRow, UserMsg } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
-import { Sidebar } from '../ui/shell';
 import { DetailsTabContent } from '../ui/pane';
 import type { StageChip } from '../ui/shell';
+import { CurrentThreadSidebar } from './CurrentThreadSidebar';
 import { TaskBrainPage } from './TaskBrainPage';
 
 const SHORT_LABEL: Record<StageType, string> = {
@@ -108,7 +108,7 @@ export function TaskBrainRoute({
   return (
     <TaskBrainPage
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch }}
-      sidebar={<Sidebar footer={{ initials: 'CJ', name: 'You' }}><></></Sidebar>}
+      sidebar={<CurrentThreadSidebar threadLabel={task.title} />}
       conversation={conversation}
       stageChips={stageChips}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Ask the brain, or steer the task…' }}

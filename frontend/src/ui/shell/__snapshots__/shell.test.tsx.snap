@@ -107,25 +107,6 @@ exports[`Shell > matches snapshot in default and collapsed states > collapsed 1`
             Automations
           </span>
         </button>
-        <button
-          class="sb-nav-item"
-          type="button"
-        >
-          <span
-            aria-hidden="true"
-            class="ic"
-          >
-            ⌕
-          </span>
-          <span>
-            Search
-          </span>
-          <span
-            class="kbd"
-          >
-            ⌘K
-          </span>
-        </button>
       </div>
       <div
         class="sb-section"
@@ -478,25 +459,6 @@ exports[`Shell > matches snapshot in default and collapsed states > default 1`] 
           </span>
           <span>
             Automations
-          </span>
-        </button>
-        <button
-          class="sb-nav-item"
-          type="button"
-        >
-          <span
-            aria-hidden="true"
-            class="ic"
-          >
-            ⌕
-          </span>
-          <span>
-            Search
-          </span>
-          <span
-            class="kbd"
-          >
-            ⌘K
           </span>
         </button>
       </div>

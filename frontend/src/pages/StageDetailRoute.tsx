@@ -16,7 +16,7 @@ import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import type { StageConversationRow, StageType } from '../types/brainView';
 import { Conv, EventRow, ToolBlock, UserMsg } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
-import { Sidebar } from '../ui/shell';
+import { CurrentThreadSidebar } from './CurrentThreadSidebar';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
 
@@ -86,7 +86,7 @@ export function StageDetailRoute({
     <StageDetailPage
       stageKind={stageKind}
       stage={{ title: data?.task.title ?? 'Stage', branch: data?.task.branch }}
-      sidebar={<Sidebar footer={{ initials: 'CJ', name: 'You' }}><></></Sidebar>}
+      sidebar={<CurrentThreadSidebar threadLabel={data?.task.title ?? 'Stage'} />}
       conversation={conversation}
       composer={{
         value: text,

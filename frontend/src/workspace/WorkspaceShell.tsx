@@ -11,24 +11,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import type { WorkspaceDto } from '../types';
+import { useState } from 'react';
 import WorkspaceMemoryPage from '../settings/pages/WorkspaceMemoryPage';
-import ThreadsPage from '../threads/ThreadsPage';
 import type {
   ProviderFilter as ThreadsProviderFilter,
   RepoFilter as ThreadsRepoFilter,
   StatusFilter as ThreadsStatusFilter,
 } from '../threads/ThreadsLeftRail';
-import AssignReviewTaskDialog from './AssignReviewTaskDialog';
+import { WorkspaceTopBar } from '../ui/workspace';
+import type { WsTab } from '../ui/workspace';
+import { logoColorFor, monogram, useWorkspaceNav } from '../pages/useWorkspaceNav';
 import NewThreadDialog from './NewThreadDialog';
-import NewWorkspaceDialog from './NewWorkspaceDialog';
-import WorkspaceHomePage from './WorkspaceHomePage';
 import WorkspaceInsightsPage from './WorkspaceInsightsPage';
-import WorkspaceLeftRail from './WorkspaceLeftRail';
-import WorkspaceSettingsPage from './WorkspaceSettingsPage';
+import WorkspaceThreadsSurface from './WorkspaceThreadsSurface';
 
 export type WorkspaceSection = 'home' | 'threads' | 'memory' | 'insights' | 'settings';
+
+/** The workspace's three main surfaces are Threads / Memory / Insights.
+ *  The older home + settings sections fold into Threads (the landing) —
+ *  Home is now a top-level nav destination and Settings lives in the
+ *  global rail's bottom group. */
+function sectionToTab(section: WorkspaceSection): WsTab {
+  return section === 'memory' || section === 'insights' ? section : 'threads';
+}
 
 type Props = {
   section: WorkspaceSection;
@@ -86,172 +91,62 @@ type Props = {
   hideRail?: boolean;
 };
 
-/** Calm-language workspace shell. The "Workspace" entry in the global
- *  topbar mounts this; the user moves between the 5 inner sections
- *  (Home · Threads · Memory · Insights · Settings) via the left rail.
- *  Threads are workspace-scoped per the model doc — the section
- *  renders the existing ThreadsPage inline rather than punching out to
- *  a top-level page. */
+/** Workspace main pane — the design's Workspace → Threads/Memory/Insights
+ *  layout. The global left rail (mounted by App) owns navigation between
+ *  workspaces and threads; this pane is the full-width main column: a
+ *  top bar (workspace logo + repo chips + New thread) over the tab body.
+ *  Threads is the landing surface (a list of open thread cards); Memory
+ *  and Insights are the other two tabs. */
 function WorkspaceShell({
-  section, onSelectSection, workspaceId, onWorkspaceCreated,
-  onOpenThread, onOpenThreadCreate, onOpenControlBar,
-  onOpenWorkspaceSwitcher,
-  threadsFilter, threadsProvider, threadsGroupId, threadsRepo,
-  onThreadsFilterChange, onThreadsProviderChange, onThreadsGroupChange, onThreadsRepoChange,
-  onOpenPr, onOpenIssues, onOpenSettings,
-  immersive, onChangeImmersive, hideRail = false,
+  section, onSelectSection, workspaceId, onOpenThread,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
-  const [newThreadInitialGroupId, setNewThreadInitialGroupId] = useState<string | undefined>(undefined);
-  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
-  const [assignReviewOpen, setAssignReviewOpen] = useState(false);
-  const { hasLiveThread, hasUnreadThread } = useRailThreadSignals();
 
-  // Track the active workspace so the rail brand + home page title
-  // reflect the workspace the user is inside (and update on rename
-  // without a reload). The shell is the single fetcher; pages
-  // receive name + id as props.
-  const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
-  const loadWorkspace = useCallback(async () => {
-    try {
-      const next = await window.bridge.getWorkspace(workspaceId);
-      setWorkspace(next);
-    }
-    catch { /* keep stale name on transient failure */ }
-  }, [workspaceId]);
-  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
-  const workspaceName = workspace?.name ?? '';
+  const { activeWorkspace, repos, rawThreads } = useWorkspaceNav(workspaceId);
+  const loaded = activeWorkspace !== null;
+  const name = activeWorkspace?.name ?? 'Workspace';
+  const activeTab = sectionToTab(section);
 
   return (
-    <section className="workspace-shell">
-      {!hideRail && (
-      <WorkspaceLeftRail
-        active={section}
-        onSelect={onSelectSection}
-        // The brand chevron is the workspace switcher per the
-        // landing design. We pass through onOpenWorkspaceSwitcher
-        // when it's wired; the rail falls back to opening the New
-        // Workspace dialog inline when it isn't, so older mounts of
-        // the shell still work.
-        onOpenWorkspaceSwitcher={onOpenWorkspaceSwitcher}
-        onOpenNewWorkspace={() => setNewWorkspaceOpen(true)}
-        onOpenControlBar={onOpenControlBar}
-        hasLiveThread={hasLiveThread}
-        hasUnreadThread={hasUnreadThread}
-        workspaceName={workspaceName}
-        workspaceId={workspaceId}
-      />
-      )}
-      <div className="workspace-content">
-        {section === 'home' && (
-          <WorkspaceHomePage
-            workspaceId={workspaceId}
-            workspaceName={workspaceName === '' ? 'Workspace' : workspaceName}
-            onSelectSection={onSelectSection}
-            onNewThread={() => setNewThreadOpen(true)}
-            onAssignReview={() => setAssignReviewOpen(true)}
+    <div className="shell full-width">
+      <div className="main">
+        <WorkspaceTopBar
+          workspace={{ initials: monogram(name).toUpperCase(), color: logoColorFor(name), name }}
+          repos={repos}
+          threadCount={activeWorkspace?.activeThreadCount}
+          activeTab={activeTab}
+          onSelectTab={tab => onSelectSection(tab)}
+          onNewThread={() => setNewThreadOpen(true)}
+        />
+        {activeTab === 'threads' && (
+          <WorkspaceThreadsSurface
+            threads={rawThreads}
+            loading={!loaded}
             onOpenThread={onOpenThread}
           />
         )}
-        {section === 'threads' && (
-          <ThreadsPage
-            workspaceId={workspaceId}
-            filter={threadsFilter}
-            provider={threadsProvider}
-            groupId={threadsGroupId}
-            repo={threadsRepo}
-            onFilterChange={onThreadsFilterChange}
-            onProviderChange={onThreadsProviderChange}
-            onGroupChange={onThreadsGroupChange}
-            onRepoChange={onThreadsRepoChange}
-            onSelectTask={(threadId) => onOpenThread?.(threadId)}
-            onOpenPr={onOpenPr}
-            onOpenIssues={onOpenIssues}
-            onOpenSettings={onOpenSettings}
-            onNewTask={(initialGroupId) => {
-              if (initialGroupId !== undefined) {
-                setNewThreadInitialGroupId(initialGroupId);
-              }
-              setNewThreadOpen(true);
-            }}
-            immersive={immersive}
-            onChangeImmersive={onChangeImmersive}
-          />
+        {activeTab === 'memory' && (
+          <div className="surface">
+            <WorkspaceMemoryPage workspaceId={workspaceId} onOpenThread={onOpenThread} />
+          </div>
         )}
-        {section === 'memory' && (
-          <WorkspaceMemoryPage workspaceId={workspaceId} onOpenThread={onOpenThread} />
+        {activeTab === 'insights' && (
+          <div className="surface"><WorkspaceInsightsPage /></div>
         )}
-        {section === 'insights' && <WorkspaceInsightsPage />}
-        {section === 'settings' && <WorkspaceSettingsPage />}
       </div>
       {newThreadOpen && (
         <NewThreadDialog
           workspaceId={workspaceId}
-          workspaceName={workspaceName === '' ? 'Workspace' : workspaceName}
-          onClose={() => {
-            setNewThreadOpen(false);
-            setNewThreadInitialGroupId(undefined);
-          }}
+          workspaceName={name}
+          onClose={() => setNewThreadOpen(false)}
           onCreated={(threadId) => {
             setNewThreadOpen(false);
-            setNewThreadInitialGroupId(undefined);
-            onOpenThread?.(threadId);
-          }}
-          initialGroupId={newThreadInitialGroupId}
-        />
-      )}
-      {newWorkspaceOpen && (
-        <NewWorkspaceDialog
-          onClose={() => setNewWorkspaceOpen(false)}
-          onCreated={(newId) => {
-            setNewWorkspaceOpen(false);
-            onWorkspaceCreated?.(newId);
-          }}
-        />
-      )}
-      {assignReviewOpen && (
-        <AssignReviewTaskDialog
-          workspaceId={workspaceId}
-          onClose={() => setAssignReviewOpen(false)}
-          onStarted={(threadId) => {
-            setAssignReviewOpen(false);
             onOpenThread?.(threadId);
           }}
         />
       )}
-    </section>
+    </div>
   );
-}
-
-/** Quick poll for the two rail nav signals (live + unread). Re-runs
- *  on a 15s cadence so the dots don't go stale after a thread finishes
- *  or parks — a streaming WebSocket would be cheaper, but the existing
- *  bridge already gives us a snappy list endpoint so polling is the
- *  short path. Home does its own fetch for the card data, so this is
- *  a small extra cost. Hoist to a shared store if it grows further. */
-function useRailThreadSignals() {
-  const [signals, setSignals] = useState<{ hasLiveThread: boolean; hasUnreadThread: boolean }>({
-    hasLiveThread: false,
-    hasUnreadThread: false,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    const tick = () => {
-      window.bridge.listTasks().then(threads => {
-        if (cancelled) return;
-        const hasLive = threads.some(t => t.status === 'RUNNING');
-        const hasUnread = threads.some(t =>
-          t.status === 'AWAITING' || t.activeTask?.status === 'AWAITING');
-        setSignals({ hasLiveThread: hasLive, hasUnreadThread: hasUnread });
-      }).catch(() => {});
-    };
-    tick();
-    const id = window.setInterval(tick, 15_000);
-    return () => { cancelled = true; window.clearInterval(id); };
-  }, []);
-
-  return signals;
 }
 
 export default WorkspaceShell;

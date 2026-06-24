@@ -25,3 +25,5 @@ export type { AvatarHue } from './Avatar';
 export { Kbd } from './Kbd';
 export { Chev } from './Chev';
 export { IconBtn } from './IconBtn';
+export { Logo } from './Logo';
+export type { LogoColor, LogoSize } from './Logo';

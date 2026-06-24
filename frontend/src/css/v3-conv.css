@@ -1,0 +1,460 @@
+/*
+ * V3 Layer 3a — conversation primitives.
+ *
+ * Scoped under `.shell` like the rest of the V3 structural CSS. Mirrors
+ * the Copilot-style mockup: event rows, tool blocks, callouts, the
+ * unified card, and the closed-stage fold.
+ */
+
+/* ── Conversation container ──────────────────────────────────── */
+.shell .conv-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.shell .conv {
+  padding: 22px 32px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ── Event row ───────────────────────────────────────────────── */
+.shell .ev {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.shell .ev .who-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.shell .ev .who-row .ic {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+  flex-shrink: 0;
+  align-self: center;
+}
+.shell .ev .who-row .ic.agent {
+  background: var(--orange);
+}
+.shell .ev .who-row .ic.user {
+  background: var(--teal);
+}
+.shell .ev .who-row .ic.system {
+  background: var(--text-4);
+}
+.shell .ev .who-row .ic.brain {
+  background: var(--accent);
+}
+.shell .ev .who-row .ic.followup {
+  background: var(--orange);
+}
+.shell .ev .who-row .who {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--orange);
+  letter-spacing: -0.005em;
+}
+.shell .ev .who-row .who.user {
+  color: var(--teal);
+}
+.shell .ev .who-row .who.system {
+  color: var(--text-2);
+}
+.shell .ev .who-row .who.brain {
+  color: var(--accent);
+}
+.shell .ev .who-row .ref {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.shell .ev .who-row .ref .b {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.shell .ev .who-row .ref .sep {
+  color: var(--text-4);
+  margin: 0 4px;
+}
+.shell .ev .who-row .chev {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-4);
+  padding: 3px 5px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+}
+.shell .ev .tx {
+  font-size: 13.5px;
+  color: var(--text-1);
+  line-height: 1.65;
+}
+.shell .ev .tx p {
+  margin: 0;
+}
+.shell .ev .tx p + p {
+  margin-top: 8px;
+}
+.shell .ev .tx code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-warm);
+  border: 1px solid var(--code-border);
+}
+
+/* ── Tool block (collapsible) ────────────────────────────────── */
+.shell .tool-block {
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.shell .tool-block .head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 8px;
+  background: var(--code-bg-warm);
+  cursor: pointer;
+  width: 100%;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+}
+.shell .tool-block .head .disc {
+  color: var(--text-4);
+  font-size: 11px;
+  width: 14px;
+  text-align: center;
+}
+.shell .tool-block .head .tag {
+  padding: 2px 9px;
+  background: var(--teal);
+  color: #fff;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.shell .tool-block .head .tag.plan {
+  background: var(--accent);
+}
+.shell .tool-block .head .desc {
+  font-size: 12px;
+  color: var(--text-2);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell .tool-block .head .meta {
+  font-size: 11px;
+  color: var(--text-4);
+  font-family: var(--mono);
+  margin-left: auto;
+}
+.shell .tool-block .body-code {
+  padding: 9px 14px;
+  background: var(--bg-code);
+  border-top: 1px solid var(--code-border);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-1);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.shell .tool-block .body-code .grn {
+  color: var(--green);
+}
+.shell .tool-block .body-code .red {
+  color: var(--red);
+}
+.shell .tool-block .body-code .dim {
+  color: var(--text-3);
+}
+
+/* ── Inline action chip ──────────────────────────────────────── */
+.shell .inline-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  align-self: flex-end;
+  cursor: pointer;
+  font-family: inherit;
+}
+.shell .inline-action:hover {
+  border-color: var(--accent);
+}
+.shell .inline-action .ic {
+  color: var(--accent);
+}
+
+/* ── "Thought for Xs" indicator ──────────────────────────────── */
+.shell .thought {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 11.5px;
+  color: var(--text-4);
+  font-style: italic;
+}
+.shell .thought .disc {
+  font-size: 10px;
+}
+.shell .thought .ic {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* ── Callout (quoted/italic agent passage) ───────────────────── */
+.shell .callout {
+  padding: 8px 14px;
+  border-left: 2px solid var(--border-mid);
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--text-2);
+  font-style: italic;
+  line-height: 1.6;
+}
+.shell .callout strong {
+  color: var(--text-1);
+  font-weight: 600;
+  font-style: normal;
+}
+
+/* ── Closed-stage fold ───────────────────────────────────────── */
+.shell .stage-fold {
+  display: flex;
+  flex-direction: column;
+}
+.shell .stage-fold__bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: var(--bg-input);
+  border: 1px dashed var(--border-mid);
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  cursor: pointer;
+  align-self: flex-start;
+  font-family: inherit;
+}
+.shell .stage-fold__bar:hover {
+  color: var(--text-2);
+  border-color: var(--border-strong);
+}
+.shell .stage-fold__chev {
+  font-size: 9px;
+}
+.shell .stage-fold__count {
+  font-family: var(--mono);
+  color: var(--text-4);
+}
+.shell .stage-fold__body {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-top: 22px;
+}
+
+/* ── Unified card (task + backlog variants) ──────────────────── */
+.shell .task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+}
+.shell .task-card:hover {
+  border-color: var(--accent);
+}
+/* Backlog variant drops the task-only purple spine. */
+.shell .task-card.backlog {
+  border-left: 1px solid var(--border);
+}
+.shell .task-card.started {
+  opacity: 0.85;
+}
+.shell .task-card .header {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+.shell .task-card .header .diamond {
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.shell .task-card .header .title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.shell .task-card .body {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.shell .task-card .meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+.shell .task-card .branch-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.shell .task-card .branch-tag .ic {
+  color: var(--text-4);
+  font-size: 9px;
+}
+.shell .task-card .created {
+  font-size: 10.5px;
+  color: var(--text-4);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.shell .task-card .linked {
+  font-size: 10.5px;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+.shell .task-card .status-pill {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.shell .task-card .status-pill .arrow {
+  font-size: 10px;
+}
+.shell .task-card .status-pill.foreground {
+  background: rgba(34, 197, 94, 0.14);
+  color: var(--green);
+  border: 1px solid var(--green-border);
+}
+.shell .task-card .status-pill.shipped {
+  background: var(--bg-input);
+  color: var(--text-1);
+  border: 1px solid var(--border-mid);
+}
+.shell .task-card .status-pill.pending {
+  background: var(--bg-hover);
+  color: var(--text-3);
+  border: 1px solid var(--border-mid);
+}
+.shell .task-card .status-pill.errored {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--red);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+.shell .task-card .status-pill.paused {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--orange);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* Start-development button — tag-shaped, bright orange. */
+.shell .start-dev-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  border: 1px solid #c2410c;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.03em;
+  box-shadow: 0 1px 2px rgba(234, 88, 12, 0.2);
+}
+.shell .start-dev-btn:hover {
+  background: linear-gradient(135deg, #ea580c, #c2410c);
+  box-shadow: 0 2px 4px rgba(234, 88, 12, 0.3);
+}
+.shell .start-dev-btn .arrow {
+  font-size: 10px;
+}
+.shell .start-dev-btn.started {
+  background: var(--bg-input);
+  color: var(--text-3);
+  border-color: var(--border-mid);
+  box-shadow: none;
+  cursor: default;
+  opacity: 0.85;
+}
+.shell .start-dev-btn.started:hover {
+  background: var(--bg-input);
+}

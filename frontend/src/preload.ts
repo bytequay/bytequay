@@ -97,6 +97,9 @@ import type {
   WorkspaceRepoDto,
   CredentialTestResult,
   ReviewCommentDto,
+  BacklogItemDto,
+  StartDevelopmentResponse,
+  ThreadSignalDto,
 } from './types';
 
 const bridge: Bridge = {
@@ -728,6 +731,22 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:reopen', id),
   submitReview: (taskId: string): Promise<{ submitted: number; turnId: string | null }> =>
     ipcRenderer.invoke('review:submit', taskId),
+  listBacklog: (threadId: string): Promise<BacklogItemDto[]> =>
+    ipcRenderer.invoke('backlog:list', threadId),
+  createBacklogItem: (threadId: string, title: string, body: string, tags: string[]): Promise<BacklogItemDto> =>
+    ipcRenderer.invoke('backlog:create', { threadId, title, body, tags }),
+  updateBacklogItem: (
+    itemId: string, patch: { title?: string; body?: string; tags?: string[] },
+  ): Promise<BacklogItemDto> =>
+    ipcRenderer.invoke('backlog:update', { itemId, ...patch }),
+  deleteBacklogItem: (itemId: string): Promise<void> =>
+    ipcRenderer.invoke('backlog:delete', itemId),
+  startBacklogDevelopment: (itemId: string): Promise<StartDevelopmentResponse> =>
+    ipcRenderer.invoke('backlog:startDevelopment', itemId),
+  listThreadSignals: (threadId: string): Promise<ThreadSignalDto[]> =>
+    ipcRenderer.invoke('signals:list', threadId),
+  markSignalRead: (signalId: string): Promise<void> =>
+    ipcRenderer.invoke('signals:markRead', signalId),
   getScheduledReviewSettings: () =>
     ipcRenderer.invoke('reviews:scheduled:get'),
   setScheduledReviewSettings: (enabled: boolean) =>

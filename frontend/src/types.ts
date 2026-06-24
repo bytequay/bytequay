@@ -2036,6 +2036,44 @@ export type ReviewCommentDto = {
   resolved: boolean;
 };
 
+/** A parked future-work item on a thread's backlog (the trunk Backlog
+ *  tab). {@code createdAt}/{@code startedAt} are epoch-millis;
+ *  {@code startedAt} is null until "Start development". */
+export type BacklogItemDto = {
+  id: string;
+  threadId: string;
+  title: string;
+  body: string;
+  tags: string[];
+  createdAt: number;
+  startedAt: number | null;
+  linkedTaskId: string | null;
+};
+
+/** Result of starting development on a backlog item: the updated item
+ *  and the materialised task id (null when it queued behind a running
+ *  task). */
+export type StartDevelopmentResponse = {
+  item: BacklogItemDto;
+  taskId: string | null;
+};
+
+/** A passive signal in a thread's Notifications feed. Distinct from the
+ *  actionable {@link NotificationDto} gate. {@code createdAt}/{@code readAt}
+ *  are epoch-millis; {@code readAt} is null until read. */
+export type ThreadSignalDto = {
+  id: string;
+  threadId: string;
+  taskId: string | null;
+  sourceKind: 'agent' | 'system' | 'github';
+  iconKind: 'info' | 'success' | 'warn' | 'alert';
+  title: string;
+  body: string | null;
+  sourceUrl: string | null;
+  createdAt: number;
+  readAt: number | null;
+};
+
 /** Conversation-index window response. Carries both the user-prompt
  *  index entries and the matching {@code thread_messages} rows in a
  *  single round-trip so the index and the agent terminal stay in
@@ -3576,6 +3614,29 @@ export type Bridge = {
    *  as a steering turn. Returns how many were submitted and the enqueued
    *  turn id (null when there was nothing to submit). */
   submitReview: (taskId: string) => Promise<{ submitted: number; turnId: string | null }>;
+  /** Backlog items on a thread, oldest-first (trunk Backlog tab). */
+  listBacklog: (threadId: string) => Promise<BacklogItemDto[]>;
+  /** Create a backlog item on the thread. */
+  createBacklogItem: (
+    threadId: string,
+    title: string,
+    body: string,
+    tags: string[],
+  ) => Promise<BacklogItemDto>;
+  /** Partial update of a backlog item (omitted fields unchanged). */
+  updateBacklogItem: (
+    itemId: string,
+    patch: { title?: string; body?: string; tags?: string[] },
+  ) => Promise<BacklogItemDto>;
+  /** Delete a backlog item. */
+  deleteBacklogItem: (itemId: string) => Promise<void>;
+  /** Cut a task from the item (title + body as the seed prompt) and mark
+   *  it started. Returns the updated item + the materialised task id. */
+  startBacklogDevelopment: (itemId: string) => Promise<StartDevelopmentResponse>;
+  /** A thread's passive signal feed, newest-first (Notifications tab). */
+  listThreadSignals: (threadId: string) => Promise<ThreadSignalDto[]>;
+  /** Mark a thread signal read. */
+  markSignalRead: (signalId: string) => Promise<void>;
   /** Raise a running pass's budget so the panel keeps reviewing: bumps the
    *  cost cap by addCostMilli and the debate-round cap by addRounds. Returns
    *  the updated detail. */

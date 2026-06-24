@@ -4175,6 +4175,97 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // ── Backlog (trunk Backlog tab) ──────────────────────────────────────
+  const requireString = (value: unknown, name: string): string => {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`${name} must be a non-empty string`);
+    }
+    return value;
+  };
+
+  ipcMain.handle('backlog:list', async (_event, threadId: unknown) => {
+    const id = requireString(threadId, 'threadId');
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`);
+    if (!res.ok) {
+      throw new Error(`backend GET backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('backlog:create', async (_event, args: unknown) => {
+    const params = args as { threadId?: unknown; title?: unknown; body?: unknown; tags?: unknown };
+    const id = requireString(params?.threadId, 'threadId');
+    const body = {
+      title: typeof params.title === 'string' ? params.title : '',
+      body: typeof params.body === 'string' ? params.body : '',
+      tags: Array.isArray(params.tags) ? params.tags.filter(t => typeof t === 'string') : [],
+    };
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`backend POST backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('backlog:update', async (_event, args: unknown) => {
+    const params = args as { itemId?: unknown; title?: unknown; body?: unknown; tags?: unknown };
+    const id = requireString(params?.itemId, 'itemId');
+    const body: Record<string, unknown> = {};
+    if (typeof params.title === 'string') body.title = params.title;
+    if (typeof params.body === 'string') body.body = params.body;
+    if (Array.isArray(params.tags)) body.tags = params.tags.filter(t => typeof t === 'string');
+    const res = await fetch(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`backend PATCH backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('backlog:delete', async (_event, itemId: unknown) => {
+    const id = requireString(itemId, 'itemId');
+    const res = await fetch(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      throw new Error(`backend DELETE backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+  });
+
+  ipcMain.handle('backlog:startDevelopment', async (_event, itemId: unknown) => {
+    const id = requireString(itemId, 'itemId');
+    const res = await fetch(
+      `${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/start-development`,
+      { method: 'POST' });
+    if (!res.ok) {
+      throw new Error(`backend POST start-development returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
+  // ── Thread signals (trunk Notifications tab) ─────────────────────────
+  ipcMain.handle('signals:list', async (_event, threadId: unknown) => {
+    const id = requireString(threadId, 'threadId');
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/signals`);
+    if (!res.ok) {
+      throw new Error(`backend GET signals returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('signals:markRead', async (_event, signalId: unknown) => {
+    const id = requireString(signalId, 'signalId');
+    const res = await fetch(`${BACKEND_BASE}/api/signals/${encodeURIComponent(id)}/read`, { method: 'POST' });
+    if (!res.ok) {
+      throw new Error(`backend POST signal read returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+  });
+
   ipcMain.handle('reviews:prSummaries', async (_event, threadIds: unknown) => {
     if (!Array.isArray(threadIds) || threadIds.some(id => typeof id !== 'string')) {
       throw new Error('threadIds must be an array of strings');

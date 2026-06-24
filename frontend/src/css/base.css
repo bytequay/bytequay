@@ -2,36 +2,80 @@
   box-sizing: border-box;
 }
 
+/* ── V3 design tokens ─────────────────────────────────────────
+   The Copilot-style visual system is the app-wide default. The
+   semantic accent colors (teal / orange / green / red), their soft +
+   border variants, and the new structural tokens below are
+   theme-invariant; the per-theme blocks that follow set the warm /
+   light / dark base surface, text, and primary accent. New surfaces
+   use the bare names (--bg, --accent, --teal, …); legacy surfaces
+   keep their aliases (--bg-base, --bg-elevated, …) which the default
+   block below now points at the same V3 values. */
+:root {
+  --bg: #fbfaf9;
+  --bg-elev: #ffffff;
+  --bg-sidebar: #f4f1ec;
+  --bg-code: #faf7f2;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+
+  --border-strong: rgba(0, 0, 0, 0.18);
+
+  --accent-soft: rgba(139, 92, 246, 0.1);
+  --accent-border: rgba(139, 92, 246, 0.22);
+
+  --teal: #0d9488;
+  --teal-soft: rgba(13, 148, 136, 0.1);
+  --teal-border: rgba(13, 148, 136, 0.26);
+
+  --orange: #c2632a;
+  --orange-soft: rgba(194, 99, 42, 0.1);
+  --orange-border: rgba(194, 99, 42, 0.3);
+
+  --green: #16a34a;
+  --green-soft: rgba(34, 197, 94, 0.08);
+  --green-border: rgba(34, 197, 94, 0.3);
+
+  --red: #dc2626;
+  --red-soft: rgba(220, 38, 38, 0.06);
+
+  --code-border: rgba(180, 140, 80, 0.2);
+  --code-bg-warm: #f9f4ec;
+
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
+}
+
 /* ── Theme variables ─────────────────────────────────────── */
 
 :root,
 [data-theme="warm"] {
-  --bg-base: #f5f0e8;
-  --bg-elevated: #faf7f2;
+  --bg-base: #fbfaf9;
+  --bg-elevated: #ffffff;
   --bg-card: rgba(255, 255, 255, 0.72);
-  --bg-input: rgba(255, 255, 255, 0.8);
+  --bg-input: #fdfcfb;
   --bg-panel: rgba(255, 251, 244, 0.86);
   --bg-btn-secondary: rgba(255, 251, 244, 0.8);
 
-  --text-1: #18221d;
-  --text-2: #3a332a;
-  --text-3: #7a705d;
-  --text-4: #9a8060;
-  --text-warm: #8a6940;
+  --text-1: #1a1a1a;
+  --text-2: #4a4a4a;
+  --text-3: #767068;
+  --text-4: #a8a39c;
+  --text-warm: #7a5a30;
   --text-code: #7b6848;
 
-  --accent: #1f6a57;
-  --accent-dark: #175c4c;
-  --accent-a7: rgba(31, 106, 87, 0.07);
-  --accent-a4: rgba(31, 106, 87, 0.04);
-  --accent-a10: rgba(31, 106, 87, 0.1);
-  --accent-a40: rgba(31, 106, 87, 0.4);
+  --accent: #8b5cf6;
+  --accent-dark: #7c3aed;
+  --accent-a7: rgba(139, 92, 246, 0.07);
+  --accent-a4: rgba(139, 92, 246, 0.04);
+  --accent-a10: rgba(139, 92, 246, 0.1);
+  --accent-a40: rgba(139, 92, 246, 0.4);
 
-  --border: rgba(91, 81, 57, 0.14);
-  --border-mid: rgba(91, 81, 57, 0.12);
-  --border-light: rgba(91, 81, 57, 0.1);
-  --border-hairline: rgba(91, 81, 57, 0.08);
-  --border-input: rgba(75, 92, 78, 0.2);
+  --border: rgba(0, 0, 0, 0.08);
+  --border-mid: rgba(0, 0, 0, 0.12);
+  --border-light: rgba(0, 0, 0, 0.06);
+  --border-hairline: rgba(0, 0, 0, 0.05);
+  --border-input: rgba(0, 0, 0, 0.12);
 
   /* CTA palette — saturated green for the warm/light theme. Dark themes
      override this block to mute the brightness. */

@@ -25,7 +25,7 @@ import { logoColorFor, monogram, useWorkspaceNav } from './useWorkspaceNav';
  * replaces the global top bar as the app's single left nav.
  */
 export function WorkspaceNavShell({
-  activeWorkspaceId, selectedThreadId, activeNav, footer,
+  activeWorkspaceId, selectedThreadId, activeNav, footer, notificationCount,
   onNavigate, onEnterWorkspace, onOpenThread, onSwitchWorkspace,
   onNewWorkspace, onNewThread,
 }: {
@@ -33,6 +33,7 @@ export function WorkspaceNavShell({
   selectedThreadId?: string;
   activeNav?: WsNavKey;
   footer: { initials: string; name: string; onChat?: () => void; onSettings?: () => void };
+  notificationCount?: number;
   onNavigate?: (key: WsNavKey) => void;
   onEnterWorkspace?: (id: string) => void;
   onOpenThread?: (id: string) => void;
@@ -77,6 +78,7 @@ export function WorkspaceNavShell({
       onNavigate={onNavigate}
       backHint={activeWorkspaceId !== null}
       footer={footer}
+      notificationCount={notificationCount}
     >
       {body}
     </WorkspaceNavSidebar>

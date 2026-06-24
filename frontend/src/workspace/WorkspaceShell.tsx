@@ -81,6 +81,9 @@ type Props = {
    *  topbar can hide while the user babysits a group. */
   immersive: boolean;
   onChangeImmersive: (next: boolean) => void;
+  /** Hide the workspace's own left rail — set when the global workspace
+   *  sidebar already provides navigation (avoids a double rail). */
+  hideRail?: boolean;
 };
 
 /** Calm-language workspace shell. The "Workspace" entry in the global
@@ -96,7 +99,7 @@ function WorkspaceShell({
   threadsFilter, threadsProvider, threadsGroupId, threadsRepo,
   onThreadsFilterChange, onThreadsProviderChange, onThreadsGroupChange, onThreadsRepoChange,
   onOpenPr, onOpenIssues, onOpenSettings,
-  immersive, onChangeImmersive,
+  immersive, onChangeImmersive, hideRail = false,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newThreadInitialGroupId, setNewThreadInitialGroupId] = useState<string | undefined>(undefined);
@@ -121,6 +124,7 @@ function WorkspaceShell({
 
   return (
     <section className="workspace-shell">
+      {!hideRail && (
       <WorkspaceLeftRail
         active={section}
         onSelect={onSelectSection}
@@ -137,6 +141,7 @@ function WorkspaceShell({
         workspaceName={workspaceName}
         workspaceId={workspaceId}
       />
+      )}
       <div className="workspace-content">
         {section === 'home' && (
           <WorkspaceHomePage

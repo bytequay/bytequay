@@ -38,7 +38,7 @@ class TestRoleSkillService
 
         assertThat(service.trunkTemplate())
                 .contains("Role · Trunk")
-                .contains("create_task");
+                .contains("read-only");
     }
 
     @Test

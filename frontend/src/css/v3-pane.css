@@ -1,0 +1,595 @@
+/*
+ * V3 Layer 3b — right pane + tab contents.
+ *
+ * Scoped under `.shell`. Mirrors the Copilot-style mockup: the
+ * collapsible right pane, its tab strip + meta row, the inline chips
+ * shown when the pane is closed, and the per-tab content shapes (Plan,
+ * PR, Details, Tasks, Backlog, Notifications).
+ */
+
+/* ── Right pane container ────────────────────────────────────── */
+.shell .pane {
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-width: 0;
+  min-height: 0;
+}
+.shell .pane-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.shell .pane-tab {
+  padding: 5px 11px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  border: 0;
+  background: transparent;
+}
+.shell .pane-tab:hover {
+  background: var(--bg-hover);
+}
+.shell .pane-tab.active {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-1);
+  font-weight: 600;
+}
+.shell .pane-tab .count {
+  font-size: 11px;
+  color: var(--red);
+  font-weight: 500;
+}
+.shell .pane-tab .count.acc {
+  color: var(--accent);
+}
+.shell .pane-tab .count.muted {
+  color: var(--text-3);
+}
+.shell .pane-tabs .grow {
+  flex: 1;
+}
+.shell .pane-tabs .header-actions {
+  display: flex;
+  gap: 4px;
+  color: var(--text-4);
+}
+.shell .pane-tabs .header-actions span {
+  padding: 4px 5px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px;
+}
+.shell .pane-tabs .header-actions span:hover {
+  background: var(--bg-hover);
+}
+.shell .pane-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.shell .pane-meta-row .left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.shell .pane-meta-row .right {
+  margin-left: auto;
+  color: var(--text-3);
+}
+.shell .pane-content {
+  padding: 14px 18px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Inline chips (shown above composer when the pane is closed) ─ */
+.shell .inline-chips {
+  display: flex;
+  gap: 8px;
+  padding: 8px 32px 0;
+  flex-wrap: wrap;
+}
+.shell .inline-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-mid);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.shell .inline-chip:hover {
+  border-color: var(--accent);
+}
+.shell .inline-chip .ic {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.shell .inline-chip .count {
+  font-weight: 600;
+}
+.shell .inline-chip .count.red {
+  color: var(--red);
+}
+.shell .inline-chip .count.acc {
+  color: var(--accent);
+}
+
+/* ── Plan tab ────────────────────────────────────────────────── */
+.shell .plan-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.shell .plan-source .src {
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 10.5px;
+  border: 1px solid var(--accent-border);
+}
+.shell .plan-source .src.rev {
+  background: var(--orange-soft);
+  color: var(--orange);
+  border-color: var(--orange-border);
+}
+.shell .plan-source .rev-pill {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  padding: 1px 7px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.shell .plan-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shell .plan-sec .lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.shell .plan-sec .summary {
+  font-size: 13px;
+  color: var(--text-1);
+  line-height: 1.6;
+}
+.shell .plan-bullets {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text-1);
+  line-height: 1.55;
+}
+.shell .plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shell .plan-step {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 9px;
+  padding: 8px 11px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  align-items: baseline;
+}
+.shell .plan-step .ord {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.shell .plan-step .stx {
+  font-size: 12.5px;
+  color: var(--text-1);
+  line-height: 1.45;
+}
+.shell .plan-step .stx .f {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: var(--bg-code);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--text-warm);
+  border: 1px solid var(--code-border);
+  margin-left: 4px;
+}
+.shell .plan-sigs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.shell .sig {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border: 1px solid;
+}
+.shell .sig.risk-low {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green-border);
+}
+.shell .sig.cmplx {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.shell .sig.push {
+  background: var(--orange-soft);
+  color: var(--orange);
+  border-color: var(--orange-border);
+}
+.shell .plan-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.shell .plan-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid;
+  letter-spacing: -0.005em;
+}
+.shell .plan-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.shell .plan-btn.ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.shell .plan-btn.sec {
+  background: var(--bg-elev);
+  color: var(--text-2);
+  border-color: var(--border-mid);
+}
+
+/* ── Details tab ─────────────────────────────────────────────── */
+.shell .details-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12.5px;
+  border-bottom: 1px dashed var(--border);
+}
+.shell .details-row:last-child {
+  border-bottom: 0;
+}
+.shell .details-row .k {
+  color: var(--text-3);
+}
+.shell .details-row .v {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-1);
+}
+.shell .details-row .v.cost {
+  color: var(--green);
+}
+.shell .details-sec-h {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 4px;
+}
+
+/* ── PR tab ──────────────────────────────────────────────────── */
+.shell .pr-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.shell .pr-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.shell .pr-status-badge.open {
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid var(--green-border);
+}
+.shell .pr-status-badge.merged {
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+.shell .pr-status-badge.draft {
+  background: var(--bg-hover);
+  color: var(--text-3);
+  border: 1px solid var(--border-mid);
+}
+.shell .pr-branch-flow {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 0;
+}
+.shell .pr-branch-flow .br {
+  padding: 1px 7px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+}
+.shell .pr-branch-flow .arrow {
+  color: var(--text-4);
+}
+.shell .pr-meta-chips {
+  display: flex;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.shell .pr-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.shell .pr-meta-chip .ic {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.shell .pr-meta-chip .count {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.shell .pr-author-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+}
+.shell .pr-author-row .text {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.shell .pr-author-row .text .b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.shell .pr-author-row .ts {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.shell .pr-comment-section-h {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  padding-top: 8px;
+}
+.shell .pr-comment-thread {
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shell .pr-comment-thread .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.shell .pr-comment-thread .head .author {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.shell .pr-comment-thread .head .file {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: 6px;
+}
+.shell .pr-comment-thread .head .status {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border: 1px solid;
+}
+.shell .pr-comment-thread .head .status.open {
+  background: var(--orange-soft);
+  color: var(--orange);
+  border-color: var(--orange-border);
+}
+.shell .pr-comment-thread .head .status.resolved {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green-border);
+}
+.shell .pr-comment-thread .body {
+  font-size: 12.5px;
+  color: var(--text-1);
+  line-height: 1.55;
+}
+.shell .pr-comment-thread .reply {
+  padding: 6px 9px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.shell .pr-comment-thread .reply .src {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 10.5px;
+  margin-right: 6px;
+}
+
+/* ── Backlog tab — Add-item dropzone (items use the unified Card) ─ */
+.shell .backlog-add {
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px dashed var(--border-mid);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+}
+.shell .backlog-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.shell .backlog-add .ic {
+  font-size: 13px;
+}
+
+/* ── Notifications tab ───────────────────────────────────────── */
+.shell .notif-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  align-items: start;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+}
+.shell .notif-row:hover {
+  border-color: var(--accent);
+}
+.shell .notif-row.unread {
+  border-left: 3px solid var(--accent);
+}
+.shell .notif-row .ic {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #fff;
+  font-weight: 700;
+}
+.shell .notif-row .ic.info {
+  background: var(--text-3);
+}
+.shell .notif-row .ic.success {
+  background: var(--green);
+}
+.shell .notif-row .ic.warn {
+  background: var(--orange);
+}
+.shell .notif-row .ic.alert {
+  background: var(--red);
+}
+.shell .notif-row .body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.shell .notif-row .body .nm {
+  font-size: 12.5px;
+  color: var(--text-1);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.shell .notif-row .body .sub {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.shell .notif-row .ts {
+  font-size: 10.5px;
+  color: var(--text-4);
+  font-family: var(--mono);
+  white-space: nowrap;
+}

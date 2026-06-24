@@ -14,14 +14,24 @@
 import type { ReactNode } from 'react';
 import { SidebarFooter, TrafficLights } from '../shell';
 
-/** Top-level nav destinations. No Search (removed in this model). */
-export type WsNavKey = 'home' | 'workspaces' | 'my-work' | 'automations';
+/** Nav destinations. No Search (removed in this model). The first four
+ *  are the primary (top) group; the rest sit in the bottom group. */
+export type WsNavKey =
+  | 'home' | 'workspaces' | 'my-work' | 'automations'
+  | 'repos' | 'email' | 'notifications' | 'settings';
 
-const NAV: { key: WsNavKey; ic: string; label: string }[] = [
+const TOP_NAV: { key: WsNavKey; ic: string; label: string }[] = [
   { key: 'home', ic: '⌂', label: 'Home' },
   { key: 'workspaces', ic: '▦', label: 'Workspaces' },
   { key: 'my-work', ic: '▤', label: 'My work' },
   { key: 'automations', ic: '⚙', label: 'Automations' },
+];
+
+const BOTTOM_NAV: { key: WsNavKey; ic: string; label: string }[] = [
+  { key: 'repos', ic: '⎇', label: 'Repos' },
+  { key: 'email', ic: '✉', label: 'Email' },
+  { key: 'notifications', ic: '🔔', label: 'Notifications' },
+  { key: 'settings', ic: '⚙', label: 'Settings' },
 ];
 
 /**
@@ -33,7 +43,7 @@ const NAV: { key: WsNavKey; ic: string; label: string }[] = [
  * overview).
  */
 export function WorkspaceNavSidebar({
-  activeNav, onNavigate, backHint = false, children, footer, onBack, onForward, onToggleCollapse,
+  activeNav, onNavigate, backHint = false, children, footer, notificationCount, onBack, onForward, onToggleCollapse,
 }: {
   activeNav?: WsNavKey;
   onNavigate?: (key: WsNavKey) => void;
@@ -42,29 +52,35 @@ export function WorkspaceNavSidebar({
   /** The body: a WorkspaceList, or a WorkspaceSwitcher + ThreadList. */
   children: ReactNode;
   footer: { initials: string; name: string; onChat?: () => void; onSettings?: () => void };
+  /** Unread badge on the bottom Notifications item. */
+  notificationCount?: number;
   onBack?: () => void;
   onForward?: () => void;
   onToggleCollapse?: () => void;
 }) {
+  const navItem = (n: { key: WsNavKey; ic: string; label: string }) => (
+    <button
+      key={n.key}
+      type="button"
+      className={n.key === activeNav ? 'sb-nav-item active' : 'sb-nav-item'}
+      onClick={() => onNavigate?.(n.key)}
+    >
+      <span className="ic" aria-hidden>{n.ic}</span>
+      <span>{n.label}</span>
+      {n.key === 'workspaces' && backHint && <span className="kbd">← back</span>}
+      {n.key === 'notifications' && notificationCount !== undefined && notificationCount > 0 && (
+        <span className="kbd">{notificationCount > 99 ? '99+' : notificationCount}</span>
+      )}
+    </button>
+  );
+
   return (
     <aside className="sidebar">
       <TrafficLights onBack={onBack} onForward={onForward} onToggleCollapse={onToggleCollapse} />
-      <div className="sb-nav">
-        {NAV.map(n => (
-          <button
-            key={n.key}
-            type="button"
-            className={n.key === activeNav ? 'sb-nav-item active' : 'sb-nav-item'}
-            onClick={() => onNavigate?.(n.key)}
-          >
-            <span className="ic" aria-hidden>{n.ic}</span>
-            <span>{n.label}</span>
-            {n.key === 'workspaces' && backHint && <span className="kbd">← back</span>}
-          </button>
-        ))}
-      </div>
+      <div className="sb-nav">{TOP_NAV.map(navItem)}</div>
       {children}
       <div className="sb-spacer" />
+      <div className="sb-nav">{BOTTOM_NAV.map(navItem)}</div>
       <SidebarFooter {...footer} />
     </aside>
   );

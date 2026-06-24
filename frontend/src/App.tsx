@@ -25,6 +25,8 @@ import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import { TrunkRoute } from './pages/TrunkRoute';
+import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
+import type { WsNavKey } from './ui/workspace';
 import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
 import TaskCodePage from './threads/TaskCodePage';
@@ -103,245 +105,6 @@ export type Nav =
    *  creation ships and the visual design is settled. */
   | { view: 'workspaces-landing' };
 
-type GlobalTopbarProps = {
-  nav: Nav;
-  onNav: (nav: Nav) => void;
-  /** True while the main window is in macOS native fullscreen — the
-   *  inset traffic lights vanish in that state, so we draw a small
-   *  brand mark in the otherwise-empty 78px reserve. */
-  fullScreen: boolean;
-  /** Unread-notification count rendered as a badge on the
-   *  Notifications nav button. Zero hides the badge. */
-  unreadNotificationCount: number;
-};
-
-/**
- * Static, animation-free version of the LogoOnboarding mark, sized
- * for the topbar. Lives here rather than in its own component because
- * the topbar is the only consumer and the SVG is small enough that a
- * separate file would be more friction than reuse.
- */
-function TopbarBrandMark({ size = 30 }: { size?: number }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 100 100"
-      width={size}
-      height={size}
-      role="img"
-      aria-label="ByteQuay"
-    >
-      <rect x="10" y="10" width="80" height="80" rx="14" fill="#7C3AED" />
-      <path d="M 10 68 Q 28 60 42 68 T 72 68 L 90 68 L 90 90 L 10 90 Z" fill="#8B5CF6" />
-      <line x1="30" y1="26" x2="42" y2="54" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" />
-      <line x1="44" y1="26" x2="56" y2="54" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" opacity="0.7" />
-      <line x1="58" y1="26" x2="70" y2="54" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-const BYTEQUAY_REPO_URL = 'https://github.com/chenjian2664/bytequay';
-
-/**
- * Canonical GitHub octocat mark. Inlined as currentColor so it picks
- * up the wordmark slot's text color and adapts to theme tokens.
- */
-function GithubMark({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 16 16"
-      width={size}
-      height={size}
-      role="img"
-      aria-label="ByteQuay on GitHub"
-      fill="currentColor"
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.66 7.66 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
-      />
-    </svg>
-  );
-}
-
-/** Friendly label for the breadcrumb's "← parent" target. Returns
- *  null for repo-style parents (Repository, etc.) so the caller can
- *  fall back to the owner/repo string for those — that's the
- *  established muscle memory. */
-export function breadcrumbLabel(back: Nav | undefined): string | null {
-  if (!back) return null;
-  switch (back.view) {
-    case 'email': return 'Email';
-    case 'workspace': return back.section === 'threads' ? 'Threads' : 'Workspace';
-    case 'home': return 'Home';
-    case 'my-prs': return 'My PRs';
-    case 'notifications': return 'Notifications';
-    case 'teams': return 'Teams';
-    case 'repos': return 'Repos';
-    // A PR opened from a task / trunk / review thread should read its
-    // origin, not the repo it landed on.
-    case 'thread-detail': return back.taskId !== undefined ? 'Task' : 'Thread';
-    case 'review-thread': return 'Review';
-    default: return null;
-  }
-}
-
-/** The Threads section in the global rail — shows the thread the user is
- *  currently inside (trunk / task / stage / review views) as the selected
- *  row. Fetches the thread's title lazily; falls back to a placeholder. */
-function GlobalThreads({ threadId, onOpen }: { threadId: string; onOpen: () => void }) {
-  const [title, setTitle] = useState('Current thread');
-  useEffect(() => {
-    let cancelled = false;
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (bridge?.getTask === undefined) return undefined;
-    bridge.getTask(threadId)
-      .then(t => { if (!cancelled && t.title) setTitle(t.title); })
-      .catch(() => { /* keep the placeholder */ });
-    return () => { cancelled = true; };
-  }, [threadId]);
-  return (
-    <div className="global-threads">
-      <div className="global-threads__h">Threads</div>
-      <button type="button" className="global-nav-btn global-nav-btn--active global-threads__item" onClick={onOpen} title={title}>
-        <span className="ic" aria-hidden>⎇</span>
-        <span className="global-threads__nm">{title}</span>
-      </button>
-    </div>
-  );
-}
-
-function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: GlobalTopbarProps) {
-  const threadId = 'threadId' in nav && typeof nav.threadId === 'string' ? nav.threadId : null;
-  return (
-    <div className={`global-topbar${fullScreen ? ' global-topbar--fullscreen' : ''}`}>
-      {fullScreen && (
-        <button
-          className="global-topbar__mark"
-          onClick={() => onNav({ view: 'home' })}
-          title="Home"
-          type="button"
-        >
-          <TopbarBrandMark />
-        </button>
-      )}
-      <div className="global-topbar__left">
-        {/* Plain href (no target="_blank") so main.ts's will-navigate
-            handler intercepts the click and opens the in-app browser
-            overlay — keeps the user inside the app shell with a × to
-            close. The wordmark used to route to Home; the right-side
-            "Home" nav button still does that, and in fullscreen the
-            traffic-light brand mark also routes home. */}
-        <a
-          className="global-topbar__brand global-topbar__brand--btn"
-          href={BYTEQUAY_REPO_URL}
-          title="ByteQuay on GitHub"
-        >
-          <GithubMark />
-        </a>
-        {nav.view === 'repo' && (
-          <button
-            className="global-topbar__breadcrumb"
-            onClick={() => onNav(nav.back ?? { view: 'home' })}
-          >
-            ← {breadcrumbLabel(nav.back) ?? `${nav.owner}/${nav.repo}`}
-          </button>
-        )}
-        {nav.view === 'thread-create' && (
-          <button
-            className="global-topbar__breadcrumb"
-            onClick={() => onNav({
-              view: 'workspace', section: 'threads',
-              threadsGroupId: nav.initialGroupId,
-            })}
-            title="Back to threads (Esc)"
-          >
-            ← Threads
-          </button>
-        )}
-        {nav.view === 'workspace' && nav.section === 'threads'
-            && nav.threadsGroupId !== undefined && (
-          <button
-            className="global-topbar__breadcrumb"
-            onClick={() => onNav({ view: 'workspace', section: 'threads' })}
-            title="Back to all threads"
-          >
-            ← All threads
-          </button>
-        )}
-        {/* Portal target: child screens (e.g. PullRequestList) mount
-            their own context-back button here via createPortal so it
-            sits next to the brand/breadcrumb without forcing the page
-            state up into App. */}
-        <div id="global-topbar-extra" className="global-topbar__extra" />
-      </div>
-      <nav className="global-topbar__nav">
-        <button
-          className={`global-nav-btn${nav.view === 'home' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'home' })}
-        >
-          Home
-        </button>
-        <button
-          className={`global-nav-btn${
-            nav.view === 'workspace' || nav.view === 'workspaces-landing'
-              ? ' global-nav-btn--active'
-              : ''}`}
-          onClick={() => onNav({ view: 'workspaces-landing' })}
-          title="Workspaces — pick a project brain to drop into"
-        >
-          Workspace
-        </button>
-        <button
-          className={`global-nav-btn${nav.view === 'my-prs' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'my-prs' })}
-        >
-          Pull requests
-        </button>
-      </nav>
-      {threadId !== null && (
-        <GlobalThreads threadId={threadId} onOpen={() => onNav({ view: 'thread-detail', threadId })} />
-      )}
-      <div className="global-topbar__spacer" />
-      <nav className="global-topbar__nav global-topbar__nav--bottom">
-        <button
-          className={`global-nav-btn${nav.view === 'repos' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'repos' })}
-          title="Local repos"
-        >
-          Repos
-        </button>
-        <button
-          className={`global-nav-btn${nav.view === 'email' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'email' })}
-          title="Email"
-        >
-          Email
-        </button>
-        <button
-          className={`global-nav-btn${nav.view === 'notifications' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'notifications' })}
-          title="Notifications"
-        >
-          Notifications
-          {unreadNotificationCount > 0 && (
-            <span className="global-nav-btn__badge" aria-label={`${unreadNotificationCount} unread`}>
-              {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
-            </span>
-          )}
-        </button>
-        <button
-          className={`global-nav-btn${nav.view === 'settings' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'settings' })}
-        >
-          Settings
-        </button>
-      </nav>
-    </div>
-  );
-}
 
 /**
  * Catches render errors in the routed content so the global topbar
@@ -685,15 +448,61 @@ function App() {
     );
   }
 
-  // Ready: global app shell with persistent topbar
+  // Ready: global app shell with the workspace-model left nav.
+  const inWorkspaceFlow = nav.view === 'workspace'
+    || nav.view === 'thread-detail' || nav.view === 'task-brain'
+    || nav.view === 'stage-detail' || nav.view === 'task-code';
+  const sidebarWorkspaceId = inWorkspaceFlow ? activeWorkspaceId : null;
+  const selectedThreadId = 'threadId' in nav ? nav.threadId : undefined;
+  const sidebarActiveNav: WsNavKey | undefined = (() => {
+    switch (nav.view) {
+      case 'home': return 'home';
+      case 'workspaces-landing': case 'workspace': return 'workspaces';
+      case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'workspaces';
+      case 'my-prs': return 'my-work';
+      case 'repos': case 'repository': case 'local-repo': return 'repos';
+      case 'email': return 'email';
+      case 'notifications': return 'notifications';
+      case 'settings': return 'settings';
+      default: return undefined;
+    }
+  })();
+
   return (
     <div className="app-shell">
       {!hideTopbar && (
-        <GlobalTopbar
-          nav={nav}
-          onNav={setNav}
-          fullScreen={fullScreen}
-          unreadNotificationCount={unreadNotificationCount}
+        <WorkspaceNavShell
+          activeWorkspaceId={sidebarWorkspaceId}
+          selectedThreadId={selectedThreadId}
+          activeNav={sidebarActiveNav}
+          notificationCount={unreadNotificationCount}
+          footer={{
+            initials: 'CJ',
+            name: 'You',
+            onSettings: () => setNav({ view: 'settings' }),
+            onChat: () => setNav({ view: 'notifications' }),
+          }}
+          onNavigate={key => {
+            switch (key) {
+              case 'home': setNav({ view: 'home' }); break;
+              case 'workspaces': setNav({ view: 'workspaces-landing' }); break;
+              case 'my-work': setNav({ view: 'my-prs' }); break;
+              case 'automations': break; // no Automations surface yet
+              case 'repos': setNav({ view: 'repos' }); break;
+              case 'email': setNav({ view: 'email' }); break;
+              case 'notifications': setNav({ view: 'notifications' }); break;
+              case 'settings': setNav({ view: 'settings' }); break;
+            }
+          }}
+          onEnterWorkspace={id => {
+            setActiveWorkspaceId(id);
+            writeActiveWorkspaceId(id);
+            setNav({ view: 'workspace', section: 'threads' });
+          }}
+          onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+          onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
+          onNewWorkspace={() => setNav({ view: 'workspaces-landing' })}
+          onNewThread={() => setNav({ view: 'thread-create' })}
         />
       )}
       <div className="app-content">
@@ -932,6 +741,7 @@ function App() {
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
             immersive={threadsImmersive}
             onChangeImmersive={setThreadsImmersive}
+            hideRail
           />
         )}
         {nav.view === 'repos' && (

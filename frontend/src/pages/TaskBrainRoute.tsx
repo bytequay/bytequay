@@ -16,8 +16,10 @@ import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import type { BrainFeedRow, StageDto, StageType } from '../types/brainView';
 import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
-import { DetailsTabContent } from '../ui/pane';
+import { DetailsTabContent, PlanTabContent } from '../ui/pane';
+import type { PlanSignal } from '../ui/pane';
 import type { StageChip } from '../ui/shell';
+import type { PlanCardDto } from '../types/brainView';
 import { TaskBrainPage } from './TaskBrainPage';
 
 const SHORT_LABEL: Record<StageType, string> = {
@@ -45,6 +47,30 @@ function stageDot(state: StageDto['state']): StageChip['dot'] | undefined {
   if (state === 'ACTIVE') return 'active';
   if (state === 'CLOSED') return 'done';
   return undefined;
+}
+
+/** Render the right-pane Plan tab from the brain's plan card. `onApprove`
+ *  is supplied only when the plan is finalized and awaiting the user. */
+function planTab(plan: PlanCardDto, onApprove?: () => void) {
+  const signals: PlanSignal[] = [
+    { kind: 'risk-low', label: `${plan.signals.riskLevel} risk` },
+    { kind: 'cmplx', label: plan.signals.estimatedComplexity },
+    { kind: 'push', label: plan.pushStrategy === 'await_approval' ? 'awaits approval' : 'autonomous' },
+  ];
+  return (
+    <PlanTabContent
+      source={{
+        revised: plan.source.includes('revision'),
+        label: plan.source,
+        revPill: plan.revisionCount > 0 ? `rev ${plan.revisionCount}` : undefined,
+      }}
+      summary={plan.understandingSummary}
+      steps={plan.steps.map(s => ({ text: s.action }))}
+      signals={signals}
+      approved={plan.state === 'locked'}
+      onApprove={onApprove}
+    />
+  );
 }
 
 /**
@@ -93,6 +119,18 @@ export function TaskBrainRoute({
     fn?.(threadId, task.id).then(() => pollFast()).catch(() => { /* poll reconciles */ });
   };
 
+  // The plan card (draft / awaiting / locked). When finalized and awaiting
+  // the user, approving closes the PlanStage, opens the DevelopmentStage,
+  // and navigates there.
+  const plan = data.rightRail.plan;
+  const approvePlan = () => {
+    if (plan === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.approvePlan(plan.planStageId)
+      .then(result => onOpenStage(result.devStageId))
+      .catch(() => { /* poll reconciles */ });
+  };
+
   const conversation = (
     <Conv>
       {brainFeed.map(row => {
@@ -129,7 +167,9 @@ export function TaskBrainRoute({
         onResume: runAction(bridge?.resumePausedTask),
         onClose: runAction(bridge?.cancelTask),
       }}
+      priorityTab={plan !== null && plan.state === 'awaiting' ? 'plan' : undefined}
       tabs={{
+        plan: plan !== null ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined) : undefined,
         details: (
           <DetailsTabContent sections={[{
             title: 'Task',

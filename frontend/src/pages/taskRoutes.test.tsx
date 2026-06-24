@@ -15,6 +15,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
+import { buildMockBrainView } from '../threads/brain/brainViewFixture';
+import type { PlanCardDto } from '../types/brainView';
 
 // jsdom lacks scrollIntoView; the shared conversation may call it.
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
@@ -40,6 +42,33 @@ describe('TaskBrainRoute', () => {
     await waitFor(() => expect(sendBrainMessage).toHaveBeenCalledWith('task-1', 'what next?'));
     // The working indicator appears while awaiting the brain's reply.
     expect(await screen.findByText('Brain is thinking…')).toBeTruthy();
+  });
+
+  it('shows the Plan tab with Approve when the plan awaits the user', async () => {
+    const approvePlan = vi.fn().mockResolvedValue({ devStageId: 'dev-9', redirectUrl: '' });
+    const base = buildMockBrainView(0);
+    const plan: PlanCardDto = {
+      planStageId: 'plan-1', state: 'awaiting', status: 'finalized', source: 'brain',
+      understandingSummary: 'Add a cost meter to the rail', intentSummary: 'wire it',
+      steps: [{ ordinal: 1, action: 'Build the meter' }], validationStrategy: 'tests',
+      pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 2, expectedGain: 'x' },
+      revisionCount: 0, followups: [],
+    };
+    const view = { ...base, rightRail: { ...base.rightRail, plan } };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      sendBrainMessage: vi.fn().mockResolvedValue({}),
+      approvePlan,
+    };
+    const onOpenStage = vi.fn();
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={onOpenStage} onOpenCode={() => {}} />);
+
+    // Plan is the default tab → its intent step + Approve action show.
+    expect(await screen.findByText('Build the meter')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve plan' }));
+    await waitFor(() => expect(approvePlan).toHaveBeenCalledWith('plan-1'));
+    await waitFor(() => expect(onOpenStage).toHaveBeenCalledWith('dev-9'));
   });
 });
 

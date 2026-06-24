@@ -25,8 +25,8 @@ import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import ThreadTrunkPage from './threads/ThreadTrunkPage';
-import TaskBrainView from './threads/brain/TaskBrainView';
-import TaskStageDetailView from './threads/brain/TaskStageDetailView';
+import { TaskBrainRoute } from './pages/TaskBrainRoute';
+import { StageDetailRoute } from './pages/StageDetailRoute';
 import TaskCodePage from './threads/TaskCodePage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
@@ -769,23 +769,11 @@ function App() {
           />
         )}
         {nav.view === 'task-brain' && (
-          <TaskBrainView
+          <TaskBrainRoute
             threadId={nav.threadId}
             taskId={nav.taskId}
-            onBack={() => setNav({
-              view: 'thread-detail', threadId: nav.threadId,
-            })}
-            onOpenThread={() => setNav({
-              view: 'thread-detail', threadId: nav.threadId,
-            })}
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
-            })}
-            onOpenPr={(owner, repo, prNumber) => setNav({
-              view: 'repo', owner, repo, prNumber, back: nav,
-            })}
-            onOpenReviewThread={threadId => setNav({
-              view: 'review-thread', threadId, back: nav,
             })}
             onOpenCode={() => setNav({
               view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
@@ -802,16 +790,10 @@ function App() {
           />
         )}
         {nav.view === 'stage-detail' && (
-          <TaskStageDetailView
+          <StageDetailRoute
             taskId={nav.taskId}
             stageId={nav.stageId}
             threadId={nav.threadId}
-            onBack={() => setNav({
-              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
-            })}
-            onOpenStage={stageId => setNav({
-              view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
-            })}
             onOpenCode={() => setNav({
               view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
             })}

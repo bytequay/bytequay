@@ -11,11 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ReactNode } from 'react';
 
-/** V3 full-page view blocks, shared by Changes + CI Status. */
-export { FullPageConv } from './FullPageConv';
-export { CommitsDropdown } from './CommitsDropdown';
-export type { CommitOption } from './CommitsDropdown';
-export { CIPanel, CICurrentCard, CICheckRow, CIIterationFolder, CIIterationRow } from './CIPanel';
-export type { CIStatus, CICheck, CIIteration, CIIterationGroup } from './CIPanel';
-export { CILogView } from './CILogView';
+/**
+ * The colorized CI log block on the right of the CI Status view. Pass
+ * pre-formatted `children` (spans with `.red`/`.grn`/`.yel`/`.dim`) or a
+ * plain `text` string.
+ */
+export function CILogView({ text, children }: { text?: string; children?: ReactNode }) {
+  return <pre className="ci-log">{children ?? text}</pre>;
+}

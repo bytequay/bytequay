@@ -16,3 +16,6 @@
 export { FullPageConv } from './FullPageConv';
 export { CommitsDropdown } from './CommitsDropdown';
 export type { CommitOption } from './CommitsDropdown';
+export { CIPanel, CICurrentCard, CICheckRow, CIIterationFolder, CIIterationRow } from './CIPanel';
+export type { CIStatus, CICheck, CIIteration, CIIterationGroup } from './CIPanel';
+export { CILogView } from './CILogView';

@@ -86,6 +86,14 @@ describe('Thought / Callout / InlineAction', () => {
     expect(screen.getByText('Thought for 7s')).toBeTruthy();
   });
 
+  it('Thought with a body is a collapsible disclosure (collapsed by default)', () => {
+    render(<Thought seconds={7}><div>reasoning</div></Thought>);
+    expect(screen.getByText('Thought for 7s')).toBeTruthy();
+    expect(screen.queryByText('reasoning')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Thought for 7s/ }));
+    expect(screen.getByText('reasoning')).toBeTruthy();
+  });
+
   it('Callout renders an italic passage', () => {
     const { container } = render(<Callout>verbatim note</Callout>);
     expect(container.querySelector('.callout')?.textContent).toBe('verbatim note');

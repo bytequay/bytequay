@@ -13,12 +13,14 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
-import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
+import type { ReactNode } from 'react';
+import { Callout, Conv, EventRow, Thought, UserMsg, Working } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
 import type { TaskCardData } from '../ui/pane';
 import { TrunkPage } from './TrunkPage';
 
-/** Best-effort plain text out of a message's JSON envelope. */
+/** Best-effort plain text out of a message's JSON envelope. Thinking rows
+ *  carry a {@code summary}; text rows carry {@code text}/{@code content}. */
 function extractText(contentJson: string): string {
   try {
     const v: unknown = JSON.parse(contentJson);
@@ -27,10 +29,50 @@ function extractText(contentJson: string): string {
       const o = v as Record<string, unknown>;
       if (typeof o.text === 'string') return o.text;
       if (typeof o.content === 'string') return o.content;
+      if (typeof o.summary === 'string') return o.summary;
     }
   }
   catch { /* non-JSON envelope */ }
   return '';
+}
+
+/** Build the trunk conversation rows, grouping consecutive thinking
+ *  messages into one collapsible "Thought for Xs" block (the planning
+ *  reasoning) and rendering text turns inline. */
+function buildRows(messages: ThreadMessageDto[]): ReactNode[] {
+  const planning = messages.filter(
+    m => m.taskId === null && (m.type === 'text' || m.type === 'thinking'));
+  const rows: ReactNode[] = [];
+  let i = 0;
+  while (i < planning.length) {
+    const m = planning[i];
+    if (m.type === 'thinking') {
+      const group: ThreadMessageDto[] = [];
+      while (i < planning.length && planning[i].type === 'thinking') {
+        group.push(planning[i]);
+        i += 1;
+      }
+      const next = planning[i];
+      const endMs = next !== undefined ? Date.parse(next.ts) : Date.parse(group[group.length - 1].ts);
+      const seconds = Math.max(1, Math.round((endMs - Date.parse(group[0].ts)) / 1000));
+      const texts = group.map(g => extractText(g.contentJson)).filter(t => t.trim().length > 0);
+      rows.push(
+        <Thought key={group[0].id} seconds={seconds}>
+          {texts.map((t, k) => <Callout key={k}>{t}</Callout>)}
+        </Thought>,
+      );
+    }
+    else {
+      const txt = extractText(m.contentJson);
+      if (txt.trim().length > 0) {
+        rows.push(m.role === 'user'
+          ? <UserMsg key={m.id} text={txt} />
+          : <EventRow key={m.id} kind="brain" who="Agent" markdown={txt} />);
+      }
+      i += 1;
+    }
+  }
+  return rows;
 }
 
 /** Map a work-unit status string to the card's status pill. */
@@ -109,19 +151,23 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       .finally(() => setBusy(false));
   };
 
+  // User-confirmed cut: seed the new task from the latest planning prompt
+  // and queue it (the scheduler materialises it). The trunk itself never
+  // cuts — it only plans.
+  const lastUserPrompt = [...messages].reverse().find(
+    m => m.taskId === null && m.role === 'user' && m.type === 'text');
+  const cutTask = () => {
+    const seed = lastUserPrompt !== undefined ? extractText(lastUserPrompt.contentJson) : '';
+    const title = (seed.split('\n')[0] || thread?.title || 'New task').slice(0, 80);
+    window.bridge.queueAdd(threadId, title, 'MAIN', seed.length > 0 ? seed : null)
+      .then(() => load())
+      .catch(() => { /* leave state; the queue UI reconciles */ });
+  };
+
   const conversation = (
     <Conv>
-      {messages
-        .filter(m => m.taskId === null && (m.type === 'text' || m.type === 'thinking'))
-        .map(m => {
-          const txt = extractText(m.contentJson);
-          if (txt.trim().length === 0) return null;
-          return m.role === 'user'
-            ? <UserMsg key={m.id} text={txt} />
-            : <EventRow key={m.id} kind="brain" who="Agent" markdown={txt} />;
-        })
-        .filter(Boolean)}
-      {working && <Working label="Agent is working…" />}
+      {buildRows(messages)}
+      {working && <Working label="Trunk is thinking…" />}
     </Conv>
   );
 
@@ -136,6 +182,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
       tasks={{ active, queued }}
       onOpenTask={onOpenTask}
+      onCutTask={cutTask}
     />
   );
 }

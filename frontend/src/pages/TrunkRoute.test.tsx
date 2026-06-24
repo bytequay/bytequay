@@ -24,9 +24,12 @@ function mockBridge(over: Record<string, unknown> = {}) {
     getTaskIndex: vi.fn().mockResolvedValue({
       threadId: 't1', totalUserMessages: 1, entries: [], loadedFromSeq: null, nextCursor: null,
       messages: [
-        { id: 'm1', threadId: 't1', taskId: null, seq: 1, role: 'user', type: 'text', contentJson: JSON.stringify({ text: 'plan the cleanup' }), durationMs: null, tokensIn: null },
+        { id: 'm1', threadId: 't1', taskId: null, seq: 1, role: 'user', type: 'text', contentJson: JSON.stringify({ text: 'plan the cleanup' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:00Z' },
+        { id: 'm2', threadId: 't1', taskId: null, seq: 2, role: 'assistant', type: 'thinking', contentJson: JSON.stringify({ summary: 'weighing the approach' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:03Z' },
+        { id: 'm3', threadId: 't1', taskId: null, seq: 3, role: 'assistant', type: 'text', contentJson: JSON.stringify({ text: 'Here is the plan.' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:05Z' },
       ],
     }),
+    queueAdd: vi.fn().mockResolvedValue({ position: 0, title: 'plan the cleanup', branchBase: 'MAIN', status: 'PENDING' }),
     listTasksForThread: vi.fn().mockResolvedValue([
       { id: 'task-1', seq: 1, name: 'Add meter', status: 'RUNNING', branchName: 'feat/x' },
       { id: 'task-2', seq: 2, name: 'Later', status: 'PENDING', branchName: null },
@@ -71,5 +74,25 @@ describe('TrunkRoute', () => {
     render(<TrunkRoute threadId="t1" onOpenTask={onOpenTask} />);
     fireEvent.click(await screen.findByText('Task 1 · Add meter'));
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('renders thinking as a collapsible Thought block', async () => {
+    mockBridge();
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    // 2s elapsed between the thinking row (:03) and the answer (:05).
+    const thought = await screen.findByRole('button', { name: /Thought for 2s/ });
+    expect(thought).toBeTruthy();
+    expect(screen.queryByText('weighing the approach')).toBeNull();
+    fireEvent.click(thought);
+    expect(screen.getByText('weighing the approach')).toBeTruthy();
+    // The plan text renders inline.
+    expect(screen.getByText('Here is the plan.')).toBeTruthy();
+  });
+
+  it('Cut task → queues a task seeded from the latest prompt', async () => {
+    const bridge = mockBridge();
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Cut task/ }));
+    await waitFor(() => expect(bridge.queueAdd).toHaveBeenCalledWith('t1', 'plan the cleanup', 'MAIN', 'plan the cleanup'));
   });
 });

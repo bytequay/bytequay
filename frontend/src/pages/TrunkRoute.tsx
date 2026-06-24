@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
-import { Conv, EventRow, UserMsg } from '../ui/conv';
+import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
 import type { TaskCardData } from '../ui/pane';
 import { TrunkPage } from './TrunkPage';
@@ -69,6 +69,15 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   const [tasks, setTasks] = useState<WorkUnitTaskDto[]>([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Clear the "working" indicator only when a new assistant reply lands,
+  // not when the user's own message persists into the planning slice.
+  const replyCount = messages.filter(
+    m => m.taskId === null && m.role === 'assistant' && (m.type === 'text' || m.type === 'thinking')).length;
+  const [awaitedAt, setAwaitedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (awaitedAt !== null && replyCount > awaitedAt) setAwaitedAt(null);
+  }, [replyCount, awaitedAt]);
+  const working = busy || awaitedAt !== null;
 
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -93,9 +102,10 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     if (body.length === 0 || busy) return;
     setText('');
     setBusy(true);
+    setAwaitedAt(replyCount);
     window.bridge.sendTrunkMessage(threadId, body)
       .then(() => load())
-      .catch(() => { /* reload reconciles */ })
+      .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
   };
 
@@ -111,6 +121,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
             : <EventRow key={m.id} kind="brain" who="Agent" markdown={txt} />;
         })
         .filter(Boolean)}
+      {working && <Working label="Agent is working…" />}
     </Conv>
   );
 

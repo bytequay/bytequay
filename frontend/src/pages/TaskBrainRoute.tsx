@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import type { BrainFeedRow, StageDto, StageType } from '../types/brainView';
-import { Conv, EventRow, UserMsg } from '../ui/conv';
+import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
 import type { StageChip } from '../ui/shell';
@@ -66,16 +66,26 @@ export function TaskBrainRoute({
   const { task, brainFeed, stages, subStages } = data;
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Track the brain's answer count so the "working" indicator clears only
+  // when a new response actually lands (not when the user's own message
+  // persists into the feed).
+  const responseCount = brainFeed.filter(r => r.type === 'BRAIN_AGENT_RESPONSE').length;
+  const [awaitedAt, setAwaitedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (awaitedAt !== null && responseCount > awaitedAt) setAwaitedAt(null);
+  }, [responseCount, awaitedAt]);
+  const working = busy || awaitedAt !== null;
 
   const submit = () => {
     const body = text.trim();
     if (body.length === 0 || busy) return;
     setText('');
     setBusy(true);
+    setAwaitedAt(responseCount);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     bridge?.sendBrainMessage(taskId, body)
       .then(() => pollFast())
-      .catch(() => { /* poll reconciles */ })
+      .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
   };
 
@@ -91,6 +101,7 @@ export function TaskBrainRoute({
           ? <UserMsg key={row.id} text={row.body} />
           : <EventRow key={row.id} kind={kind} who={who} markdown={row.body} />;
       })}
+      {working && <Working label="Brain is thinking…" />}
     </Conv>
   );
 

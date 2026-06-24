@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  Callout, Card, Conv, EventRow, InlineAction, StageFold, Thought, ToolBlock, UserMsg,
+  Callout, Card, Conv, EventRow, InlineAction, StageFold, Thought, ToolBlock, UserMsg, Working,
 } from './index';
 
 afterEach(cleanup);
@@ -68,6 +68,15 @@ describe('ToolBlock', () => {
     const { container } = render(<ToolBlock tag="record_plan" plan desc="recorded the plan" />);
     expect(container.querySelector('.tag.plan')).toBeTruthy();
     expect(container.querySelector('.disc')).toBeNull();
+  });
+});
+
+describe('Working', () => {
+  it('renders a pulsing dot and the label', () => {
+    const { container } = render(<Working label="Brain is thinking…" />);
+    expect(container.querySelector('.working__dot')).toBeTruthy();
+    expect(screen.getByText('Brain is thinking…')).toBeTruthy();
+    expect(container.querySelector('.working')?.getAttribute('role')).toBe('status');
   });
 });
 

@@ -12,16 +12,16 @@
  * limitations under the License.
  */
 
-/** V3 Layer 3a — conversation content blocks. */
-export { Conv } from './Conv';
-export { EventRow, EventIcon, WhoRow, Tx } from './EventRow';
-export type { EventKind } from './EventRow';
-export { ToolBlock } from './ToolBlock';
-export { UserMsg } from './UserMsg';
-export { Thought } from './Thought';
-export { Working } from './Working';
-export { Callout } from './Callout';
-export { InlineAction } from './InlineAction';
-export { StageFold } from './StageFold';
-export { Card } from './Card';
-export type { CardProps, CardTag, TaskStatus } from './Card';
+/**
+ * A live "agent is working" row — a pulsing dot + label shown at the foot
+ * of the conversation while the agent is generating, so the surface
+ * never looks idle between a prompt and the response.
+ */
+export function Working({ label = 'Working…' }: { label?: string }) {
+  return (
+    <div className="working" role="status" aria-live="polite">
+      <span className="working__dot" aria-hidden />
+      <span className="working__label">{label}</span>
+    </div>
+  );
+}

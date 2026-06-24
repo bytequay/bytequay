@@ -44,7 +44,7 @@ export function threadStatusDot(status: string): StatusDotVariant {
 
 /** The repo a thread targets — the last path segment of its working dir,
  *  else its repo field. */
-function threadRepo(t: ThreadDto): string {
+export function threadRepo(t: ThreadDto): string {
   const wd = t.activeTask?.workingDir;
   if (typeof wd === 'string' && wd.length > 0) {
     const seg = wd.split('/').filter(Boolean).pop();
@@ -83,6 +83,10 @@ export type WorkspaceNavData = {
   activeWorkspace: WorkspaceCardDto | null;
   /** The active workspace's threads as sidebar rows. */
   threads: ThreadRow[];
+  /** The active workspace's threads as raw DTOs — for the main-pane
+   *  thread-card surface, which needs more than the sidebar row carries
+   *  (branch, timestamp, task status). */
+  rawThreads: ThreadDto[];
   /** The active workspace's repo chips for the header. */
   repos: RepoChip[];
   refresh: () => void;
@@ -124,6 +128,7 @@ export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavD
     workspaces: workspaces.map(toWorkspaceRow),
     activeWorkspace,
     threads: threads.map(toThreadRow),
+    rawThreads: threads,
     repos,
     refresh: () => { void load(); },
   };

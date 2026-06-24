@@ -75,13 +75,20 @@ export function WorkspaceNavSidebar({
   );
 
   return (
-    <aside className="sidebar">
-      <TrafficLights onBack={onBack} onForward={onForward} onToggleCollapse={onToggleCollapse} />
-      <div className="sb-nav">{TOP_NAV.map(navItem)}</div>
-      {children}
-      <div className="sb-spacer" />
-      <div className="sb-nav">{BOTTOM_NAV.map(navItem)}</div>
-      <SidebarFooter {...footer} />
-    </aside>
+    // The `.shell` class is what scopes every sidebar-chrome rule
+    // (.sb-nav, .ws-list, .thread-item, …). This nav is the app's single
+    // left rail, mounted outside any per-surface shell grid, so it
+    // carries its own `.shell shell-rail` wrapper to pick up that chrome
+    // while rendering as a plain fixed-width column (see v3-workspace.css).
+    <div className="shell shell-rail">
+      <aside className="sidebar">
+        <TrafficLights onBack={onBack} onForward={onForward} onToggleCollapse={onToggleCollapse} />
+        <div className="sb-nav">{TOP_NAV.map(navItem)}</div>
+        {children}
+        <div className="sb-spacer" />
+        <div className="sb-nav">{BOTTOM_NAV.map(navItem)}</div>
+        <SidebarFooter {...footer} />
+      </aside>
+    </div>
   );
 }

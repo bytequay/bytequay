@@ -6,6 +6,36 @@
  * primitive; thread status is the `v3-dot` primitive.
  */
 
+/* Global left rail. The workspace nav is the app's single left nav,
+   mounted outside any per-surface `.shell` grid. It carries its own
+   `.shell shell-rail` wrapper so the scoped sidebar chrome (.sb-nav,
+   .ws-list, .thread-item, …) applies, but renders as a plain
+   fixed-width column rather than the per-surface 2-column grid. */
+.shell.shell-rail {
+  display: block;
+  height: 100%;
+  width: 232px;
+  flex-shrink: 0;
+}
+.shell.shell-rail > .sidebar {
+  height: 100%;
+}
+
+/* The window is `hiddenInset` with native macOS traffic lights at the
+   top-left, so the rail must not paint its own fake dots there (they'd
+   double up). Hide them and keep the row only as a drag handle + spacer
+   that clears the native buttons. */
+.shell.shell-rail .sb-traffic {
+  -webkit-app-region: drag;
+  padding-top: 30px;
+}
+.shell.shell-rail .sb-traffic .dots {
+  display: none;
+}
+.shell.shell-rail .sb-traffic .nav-arrows {
+  -webkit-app-region: no-drag;
+}
+
 /* Single continuous surface — the sidebar matches the main window, with
    only the divider border. */
 .shell .sidebar {

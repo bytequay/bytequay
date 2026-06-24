@@ -369,7 +369,7 @@ pre {
 
 .app-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
   overflow: hidden;
 }
@@ -414,23 +414,23 @@ pre {
 
 .global-topbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  /* 78px on the left reserves space for the inset macOS traffic-light
-     buttons (close/minimize/zoom) that now sit on this row in place of
-     the hidden native title bar. -webkit-app-region:drag turns the
-     whole bar into a window drag handle — interactive children below
-     opt out via no-drag. */
-  padding: 0 16px 0 78px;
-  height: 44px;
+  flex-direction: column;
+  align-items: stretch;
+  /* Left navigation rail. The 30px top reserve clears the inset macOS
+     traffic-light buttons (close/minimize/zoom) that sit at the window's
+     top-left in place of the hidden native title bar.
+     -webkit-app-region:drag turns the rail into a window drag handle;
+     interactive children below opt out via no-drag. */
+  padding: 30px 10px 10px;
+  width: 212px;
+  height: 100vh;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar, var(--bg-elevated));
   -webkit-app-region: drag;
   user-select: none;
-  /* `position: relative` anchors the absolutely-positioned brand mark
-     (rendered only in fullscreen) into the 78px traffic-light reserve. */
   position: relative;
+  gap: var(--space-2);
 }
 
 /* Brand mark fills the 78px traffic-light reserve when the window is
@@ -478,9 +478,12 @@ pre {
 
 .global-topbar__left {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
   min-width: 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
 }
 
 .global-topbar__brand {
@@ -549,13 +552,20 @@ pre {
 
 .global-topbar__nav {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 2px;
 }
 
 .global-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
   background: none;
   border: none;
-  padding: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-md);
   color: var(--text-2);
   cursor: pointer;
@@ -571,6 +581,10 @@ pre {
 .global-nav-btn--active {
   background: var(--accent-a10);
   color: var(--accent);
+}
+
+.global-nav-btn__badge {
+  margin-left: auto;
 }
 
 .settings-page {

@@ -10,6 +10,7 @@
  * conflicts within feature surfaces.
  */
 @import './css/base.css';
+@import './css/v3.css';
 @import './css/dashboard.css';
 @import './css/kanban.css';
 @import './css/settings.css';

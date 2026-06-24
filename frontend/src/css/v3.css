@@ -1,0 +1,163 @@
+/*
+ * V3 Layer 1 primitives.
+ *
+ * Namespaced `v3-*` so they never collide with the legacy `.pill` /
+ * `.tag` / `.avatar` / `.kbd` / `.icon-btn` classes that pre-V3
+ * surfaces still rely on. Styles mirror the Copilot-style mockup; the
+ * tokens they read live in base.css.
+ */
+
+/* ── StatusDot — stage / task / check status indicator ───────── */
+.v3-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.v3-dot--active {
+  background: var(--orange);
+  box-shadow: 0 0 0 2px rgba(194, 99, 42, 0.12);
+  animation: v3-pulse 1.6s infinite;
+}
+.v3-dot--planning {
+  background: var(--accent);
+  animation: v3-pulse 1.6s infinite;
+}
+.v3-dot--sleep {
+  background: var(--text-4);
+}
+.v3-dot--done {
+  background: var(--green);
+}
+.v3-dot--future {
+  width: 5px;
+  height: 5px;
+  background: transparent;
+  border: 1px dashed var(--text-4);
+}
+@keyframes v3-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ── Pill — bold surface-kind pill (THREAD / TASK / STAGE) ────── */
+.v3-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.v3-pill--thread {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+.v3-pill--task {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.v3-pill--stage {
+  background: var(--orange-soft);
+  color: var(--orange);
+}
+.v3-pill__ic {
+  font-size: 10px;
+}
+
+/* ── Tag — small chip for a label / tag ──────────────────────── */
+.v3-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.v3-tag--green {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green-border);
+}
+.v3-tag--orange {
+  background: var(--orange-soft);
+  color: var(--orange);
+  border-color: var(--orange-border);
+}
+.v3-tag--teal {
+  background: var(--teal-soft);
+  color: var(--teal);
+  border-color: var(--teal-border);
+}
+
+/* ── Avatar — round initials avatar (size set inline: 18/22/26) ─ */
+.v3-avatar {
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  flex-shrink: 0;
+}
+.v3-avatar--purple {
+  background: linear-gradient(135deg, #c4b5fd, #8b5cf6);
+}
+.v3-avatar--teal {
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
+}
+.v3-avatar--amber {
+  background: linear-gradient(135deg, #fde68a, #f59e0b);
+  color: #78350f;
+}
+
+/* ── Kbd — keyboard shortcut hint ────────────────────────────── */
+.v3-kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  padding: 1px 5px;
+}
+
+/* ── Chev — disclosure arrow; rotates 90° when open ──────────── */
+.v3-chev {
+  display: inline-block;
+  font-size: 9px;
+  color: var(--text-4);
+  transition: transform 120ms ease-out;
+}
+.v3-chev--open {
+  transform: rotate(90deg);
+}
+
+/* ── IconBtn — 28px square icon button ───────────────────────── */
+.v3-iconbtn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-mid);
+  background: var(--bg-elev);
+  border-radius: 6px;
+  color: var(--text-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.v3-iconbtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.v3-iconbtn--active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}

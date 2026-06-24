@@ -1,0 +1,574 @@
+/*
+ * V3 Layer 2 shell — sidebar, top bar, main column, composer.
+ *
+ * Everything is scoped under the `.shell` root (the V3-only outer
+ * element) so the generic class names the mockup uses (.btn, .title,
+ * .composer, .body, …) never leak to or collide with pre-V3 surfaces.
+ * Mirrors the Copilot-style mockup; tokens live in base.css.
+ */
+
+/* ── Shell — 2-column grid (sidebar + main) ──────────────────── */
+.shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: var(--font);
+}
+.shell.sidebar-collapsed {
+  grid-template-columns: 48px 1fr;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.shell .sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.shell .sb-traffic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px 9px;
+}
+.shell .sb-traffic .dots {
+  display: flex;
+  gap: 8px;
+}
+.shell .sb-traffic .dots span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.shell .sb-traffic .dots .r {
+  background: #ff5f57;
+}
+.shell .sb-traffic .dots .y {
+  background: #febc2e;
+}
+.shell .sb-traffic .dots .g {
+  background: #28c840;
+}
+.shell .sb-traffic .nav-arrows {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  color: var(--text-4);
+  font-size: 12px;
+}
+.shell .sb-traffic .nav-arrows span {
+  width: 20px;
+  text-align: center;
+  cursor: pointer;
+}
+.shell .sb-traffic .nav-arrows span:hover {
+  color: var(--text-2);
+}
+
+.shell .sb-nav {
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.shell .sb-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.shell .sb-nav-item:hover {
+  background: var(--bg-hover);
+}
+.shell .sb-nav-item.active {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-1);
+  font-weight: 500;
+}
+.shell .sb-nav-item .ic {
+  font-size: 13px;
+  color: var(--text-3);
+  width: 16px;
+  text-align: center;
+}
+.shell .sb-nav-item .kbd {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-4);
+  font-family: var(--mono);
+  padding: 1px 5px;
+}
+
+.shell .sb-section {
+  padding: 14px 8px 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.shell .sb-section-h {
+  display: flex;
+  align-items: center;
+  padding: 4px 10px 6px;
+}
+.shell .sb-section-h .nm {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.shell .sb-section-h .actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  color: var(--text-4);
+  font-size: 13px;
+}
+.shell .sb-section-h .actions span {
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.shell .session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.shell .session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.shell .session-item:hover {
+  background: var(--bg-hover);
+}
+.shell .session-item.active {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-1);
+  font-weight: 500;
+}
+.shell .session-item .ic {
+  font-size: 12px;
+  color: var(--text-3);
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.shell .session-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.shell .session-children {
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.shell .session-item.nested {
+  font-size: 12.5px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.shell .session-item.current {
+  color: var(--text-1);
+  font-weight: 500;
+}
+.shell .session-item .ts {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
+/* Status dot inside a nested stage / task row pins to the right. The
+   dot itself is the v3-dot primitive. */
+.shell .session-item .v3-dot {
+  margin-left: auto;
+}
+.shell .session-item.future {
+  opacity: 0.55;
+}
+
+/* Closed-threads folder */
+.shell .closed-folder {
+  padding: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+.shell .closed-folder .folder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+}
+.shell .closed-folder .folder-row:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.shell .closed-folder .folder-row .ic {
+  font-size: 13px;
+}
+.shell .closed-folder .folder-row .count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-4);
+  font-family: var(--mono);
+}
+.shell .closed-folder .folder-row .chev {
+  font-size: 9px;
+  color: var(--text-4);
+}
+
+.shell .sb-footer {
+  margin-top: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shell .sb-footer .name {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.shell .sb-footer .actions {
+  margin-left: auto;
+  color: var(--text-4);
+  display: flex;
+  gap: 10px;
+  font-size: 14px;
+}
+.shell .sb-footer .actions span {
+  cursor: pointer;
+}
+
+/* Sidebar toggle row — only visible in the collapsed state. */
+.shell .sb-toggle-row {
+  display: none;
+}
+
+/* ── Sidebar collapsed state ─────────────────────────────────── */
+.shell.sidebar-collapsed .sidebar {
+  padding: 0;
+}
+.shell.sidebar-collapsed .sb-traffic {
+  padding: 11px 8px 9px;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.shell.sidebar-collapsed .sb-traffic .dots {
+  display: none;
+}
+.shell.sidebar-collapsed .sb-traffic .nav-arrows {
+  margin-left: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+.shell.sidebar-collapsed .sb-nav,
+.shell.sidebar-collapsed .sb-section,
+.shell.sidebar-collapsed .closed-folder,
+.shell.sidebar-collapsed .sb-footer {
+  display: none;
+}
+.shell.sidebar-collapsed .sb-toggle-row {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+}
+.shell.sidebar-collapsed .sb-toggle-row .toggle-btn {
+  width: 32px;
+  height: 28px;
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.shell.sidebar-collapsed .sb-toggle-row .toggle-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+
+/* ── Main column ─────────────────────────────────────────────── */
+.shell .main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Top bar */
+.shell .topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.shell .topbar .nav-row {
+  display: flex;
+  gap: 4px;
+  color: var(--text-4);
+}
+.shell .topbar .nav-row span {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px;
+}
+.shell .topbar .nav-row span:hover {
+  color: var(--text-2);
+  background: var(--bg-hover);
+}
+.shell .topbar .title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: -0.005em;
+}
+.shell .topbar .crumb-sep {
+  color: var(--text-4);
+  font-size: 11px;
+  padding: 0 1px;
+}
+.shell .topbar .ctx-chip {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding: 3px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.shell .topbar .created-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding: 3px 8px;
+}
+.shell .topbar .created-chip .ic {
+  font-size: 11px;
+  color: var(--text-4);
+}
+.shell .topbar .grow {
+  flex: 1;
+}
+.shell .topbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-mid);
+  background: var(--bg-elev);
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.2;
+}
+.shell .topbar .btn:hover {
+  background: var(--bg-hover);
+}
+.shell .topbar .btn .ic {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.shell .topbar .btn .chev {
+  font-size: 10px;
+  color: var(--text-4);
+  margin-left: 2px;
+}
+.shell .topbar .btn.submit {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+  border-color: #15803d;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.18);
+}
+.shell .topbar .btn.submit:hover {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+}
+
+/* Stage-chip strip */
+.shell .stage-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.shell .stage-chips .chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+}
+.shell .stage-chips .chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.shell .stage-chips .chip.current {
+  background: var(--bg-elev);
+  color: var(--text-1);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.shell .stage-chips .chip .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.shell .stage-chips .chip .dot.done {
+  background: var(--green);
+}
+.shell .stage-chips .chip .dot.active {
+  background: var(--orange);
+}
+.shell .stage-chips .chip .dot.planning {
+  background: var(--accent);
+}
+
+/* Body — conversation column + optional right pane */
+.shell .body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+.shell .body.with-pane {
+  grid-template-columns: minmax(0, 1fr) 520px;
+}
+
+/* ── Composer ────────────────────────────────────────────────── */
+.shell .composer-wrap {
+  padding: 10px 32px 18px;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.shell .composer {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-mid);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+.shell .composer .input {
+  font-size: 13px;
+  color: var(--text-1);
+  min-height: 26px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-family: inherit;
+  line-height: 1.5;
+  width: 100%;
+}
+.shell .composer .input::placeholder {
+  color: var(--text-4);
+}
+.shell .composer .footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shell .composer .footer .plus {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  border: 0;
+  font-family: inherit;
+}
+.shell .composer .footer .plus:hover {
+  background: var(--bg-hover);
+}
+.shell .composer .footer .grow {
+  flex: 1;
+}
+.shell .composer .footer .send {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--text-1);
+  color: var(--bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  border: 0;
+  font-family: inherit;
+}
+.shell .composer .footer .send:disabled {
+  cursor: default;
+}
+.shell .composer .footer .send.spinning {
+  background: var(--bg-input);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}

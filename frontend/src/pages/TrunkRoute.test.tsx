@@ -45,7 +45,9 @@ describe('TrunkRoute', () => {
     mockBridge();
     render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     expect(screen.getByText('THREAD')).toBeTruthy();
-    expect(await screen.findByText('Backend cleanup')).toBeTruthy();
+    // The thread title shows in both the top bar and the sidebar's
+    // current-thread row.
+    expect((await screen.findAllByText('Backend cleanup')).length).toBeGreaterThanOrEqual(1);
     // Planning message rendered into the conversation.
     expect(await screen.findByText('plan the cleanup')).toBeTruthy();
     // Active task card on top, PENDING task in the Queued folder.
@@ -56,7 +58,7 @@ describe('TrunkRoute', () => {
   it('posts a trunk message from the composer', async () => {
     const bridge = mockBridge();
     render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    await screen.findByText('Backend cleanup');
+    await screen.findAllByText('Backend cleanup');
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'cut a task' } });
     fireEvent.keyDown(box, { key: 'Enter' });

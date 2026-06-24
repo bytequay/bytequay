@@ -77,9 +77,9 @@ describe('Sidebar composition', () => {
 describe('SidebarNav', () => {
   it('marks the active item and fires onNavigate', () => {
     const onNavigate = vi.fn();
-    const { container } = render(<SidebarNav activeKey="search" onNavigate={onNavigate} />);
+    const { container } = render(<SidebarNav activeKey="my-work" onNavigate={onNavigate} />);
     const active = container.querySelector('.sb-nav-item.active');
-    expect(active?.textContent).toContain('Search');
+    expect(active?.textContent).toContain('My work');
     fireEvent.click(screen.getByText('Automations'));
     expect(onNavigate).toHaveBeenCalledWith('automations');
   });

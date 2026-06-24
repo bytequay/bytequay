@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 import { Avatar } from '../primitives';
 
 /** App-level nav destinations in the sidebar's top section. */
-export type SidebarNavKey = 'home' | 'my-work' | 'automations' | 'search';
+export type SidebarNavKey = 'home' | 'my-work' | 'automations';
 
 /** macOS traffic-light dots + back/forward + collapse arrows. The ◧
  *  arrow toggles the sidebar collapse. */
@@ -42,7 +42,6 @@ const NAV_ITEMS: { key: SidebarNavKey; icon: string; label: string; kbd?: string
   { key: 'home', icon: '⌂', label: 'Home' },
   { key: 'my-work', icon: '▤', label: 'My work' },
   { key: 'automations', icon: '⚙', label: 'Automations' },
-  { key: 'search', icon: '⌕', label: 'Search', kbd: '⌘K' },
 ];
 
 /** The fixed app-level nav: Home / My work / Automations / Search. */

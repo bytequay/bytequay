@@ -26,6 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static com.google.common.base.Strings.nullToEmpty;
@@ -118,7 +119,7 @@ public class ReviewCommentServiceImpl
     /** The latest OPEN/ACTIVE {@code DEVELOPMENT_STAGE} for the task — the
      *  one whose dev agent is still implementing and so can act on the
      *  comments before the branch is pushed. */
-    private java.util.Optional<StageInstance> activeDevelopmentStage(String taskId)
+    private Optional<StageInstance> activeDevelopmentStage(String taskId)
     {
         StageInstance found = null;
         for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
@@ -129,7 +130,7 @@ public class ReviewCommentServiceImpl
                 found = stage;
             }
         }
-        return java.util.Optional.ofNullable(found);
+        return Optional.ofNullable(found);
     }
 
     private static String formatTurn(List<ReviewComment> comments)

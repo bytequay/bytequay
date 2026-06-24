@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import type { ReactNode } from 'react';
-import { Callout, Conv, EventRow, Thought, UserMsg, Working } from '../ui/conv';
+import { Callout, Card, Conv, EventRow, Thought, UserMsg, Working } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
 import type { TaskCardData } from '../ui/pane';
 import { TrunkPage } from './TrunkPage';
@@ -86,10 +86,15 @@ function cardStatus(status: string): TaskStatus {
   }
 }
 
+/** "Task 1 · Remove PersonaRequest bean", or just "Task 1" without a rename. */
+function cardTitle(t: WorkUnitTaskDto): string {
+  return t.name !== null && t.name !== '' ? `Task ${t.seq} · ${t.name}` : `Task ${t.seq}`;
+}
+
 function toCard(t: WorkUnitTaskDto): TaskCardData {
   return {
     id: t.id,
-    title: t.name !== null && t.name !== '' ? `Task ${t.seq} · ${t.name}` : `Task ${t.seq}`,
+    title: cardTitle(t),
     status: cardStatus(t.status),
     branch: t.branchName ?? undefined,
   };
@@ -164,9 +169,25 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       .catch(() => { /* leave state; the queue UI reconciles */ });
   };
 
+  // The foreground task — the one actually running now — is echoed as a
+  // card at the foot of the conversation (matching the trunk design),
+  // not only in the Tasks tab, so the in-flight work is visible without
+  // leaving the thread. Latest such task wins when more than one is live.
+  const foreground = [...tasks].reverse().find(t => cardStatus(t.status) === 'foreground');
+
   const conversation = (
     <Conv>
       {buildRows(messages)}
+      {foreground !== undefined && (
+        <Card
+          kind="task"
+          title={cardTitle(foreground)}
+          branch={foreground.branchName ?? undefined}
+          status="foreground"
+          statusText="Running"
+          onClick={() => onOpenTask(foreground.id)}
+        />
+      )}
       {working && <Working label="Trunk is thinking…" />}
     </Conv>
   );

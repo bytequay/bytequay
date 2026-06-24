@@ -53,9 +53,24 @@ describe('TrunkRoute', () => {
     expect((await screen.findAllByText('Backend cleanup')).length).toBeGreaterThanOrEqual(1);
     // Planning message rendered into the conversation.
     expect(await screen.findByText('plan the cleanup')).toBeTruthy();
-    // Active task card on top, PENDING task in the Queued folder.
-    expect(await screen.findByText('Task 1 · Add meter')).toBeTruthy();
+    // Active task card shows in the conversation AND the Tasks tab;
+    // PENDING task in the Queued folder.
+    expect((await screen.findAllByText('Task 1 · Add meter')).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Queued')).toBeTruthy();
+  });
+
+  it('echoes the foreground task as a card in the conversation', async () => {
+    mockBridge();
+    const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    await screen.findByText('plan the cleanup');
+    // The conversation column carries the running task's card with a
+    // "Running" pill — the PENDING task is not echoed here.
+    const conv = container.querySelector('.conv') as HTMLElement;
+    expect(conv).toBeTruthy();
+    expect(conv.querySelector('.task-card')).toBeTruthy();
+    expect(conv.textContent).toContain('Task 1 · Add meter');
+    expect(conv.textContent).toContain('Running');
+    expect(conv.textContent).not.toContain('Task 2 · Later');
   });
 
   it('posts a trunk message from the composer', async () => {
@@ -72,7 +87,7 @@ describe('TrunkRoute', () => {
     mockBridge();
     const onOpenTask = vi.fn();
     render(<TrunkRoute threadId="t1" onOpenTask={onOpenTask} />);
-    fireEvent.click(await screen.findByText('Task 1 · Add meter'));
+    fireEvent.click((await screen.findAllByText('Task 1 · Add meter'))[0]);
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
   });
 

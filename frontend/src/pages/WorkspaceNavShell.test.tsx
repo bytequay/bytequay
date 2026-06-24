@@ -1,0 +1,93 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { WorkspaceNavShell } from './WorkspaceNavShell';
+import { logoColorFor, monogram, threadStatusDot } from './useWorkspaceNav';
+
+afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
+
+function mockBridge(over: Record<string, unknown> = {}) {
+  const bridge = {
+    listWorkspaces: vi.fn().mockResolvedValue([
+      { id: 'bq', name: 'ByteQuay', color: '#8b5cf6', isScratch: false, repos: ['web', 'trino', 'docs'], activeThreadCount: 5, tasksInFlight: 3 },
+      { id: 'tr', name: 'Trino', color: '#0d9488', isScratch: false, repos: ['trino', 'web'], activeThreadCount: 3, tasksInFlight: 1 },
+    ]),
+    listTasks: vi.fn().mockResolvedValue([
+      { id: 't1', title: 'Backend cleanup review', status: 'RUNNING', workspaceId: 'bq', activeTask: { workingDir: '/x/web' } },
+      { id: 't2', title: 'Fix Delta Lake timestamp', status: 'AWAITING_REVIEW', workspaceId: 'bq', activeTask: { workingDir: '/x/trino' } },
+    ]),
+    ...over,
+  };
+  (window as unknown as { bridge: unknown }).bridge = bridge;
+  return bridge;
+}
+
+const footer = { initials: 'CJ', name: 'chenjian2664' };
+
+describe('useWorkspaceNav helpers', () => {
+  it('logoColorFor is deterministic', () => {
+    expect(logoColorFor('web')).toBe(logoColorFor('web'));
+  });
+  it('monogram lowercases the first two alphanumerics', () => {
+    expect(monogram('ByteQuay')).toBe('by');
+    expect(monogram('trino')).toBe('tr');
+  });
+  it('maps thread status to the right dot', () => {
+    expect(threadStatusDot('RUNNING')).toBe('active');
+    expect(threadStatusDot('AWAITING_REVIEW')).toBe('planning');
+    expect(threadStatusDot('COMPLETED')).toBe('done');
+    expect(threadStatusDot('IDLE')).toBe('sleep');
+  });
+});
+
+describe('WorkspaceNavShell', () => {
+  it('shows the workspace list when no workspace is active', async () => {
+    mockBridge();
+    const onEnterWorkspace = vi.fn();
+    render(<WorkspaceNavShell activeWorkspaceId={null} footer={footer} onEnterWorkspace={onEnterWorkspace} />);
+    expect(await screen.findByText('ByteQuay')).toBeTruthy();
+    expect(screen.getByText('3 repos · 5 open threads')).toBeTruthy();
+    fireEvent.click(screen.getByText('Trino'));
+    expect(onEnterWorkspace).toHaveBeenCalledWith('tr');
+  });
+
+  it('shows the switcher + thread list (with repo logos) when a workspace is active', async () => {
+    const bridge = mockBridge();
+    const onOpenThread = vi.fn();
+    const { container } = render(
+      <WorkspaceNavShell activeWorkspaceId="bq" selectedThreadId="t1" footer={footer} onOpenThread={onOpenThread} />,
+    );
+    await waitFor(() => expect(bridge.listTasks).toHaveBeenCalledWith({ workspaceId: 'bq' }));
+    // Switcher shows the active workspace.
+    expect(container.querySelector('.ws-switcher')?.textContent).toContain('ByteQuay');
+    // Thread rows render with their repo logos + the selected one highlights.
+    expect(await screen.findByText('Backend cleanup review')).toBeTruthy();
+    expect(container.querySelector('.thread-item.active')?.textContent).toContain('Backend cleanup review');
+    expect(container.querySelector('.v3-logo')).toBeTruthy();
+    fireEvent.click(screen.getByText('Fix Delta Lake timestamp'));
+    expect(onOpenThread).toHaveBeenCalledWith('t2');
+  });
+
+  it('the switcher ▾ fires onSwitchWorkspace', async () => {
+    mockBridge();
+    const onSwitchWorkspace = vi.fn();
+    const { container } = render(
+      <WorkspaceNavShell activeWorkspaceId="bq" footer={footer} onSwitchWorkspace={onSwitchWorkspace} />,
+    );
+    await waitFor(() => expect(container.querySelector('.ws-switcher')).toBeTruthy());
+    fireEvent.click(container.querySelector('.ws-switcher') as HTMLElement);
+    expect(onSwitchWorkspace).toHaveBeenCalledOnce();
+  });
+});

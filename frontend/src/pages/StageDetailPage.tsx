@@ -55,7 +55,7 @@ export function StageDetailPage({
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
-  sidebar: ReactNode;
+  sidebar?: ReactNode;
   conversation: ReactNode;
   collapsed?: boolean;
   stageChips?: StageChip[];
@@ -118,7 +118,7 @@ export function StageDetailPage({
   );
 
   return (
-    <Shell collapsed={collapsed}>
+    <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
       {sidebar}
       <Main topBar={topBar}>
         <div className={paneOpen ? 'body with-pane' : 'body'}>

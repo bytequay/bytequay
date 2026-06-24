@@ -188,7 +188,33 @@ export function breadcrumbLabel(back: Nav | undefined): string | null {
   }
 }
 
+/** The Threads section in the global rail — shows the thread the user is
+ *  currently inside (trunk / task / stage / review views) as the selected
+ *  row. Fetches the thread's title lazily; falls back to a placeholder. */
+function GlobalThreads({ threadId, onOpen }: { threadId: string; onOpen: () => void }) {
+  const [title, setTitle] = useState('Current thread');
+  useEffect(() => {
+    let cancelled = false;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (bridge?.getTask === undefined) return undefined;
+    bridge.getTask(threadId)
+      .then(t => { if (!cancelled && t.title) setTitle(t.title); })
+      .catch(() => { /* keep the placeholder */ });
+    return () => { cancelled = true; };
+  }, [threadId]);
+  return (
+    <div className="global-threads">
+      <div className="global-threads__h">Threads</div>
+      <button type="button" className="global-nav-btn global-nav-btn--active global-threads__item" onClick={onOpen} title={title}>
+        <span className="ic" aria-hidden>⎇</span>
+        <span className="global-threads__nm">{title}</span>
+      </button>
+    </div>
+  );
+}
+
 function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: GlobalTopbarProps) {
+  const threadId = 'threadId' in nav && typeof nav.threadId === 'string' ? nav.threadId : null;
   return (
     <div className={`global-topbar${fullScreen ? ' global-topbar--fullscreen' : ''}`}>
       {fullScreen && (
@@ -300,6 +326,12 @@ function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: Globa
             </span>
           )}
         </button>
+      </nav>
+      {threadId !== null && (
+        <GlobalThreads threadId={threadId} onOpen={() => onNav({ view: 'thread-detail', threadId })} />
+      )}
+      <div className="global-topbar__spacer" />
+      <nav className="global-topbar__nav global-topbar__nav--bottom">
         <button
           className={`global-nav-btn${nav.view === 'settings' ? ' global-nav-btn--active' : ''}`}
           onClick={() => onNav({ view: 'settings' })}

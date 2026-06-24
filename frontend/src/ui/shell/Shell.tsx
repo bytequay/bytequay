@@ -23,13 +23,16 @@ import type { ReactNode } from 'react';
  * order. `.shell` is the single V3 styling root, so all V3 structural
  * CSS is scoped beneath it.
  */
-export function Shell({ collapsed = false, children }: {
+export function Shell({ collapsed = false, fullWidth = false, children }: {
   collapsed?: boolean;
+  /** When true the shell drops its own sidebar column and the main column
+   *  spans the full width — used when the single global rail provides the
+   *  navigation instead of a per-surface sidebar. */
+  fullWidth?: boolean;
   children: ReactNode;
 }) {
-  return (
-    <div className={collapsed ? 'shell sidebar-collapsed' : 'shell'}>
-      {children}
-    </div>
-  );
+  const classes = ['shell'];
+  if (fullWidth) classes.push('full-width');
+  else if (collapsed) classes.push('sidebar-collapsed');
+  return <div className={classes.join(' ')}>{children}</div>;
 }

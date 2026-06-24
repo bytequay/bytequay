@@ -37,7 +37,7 @@ export function TaskBrainPage({
   tabs, onOpenChanges, onOpenCi,
 }: {
   task: { pillLabel: string; title: string; branch?: string };
-  sidebar: ReactNode;
+  sidebar?: ReactNode;
   conversation: ReactNode;
   collapsed?: boolean;
   stageChips?: StageChip[];
@@ -99,7 +99,7 @@ export function TaskBrainPage({
   );
 
   return (
-    <Shell collapsed={collapsed}>
+    <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
       {sidebar}
       <Main topBar={topBar}>
         <div className={paneOpen ? 'body with-pane' : 'body'}>

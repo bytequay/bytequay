@@ -15,9 +15,10 @@ import { useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { usePendingShipProposal } from '../threads/usePendingShipProposal';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
-import type { StageConversationRow, StageType } from '../types/brainView';
-import { Conv, EventRow, ToolBlock, UserMsg, Working } from '../ui/conv';
+import type { StageType } from '../types/brainView';
+import { Conv, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
+import { stageRow } from './stageConversationRow';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
 
@@ -27,25 +28,6 @@ const KIND: Partial<Record<StageType, StageKind>> = {
   REVIEW_MONITOR_STAGE: 'comments',
   CLEANUP_STAGE: 'cleanup',
 };
-
-function row(r: StageConversationRow) {
-  switch (r.kind) {
-    case 'user':
-      return <UserMsg key={r.id} text={r.text ?? ''} />;
-    case 'agent':
-      return <EventRow key={r.id} kind="agent" who="Agent" markdown={r.text ?? ''} />;
-    case 'iteration_marker':
-      return <EventRow key={r.id} kind="system" who={`Iteration ${r.iterationNumber ?? ''}`} />;
-    case 'tool_call':
-      return (
-        <EventRow key={r.id} kind="agent" who="Agent">
-          <ToolBlock tag={r.toolTag ?? 'tool'} desc={r.toolLabel ?? r.toolDetail ?? ''}>
-            {r.toolResult ?? r.toolDiff ?? undefined}
-          </ToolBlock>
-        </EventRow>
-      );
-  }
-}
 
 /**
  * Data adapter mounting the V3 {@link StageDetailPage} on the live stage
@@ -85,7 +67,7 @@ export function StageDetailRoute({
   const working = busy || state === 'ACTIVE';
   const conversation = (
     <Conv>
-      {data?.conversation.map(row)}
+      {data?.conversation.map(stageRow)}
       {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}
       {working && <Working label="Agent is working…" />}
     </Conv>

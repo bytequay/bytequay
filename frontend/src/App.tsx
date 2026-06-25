@@ -644,6 +644,7 @@ function App() {
           <TaskCodePage
             threadId={nav.threadId}
             taskId={nav.taskId}
+            stageId={nav.back?.view === 'stage-detail' ? nav.back.stageId : undefined}
             onBack={() => setNav(nav.back ?? {
               view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
             })}

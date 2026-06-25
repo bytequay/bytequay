@@ -1283,6 +1283,74 @@
   flex: 0 0 auto;
 }
 
+/* ── Middle column tabs: Changed files | Commits ─────────────── */
+.diff-viewer__col-tabs {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+.diff-viewer__col-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  cursor: pointer;
+  padding: 2px 0;
+  border-bottom: 2px solid transparent;
+}
+.diff-viewer__col-tab:hover { color: var(--text-2); }
+.diff-viewer__col-tab--active {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+}
+
+/* Commits rendered as a tab inside the middle column — drop the
+   standalone column chrome and just fill the body. */
+.diff-viewer__commits--embedded {
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-sunken, rgba(0, 0, 0, 0.04));
+}
+
+/* ── Conversation column (leftmost) — reuses the V3 conversation +
+   composer, but `.shell` would impose its 2-column grid, so flatten it
+   to a flex column here. ─────────────────────────────────────── */
+.diff-viewer__chat.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+}
+.diff-viewer__chat-head {
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-viewer__chat-empty {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
 /* Segmented control: [Tree | Flat]. Sits on the right end of the header. */
 .diff-viewer__mode-toggle {
   margin-left: auto;

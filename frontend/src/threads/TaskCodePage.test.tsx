@@ -85,20 +85,22 @@ describe('TaskCodePage', () => {
 
     // Toolbar + title.
     expect(await screen.findByRole('button', { name: '← Back' })).toBeTruthy();
-    // Commits column: cumulative entry + the commit.
-    expect(await screen.findByText(/All 1 commit/)).toBeTruthy();
-    expect(await screen.findByText('Fix typos in docs')).toBeTruthy();
-    // Continuous diff body: the changed file header + actual diff rows from
-    // its patch (the shared renderer parsed and rendered the hunks).
+    // Continuous diff body (default Files tab): the changed file header +
+    // actual diff rows from its patch (the shared renderer parsed the hunks).
     expect((await screen.findAllByText('src/Foo.ts')).length).toBeGreaterThan(0);
     await waitFor(() => expect(container.querySelectorAll('.diff-row--add').length).toBeGreaterThan(0));
     expect(container.querySelectorAll('.diff-row--del').length).toBeGreaterThan(0);
+    // Commits now live under the Commits tab of the middle column.
+    fireEvent.click(screen.getByRole('tab', { name: /Commits/ }));
+    expect(await screen.findByText(/All 1 commit/)).toBeTruthy();
+    expect(await screen.findByText('Fix typos in docs')).toBeTruthy();
   });
 
   it('scopes to a single commit when a commit row is clicked', async () => {
     const bridge = mockBridge();
     render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
 
+    fireEvent.click(await screen.findByRole('tab', { name: /Commits/ }));
     fireEvent.click(await screen.findByText('Fix typos in docs'));
     await waitFor(() => expect(bridge.getTaskCommitDiffFiles).toHaveBeenCalledWith('thread-1', 'abc123def'));
     // The per-commit diff replaces the cumulative one.
@@ -116,7 +118,7 @@ describe('TaskCodePage', () => {
   it('no pending proposal → no PR panel and no review actions (read-only)', async () => {
     mockBridge();
     render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
-    await screen.findByText('Fix typos in docs');
+    await screen.findAllByText('src/Foo.ts');
     expect(screen.queryByText('Pull request description')).toBeNull();
     expect(screen.queryByRole('button', { name: /Approve & ship/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();

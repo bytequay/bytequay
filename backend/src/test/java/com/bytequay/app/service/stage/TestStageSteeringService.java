@@ -69,19 +69,23 @@ class TestStageSteeringService
     }
 
     @Test
-    void enqueuesASteeringTurnAndOpensAnIteration()
+    void enqueuesATaskBoundSteeringTurnAndOpensAnIteration()
     {
         UUID stageId = UUID.randomUUID();
         when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
                 stage(stageId, "task-7", StageState.ACTIVE)));
         when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(task("task-7", "thread-9")));
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
-        when(scheduler.enqueueTurn(any(), eq("Fix the retry default"), any())).thenReturn("turn-3");
+        // Bound to the explicit task id (not the active-task projection) so a
+        // task parked at AWAITING_REVIEW still routes to the dev agent.
+        when(scheduler.enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), any()))
+                .thenReturn("turn-3");
 
         StageSteeringService.SteerResult result = service.steer(stageId, "  Fix the retry default  ");
 
         assertThat(result.turnId()).isEqualTo("turn-3");
-        verify(scheduler).enqueueTurn(any(), eq("Fix the retry default"), any(TurnInitiator.class));
+        verify(scheduler).enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), any(TurnInitiator.class));
+        verify(scheduler, never()).enqueueTurn(any(), any(), any());
         verify(iterationService).begin("task-7", "turn-3", IterationService.TRIGGER_USER_STEERING);
     }
 
@@ -96,7 +100,7 @@ class TestStageSteeringService
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(422));
-        verify(scheduler, never()).enqueueTurn(any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any());
     }
 
     @Test
@@ -108,7 +112,7 @@ class TestStageSteeringService
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(400));
-        verify(scheduler, never()).enqueueTurn(any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any());
     }
 
     private static StageInstance stage(UUID id, String taskId, StageState state)

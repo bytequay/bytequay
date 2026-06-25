@@ -164,6 +164,12 @@ public class AgentScheduler
         return enqueueTurnInternal(thread, input, taskId, TurnInitiator.user());
     }
 
+    @Override
+    public String enqueueTaskTurn(Thread thread, String input, String taskId, TurnInitiator initiator)
+    {
+        return enqueueTurnInternal(thread, input, taskId, initiator);
+    }
+
     private String enqueueTurnInternal(Thread thread, String input, String taskId, TurnInitiator initiator)
     {
         requireNonNull(thread, "thread is null");

@@ -82,7 +82,13 @@ public class StageSteeringServiceImpl
         Thread devThread = threadStore.findThreadById(task.threadId())
                 .orElseThrow(() -> status(404, "no dev thread: " + task.threadId()));
 
-        String turnId = scheduler.enqueueTurn(devThread, trimmed, TurnInitiator.attended("steering"));
+        // Bind the turn to the task explicitly. A task parked at
+        // AWAITING_REVIEW (the review gate) has a null Thread.activeTask(),
+        // so the active-task-derived enqueueTurn would stamp task_id = null
+        // and misroute the steer to the trunk planner instead of the dev
+        // agent — leaving review comments unaddressed.
+        String turnId = scheduler.enqueueTaskTurn(
+                devThread, trimmed, task.id(), TurnInitiator.attended("steering"));
         // 1 turn = 1 iteration: open a user_steering iteration so the steer
         // shows up as its own band on the stage detail page. A no-op unless
         // the stage is a monitor stage (the only loop stages with iterations).

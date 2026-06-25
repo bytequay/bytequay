@@ -53,6 +53,17 @@ public interface ThreadTurnScheduler
         return enqueueTurn(thread, input);
     }
 
+    /** As {@link #enqueueTaskTurn(Thread, String, String)} but with an
+     *  explicit initiator. Used to steer the dev agent at the review gate:
+     *  a task parked at {@code AWAITING_REVIEW} has a null
+     *  {@link Thread#activeTask()}, so the active-task-derived overloads
+     *  would misroute the turn to the trunk planner — binding the taskId
+     *  keeps it on the dev agent. */
+    default String enqueueTaskTurn(Thread thread, String input, String taskId, TurnInitiator initiator)
+    {
+        return enqueueTaskTurn(thread, input, taskId);
+    }
+
     /** Cancel queued turns for one thread and return the number cancelled. */
     int cancelQueuedTurns(String threadId);
 }

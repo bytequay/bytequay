@@ -850,7 +850,11 @@ public class PublishToolHandlers
                     + "Falls back to the thread title when omitted.",
                     wireName = "pr_title") String prTitle,
             @ToolParam(description = "Proposed PR description (markdown) summarizing the "
-                    + "change. The user can edit it before approving.",
+                    + "change. If the repo ships a pull-request template (e.g. "
+                    + ".github/PULL_REQUEST_TEMPLATE.md, a root/docs PULL_REQUEST_TEMPLATE, "
+                    + "or a file under .github/PULL_REQUEST_TEMPLATE/), read it and make the "
+                    + "body follow it — keep its headings/checklists and fill in each "
+                    + "section. The user can edit it before approving.",
                     wireName = "pr_body") String prBody) {}
 
     @AgentTool(

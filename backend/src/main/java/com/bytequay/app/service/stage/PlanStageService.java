@@ -201,17 +201,23 @@ public class PlanStageService
             return;
         }
         threadStore.findThreadById(task.threadId()).ifPresent(dev -> {
-            scheduler.enqueueTurn(dev,
-                    "Your implementation turn ended without proposing to publish. If the "
-                            + "work is complete, call ship_task(...) now — do NOT call push by "
-                            + "itself. When you call ship_task you MUST include a pr_title and a "
-                            + "pr_body (markdown) describing the change, so the draft PR opens with "
-                            + "a useful description. ship_task parks ONE proposal that, on the "
-                            + "user's approval, pushes the branch AND opens a draft PR in a single "
-                            + "step, so the PR links and the stage advances together. It parks for "
-                            + "approval and pushes nothing until the user approves. If the work "
-                            + "isn't finished, keep going instead.",
-                    TurnInitiator.unattended("ship-nudge"));
+            String nudge = "Your implementation turn ended without proposing to publish. If the "
+                    + "work is complete, call ship_task(...) now — do NOT call push by "
+                    + "itself. When you call ship_task you MUST include a pr_title and a "
+                    + "pr_body (markdown) describing the change, so the draft PR opens with "
+                    + "a useful description. ship_task parks ONE proposal that, on the "
+                    + "user's approval, pushes the branch AND opens a draft PR in a single "
+                    + "step, so the PR links and the stage advances together. It parks for "
+                    + "approval and pushes nothing until the user approves. If the work "
+                    + "isn't finished, keep going instead."
+                    + PullRequestTemplate.find(task.agentCwd())
+                            .map(tpl -> "\n\nThis repository provides a pull-request template. "
+                                    + "Your pr_body MUST follow it: keep its headings, checklists, "
+                                    + "and structure, and fill in each section for this change "
+                                    + "(delete only inapplicable optional sections). Template:\n\n"
+                                    + tpl)
+                            .orElse("");
+            scheduler.enqueueTurn(dev, nudge, TurnInitiator.unattended("ship-nudge"));
             log.debug("nudged dev thread {} to ship task {}", dev.id(), event.taskId());
         });
     }

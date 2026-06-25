@@ -41,6 +41,7 @@ public sealed interface StreamEvent
                 StreamEvent.AssistantText,
                 StreamEvent.AssistantTextDelta,
                 StreamEvent.ThinkingStarted,
+                StreamEvent.ThinkingTextDelta,
                 StreamEvent.ThinkingDone,
                 StreamEvent.ToolCallStarted,
                 StreamEvent.ToolCallDone,
@@ -99,6 +100,17 @@ public sealed interface StreamEvent
     record ThinkingStarted(
             Instant timestamp,
             String summary)
+            implements StreamEvent {}
+
+    /** Incremental piece of an in-flight thinking block, emitted by the CLI
+     *  under {@code --include-partial-messages} as {@code thinking_delta}
+     *  frames. The accumulated text is the durable reasoning: in partial
+     *  mode the final assistant message's thinking block is signature-only
+     *  (no text), so without stitching these deltas the persisted thought
+     *  would be empty. Not persisted per-delta. */
+    record ThinkingTextDelta(
+            Instant timestamp,
+            String textChunk)
             implements StreamEvent {}
 
     /** Closes a thinking block. The renderer collapses the block

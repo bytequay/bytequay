@@ -97,9 +97,10 @@ describe('TrunkRoute', () => {
     // 2s elapsed between the thinking row (:03) and the answer (:05).
     const thought = await screen.findByRole('button', { name: /Thought for 2s/ });
     expect(thought).toBeTruthy();
-    expect(screen.queryByText('weighing the approach')).toBeNull();
-    fireEvent.click(thought);
+    // Default-open: the reasoning shows without a click (Copilot pattern).
     expect(screen.getByText('weighing the approach')).toBeTruthy();
+    fireEvent.click(thought);
+    expect(screen.queryByText('weighing the approach')).toBeNull();
     // The plan text renders inline.
     expect(screen.getByText('Here is the plan.')).toBeTruthy();
   });

@@ -13,6 +13,8 @@
  */
 import { useEffect, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
+import { usePendingShipProposal } from '../threads/usePendingShipProposal';
+import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import type { BrainFeedRow, StageDto, StageType } from '../types/brainView';
 import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
@@ -90,6 +92,7 @@ export function TaskBrainRoute({
 }) {
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
+  const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   // Track the brain's answer count so the "working" indicator clears only
@@ -139,6 +142,7 @@ export function TaskBrainRoute({
           ? <UserMsg key={row.id} text={row.body} />
           : <EventRow key={row.id} kind={kind} who={who} markdown={row.body} />;
       })}
+      {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}
       {working && <Working label="Brain is thinking…" />}
     </Conv>
   );

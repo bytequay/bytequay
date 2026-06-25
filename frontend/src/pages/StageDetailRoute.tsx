@@ -13,6 +13,8 @@
  */
 import { useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
+import { usePendingShipProposal } from '../threads/usePendingShipProposal';
+import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import type { StageConversationRow, StageType } from '../types/brainView';
 import { Conv, EventRow, ToolBlock, UserMsg, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
@@ -61,6 +63,7 @@ export function StageDetailRoute({
   onOpenCode: () => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
+  const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -83,6 +86,7 @@ export function StageDetailRoute({
   const conversation = (
     <Conv>
       {data?.conversation.map(row)}
+      {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}
       {working && <Working label="Agent is working…" />}
     </Conv>
   );

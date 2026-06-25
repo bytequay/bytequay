@@ -22,10 +22,11 @@ import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
 
 /** The four work stages that share this page. */
-export type StageKind = 'dev' | 'ci-fix' | 'comments' | 'cleanup';
+export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
 type StageTab = 'plan' | 'pr' | 'details';
 
 const PILL_LABEL: Record<StageKind, string> = {
+  plan: 'PLAN',
   dev: 'DEV',
   'ci-fix': 'CI FIX',
   comments: 'COMMENTS',
@@ -36,6 +37,7 @@ const PILL_LABEL: Record<StageKind, string> = {
  *  Details; Comments leads with the PR comment threads; Dev leads with the
  *  Plan. Falls back to Details when the preferred tab is absent. */
 const PREFERRED_TAB: Record<StageKind, StageTab> = {
+  plan: 'plan',
   dev: 'plan',
   'ci-fix': 'details',
   comments: 'pr',

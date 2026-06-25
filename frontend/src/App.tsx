@@ -26,7 +26,7 @@ import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import { TrunkRoute } from './pages/TrunkRoute';
 import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
-import { useThreadStages } from './pages/useThreadStages';
+import { useThreadTaskRows } from './pages/useThreadTaskRows';
 import type { WsNavKey } from './ui/workspace';
 import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
@@ -183,11 +183,11 @@ function App() {
   // Left rail fold — the chrome-row panel toggle collapses it to a strip.
   const [railCollapsed, setRailCollapsed] = useState(false);
 
-  // The open thread + (when inside one) the task whose stages the left
-  // rail nests under the thread row, so the user can jump to a stage.
+  // The open thread + (when inside one) the selected task — the left rail
+  // nests the thread's tasks under its row so the user can jump to a task.
   const navThreadId = 'threadId' in nav ? nav.threadId : null;
   const navTaskId = 'taskId' in nav ? nav.taskId : undefined;
-  const threadStages = useThreadStages(navThreadId, navTaskId);
+  const threadTaskRows = useThreadTaskRows(navThreadId);
 
   // Records a footprint whenever nav lands on a tracked surface (PR
   // kanban, a PR, a task, a thread). Single capture point; fire-and-forget.
@@ -483,8 +483,8 @@ function App() {
         <WorkspaceNavShell
           activeWorkspaceId={sidebarWorkspaceId}
           selectedThreadId={selectedThreadId}
-          stages={inWorkspaceFlow ? threadStages.stages : undefined}
-          selectedStageId={'stageId' in nav ? nav.stageId : undefined}
+          tasks={inWorkspaceFlow ? threadTaskRows : undefined}
+          selectedTaskId={navTaskId}
           activeNav={sidebarActiveNav}
           notificationCount={unreadNotificationCount}
           collapsed={railCollapsed}
@@ -513,11 +513,9 @@ function App() {
             setNav({ view: 'workspace', section: 'threads' });
           }}
           onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
-          onOpenStage={stageId => {
-            if (navThreadId !== null && threadStages.taskId !== null) {
-              setNav({
-                view: 'stage-detail', threadId: navThreadId, taskId: threadStages.taskId, stageId,
-              });
+          onOpenTask={taskId => {
+            if (navThreadId !== null) {
+              setNav({ view: 'task-brain', threadId: navThreadId, taskId });
             }
           }}
           onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
@@ -657,6 +655,9 @@ function App() {
             threadId={nav.threadId}
             onOpenCode={() => setNav({
               view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
+            })}
+            onOpenStage={stageId => setNav({
+              view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
           />
         )}

@@ -39,9 +39,11 @@ export function useThreadStream(
   threadId: string,
   status: string | undefined,
   onCanonicalRefresh: () => void | Promise<void>,
-): { liveText: string; liveUsage: LiveUsage | null } {
+): { liveText: string; liveThinking: string; liveUsage: LiveUsage | null } {
   const [liveText, setLiveText] = useState('');
   const liveTextRef = useRef('');
+  const [liveThinking, setLiveThinking] = useState('');
+  const liveThinkingRef = useRef('');
   const [liveUsage, setLiveUsage] = useState<LiveUsage | null>(null);
   const liveUsageRef = useRef<LiveUsage | null>(null);
   // Keep the latest refresh callback in a ref so a new closure each render
@@ -56,6 +58,8 @@ export function useThreadStream(
     const flush = () => {
       liveTextRef.current = '';
       setLiveText('');
+      liveThinkingRef.current = '';
+      setLiveThinking('');
       liveUsageRef.current = null;
       setLiveUsage(null);
     };
@@ -74,6 +78,13 @@ export function useThreadStream(
         if (chunk.length === 0) return;
         liveTextRef.current += chunk;
         setLiveText(liveTextRef.current);
+        return;
+      }
+      if (event.name === 'ThinkingTextDelta') {
+        const chunk = typeof event.data.textChunk === 'string' ? event.data.textChunk : '';
+        if (chunk.length === 0) return;
+        liveThinkingRef.current += chunk;
+        setLiveThinking(liveThinkingRef.current);
         return;
       }
       if (event.name === 'UsageUpdated') {
@@ -102,5 +113,5 @@ export function useThreadStream(
     };
   }, [threadId, status]);
 
-  return { liveText, liveUsage };
+  return { liveText, liveThinking, liveUsage };
 }

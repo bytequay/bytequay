@@ -12,16 +12,36 @@
  * limitations under the License.
  */
 
+import { useEffect, useState } from 'react';
+
 /**
  * A live "agent is working" row — a pulsing dot + label shown at the foot
  * of the conversation while the agent is generating, so the surface
- * never looks idle between a prompt and the response.
+ * never looks idle between a prompt and the response. Pass `since` (an
+ * epoch-ms start time) to append a ticking elapsed counter — reassurance
+ * that a long, quiet turn (e.g. extended thinking) is still alive, not
+ * dead.
  */
-export function Working({ label = 'Working…' }: { label?: string }) {
+export function Working({ label = 'Working…', since }: { label?: string; since?: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (since === undefined) return undefined;
+    const tick = () => setElapsed(Math.max(0, Math.round((Date.now() - since) / 1000)));
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [since]);
+
   return (
     <div className="working" role="status" aria-live="polite">
       <span className="working__dot" aria-hidden />
       <span className="working__label">{label}</span>
+      {since !== undefined && <span className="working__elapsed">{formatElapsed(elapsed)}</span>}
     </div>
   );
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }

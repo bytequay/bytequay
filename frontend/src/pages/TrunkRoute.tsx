@@ -16,6 +16,7 @@ import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import type { ReactNode } from 'react';
 import { Callout, Card, Conv, EventRow, Thought, UserMsg, Working } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
+import { useThreadStream } from '../threads/useThreadStream';
 import type { TaskCardData } from '../ui/pane';
 import { TrunkPage } from './TrunkPage';
 
@@ -56,11 +57,17 @@ function buildRows(messages: ThreadMessageDto[]): ReactNode[] {
       const endMs = next !== undefined ? Date.parse(next.ts) : Date.parse(group[group.length - 1].ts);
       const seconds = Math.max(1, Math.round((endMs - Date.parse(group[0].ts)) / 1000));
       const texts = group.map(g => extractText(g.contentJson)).filter(t => t.trim().length > 0);
-      rows.push(
-        <Thought key={group[0].id} seconds={seconds}>
-          {texts.map((t, k) => <Callout key={k}>{t}</Callout>)}
-        </Thought>,
-      );
+      // Show the reasoning expanded by default (the Copilot pattern) so the
+      // thought progress is visible without a click. With no extractable
+      // text, fall back to the bare "Thought for Xs" line rather than an
+      // empty disclosure that expands to nothing.
+      rows.push(texts.length > 0
+        ? (
+          <Thought key={group[0].id} seconds={seconds} defaultOpen>
+            {texts.map((t, k) => <Callout key={k}>{t}</Callout>)}
+          </Thought>
+        )
+        : <Thought key={group[0].id} seconds={seconds} />);
     }
     else {
       const txt = extractText(m.contentJson);
@@ -125,6 +132,10 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     if (awaitedAt !== null && replyCount > awaitedAt) setAwaitedAt(null);
   }, [replyCount, awaitedAt]);
   const working = busy || awaitedAt !== null;
+  // Start time of the current working period, so the indicator can show a
+  // ticking elapsed counter — a long, quiet think shouldn't read as dead.
+  const [workingSince, setWorkingSince] = useState<number | null>(null);
+  useEffect(() => { if (!working) setWorkingSince(null); }, [working]);
 
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -142,7 +153,18 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     catch { /* leave the last loaded state */ }
   }, [threadId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // Poll so the agent's reply (and any task it cuts) lands without a manual
+  // reload — also a fallback if the live stream can't connect.
+  useEffect(() => {
+    void load();
+    const id = window.setInterval(() => { void load(); }, 3000);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  // Live SSE stream: the agent's reasoning + reply appear token-by-token as
+  // they're generated, instead of only when a poll fires after the turn. The
+  // canonical messages refresh + the live buffers flush once the turn lands.
+  const { liveText, liveThinking } = useThreadStream(threadId, thread?.status, load);
 
   const submit = () => {
     const body = text.trim();
@@ -150,15 +172,16 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     setText('');
     setBusy(true);
     setAwaitedAt(replyCount);
+    setWorkingSince(Date.now());
     window.bridge.sendTrunkMessage(threadId, body)
       .then(() => load())
       .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
   };
 
-  // User-confirmed cut: seed the new task from the latest planning prompt
-  // and queue it (the scheduler materialises it). The trunk itself never
-  // cuts — it only plans.
+  // Manual cut: seed a task from the latest planning prompt and queue it.
+  // The trunk agent can now cut tasks itself via create_task; this button
+  // stays as the user's own way to cut from the plan.
   const lastUserPrompt = [...messages].reverse().find(
     m => m.taskId === null && m.role === 'user' && m.type === 'text');
   const cutTask = () => {
@@ -188,7 +211,13 @@ export function TrunkRoute({ threadId, onOpenTask }: {
           onClick={() => onOpenTask(foreground.id)}
         />
       )}
-      {working && <Working label="Trunk is thinking…" />}
+      {liveThinking.length > 0 && (
+        <Thought label="Thinking…" defaultOpen><Callout>{liveThinking}</Callout></Thought>
+      )}
+      {liveText.length > 0 && <EventRow kind="brain" who="Agent" markdown={liveText} />}
+      {working && liveText.length === 0 && (
+        <Working label="Trunk is thinking…" since={workingSince ?? undefined} />
+      )}
     </Conv>
   );
 

@@ -26,7 +26,7 @@ import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import { TrunkRoute } from './pages/TrunkRoute';
 import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
-import { useThreadTaskRows } from './pages/useThreadTaskRows';
+import { useThreadStages } from './pages/useThreadStages';
 import type { WsNavKey } from './ui/workspace';
 import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
@@ -182,12 +182,22 @@ function App() {
   const [nav, setNav] = useState<Nav>({ view: 'home' });
   // Left rail fold — the chrome-row panel toggle collapses it to a strip.
   const [railCollapsed, setRailCollapsed] = useState(false);
+  // The code-diff page is wide; fold the rail when it opens so the diff gets
+  // the room, and expand it again when the user leaves. Only acts on the
+  // enter/leave transition, so a manual toggle elsewhere is left alone.
+  const prevViewRef = useRef(nav.view);
+  useEffect(() => {
+    const was = prevViewRef.current;
+    prevViewRef.current = nav.view;
+    if (nav.view === 'task-code' && was !== 'task-code') setRailCollapsed(true);
+    else if (was === 'task-code' && nav.view !== 'task-code') setRailCollapsed(false);
+  }, [nav.view]);
 
-  // The open thread + (when inside one) the selected task — the left rail
-  // nests the thread's tasks under its row so the user can jump to a task.
+  // The open thread + (when inside one) its task — the left rail nests the
+  // active task's stages under the thread row so the user can jump to a stage.
   const navThreadId = 'threadId' in nav ? nav.threadId : null;
   const navTaskId = 'taskId' in nav ? nav.taskId : undefined;
-  const threadTaskRows = useThreadTaskRows(navThreadId);
+  const threadStages = useThreadStages(navThreadId, navTaskId);
 
   // Records a footprint whenever nav lands on a tracked surface (PR
   // kanban, a PR, a task, a thread). Single capture point; fire-and-forget.
@@ -483,8 +493,12 @@ function App() {
         <WorkspaceNavShell
           activeWorkspaceId={sidebarWorkspaceId}
           selectedThreadId={selectedThreadId}
-          tasks={inWorkspaceFlow ? threadTaskRows : undefined}
+          task={inWorkspaceFlow && threadStages.taskId !== null
+            ? { id: threadStages.taskId, label: threadStages.taskLabel ?? 'Task' }
+            : undefined}
+          stages={inWorkspaceFlow ? threadStages.stages : undefined}
           selectedTaskId={navTaskId}
+          selectedStageId={'stageId' in nav ? nav.stageId : undefined}
           activeNav={sidebarActiveNav}
           notificationCount={unreadNotificationCount}
           collapsed={railCollapsed}
@@ -516,6 +530,13 @@ function App() {
           onOpenTask={taskId => {
             if (navThreadId !== null) {
               setNav({ view: 'task-brain', threadId: navThreadId, taskId });
+            }
+          }}
+          onOpenStage={stageId => {
+            if (navThreadId !== null && threadStages.taskId !== null) {
+              setNav({
+                view: 'stage-detail', threadId: navThreadId, taskId: threadStages.taskId, stageId,
+              });
             }
           }}
           onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}

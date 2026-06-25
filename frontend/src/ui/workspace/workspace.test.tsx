@@ -160,8 +160,9 @@ describe('ThreadList', () => {
     expect(onOpen).toHaveBeenCalledWith('t2');
   });
 
-  it('nests the open thread\'s tasks and jumps on click', () => {
+  it('nests the task name + its stages under the open thread and jumps on click', () => {
     const onOpenTask = vi.fn();
+    const onOpenStage = vi.fn();
     const { container } = render(
       <ThreadList
         threads={[
@@ -169,31 +170,38 @@ describe('ThreadList', () => {
           { id: 't2', initials: 'tr', color: 'pink', name: 'Fix Delta Lake timestamp', status: 'planning' },
         ]}
         selectedId="t1"
-        tasks={[
-          { id: 'k1', label: 'Remove dead types', dot: 'done' },
-          { id: 'k2', label: 'feat/cost-meter', dot: 'active' },
-          { id: 'k3', label: 'Task 3' },
+        task={{ id: 'k1', label: 'Add cost meter' }}
+        stages={[
+          { id: 's1', label: 'Plan', dot: 'done' },
+          { id: 's2', label: 'Dev', dot: 'active' },
+          { id: 's3', label: 'CI Fix' },
         ]}
-        selectedTaskId="k2"
+        selectedStageId="s2"
         onOpenTask={onOpenTask}
+        onOpenStage={onOpenStage}
       />,
     );
-    // Tasks render under the selected thread only.
-    expect(container.querySelectorAll('.task-subitem').length).toBe(3);
-    expect(container.querySelector('.task-subitem.active')?.textContent).toContain('feat/cost-meter');
-    fireEvent.click(screen.getByText('Task 3'));
-    expect(onOpenTask).toHaveBeenCalledWith('k3');
+    // Task name sub-header + its stages render under the selected thread.
+    expect(container.querySelector('.task-subhead')?.textContent).toContain('Add cost meter');
+    expect(container.querySelectorAll('.stage-subitem').length).toBe(3);
+    expect(container.querySelector('.stage-subitem.active')?.textContent).toContain('Dev');
+    fireEvent.click(screen.getByText('Add cost meter'));
+    expect(onOpenTask).toHaveBeenCalledWith('k1');
+    fireEvent.click(screen.getByText('CI Fix'));
+    expect(onOpenStage).toHaveBeenCalledWith('s3');
   });
 
-  it('hides tasks when the matching thread is not selected', () => {
+  it('hides the task + stages when the matching thread is not selected', () => {
     const { container } = render(
       <ThreadList
         threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
         selectedId="t2"
-        tasks={[{ id: 'k1', label: 'Task 1' }]}
+        task={{ id: 'k1', label: 'Task' }}
+        stages={[{ id: 's1', label: 'Plan' }]}
       />,
     );
-    expect(container.querySelector('.task-subitem')).toBeNull();
+    expect(container.querySelector('.task-subhead')).toBeNull();
+    expect(container.querySelector('.stage-subitem')).toBeNull();
   });
 });
 

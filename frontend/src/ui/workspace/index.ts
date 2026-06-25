@@ -19,6 +19,6 @@ export { WorkspaceList } from './WorkspaceList';
 export type { WorkspaceRow } from './WorkspaceList';
 export { WorkspaceSwitcher } from './WorkspaceSwitcher';
 export { ThreadList, ThreadListItem } from './ThreadList';
-export type { ThreadRow, TaskNavRow } from './ThreadList';
+export type { ThreadRow, StageNavRow, TaskNavRow } from './ThreadList';
 export { WorkspaceTabBar, WorkspaceTopBar } from './WorkspaceTopBar';
 export type { WsTab, RepoChip } from './WorkspaceTopBar';

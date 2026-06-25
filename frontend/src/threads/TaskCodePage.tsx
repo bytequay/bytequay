@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import MarkdownComposer from '../MarkdownComposer';
 import { CommitsColumn } from '../diff/CommitsColumn';
+import { DiffChatColumn } from './DiffChatColumn';
 import { ContinuousDiff, FileDiffBody } from '../diff/DiffFileList';
 import { DiffFileTreePane, type FilesPaneMode } from '../diff/DiffFileTreePane';
 import { contiguousRange } from '../diff/commitRange';
@@ -162,11 +163,15 @@ function loadWidth(key: string, fallback: number): number {
  * exactly like the PR page.
  */
 export default function TaskCodePage({
-  threadId, taskId, onBack,
+  threadId, taskId, onBack, stageId,
 }: {
   threadId: string;
   taskId: string;
   onBack: () => void;
+  /** The stage the diff was opened from — drives the left conversation
+   *  column (the dev-stage transcript + an inline steer composer). Absent
+   *  when opened outside a stage. */
+  stageId?: string;
 }) {
   const { tasks } = useThreadTasks(threadId);
   const task = useMemo(() => tasks?.find(t => t.id === taskId) ?? null, [tasks, taskId]);
@@ -183,7 +188,10 @@ export default function TaskCodePage({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [mode, setMode] = useState<FilesPaneMode>('tree');
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
-  const [commitsWidth, setCommitsWidth] = useState(() => loadWidth(COMMITS_WIDTH_KEY, COMMITS_DEFAULT));
+  // The middle column folds the old commits + changed-files panels into one
+  // tabbed column; the left column is now the conversation.
+  const [midTab, setMidTab] = useState<'files' | 'commits'>('files');
+  const [convWidth, setConvWidth] = useState(() => loadWidth(COMMITS_WIDTH_KEY, COMMITS_DEFAULT));
   const [filesWidth, setFilesWidth] = useState(() => loadWidth(FILES_WIDTH_KEY, FILES_DEFAULT));
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -404,21 +412,21 @@ export default function TaskCodePage({
     (acc, f) => ({ additions: acc.additions + f.additions, deletions: acc.deletions + f.deletions }),
     { additions: 0, deletions: 0 }), [files]);
 
-  const handleCommitsResize = useCallback((clientX: number) => {
+  const handleConvResize = useCallback((clientX: number) => {
     const rect = bodyRef.current?.getBoundingClientRect();
     if (!rect) return;
     const next = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, clientX - rect.left));
-    setCommitsWidth(next);
+    setConvWidth(next);
     try { window.localStorage.setItem(COMMITS_WIDTH_KEY, String(next)); } catch { /* private mode */ }
   }, []);
 
   const handleFilesResize = useCallback((clientX: number) => {
     const rect = bodyRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const next = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, clientX - rect.left - commitsWidth - 5));
+    const next = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, clientX - rect.left - convWidth - 5));
     setFilesWidth(next);
     try { window.localStorage.setItem(FILES_WIDTH_KEY, String(next)); } catch { /* private mode */ }
-  }, [commitsWidth]);
+  }, [convWidth]);
 
   return (
     // .diff-viewer is position:absolute/inset:0 — give it a positioned,
@@ -470,60 +478,88 @@ export default function TaskCodePage({
         <div
           className="diff-viewer__body"
           ref={bodyRef}
-          style={{ gridTemplateColumns: `${commitsWidth}px 5px ${filesWidth}px 5px minmax(0, 1fr)` }}
+          style={{ gridTemplateColumns: `${convWidth}px 5px ${filesWidth}px 5px minmax(0, 1fr)` }}
         >
-          {/* Commits column — shared with the PR viewer (checkboxes + range). */}
-          <CommitsColumn
-            commits={(commits ?? []).map(c => ({
-              sha: c.sha, subject: c.subject, author: c.authorName, authoredAt: c.authoredAt,
-            }))}
-            selected={selected}
-            onSelectCommit={onSelectCommit}
-            onSelectAll={onSelectAll}
-            summary={summary}
-            loading={files === null}
-            collapsed={false}
-            onToggleCollapsed={() => { /* task page keeps the column open */ }}
-          />
-          <ResizeHandle onResize={handleCommitsResize} ariaLabel="Resize commits panel" />
+          {/* Conversation column — the originating stage's transcript (with an
+              inline steer), or a PR-agent chat scaffold when stageless. */}
+          <DiffChatColumn stageId={stageId} />
+          <ResizeHandle onResize={handleConvResize} ariaLabel="Resize conversation panel" />
 
-          {/* Changed-files tree — shared with the PR viewer. */}
+          {/* Middle column: Changed files + Commits folded into two tabs. */}
           <aside className="diff-viewer__files">
             <div className="diff-viewer__files-header">
-              <span>Changed files</span>
-              {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
-              <div className="diff-viewer__mode-toggle" role="tablist" aria-label="File list layout">
+              <div className="diff-viewer__col-tabs" role="tablist" aria-label="Files or commits">
                 <button
                   type="button"
                   role="tab"
-                  className={`diff-viewer__mode-btn${mode === 'tree' ? ' diff-viewer__mode-btn--active' : ''}`}
-                  onClick={() => setMode('tree')}
-                  aria-selected={mode === 'tree'}
+                  className={`diff-viewer__col-tab${midTab === 'files' ? ' diff-viewer__col-tab--active' : ''}`}
+                  onClick={() => setMidTab('files')}
+                  aria-selected={midTab === 'files'}
                 >
-                  Tree
+                  Changed files
+                  {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  className={`diff-viewer__mode-btn${mode === 'flat' ? ' diff-viewer__mode-btn--active' : ''}`}
-                  onClick={() => setMode('flat')}
-                  aria-selected={mode === 'flat'}
+                  className={`diff-viewer__col-tab${midTab === 'commits' ? ' diff-viewer__col-tab--active' : ''}`}
+                  onClick={() => setMidTab('commits')}
+                  aria-selected={midTab === 'commits'}
                 >
-                  Flat
+                  Commits
+                  {commits !== null && <span className="diff-viewer__files-count">{commits.length}</span>}
                 </button>
               </div>
+              {midTab === 'files' && (
+                <div className="diff-viewer__mode-toggle" role="tablist" aria-label="File list layout">
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`diff-viewer__mode-btn${mode === 'tree' ? ' diff-viewer__mode-btn--active' : ''}`}
+                    onClick={() => setMode('tree')}
+                    aria-selected={mode === 'tree'}
+                  >
+                    Tree
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`diff-viewer__mode-btn${mode === 'flat' ? ' diff-viewer__mode-btn--active' : ''}`}
+                    onClick={() => setMode('flat')}
+                    aria-selected={mode === 'flat'}
+                  >
+                    Flat
+                  </button>
+                </div>
+              )}
             </div>
-            <DiffFileTreePane<DiffFileDto>
-              files={files}
-              error={error}
-              mode={mode}
-              pathOf={(f) => f.filename}
-              statusBadgeOf={(f) => statusBadge(f.status)}
-              selectedPath={selectedPath}
-              onSelectPath={setSelectedPath}
-              collapsedDirs={collapsedDirs}
-              onToggleDir={toggleDir}
-            />
+            {midTab === 'files' ? (
+              <DiffFileTreePane<DiffFileDto>
+                files={files}
+                error={error}
+                mode={mode}
+                pathOf={(f) => f.filename}
+                statusBadgeOf={(f) => statusBadge(f.status)}
+                selectedPath={selectedPath}
+                onSelectPath={setSelectedPath}
+                collapsedDirs={collapsedDirs}
+                onToggleDir={toggleDir}
+              />
+            ) : (
+              <CommitsColumn
+                commits={(commits ?? []).map(c => ({
+                  sha: c.sha, subject: c.subject, author: c.authorName, authoredAt: c.authoredAt,
+                }))}
+                selected={selected}
+                onSelectCommit={onSelectCommit}
+                onSelectAll={onSelectAll}
+                summary={summary}
+                loading={files === null}
+                collapsed={false}
+                onToggleCollapsed={() => { /* embedded as a tab; no collapse */ }}
+                embedded
+              />
+            )}
           </aside>
           <ResizeHandle onResize={handleFilesResize} ariaLabel="Resize changed-files panel" />
 

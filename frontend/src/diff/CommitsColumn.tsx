@@ -43,6 +43,9 @@ type Props = {
   loading?: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /** Rendered as a tab inside another column (no standalone header /
+   *  collapse chevron — the host tab provides the label). */
+  embedded?: boolean;
 };
 
 /**
@@ -53,9 +56,9 @@ type Props = {
  */
 export function CommitsColumn({
   commits, selected, onSelectCommit, onSelectAll, onReview, summary,
-  loading, collapsed, onToggleCollapsed,
+  loading, collapsed, onToggleCollapsed, embedded = false,
 }: Props) {
-  if (collapsed) {
+  if (collapsed && !embedded) {
     return (
       <aside className="diff-viewer__commits diff-viewer__commits--collapsed">
         <button
@@ -78,20 +81,22 @@ export function CommitsColumn({
   const countLabel = selectionActive ? `${selected.size} of ${commits.length}` : String(commits.length);
 
   return (
-    <aside className="diff-viewer__commits">
-      <div className="diff-viewer__col-head">
-        <span className="diff-viewer__col-title">Commits · {countLabel}</span>
-        {loading && <span className="diff-viewer__col-status" aria-hidden="true">…</span>}
-        <button
-          type="button"
-          className="diff-viewer__chev"
-          onClick={onToggleCollapsed}
-          title="Collapse commits"
-          aria-label="Collapse commits"
-        >
-          ‹
-        </button>
-      </div>
+    <aside className={embedded ? 'diff-viewer__commits diff-viewer__commits--embedded' : 'diff-viewer__commits'}>
+      {!embedded && (
+        <div className="diff-viewer__col-head">
+          <span className="diff-viewer__col-title">Commits · {countLabel}</span>
+          {loading && <span className="diff-viewer__col-status" aria-hidden="true">…</span>}
+          <button
+            type="button"
+            className="diff-viewer__chev"
+            onClick={onToggleCollapsed}
+            title="Collapse commits"
+            aria-label="Collapse commits"
+          >
+            ‹
+          </button>
+        </div>
+      )}
 
       <div className="diff-viewer__commits-list">
         <button

@@ -26,6 +26,7 @@ import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import { TrunkRoute } from './pages/TrunkRoute';
 import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
+import { useThreadStages } from './pages/useThreadStages';
 import type { WsNavKey } from './ui/workspace';
 import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
@@ -179,6 +180,14 @@ function writeActiveWorkspaceId(id: string): void {
 function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
+  // Left rail fold — the chrome-row panel toggle collapses it to a strip.
+  const [railCollapsed, setRailCollapsed] = useState(false);
+
+  // The open thread + (when inside one) the task whose stages the left
+  // rail nests under the thread row, so the user can jump to a stage.
+  const navThreadId = 'threadId' in nav ? nav.threadId : null;
+  const navTaskId = 'taskId' in nav ? nav.taskId : undefined;
+  const threadStages = useThreadStages(navThreadId, navTaskId);
 
   // Records a footprint whenever nav lands on a tracked surface (PR
   // kanban, a PR, a task, a thread). Single capture point; fire-and-forget.
@@ -474,8 +483,12 @@ function App() {
         <WorkspaceNavShell
           activeWorkspaceId={sidebarWorkspaceId}
           selectedThreadId={selectedThreadId}
+          stages={inWorkspaceFlow ? threadStages.stages : undefined}
+          selectedStageId={'stageId' in nav ? nav.stageId : undefined}
           activeNav={sidebarActiveNav}
           notificationCount={unreadNotificationCount}
+          collapsed={railCollapsed}
+          onToggleCollapse={() => setRailCollapsed(c => !c)}
           footer={{
             initials: 'CJ',
             name: 'You',
@@ -500,6 +513,13 @@ function App() {
             setNav({ view: 'workspace', section: 'threads' });
           }}
           onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+          onOpenStage={stageId => {
+            if (navThreadId !== null && threadStages.taskId !== null) {
+              setNav({
+                view: 'stage-detail', threadId: navThreadId, taskId: threadStages.taskId, stageId,
+              });
+            }
+          }}
           onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
           onNewWorkspace={() => setNav({ view: 'workspaces-landing' })}
           onNewThread={() => setNav({ view: 'thread-create' })}

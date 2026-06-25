@@ -11,14 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Logo } from '../primitives';
 import {
   ThreadList, WorkspaceList, WorkspaceNavSidebar, WorkspaceSwitcher, WorkspaceTopBar,
 } from './index';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); Reflect.deleteProperty(window, 'bridge'); });
 
 describe('Logo', () => {
   it('applies the size + colour modifiers', () => {
@@ -60,6 +60,52 @@ describe('WorkspaceNavSidebar', () => {
       <WorkspaceNavSidebar backHint footer={{ initials: 'CJ', name: 'x' }}><div /></WorkspaceNavSidebar>,
     );
     expect(queryByText('← back')).toBeTruthy();
+  });
+
+  it('flags fullscreen on the rail so the traffic-light dots show', async () => {
+    (window as unknown as { bridge: unknown }).bridge = {
+      getFullScreenState: vi.fn().mockResolvedValue(true),
+      onFullScreenChange: vi.fn().mockReturnValue(() => {}),
+    };
+    const { container } = render(
+      <WorkspaceNavSidebar footer={{ initials: 'CJ', name: 'x' }}><div /></WorkspaceNavSidebar>,
+    );
+    await waitFor(() => expect(container.querySelector('.shell-rail.is-fullscreen')).toBeTruthy());
+    // The dots + the collapse toggle live in the chrome row.
+    expect(container.querySelector('.sb-traffic .dots')).toBeTruthy();
+    expect(container.querySelector('.sb-traffic .sb-toggle')).toBeTruthy();
+  });
+
+  it('stays windowed (no fullscreen flag) by default', () => {
+    const { container } = render(
+      <WorkspaceNavSidebar footer={{ initials: 'CJ', name: 'x' }}><div /></WorkspaceNavSidebar>,
+    );
+    expect(container.querySelector('.shell-rail.is-fullscreen')).toBeNull();
+    expect(container.querySelector('.shell-rail')).toBeTruthy();
+  });
+
+  it('folds to the chrome row when collapsed and the toggle fires onToggleCollapse', () => {
+    const onToggleCollapse = vi.fn();
+    const { container, rerender } = render(
+      <WorkspaceNavSidebar footer={{ initials: 'CJ', name: 'x' }} onToggleCollapse={onToggleCollapse}>
+        <div data-testid="body" />
+      </WorkspaceNavSidebar>,
+    );
+    // Expanded: nav items + body present.
+    expect(container.querySelectorAll('.sb-nav-item').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('body')).toBeTruthy();
+
+    rerender(
+      <WorkspaceNavSidebar collapsed footer={{ initials: 'CJ', name: 'x' }} onToggleCollapse={onToggleCollapse}>
+        <div data-testid="body" />
+      </WorkspaceNavSidebar>,
+    );
+    // Collapsed: rail flagged, nav body gone, only the toggle remains.
+    expect(container.querySelector('.shell-rail.sidebar-collapsed')).toBeTruthy();
+    expect(container.querySelectorAll('.sb-nav-item').length).toBe(0);
+    expect(screen.queryByTestId('body')).toBeNull();
+    fireEvent.click(container.querySelector('.sb-traffic .sb-toggle') as HTMLElement);
+    expect(onToggleCollapse).toHaveBeenCalledOnce();
   });
 });
 
@@ -112,6 +158,42 @@ describe('ThreadList', () => {
     expect(container.querySelector('.v3-dot--planning')).toBeTruthy();
     fireEvent.click(screen.getByText('Fix Delta Lake timestamp'));
     expect(onOpen).toHaveBeenCalledWith('t2');
+  });
+
+  it('nests the open thread\'s stages and jumps on click', () => {
+    const onOpenStage = vi.fn();
+    const { container } = render(
+      <ThreadList
+        threads={[
+          { id: 't1', initials: 'we', color: 'purple', name: 'Backend cleanup review', status: 'active' },
+          { id: 't2', initials: 'tr', color: 'pink', name: 'Fix Delta Lake timestamp', status: 'planning' },
+        ]}
+        selectedId="t1"
+        stages={[
+          { id: 's1', label: 'Plan', dot: 'done' },
+          { id: 's2', label: 'Dev', dot: 'active' },
+          { id: 's3', label: 'CI Fix' },
+        ]}
+        selectedStageId="s2"
+        onOpenStage={onOpenStage}
+      />,
+    );
+    // Stages render under the selected thread only.
+    expect(container.querySelectorAll('.stage-subitem').length).toBe(3);
+    expect(container.querySelector('.stage-subitem.active')?.textContent).toContain('Dev');
+    fireEvent.click(screen.getByText('CI Fix'));
+    expect(onOpenStage).toHaveBeenCalledWith('s3');
+  });
+
+  it('hides stages when the matching thread is not selected', () => {
+    const { container } = render(
+      <ThreadList
+        threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
+        selectedId="t2"
+        stages={[{ id: 's1', label: 'Plan' }]}
+      />,
+    );
+    expect(container.querySelector('.stage-subitem')).toBeNull();
   });
 });
 

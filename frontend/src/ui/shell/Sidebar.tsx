@@ -17,8 +17,11 @@ import { Avatar } from '../primitives';
 /** App-level nav destinations in the sidebar's top section. */
 export type SidebarNavKey = 'home' | 'my-work' | 'automations';
 
-/** macOS traffic-light dots + back/forward + collapse arrows. The ◧
- *  arrow toggles the sidebar collapse. */
+/** The window-chrome row: the macOS traffic-light dots + the sidebar
+ *  collapse toggle on the left, and back/forward on the right. The dots
+ *  stand in for the native macOS buttons — hidden behind the real ones
+ *  while windowed, shown (red/yellow/green) only in fullscreen where the
+ *  OS hides its own (driven by the `.is-fullscreen` class on the rail). */
 export function TrafficLights({ onBack, onForward, onToggleCollapse }: {
   onBack?: () => void;
   onForward?: () => void;
@@ -29,10 +32,29 @@ export function TrafficLights({ onBack, onForward, onToggleCollapse }: {
       <div className="dots" aria-hidden>
         <span className="r" /><span className="y" /><span className="g" />
       </div>
+      <span
+        className="sb-toggle"
+        role="button"
+        tabIndex={0}
+        aria-label="Toggle sidebar"
+        onClick={onToggleCollapse}
+      >
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <rect x="2" y="3" width="12" height="10" rx="2.2" stroke="currentColor" strokeWidth="1.3" />
+          <line x1="6.4" y1="3.4" x2="6.4" y2="12.6" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </span>
       <div className="nav-arrows">
-        <span role="button" tabIndex={0} aria-label="Back" onClick={onBack}>‹</span>
-        <span role="button" tabIndex={0} aria-label="Forward" onClick={onForward}>›</span>
-        <span role="button" tabIndex={0} aria-label="Toggle sidebar" onClick={onToggleCollapse}>◧</span>
+        <span role="button" tabIndex={0} aria-label="Back" onClick={onBack}>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden>
+            <path d="M6.5 1.5 1.5 7l5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+        <span role="button" tabIndex={0} aria-label="Forward" onClick={onForward}>
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden>
+            <path d="M1.5 1.5 6.5 7l-5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
       </div>
     </div>
   );

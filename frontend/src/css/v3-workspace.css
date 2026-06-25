@@ -21,17 +21,42 @@
   height: 100%;
 }
 
-/* The window is `hiddenInset` with native macOS traffic lights at the
-   top-left, so the rail must not paint its own fake dots there (they'd
-   double up). Hide them and keep the row only as a drag handle + spacer
-   that clears the native buttons. */
-.shell.shell-rail .sb-traffic {
-  -webkit-app-region: drag;
-  padding-top: 30px;
+/* Folded (Copilot-style): the rail leaves the layout entirely so the main
+   content goes full-width, and the chrome row floats over the content's
+   top-left — the traffic-light dots + the panel toggle to re-expand.
+   Back/forward drop out; the nav body + footer aren't rendered. */
+.shell.shell-rail.sidebar-collapsed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: auto;
+  z-index: 50;
 }
-.shell.shell-rail .sb-traffic .dots {
+.shell.shell-rail.sidebar-collapsed > .sidebar {
+  height: auto;
+  background: transparent;
+  border-right: none;
+}
+.shell.shell-rail.sidebar-collapsed .sb-traffic .nav-arrows {
   display: none;
 }
+
+/* The window-chrome row is a drag handle; its buttons opt out. The fake
+   red/yellow/green dots stand in for the native macOS traffic lights:
+   the window is `hiddenInset`, so while windowed the OS draws the real
+   buttons over this spot and ours stay hidden (but keep their width so
+   nothing shifts). In fullscreen the OS hides its buttons, so ours
+   become visible — the user keeps the three dots in the same place. */
+.shell.shell-rail .sb-traffic {
+  -webkit-app-region: drag;
+}
+.shell.shell-rail .sb-traffic .dots {
+  visibility: hidden;
+}
+.shell.shell-rail.is-fullscreen .sb-traffic .dots {
+  visibility: visible;
+}
+.shell.shell-rail .sb-traffic .sb-toggle,
 .shell.shell-rail .sb-traffic .nav-arrows {
   -webkit-app-region: no-drag;
 }
@@ -174,6 +199,50 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+
+/* ── Stage rows nested under the open thread ─────────────────── */
+.shell .stage-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 3px;
+  /* Indent past the thread row's repo logo so the stages read as a
+     sub-level, with a hairline spine tying them to the thread. */
+  margin-left: 19px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+}
+.shell .stage-subitem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.shell .stage-subitem:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.shell .stage-subitem.active {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-1);
+  font-weight: 500;
+}
+.shell .stage-subitem .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Workspace top bar + tabs (main) ─────────────────────────── */

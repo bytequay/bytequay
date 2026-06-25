@@ -13,6 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import { SidebarFooter, TrafficLights } from '../shell';
+import { useFullScreen } from '../../useFullScreen';
 
 /** Nav destinations. No Search (removed in this model). The first four
  *  are the primary (top) group; the rest sit in the bottom group. */
@@ -43,7 +44,8 @@ const BOTTOM_NAV: { key: WsNavKey; ic: string; label: string }[] = [
  * overview).
  */
 export function WorkspaceNavSidebar({
-  activeNav, onNavigate, backHint = false, children, footer, notificationCount, onBack, onForward, onToggleCollapse,
+  activeNav, onNavigate, backHint = false, children, footer, notificationCount,
+  collapsed = false, onBack, onForward, onToggleCollapse,
 }: {
   activeNav?: WsNavKey;
   onNavigate?: (key: WsNavKey) => void;
@@ -54,10 +56,14 @@ export function WorkspaceNavSidebar({
   footer: { initials: string; name: string; onChat?: () => void; onSettings?: () => void };
   /** Unread badge on the bottom Notifications item. */
   notificationCount?: number;
+  /** Folded to a narrow strip — only the chrome row (with the toggle to
+   *  re-expand) shows; the nav body + footer are hidden. */
+  collapsed?: boolean;
   onBack?: () => void;
   onForward?: () => void;
   onToggleCollapse?: () => void;
 }) {
+  const fullScreen = useFullScreen();
   const navItem = (n: { key: WsNavKey; ic: string; label: string }) => (
     <button
       key={n.key}
@@ -80,14 +86,23 @@ export function WorkspaceNavSidebar({
     // left rail, mounted outside any per-surface shell grid, so it
     // carries its own `.shell shell-rail` wrapper to pick up that chrome
     // while rendering as a plain fixed-width column (see v3-workspace.css).
-    <div className="shell shell-rail">
+    <div className={[
+      'shell', 'shell-rail',
+      fullScreen ? 'is-fullscreen' : '',
+      collapsed ? 'sidebar-collapsed' : '',
+    ].filter(Boolean).join(' ')}
+    >
       <aside className="sidebar">
         <TrafficLights onBack={onBack} onForward={onForward} onToggleCollapse={onToggleCollapse} />
-        <div className="sb-nav">{TOP_NAV.map(navItem)}</div>
-        {children}
-        <div className="sb-spacer" />
-        <div className="sb-nav">{BOTTOM_NAV.map(navItem)}</div>
-        <SidebarFooter {...footer} />
+        {!collapsed && (
+          <>
+            <div className="sb-nav">{TOP_NAV.map(navItem)}</div>
+            {children}
+            <div className="sb-spacer" />
+            <div className="sb-nav">{BOTTOM_NAV.map(navItem)}</div>
+            <SidebarFooter {...footer} />
+          </>
+        )}
       </aside>
     </div>
   );

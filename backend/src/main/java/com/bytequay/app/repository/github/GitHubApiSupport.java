@@ -32,6 +32,10 @@ final class GitHubApiSupport
 {
     private static final Logger log = LoggerFactory.getLogger(GitHubApiSupport.class);
     private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
+    /** Max chars of an error body we log. GitHub's JSON errors are tiny; its
+     *  transient 5xx "unicorn" pages are large HTML blobs (inline base64
+     *  images and all) that carry nothing actionable, so we collapse those. */
+    private static final int MAX_LOGGED_BODY = 1000;
 
     private GitHubApiSupport() {}
 
@@ -59,13 +63,34 @@ final class GitHubApiSupport
             default -> "GitHub API request failed with status " + e.getStatusCode().value() + ".";
         };
         String responseBody = e.getResponseBodyAsString();
-        // Log GitHub's raw response so the real reason is recoverable even
-        // when GitHub only sends a generic top-level message.
-        log.warn("GitHub API {} failed: {}", e.getStatusCode().value(),
-                responseBody == null || responseBody.isBlank() ? "(empty body)" : responseBody);
+        // Log GitHub's response so the real reason is recoverable even when
+        // GitHub only sends a generic top-level message — but summarize HTML
+        // error pages and oversized bodies so a transient 5xx doesn't dump a
+        // whole markup blob into the log.
+        log.warn("GitHub API {} failed: {}", e.getStatusCode().value(), summarizeErrorBody(responseBody));
         String githubMessage = extractGitHubErrorMessage(responseBody);
         String message = githubMessage != null ? githubMessage : fallback;
         return new ResponseStatusException(status, message, e);
+    }
+
+    /**
+     * Render an error body for the log: GitHub's small JSON errors verbatim,
+     * but HTML error pages (transient 5xx "unicorn" pages) and anything
+     * oversized collapsed to a one-line summary so the log stays readable.
+     */
+    static String summarizeErrorBody(String body)
+    {
+        if (body == null || body.isBlank()) {
+            return "(empty body)";
+        }
+        String trimmed = body.strip();
+        if (trimmed.startsWith("<")) {
+            return "(HTML error page, " + body.length() + " bytes)";
+        }
+        if (trimmed.length() > MAX_LOGGED_BODY) {
+            return trimmed.substring(0, MAX_LOGGED_BODY) + "… (truncated, " + trimmed.length() + " bytes)";
+        }
+        return trimmed;
     }
 
     /**

@@ -11,7 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
+
+/** Grow the textarea to fit its content, up to this many px (then scroll). */
+const MAX_INPUT_HEIGHT = 160;
 
 /**
  * The composer pinned to the bottom of every conversation column. One
@@ -33,6 +37,22 @@ export function Composer({
   onAddContext?: () => void;
 }) {
   const canSend = !busy && !disabled && value.trim().length > 0;
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow to fit the text (up to MAX_INPUT_HEIGHT, then scroll) so a
+  // multi-line message isn't squeezed into one clipped row. Runs before
+  // paint on every value change — including the reset to '' after send.
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (el === null) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
+  }, [value]);
+  // Re-fit once mounted (initial content / fonts settled).
+  useEffect(() => {
+    const el = taRef.current;
+    if (el !== null) el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
+  }, []);
 
   const submit = () => {
     if (canSend) onSubmit();
@@ -49,6 +69,7 @@ export function Composer({
     <div className="composer-wrap">
       <div className="composer">
         <textarea
+          ref={taRef}
           className="input"
           value={value}
           rows={1}

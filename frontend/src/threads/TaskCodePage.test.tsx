@@ -131,15 +131,27 @@ describe('TaskCodePage', () => {
     });
     render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
 
-    // PR description panel seeded from the parked payload.
+    // One open comment → Approve & ship (in the toolbar) disabled with the hint.
+    // Wait for the comments to load (they gate the button) before asserting.
+    const approve = await screen.findByRole('button', { name: /Approve & ship/ });
+    await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(true));
+    expect(approve.getAttribute('title')).toBe('resolve the open review comments first');
+
+    // The PR description lives under the Pull request tab, seeded from the payload.
+    fireEvent.click(screen.getByRole('tab', { name: 'Pull request' }));
     expect(await screen.findByText('Pull request description')).toBeTruthy();
     await waitFor(() =>
       expect((screen.getByLabelText('Pull request title') as HTMLInputElement).value).toBe('Fix the typos'));
+  });
 
-    // One open comment → Approve & ship disabled with the resolve hint.
-    const approve = await screen.findByRole('button', { name: /Approve & ship/ });
-    expect((approve as HTMLButtonElement).disabled).toBe(true);
-    expect(approve.getAttribute('title')).toBe('resolve the open review comments first');
+  it('defaults to the Code tab; Pull request tab shows a placeholder with no proposal', async () => {
+    mockBridge();
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+    // Code is the default — the diff renders.
+    expect((await screen.findAllByText('src/Foo.ts')).length).toBeGreaterThan(0);
+    // No ship proposal → the Pull request tab explains there's no PR yet.
+    fireEvent.click(screen.getByRole('tab', { name: 'Pull request' }));
+    expect(await screen.findByText(/No pull request yet/)).toBeTruthy();
   });
 
   it('review mode: Approve becomes enabled once the comment is resolved', async () => {
@@ -173,8 +185,9 @@ describe('TaskCodePage', () => {
     const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
 
     // Wait for review mode + the diff to render, then click a commentable
-    // new-side row (the added line in CUMULATIVE anchors RIGHT:1).
-    await screen.findByText('Pull request description');
+    // new-side row (the added line in CUMULATIVE anchors RIGHT:1). The diff
+    // is the default Code tab; review mode is signalled by the Approve button.
+    await screen.findByRole('button', { name: /Approve & ship/ });
     const row = await waitFor(() => {
       const el = container.querySelector('.diff-row--add.diff-row--commentable');
       if (!el) throw new Error('no commentable row yet');

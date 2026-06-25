@@ -1283,6 +1283,41 @@
   flex: 0 0 auto;
 }
 
+/* ── Code | Pull request tabs (inside the right diff pane) ───── */
+.diff-viewer__pane-tabs {
+  display: flex;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex: 0 0 auto;
+}
+.diff-viewer__pane-tab {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 8px 2px 9px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.diff-viewer__pane-tab:hover { color: var(--text-1); }
+.diff-viewer__pane-tab--active {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+}
+
+/* The Pull request tab body — the drafted PR description, room to read. */
+.diff-viewer__pr-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+}
+
 /* ── Middle column tabs: Changed files | Commits ─────────────── */
 .diff-viewer__col-tabs {
   display: inline-flex;
@@ -1328,19 +1363,6 @@
   height: 100%;
   background: var(--bg-elevated);
   border-right: 1px solid var(--border);
-}
-.diff-viewer__chat-head {
-  flex: 0 0 auto;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-3);
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .diff-viewer__chat-empty {
   flex: 1;

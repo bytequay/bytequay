@@ -24,6 +24,8 @@ type Props = {
   autoFocus?: boolean;
   /** Class for the textarea itself. The wrapping div uses `.md-composer`. */
   textareaClassName?: string;
+  /** Which tab to open on first render (default 'write'). */
+  initialTab?: 'write' | 'preview';
 };
 
 /**
@@ -45,8 +47,9 @@ function MarkdownComposer({
   disabled,
   autoFocus,
   textareaClassName,
+  initialTab = 'write',
 }: Props) {
-  const [tab, setTab] = useState<'write' | 'preview'>('write');
+  const [tab, setTab] = useState<'write' | 'preview'>(initialTab);
   const previewHtml = tab === 'preview'
     ? (marked(value.trim() || '_Nothing to preview._', { gfm: true, breaks: true }) as string)
     : '';

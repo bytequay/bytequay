@@ -11,30 +11,52 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStageDetailData } from './brain/useStageDetailData';
 import { stageRow } from '../pages/stageConversationRow';
 import { Conv, Working } from '../ui/conv';
 import { Composer } from '../ui/shell';
 
 /**
- * The code-diff page's left column: a conversation about the change.
- *
- * <p>When the diff was opened from a stage ({@code stageId} present) it
- * shows that stage's transcript and lets the user steer the stage's agent
- * inline — so opening the dev-stage diff puts the dev conversation right
- * beside the files + diff. Otherwise (e.g. a PR I opened) it renders a
- * chat scaffold; wiring an agent to a standalone PR is a later step, so
- * the composer is parked with an explanatory placeholder.
+ * The code-diff page's left column: a conversation about the change. Shows
+ * the task's dev-stage transcript (and lets the user steer it inline), so
+ * the conversation sits beside the files + diff. The stage is the one the
+ * diff was opened from ({@code stageId}); when that's absent (opened from
+ * the brain or a ship prompt) it resolves the task's Development stage.
+ * Falls back to a chat scaffold only when no stage can be found.
  */
-export function DiffChatColumn({ stageId }: { stageId?: string }) {
+export function DiffChatColumn({ stageId, taskId }: { stageId?: string; taskId?: string }) {
+  const resolved = useDiffChatStageId(stageId, taskId);
   return (
     // `.shell` scopes the V3 conversation + composer styles; block display
     // overrides the shell's own 2-column grid so it lays out as a column.
     <div className="shell diff-viewer__chat">
-      {stageId !== undefined ? <StageChat stageId={stageId} /> : <PrChatPlaceholder />}
+      {resolved !== null ? <StageChat stageId={resolved} /> : <PrChatPlaceholder />}
     </div>
   );
+}
+
+/** The stage whose transcript to show: the explicit {@code stageId}, else
+ *  the task's Development stage (where the code work happens), else its
+ *  latest stage. Null when none resolves. */
+function useDiffChatStageId(stageId?: string, taskId?: string): string | null {
+  const [resolved, setResolved] = useState<string | null>(stageId ?? null);
+  useEffect(() => {
+    if (stageId !== undefined) { setResolved(stageId); return; }
+    if (taskId === undefined) { setResolved(null); return; }
+    let cancelled = false;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.getBrainView?.(taskId)
+      .then(view => {
+        if (cancelled) return;
+        const stages = view.stages ?? [];
+        const dev = stages.find(s => s.type === 'DEVELOPMENT_STAGE');
+        setResolved((dev ?? stages[stages.length - 1])?.id ?? null);
+      })
+      .catch(() => { /* keep the placeholder on failure */ });
+    return () => { cancelled = true; };
+  }, [stageId, taskId]);
+  return resolved;
 }
 
 function StageChat({ stageId }: { stageId: string }) {
@@ -57,7 +79,6 @@ function StageChat({ stageId }: { stageId: string }) {
 
   return (
     <>
-      <div className="diff-viewer__chat-head">{data?.task.title ?? 'Conversation'}</div>
       <Conv>
         {data?.conversation.map(stageRow)}
         {(busy || data?.stage.state === 'ACTIVE') && <Working label="Agent is working…" />}
@@ -77,7 +98,6 @@ function StageChat({ stageId }: { stageId: string }) {
 function PrChatPlaceholder() {
   return (
     <>
-      <div className="diff-viewer__chat-head">Conversation</div>
       <div className="diff-viewer__chat-empty">
         Talk to an agent about this pull request. Agent support here is coming soon.
       </div>

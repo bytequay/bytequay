@@ -78,6 +78,12 @@ public class PlanToolHandlers
                     + "rationale} where action is the step text, not a bare string; "
                     + "validationStrategy, pushStrategy), and signals (riskLevel, riskNotes, "
                     + "componentsCount, estimatedComplexity, expectedGain). "
+                    + "Write understanding.summary in the FIRST PERSON and concise — frame it "
+                    + "as the goal and your approach: \"For the goal of X, I need to …, I'm "
+                    + "planning to …\". Do NOT narrate the user (\"the user wants …\"). Cover, "
+                    + "briefly, the risk, your confidence, and the expected result. Put any "
+                    + "code as a fenced ```lang block (include the file path + line when you "
+                    + "know it); write class/type names as inline `code`. "
                     + "Set status='finalized' when ready for the user to approve.",
                     required = true)
             JsonNode plan) {}

@@ -160,8 +160,8 @@ describe('ThreadList', () => {
     expect(onOpen).toHaveBeenCalledWith('t2');
   });
 
-  it('nests the open thread\'s stages and jumps on click', () => {
-    const onOpenStage = vi.fn();
+  it('nests the open thread\'s tasks and jumps on click', () => {
+    const onOpenTask = vi.fn();
     const { container } = render(
       <ThreadList
         threads={[
@@ -169,31 +169,31 @@ describe('ThreadList', () => {
           { id: 't2', initials: 'tr', color: 'pink', name: 'Fix Delta Lake timestamp', status: 'planning' },
         ]}
         selectedId="t1"
-        stages={[
-          { id: 's1', label: 'Plan', dot: 'done' },
-          { id: 's2', label: 'Dev', dot: 'active' },
-          { id: 's3', label: 'CI Fix' },
+        tasks={[
+          { id: 'k1', label: 'Remove dead types', dot: 'done' },
+          { id: 'k2', label: 'feat/cost-meter', dot: 'active' },
+          { id: 'k3', label: 'Task 3' },
         ]}
-        selectedStageId="s2"
-        onOpenStage={onOpenStage}
+        selectedTaskId="k2"
+        onOpenTask={onOpenTask}
       />,
     );
-    // Stages render under the selected thread only.
-    expect(container.querySelectorAll('.stage-subitem').length).toBe(3);
-    expect(container.querySelector('.stage-subitem.active')?.textContent).toContain('Dev');
-    fireEvent.click(screen.getByText('CI Fix'));
-    expect(onOpenStage).toHaveBeenCalledWith('s3');
+    // Tasks render under the selected thread only.
+    expect(container.querySelectorAll('.task-subitem').length).toBe(3);
+    expect(container.querySelector('.task-subitem.active')?.textContent).toContain('feat/cost-meter');
+    fireEvent.click(screen.getByText('Task 3'));
+    expect(onOpenTask).toHaveBeenCalledWith('k3');
   });
 
-  it('hides stages when the matching thread is not selected', () => {
+  it('hides tasks when the matching thread is not selected', () => {
     const { container } = render(
       <ThreadList
         threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
         selectedId="t2"
-        stages={[{ id: 's1', label: 'Plan' }]}
+        tasks={[{ id: 'k1', label: 'Task 1' }]}
       />,
     );
-    expect(container.querySelector('.stage-subitem')).toBeNull();
+    expect(container.querySelector('.task-subitem')).toBeNull();
   });
 });
 

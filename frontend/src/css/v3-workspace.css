@@ -197,8 +197,8 @@
   flex: 1;
 }
 
-/* ── Stage rows nested under the open thread ─────────────────── */
-.shell .stage-sublist {
+/* ── Task rows nested under the open thread ─────────────────── */
+.shell .task-sublist {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -209,7 +209,7 @@
   padding-left: 9px;
   border-left: 1px solid var(--border);
 }
-.shell .stage-subitem {
+.shell .task-subitem {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -224,16 +224,16 @@
   text-align: left;
   width: 100%;
 }
-.shell .stage-subitem:hover {
+.shell .task-subitem:hover {
   background: var(--bg-hover);
   color: var(--text-2);
 }
-.shell .stage-subitem.active {
+.shell .task-subitem.active {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-1);
   font-weight: 500;
 }
-.shell .stage-subitem .nm {
+.shell .task-subitem .nm {
   flex: 1;
   min-width: 0;
   overflow: hidden;

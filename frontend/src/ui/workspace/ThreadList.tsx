@@ -25,12 +25,12 @@ export type ThreadRow = {
   status: StatusDotVariant;
 };
 
-/** A stage of the open thread's active task, nested under its row so the
- *  user can jump straight to a stage (Plan / Dev / CI Fix / Comments). */
-export type StageNavRow = {
+/** A task of the open thread, nested under its row so the user can jump
+ *  straight to a task (its branch / name + run status). */
+export type TaskNavRow = {
   id: string;
   label: string;
-  /** Status marker — active stage pulses, closed shows done, etc. */
+  /** Status marker — running pulses, completed shows done, etc. */
   dot?: StatusDotVariant;
 };
 
@@ -53,23 +53,23 @@ export function ThreadListItem({ thread, active = false, onOpen }: {
   );
 }
 
-/** The nested stage rows shown under the open thread. */
-function StageSubList({ stages, selectedStageId, onOpenStage }: {
-  stages: StageNavRow[];
-  selectedStageId?: string;
-  onOpenStage?: (id: string) => void;
+/** The nested task rows shown under the open thread. */
+function TaskSubList({ tasks, selectedTaskId, onOpenTask }: {
+  tasks: TaskNavRow[];
+  selectedTaskId?: string;
+  onOpenTask?: (id: string) => void;
 }) {
   return (
-    <div className="stage-sublist">
-      {stages.map(s => (
+    <div className="task-sublist">
+      {tasks.map(t => (
         <button
-          key={s.id}
+          key={t.id}
           type="button"
-          className={s.id === selectedStageId ? 'stage-subitem active' : 'stage-subitem'}
-          onClick={() => onOpenStage?.(s.id)}
+          className={t.id === selectedTaskId ? 'task-subitem active' : 'task-subitem'}
+          onClick={() => onOpenTask?.(t.id)}
         >
-          <span className="nm">{s.label}</span>
-          {s.dot !== undefined && <StatusDot variant={s.dot} />}
+          <span className="nm">{t.label}</span>
+          {t.dot !== undefined && <StatusDot variant={t.dot} />}
         </button>
       ))}
     </div>
@@ -79,20 +79,20 @@ function StageSubList({ stages, selectedStageId, onOpenStage }: {
 /**
  * The workspace's threads in the sidebar — each prefixed by its repo
  * logo so you see which repo it targets at a glance. The selected thread
- * (when one is open) highlights and expands to show its active task's
- * stages, so the user can jump straight to a stage.
+ * (when one is open) highlights and expands to show its tasks, so the
+ * user can jump straight to a task.
  */
 export function ThreadList({
-  threads, selectedId, stages = [], selectedStageId, onOpen, onOpenStage, onNewThread,
+  threads, selectedId, tasks = [], selectedTaskId, onOpen, onOpenTask, onNewThread,
 }: {
   threads: ThreadRow[];
   selectedId?: string;
-  /** Stages of the open thread's active task — rendered nested under the
-   *  selected row. Empty when no thread is open or it has no stages yet. */
-  stages?: StageNavRow[];
-  selectedStageId?: string;
+  /** Tasks of the open thread — rendered nested under the selected row.
+   *  Empty when no thread is open or it has no tasks yet. */
+  tasks?: TaskNavRow[];
+  selectedTaskId?: string;
   onOpen?: (id: string) => void;
-  onOpenStage?: (id: string) => void;
+  onOpenTask?: (id: string) => void;
   onNewThread?: () => void;
 }) {
   return (
@@ -108,8 +108,8 @@ export function ThreadList({
         {threads.map(t => (
           <Fragment key={t.id}>
             <ThreadListItem thread={t} active={t.id === selectedId} onOpen={onOpen} />
-            {t.id === selectedId && stages.length > 0 && (
-              <StageSubList stages={stages} selectedStageId={selectedStageId} onOpenStage={onOpenStage} />
+            {t.id === selectedId && tasks.length > 0 && (
+              <TaskSubList tasks={tasks} selectedTaskId={selectedTaskId} onOpenTask={onOpenTask} />
             )}
           </Fragment>
         ))}

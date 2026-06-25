@@ -14,7 +14,7 @@
 import {
   ThreadList, WorkspaceList, WorkspaceNavSidebar, WorkspaceSwitcher,
 } from '../ui/workspace';
-import type { StageNavRow, WsNavKey } from '../ui/workspace';
+import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import { logoColorFor, monogram, useWorkspaceNav } from './useWorkspaceNav';
 
 /**
@@ -25,16 +25,16 @@ import { logoColorFor, monogram, useWorkspaceNav } from './useWorkspaceNav';
  * replaces the global top bar as the app's single left nav.
  */
 export function WorkspaceNavShell({
-  activeWorkspaceId, selectedThreadId, stages, selectedStageId, activeNav, footer, notificationCount,
+  activeWorkspaceId, selectedThreadId, tasks, selectedTaskId, activeNav, footer, notificationCount,
   collapsed = false, onToggleCollapse,
-  onNavigate, onEnterWorkspace, onOpenThread, onOpenStage, onSwitchWorkspace,
+  onNavigate, onEnterWorkspace, onOpenThread, onOpenTask, onSwitchWorkspace,
   onNewWorkspace, onNewThread,
 }: {
   activeWorkspaceId: string | null;
   selectedThreadId?: string;
-  /** Stages of the open thread's active task, nested under its row. */
-  stages?: StageNavRow[];
-  selectedStageId?: string;
+  /** Tasks of the open thread, nested under its row. */
+  tasks?: TaskNavRow[];
+  selectedTaskId?: string;
   activeNav?: WsNavKey;
   footer: { initials: string; name: string; onChat?: () => void; onSettings?: () => void };
   notificationCount?: number;
@@ -44,7 +44,7 @@ export function WorkspaceNavShell({
   onNavigate?: (key: WsNavKey) => void;
   onEnterWorkspace?: (id: string) => void;
   onOpenThread?: (id: string) => void;
-  onOpenStage?: (id: string) => void;
+  onOpenTask?: (id: string) => void;
   /** The switcher ▾ — lateral switch / back to the overview. */
   onSwitchWorkspace?: () => void;
   onNewWorkspace?: () => void;
@@ -74,10 +74,10 @@ export function WorkspaceNavShell({
         <ThreadList
           threads={data.threads}
           selectedId={selectedThreadId}
-          stages={stages}
-          selectedStageId={selectedStageId}
+          tasks={tasks}
+          selectedTaskId={selectedTaskId}
           onOpen={onOpenThread}
-          onOpenStage={onOpenStage}
+          onOpenTask={onOpenTask}
           onNewThread={onNewThread}
         />
       </>

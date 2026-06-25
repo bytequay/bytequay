@@ -18,10 +18,9 @@ import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import type { BrainFeedRow, StageDto, StageType } from '../types/brainView';
 import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
-import { DetailsTabContent, PlanTabContent } from '../ui/pane';
-import type { PlanSignal } from '../ui/pane';
+import { DetailsTabContent } from '../ui/pane';
 import type { StageChip } from '../ui/shell';
-import type { PlanCardDto } from '../types/brainView';
+import { planTab } from './planTab';
 import { TaskBrainPage } from './TaskBrainPage';
 
 const SHORT_LABEL: Record<StageType, string> = {
@@ -49,30 +48,6 @@ function stageDot(state: StageDto['state']): StageChip['dot'] | undefined {
   if (state === 'ACTIVE') return 'active';
   if (state === 'CLOSED') return 'done';
   return undefined;
-}
-
-/** Render the right-pane Plan tab from the brain's plan card. `onApprove`
- *  is supplied only when the plan is finalized and awaiting the user. */
-function planTab(plan: PlanCardDto, onApprove?: () => void) {
-  const signals: PlanSignal[] = [
-    { kind: 'risk-low', label: `${plan.signals.riskLevel} risk` },
-    { kind: 'cmplx', label: plan.signals.estimatedComplexity },
-    { kind: 'push', label: plan.pushStrategy === 'await_approval' ? 'awaits approval' : 'autonomous' },
-  ];
-  return (
-    <PlanTabContent
-      source={{
-        revised: plan.source.includes('revision'),
-        label: plan.source,
-        revPill: plan.revisionCount > 0 ? `rev ${plan.revisionCount}` : undefined,
-      }}
-      summary={plan.understandingSummary}
-      steps={plan.steps.map(s => ({ text: s.action }))}
-      signals={signals}
-      approved={plan.state === 'locked'}
-      onApprove={onApprove}
-    />
-  );
 }
 
 /**

@@ -38,7 +38,9 @@ class TestRoleSkillService
 
         assertThat(service.trunkTemplate())
                 .contains("Role · Trunk")
-                .contains("read-only");
+                .contains("read-only")
+                // The trunk may cut tasks via create_task (its only write tool).
+                .contains("create_task");
     }
 
     @Test

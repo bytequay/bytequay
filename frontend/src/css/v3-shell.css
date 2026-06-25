@@ -61,17 +61,42 @@
 .shell .sb-traffic .nav-arrows {
   margin-left: auto;
   display: flex;
-  gap: 6px;
-  color: var(--text-4);
-  font-size: 12px;
+  gap: 22px;
+  color: var(--text-3);
 }
 .shell .sb-traffic .nav-arrows span {
-  width: 20px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 .shell .sb-traffic .nav-arrows span:hover {
+  color: var(--text-1);
+}
+.shell .sb-traffic .nav-arrows svg {
+  display: block;
+}
+/* The sidebar-collapse toggle sits in the left group, just after the
+   traffic-light dots — the panel icon (a rounded rect with a left
+   divider), matching the window-chrome row. Named `sb-toggle`, NOT
+   `toggle`: the global `.toggle` is a switch with a `::after` knob that
+   would otherwise paint over this icon. */
+.shell .sb-traffic .sb-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+}
+.shell .sb-traffic .sb-toggle:hover {
   color: var(--text-2);
+}
+.shell .sb-traffic .sb-toggle svg {
+  display: block;
 }
 
 .shell .sb-nav {

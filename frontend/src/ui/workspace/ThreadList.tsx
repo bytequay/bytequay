@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { Fragment } from 'react';
 import { Logo, StatusDot } from '../primitives';
 import type { LogoColor, StatusDotVariant } from '../primitives';
 
@@ -22,6 +23,15 @@ export type ThreadRow = {
   color: LogoColor;
   name: string;
   status: StatusDotVariant;
+};
+
+/** A stage of the open thread's active task, nested under its row so the
+ *  user can jump straight to a stage (Plan / Dev / CI Fix / Comments). */
+export type StageNavRow = {
+  id: string;
+  label: string;
+  /** Status marker — active stage pulses, closed shows done, etc. */
+  dot?: StatusDotVariant;
 };
 
 /** A single sidebar thread row. */
@@ -43,15 +53,46 @@ export function ThreadListItem({ thread, active = false, onOpen }: {
   );
 }
 
+/** The nested stage rows shown under the open thread. */
+function StageSubList({ stages, selectedStageId, onOpenStage }: {
+  stages: StageNavRow[];
+  selectedStageId?: string;
+  onOpenStage?: (id: string) => void;
+}) {
+  return (
+    <div className="stage-sublist">
+      {stages.map(s => (
+        <button
+          key={s.id}
+          type="button"
+          className={s.id === selectedStageId ? 'stage-subitem active' : 'stage-subitem'}
+          onClick={() => onOpenStage?.(s.id)}
+        >
+          <span className="nm">{s.label}</span>
+          {s.dot !== undefined && <StatusDot variant={s.dot} />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * The workspace's threads in the sidebar — each prefixed by its repo
  * logo so you see which repo it targets at a glance. The selected thread
- * (when one is open) highlights.
+ * (when one is open) highlights and expands to show its active task's
+ * stages, so the user can jump straight to a stage.
  */
-export function ThreadList({ threads, selectedId, onOpen, onNewThread }: {
+export function ThreadList({
+  threads, selectedId, stages = [], selectedStageId, onOpen, onOpenStage, onNewThread,
+}: {
   threads: ThreadRow[];
   selectedId?: string;
+  /** Stages of the open thread's active task — rendered nested under the
+   *  selected row. Empty when no thread is open or it has no stages yet. */
+  stages?: StageNavRow[];
+  selectedStageId?: string;
   onOpen?: (id: string) => void;
+  onOpenStage?: (id: string) => void;
   onNewThread?: () => void;
 }) {
   return (
@@ -65,7 +106,12 @@ export function ThreadList({ threads, selectedId, onOpen, onNewThread }: {
       </div>
       <div className="thread-list">
         {threads.map(t => (
-          <ThreadListItem key={t.id} thread={t} active={t.id === selectedId} onOpen={onOpen} />
+          <Fragment key={t.id}>
+            <ThreadListItem thread={t} active={t.id === selectedId} onOpen={onOpen} />
+            {t.id === selectedId && stages.length > 0 && (
+              <StageSubList stages={stages} selectedStageId={selectedStageId} onOpenStage={onOpenStage} />
+            )}
+          </Fragment>
         ))}
       </div>
     </div>

@@ -14,7 +14,7 @@
 import {
   ThreadList, WorkspaceList, WorkspaceNavSidebar, WorkspaceSwitcher,
 } from '../ui/workspace';
-import type { WsNavKey } from '../ui/workspace';
+import type { StageNavRow, WsNavKey } from '../ui/workspace';
 import { logoColorFor, monogram, useWorkspaceNav } from './useWorkspaceNav';
 
 /**
@@ -25,18 +25,26 @@ import { logoColorFor, monogram, useWorkspaceNav } from './useWorkspaceNav';
  * replaces the global top bar as the app's single left nav.
  */
 export function WorkspaceNavShell({
-  activeWorkspaceId, selectedThreadId, activeNav, footer, notificationCount,
-  onNavigate, onEnterWorkspace, onOpenThread, onSwitchWorkspace,
+  activeWorkspaceId, selectedThreadId, stages, selectedStageId, activeNav, footer, notificationCount,
+  collapsed = false, onToggleCollapse,
+  onNavigate, onEnterWorkspace, onOpenThread, onOpenStage, onSwitchWorkspace,
   onNewWorkspace, onNewThread,
 }: {
   activeWorkspaceId: string | null;
   selectedThreadId?: string;
+  /** Stages of the open thread's active task, nested under its row. */
+  stages?: StageNavRow[];
+  selectedStageId?: string;
   activeNav?: WsNavKey;
   footer: { initials: string; name: string; onChat?: () => void; onSettings?: () => void };
   notificationCount?: number;
+  /** Fold the rail to a narrow strip. */
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
   onNavigate?: (key: WsNavKey) => void;
   onEnterWorkspace?: (id: string) => void;
   onOpenThread?: (id: string) => void;
+  onOpenStage?: (id: string) => void;
   /** The switcher ▾ — lateral switch / back to the overview. */
   onSwitchWorkspace?: () => void;
   onNewWorkspace?: () => void;
@@ -66,7 +74,10 @@ export function WorkspaceNavShell({
         <ThreadList
           threads={data.threads}
           selectedId={selectedThreadId}
+          stages={stages}
+          selectedStageId={selectedStageId}
           onOpen={onOpenThread}
+          onOpenStage={onOpenStage}
           onNewThread={onNewThread}
         />
       </>
@@ -79,6 +90,8 @@ export function WorkspaceNavShell({
       backHint={activeWorkspaceId !== null}
       footer={footer}
       notificationCount={notificationCount}
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
     >
       {body}
     </WorkspaceNavSidebar>

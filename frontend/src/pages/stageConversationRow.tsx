@@ -15,6 +15,24 @@ import type { ReactNode } from 'react';
 import type { StageConversationRow } from '../types/brainView';
 import { EventRow, ToolBlock, UserMsg } from '../ui/conv';
 
+/** A blank-safe trim: empty/whitespace strings count as absent. */
+function nonBlank(s: string | null): string | null {
+  return s !== null && s.trim().length > 0 ? s.trim() : null;
+}
+
+/** The tool-block description: the tool name plus its command / target
+ *  (the Bash command, the edited file, the search pattern…) so the row
+ *  shows what actually ran, not just "Bash" — and never renders blank
+ *  (which read as an empty line). */
+function toolDesc(label: string | null, detail: string | null): ReactNode {
+  const name = nonBlank(label);
+  const arg = nonBlank(detail);
+  if (name === null && arg === null) return 'Tool call';
+  if (arg === null) return name;
+  if (name === null) return <span className="tool-arg">{arg}</span>;
+  return <>{name} <span className="tool-arg">{arg}</span></>;
+}
+
 /**
  * Renders one stage-transcript row into a V3 conversation element. Shared
  * by the stage detail page and the code-diff page's conversation column so
@@ -29,12 +47,13 @@ export function stageRow(r: StageConversationRow): ReactNode {
     case 'iteration_marker':
       return <EventRow key={r.id} kind="system" who={`Iteration ${r.iterationNumber ?? ''}`} />;
     case 'tool_call':
+      // No "Agent" who-row — tool calls render as bare blocks so a run of
+      // them doesn't repeat the redundant agent header on every line. Tag
+      // falls back to "Tool" so the block never collapses to a blank line.
       return (
-        <EventRow key={r.id} kind="agent" who="Agent">
-          <ToolBlock tag={r.toolTag ?? 'tool'} desc={r.toolLabel ?? r.toolDetail ?? ''}>
-            {r.toolResult ?? r.toolDiff ?? undefined}
-          </ToolBlock>
-        </EventRow>
+        <ToolBlock key={r.id} tag={nonBlank(r.toolTag) ?? 'Tool'} desc={toolDesc(r.toolLabel, r.toolDetail)}>
+          {r.toolResult ?? r.toolDiff ?? undefined}
+        </ToolBlock>
       );
     default:
       return null;

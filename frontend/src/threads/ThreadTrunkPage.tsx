@@ -856,9 +856,6 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 <span style={composerFooterHintStyle}>
                   ↵ send · ⌘↵ newline · / commands
                 </span>
-                <span style={composerNoBranchHintStyle}>
-                  no branch here — the trunk plans; tasks do the work
-                </span>
                 {trunkInFlight ? (
                   <button
                     type="button"
@@ -2117,14 +2114,6 @@ const composerGlyphStyle: React.CSSProperties = {
   cursor: 'default',
 };
 
-const composerNoBranchHintStyle: React.CSSProperties = {
-  flex: 1,
-  fontSize: 10,
-  color: 'var(--text-4)',
-  fontStyle: 'italic',
-  textAlign: 'right',
-  marginRight: 6,
-};
 
 const taskCardMetaStyle: React.CSSProperties = {
   display: 'flex',
@@ -2544,6 +2533,9 @@ const composerScopeStyle: React.CSSProperties = {
 };
 
 const composerFooterHintStyle: React.CSSProperties = {
+  // Absorbs the row's slack so the Stop/Send button stays right-aligned now
+  // that the "no branch here" spacer is gone.
+  flex: 1,
   fontStyle: 'italic',
 };
 

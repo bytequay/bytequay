@@ -21,21 +21,17 @@
   height: 100%;
 }
 
-/* Folded (Copilot-style): the rail leaves the layout entirely so the main
-   content goes full-width, and the chrome row floats over the content's
-   top-left — the traffic-light dots + the panel toggle to re-expand.
-   Back/forward drop out; the nav body + footer aren't rendered. */
+/* Folded: the nav body + footer aren't rendered and the rail shrinks to a
+   narrow strip holding just the chrome row (dots + panel toggle to
+   re-expand; back/forward drop out). The strip is transparent so the
+   buttons read as sitting on the window background, but it KEEPS its
+   right-hand divider so the content edge stays a clean line, not a cut. */
 .shell.shell-rail.sidebar-collapsed {
-  position: fixed;
-  top: 0;
-  left: 0;
   width: auto;
-  z-index: 50;
+  flex-shrink: 0;
 }
 .shell.shell-rail.sidebar-collapsed > .sidebar {
-  height: auto;
   background: transparent;
-  border-right: none;
 }
 .shell.shell-rail.sidebar-collapsed .sb-traffic .nav-arrows {
   display: none;

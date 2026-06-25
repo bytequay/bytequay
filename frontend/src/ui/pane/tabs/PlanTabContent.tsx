@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 /** Where the plan came from — the initial pass or a revision. */
@@ -39,6 +40,9 @@ export function PlanTabContent({
   onApprove?: () => void;
   onRequestChanges?: () => void;
 }) {
+  // Latch on first approve so a slow approve→lock round-trip can't be
+  // double-clicked into a second approval.
+  const [approving, setApproving] = useState(false);
   return (
     <>
       {source !== undefined && (
@@ -96,7 +100,14 @@ export function PlanTabContent({
         : (onApprove !== undefined || onRequestChanges !== undefined) && (
           <div className="plan-actions">
             {onApprove !== undefined && (
-              <button type="button" className="plan-btn primary" onClick={onApprove}>Approve plan</button>
+              <button
+                type="button"
+                className="plan-btn primary"
+                disabled={approving}
+                onClick={() => { setApproving(true); onApprove(); }}
+              >
+                {approving ? 'Approving…' : 'Approve plan'}
+              </button>
             )}
             {onRequestChanges !== undefined && (
               <button type="button" className="plan-btn ghost" onClick={onRequestChanges}>Request changes</button>

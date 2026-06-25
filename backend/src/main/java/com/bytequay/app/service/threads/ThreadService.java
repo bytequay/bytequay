@@ -960,20 +960,43 @@ public class ThreadService
         List<String> candidates = new ArrayList<>();
         String configured = task == null ? null : task.baseBranch();
         if (configured != null && !configured.isBlank()) {
-            candidates.add(configured.trim());
-            candidates.add("origin/" + configured.trim());
+            String c = configured.trim();
+            candidates.add(c);
+            candidates.add("origin/" + c);
+            candidates.add("upstream/" + c);
         }
         git.defaultBranch(cwd).ifPresent(b -> {
             candidates.add(b);
             candidates.add("origin/" + b);
+            candidates.add("upstream/" + b);
         });
-        candidates.addAll(List.of("main", "origin/main", "master", "origin/master"));
+        candidates.addAll(List.of(
+                "main", "origin/main", "upstream/main",
+                "master", "origin/master", "upstream/master"));
+        // Pick the resolvable base whose merge-base is CLOSEST to HEAD (fewest
+        // commits in base..HEAD). A branch fast-forwarded ahead of its
+        // configured base (e.g. caught up to upstream/master to get a
+        // buildable tree) would otherwise diff against a point hundreds of
+        // commits back and sweep in unrelated upstream history — blowing the
+        // diff past any sane size. The tightest base is the task's real work.
+        String best = null;
+        int bestCount = Integer.MAX_VALUE;
+        String firstResolvable = null;
         for (String ref : candidates) {
-            if (git.refExists(cwd, ref)) {
-                return git.mergeBase(cwd, "HEAD", ref).orElse(ref);
+            if (!git.refExists(cwd, ref)) {
+                continue;
+            }
+            String mergeBase = git.mergeBase(cwd, "HEAD", ref).orElse(ref);
+            if (firstResolvable == null) {
+                firstResolvable = mergeBase;
+            }
+            Integer count = git.commitCountUniqueTo(cwd, "HEAD", mergeBase);
+            if (count != null && count < bestCount) {
+                bestCount = count;
+                best = mergeBase;
             }
         }
-        return null;
+        return best != null ? best : firstResolvable;
     }
 
     /** Per-file rollup for one commit (path + status + +/-) so the

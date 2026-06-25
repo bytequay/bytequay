@@ -3,37 +3,46 @@
 </p>
 
 <p align="center">
-  A native macOS desktop app for daily developer work — a PR dashboard,
-  AI review, CI diagnostics, and merge controls in one window, plus AI
-  agents that pick up tasks and develop them end-to-end in isolated git
-  worktrees. The embedded GitHub UI is a click away for everything else.
+  A native macOS desktop app built to make code <strong>review</strong>
+  the center of your day. A fast PR dashboard, AI-assisted review, CI
+  diagnostics, and merge controls in one window — plus AI agents that do
+  the writing and committing in isolated git worktrees, so your job
+  shifts from author to reviewer. The embedded GitHub UI is a click away
+  for everything else.
 </p>
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml/badge.svg)](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml)
 
-ByteQuay started as a single-window client for reviewing GitHub pull
-requests faster than the web UI lets you, and has grown into a workspace
-for the whole loop around a change. The morning view shows the PRs
-awaiting your review and the PRs you've opened, grouped by repo, with
-inline previews. The diff viewer hosts a native diff and an AI review
-sidebar that drafts per-line comments before you publish a single
-character. The PR detail page handles merge, draft toggle, CI refresh,
+ByteQuay is, first and foremost, a tool for **reviewing** code — built
+to review GitHub pull requests faster and with more context than the web
+UI lets you, and grown into a workspace for the whole loop around a
+change. The morning view shows the PRs awaiting your review and the PRs
+you've opened, grouped by repo, with inline previews. The diff viewer
+hosts a native diff and an AI review sidebar that drafts per-line
+comments before you publish a single character. The PR detail page handles merge, draft toggle, CI refresh,
 and inline log diagnostics — including a one-click "Ask AI to fix"
 button that sends the failing log to your configured LLM and renders the
 suggested fix inline.
 
-Beyond review, ByteQuay runs **AI dev agents**. You cut a task from a
-planning thread; an agent picks it up in its own git worktree and drives
-it through a tracked lifecycle — implement, validate, internal review,
-push, CI, mark-ready, remote review, merge — surfacing the phase live in
-the UI. The agent never touches the remote on its own: pushes, PRs, and
-review requests go through approval-gated tools, so nothing reaches
-GitHub without an explicit click.
+To keep review at the center, ByteQuay runs **AI dev agents** that do
+the writing for you. You cut a task from a planning thread; an agent
+picks it up in its own git worktree and drives it through a tracked
+lifecycle — implement, validate, internal review, push, CI, mark-ready,
+remote review, merge — surfacing the phase live in the UI. The agent
+never touches the remote on its own: pushes, PRs, and review requests go
+through approval-gated tools, so nothing reaches GitHub without your
+explicit click.
 
-The long-term goal is to fully replace github.com for daily work:
-review, approve, merge, create PRs, and delegate development to agents
-without ever opening a browser tab.
+That's the guiding philosophy: **you shouldn't be the one writing and
+committing code — you should be the one reviewing it.** Let the agents
+author and commit; you spend your attention where it matters most —
+reading, questioning, and approving the change. Everyone becomes the
+code reviewer.
+
+The long-term goal is to fully replace github.com for that daily loop:
+review, approve, merge, and create PRs — delegating the writing to
+agents — without ever opening a browser tab.
 
 ---
 
@@ -104,16 +113,6 @@ detects a missing git on launch and points you to this section.
 
 ## What's in the box
 
-- **AI dev agents** — cut a task from a planning thread and an agent
-  develops it in an isolated git worktree, driven through a tracked
-  lifecycle (implement → validate → internal review → push → CI →
-  ready → remote review → merge). The phase is shown live; a server-side
-  reconciler watches the linked PR and advances it as CI finishes and the
-  PR merges. Publishing runs through approval-gated tools — direct `git
-  push` / `gh` are blocked so nothing reaches GitHub without your click.
-- **Task queue & threads** — a planning "trunk" thread fans out into
-  serial work-unit tasks; queue them up, reorder, and let the scheduler
-  run them within a small resource cap.
 - **PR dashboard** — two-section "Awaiting my review / My PRs" list,
   grouped by repo, with a live preview pane on the right. Optional
   Kanban and Teams views for filtered triage.
@@ -138,6 +137,17 @@ detects a missing git on launch and points you to this section.
 - **Reactions, threads, suggestions** — full per-line review threads
   with reactions, reply composer, resolve / unresolve. Inline
   suggestion-block accept that turns the suggestion into a commit.
+- **AI dev agents** — the writing side of the loop, so your side stays
+  review. Cut a task from a planning thread and an agent develops it in
+  an isolated git worktree, driven through a tracked lifecycle (implement
+  → validate → internal review → push → CI → ready → remote review →
+  merge). The phase is shown live; a server-side reconciler watches the
+  linked PR and advances it as CI finishes and the PR merges. Publishing
+  runs through approval-gated tools — direct `git push` / `gh` are
+  blocked so nothing reaches GitHub without your click.
+- **Task queue & threads** — a planning "trunk" thread fans out into
+  serial work-unit tasks; queue them up, reorder, and let the scheduler
+  run them within a small resource cap.
 - **Local-first storage** — everything (drafts, view state, watched
   repos, teams, credentials) lives in a per-user SQLite + macOS Keychain.
   Nothing leaves your machine until you click an action.

@@ -117,7 +117,14 @@ export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavD
     catch { /* leave the last loaded state */ }
   }, [activeWorkspaceId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // Poll so a newly created thread (or workspace) appears in the rail
+  // without waiting for a workspace switch — the rail has no other
+  // refresh trigger after the initial load.
+  useEffect(() => {
+    void load();
+    const id = window.setInterval(() => { void load(); }, 5000);
+    return () => window.clearInterval(id);
+  }, [load]);
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) ?? null;
   const repos: RepoChip[] = (activeWorkspace?.repos ?? []).map(r => ({

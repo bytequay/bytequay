@@ -12,11 +12,14 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import { ConfirmDialog } from '../../workspace/ConfirmDialog';
 
 /**
- * The top-bar lifecycle dropdown (the relocated M8 Pause / Resume / Close
- * controls). The trigger shows the run state; the menu offers the actions
- * valid for that state. Terminal tasks render a static label with no menu.
+ * The top-bar lifecycle controls (the relocated M8 Pause / Resume / Close).
+ * The trigger shows the run state; a dropdown offers Run / Pause / Resume.
+ * Close is surfaced as a direct danger button (not buried in the menu) and
+ * confirms first — closing kills the agent subprocess and reaps the
+ * worktree, which can't be undone. Terminal tasks render a static label.
  */
 export function RunMenu({ statusLabel = 'Running', paused = false, terminal = false, onRun, onPause, onResume, onClose }: {
   statusLabel?: string;
@@ -28,37 +31,60 @@ export function RunMenu({ statusLabel = 'Running', paused = false, terminal = fa
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   if (terminal) {
     return <button type="button" className="btn" disabled>{statusLabel}</button>;
   }
 
   const pick = (fn?: () => void) => () => { setOpen(false); fn?.(); };
+  const hasMenu = onRun !== undefined || onPause !== undefined || onResume !== undefined;
 
   return (
-    <span className="run-menu">
-      <button type="button" className="btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
-        <span className="ic" aria-hidden>{paused ? '⏸' : '▶'}</span>
-        {paused ? 'Paused' : statusLabel}
-        <span className="chev" aria-hidden>▾</span>
-      </button>
-      {open && (
-        <div className="run-menu__pop" role="menu">
-          {onRun !== undefined && (
-            <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onRun)}>Run</button>
-          )}
-          {paused
-            ? onResume !== undefined && (
-              <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onResume)}>Resume</button>
-            )
-            : onPause !== undefined && (
-              <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onPause)}>Pause</button>
+    <>
+      <span className="run-menu">
+        <button
+          type="button"
+          className="btn"
+          aria-haspopup={hasMenu ? 'menu' : undefined}
+          aria-expanded={hasMenu ? open : undefined}
+          onClick={hasMenu ? () => setOpen(o => !o) : undefined}
+        >
+          <span className="ic" aria-hidden>{paused ? '⏸' : '▶'}</span>
+          {paused ? 'Paused' : statusLabel}
+          {hasMenu && <span className="chev" aria-hidden>▾</span>}
+        </button>
+        {open && hasMenu && (
+          <div className="run-menu__pop" role="menu">
+            {onRun !== undefined && (
+              <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onRun)}>Run</button>
             )}
-          {onClose !== undefined && (
-            <button type="button" className="run-menu__item danger" role="menuitem" onClick={pick(onClose)}>Close task</button>
-          )}
-        </div>
+            {paused
+              ? onResume !== undefined && (
+                <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onResume)}>Resume</button>
+              )
+              : onPause !== undefined && (
+                <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onPause)}>Pause</button>
+              )}
+          </div>
+        )}
+      </span>
+      {onClose !== undefined && (
+        <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
+          <span className="ic" aria-hidden>✕</span>
+          Close task
+        </button>
       )}
-    </span>
+      {confirming && (
+        <ConfirmDialog
+          title="Close this task?"
+          body={'This stops the agent and discards the task’s working copy. Any uncommitted changes in its worktree are lost.\n\nThis can’t be undone.'}
+          confirmLabel="Close task"
+          destructive
+          onConfirm={() => { setConfirming(false); onClose(); }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </>
   );
 }

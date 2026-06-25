@@ -463,6 +463,17 @@
 .shell .topbar .btn.submit:hover {
   background: linear-gradient(135deg, #16a34a, #15803d);
 }
+.shell .topbar .btn.danger {
+  color: var(--red);
+  border-color: var(--border-mid);
+}
+.shell .topbar .btn.danger .ic {
+  color: var(--red);
+}
+.shell .topbar .btn.danger:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: var(--red);
+}
 
 /* Stage-chip strip */
 .shell .stage-chips {

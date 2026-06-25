@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RunMenu } from './RunMenu';
 
@@ -38,6 +38,29 @@ describe('RunMenu', () => {
     expect(screen.queryByRole('menuitem', { name: 'Pause' })).toBeNull();
     fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
     expect(onResume).toHaveBeenCalledOnce();
+  });
+
+  it('closes via the direct danger button only after confirming', () => {
+    const onClose = vi.fn();
+    render(<RunMenu onPause={() => {}} onClose={onClose} />);
+    // Close is a direct button, not hidden in the run dropdown.
+    const closeBtn = screen.getByRole('button', { name: 'Close task' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(closeBtn);
+    // A confirm dialog appears; nothing is closed yet.
+    const dialog = screen.getByRole('dialog');
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close task' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('cancelling the confirm dialog does not close the task', () => {
+    const onClose = vi.fn();
+    render(<RunMenu onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('terminal tasks show a static label with no menu', () => {

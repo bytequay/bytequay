@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TaskBrainPage } from './TaskBrainPage';
 
@@ -64,12 +64,13 @@ describe('TaskBrainPage', () => {
     expect(screen.getByTestId('details-tab')).toBeTruthy();
   });
 
-  it('Run menu exposes Close; toggling the pane reveals inline chips', () => {
+  it('top bar exposes Close (confirmed); toggling the pane reveals inline chips', () => {
     const onClose = vi.fn();
     const onOpenChanges = vi.fn();
     renderBrain({ run: { onClose, onPause: () => {} }, onOpenChanges });
-    fireEvent.click(screen.getByRole('button', { name: /Running/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Close task' }));
+    // Close is a direct top-bar button now, with a confirm step.
+    fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close task' }));
     expect(onClose).toHaveBeenCalledOnce();
     // Close the pane → an inline Changes chip joins the top-bar button.
     fireEvent.click(screen.getByRole('button', { name: 'Toggle right pane' }));

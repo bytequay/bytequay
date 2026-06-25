@@ -184,6 +184,14 @@ public class StreamJsonParser
                     yield ImmutableList.of(new StreamEvent.AssistantTextDelta(
                             now, cbd.index(), td.text()));
                 }
+                // Thinking text streams as thinking_delta frames; stitch them so
+                // the persisted thought isn't empty (the final assistant
+                // message's thinking block is signature-only in partial mode).
+                if (cbd.delta() instanceof StreamLine.SseDelta.ThinkingDelta tk
+                        && tk.thinking() != null
+                        && !tk.thinking().isEmpty()) {
+                    yield ImmutableList.of(new StreamEvent.ThinkingTextDelta(now, tk.thinking()));
+                }
                 yield ImmutableList.of();
             }
             case StreamLine.SseEvent.MessageStart ms ->

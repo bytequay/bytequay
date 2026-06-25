@@ -144,6 +144,13 @@ public abstract class AbstractCliThreadAgent
     private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
 
+    /** Accumulates {@code thinking_delta} chunks for the in-flight thinking
+     *  block. In {@code --include-partial-messages} mode the final assistant
+     *  message's thinking block is signature-only, so the persisted thought
+     *  comes from these stitched deltas. Touched only on the single session
+     *  event thread. */
+    private final StringBuilder thinkingDeltaBuf = new StringBuilder();
+
     /** How many trailing stderr lines to keep so a non-zero exit can
      *  surface the CLI's actual error instead of a bare exit code. */
     private static final int STDERR_TAIL_LINES = 40;
@@ -803,7 +810,22 @@ public abstract class AbstractCliThreadAgent
                         taskStore.saveTask(task.withUsage(cost, in, out)));
             }
         }
-        persistMessage(event);
+        // Stitch streamed thinking text: accumulate the deltas, and when the
+        // (signature-only) thinking block lands with an empty summary, persist
+        // the accumulated reasoning instead of an empty thought.
+        StreamEvent toPersist = event;
+        if (event instanceof StreamEvent.ThinkingTextDelta delta) {
+            thinkingDeltaBuf.append(delta.textChunk());
+        }
+        else if (event instanceof StreamEvent.ThinkingStarted started
+                && started.summary().isEmpty() && thinkingDeltaBuf.length() > 0) {
+            toPersist = new StreamEvent.ThinkingStarted(started.timestamp(), thinkingDeltaBuf.toString());
+            thinkingDeltaBuf.setLength(0);
+        }
+        else if (event instanceof StreamEvent.ThinkingDone) {
+            thinkingDeltaBuf.setLength(0);
+        }
+        persistMessage(toPersist);
         publish(event);
         if (turnDone) {
             // Fire-and-forget — the trigger schedules background work and
@@ -904,6 +926,7 @@ public abstract class AbstractCliThreadAgent
                     id, threadId, activeTaskId, seq, "assistant", "thinking",
                     "{\"summary\":\"" + jsonEscape(e.summary()) + "\"}",
                     null, null, null, null, ts);
+            case StreamEvent.ThinkingTextDelta ignored -> null;
             case StreamEvent.ThinkingDone ignored -> null;
             case StreamEvent.ToolCallStarted e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "tool", "tool_call",

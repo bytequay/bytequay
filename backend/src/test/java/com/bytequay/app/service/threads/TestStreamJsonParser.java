@@ -172,6 +172,25 @@ class TestStreamJsonParser
     }
 
     @Test
+    void parsesThinkingDeltaIntoThinkingTextDelta()
+    {
+        // Extended thinking streams as thinking_delta frames; we surface them
+        // so the persisted thought isn't empty (the final thinking block is
+        // signature-only under --include-partial-messages).
+        String line = """
+                {"type":"stream_event","event":{
+                  "type":"content_block_delta","index":0,
+                  "delta":{"type":"thinking_delta","thinking":"Let me search "}}}
+                """;
+
+        List<StreamEvent> events = parser.parse(line, NOW);
+
+        assertThat(events).hasSize(1);
+        StreamEvent.ThinkingTextDelta delta = (StreamEvent.ThinkingTextDelta) events.get(0);
+        assertThat(delta.textChunk()).isEqualTo("Let me search ");
+    }
+
+    @Test
     void ignoresStreamEventEnvelopesOtherThanTextDelta()
     {
         // message_start / content_block_start / ping / content_block_stop

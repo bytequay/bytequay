@@ -196,13 +196,18 @@ public sealed interface StreamLine
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type",
             defaultImpl = SseDelta.Unknown.class)
     @JsonSubTypes({
-            @JsonSubTypes.Type(value = SseDelta.TextDelta.class, name = "text_delta")
+            @JsonSubTypes.Type(value = SseDelta.TextDelta.class, name = "text_delta"),
+            @JsonSubTypes.Type(value = SseDelta.ThinkingDelta.class, name = "thinking_delta")
     })
     @JsonIgnoreProperties(ignoreUnknown = true)
     sealed interface SseDelta
-            permits SseDelta.TextDelta, SseDelta.Unknown
+            permits SseDelta.TextDelta, SseDelta.ThinkingDelta, SseDelta.Unknown
     {
         record TextDelta(String text) implements SseDelta {}
+
+        /** A {@code thinking_delta} frame — the next chunk of extended-thinking
+         *  text for the in-flight thinking block. */
+        record ThinkingDelta(String thinking) implements SseDelta {}
 
         record Unknown() implements SseDelta {}
     }

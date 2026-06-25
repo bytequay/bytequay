@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { isValidElement } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -103,9 +104,32 @@ export function MarkdownProse({ text, variant = 'card' }: Props) {
           </code>
         );
       }
+      // A class / type name (PascalCase token) gets its own colour so it
+      // stands out from fields, methods, and other inline code.
+      if (isClassName(plainText(children))) {
+        return <code style={styles.classCode}>{children}</code>;
+      }
       return <code style={styles.inlineCode}>{children}</code>;
     },
-    pre: ({ children }) => <pre style={styles.codeBlock}>{children}</pre>,
+    pre: ({ children }) => {
+      // Multi-line code blocks render with a line-number gutter so the user
+      // can refer to a specific line; single-line blocks stay bare.
+      const code = preCodeText(children);
+      if (code !== null && code.includes('\n')) {
+        const lines = code.replace(/\n+$/, '').split('\n');
+        return (
+          <pre style={styles.codeBlock}>
+            {lines.map((line, i) => (
+              <div key={i} style={styles.codeLine}>
+                <span style={styles.codeLineNo} aria-hidden>{i + 1}</span>
+                <span style={styles.codeLineText}>{line === '' ? '​' : line}</span>
+              </div>
+            ))}
+          </pre>
+        );
+      }
+      return <pre style={styles.codeBlock}>{children}</pre>;
+    },
     blockquote: ({ children }) => <blockquote style={styles.blockquote}>{children}</blockquote>,
     table: ({ children }) => <table style={styles.table}>{children}</table>,
     th: ({ children }) => <th style={styles.tableHeader}>{children}</th>,
@@ -150,6 +174,26 @@ const SHA_RE = /^[0-9a-f]{7,40}$/i;
 /** True for a lone 7–40 char hex run — i.e. a git object id. */
 export function isCommitSha(text: string): boolean {
   return SHA_RE.test(text.trim());
+}
+
+// A PascalCase identifier (optionally generic, e.g. TupleDomain<ColumnHandle>)
+// reads as a class / type — distinct from camelCase fields/methods.
+const CLASS_RE = /^[A-Z][A-Za-z0-9_]*(?:<[^<>]*>)?$/;
+
+/** True for a lone PascalCase class/type token. */
+export function isClassName(text: string): boolean {
+  return CLASS_RE.test(text.trim());
+}
+
+/** The raw source text of a fenced block, dug out of react-markdown's
+ *  {@code <pre>} → {@code <code>} child, or null when it isn't a plain
+ *  string (so the caller falls back to default rendering). */
+function preCodeText(children: ReactNode): string | null {
+  if (!isValidElement(children)) return null;
+  const inner = (children.props as { children?: ReactNode }).children;
+  if (typeof inner === 'string') return inner;
+  if (Array.isArray(inner) && inner.every(c => typeof c === 'string')) return inner.join('');
+  return null;
 }
 
 // Process / tooling asides the agent appends ("Note on tooling: …").
@@ -205,8 +249,12 @@ type StyleBundle = {
   li: CSSProperties;
   link: CSSProperties;
   inlineCode: CSSProperties;
+  classCode: CSSProperties;
   codeInBlock: CSSProperties;
   codeBlock: CSSProperties;
+  codeLine: CSSProperties;
+  codeLineNo: CSSProperties;
+  codeLineText: CSSProperties;
   blockquote: CSSProperties;
   table: CSSProperties;
   tableHeader: CSSProperties;
@@ -238,6 +286,13 @@ const cardStyles: StyleBundle = {
     // Long identifiers/calls break instead of overflowing a narrow card.
     overflowWrap: 'break-word',
   },
+  classCode: {
+    fontFamily: monoFont, fontSize: '0.92em',
+    background: 'var(--bg-elevated)',
+    padding: '1px 5px', borderRadius: 3,
+    color: 'var(--teal, #0d9488)', fontWeight: 600,
+    overflowWrap: 'break-word',
+  },
   codeInBlock: {
     fontFamily: monoFont, fontSize: 12,
     color: 'var(--text-1)',
@@ -254,6 +309,12 @@ const cardStyles: StyleBundle = {
     overflowX: 'auto',
     whiteSpace: 'pre',
   },
+  codeLine: { display: 'flex' },
+  codeLineNo: {
+    flex: '0 0 auto', minWidth: 22, marginRight: 12,
+    textAlign: 'right', color: 'var(--text-4)', userSelect: 'none',
+  },
+  codeLineText: { whiteSpace: 'pre', flex: 1 },
   blockquote: {
     margin: '8px 0',
     padding: '4px 12px',
@@ -325,6 +386,12 @@ const terminalStyles: StyleBundle = {
     padding: '1px 5px', borderRadius: 3,
     color: 'var(--term-text-bright)',
   },
+  classCode: {
+    fontFamily: monoFont, fontSize: '0.92em',
+    background: 'var(--term-kbd-bg)',
+    padding: '1px 5px', borderRadius: 3,
+    color: 'var(--term-user)', fontWeight: 600,
+  },
   codeInBlock: {
     fontFamily: monoFont, fontSize: 12,
     color: 'var(--term-text)',
@@ -341,6 +408,12 @@ const terminalStyles: StyleBundle = {
     overflowX: 'auto',
     whiteSpace: 'pre',
   },
+  codeLine: { display: 'flex' },
+  codeLineNo: {
+    flex: '0 0 auto', minWidth: 22, marginRight: 12,
+    textAlign: 'right', color: 'var(--term-text-dim)', userSelect: 'none',
+  },
+  codeLineText: { whiteSpace: 'pre', flex: 1 },
   blockquote: {
     margin: '8px 0',
     padding: '4px 12px',

@@ -15,6 +15,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   MarkdownProse,
+  isClassName,
   isCommitSha,
   matchMetaNote,
   parsePrNumber,
@@ -22,6 +23,38 @@ import {
 
 afterEach(() => {
   cleanup();
+});
+
+describe('isClassName', () => {
+  it('matches PascalCase class/type tokens, not fields or methods', () => {
+    expect(isClassName('DynamicFilterSnapshot')).toBe(true);
+    expect(isClassName('TupleDomain<ColumnHandle>')).toBe(true);
+    expect(isClassName('currentPredicate')).toBe(false);
+    expect(isClassName('requireNonNull')).toBe(false);
+    expect(isClassName('io.trino.spi')).toBe(false);
+  });
+});
+
+describe('MarkdownProse code rendering', () => {
+  it('numbers the lines of a multi-line code block', () => {
+    const { container } = render(
+      <MarkdownProse text={'```java\nline one\nline two\nline three\n```'} />,
+    );
+    const pre = container.querySelector('pre');
+    expect(pre).toBeTruthy();
+    // One gutter number per line.
+    expect(pre?.textContent).toContain('1');
+    expect(pre?.textContent).toContain('line two');
+    expect(pre?.querySelectorAll('div').length).toBe(3);
+  });
+
+  it('renders a PascalCase inline token as a distinct class code span', () => {
+    render(<MarkdownProse text={'the `DynamicFilterSnapshot` record'} />);
+    const el = screen.getByText('DynamicFilterSnapshot');
+    expect(el.tagName).toBe('CODE');
+    // Class colour, not the default inline-code colour.
+    expect(el.style.color).toContain('teal');
+  });
 });
 
 describe('parsePrNumber', () => {

@@ -128,6 +128,7 @@ function ShipDescriptionPanel({
           onChange={(next) => { onBodyChange(next); schedule(); }}
           placeholder="Describe the change — markdown supported."
           rows={6}
+          initialTab="preview"
         />
       </div>
     </div>
@@ -188,6 +189,10 @@ export default function TaskCodePage({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [mode, setMode] = useState<FilesPaneMode>('tree');
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
+  // Code / Pull request tabs inside the diff panel — Code (the diff) is the
+  // default; Pull request shows the drafted PR description. They sit in the
+  // right-hand pane so the conversation + changed-files columns stay visible.
+  const [paneTab, setPaneTab] = useState<'code' | 'pr'>('code');
   // The middle column folds the old commits + changed-files panels into one
   // tabbed column; the left column is now the conversation.
   const [midTab, setMidTab] = useState<'files' | 'commits'>('files');
@@ -482,7 +487,7 @@ export default function TaskCodePage({
         >
           {/* Conversation column — the originating stage's transcript (with an
               inline steer), or a PR-agent chat scaffold when stageless. */}
-          <DiffChatColumn stageId={stageId} />
+          <DiffChatColumn stageId={stageId} taskId={taskId} />
           <ResizeHandle onResize={handleConvResize} ariaLabel="Resize conversation panel" />
 
           {/* Middle column: Changed files + Commits folded into two tabs. */}
@@ -563,18 +568,47 @@ export default function TaskCodePage({
           </aside>
           <ResizeHandle onResize={handleFilesResize} ariaLabel="Resize changed-files panel" />
 
-          {/* Continuous multi-file diff — the same renderer as the PR page. */}
+          {/* Right pane — Code (the diff) or Pull request (the description),
+              switched by tabs that live inside the pane so the conversation
+              + changed-files columns stay put. */}
           <main className="diff-viewer__pane">
-            {reviewMode && proposal !== null && (
-              <ShipDescriptionPanel
-                notificationId={proposal.id}
-                title={prTitle}
-                body={prBody}
-                onTitleChange={setPrTitle}
-                onBodyChange={setPrBody}
-              />
-            )}
-            {files !== null && files.length > 0 ? (
+            <div className="diff-viewer__pane-tabs" role="tablist" aria-label="Code or pull request">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={paneTab === 'code'}
+                className={`diff-viewer__pane-tab${paneTab === 'code' ? ' diff-viewer__pane-tab--active' : ''}`}
+                onClick={() => setPaneTab('code')}
+              >
+                Code
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={paneTab === 'pr'}
+                className={`diff-viewer__pane-tab${paneTab === 'pr' ? ' diff-viewer__pane-tab--active' : ''}`}
+                onClick={() => setPaneTab('pr')}
+              >
+                Pull request
+              </button>
+            </div>
+            {paneTab === 'pr' ? (
+              <div className="diff-viewer__pr-pane">
+                {proposal !== null ? (
+                  <ShipDescriptionPanel
+                    notificationId={proposal.id}
+                    title={prTitle}
+                    body={prBody}
+                    onTitleChange={setPrTitle}
+                    onBodyChange={setPrBody}
+                  />
+                ) : (
+                  <div className="diff-viewer__empty">
+                    No pull request yet — ship the task to open one.
+                  </div>
+                )}
+              </div>
+            ) : files !== null && files.length > 0 ? (
               <ContinuousDiff
                 files={files}
                 selectedPath={selectedPath}

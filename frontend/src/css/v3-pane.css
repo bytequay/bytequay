@@ -268,6 +268,43 @@
   color: var(--orange);
   border-color: var(--orange-border);
 }
+/* Single confidence badge — replaces the old signal-chip row. */
+.shell .plan-confidence {
+  display: flex;
+}
+.shell .conf {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1px solid;
+}
+.shell .conf::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.shell .conf--high {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green-border);
+}
+.shell .conf--medium {
+  background: var(--orange-soft);
+  color: var(--orange);
+  border-color: var(--orange-border);
+}
+.shell .conf--low {
+  background: var(--red-soft);
+  color: var(--red);
+  border-color: rgba(220, 38, 38, 0.2);
+}
 .shell .plan-actions {
   display: flex;
   flex-direction: column;

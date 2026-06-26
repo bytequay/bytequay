@@ -72,18 +72,20 @@ public class PlanToolHandlers
             @ToolParam(description = "Task id whose open PlanStage this plan is recorded on.",
                     required = true, wireName = "task_id")
             String taskId,
-            @ToolParam(description = "The structured PlanResult object: status, understanding "
-                    + "(summary, affectedComponents, existingPatterns, constraints), intent "
-                    + "(summary; steps — an array of objects each {ordinal, action, files, "
-                    + "rationale} where action is the step text, not a bare string; "
-                    + "validationStrategy, pushStrategy), and signals (riskLevel, riskNotes, "
-                    + "componentsCount, estimatedComplexity, expectedGain). "
-                    + "Write understanding.summary in the FIRST PERSON and concise — frame it "
-                    + "as the goal and your approach: \"For the goal of X, I need to …, I'm "
-                    + "planning to …\". Do NOT narrate the user (\"the user wants …\"). Cover, "
-                    + "briefly, the risk, your confidence, and the expected result. Put any "
-                    + "code as a fenced ```lang block (include the file path + line when you "
-                    + "know it); write class/type names as inline `code`. "
+            @ToolParam(description = "The structured PlanResult object. The card shows three "
+                    + "things — goal, steps, a confidence badge — so keep every field TERSE. "
+                    + "Required top-level `goal`: ONE concise sentence naming the objective "
+                    + "(e.g. \"Add a null-check to DynamicFilterSnapshot.currentPredicate\") — "
+                    + "no preamble, no \"the user wants …\". intent.steps: an array of objects "
+                    + "each {ordinal, action, files, rationale} where `action` is a SHORT "
+                    + "imperative (\"Add requireNonNull canonical constructor\"), NOT a command "
+                    + "dump or the command restated in prose. signals: riskLevel, riskNotes, "
+                    + "componentsCount, estimatedComplexity, expectedGain, and `confidence` — "
+                    + "high / medium / low that the plan succeeds as written. Also fill "
+                    + "understanding (summary, affectedComponents, existingPatterns, constraints) "
+                    + "and intent (summary, validationStrategy, pushStrategy) for the dev agent, "
+                    + "written in the FIRST PERSON; do NOT narrate the user. Put any code as a "
+                    + "fenced ```lang block; write class/type names as inline `code`. "
                     + "Set status='finalized' when ready for the user to approve.",
                     required = true)
             JsonNode plan) {}

@@ -618,11 +618,13 @@ public class StageServiceImpl
             }
         }
         JsonNode signals = latest.path("signals");
+        String riskLevel = signals.path("riskLevel").asText("low");
         TaskBrainViewData.PlanSignals planSignals = new TaskBrainViewData.PlanSignals(
-                signals.path("riskLevel").asText("low"),
+                riskLevel,
                 signals.path("estimatedComplexity").asText("small"),
                 signals.path("componentsCount").asInt(0),
-                signals.path("expectedGain").asText(""));
+                signals.path("expectedGain").asText(""),
+                firstNonBlank(signals.path("confidence").asText(""), confidenceFromRisk(riskLevel)));
 
         // Surface the latest planning failure, but only when it's the most
         // recent planning outcome (a later PLAN_RECORDED clears it).
@@ -651,12 +653,14 @@ public class StageServiceImpl
                 })
                 .toList();
 
+        String understandingSummary = latest.path("understanding").path("summary").asText("");
         return new TaskBrainViewData.PlanCard(
                 plan.id().toString(),
                 state,
                 status,
                 latest.path("source").asText(""),
-                latest.path("understanding").path("summary").asText(""),
+                firstNonBlank(latest.path("goal").asText(""), understandingSummary),
+                understandingSummary,
                 latest.path("intent").path("summary").asText(""),
                 steps,
                 latest.path("intent").path("validationStrategy").asText(""),
@@ -799,6 +803,18 @@ public class StageServiceImpl
             }
         }
         return "";
+    }
+
+    /** Fallback confidence for plans recorded before the brain emitted it:
+     *  invert the risk level — low risk reads as high confidence, high risk
+     *  as low. Unknown risk maps to medium. */
+    private static String confidenceFromRisk(String riskLevel)
+    {
+        return switch (riskLevel == null ? "" : riskLevel.trim().toLowerCase(Locale.ROOT)) {
+            case "low" -> "high";
+            case "high" -> "low";
+            default -> "medium";
+        };
     }
 
     // ── mappers + placeholders ──────────────────────────────────────────

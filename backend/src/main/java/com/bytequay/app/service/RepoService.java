@@ -549,7 +549,30 @@ public class RepoService
     public List<UserRepo> searchRepos(String query)
     {
         String pat = patResolver.resolve();
-        return gitHub.searchRepositories(pat, query);
+        String trimmed = query == null ? "" : query.trim();
+        if (trimmed.isEmpty()) {
+            return ImmutableList.of();
+        }
+        // "owner/name" is how a user names an exact repo, but GitHub's
+        // repository search doesn't parse the slash — it treats the whole
+        // string as free text and finds nothing. Resolve it directly.
+        int slash = trimmed.indexOf('/');
+        if (slash > 0 && slash == trimmed.lastIndexOf('/') && slash < trimmed.length() - 1) {
+            String owner = trimmed.substring(0, slash).trim();
+            String name = trimmed.substring(slash + 1).trim();
+            if (!owner.isEmpty() && !name.isEmpty()) {
+                Optional<UserRepo> exact = gitHub.fetchRepository(pat, owner, name);
+                if (exact.isPresent()) {
+                    return ImmutableList.of(exact.get());
+                }
+                // Exact miss (typo, no access) — fall back to a search
+                // scoped to that owner so a near-match still surfaces.
+                return gitHub.searchRepositories(pat, name + " in:name user:" + owner);
+            }
+        }
+        // Bare term — bias toward name matches so a specific repo isn't
+        // buried under description/readme hits.
+        return gitHub.searchRepositories(pat, trimmed + " in:name");
     }
 
     public List<GitHubUserMatch> searchUsers(String query)

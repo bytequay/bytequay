@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import type { StatusDotVariant } from '../ui/primitives';
 import type { StageNavRow } from '../ui/workspace';
-import type { StageState, StageType } from '../types/brainView';
+import type { StageDto, StageState, StageType, TaskPhase } from '../types/brainView';
 
 const STAGE_LABEL: Record<StageType, string> = {
   PLAN_STAGE: 'Plan',
@@ -25,6 +25,15 @@ const STAGE_LABEL: Record<StageType, string> = {
   REVIEW_STAGE: 'Review',
 };
 
+/** Once a task is shipped for review, the CI-fixing and comment-addressing
+ *  stages run together — show both from the moment the PR is open, even
+ *  before the backend lazily opens the row for one of them. */
+const IN_REVIEW_PHASES = new Set<TaskPhase>([
+  'PUSHED_AWAITING_CI', 'CI_FIXING', 'AWAITING_READY',
+  'AWAITING_REMOTE_REVIEW', 'ADDRESSING_COMMENTS', 'AGENT_RE_REVIEW', 'AWAITING_UPDATE_PUSH',
+]);
+const MONITOR_STAGES: StageType[] = ['CI_FIXING_STAGE', 'REVIEW_MONITOR_STAGE'];
+
 /** Stage lifecycle state → the sidebar dot. */
 function stageDot(state: StageState): StatusDotVariant | undefined {
   switch (state) {
@@ -33,6 +42,25 @@ function stageDot(state: StageState): StatusDotVariant | undefined {
     case 'PAUSED': return 'sleep';
     default: return 'future';
   }
+}
+
+/**
+ * The stage nav rows for a task: its real stages, plus — once it's in the
+ * review window — both monitor stages shown together. A monitor stage with
+ * no backing row yet renders as a dimmed, non-clickable "pending" entry, so
+ * the user sees CI-fixing and Addressing-comments side by side from ship.
+ */
+function buildStageNav(stages: StageDto[], phase: TaskPhase, prNumber: number | null): StageNavRow[] {
+  const rows: StageNavRow[] = stages.map(
+    s => ({ id: s.id, label: STAGE_LABEL[s.type], dot: stageDot(s.state) }));
+  const inReview = IN_REVIEW_PHASES.has(phase) || prNumber !== null;
+  if (!inReview) return rows;
+  for (const type of MONITOR_STAGES) {
+    if (!stages.some(s => s.type === type)) {
+      rows.push({ label: STAGE_LABEL[type], dot: 'future', pending: true });
+    }
+  }
+  return rows;
 }
 
 /** A task is terminal once it's finished, errored, canceled, or archived —
@@ -98,7 +126,7 @@ export function useThreadStages(threadId: string | null, taskId?: string): Threa
           taskId: tid,
           taskLabel: view.task.title,
           taskDot: taskDot(view.task),
-          stages: view.stages.map(s => ({ id: s.id, label: STAGE_LABEL[s.type], dot: stageDot(s.state) })),
+          stages: buildStageNav(view.stages, view.task.currentPhase, view.task.prNumber),
         });
       }
       catch { /* leave the last loaded state */ }

@@ -296,6 +296,15 @@
   color: var(--text-1);
   font-weight: 500;
 }
+/* A stage shown before its row exists — dimmed and not clickable. */
+.shell .stage-subitem.pending {
+  color: var(--text-4);
+  cursor: default;
+}
+.shell .stage-subitem.pending:hover {
+  background: transparent;
+  color: var(--text-4);
+}
 .shell .stage-subitem .nm {
   flex: 1;
   min-width: 0;

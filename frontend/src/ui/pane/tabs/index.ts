@@ -18,7 +18,7 @@ export type { PlanSource, PlanStep, PlanSignal, PlanConfidence } from './PlanTab
 export { DetailsTabContent } from './DetailsTabContent';
 export type { DetailRow, DetailSection } from './DetailsTabContent';
 export { PRTabContent, CommentThread } from './PRTabContent';
-export type { PRStatus, PRMetaChip, CommentThreadData } from './PRTabContent';
+export type { PRStatus, PRMetaChip, PRChecks, CommentThreadData } from './PRTabContent';
 export { TasksTabContent } from './TasksTabContent';
 export type { TaskCardData } from './TasksTabContent';
 export { BacklogTabContent } from './BacklogTabContent';

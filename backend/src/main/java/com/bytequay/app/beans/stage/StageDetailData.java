@@ -41,9 +41,53 @@ public record StageDetailData(
         List<ConversationRow> conversation,
         RealtimeCi realtimeCi,
         List<CiFixHistoryEntry> ciFixHistory,
+        PrTab pr,
         ContextWindowDto context,
         Scrubber scrubber)
 {
+    /**
+     * The pull-request block shown on the stage page's PR tab. Surfaced from
+     * the same {@link com.bytequay.app.domain.PullRequestDetail} the
+     * realtime-CI snapshot already fetches, so it adds no extra GitHub call.
+     * Null when the task has no linked PR.
+     *
+     * @param status open | draft | merged
+     */
+    public record PrTab(
+            int number,
+            String status,
+            String headRef,
+            String baseRef,
+            List<String> reviewers,
+            List<String> labels,
+            PrChecks checks,
+            List<PrThread> threads)
+    {
+    }
+
+    /** Per-conclusion tallies of the PR's CI check runs. */
+    public record PrChecks(int passed, int failed, int pending, int total)
+    {
+    }
+
+    /**
+     * One per-line review thread on the PR: the reviewer's root message
+     * first, then any replies (including the agent's).
+     */
+    public record PrThread(
+            String id,
+            String file,
+            Integer line,
+            boolean resolved,
+            List<PrThreadMsg> messages)
+    {
+    }
+
+    /** One message in a {@link PrThread}. */
+    public record PrThreadMsg(String author, String body)
+    {
+    }
+
     /**
      * One row of the stage transcript. {@code kind} selects which fields are
      * meaningful: {@code agent}/{@code user} use {@code text}; {@code tool_call}

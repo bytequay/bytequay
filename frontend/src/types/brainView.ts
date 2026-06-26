@@ -254,8 +254,33 @@ export type StageDetailData = {
   conversation: StageConversationRow[];
   realtimeCi: RealtimeCi | null;
   ciFixHistory: CiFixHistoryEntry[];
+  /** The pull-request block for the PR tab — status, branch flow, reviewers,
+   *  labels, a CI check summary, and the per-line review threads. Null when
+   *  the task has no linked PR. */
+  pr: StagePrTab | null;
   context: ContextWindowDto;
   scrubber: { userMessages: ScrubberDash[] };
+};
+
+/** The PR-tab payload surfaced on the stage detail (frames 6/7). */
+export type StagePrTab = {
+  number: number;
+  status: 'open' | 'draft' | 'merged';
+  headRef: string | null;
+  baseRef: string | null;
+  reviewers: string[];
+  labels: string[];
+  checks: { passed: number; failed: number; pending: number; total: number };
+  threads: StagePrThread[];
+};
+
+/** One per-line review thread on the PR (root message first, then replies). */
+export type StagePrThread = {
+  id: string;
+  file: string | null;
+  line: number | null;
+  resolved: boolean;
+  messages: { author: string; body: string }[];
 };
 
 /** One row of the stage transcript. `kind` selects which fields apply:

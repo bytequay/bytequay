@@ -23,8 +23,8 @@ import { ContinuousDiff, FileDiffBody } from '../diff/DiffFileList';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { statusBadge } from '../diffStatusBadge';
 import { PRTabContent } from '../ui/pane/tabs';
-import type { CommentThreadData } from '../ui/pane/tabs';
-import type { DiffFileDto, ReviewCommentDto } from '../types';
+import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
+import type { DiffFileDto } from '../types';
 import type { StageType } from '../types/brainView';
 import { Conv, EventRow, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
@@ -77,15 +77,13 @@ export function StageDetailRoute({
   const prNumber = data?.task.prNumber ?? null;
   const branch = data?.task.branch;
   const repoFullName = data?.task.repoFullName;
-  const prDraft = data?.task.prDraft ?? false;
 
   // Changes / Files / PR tabs only apply to the work stages — the Plan stage
   // is a read-only conversation artifact with no diff of its own.
   const hasDiff = stageKind !== 'plan';
 
-  // ── Right-pane data: the task's cumulative diff + its review comments ───
+  // ── Right-pane data: the task's cumulative diff ─────────────────────────
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
-  const [comments, setComments] = useState<ReviewCommentDto[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
 
@@ -104,17 +102,6 @@ export function StageDetailRoute({
       .catch(() => { if (!cancelled) setFiles([]); });
     return () => { cancelled = true; };
   }, [threadId, hasDiff]);
-
-  useEffect(() => {
-    if (prNumber === null) return;
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (bridge?.listReviewComments === undefined) return;
-    let cancelled = false;
-    void bridge.listReviewComments(taskId)
-      .then(c => { if (!cancelled) setComments(c); })
-      .catch(() => { /* non-fatal — PR tab just shows no threads */ });
-    return () => { cancelled = true; };
-  }, [taskId, prNumber]);
 
   const toggleDir = useCallback((path: string) => {
     setCollapsedDirs(prev => {
@@ -245,23 +232,45 @@ export function StageDetailRoute({
     />
   );
 
-  const threads: CommentThreadData[] = useMemo(() => comments.map(c => ({
-    id: c.id,
-    author: c.source === 'LOCAL_USER' ? 'You' : c.source,
-    file: `${c.file}:${c.line}`,
-    status: c.resolved ? 'resolved' : 'open',
-    body: c.body,
-  })), [comments]);
+  // PR tab content — built from the stage-detail `pr` block (status, branch
+  // flow, reviewers, labels, CI check summary, and the per-line review
+  // threads with the reviewer's root comment + the agent's reply).
+  const pr = data?.pr ?? null;
+  const threads: CommentThreadData[] = useMemo(() => (pr?.threads ?? []).map(t => {
+    const root = t.messages[0];
+    const reply = t.messages.length > 1 ? t.messages[t.messages.length - 1] : undefined;
+    return {
+      id: t.id,
+      author: root?.author ?? 'reviewer',
+      file: t.file === null ? undefined : (t.line !== null ? `${t.file}:${t.line}` : t.file),
+      status: t.resolved ? 'resolved' as const : 'open' as const,
+      body: root?.body ?? '',
+      reply: reply !== undefined ? { src: reply.author, text: reply.body } : undefined,
+    };
+  }), [pr]);
+  const openThreadCount = useMemo(() => threads.filter(t => t.status === 'open').length, [threads]);
+  const prMetaChips: PRMetaChip[] = useMemo(() => {
+    if (pr === null) return [];
+    const chips: PRMetaChip[] = [];
+    if (pr.reviewers.length > 0) chips.push({ icon: '👥', label: 'Reviewers', count: pr.reviewers.length });
+    for (const label of pr.labels) chips.push({ label });
+    return chips;
+  }, [pr]);
 
-  const prNode = (
+  const prNode = pr !== null ? (
     <PRTabContent
-      status={prDraft ? 'draft' : 'open'}
-      statusLabel={prDraft ? 'Draft' : 'Open · ready for review'}
-      headBranch={branch}
-      baseBranch={branch !== undefined ? 'main' : undefined}
+      title={data?.task.title}
+      prNumber={pr.number}
+      status={pr.status}
+      statusLabel={pr.status === 'merged' ? 'Merged' : pr.status === 'draft' ? 'Draft' : 'Open · ready for review'}
+      headBranch={pr.headRef ?? branch}
+      baseBranch={pr.baseRef ?? undefined}
+      metaChips={prMetaChips}
+      checks={pr.checks.total > 0 ? pr.checks : undefined}
       threads={threads}
+      threadsHeader={threads.length > 0 ? `Open threads · ${openThreadCount}` : undefined}
     />
-  );
+  ) : null;
 
   const totalAdds = files?.reduce((n, f) => n + f.additions, 0) ?? 0;
   const totalDels = files?.reduce((n, f) => n + f.deletions, 0) ?? 0;
@@ -300,7 +309,7 @@ export function StageDetailRoute({
           ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined)
           : undefined,
         changes: hasDiff ? changesNode : undefined,
-        pr: prNumber !== null ? prNode : undefined,
+        pr: prNode ?? undefined,
         files: hasDiff ? filesNode : undefined,
         details: (
           <DetailsTabContent sections={[{

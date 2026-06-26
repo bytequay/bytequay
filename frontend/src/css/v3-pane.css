@@ -484,6 +484,47 @@
   color: var(--text-1);
   padding-top: 8px;
 }
+.shell .pr-section-h {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  padding-top: 4px;
+}
+.shell .pr-section-h .num { color: var(--text-4); font-weight: 400; }
+.shell .pr-check-card {
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.shell .pr-check-card .hd {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+.shell .pr-check-card .hd .ic {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+.shell .pr-check-card .hd .ic.ok { background: var(--green, #16a34a); }
+.shell .pr-check-card .hd .ic.fail { background: var(--red); }
+.shell .pr-check-card .hd .ic.pending { background: var(--orange); }
+.shell .pr-check-card .sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding-left: 25px;
+}
 .shell .pr-comment-thread {
   padding: 10px 12px;
   background: var(--bg-elev);

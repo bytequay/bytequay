@@ -657,6 +657,7 @@ function App() {
             onOpenCode={() => setNav({
               view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
             })}
+            onClosed={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
           />
         )}
         {nav.view === 'task-code' && (

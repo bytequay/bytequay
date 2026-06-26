@@ -58,12 +58,15 @@ function stageDot(state: StageDto['state']): StageChip['dot'] | undefined {
  * status for now.
  */
 export function TaskBrainRoute({
-  threadId, taskId, onOpenStage, onOpenCode,
+  threadId, taskId, onOpenStage, onOpenCode, onClosed,
 }: {
   threadId: string;
   taskId: string;
   onOpenStage: (stageId: string) => void;
   onOpenCode: () => void;
+  /** Closing a task seals it terminal + reaps its worktree, so the page is
+   *  a dead end afterwards — navigate away (back to the thread trunk). */
+  onClosed: () => void;
 }) {
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
@@ -95,6 +98,15 @@ export function TaskBrainRoute({
 
   const runAction = (fn?: (threadId: string, taskId: string) => Promise<unknown>) => () => {
     fn?.(threadId, task.id).then(() => pollFast()).catch(() => { /* poll reconciles */ });
+  };
+
+  // Close seals the task terminal and reaps its worktree; once it resolves
+  // the page has nothing live to show, so leave for the thread trunk.
+  const closeTask = () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.cancelTask(threadId, task.id)
+      .then(() => onClosed())
+      .catch(() => pollFast());
   };
 
   // The plan card (draft / awaiting / locked). When finalized and awaiting
@@ -144,7 +156,7 @@ export function TaskBrainRoute({
         terminal: task.terminal,
         onPause: runAction(bridge?.pauseTask),
         onResume: runAction(bridge?.resumePausedTask),
-        onClose: runAction(bridge?.cancelTask),
+        onClose: closeTask,
       }}
       priorityTab={plan !== null && plan.state === 'awaiting' ? 'plan' : undefined}
       tabs={{

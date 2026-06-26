@@ -11,9 +11,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import { useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { SidebarFooter, TrafficLights } from '../shell';
 import { useFullScreen } from '../../useFullScreen';
+
+/** Drag-to-resize bounds + the persisted-width storage key. */
+const MIN_RAIL_WIDTH = 200;
+const MAX_RAIL_WIDTH = 460;
+const DEFAULT_RAIL_WIDTH = 232;
+const RAIL_WIDTH_KEY = 'bq.rail-width';
+
+const clampWidth = (w: number) => Math.min(MAX_RAIL_WIDTH, Math.max(MIN_RAIL_WIDTH, w));
+
+function readStoredWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_RAIL_WIDTH;
+  const raw = window.localStorage.getItem(RAIL_WIDTH_KEY);
+  const n = raw === null ? NaN : Number(raw);
+  return Number.isFinite(n) ? clampWidth(n) : DEFAULT_RAIL_WIDTH;
+}
 
 /** Nav destinations. No Search (removed in this model). The first four
  *  are the primary (top) group; the rest sit in the bottom group. */
@@ -64,6 +80,27 @@ export function WorkspaceNavSidebar({
   onToggleCollapse?: () => void;
 }) {
   const fullScreen = useFullScreen();
+
+  // Drag the right edge to resize. Width is local + persisted so it sticks
+  // across reloads; collapsed mode ignores it (the strip is CSS-sized).
+  const [width, setWidth] = useState(readStoredWidth);
+  const drag = useRef<{ startX: number; startW: number } | null>(null);
+  const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    drag.current = { startX: e.clientX, startW: width };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current === null) return;
+    setWidth(clampWidth(drag.current.startW + (e.clientX - drag.current.startX)));
+  };
+  const onResizeUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current === null) return;
+    drag.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    if (typeof window !== 'undefined') window.localStorage.setItem(RAIL_WIDTH_KEY, String(width));
+  };
+
   const navItem = (n: { key: WsNavKey; ic: string; label: string }) => (
     <button
       key={n.key}
@@ -91,6 +128,7 @@ export function WorkspaceNavSidebar({
       fullScreen ? 'is-fullscreen' : '',
       collapsed ? 'sidebar-collapsed' : '',
     ].filter(Boolean).join(' ')}
+      style={collapsed ? undefined : { width }}
     >
       <aside className="sidebar">
         <TrafficLights onBack={onBack} onForward={onForward} onToggleCollapse={onToggleCollapse} />
@@ -104,6 +142,17 @@ export function WorkspaceNavSidebar({
           </>
         )}
       </aside>
+      {!collapsed && (
+        <div
+          className="rail-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onPointerDown={onResizeDown}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeUp}
+        />
+      )}
     </div>
   );
 }

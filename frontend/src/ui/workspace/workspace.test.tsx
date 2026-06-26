@@ -170,7 +170,7 @@ describe('ThreadList', () => {
           { id: 't2', initials: 'tr', color: 'pink', name: 'Fix Delta Lake timestamp', status: 'planning' },
         ]}
         selectedId="t1"
-        task={{ id: 'k1', label: 'Add cost meter' }}
+        task={{ id: 'k1', label: 'Add cost meter', dot: 'done' }}
         stages={[
           { id: 's1', label: 'Plan', dot: 'done' },
           { id: 's2', label: 'Dev', dot: 'active' },
@@ -183,6 +183,8 @@ describe('ThreadList', () => {
     );
     // Task name sub-header + its stages render under the selected thread.
     expect(container.querySelector('.task-subhead')?.textContent).toContain('Add cost meter');
+    // The task row carries its lifecycle dot (done = closed/terminal).
+    expect(container.querySelector('.task-subhead .v3-dot--done')).toBeTruthy();
     expect(container.querySelectorAll('.stage-subitem').length).toBe(3);
     expect(container.querySelector('.stage-subitem.active')?.textContent).toContain('Dev');
     fireEvent.click(screen.getByText('Add cost meter'));

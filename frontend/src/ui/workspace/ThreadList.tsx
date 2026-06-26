@@ -77,7 +77,13 @@ function StageSubList({ stages, selectedStageId, onOpenStage }: {
 }
 
 /** The active task of the open thread — a sub-header above its stages. */
-export type TaskNavRow = { id: string; label: string };
+export type TaskNavRow = {
+  id: string;
+  label: string;
+  /** Status marker on the right — done once the task is closed/terminal,
+   *  active while it runs, sleep when paused. */
+  dot?: StatusDotVariant;
+};
 
 /**
  * The workspace's threads in the sidebar — each prefixed by its repo
@@ -124,6 +130,7 @@ export function ThreadList({
                 onClick={() => onOpenTask?.(task.id)}
               >
                 <span className="nm">{task.label}</span>
+                {task.dot !== undefined && <StatusDot variant={task.dot} />}
               </button>
             )}
             {t.id === selectedId && stages.length > 0 && (

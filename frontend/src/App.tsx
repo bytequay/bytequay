@@ -494,7 +494,7 @@ function App() {
           activeWorkspaceId={sidebarWorkspaceId}
           selectedThreadId={selectedThreadId}
           task={inWorkspaceFlow && threadStages.taskId !== null
-            ? { id: threadStages.taskId, label: threadStages.taskLabel ?? 'Task' }
+            ? { id: threadStages.taskId, label: threadStages.taskLabel ?? 'Task', dot: threadStages.taskDot }
             : undefined}
           stages={inWorkspaceFlow ? threadStages.stages : undefined}
           selectedTaskId={navTaskId}

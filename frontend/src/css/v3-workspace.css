@@ -16,6 +16,34 @@
   height: 100%;
   width: 232px;
   flex-shrink: 0;
+  position: relative;
+}
+
+/* Drag handle on the rail's right edge — a thin invisible strip that
+   widens/colours on hover so the resize affordance is discoverable. Sits
+   over the divider; `col-resize` cursor signals the drag. */
+.shell.shell-rail .rail-resize {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 30;
+  -webkit-app-region: no-drag;
+}
+.shell.shell-rail .rail-resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 2px;
+  height: 100%;
+  background: transparent;
+  transition: background var(--fast, 0.12s);
+}
+.shell.shell-rail .rail-resize:hover::after {
+  background: var(--accent);
 }
 .shell.shell-rail > .sidebar {
   height: 100%;
@@ -221,10 +249,16 @@
   color: var(--text-1);
 }
 .shell .task-subhead .nm {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Status dot sits at the right edge, matching the stage rows + thread rows. */
+.shell .task-subhead .v3-dot {
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .shell .stage-sublist {

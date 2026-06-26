@@ -106,7 +106,14 @@ export function StageDetailRoute({
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}
       {working && liveText.length === 0 && (
-        <Working label="Agent is working…" since={workingSince ?? undefined} />
+        <Working
+          label="Agent is working…"
+          since={workingSince ?? undefined}
+          onStop={() => {
+            const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+            void bridge?.interruptTask(threadId).then(refresh).catch(() => { /* poll reconciles */ });
+          }}
+        />
       )}
     </Conv>
   );

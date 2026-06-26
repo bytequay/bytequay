@@ -211,6 +211,19 @@ public class PublishService
                             + e.getMessage());
             return interruptedResult(action);
         }
+        catch (PublishPushFailedException e) {
+            // The push step failed, so nothing reached the remote. Unlike the
+            // ambiguous advance failures below, this is safe to retry — release
+            // the claim back to UNREAD so the (now-fixed) push can be re-run on
+            // the next approve, instead of pinning RESOLVING and forcing the
+            // user to discard.
+            notifications.releaseResolution(notificationId);
+            log.info("publish approve {} ({}) push failed pre-remote, released for retry: {}",
+                    notificationId, action, e.getMessage());
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "push failed — nothing was published. Fix the cause and approve again: "
+                            + e.getMessage());
+        }
         catch (RuntimeException e) {
             // Any error after the claim may follow an ambiguous remote
             // outcome (timeouts are especially unsafe to retry). Keep
@@ -805,11 +818,12 @@ public class PublishService
             git.push(worktree);
         }
         catch (IOException e) {
-            throw new RuntimeException("git push failed: " + e.getMessage(), e);
+            // Push failed → nothing on the remote → release for a clean retry.
+            throw new PublishPushFailedException("git push failed: " + e.getMessage(), e);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("git push interrupted", e);
+            throw new PublishPushFailedException("git push interrupted", e);
         }
         // The branch is now on the remote — record it so the task UI can
         // show "on remote" instead of looking stuck. Best-effort: a

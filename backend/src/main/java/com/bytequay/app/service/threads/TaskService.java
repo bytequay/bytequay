@@ -312,17 +312,27 @@ public class TaskService
         String repoFullName = watched.owner() + "/" + watched.repo();
 
         try {
-            // 1. Commit any uncommitted changes the agent left behind —
-            //    minus our own per-worktree hook dir, which is ByteQuay
-            //    infra and must never land in the user's branch / PR.
-            if (git.hasUncommittedChanges(worktreePath)) {
-                git.stageAll(worktreePath, List.of(WorktreeService.HOOK_DIR_REL));
-                git.commit(worktreePath, "ByteQuay checkpoint via ship & continue");
+            // 1-2. Commit any uncommitted work (minus our per-worktree hook
+            //      dir, which is ByteQuay infra and must never land in the
+            //      user's branch / PR), then push to origin. Both are
+            //      pre-remote-mutation: if the push fails the branch never
+            //      reaches the remote, so we tag it PublishPushFailedException
+            //      and the approve gate releases for a clean retry instead of
+            //      pinning RESOLVING as an ambiguous advance failure.
+            try {
+                if (git.hasUncommittedChanges(worktreePath)) {
+                    git.stageAll(worktreePath, List.of(WorktreeService.HOOK_DIR_REL));
+                    git.commit(worktreePath, "ByteQuay checkpoint via ship & continue");
+                }
+                git.push(worktreePath);
             }
-
-            // 2. Push to the user's fork (or upstream, depending on
-            //    remote setup). push() sets upstream on first run.
-            git.push(worktreePath);
+            catch (IOException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    java.lang.Thread.currentThread().interrupt();
+                }
+                throw new PublishPushFailedException(
+                        "push failed for task " + taskId + ": " + e.getMessage(), e);
+            }
 
             // 3. Open a PR (or accept that one already exists). The PR
             //    targets the per-repo merge-target from the workspace

@@ -353,12 +353,23 @@ export default function TaskCodePage({
       // setShipDescription (approve takes no body); open_pr (and the other
       // body-only gates) take the edited body straight through approve.
       const action = proposalAction ?? 'ship_task';
+      let result;
       if (action === 'ship_task') {
         await window.bridge.setShipDescription(proposal.id, prTitle, prBody);
-        await window.bridge.approveNotification(proposal.id, null, action);
+        result = await window.bridge.approveNotification(proposal.id, null, action);
       }
       else {
-        await window.bridge.approveNotification(proposal.id, prBody, action);
+        result = await window.bridge.approveNotification(proposal.id, prBody, action);
+      }
+      // The publish only succeeded if the server resolved it 'approved'. An
+      // 'interrupted' / 'failed' result means nothing (or an unknown amount)
+      // reached the remote — surface the reason and stay put rather than
+      // navigating away as if it shipped.
+      if (result.resolution !== 'approved') {
+        setActionNote(result.message);
+        setActionBusy(false);
+        await refreshProposal();
+        return;
       }
       setProposal(null);
       onBack();
@@ -367,7 +378,7 @@ export default function TaskCodePage({
       setActionNote(e instanceof Error ? e.message : String(e));
       setActionBusy(false);
     }
-  }, [actionBusy, proposal, proposalAction, hasUnresolved, prTitle, prBody, onBack]);
+  }, [actionBusy, proposal, proposalAction, hasUnresolved, prTitle, prBody, onBack, refreshProposal]);
 
   // Commit list for the left column.
   useEffect(() => {

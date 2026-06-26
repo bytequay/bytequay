@@ -166,6 +166,24 @@ describe('TaskCodePage', () => {
     await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false));
   });
 
+  it('review mode: an interrupted approve shows the reason and does not navigate', async () => {
+    const resolved = { ...OPEN_COMMENT, resolved: true };
+    const onBack = vi.fn();
+    mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([resolved]),
+      approveNotification: vi.fn().mockResolvedValue(
+        { ok: false, resolution: 'interrupted', message: 'did not finish cleanly', action: 'ship_task' }),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={onBack} />);
+
+    const approve = await screen.findByRole('button', { name: /Approve & ship/ });
+    await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(approve);
+    await screen.findByText('did not finish cleanly');
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
   it('review mode: "Submit review" calls submitReview', async () => {
     const bridge = mockBridge({
       listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),

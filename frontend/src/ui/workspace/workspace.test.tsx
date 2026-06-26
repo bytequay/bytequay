@@ -193,6 +193,27 @@ describe('ThreadList', () => {
     expect(onOpenStage).toHaveBeenCalledWith('s3');
   });
 
+  it('renders a pending stage dimmed and non-clickable', () => {
+    const onOpenStage = vi.fn();
+    const { container } = render(
+      <ThreadList
+        threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
+        selectedId="t1"
+        task={{ id: 'k1', label: 'Task' }}
+        stages={[
+          { id: 's1', label: 'CI Fix', dot: 'active' },
+          { label: 'Comments', dot: 'future', pending: true },
+        ]}
+        onOpenStage={onOpenStage}
+      />,
+    );
+    const pending = container.querySelector('.stage-subitem.pending') as HTMLButtonElement;
+    expect(pending.textContent).toContain('Comments');
+    expect(pending.disabled).toBe(true);
+    fireEvent.click(pending);
+    expect(onOpenStage).not.toHaveBeenCalled();
+  });
+
   it('hides the task + stages when the matching thread is not selected', () => {
     const { container } = render(
       <ThreadList

@@ -28,10 +28,14 @@ export type ThreadRow = {
 /** A stage of the open thread's active task, nested under its row so the
  *  user can jump straight to a stage (Plan / Dev / CI Fix / Comments). */
 export type StageNavRow = {
-  id: string;
+  /** Absent for a {@link pending} stage that has no backing row yet. */
+  id?: string;
   label: string;
   /** Status marker — active stage pulses, closed shows done, etc. */
   dot?: StatusDotVariant;
+  /** A stage shown ahead of time (the backend hasn't opened its row yet),
+   *  so it renders dimmed and isn't clickable. */
+  pending?: boolean;
 };
 
 /** A single sidebar thread row. */
@@ -61,17 +65,24 @@ function StageSubList({ stages, selectedStageId, onOpenStage }: {
 }) {
   return (
     <div className="stage-sublist">
-      {stages.map(s => (
-        <button
-          key={s.id}
-          type="button"
-          className={s.id === selectedStageId ? 'stage-subitem active' : 'stage-subitem'}
-          onClick={() => onOpenStage?.(s.id)}
-        >
-          <span className="nm">{s.label}</span>
-          {s.dot !== undefined && <StatusDot variant={s.dot} />}
-        </button>
-      ))}
+      {stages.map(s => {
+        const cls = ['stage-subitem'];
+        if (s.id !== undefined && s.id === selectedStageId) cls.push('active');
+        if (s.pending === true || s.id === undefined) cls.push('pending');
+        const clickable = s.pending !== true && s.id !== undefined;
+        return (
+          <button
+            key={s.id ?? s.label}
+            type="button"
+            className={cls.join(' ')}
+            disabled={!clickable}
+            onClick={clickable ? () => onOpenStage?.(s.id as string) : undefined}
+          >
+            <span className="nm">{s.label}</span>
+            {s.dot !== undefined && <StatusDot variant={s.dot} />}
+          </button>
+        );
+      })}
     </div>
   );
 }

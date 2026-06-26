@@ -34,10 +34,13 @@ const IN_REVIEW_PHASES = new Set<TaskPhase>([
 ]);
 const MONITOR_STAGES: StageType[] = ['CI_FIXING_STAGE', 'REVIEW_MONITOR_STAGE'];
 
-/** Stage lifecycle state → the sidebar dot. */
+/** Stage lifecycle state → the sidebar dot. OPEN reads as live (awake /
+ *  monitoring) — e.g. a CI-fixing stage watching a shipped PR's checks — so
+ *  it's visibly distinct from a not-yet-opened 'future' placeholder. */
 function stageDot(state: StageState): StatusDotVariant | undefined {
   switch (state) {
-    case 'ACTIVE': return 'active';
+    case 'ACTIVE':
+    case 'OPEN': return 'active';
     case 'CLOSED': return 'done';
     case 'PAUSED': return 'sleep';
     default: return 'future';

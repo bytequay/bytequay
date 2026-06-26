@@ -815,6 +815,18 @@ public interface PullRequestRepository
     }
 
     /**
+     * Exact repository lookup by owner + name. Maps to:
+     * GET /repos/{owner}/{repo}. Returns empty when the repo doesn't
+     * exist or the PAT can't see it. Used so a user who types the precise
+     * {@code owner/name} finds it directly — GitHub's repository search
+     * doesn't parse the slash, so a search would miss it.
+     */
+    default Optional<UserRepo> fetchRepository(String pat, String owner, String repo)
+    {
+        throw new UnsupportedOperationException("fetchRepository not implemented");
+    }
+
+    /**
      * Searches GitHub users by login prefix. Returns up to 10 matches —
      * ordered by GitHub's relevance ranking. Used by the team editor's
      * autocomplete so members can be picked instead of hand-typed.

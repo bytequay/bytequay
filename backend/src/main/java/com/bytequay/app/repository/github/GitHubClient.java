@@ -2994,6 +2994,25 @@ public class GitHubClient
         }
     }
 
+    @Override
+    public Optional<UserRepo> fetchRepository(String pat, String owner, String repo)
+    {
+        try {
+            GitHubUserRepoItem item = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}", owner, repo)
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubUserRepoItem.class);
+            return Optional.ofNullable(item).map(GitHubClient::toUserRepoFromSearch);
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            throw toReadableException(e);
+        }
+    }
+
     private static UserRepo toUserRepoFromSearch(GitHubUserRepoItem item)
     {
         String owner = Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");

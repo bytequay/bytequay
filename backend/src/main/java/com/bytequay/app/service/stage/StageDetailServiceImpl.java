@@ -140,6 +140,10 @@ public class StageDetailServiceImpl
                 .map(it -> buildIteration(it, events, devMessages))
                 .toList();
 
+        // One PR fetch (cached) feeds both the realtime-CI snapshot and the
+        // PR tab — pass it to both so the detail call isn't made twice.
+        PullRequestDetail prDetail = fetchPrDetail(task);
+
         return new StageDetailData(
                 buildTask(task),
                 buildStageInfo(stage, iters, window, devMessages),
@@ -147,8 +151,9 @@ public class StageDetailServiceImpl
                 subStages,
                 iterations,
                 buildConversation(stage, task, window, devMessages, iters),
-                buildRealtimeCi(task),
+                buildRealtimeCi(task, prDetail),
                 buildCiFixHistory(stage, iters, events),
+                buildPrTab(task, prDetail),
                 new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe"),
                 new Scrubber(List.<ScrubberDash>of()));
     }
@@ -533,24 +538,31 @@ public class StageDetailServiceImpl
 
     // ── realtime CI + ci-fix history ────────────────────────────────────
 
-    private RealtimeCi buildRealtimeCi(Task task)
+    /** The task's PR detail (cached), or null when it has no PR / the fetch
+     *  fails. Shared by {@link #buildRealtimeCi} and {@link #buildPrTab}. */
+    private PullRequestDetail fetchPrDetail(Task task)
     {
         Optional<RepoRef> ref = parseRef(task.linkedPrRef());
         if (ref.isEmpty()) {
             return null;
         }
         RepoRef r = ref.get();
-        PullRequestDetail detail;
         try {
-            detail = pullRequests.getPullRequestDetail(r.repoFullName(), r.number());
+            return pullRequests.getPullRequestDetail(r.repoFullName(), r.number());
         }
         catch (RuntimeException e) {
-            log.warn("stage detail realtimeCi for {} failed: {}", task.id(), e.getMessage());
+            log.warn("stage detail PR fetch for {} failed: {}", task.id(), e.getMessage());
             return null;
         }
-        if (detail == null) {
+    }
+
+    private RealtimeCi buildRealtimeCi(Task task, PullRequestDetail detail)
+    {
+        Optional<RepoRef> ref = parseRef(task.linkedPrRef());
+        if (ref.isEmpty() || detail == null) {
             return null;
         }
+        RepoRef r = ref.get();
         List<CiCheck> checks = detail.checkRuns() == null ? List.of()
                 : detail.checkRuns().stream()
                         .map(c -> new CiCheck(c.name(), ciCheckStatus(c.status(), c.conclusion()), null))
@@ -560,6 +572,57 @@ public class StageDetailServiceImpl
                 "https://github.com/" + r.repoFullName() + "/pull/" + r.number(),
                 checks,
                 Instant.now().toString());
+    }
+
+    /** The PR-tab block: status, branch flow, reviewers, labels, a check-run
+     *  summary, and the per-line review threads — all from the cached PR
+     *  detail (no extra GitHub call). Null when the task has no PR. */
+    private StageDetailData.PrTab buildPrTab(Task task, PullRequestDetail detail)
+    {
+        Optional<RepoRef> ref = parseRef(task.linkedPrRef());
+        if (ref.isEmpty() || detail == null) {
+            return null;
+        }
+        String status = detail.merged() ? "merged" : detail.draft() ? "draft" : "open";
+
+        int passed = 0;
+        int failed = 0;
+        int pending = 0;
+        var runs = detail.checkRuns() == null ? List.<PullRequestDetail.CheckRun>of() : detail.checkRuns();
+        for (var c : runs) {
+            switch (ciCheckStatus(c.status(), c.conclusion())) {
+                case "ok" -> passed++;
+                case "fail" -> failed++;
+                default -> pending++;
+            }
+        }
+
+        var threadSrc = detail.reviewThreads() == null
+                ? List.<PullRequestDetail.ReviewThread>of() : detail.reviewThreads();
+        List<StageDetailData.PrThread> threads = threadSrc.stream()
+                .map(t -> {
+                    var msgs = t.messages() == null
+                            ? List.<PullRequestDetail.ReviewMessage>of() : t.messages();
+                    return new StageDetailData.PrThread(
+                            String.valueOf(t.rootGithubId()),
+                            t.filePath(),
+                            t.line(),
+                            Boolean.TRUE.equals(t.resolved()),
+                            msgs.stream()
+                                    .map(m -> new StageDetailData.PrThreadMsg(m.author(), m.body()))
+                                    .toList());
+                })
+                .toList();
+
+        return new StageDetailData.PrTab(
+                ref.get().number(),
+                status,
+                detail.headRef(),
+                detail.baseRef(),
+                detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers(),
+                detail.labels() == null ? List.of() : detail.labels(),
+                new StageDetailData.PrChecks(passed, failed, pending, passed + failed + pending),
+                threads);
     }
 
     private List<CiFixHistoryEntry> buildCiFixHistory(

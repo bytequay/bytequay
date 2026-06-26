@@ -18,6 +18,35 @@ import { Avatar } from '../../primitives';
 export type PRStatus = 'open' | 'merged' | 'draft';
 /** A clickable metadata chip (reviewers, labels, …). */
 export type PRMetaChip = { icon?: ReactNode; label: ReactNode; count?: number };
+/** CI check-run tallies for the summary card. */
+export type PRChecks = { passed: number; failed: number; pending: number; total: number };
+
+/** The "All checks passed / N failing" summary card (frames 6/7). */
+function PRCheckCard({ checks }: { checks: PRChecks }) {
+  const allGreen = checks.failed === 0 && checks.pending === 0 && checks.total > 0;
+  const headIcon = checks.failed > 0 ? 'fail' : checks.pending > 0 ? 'pending' : 'ok';
+  const headText = checks.total === 0
+    ? 'No checks reported'
+    : checks.failed > 0
+      ? `${checks.failed} check${checks.failed === 1 ? '' : 's'} failing`
+      : checks.pending > 0
+        ? `${checks.pending} check${checks.pending === 1 ? '' : 's'} running`
+        : 'All checks have passed';
+  return (
+    <div className="pr-check-card">
+      <div className="hd">
+        <span className={`ic ${headIcon}`} aria-hidden>{allGreen ? '✓' : checks.failed > 0 ? '✕' : '●'}</span>
+        {headText}
+      </div>
+      <div className="sub">
+        {checks.passed} passed
+        {checks.failed > 0 ? ` · ${checks.failed} failed` : ''}
+        {checks.pending > 0 ? ` · ${checks.pending} running` : ''}
+      </div>
+    </div>
+  );
+}
+
 /** One review comment thread in the PR tab. */
 export type CommentThreadData = {
   id: string;
@@ -54,17 +83,25 @@ export function CommentThread({ thread }: { thread: CommentThreadData }) {
  * Presentational; the host wires the comment box to the review API.
  */
 export function PRTabContent({
-  status, statusLabel, headBranch, baseBranch, metaChips, author, authoredLabel,
-  threads, commentValue = '', onCommentChange, onAddComment, addLabel = 'Comment',
+  title, prNumber, status, statusLabel, headBranch, baseBranch, metaChips, checks,
+  author, authoredLabel, threads, threadsHeader, commentValue = '', onCommentChange,
+  onAddComment, addLabel = 'Comment',
 }: {
+  /** PR title + number, rendered as the section header (frame 7). */
+  title?: ReactNode;
+  prNumber?: number;
   status: PRStatus;
   statusLabel: ReactNode;
   headBranch?: string;
   baseBranch?: string;
   metaChips?: PRMetaChip[];
+  /** CI check summary card, shown above the comment threads. */
+  checks?: PRChecks;
   author?: { initials: string; name: ReactNode };
   authoredLabel?: ReactNode;
   threads?: CommentThreadData[];
+  /** Header above the threads — defaults to "Comments". */
+  threadsHeader?: ReactNode;
   commentValue?: string;
   onCommentChange?: (next: string) => void;
   onAddComment?: () => void;
@@ -72,6 +109,12 @@ export function PRTabContent({
 }) {
   return (
     <>
+      {title !== undefined && (
+        <div className="pr-section-h">
+          {title}
+          {prNumber !== undefined && <span className="num"> #{prNumber}</span>}
+        </div>
+      )}
       <div className="pr-status-row">
         <span className={`pr-status-badge ${status}`}>{statusLabel}</span>
         {headBranch !== undefined && baseBranch !== undefined && (
@@ -103,9 +146,11 @@ export function PRTabContent({
         </div>
       )}
 
+      {checks !== undefined && <PRCheckCard checks={checks} />}
+
       {threads !== undefined && threads.length > 0 && (
         <>
-          <div className="pr-comment-section-h">Comments</div>
+          <div className="pr-comment-section-h">{threadsHeader ?? 'Comments'}</div>
           {threads.map(t => <CommentThread key={t.id} thread={t} />)}
         </>
       )}

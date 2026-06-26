@@ -537,19 +537,27 @@ public class GitRunner
     private void runPush(Path workingDir, boolean forceWithLease)
             throws IOException, InterruptedException
     {
+        // Always push the current branch to `origin` under the same name and
+        // set tracking there — never rely on the branch's own upstream. A fork
+        // task branch is cut from `upstream/master`, so its upstream is
+        // `upstream/master` (a different remote AND a different name); a bare
+        // `git push` then fails push.default=simple's name check ("the upstream
+        // branch ... does not match the name of your current branch"). Pushing
+        // `origin HEAD` lands the branch on the fork (or, for a directly-owned
+        // clone, on its own origin) and is correct for both layouts. The PR is
+        // opened against the merge target (upstream/master for a fork, the
+        // default branch for a direct clone) separately.
         List<String> args = forceWithLease
-                ? List.of("git", "push", "--force-with-lease")
-                : List.of("git", "push");
+                ? List.of("git", "push", "--force-with-lease", "-u", "origin", "HEAD")
+                : List.of("git", "push", "-u", "origin", "HEAD");
         GitResult result = run(args, workingDir, 300);
-        // Exit code 128 + "fatal: The current branch ... has no
-        // upstream branch" is the most common first-push case —
-        // fall back to `git push -u origin HEAD` so it works
-        // without forcing the user to set tracking up by hand.
-        // --force-with-lease has nothing to compare against on a
-        // first push, so plain `-u origin HEAD` is the right fallback
-        // for both modes.
+        // A first force-push has no remote-tracking ref for the lease to
+        // compare against — retry without the lease (still to origin HEAD).
         if (result.exitCode() != 0
-                && result.stderr().contains("has no upstream branch")) {
+                && forceWithLease
+                && (result.stderr().contains("has no upstream branch")
+                        || result.stderr().contains("stale info")
+                        || result.stderr().contains("no upstream"))) {
             run(List.of("git", "push", "-u", "origin", "HEAD"), workingDir, 300)
                     .requireSuccess();
             return;

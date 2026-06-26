@@ -70,8 +70,10 @@ describe('deriveTrunkActivity', () => {
       .toEqual({ meta: 'thinking', text: 'Working…' });
   });
 
-  it('falls back to Working when only the user prompt exists', () => {
+  it('shows the base sync when only the user prompt exists (pre-output window)', () => {
+    // The trunk fetches + resets its planning worktree to the latest base
+    // in exactly this window, so the card surfaces that rather than "Working…".
     expect(deriveTrunkActivity([msg('user', 'text')], null, false))
-      .toEqual({ meta: 'working', text: 'Working…' });
+      .toEqual({ meta: 'syncing', text: 'Syncing the latest base…' });
   });
 });

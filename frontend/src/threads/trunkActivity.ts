@@ -20,6 +20,13 @@ export type TrunkActivity = { meta: string; text: string };
 
 const DEFAULT_ACTIVITY: TrunkActivity = { meta: 'working', text: 'Working…' };
 
+/** Shown for the window between sending a planning turn and the model's
+ *  first output — which is exactly when the trunk session fetches and
+ *  resets its read-only planning worktree to the latest base
+ *  (upstream/master for a fork, origin/main for a direct clone). Surfaces
+ *  the sync instead of a generic "Working…/Thinking…". */
+const SYNCING_ACTIVITY: TrunkActivity = { meta: 'syncing', text: 'Syncing the latest base…' };
+
 /**
  * Derive what the trunk agent is doing right now from the tail of its
  * message stream, so the in-flight card can say "Thinking" / "Calling
@@ -49,7 +56,8 @@ export function deriveTrunkActivity(
     const m = messages[i];
     // Reached the user's prompt without hitting any model output — the
     // turn has been queued/spawned but nothing has streamed back yet.
-    if (m.role === 'user') break;
+    // For the trunk that window is the planning-worktree base sync.
+    if (m.role === 'user') return SYNCING_ACTIVITY;
     if (m.type === 'tool_call') {
       return { meta: 'running a tool', text: `Calling ${toolNameOf(m.contentJson)}…` };
     }

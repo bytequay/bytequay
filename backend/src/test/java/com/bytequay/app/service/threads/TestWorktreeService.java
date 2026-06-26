@@ -280,6 +280,58 @@ class TestWorktreeService
                 .isNotEqualTo(revParse(fork, "main"));
     }
 
+    /** The trunk planning worktree is a detached checkout of the upstream
+     *  base, and re-running ensure fetches + resets it to the latest base
+     *  — so planning always searches an up-to-date upstream/master, not the
+     *  fork's stale main, without touching the user's checkout. */
+    @Test
+    void testEnsurePlanningWorktreeTracksUpstreamBaseAndRefreshes(@TempDir Path tempDir)
+            throws IOException, InterruptedException
+    {
+        GitRunner git = new GitRunner();
+        if (!git.isAvailable()) {
+            return;
+        }
+        Path upstream = tempDir.resolve("upstream");
+        Files.createDirectories(upstream);
+        runGit(upstream, List.of("git", "init", "--initial-branch=master"));
+        runGit(upstream, List.of("git", "config", "user.email", "up@example.com"));
+        runGit(upstream, List.of("git", "config", "user.name", "Up"));
+        Files.writeString(upstream.resolve("U1.md"), "1", StandardCharsets.UTF_8);
+        runGit(upstream, List.of("git", "add", "U1.md"));
+        runGit(upstream, List.of("git", "commit", "-m", "upstream c1"));
+
+        Path fork = initEmptyRepo(tempDir);
+        runGit(fork, List.of("git", "remote", "add", "upstream", upstream.toString()));
+        runGit(fork, List.of("git", "fetch", "upstream"));
+        runGit(fork, List.of("git", "remote", "set-head", "upstream", "master"));
+
+        WatchedRepoStore repos = Mockito.mock(WatchedRepoStore.class);
+        Mockito.when(repos.findAll()).thenReturn(List.of(new WatchedRepo(
+                1L, "trinodb", "trino", 0, fork.toString(), "upstream", "upstream")));
+        WorktreeService service = new WorktreeService(git, repos);
+
+        Optional<WorktreeService.PlanningSync> planning = service.ensurePlanningWorktree(fork);
+        assertThat(planning).as("planning worktree should be created").isPresent();
+        assertThat(planning.get().worktree().toString()).endsWith("/.worktrees/_planning");
+        assertThat(planning.get().baseRef()).isEqualTo("upstream/master");
+        // Detached at upstream/master's tip — not the fork's main.
+        Path planningPath = planning.get().worktree();
+        assertThat(revParse(planningPath, "HEAD")).isEqualTo(revParse(fork, "upstream/master"));
+        assertThat(revParse(planningPath, "HEAD")).isNotEqualTo(revParse(fork, "main"));
+
+        // Upstream advances; re-ensuring fetches it and fast-forwards the
+        // planning worktree to the new tip.
+        Files.writeString(upstream.resolve("U2.md"), "2", StandardCharsets.UTF_8);
+        runGit(upstream, List.of("git", "add", "U2.md"));
+        runGit(upstream, List.of("git", "commit", "-m", "upstream c2"));
+
+        Optional<WorktreeService.PlanningSync> refreshed = service.ensurePlanningWorktree(fork);
+        assertThat(refreshed).isPresent();
+        assertThat(refreshed.get().worktree()).isEqualTo(planningPath);
+        assertThat(revParse(planningPath, "HEAD")).isEqualTo(revParse(fork, "upstream/master"));
+    }
+
     // ── helpers ──────────────────────────────────────────────────
 
     private static String revParse(Path workingDir, String ref)

@@ -372,6 +372,39 @@ public class GitRunner
     }
 
     /**
+     * Adds a <b>detached</b> worktree at {@code baseRef} — {@code git
+     * worktree add --detach <path> <ref>}. No branch is created, so the
+     * worktree is a throwaway checkout that can be hard-reset to a moving
+     * ref on each use. Used for the trunk's read-only planning worktree,
+     * which tracks {@code upstream/master} (or {@code origin/main}) without
+     * holding a branch that would collide with task worktrees.
+     */
+    public void worktreeAddDetached(Path mainRepoDir, Path worktreePath, String baseRef)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(worktreePath, "worktreePath is null");
+        requireNonNull(baseRef, "baseRef is null");
+        run(List.of("git", "worktree", "add", "--detach",
+                        worktreePath.toString(),
+                        baseRef),
+                mainRepoDir)
+                .requireSuccess();
+    }
+
+    /**
+     * Hard-resets {@code workingDir} to {@code ref} — {@code git reset
+     * --hard <ref>}. Discards any local changes in that working tree.
+     * Only safe on worktrees ByteQuay owns (e.g. the planning worktree);
+     * never call it on the user's own checkout.
+     */
+    public void resetHard(Path workingDir, String ref)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(ref, "ref is null");
+        run(List.of("git", "reset", "--hard", ref), workingDir).requireSuccess();
+    }
+
+    /**
      * Sets a single git config value in {@code workingDir} —
      * {@code git config <key> <value>}. Scope is the local config of
      * the working dir, which for a linked worktree means the per-

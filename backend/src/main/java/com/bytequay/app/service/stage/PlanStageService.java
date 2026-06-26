@@ -204,19 +204,25 @@ public class PlanStageService
             String nudge = "Your implementation turn ended without proposing to publish. If the "
                     + "work is complete, call ship_task(...) now — do NOT call push by "
                     + "itself. When you call ship_task you MUST include a pr_title and a "
-                    + "pr_body (markdown) describing the change, so the draft PR opens with "
-                    + "a useful description. ship_task parks ONE proposal that, on the "
+                    + "pr_body. ship_task parks ONE proposal that, on the "
                     + "user's approval, pushes the branch AND opens a draft PR in a single "
                     + "step, so the PR links and the stage advances together. It parks for "
                     + "approval and pushes nothing until the user approves. If the work "
                     + "isn't finished, keep going instead."
                     + PullRequestTemplate.find(task.agentCwd())
                             .map(tpl -> "\n\nThis repository provides a pull-request template. "
-                                    + "Your pr_body MUST follow it: keep its headings, checklists, "
-                                    + "and structure, and fill in each section for this change "
-                                    + "(delete only inapplicable optional sections). Template:\n\n"
-                                    + tpl)
-                            .orElse("");
+                                    + "Your pr_body MUST follow it EXACTLY: keep its headings, "
+                                    + "checklists, and structure, fill in each section for this "
+                                    + "change (delete only inapplicable optional sections), and "
+                                    + "add no sections of your own. Template:\n\n" + tpl)
+                            .orElse("\n\nThis repository has no pull-request template, so keep "
+                                    + "the pr_body minimal and sized to the change: a small / nit "
+                                    + "change gets ONE line saying what it does (e.g. \"Add a "
+                                    + "requireNonNull check for currentPredicate in "
+                                    + "DynamicFilterSnapshot\") — do NOT add Description / Changes "
+                                    + "/ Validation headings, list every edit, or describe "
+                                    + "testing. Only a substantial change warrants a short "
+                                    + "summary paragraph.");
             scheduler.enqueueTurn(dev, nudge, TurnInitiator.unattended("ship-nudge"));
             log.debug("nudged dev thread {} to ship task {}", dev.id(), event.taskId());
         });

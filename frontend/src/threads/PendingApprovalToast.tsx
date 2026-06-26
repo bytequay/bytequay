@@ -23,6 +23,7 @@ function actionLabel(payloadJson: string): string {
   switch (action) {
     case 'push': return 'push to the remote';
     case 'ship_task': return 'ship (push + open a draft PR)';
+    case 'mark_ready': return 'mark the PR ready for review';
     case 'open_pr': return 'open a pull request';
     case 'update_pr_body': return 'update the PR description';
     case 'post_comment':
@@ -73,12 +74,13 @@ export function PendingApprovalToast({ threadId, onResolved, onReview }: {
   if (pending === null) return null;
 
   // A ship_task proposal is reviewed on the code-diff page (diff + PR
-  // description + inline comments); route there. Other proposals keep the
-  // lightweight inline gate.
-  let isShip = false;
-  try { isShip = JSON.parse(pending.payloadJson)?.action === 'ship_task'; }
-  catch { /* leave false */ }
-  const routeToReview = isShip && onReview !== undefined;
+  // description + inline comments), and the mark_ready gate's reviewers +
+  // Mark-ready control lives on that page's PR pane — route both there.
+  // Other proposals keep the lightweight inline gate.
+  let action = '';
+  try { action = String(JSON.parse(pending.payloadJson)?.action ?? ''); }
+  catch { /* leave blank */ }
+  const routeToReview = (action === 'ship_task' || action === 'mark_ready') && onReview !== undefined;
 
   return (
     <div className="approval-toast" role="status">

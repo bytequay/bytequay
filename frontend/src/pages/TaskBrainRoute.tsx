@@ -13,8 +13,9 @@
  */
 import { useEffect, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
-import { usePendingShipProposal } from '../threads/usePendingShipProposal';
+import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
+import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import type { BrainFeedRow, StageDto, StageType } from '../types/brainView';
 import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
@@ -129,7 +130,9 @@ export function TaskBrainRoute({
           ? <UserMsg key={row.id} text={row.body} />
           : <EventRow key={row.id} kind={kind} who={who} markdown={row.body} />;
       })}
-      {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}
+      {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
+        ? <MarkReadyPrompt onReview={onOpenCode} />
+        : <ShipReviewPrompt onReview={onOpenCode} />)}
       {working && <Working label="Brain is thinking…" />}
     </Conv>
   );

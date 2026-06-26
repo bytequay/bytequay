@@ -81,4 +81,14 @@ interface TaskJpaRepository
     @Query("UPDATE TaskEntity t SET t.mergeNotificationSentAtMs = null "
             + "WHERE t.id = :taskId AND t.mergeNotificationSentAtMs IS NOT NULL")
     int clearMergeNotificationSentAt(@Param("taskId") String taskId);
+
+    // ── mark-ready gate sentinel (V128): atomic CAS, sent once ──────────
+
+    /** Stamp the ready-gate sentinel iff unset. Returns 1 when this caller is
+     *  the first to offer the mark-ready gate (so it parks it). Never cleared
+     *  — the gate is offered exactly once per task. */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.readyGateSentAtMs = :atMs "
+            + "WHERE t.id = :taskId AND t.readyGateSentAtMs IS NULL")
+    int setReadyGateSentAtIfNull(@Param("taskId") String taskId, @Param("atMs") long atMs);
 }

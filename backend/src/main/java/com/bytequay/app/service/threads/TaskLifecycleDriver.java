@@ -29,6 +29,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
+import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -221,14 +222,15 @@ public class TaskLifecycleDriver
             return;
         }
         if (phase == TaskPhase.AWAITING_READY && detail.draft()) {
-            // CI is green on a still-draft shipped PR. Un-drafting (marking
-            // it ready for review) is autonomous per the post-ship loop:
-            // record the AWAITING_READY gate, flip the PR ready, and let the
-            // next observe land it at AWAITING_REMOTE_REVIEW. Idempotent —
-            // guarded on detail.draft(), so an already-ready PR never
-            // re-fires the mutation.
+            // CI is green on a still-draft shipped PR. Rather than un-drafting
+            // autonomously, offer a ONE-TIME "mark ready for review (+ request
+            // reviewers)" approval gate — the user decides when it goes out.
+            // The sentinel guarantees it's offered once even if dismissed; an
+            // already-ready PR never reaches here (guarded on detail.draft()).
             phaseMachine.observe(task.id(), TaskPhase.AWAITING_READY, "ci_green_on_draft");
-            pullRequests.setPullRequestDraft(repo, number, false);
+            if (taskStore.markReadyGateSentIfUnset(task.id(), Instant.now())) {
+                parkMarkReadyGate(task, repo, number);
+            }
             return;
         }
         if (phase == TaskPhase.AWAITING_REMOTE_REVIEW) {
@@ -285,6 +287,31 @@ public class TaskLifecycleDriver
         }
         catch (RuntimeException e) {
             log.warn("address-comments analysis enqueue failed for task {}: {}",
+                    task.id(), e.getMessage());
+        }
+    }
+
+    /**
+     * Park the one-time mark-ready gate as an AWAITING_REVIEW notification
+     * carrying a {@code mark_ready} proposal. Created directly (not via
+     * {@code ParkedProposalService.park}) so the shipped task stays IN_REVIEW
+     * on the remote spine — the gate is a prompt to mark ready, not a status
+     * change. Approving it flips the PR ready and requests any reviewers.
+     */
+    private void parkMarkReadyGate(Task task, String repo, int number)
+    {
+        int slash = repo.indexOf('/');
+        if (slash <= 0) {
+            return;
+        }
+        ParkedProposal proposal = new ParkedProposal.MarkReady(
+                new ParkedProposal.PrRef(repo.substring(0, slash), repo.substring(slash + 1), number));
+        try {
+            notifications.notifyAwaitingReview(
+                    task.threadId(), task.id(), mapper.writeValueAsString(proposal));
+        }
+        catch (JsonProcessingException e) {
+            log.warn("Failed to write mark-ready gate payload for task {}: {}",
                     task.id(), e.getMessage());
         }
     }

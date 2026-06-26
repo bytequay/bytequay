@@ -57,7 +57,8 @@ import java.util.List;
         @JsonSubTypes.Type(value = ParkedProposal.OpenPr.class, name = "open_pr"),
         @JsonSubTypes.Type(value = ParkedProposal.PublishReview.class, name = "publish_review"),
         @JsonSubTypes.Type(value = ParkedProposal.NextTask.class, name = "next_task"),
-        @JsonSubTypes.Type(value = ParkedProposal.ShipTask.class, name = "ship_task")
+        @JsonSubTypes.Type(value = ParkedProposal.ShipTask.class, name = "ship_task"),
+        @JsonSubTypes.Type(value = ParkedProposal.MarkReady.class, name = "mark_ready")
 })
 @JsonIgnoreProperties(ignoreUnknown = true)
 public sealed interface ParkedProposal
@@ -67,7 +68,7 @@ public sealed interface ParkedProposal
                 ParkedProposal.CreateReviewComment, ParkedProposal.UpdatePrBody,
                 ParkedProposal.RequestReviewer, ParkedProposal.CommentOnIssue,
                 ParkedProposal.SetIssueState, ParkedProposal.OpenPr, ParkedProposal.PublishReview,
-                ParkedProposal.NextTask, ParkedProposal.ShipTask
+                ParkedProposal.NextTask, ParkedProposal.ShipTask, ParkedProposal.MarkReady
 {
     /** Action discriminator, e.g. {@code "request_review"}. Each record
      *  variant returns its own constant so the parking helper can log it
@@ -163,6 +164,21 @@ public sealed interface ParkedProposal
     {
         @Override public String action() { return "merge_pr"; }
         @Override @JsonProperty("source") public String source() { return "mcp:merge_pr"; }
+    }
+
+    /**
+     * Mark a draft PR ready for review and (optionally) request reviewers.
+     * Parked once by the lifecycle driver when a shipped draft's CI goes
+     * green. The reviewer list isn't known at park time — the user supplies
+     * it (or leaves it empty for "just mark ready") at approval, where it
+     * arrives as the approve call's editedBody.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record MarkReady(PrRef pr)
+            implements ParkedProposal
+    {
+        @Override public String action() { return "mark_ready"; }
+        @Override @JsonProperty("source") public String source() { return "lifecycle:mark_ready"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

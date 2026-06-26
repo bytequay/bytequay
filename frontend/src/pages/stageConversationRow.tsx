@@ -45,7 +45,14 @@ export function stageRow(r: StageConversationRow): ReactNode {
     case 'agent':
       return <EventRow key={r.id} kind="agent" who="Agent" markdown={r.text ?? ''} />;
     case 'iteration_marker':
-      return <EventRow key={r.id} kind="system" who={`Iteration ${r.iterationNumber ?? ''}`} />;
+      return (
+        <EventRow
+          key={r.id}
+          kind="system"
+          who={`Iteration ${r.iterationNumber ?? ''}`}
+          markdown={r.text ?? undefined}
+        />
+      );
     case 'tool_call':
       // No "Agent" who-row — tool calls render as bare blocks so a run of
       // them doesn't repeat the redundant agent header on every line. Tag

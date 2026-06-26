@@ -19,7 +19,7 @@ import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import { CiStatusPanel } from './CiStatusPanel';
-import { ContinuousDiff, FileDiffBody } from '../diff/DiffFileList';
+import { PaneDiff } from '../diff/PaneDiff';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { statusBadge } from '../diffStatusBadge';
 import { PRTabContent } from '../ui/pane/tabs';
@@ -208,12 +208,7 @@ export function StageDetailRoute({
       ) : files.length === 0 ? (
         <div className="pane-empty">No changes in this task yet.</div>
       ) : (
-        <ContinuousDiff
-          files={files}
-          selectedPath={selectedPath}
-          onActiveFileChange={setSelectedPath}
-          renderFileBody={(file) => <FileDiffBody file={file} />}
-        />
+        <PaneDiff files={files} />
       )}
     </>
   );

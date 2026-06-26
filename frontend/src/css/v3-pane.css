@@ -107,6 +107,48 @@
   text-align: center;
 }
 
+/* ── Compact in-pane diff (Changes tab) ─────────────────────────── */
+.shell .diff { display: flex; flex-direction: column; gap: 0; }
+.shell .diff-file-head {
+  padding: 9px 12px;
+  background: var(--bg-elevated, var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.shell .diff-file-head .ic { color: var(--text-3); }
+.shell .diff-file-head .path-bold { color: var(--text-1); font-weight: 600; }
+.shell .diff-file-head .path-dim { color: var(--text-3); }
+.shell .diff-file-head .count { margin-left: auto; font-family: var(--mono); font-size: 11.5px; }
+.shell .diff-file-head .count .add { color: #16a34a; font-weight: 600; }
+.shell .diff-file-head .count .del { color: var(--red); font-weight: 600; }
+.shell .diff-lines {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  background: var(--bg-elevated, var(--bg-elev));
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  padding: 4px 0;
+  overflow-x: auto;
+}
+.shell .diff-line { display: grid; grid-template-columns: 40px 16px 1fr; gap: 4px; padding: 0 10px; }
+.shell .diff-line .ln { color: var(--text-4); text-align: right; }
+.shell .diff-line .mark { color: var(--text-4); text-align: center; }
+.shell .diff-line .content { color: var(--text-1); white-space: pre; }
+.shell .diff-line.add { background: rgba(34, 197, 94, 0.08); }
+.shell .diff-line.add .ln, .shell .diff-line.add .mark { color: rgba(22, 163, 74, 0.55); }
+.shell .diff-line.add .mark { color: #16a34a; }
+.shell .diff-line.del { background: rgba(220, 38, 38, 0.08); }
+.shell .diff-line.del .ln { color: rgba(220, 38, 38, 0.55); }
+.shell .diff-line.del .mark { color: var(--red); }
+.shell .diff-line.hunk { color: var(--text-3); padding: 2px 10px; }
+.shell .diff-line.hunk .content { color: var(--text-3); }
+
 /* ── Inline chips (shown above composer when the pane is closed) ─ */
 .shell .inline-chips {
   display: flex;

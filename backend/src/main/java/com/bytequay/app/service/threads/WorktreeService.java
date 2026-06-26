@@ -509,8 +509,12 @@ public class WorktreeService
     }
 
     /** Outcome of a successful {@link #create} call. */
-    /** @param baseCommit the SHA {@code worktreePath} was cut from (the base
-     *   ref resolved at create time), or null if it couldn't be resolved. */
+    /**
+     * A freshly-cut task worktree.
+     *
+     * @param baseCommit the SHA {@code worktreePath} was cut from (the base
+     *     ref resolved at create time), or null if it couldn't be resolved.
+     */
     public record WorktreeHandle(Path worktreePath, String branchName, String baseCommit) {}
 
     /** Outcome of {@link #ensurePlanningWorktree}: the planning worktree's

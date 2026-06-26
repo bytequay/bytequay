@@ -21,7 +21,8 @@ package com.bytequay.app.service.threads;
  * after the push succeeds, leaves no remote state, so re-approving can't
  * double-publish.
  */
-public class PublishPushFailedException extends RuntimeException
+public class PublishPushFailedException
+        extends RuntimeException
 {
     public PublishPushFailedException(String message, Throwable cause)
     {

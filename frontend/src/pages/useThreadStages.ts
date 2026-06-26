@@ -35,9 +35,19 @@ function stageDot(state: StageState): StatusDotVariant | undefined {
   }
 }
 
-/** A task is terminal once it has finished or errored. */
+/** A task is terminal once it's finished, errored, canceled, or archived —
+ *  so the rail resolves the genuinely-live task, not a closed one. */
 function isTerminal(status: string): boolean {
-  return status === 'COMPLETED' || status === 'ERRORED';
+  return status === 'COMPLETED' || status === 'ERRORED'
+    || status === 'CANCELED' || status === 'ARCHIVED';
+}
+
+/** Task lifecycle → the rail dot, so the task row shows its state at a
+ *  glance: closed/terminal reads done, paused sleeps, otherwise it's live. */
+function taskDot(view: { terminal: boolean; paused: boolean }): StatusDotVariant {
+  if (view.terminal) return 'done';
+  if (view.paused) return 'sleep';
+  return 'active';
 }
 
 export type ThreadStages = {
@@ -45,6 +55,8 @@ export type ThreadStages = {
   taskId: string | null;
   /** That task's display name — the rail's sub-header above the stages. */
   taskLabel: string | null;
+  /** That task's lifecycle dot (done when closed, active while running). */
+  taskDot: StatusDotVariant | undefined;
   stages: StageNavRow[];
 };
 
@@ -58,11 +70,11 @@ export type ThreadStages = {
  * reload. Empty when no thread is open.
  */
 export function useThreadStages(threadId: string | null, taskId?: string): ThreadStages {
-  const [data, setData] = useState<ThreadStages>({ taskId: null, taskLabel: null, stages: [] });
+  const [data, setData] = useState<ThreadStages>({ taskId: null, taskLabel: null, taskDot: undefined, stages: [] });
 
   useEffect(() => {
     if (threadId === null) {
-      setData({ taskId: null, taskLabel: null, stages: [] });
+      setData({ taskId: null, taskLabel: null, taskDot: undefined, stages: [] });
       return;
     }
     let cancelled = false;
@@ -77,7 +89,7 @@ export function useThreadStages(threadId: string | null, taskId?: string): Threa
           tid = active?.id;
         }
         if (tid === undefined) {
-          if (!cancelled) setData({ taskId: null, taskLabel: null, stages: [] });
+          if (!cancelled) setData({ taskId: null, taskLabel: null, taskDot: undefined, stages: [] });
           return;
         }
         const view = await bridge.getBrainView(tid);
@@ -85,6 +97,7 @@ export function useThreadStages(threadId: string | null, taskId?: string): Threa
         setData({
           taskId: tid,
           taskLabel: view.task.title,
+          taskDot: taskDot(view.task),
           stages: view.stages.map(s => ({ id: s.id, label: STAGE_LABEL[s.type], dot: stageDot(s.state) })),
         });
       }

@@ -692,6 +692,7 @@ public class TaskService
                 // The PR landed, so the local worktree + branch are dead
                 // weight — reap them. Best-effort; a task already shipped
                 // (worktree nulled) is skipped.
+                notificationService.dismissOpenForTask(task.threadId(), task.id());
                 worktreeService.reap(task);
             }
         }
@@ -734,6 +735,10 @@ public class TaskService
                 stageStore.closeStage(stage.id(), "task_canceled");
             }
         }
+        // Drop any still-open publish gate (push / ship / merge): the worktree
+        // is about to be reaped, so an un-dismissed gate would be approvable
+        // against nothing and resolve into a silent no-op.
+        notificationService.dismissOpenForTask(threadId, taskId);
         worktreeService.reap(task);
         return taskStore.findTaskById(taskId).orElse(task);
     }

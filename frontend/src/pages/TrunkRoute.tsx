@@ -229,7 +229,11 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       )}
       {liveText.length > 0 && <EventRow kind="brain" who="Agent" markdown={liveText} />}
       {working && liveText.length === 0 && (
-        <Working label="Trunk is thinking…" since={workingSince ?? undefined} />
+        <Working
+          label="Trunk is thinking…"
+          since={workingSince ?? undefined}
+          onStop={() => { void window.bridge?.interruptTask(threadId).then(load).catch(() => { /* poll reconciles */ }); }}
+        />
       )}
     </Conv>
   );

@@ -159,6 +159,7 @@ export default function ThreadZoomModal({
               taskId={taskId}
               onOpenStage={() => {}}
               onOpenCode={() => {}}
+              onClosed={() => setTaskId(null)}
             />
           )}
           {/* Floating "reopens here next time" pill — sits on top-right

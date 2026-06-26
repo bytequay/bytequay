@@ -57,7 +57,7 @@ describe('V3 surfaces smoke', () => {
 
   it('TaskBrainRoute mounts', () => {
     const { container } = render(
-      <TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} />,
+      <TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />,
     );
     expect(container.querySelector('.shell')).toBeTruthy();
   });

@@ -30,7 +30,7 @@ describe('TaskBrainRoute', () => {
       getBrainView: vi.fn(() => new Promise(() => {})),
       sendBrainMessage,
     };
-    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} />);
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
 
     // The V3 shell + a TASK pill render from the fixture.
     expect(document.querySelector('.shell')).toBeTruthy();
@@ -62,7 +62,7 @@ describe('TaskBrainRoute', () => {
       approvePlan,
     };
     const onOpenStage = vi.fn();
-    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={onOpenStage} onOpenCode={() => {}} />);
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={onOpenStage} onOpenCode={() => {}} onClosed={() => {}} />);
 
     // Plan is the default tab → its intent step + Approve action show.
     expect(await screen.findByText('Build the meter')).toBeTruthy();

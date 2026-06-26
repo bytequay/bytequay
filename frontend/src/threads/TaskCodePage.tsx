@@ -23,6 +23,7 @@ import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
 import type { DiffFileDto, NotificationDto, ReviewCommentDto, ThreadCommitDto } from '../types';
 import { useThreadTasks } from './useThreadTasks';
+import { ConfirmDialog } from '../workspace/ConfirmDialog';
 
 /** The (file, line) the inline composer is open on, or null when closed.
  *  Local review comments always anchor to the new-side (RIGHT) line. */
@@ -212,6 +213,9 @@ export default function TaskCodePage({
   const [composerPending, setComposerPending] = useState(false);
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  // After a successful approve, a confirmation dialog: 'shipped' (push + PR
+  // opened, CI/comments to follow) or 'merged' (the PR was merged).
+  const [shipNotice, setShipNotice] = useState<null | 'shipped' | 'merged'>(null);
 
   // Poll for a pending ship_task proposal, like PendingApprovalToast.
   const refreshProposal = useCallback(async () => {
@@ -371,8 +375,12 @@ export default function TaskCodePage({
         await refreshProposal();
         return;
       }
+      // Success — confirm what happens next instead of silently leaving. The
+      // gate is resolved, so the proposal clears (review mode ends); the
+      // Shipped pill then reflects the task's IN_REVIEW state.
       setProposal(null);
-      onBack();
+      setActionBusy(false);
+      setShipNotice(action === 'merge_pr' ? 'merged' : 'shipped');
     }
     catch (e) {
       setActionNote(e instanceof Error ? e.message : String(e));
@@ -486,6 +494,12 @@ export default function TaskCodePage({
               <span className="diff-viewer__repo">⎇ {task.branchName}</span>
             )}
             <span className="diff-viewer__pr-title">{title}</span>
+            {(task?.status === 'IN_REVIEW' || task?.status === 'COMPLETED') && (
+              <span className="diff-viewer__shipped" title="This task has been shipped">
+                <span aria-hidden>✓</span>
+                {task.status === 'COMPLETED' ? 'Finalized' : 'Shipped'}
+              </span>
+            )}
           </div>
           {reviewMode && (
             <div className="diff-viewer__review-actions">
@@ -741,6 +755,19 @@ export default function TaskCodePage({
           </main>
         </div>
       </div>
+      {shipNotice !== null && (
+        <ConfirmDialog
+          title={shipNotice === 'merged' ? 'Pull request merged' : 'Changes approved'}
+          body={shipNotice === 'merged'
+            ? 'The pull request was merged and the task is complete.'
+            : 'The branch is pushed and a draft pull request is open. CI fixes and review '
+              + 'comments are handled automatically from here — come back to merge once it’s ready.'}
+          confirmLabel="Back to thread"
+          cancelLabel="Stay here"
+          onConfirm={() => { setShipNotice(null); onBack(); }}
+          onCancel={() => setShipNotice(null)}
+        />
+      )}
     </div>
   );
 }

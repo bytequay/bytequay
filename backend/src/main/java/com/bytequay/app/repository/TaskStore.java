@@ -216,6 +216,14 @@ public interface TaskStore
         return Optional.empty();
     }
 
+    /** Atomically stamp the mark-ready gate sentinel iff unset. Returns true
+     *  when this caller won the race (so it parks the gate). The gate is
+     *  offered once per task and never cleared. False default for test stores. */
+    default boolean markReadyGateSentIfUnset(String taskId, Instant at)
+    {
+        return false;
+    }
+
     /** Permanent removal. Drops the row plus its child {@code task_files};
      *  FK cascades handle the join. Callers must already have stopped
      *  any live agent attached to the task. */

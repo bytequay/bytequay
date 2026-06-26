@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -104,21 +105,35 @@ class TestTaskLifecycleDriver
     }
 
     @Test
-    void greenDraftRecordsTheReadyGateAndAutonomouslyUnDraftsThePr()
+    void greenDraftOffersTheMarkReadyGateOnceInsteadOfAutoUnDrafting()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
         when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
+        when(taskStore.markReadyGateSentIfUnset(eq("t1.k2"), any())).thenReturn(true);
 
         driver.reconcileTask(task);
 
-        // Went straight to the PR by number — not the cached summary — saw a
-        // green draft, recorded the AWAITING_READY gate, and un-drafted the PR
-        // (marked it ready for review) so the next sweep lands it at remote
-        // review. Un-drafting on green is autonomous per the post-ship loop.
-        verify(pullRequests).getPullRequestDetail("trinodb/trino", 29897);
+        // Green draft → record the AWAITING_READY gate and park a ONE-TIME
+        // mark-ready approval (a mark_ready proposal). It must NOT un-draft
+        // autonomously — the user approves marking it ready for review.
         verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_READY, "ci_green_on_draft");
-        verify(pullRequests).setPullRequestDraft("trinodb/trino", 29897, false);
+        verify(notifications).notifyAwaitingReview(eq("t1"), eq("t1.k2"), contains("mark_ready"));
+        verify(pullRequests, never()).setPullRequestDraft(any(), anyInt(), eq(false));
+    }
+
+    @Test
+    void greenDraftDoesNotReParkTheMarkReadyGateOnceSent()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
+        PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
+        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
+        // Sentinel already set (a prior sweep offered the gate) → not the winner.
+        when(taskStore.markReadyGateSentIfUnset(eq("t1.k2"), any())).thenReturn(false);
+
+        driver.reconcileTask(task);
+
+        verify(notifications, never()).notifyAwaitingReview(any(), any(), anyString());
     }
 
     @Test

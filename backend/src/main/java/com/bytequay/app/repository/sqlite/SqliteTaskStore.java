@@ -277,6 +277,13 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional
+    public boolean markReadyGateSentIfUnset(String taskId, Instant at)
+    {
+        return tasks.setReadyGateSentAtIfNull(taskId, at.toEpochMilli()) == 1;
+    }
+
+    @Override
     public Optional<Task> findActiveTaskByPrRef(String prRef)
     {
         return tasks.findFirstByLinkedPrRefAndPhaseNot(prRef, TaskPhase.COMPLETED.name())

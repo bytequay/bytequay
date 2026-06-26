@@ -51,6 +51,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -299,6 +300,8 @@ public class PublishService
             case ParkedProposal.Push ignored -> TaskPhase.PUSHED_AWAITING_CI;
             case ParkedProposal.OpenPr ignored -> TaskPhase.PUSHED_AWAITING_CI;
             case ParkedProposal.RequestReview ignored -> TaskPhase.INTERNAL_REVIEW;
+            // Marking ready puts the PR out for review.
+            case ParkedProposal.MarkReady ignored -> TaskPhase.AWAITING_REMOTE_REVIEW;
             default -> null;
         };
         if (target == null) {
@@ -390,6 +393,9 @@ public class PublishService
             case ParkedProposal.ShipTask shipTask -> action(
                     editedBody -> preflightAdvance(shipTask.baseMode(), original, shipTask.action()),
                     editedBody -> doShipTask(shipTask, original));
+            case ParkedProposal.MarkReady markReady -> action(
+                    editedBody -> preflightMarkReady(markReady),
+                    editedBody -> doMarkReady(markReady, editedBody));
         };
     }
 
@@ -1002,6 +1008,41 @@ public class PublishService
                 "Requested " + reviewer + " on " + pullRequest.owner() + "/"
                         + pullRequest.repo() + "#" + pullRequest.number() + ".",
                 requestReviewer.action());
+    }
+
+    private static void preflightMarkReady(ParkedProposal.MarkReady markReady)
+    {
+        requirePrRef(markReady.pr(), markReady.action());
+    }
+
+    /**
+     * Approve the mark-ready gate: flip the PR out of draft and, when the user
+     * supplied reviewers in {@code editedBody} (comma/space/newline-separated
+     * GitHub logins), request them. An empty body means "just mark ready".
+     */
+    private PublishResult doMarkReady(ParkedProposal.MarkReady markReady, String editedBody)
+    {
+        ParkedProposal.PrRef pullRequest = requirePrRef(markReady.pr(), markReady.action());
+        String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
+        PullRequestRef ref = toPullRequestRef(pullRequest);
+        pullRequests.setPullRequestDraft(pat, ref, false);
+
+        List<String> reviewers = Arrays.stream(nullToEmpty(editedBody).split("[,\\s]+"))
+                .map(String::trim)
+                .map(login -> login.startsWith("@") ? login.substring(1) : login)
+                .filter(login -> !login.isBlank())
+                .distinct()
+                .toList();
+        if (!reviewers.isEmpty()) {
+            pullRequests.requestReviewers(pat, ref,
+                    new RequestReviewersCommand(reviewers, ImmutableList.of()));
+        }
+        String who = pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number();
+        return new PublishResult(true, RESOLUTION_APPROVED,
+                reviewers.isEmpty()
+                        ? "Marked " + who + " ready for review."
+                        : "Marked " + who + " ready and requested " + String.join(", ", reviewers) + ".",
+                markReady.action());
     }
 
     private PublishResult doCommentOnIssue(ParkedProposal.CommentOnIssue commentOnIssue, String editedBody)

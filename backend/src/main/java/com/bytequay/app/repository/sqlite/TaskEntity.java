@@ -142,6 +142,9 @@ class TaskEntity
     @Column(name = "merge_notification_sent_at_ms")
     private Long mergeNotificationSentAtMs;
 
+    @Column(name = "ready_gate_sent_at_ms")
+    private Long readyGateSentAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -246,4 +249,7 @@ class TaskEntity
 
     Long getMergeNotificationSentAtMs() { return mergeNotificationSentAtMs; }
     void setMergeNotificationSentAtMs(Long mergeNotificationSentAtMs) { this.mergeNotificationSentAtMs = mergeNotificationSentAtMs; }
+
+    Long getReadyGateSentAtMs() { return readyGateSentAtMs; }
+    void setReadyGateSentAtMs(Long readyGateSentAtMs) { this.readyGateSentAtMs = readyGateSentAtMs; }
 }

@@ -222,7 +222,12 @@ export default function TaskCodePage({
       const next = list.find((n) => {
         if (n.kind !== 'AWAITING_REVIEW' || n.taskId !== taskId) return false;
         if (n.status !== 'UNREAD' && n.status !== 'RESOLVING') return false;
-        try { return JSON.parse(n.payloadJson)?.action === 'ship_task'; }
+        // Any parked publish proposal (ship_task, open_pr, push, …) is an
+        // approval gate to review here — not just ship_task.
+        try {
+          const action = JSON.parse(n.payloadJson)?.action;
+          return typeof action === 'string' && action.length > 0;
+        }
         catch { return false; }
       }) ?? null;
       setProposal(next);
@@ -237,10 +242,18 @@ export default function TaskCodePage({
   }, [refreshProposal]);
 
   const reviewMode = proposal !== null;
+  // The proposal's action drives approval (it must echo back as
+  // expectedAction) and which payload keys carry the PR description.
+  const proposalAction = useMemo(() => {
+    if (proposal === null) return null;
+    try { return (JSON.parse(proposal.payloadJson)?.action ?? null) as string | null; }
+    catch { return null; }
+  }, [proposal]);
 
   // Editable PR title/body. Seeded from the parked payload when a proposal
   // is first detected (keyed by notification id so a new proposal reseeds,
-  // but polling refreshes of the same proposal don't clobber edits).
+  // but polling refreshes of the same proposal don't clobber edits). A
+  // ship_task park carries prTitle/prBody; an open_pr park carries title/body.
   const [prTitle, setPrTitle] = useState('');
   const [prBody, setPrBody] = useState('');
   const seededFor = useRef<string | null>(null);
@@ -248,9 +261,13 @@ export default function TaskCodePage({
     if (proposal === null) { seededFor.current = null; return; }
     if (seededFor.current === proposal.id) return;
     try {
-      const p = JSON.parse(proposal.payloadJson) as { prTitle?: unknown; prBody?: unknown };
-      setPrTitle(typeof p.prTitle === 'string' ? p.prTitle : '');
-      setPrBody(typeof p.prBody === 'string' ? p.prBody : '');
+      const p = JSON.parse(proposal.payloadJson) as {
+        prTitle?: unknown; prBody?: unknown; title?: unknown; body?: unknown;
+      };
+      const t = typeof p.prTitle === 'string' ? p.prTitle : (typeof p.title === 'string' ? p.title : '');
+      const b = typeof p.prBody === 'string' ? p.prBody : (typeof p.body === 'string' ? p.body : '');
+      setPrTitle(t);
+      setPrBody(b);
     }
     catch { setPrTitle(''); setPrBody(''); }
     seededFor.current = proposal.id;
@@ -327,11 +344,18 @@ export default function TaskCodePage({
     setActionBusy(true);
     setActionNote(null);
     try {
-      // Persist the (possibly edited) description first — the panel
-      // debounces, so flush the live copy through before the deferred
-      // action runs.
-      await window.bridge.setShipDescription(proposal.id, prTitle, prBody);
-      await window.bridge.approveNotification(proposal.id, null, 'ship_task');
+      // expectedAction must echo the proposal's real action — the server
+      // 409s on a mismatch. ship_task stores its edited title+body via
+      // setShipDescription (approve takes no body); open_pr (and the other
+      // body-only gates) take the edited body straight through approve.
+      const action = proposalAction ?? 'ship_task';
+      if (action === 'ship_task') {
+        await window.bridge.setShipDescription(proposal.id, prTitle, prBody);
+        await window.bridge.approveNotification(proposal.id, null, action);
+      }
+      else {
+        await window.bridge.approveNotification(proposal.id, prBody, action);
+      }
       setProposal(null);
       onBack();
     }
@@ -339,7 +363,7 @@ export default function TaskCodePage({
       setActionNote(e instanceof Error ? e.message : String(e));
       setActionBusy(false);
     }
-  }, [actionBusy, proposal, hasUnresolved, prTitle, prBody, onBack]);
+  }, [actionBusy, proposal, proposalAction, hasUnresolved, prTitle, prBody, onBack]);
 
   // Commit list for the left column.
   useEffect(() => {

@@ -41,6 +41,7 @@ import com.bytequay.app.repository.ThreadGroupStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.ids.IdGenerator;
@@ -958,7 +959,7 @@ class TestThreadServiceScheduler
 
         private RecordingWorktreeService(Optional<WorktreeHandle> createResult)
         {
-            super(new GitRunner());
+            super(new GitRunner(), Mockito.mock(WatchedRepoStore.class));
             this.createResult = createResult;
         }
 

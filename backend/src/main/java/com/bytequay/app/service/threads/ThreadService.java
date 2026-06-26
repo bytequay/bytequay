@@ -508,9 +508,15 @@ public class ThreadService
         String branchName = handle
                 .map(WorktreeService.WorktreeHandle::branchName)
                 .orElse(request.branchName());
+        // The PR base: the upstream default for a fork-based clone (e.g.
+        // master for a trinodb/trino fork), else the local default. Read
+        // after create() so the just-fetched upstream HEAD is current.
+        // Previously hardcoded "main", which mis-targeted master repos and
+        // forks alike.
+        String baseBranch = worktreeService.resolveBaseBranchName(Path.of(request.workingDir()));
         String roleSkillText = roleSkillService.generateForTask(
                 /* repo — derivable from workingDir later */ null,
-                branchName, taskId, "main");
+                branchName, taskId, baseBranch);
         Task task = new Task(
                 taskId,
                 threadId,
@@ -518,7 +524,7 @@ public class ThreadService
                 TaskStatus.PENDING,
                 branchName,
                 handle.map(worktreeHandle -> worktreeHandle.worktreePath().toString()).orElse(null),
-                "main",
+                baseBranch,
                 request.workingDir(),
                 /* processPid */ null,
                 /* logPath */ null,

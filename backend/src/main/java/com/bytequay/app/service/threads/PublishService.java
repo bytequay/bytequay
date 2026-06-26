@@ -1070,8 +1070,13 @@ public class PublishService
         // textarea and wants a blank PR description.
         String effectiveBody = editedBody == null ? nullToEmpty(openPullRequest.body()) : editedBody;
         boolean draft = openPullRequest.draft();
+        // The branch is pushed to the clone's origin (the fork), but the PR
+        // opens against the target repo. When origin is a fork of the
+        // target, GitHub needs an owner-qualified head (<fork-owner>:branch);
+        // the bare head above is still what ensureBranchPushed pushed.
+        String apiHead = crossForkHead(task, owner, head);
         CreatePullRequestCommand command = new CreatePullRequestCommand(
-                head,
+                apiHead,
                 base,
                 title,
                 effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
@@ -1099,7 +1104,7 @@ public class PublishService
         }
         String prRef = opened == null ? "" : " #" + opened.number();
         return new PublishResult(true, RESOLUTION_APPROVED,
-                "Opened PR" + prRef + " " + owner + "/" + repoName + " · " + head + " → " + base
+                "Opened PR" + prRef + " " + owner + "/" + repoName + " · " + apiHead + " → " + base
                         + (draft ? " (draft)" : "") + ".",
                 openPullRequest.action());
     }
@@ -1130,6 +1135,32 @@ public class PublishService
             Thread.currentThread().interrupt();
             throw new RuntimeException("git push before open_pr interrupted", e);
         }
+    }
+
+    /** PR head ref for {@code head} in {@code task}'s clone against a PR
+     *  target owned by {@code targetOwner}: {@code <fork-owner>:<branch>}
+     *  when the clone's {@code origin} is a fork of the target (its owner
+     *  differs), else the bare branch. Falls back to the bare branch when
+     *  there is no task worktree or the origin owner can't be read. */
+    private String crossForkHead(Task task, String targetOwner, String head)
+    {
+        if (task == null || task.workingDir() == null || task.workingDir().isBlank()) {
+            return head;
+        }
+        try {
+            Optional<String> forkOwner = git.remoteOwner(Path.of(task.workingDir()), "origin");
+            if (forkOwner.isPresent() && !forkOwner.get().equalsIgnoreCase(targetOwner)) {
+                return forkOwner.get() + ":" + head;
+            }
+        }
+        catch (IOException e) {
+            log.warn("Resolving origin owner for cross-fork head of task {} failed: {}",
+                    task.id(), e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return head;
     }
 
     private PublishResult doPublishReview(ParkedProposal.PublishReview review, String editedBody)

@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -97,7 +100,7 @@ class TestWorktreeService
             return;
         }
         Path repo = initEmptyRepo(tempDir);
-        WorktreeService service = new WorktreeService(git);
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
 
         Optional<WorktreeService.WorktreeHandle> handle =
                 service.create(repo, "sess123", "Fix the login redirect loop");
@@ -143,7 +146,7 @@ class TestWorktreeService
             return;
         }
         Path repo = initEmptyRepo(tempDir);
-        WorktreeService service = new WorktreeService(git);
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
 
         Optional<WorktreeService.WorktreeHandle> first = service.create(repo, "sess1", "first");
         Optional<WorktreeService.WorktreeHandle> second = service.create(repo, "sess2", "second");
@@ -166,7 +169,7 @@ class TestWorktreeService
     void testCreateReturnsEmptyForNonGitDirectory(@TempDir Path tempDir)
     {
         GitRunner git = new GitRunner();
-        WorktreeService service = new WorktreeService(git);
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
         Optional<WorktreeService.WorktreeHandle> handle =
                 service.create(tempDir, "sess999", "Whatever title");
         assertThat(handle).isEmpty();
@@ -184,7 +187,7 @@ class TestWorktreeService
             return;
         }
         Path repo = initEmptyRepo(tempDir);
-        WorktreeService service = new WorktreeService(git);
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
 
         String taskId = "ws-bytequay.t260603-3-a1.k2";
         var handle = service.create(repo, taskId, "No trailer hook").orElseThrow();
@@ -219,7 +222,7 @@ class TestWorktreeService
             return;
         }
         Path repo = initEmptyRepo(tempDir);
-        WorktreeService service = new WorktreeService(git);
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
 
         var h = service.create(repo, "sessX", "a thread").orElseThrow();
         // Wipe the worktree dir without telling git.
@@ -229,7 +232,72 @@ class TestWorktreeService
         service.remove(repo, h.worktreePath().toString(), h.branchName());
     }
 
+    /** Fork-based clone: the watched repo names an {@code upstream}
+     *  remote, so a new task branch must be cut from {@code
+     *  upstream/<default>} — not the fork's own {@code main} — after the
+     *  upstream is fetched. This is the trino_new-style workflow: branch
+     *  off upstream/master, then PR against it. */
+    @Test
+    void testForkCloneBranchesFromUpstreamDefaultNotForkMain(@TempDir Path tempDir)
+            throws IOException, InterruptedException
+    {
+        GitRunner git = new GitRunner();
+        if (!git.isAvailable()) {
+            return;
+        }
+        // Upstream repo (stands in for trinodb/trino) with its own
+        // distinctive commit on master.
+        Path upstream = tempDir.resolve("upstream");
+        Files.createDirectories(upstream);
+        runGit(upstream, List.of("git", "init", "--initial-branch=master"));
+        runGit(upstream, List.of("git", "config", "user.email", "up@example.com"));
+        runGit(upstream, List.of("git", "config", "user.name", "Up"));
+        Files.writeString(upstream.resolve("UPSTREAM.md"), "u", StandardCharsets.UTF_8);
+        runGit(upstream, List.of("git", "add", "UPSTREAM.md"));
+        runGit(upstream, List.of("git", "commit", "-m", "upstream base"));
+
+        // Fork clone with a different local main, plus an "upstream"
+        // remote pointing at the upstream repo (the locate-existing flow
+        // records this remote name on the watched repo).
+        Path fork = initEmptyRepo(tempDir);
+        runGit(fork, List.of("git", "remote", "add", "upstream", upstream.toString()));
+        runGit(fork, List.of("git", "fetch", "upstream"));
+        runGit(fork, List.of("git", "remote", "set-head", "upstream", "master"));
+
+        WatchedRepoStore repos = Mockito.mock(WatchedRepoStore.class);
+        Mockito.when(repos.findAll()).thenReturn(List.of(new WatchedRepo(
+                1L, "trinodb", "trino", 0, fork.toString(),
+                /* upstreamRemoteName */ "upstream", /* viewFocus */ "upstream")));
+        WorktreeService service = new WorktreeService(git, repos);
+
+        var handle = service.create(fork, "task-fork", "add fork feature").orElseThrow();
+
+        // The new branch starts from upstream/master's tip …
+        assertThat(revParse(fork, handle.branchName()))
+                .isEqualTo(revParse(fork, "upstream/master"));
+        // … and NOT from the fork's own main.
+        assertThat(revParse(fork, handle.branchName()))
+                .isNotEqualTo(revParse(fork, "main"));
+    }
+
     // ── helpers ──────────────────────────────────────────────────
+
+    private static String revParse(Path workingDir, String ref)
+            throws IOException, InterruptedException
+    {
+        ProcessBuilder pb = new ProcessBuilder("git", "rev-parse", ref);
+        pb.directory(workingDir.toFile());
+        Process p = pb.start();
+        if (!p.waitFor(30, TimeUnit.SECONDS)) {
+            p.destroyForcibly();
+            throw new IOException("git rev-parse timed out: " + ref);
+        }
+        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).strip();
+        if (p.exitValue() != 0) {
+            throw new IOException("git rev-parse failed (" + p.exitValue() + "): " + ref);
+        }
+        return out;
+    }
 
     private static Path initEmptyRepo(Path tempDir)
             throws IOException, InterruptedException

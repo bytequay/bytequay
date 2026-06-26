@@ -29,6 +29,7 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -84,6 +85,7 @@ class TestTaskServiceShipAndContinue
 
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
+    private final StageStore stageStore = mock(StageStore.class);
     private final WatchedRepoStore watchedRepoStore = mock(WatchedRepoStore.class);
     private final WorktreeService worktreeService = mock(WorktreeService.class);
     private final GitRunner git = mock(GitRunner.class);
@@ -96,7 +98,7 @@ class TestTaskServiceShipAndContinue
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
 
     private final TaskService service = new TaskService(
-            threadStore, taskStore, watchedRepoStore, worktreeService,
+            threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
             new RoleSkillService(new ConceptRegistry()),

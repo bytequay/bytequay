@@ -104,12 +104,15 @@ export function useThreadStream(
       }
       schedulePing();
     };
-    const unsubscribe = window.bridge.subscribeTaskStream(threadId, onEvent);
+    // The bridge may be absent (test mounts) or lack the stream method —
+    // degrade to poll-only rather than throwing on mount.
+    const subscribe = typeof window !== 'undefined' ? window.bridge?.subscribeTaskStream : undefined;
+    const unsubscribe = typeof subscribe === 'function' ? subscribe(threadId, onEvent) : undefined;
     return () => {
       disposed = true;
       if (timer !== null) clearTimeout(timer);
       flush();
-      unsubscribe();
+      unsubscribe?.();
     };
   }, [threadId, status]);
 

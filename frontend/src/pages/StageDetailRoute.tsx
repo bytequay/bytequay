@@ -11,13 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { usePendingShipProposal } from '../threads/usePendingShipProposal';
+import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import type { StageType } from '../types/brainView';
-import { Conv, Working } from '../ui/conv';
+import { Conv, EventRow, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
 import { planTab } from './planTab';
 import { stageRow } from './stageConversationRow';
@@ -82,12 +83,31 @@ export function StageDetailRoute({
       .finally(() => setBusy(false));
   };
 
-  const working = busy || state === 'ACTIVE';
+  // Live stream of the agent working this stage: its text appears
+  // token-by-token (and a non-delta event refreshes the canonical
+  // transcript, which clears the live buffer). This is what makes the stage
+  // feel alive between the periodic poll snapshots.
+  const { liveText } = useThreadStream(
+    threadId, state === 'CLOSED' ? 'COMPLETED' : 'RUNNING', refresh);
+
+  // Show the working indicator whenever a turn is executing — the stage is
+  // ACTIVE, the user just steered, or text is streaming in. Track when the
+  // working period began so the indicator can tick an elapsed counter (a
+  // long, quiet turn shouldn't read as dead).
+  const working = busy || state === 'ACTIVE' || liveText.length > 0;
+  const [workingSince, setWorkingSince] = useState<number | null>(null);
+  useEffect(() => {
+    setWorkingSince(prev => (working ? prev ?? Date.now() : null));
+  }, [working]);
+
   const conversation = (
     <Conv>
       {data?.conversation.map(stageRow)}
+      {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}
-      {working && <Working label="Agent is working…" />}
+      {working && liveText.length === 0 && (
+        <Working label="Agent is working…" since={workingSince ?? undefined} />
+      )}
     </Conv>
   );
 

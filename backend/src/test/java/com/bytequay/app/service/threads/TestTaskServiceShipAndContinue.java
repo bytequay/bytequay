@@ -259,7 +259,7 @@ class TestTaskServiceShipAndContinue
                 .thenReturn(prWithNumber(43));
         when(worktreeService.create(any(Path.class), anyString(), anyString()))
                 .thenReturn(Optional.of(new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/acme/widget/.worktrees/task-next"), "dev/task-next")));
+                        Path.of("/tmp/acme/widget/.worktrees/task-next"), "dev/task-next", null)));
         when(registry.find("thread-parked")).thenReturn(Optional.empty());
 
         Task next = service.startNextFromApprovedParkedTask(

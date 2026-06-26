@@ -545,6 +545,11 @@ public class ThreadService
                 roleSkillText,
                 /* workModel */ null);
         taskStore.saveTask(task);
+        // Pin the base commit the worktree was cut from, so the task's diff
+        // is a fixed base..HEAD instead of a re-guessed branch name.
+        handle.map(WorktreeService.WorktreeHandle::baseCommit)
+                .filter(commit -> commit != null && !commit.isBlank())
+                .ifPresent(commit -> taskStore.setBaseCommit(taskId, commit));
         // Open the PlanStage at creation and kick off planning. Guarded
         // because the publisher is only wired under Spring (see the field's
         // note). Planning is the brain's job: the opening prompt seeds a
@@ -944,7 +949,7 @@ public class ThreadService
                 .or(() -> taskStore.findLatestTaskForThread(threadId))
                 .orElse(null);
         return runGit("list commits for " + threadId, () -> {
-            String base = resolveCommitBase(cwd.get(), task);
+            String base = taskDiffBase(cwd.get(), task);
             return base == null ? List.<GitRunner.CommitEntry>of()
                     : git.listCommitsAhead(cwd.get(), base, COMMITS_LIMIT);
         });
@@ -960,6 +965,24 @@ public class ThreadService
      * so a base branch that has advanced past the cut point neither hides the
      * task's commits nor over-includes the base's. Null when nothing resolves.
      */
+    /**
+     * The base to diff the task against: the commit SHA pinned when its
+     * worktree was cut (deterministic — exactly {@code base..HEAD}), falling
+     * back to the branch-name heuristic only for legacy tasks created before
+     * the base was recorded, or if the recorded commit no longer resolves.
+     */
+    private String taskDiffBase(Path cwd, Task task)
+            throws IOException, InterruptedException
+    {
+        if (task != null) {
+            String recorded = taskStore.findBaseCommit(task.id()).orElse(null);
+            if (recorded != null && git.refExists(cwd, recorded)) {
+                return recorded;
+            }
+        }
+        return resolveCommitBase(cwd, task);
+    }
+
     private String resolveCommitBase(Path cwd, Task task)
             throws IOException, InterruptedException
     {
@@ -1045,7 +1068,7 @@ public class ThreadService
                 .or(() -> taskStore.findLatestTaskForThread(threadId))
                 .orElse(null);
         return runGit("build cumulative diff for " + threadId, () -> {
-            String base = resolveCommitBase(cwd.get(), task);
+            String base = taskDiffBase(cwd.get(), task);
             if (base == null) {
                 return List.<TaskDiffFile>of();
             }

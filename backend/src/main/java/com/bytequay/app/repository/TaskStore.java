@@ -123,6 +123,19 @@ public interface TaskStore
     {
     }
 
+    /** Pin the commit SHA the task's worktree was cut from (V127) so its
+     *  diff is a fixed {@code base..HEAD}. No-op default for test stores. */
+    default void setBaseCommit(String taskId, String baseCommit)
+    {
+    }
+
+    /** The task's recorded base commit (V127), or empty for a legacy task
+     *  created before it was captured. */
+    default Optional<String> findBaseCommit(String taskId)
+    {
+        return Optional.empty();
+    }
+
     /** Write the task's {@code opening_prompt} accumulator (V110).
      *  Load-set-save like {@link #updatePhase} so {@code saveTask} can't
      *  clobber it. No-op default for test stores. */

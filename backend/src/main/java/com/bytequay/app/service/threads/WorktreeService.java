@@ -139,9 +139,13 @@ public class WorktreeService
             }
             appendToGitInfoExclude(repoRoot);
             git.worktreeAdd(repoRoot, worktreePath, branchName, baseRef);
-            log.info("Created worktree at {} on branch {} (from {}) for task {}",
-                    worktreePath, branchName, baseRef, taskId);
-            return Optional.of(new WorktreeHandle(worktreePath, branchName));
+            // Pin the exact base commit the worktree was cut from, so the
+            // task's diff is a fixed base..HEAD rather than a re-guessed
+            // branch name on every request.
+            String baseCommit = git.resolveCommitSha(repoRoot, baseRef).orElse(null);
+            log.info("Created worktree at {} on branch {} (from {} @ {}) for task {}",
+                    worktreePath, branchName, baseRef, baseCommit, taskId);
+            return Optional.of(new WorktreeHandle(worktreePath, branchName, baseCommit));
         }
         catch (IOException e) {
             log.warn("Worktree create failed for task {} in {}: {}",
@@ -505,7 +509,9 @@ public class WorktreeService
     }
 
     /** Outcome of a successful {@link #create} call. */
-    public record WorktreeHandle(Path worktreePath, String branchName) {}
+    /** @param baseCommit the SHA {@code worktreePath} was cut from (the base
+     *   ref resolved at create time), or null if it couldn't be resolved. */
+    public record WorktreeHandle(Path worktreePath, String branchName, String baseCommit) {}
 
     /** Outcome of {@link #ensurePlanningWorktree}: the planning worktree's
      *  path and the base ref it was synced to (e.g. {@code upstream/master}). */

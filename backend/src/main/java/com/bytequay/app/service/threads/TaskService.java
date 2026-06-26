@@ -564,6 +564,10 @@ public class TaskService
                 nextRoleSkill,
                 /* workModel — inherited from the thread by default */ null);
         taskStore.saveTask(next);
+        // Pin the base commit the successor's worktree was cut from.
+        nextHandle.map(WorktreeService.WorktreeHandle::baseCommit)
+                .filter(commit -> commit != null && !commit.isBlank())
+                .ifPresent(commit -> taskStore.setBaseCommit(next.id(), commit));
         eventPublisher.publishEvent(new TaskCreatedEvent(next.id()));
         return next;
     }

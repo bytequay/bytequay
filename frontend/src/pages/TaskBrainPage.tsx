@@ -33,10 +33,13 @@ type BrainTab = 'plan' | 'pr' | 'details';
  * Details tab; lifecycle controls live in the Run menu.
  */
 export function TaskBrainPage({
-  task, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
+  task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
   tabs, priorityTab, onOpenChanges, onOpenCi,
 }: {
   task: { pillLabel: string; title: string; branch?: string };
+  /** The linked pull request, shown as a clickable chip once the task is
+   *  shipped — clicking opens the PR on GitHub. */
+  pr?: { number: number; status: string; onOpen: () => void };
   sidebar?: ReactNode;
   conversation: ReactNode;
   collapsed?: boolean;
@@ -94,6 +97,12 @@ export function TaskBrainPage({
       <Pill kind="task" icon="▣">{task.pillLabel}</Pill>
       <TopBarTitle>{task.title}</TopBarTitle>
       {task.branch !== undefined && <CtxChip>{task.branch}</CtxChip>}
+      {pr !== undefined && (
+        <button type="button" className="pr-chip" onClick={pr.onOpen} title="Open the pull request on GitHub">
+          <span className="pr-chip__num">#{pr.number}</span>
+          <span className="pr-chip__status">{pr.status}</span>
+        </button>
+      )}
       {stageChips !== undefined && stageChips.length > 0 && <StageChips chips={stageChips} />}
       <Grow />
       <RunMenu

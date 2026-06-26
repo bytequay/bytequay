@@ -48,6 +48,15 @@ describe('TaskBrainPage', () => {
     expect(document.querySelector('.stage-chips .chip.current')?.textContent).toContain('Dev');
   });
 
+  it('renders a clickable PR chip when the task is shipped', () => {
+    const onOpen = vi.fn();
+    renderBrain({ pr: { number: 1234, status: 'draft', onOpen } });
+    const chip = screen.getByText('#1234').closest('button') as HTMLButtonElement;
+    expect(chip.textContent).toContain('draft');
+    fireEvent.click(chip);
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
   it('shows the first available tab (Plan) and switches to Details', () => {
     renderBrain();
     expect(screen.getByTestId('plan-tab')).toBeTruthy();

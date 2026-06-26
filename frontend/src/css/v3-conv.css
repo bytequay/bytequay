@@ -238,6 +238,68 @@
   color: var(--text-3);
   font-style: italic;
 }
+/* ── Live CI status panel (CI-fixing stage) ──────────────────── */
+.shell .ci-panel {
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-elev);
+  flex-shrink: 0;
+}
+.shell .ci-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--code-bg-warm);
+}
+.shell .ci-panel__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-4);
+}
+.shell .ci-panel--green .ci-panel__dot { background: #16a34a; }
+.shell .ci-panel--failing .ci-panel__dot { background: var(--red); }
+.shell .ci-panel--pending .ci-panel__dot {
+  background: var(--orange);
+  animation: working-pulse 1.2s ease-in-out infinite;
+}
+.shell .ci-panel__status {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.shell .ci-panel__grow { flex: 1; }
+.shell .ci-panel__link {
+  font-size: 11.5px;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.shell .ci-panel__checks {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+.shell .ci-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.shell .ci-check__icon { width: 14px; text-align: center; flex-shrink: 0; }
+.shell .ci-check--ok .ci-check__icon { color: #16a34a; }
+.shell .ci-check--fail .ci-check__icon { color: var(--red); }
+.shell .ci-check--pending .ci-check__icon { color: var(--orange); }
+.shell .ci-check__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell .ci-check__dur { font-family: var(--mono); font-size: 11px; color: var(--text-4); }
+
 .shell .working__stop {
   margin-left: 10px;
   padding: 2px 10px;

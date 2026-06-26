@@ -17,6 +17,7 @@ import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { usePendingShipProposal } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
+import { CiStatusPanel } from './CiStatusPanel';
 import type { StageType } from '../types/brainView';
 import { Conv, EventRow, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
@@ -120,8 +121,18 @@ export function StageDetailRoute({
     setWorkingSince(prev => (working ? prev ?? Date.now() : null));
   }, [working]);
 
+  const realtimeCi = data?.realtimeCi ?? null;
   const conversation = (
     <Conv>
+      {realtimeCi !== null && (
+        <CiStatusPanel
+          ci={realtimeCi}
+          onOpenGitHub={() => {
+            const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+            void bridge?.openExternal(realtimeCi.prUrl);
+          }}
+        />
+      )}
       {data?.conversation.map(stageRow)}
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}

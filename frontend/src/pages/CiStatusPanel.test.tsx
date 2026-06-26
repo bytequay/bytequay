@@ -40,4 +40,15 @@ describe('CiStatusPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /View on GitHub/ }));
     expect(onOpenGitHub).toHaveBeenCalledOnce();
   });
+
+  it('folds the check list when the header is clicked', () => {
+    render(<CiStatusPanel ci={CI} onOpenGitHub={vi.fn()} />);
+    expect(screen.getByText('build')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide CI checks' }));
+    expect(screen.queryByText('build')).toBeNull();
+    // The overall status stays visible while folded.
+    expect(screen.getByText('CI · Running')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Show CI checks' }));
+    expect(screen.getByText('build')).toBeTruthy();
+  });
 });

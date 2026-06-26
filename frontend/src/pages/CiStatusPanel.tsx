@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import type { RealtimeCi } from '../types/brainView';
 
 const STATUS_LABEL: Record<RealtimeCi['status'], string> = {
@@ -42,17 +43,38 @@ export function CiStatusPanel({ ci, onOpenGitHub }: {
   ci: RealtimeCi;
   onOpenGitHub: () => void;
 }) {
+  const hasChecks = ci.checks.length > 0;
+  const [collapsed, setCollapsed] = useState(false);
+  const showChecks = hasChecks && !collapsed;
+
   return (
     <div className={`ci-panel ci-panel--${ci.status}`}>
       <div className="ci-panel__head">
-        <span className="ci-panel__dot" aria-hidden />
-        <span className="ci-panel__status">CI · {STATUS_LABEL[ci.status]}</span>
+        {/* The head doubles as a disclosure toggle: click to fold the check
+            list away (the overall status stays visible). */}
+        <button
+          type="button"
+          className="ci-panel__toggle"
+          onClick={() => setCollapsed(c => !c)}
+          disabled={!hasChecks}
+          aria-expanded={showChecks}
+          aria-label={collapsed ? 'Show CI checks' : 'Hide CI checks'}
+        >
+          {hasChecks && (
+            <span className="ci-panel__chev" aria-hidden>{collapsed ? '▸' : '▾'}</span>
+          )}
+          <span className="ci-panel__dot" aria-hidden />
+          <span className="ci-panel__status">CI · {STATUS_LABEL[ci.status]}</span>
+          {hasChecks && (
+            <span className="ci-panel__count">{ci.checks.length} check{ci.checks.length === 1 ? '' : 's'}</span>
+          )}
+        </button>
         <span className="ci-panel__grow" />
         <button type="button" className="ci-panel__link" onClick={onOpenGitHub}>
           View on GitHub ↗
         </button>
       </div>
-      {ci.checks.length > 0 && (
+      {showChecks && (
         <ul className="ci-panel__checks">
           {ci.checks.map((check, i) => {
             const dur = formatDuration(check.durationSec);

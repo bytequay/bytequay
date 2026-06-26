@@ -23,7 +23,7 @@ import type { PaneTab } from '../ui/pane';
 
 /** The four work stages that share this page. */
 export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
-type StageTab = 'plan' | 'pr' | 'details';
+type StageTab = 'plan' | 'changes' | 'pr' | 'files' | 'details';
 
 const PILL_LABEL: Record<StageKind, string> = {
   plan: 'PLAN',
@@ -39,7 +39,7 @@ const PILL_LABEL: Record<StageKind, string> = {
 const PREFERRED_TAB: Record<StageKind, StageTab> = {
   plan: 'plan',
   dev: 'plan',
-  'ci-fix': 'details',
+  'ci-fix': 'changes',
   comments: 'pr',
   cleanup: 'details',
 };
@@ -53,7 +53,7 @@ const PREFERRED_TAB: Record<StageKind, StageTab> = {
  */
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, onOpenChanges, onOpenCi,
+  tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi,
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
@@ -77,13 +77,19 @@ export function StageDetailPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  tabs: { plan?: ReactNode; pr?: ReactNode; details: ReactNode };
+  tabs: { plan?: ReactNode; changes?: ReactNode; pr?: ReactNode; files?: ReactNode; details: ReactNode };
+  /** Optional per-tab count badge (e.g. changed-file count, PR number). */
+  tabCounts?: Partial<Record<StageTab, { count?: number; countColor?: 'red' | 'acc' | 'muted' }>>;
+  /** Sub-header under the tab strip, shown on the Changes tab (frame 6). */
+  paneMeta?: { left?: ReactNode; right?: ReactNode };
   onOpenChanges?: () => void;
   onOpenCi?: () => void;
 }) {
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
     ...(tabs.plan !== undefined ? [{ key: 'plan' as const, label: 'Plan', node: tabs.plan }] : []),
+    ...(tabs.changes !== undefined ? [{ key: 'changes' as const, label: 'Changes', node: tabs.changes }] : []),
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
+    ...(tabs.files !== undefined ? [{ key: 'files' as const, label: 'Files', node: tabs.files }] : []),
     { key: 'details' as const, label: 'Details', node: tabs.details },
   ];
   const preferred = PREFERRED_TAB[stageKind];
@@ -92,7 +98,12 @@ export function StageDetailPage({
   const [paneOpen, setPaneOpen] = useState(true);
 
   const active = available.find(t => t.key === activeTab) ?? available[available.length - 1];
-  const paneTabs: PaneTab<StageTab>[] = available.map(t => ({ key: t.key, label: t.label }));
+  const paneTabs: PaneTab<StageTab>[] = available.map(t => ({
+    key: t.key,
+    label: t.label,
+    count: tabCounts?.[t.key]?.count,
+    countColor: tabCounts?.[t.key]?.countColor,
+  }));
   // CI Fix is the one stage that surfaces the CI Status full-page view.
   const showCi = stageKind === 'ci-fix' && onOpenCi !== undefined;
 
@@ -147,6 +158,9 @@ export function StageDetailPage({
           {paneOpen && (
             <RightPane>
               <RightPane.Tabs<StageTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />
+              {paneMeta !== undefined && active.key === 'changes' && (
+                <RightPane.MetaRow left={paneMeta.left} right={paneMeta.right} />
+              )}
               <RightPane.Content>{active.node}</RightPane.Content>
             </RightPane>
           )}

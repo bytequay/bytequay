@@ -99,6 +99,14 @@
   gap: 14px;
 }
 
+/* Empty / loading placeholder inside a right-pane tab (Changes, Files). */
+.shell .pane-empty {
+  padding: 24px 4px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  text-align: center;
+}
+
 /* ── Inline chips (shown above composer when the pane is closed) ─ */
 .shell .inline-chips {
   display: flex;

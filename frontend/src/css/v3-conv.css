@@ -253,6 +253,29 @@
   padding: 8px 12px;
   background: var(--code-bg-warm);
 }
+.shell .ci-panel__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+}
+.shell .ci-panel__toggle:disabled { cursor: default; }
+.shell .ci-panel__chev {
+  font-size: 9px;
+  color: var(--text-3);
+  width: 9px;
+  flex-shrink: 0;
+}
+.shell .ci-panel__count {
+  font-size: 11px;
+  color: var(--text-3);
+}
 .shell .ci-panel__dot {
   width: 9px;
   height: 9px;

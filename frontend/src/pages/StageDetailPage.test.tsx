@@ -75,4 +75,39 @@ describe('StageDetailPage', () => {
     renderStage('dev', { stage: { title: 'x', pillLabel: 'STAGE 3 · DEV' } });
     expect(document.querySelector('.v3-pill--stage')?.textContent).toBe('STAGE 3 · DEV');
   });
+
+  const fullTabs = {
+    plan: <div data-testid="plan-tab">plan</div>,
+    changes: <div data-testid="changes-tab">changes</div>,
+    pr: <div data-testid="pr-tab">pr threads</div>,
+    files: <div data-testid="files-tab">files</div>,
+    details: <div data-testid="details-tab">details</div>,
+  };
+
+  it('renders the full Plan · Changes · PR · Files · Details strip', () => {
+    renderStage('dev', { tabs: fullTabs });
+    const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
+    expect(labels).toEqual(['Plan', 'Changes', 'PR', 'Files', 'Details']);
+  });
+
+  it('CI Fix leads with the Changes tab when one is provided', () => {
+    renderStage('ci-fix', { tabs: fullTabs });
+    expect(screen.getByTestId('changes-tab')).toBeTruthy();
+    expect(screen.queryByTestId('plan-tab')).toBeNull();
+  });
+
+  it('shows the pane meta-row only on the Changes tab', () => {
+    renderStage('ci-fix', { tabs: fullTabs, paneMeta: { left: 'CI fix · iter 2', right: 'View on GitHub' } });
+    expect(screen.getByText('CI fix · iter 2')).toBeTruthy();
+    // Switching to Details (the pane tab, not the inline chip) hides the row.
+    const detailsTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent === 'Details');
+    fireEvent.click(detailsTab as Element);
+    expect(screen.queryByText('CI fix · iter 2')).toBeNull();
+  });
+
+  it('renders per-tab count badges', () => {
+    renderStage('ci-fix', { tabs: fullTabs, tabCounts: { changes: { count: 4, countColor: 'acc' }, pr: { count: 145, countColor: 'muted' } } });
+    const changesTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith('Changes'));
+    expect(changesTab?.querySelector('.count')?.textContent).toBe('4');
+  });
 });

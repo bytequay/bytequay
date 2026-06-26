@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
@@ -19,6 +19,12 @@ import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import { CiStatusPanel } from './CiStatusPanel';
+import { ContinuousDiff, FileDiffBody } from '../diff/DiffFileList';
+import { DiffFileTreePane } from '../diff/DiffFileTreePane';
+import { statusBadge } from '../diffStatusBadge';
+import { PRTabContent } from '../ui/pane/tabs';
+import type { CommentThreadData } from '../ui/pane/tabs';
+import type { DiffFileDto, ReviewCommentDto } from '../types';
 import type { StageType } from '../types/brainView';
 import { Conv, EventRow, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
@@ -39,8 +45,11 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * Data adapter mounting the V3 {@link StageDetailPage} on the live stage
  * detail data. Maps the stage transcript → conversation (agent turns,
  * tool blocks, your steering, iteration markers) and wires the composer to
- * the stage's agent via {@code steerStage}. Plan/PR tabs are backfilled
- * later.
+ * the stage's agent via {@code steerStage}. The right pane carries the full
+ * Plan · Changes · PR · Files · Details strip: Changes/Files render the
+ * task's cumulative diff, the CI-fix stage shows the live CI check card
+ * above the diff, and the PR tab surfaces the pull request + its review
+ * comment threads.
  */
 export function StageDetailRoute({
   threadId, taskId, stageId, onOpenCode, onOpenStage,
@@ -64,6 +73,65 @@ export function StageDetailRoute({
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
+  const realtimeCi = data?.realtimeCi ?? null;
+  const prNumber = data?.task.prNumber ?? null;
+  const branch = data?.task.branch;
+  const repoFullName = data?.task.repoFullName;
+  const prDraft = data?.task.prDraft ?? false;
+
+  // Changes / Files / PR tabs only apply to the work stages — the Plan stage
+  // is a read-only conversation artifact with no diff of its own.
+  const hasDiff = stageKind !== 'plan';
+
+  // ── Right-pane data: the task's cumulative diff + its review comments ───
+  const [files, setFiles] = useState<DiffFileDto[] | null>(null);
+  const [comments, setComments] = useState<ReviewCommentDto[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (!hasDiff) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (bridge?.getTaskCumulativeDiff === undefined) return;
+    let cancelled = false;
+    void bridge.getTaskCumulativeDiff(threadId)
+      .then(list => {
+        if (cancelled) return;
+        setFiles(list);
+        setSelectedPath(prev => (prev !== null && list.some(f => f.filename === prev)
+          ? prev : list[0]?.filename ?? null));
+      })
+      .catch(() => { if (!cancelled) setFiles([]); });
+    return () => { cancelled = true; };
+  }, [threadId, hasDiff]);
+
+  useEffect(() => {
+    if (prNumber === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (bridge?.listReviewComments === undefined) return;
+    let cancelled = false;
+    void bridge.listReviewComments(taskId)
+      .then(c => { if (!cancelled) setComments(c); })
+      .catch(() => { /* non-fatal — PR tab just shows no threads */ });
+    return () => { cancelled = true; };
+  }, [taskId, prNumber]);
+
+  const toggleDir = useCallback((path: string) => {
+    setCollapsedDirs(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const openPr = useCallback(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (realtimeCi !== null) { void bridge?.openExternal(realtimeCi.prUrl); return; }
+    if (repoFullName != null && prNumber !== null) {
+      void bridge?.openExternal(`https://github.com/${repoFullName}/pull/${prNumber}`);
+    }
+  }, [realtimeCi, repoFullName, prNumber]);
 
   const approvePlan = () => {
     if (plan === null) return;
@@ -122,18 +190,8 @@ export function StageDetailRoute({
     setWorkingSince(prev => (working ? prev ?? Date.now() : null));
   }, [working]);
 
-  const realtimeCi = data?.realtimeCi ?? null;
   const conversation = (
     <Conv>
-      {realtimeCi !== null && (
-        <CiStatusPanel
-          ci={realtimeCi}
-          onOpenGitHub={() => {
-            const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-            void bridge?.openExternal(realtimeCi.prUrl);
-          }}
-        />
-      )}
       {data?.conversation.map(stageRow)}
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
@@ -152,6 +210,62 @@ export function StageDetailRoute({
     </Conv>
   );
 
+  // ── Right-pane tab nodes ────────────────────────────────────────────────
+  const changesNode = (
+    <>
+      {stageKind === 'ci-fix' && realtimeCi !== null && (
+        <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
+      )}
+      {files === null ? (
+        <div className="pane-empty">Loading diff…</div>
+      ) : files.length === 0 ? (
+        <div className="pane-empty">No changes in this task yet.</div>
+      ) : (
+        <ContinuousDiff
+          files={files}
+          selectedPath={selectedPath}
+          onActiveFileChange={setSelectedPath}
+          renderFileBody={(file) => <FileDiffBody file={file} />}
+        />
+      )}
+    </>
+  );
+
+  const filesNode = (
+    <DiffFileTreePane<DiffFileDto>
+      files={files}
+      error={null}
+      mode="tree"
+      pathOf={(f) => f.filename}
+      statusBadgeOf={(f) => statusBadge(f.status)}
+      selectedPath={selectedPath}
+      onSelectPath={setSelectedPath}
+      collapsedDirs={collapsedDirs}
+      onToggleDir={toggleDir}
+    />
+  );
+
+  const threads: CommentThreadData[] = useMemo(() => comments.map(c => ({
+    id: c.id,
+    author: c.source === 'LOCAL_USER' ? 'You' : c.source,
+    file: `${c.file}:${c.line}`,
+    status: c.resolved ? 'resolved' : 'open',
+    body: c.body,
+  })), [comments]);
+
+  const prNode = (
+    <PRTabContent
+      status={prDraft ? 'draft' : 'open'}
+      statusLabel={prDraft ? 'Draft' : 'Open · ready for review'}
+      headBranch={branch}
+      baseBranch={branch !== undefined ? 'main' : undefined}
+      threads={threads}
+    />
+  );
+
+  const totalAdds = files?.reduce((n, f) => n + f.additions, 0) ?? 0;
+  const totalDels = files?.reduce((n, f) => n + f.deletions, 0) ?? 0;
+
   return (
     <StageDetailPage
       stageKind={stageKind}
@@ -165,6 +279,19 @@ export function StageDetailRoute({
         placeholder: state === 'CLOSED' ? 'This stage is closed.' : 'Steer this stage…',
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
+      tabCounts={{
+        changes: files !== null && files.length > 0 ? { count: files.length, countColor: 'acc' } : undefined,
+        pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
+      }}
+      paneMeta={stageKind === 'ci-fix' ? {
+        left: `CI fix · iter ${data?.stage.iterationCount ?? 0}`,
+        right: (
+          <>
+            {`+${totalAdds} −${totalDels} · `}
+            <span style={{ color: 'var(--accent)', cursor: 'pointer' }} onClick={openPr}>View on GitHub</span>
+          </>
+        ),
+      } : undefined}
       tabs={{
         // The plan is the task's, not the stage's — surface it on every
         // stage (Dev / CI-fix / …) so the user can re-read it from anywhere,
@@ -172,6 +299,9 @@ export function StageDetailRoute({
         plan: plan !== null
           ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined)
           : undefined,
+        changes: hasDiff ? changesNode : undefined,
+        pr: prNumber !== null ? prNode : undefined,
+        files: hasDiff ? filesNode : undefined,
         details: (
           <DetailsTabContent sections={[{
             title: 'Stage',

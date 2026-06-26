@@ -249,6 +249,10 @@ export default function TaskCodePage({
     try { return (JSON.parse(proposal.payloadJson)?.action ?? null) as string | null; }
     catch { return null; }
   }, [proposal]);
+  // Only the PR-opening gates carry a title/body to review + edit. A bare
+  // `push` gate pushes the branch; the agent opens the PR (with its
+  // description) as the next gate — so show that instead of an empty editor.
+  const hasPrDescription = proposalAction === 'ship_task' || proposalAction === 'open_pr';
 
   // Editable PR title/body. Seeded from the parked payload when a proposal
   // is first detected (keyed by notification id so a new proposal reseeds,
@@ -618,7 +622,7 @@ export default function TaskCodePage({
             </div>
             {paneTab === 'pr' ? (
               <div className="diff-viewer__pr-pane">
-                {proposal !== null ? (
+                {proposal !== null && hasPrDescription ? (
                   <ShipDescriptionPanel
                     notificationId={proposal.id}
                     title={prTitle}
@@ -626,6 +630,12 @@ export default function TaskCodePage({
                     onTitleChange={setPrTitle}
                     onBodyChange={setPrBody}
                   />
+                ) : proposal !== null ? (
+                  <div className="diff-viewer__empty">
+                    No pull request to describe yet. Approving pushes this branch;
+                    the agent then opens the pull request — with its title and
+                    description — as the next step, which you’ll review here.
+                  </div>
                 ) : (
                   <div className="diff-viewer__empty">
                     No pull request yet — ship the task to open one.

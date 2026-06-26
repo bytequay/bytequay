@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRTabContent } from './PRTabContent';
 
 afterEach(cleanup);
@@ -70,5 +70,20 @@ describe('PRTabContent — stage PR tab', () => {
     expect(screen.getByText('Can we cap the bar count at 10?')).toBeTruthy();
     expect(screen.getByText('BOT')).toBeTruthy();
     expect(screen.getByText('Capped at 10 with a +N marker.')).toBeTruthy();
+  });
+
+  it('shows the add-comment box and fires onAddComment', () => {
+    const onAddComment = vi.fn();
+    render(
+      <PRTabContent
+        status="open"
+        statusLabel="Open"
+        commentValue="looks good"
+        onCommentChange={() => {}}
+        onAddComment={onAddComment}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+    expect(onAddComment).toHaveBeenCalledOnce();
   });
 });

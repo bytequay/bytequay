@@ -70,6 +70,10 @@ export function StageDetailRoute({
   const plan = brain.rightRail.plan;
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // The PR-tab Add-comment box (frame 7). Per the no-auto-post rule, a typed
+  // comment is handed to the dev agent to post — it parks the publish for the
+  // user's approval through the normal gate rather than posting directly.
+  const [prComment, setPrComment] = useState('');
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
@@ -127,6 +131,17 @@ export function StageDetailRoute({
       .then(result => { pollFast(); onOpenStage?.(result.devStageId); })
       .catch(() => { /* poll reconciles */ });
   };
+
+  const postPrComment = useCallback(() => {
+    const body = prComment.trim();
+    if (body.length === 0) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.steerStage(
+      stageId,
+      `Please post this comment on the pull request (park it for my approval as usual):\n\n${body}`)
+      .then(() => { setPrComment(''); refresh(); })
+      .catch(() => { /* poll reconciles */ });
+  }, [prComment, stageId, refresh]);
 
   const submit = () => {
     const body = text.trim();
@@ -264,6 +279,9 @@ export function StageDetailRoute({
       checks={pr.checks.total > 0 ? pr.checks : undefined}
       threads={threads}
       threadsHeader={threads.length > 0 ? `Open threads · ${openThreadCount}` : undefined}
+      commentValue={prComment}
+      onCommentChange={setPrComment}
+      onAddComment={state !== 'CLOSED' ? postPrComment : undefined}
     />
   ) : null;
 

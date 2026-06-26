@@ -105,7 +105,10 @@ export function StageDetailRoute({
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
       tabs={{
-        plan: stageKind === 'plan' && plan !== null
+        // The plan is the task's, not the stage's — surface it on every
+        // stage (Dev / CI-fix / …) so the user can re-read it from anywhere,
+        // not only the Plan stage. Approve only while it's still awaiting.
+        plan: plan !== null
           ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined)
           : undefined,
         details: (

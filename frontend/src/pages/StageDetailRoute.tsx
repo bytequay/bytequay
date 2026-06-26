@@ -306,7 +306,10 @@ export function StageDetailRoute({
         pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
       }}
       paneMeta={stageKind === 'ci-fix' ? {
-        left: `CI fix · iter ${data?.stage.iterationCount ?? 0}`,
+        left: `CI fix · iter ${data?.stage.iterationCount ?? 0}`
+          + (data?.stage.config.autoPushBudget != null
+            ? ` · auto-push ${data.stage.config.autoPushBudget.used}/${data.stage.config.autoPushBudget.limit}`
+            : ''),
         right: (
           <>
             {`+${totalAdds} −${totalDels} · `}

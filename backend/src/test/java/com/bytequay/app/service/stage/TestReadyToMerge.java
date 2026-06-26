@@ -99,10 +99,14 @@ class TestReadyToMerge
         assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
     }
 
+    /** The ready-to-merge gate is now a parked {@code merge_pr} proposal —
+     *  an AWAITING_REVIEW notification the user one-click approves to merge —
+     *  rather than the old informational READY_TO_MERGE notice. */
     private long readyToMergeNotifications(String threadId)
     {
         return notifications.listForThread(threadId).stream()
-                .filter(n -> n.kind() == NotificationKind.READY_TO_MERGE)
+                .filter(n -> n.kind() == NotificationKind.AWAITING_REVIEW)
+                .filter(n -> n.payloadJson().contains("\"action\":\"merge_pr\""))
                 .count();
     }
 

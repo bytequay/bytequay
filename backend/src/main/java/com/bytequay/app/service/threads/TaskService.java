@@ -435,21 +435,27 @@ public class TaskService
                     ? cutSuccessorTask(threadId, current, request, repoFullName, workingDir, now)
                     : null;
 
-            // 7. Drop the in-memory agent for this thread. The next
-            //    user turn will spawn a fresh ThreadAgent that reads
-            //    the active task (= the new one) and uses its worktree
-            //    as cwd while resuming the conversation via
-            //    --resume <thread-agent-id>.
-            registry.find(threadId).ifPresent(agent -> {
-                try {
-                    agent.stop();
-                }
-                catch (RuntimeException e) {
-                    log.warn("agent stop on ship-and-continue threw for {}: {}",
-                            threadId, e.getMessage());
-                }
-            });
-            registry.evict(threadId);
+            // 7. Only NEXT drops the in-memory agent: it cut a successor, so
+            //    the next turn must spawn fresh in the successor's worktree
+            //    (--resume <thread-agent-id>). SHIP keeps the SAME task
+            //    IN_REVIEW with its worktree, and the CI-fixing / comment-
+            //    addressing stages reuse this very agent session — so we leave
+            //    it running. (Stopping it here also persisted a stage snapshot
+            //    inside this transaction; a write failure there would mark the
+            //    whole ship rollback-only and discard the already-done push +
+            //    PR. Not stopping avoids that entirely for the ship path.)
+            if (startSuccessor) {
+                registry.find(threadId).ifPresent(agent -> {
+                    try {
+                        agent.stop();
+                    }
+                    catch (RuntimeException e) {
+                        log.warn("agent stop on ship-and-continue threw for {}: {}",
+                                threadId, e.getMessage());
+                    }
+                });
+                registry.evict(threadId);
+            }
 
             // Drop an informational notification so the bell / center
             // shows "Task N shipped → PR #M" (and, when the chain continues,

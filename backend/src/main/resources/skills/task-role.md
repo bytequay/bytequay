@@ -29,9 +29,16 @@ tool, not the shell. The tools park a proposal that the user approves —
 that approval is the gate, and it's the only path that reaches the
 remote. So:
 
-- To push your branch: call `push`. To open the PR: `open_pr`. To ask
-  for review: `request_review`. To merge / edit / approve / comment:
-  `merge_pr` / `update_pr_body` / `approve_pr` / `post_comment`.
+- **When the task's code is done, publish with `ship_task`.** It is the
+  single finish-the-task gate: it pushes your branch *and* opens the draft
+  PR together, and you supply the PR title + body up front so the user
+  reviews the whole pull request in one approval. Prefer it over calling
+  `push` then `open_pr` separately — splitting them parks a bare push gate
+  with no PR description, which the user can't review.
+- Lower-level tools, only when you specifically need one step alone (not
+  the normal finish): `push` (push the branch only), `open_pr` (open the PR
+  only). To ask for review: `request_review`. To merge / edit / approve /
+  comment: `merge_pr` / `update_pr_body` / `approve_pr` / `post_comment`.
 - After you call one of these, you're done for that step — it parks and
   waits on the user. Don't poll, retry, or look for another way to do
   it; CI and review state advance on their own.

@@ -14,6 +14,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { NotificationDto } from '../types';
 
+/** The parked `action` carried by a proposal notification, or null when
+ *  the payload is missing/unparseable. Lets a surface branch on the gate
+ *  kind (e.g. `mark_ready` vs `ship_task`) without re-parsing inline. */
+export function proposalAction(notification: NotificationDto | null): string | null {
+  if (notification === null) return null;
+  try {
+    const action = JSON.parse(notification.payloadJson)?.action;
+    return typeof action === 'string' && action.length > 0 ? action : null;
+  }
+  catch { return null; }
+}
+
 /**
  * Polls for a pending `ship_task` proposal on a task — the AWAITING_REVIEW
  * notification the dev agent parks when development finishes and the diff

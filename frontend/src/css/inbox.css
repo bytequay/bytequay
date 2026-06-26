@@ -1239,6 +1239,17 @@
   background: var(--bg-canvas, var(--bg-elevated));
   color: var(--text-1);
 }
+.ship-description__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.diff-viewer__pr-blurb {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
 
 .diff-viewer__repo { font-size: var(--font-size-md); color: var(--text-2); white-space: nowrap; }
 .diff-viewer__num { font-size: var(--font-size-md); color: var(--text-3); }

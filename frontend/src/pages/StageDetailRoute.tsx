@@ -14,9 +14,10 @@
 import { useEffect, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
-import { usePendingShipProposal } from '../threads/usePendingShipProposal';
+import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
+import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import { CiStatusPanel } from './CiStatusPanel';
 import type { StageType } from '../types/brainView';
 import { Conv, EventRow, Working } from '../ui/conv';
@@ -135,7 +136,9 @@ export function StageDetailRoute({
       )}
       {data?.conversation.map(stageRow)}
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
-      {shipProposal !== null && <ShipReviewPrompt onReview={onOpenCode} />}
+      {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
+        ? <MarkReadyPrompt onReview={onOpenCode} />
+        : <ShipReviewPrompt onReview={onOpenCode} />)}
       {working && liveText.length === 0 && (
         <Working
           label="Agent is working…"

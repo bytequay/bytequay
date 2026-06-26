@@ -23,6 +23,7 @@ import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
 import type { DiffFileDto, NotificationDto, ReviewCommentDto, ThreadCommitDto } from '../types';
 import { useThreadTasks } from './useThreadTasks';
+import { MarkReadyPanel, type MarkReadyPrRef } from './MarkReadyPanel';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 
 /** The (file, line) the inline composer is open on, or null when closed.
@@ -214,8 +215,9 @@ export default function TaskCodePage({
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   // After a successful approve, a confirmation dialog: 'shipped' (push + PR
-  // opened, CI/comments to follow) or 'merged' (the PR was merged).
-  const [shipNotice, setShipNotice] = useState<null | 'shipped' | 'merged'>(null);
+  // opened, CI/comments to follow), 'merged' (the PR was merged), or 'ready'
+  // (a draft PR flipped ready for review + reviewers requested).
+  const [shipNotice, setShipNotice] = useState<null | 'shipped' | 'merged' | 'ready'>(null);
 
   // Poll for a pending ship_task proposal, like PendingApprovalToast.
   const refreshProposal = useCallback(async () => {
@@ -245,7 +247,6 @@ export default function TaskCodePage({
     return () => clearInterval(t);
   }, [refreshProposal]);
 
-  const reviewMode = proposal !== null;
   // The proposal's action drives approval (it must echo back as
   // expectedAction) and which payload keys carry the PR description.
   const proposalAction = useMemo(() => {
@@ -253,10 +254,35 @@ export default function TaskCodePage({
     try { return (JSON.parse(proposal.payloadJson)?.action ?? null) as string | null; }
     catch { return null; }
   }, [proposal]);
+  // The `mark_ready` gate (a shipped draft whose CI went green) is not a diff
+  // review — the PR already exists. It gets its own pane (reviewers + Mark
+  // ready), so keep the diff read-only and the ship toolbar hidden for it.
+  const markReadyMode = proposal !== null && proposalAction === 'mark_ready';
+  const reviewMode = proposal !== null && !markReadyMode;
   // Only the PR-opening gates carry a title/body to review + edit. A bare
   // `push` gate pushes the branch; the agent opens the PR (with its
   // description) as the next gate — so show that instead of an empty editor.
   const hasPrDescription = proposalAction === 'ship_task' || proposalAction === 'open_pr';
+
+  // The PR the mark-ready gate targets (owner/repo/number from the payload).
+  const markReadyPr = useMemo<MarkReadyPrRef | null>(() => {
+    if (!markReadyMode || proposal === null) return null;
+    try {
+      const ref = JSON.parse(proposal.payloadJson)?.pr as {
+        owner?: unknown; repo?: unknown; number?: unknown;
+      };
+      if (typeof ref?.owner === 'string' && typeof ref?.repo === 'string'
+          && typeof ref?.number === 'number') {
+        return { owner: ref.owner, repo: ref.repo, number: ref.number };
+      }
+    }
+    catch { /* fall through to null */ }
+    return null;
+  }, [markReadyMode, proposal]);
+
+  // The mark-ready gate lives on the pull-request pane — surface it the
+  // moment the gate appears so navigating in lands directly on it.
+  useEffect(() => { if (markReadyMode) setPaneTab('pr'); }, [markReadyMode]);
 
   // Editable PR title/body. Seeded from the parked payload when a proposal
   // is first detected (keyed by notification id so a new proposal reseeds,
@@ -649,7 +675,13 @@ export default function TaskCodePage({
             </div>
             {paneTab === 'pr' ? (
               <div className="diff-viewer__pr-pane">
-                {proposal !== null && hasPrDescription ? (
+                {markReadyMode && markReadyPr !== null && proposal !== null ? (
+                  <MarkReadyPanel
+                    notificationId={proposal.id}
+                    pr={markReadyPr}
+                    onMarked={() => { setProposal(null); setShipNotice('ready'); }}
+                  />
+                ) : proposal !== null && hasPrDescription ? (
                   <ShipDescriptionPanel
                     notificationId={proposal.id}
                     title={prTitle}
@@ -757,11 +789,19 @@ export default function TaskCodePage({
       </div>
       {shipNotice !== null && (
         <ConfirmDialog
-          title={shipNotice === 'merged' ? 'Pull request merged' : 'Changes approved'}
+          title={shipNotice === 'merged'
+            ? 'Pull request merged'
+            : shipNotice === 'ready'
+              ? 'Marked ready for review'
+              : 'Changes approved'}
           body={shipNotice === 'merged'
             ? 'The pull request was merged and the task is complete.'
-            : 'The branch is pushed and a draft pull request is open. CI fixes and review '
-              + 'comments are handled automatically from here — come back to merge once it’s ready.'}
+            : shipNotice === 'ready'
+              ? 'The pull request is out of draft and ready for review. Any reviewers you '
+                + 'requested have been notified, and incoming review comments are addressed '
+                + 'automatically from here.'
+              : 'The branch is pushed and a draft pull request is open. CI fixes and review '
+                + 'comments are handled automatically from here — come back to merge once it’s ready.'}
           confirmLabel="Back to thread"
           cancelLabel="Stay here"
           onConfirm={() => { setShipNotice(null); onBack(); }}

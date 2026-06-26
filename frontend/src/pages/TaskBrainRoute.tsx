@@ -144,9 +144,25 @@ export function TaskBrainRoute({
 
   const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
 
+  // Once shipped, the linked PR shows as a clickable chip that opens it on
+  // GitHub. The brain view doesn't carry the PR's html URL, so build the
+  // canonical one from the repo + number.
+  const linkedPr = data.rightRail.linkedPr;
+  const pr = task.prNumber !== null
+    ? {
+        number: task.prNumber,
+        status: linkedPr?.status ?? (task.prDraft ? 'draft' : 'open'),
+        onOpen: () => {
+          void bridge?.openExternal(
+            `https://github.com/${task.repoFullName}/pull/${task.prNumber}`);
+        },
+      }
+    : undefined;
+
   return (
     <TaskBrainPage
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch }}
+      pr={pr}
       conversation={conversation}
       stageChips={stageChips}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Ask the brain, or steer the task…' }}

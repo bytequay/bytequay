@@ -78,7 +78,13 @@ class SqliteStageStore
         row.setCallerStageId(callerStageId == null ? null : callerStageId.toString());
         row.setSummaryJson("{}");
         row.setMetricsJson("{}");
-        stages.save(row);
+        // Flush the stage row NOW, before writing its OPENED event. The event's
+        // stage_id → task_stage(id) FK is a plain column, not a JPA
+        // association, so Hibernate's order_inserts can't sequence the two; in
+        // a crowded transaction (e.g. ship's phase transition) the batched
+        // event insert could otherwise run before the stage insert and trip
+        // the foreign key.
+        stages.saveAndFlush(row);
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("stageType", type.name());

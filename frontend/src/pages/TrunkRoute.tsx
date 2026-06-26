@@ -93,6 +93,13 @@ function cardStatus(status: string): TaskStatus {
   }
 }
 
+/** Statuses that don't belong in the Tasks tab's active list: shipped work
+ *  (COMPLETED / IN_REVIEW) lives in the conversation history, and terminal
+ *  tasks (CANCELED / ARCHIVED) are closed/reaped — they linger as bogus
+ *  "foreground" cards otherwise, since cardStatus maps them to the running
+ *  pill. PENDING is handled separately (the Queued folder). */
+const HIDDEN_TASK_STATUSES = new Set(['COMPLETED', 'IN_REVIEW', 'CANCELED', 'ARCHIVED']);
+
 /** "Task 1 · Remove PersonaRequest bean", or just "Task 1" without a rename. */
 function cardTitle(t: WorkUnitTaskDto): string {
   return t.name !== null && t.name !== '' ? `Task ${t.seq} · ${t.name}` : `Task ${t.seq}`;
@@ -131,11 +138,17 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   useEffect(() => {
     if (awaitedAt !== null && replyCount > awaitedAt) setAwaitedAt(null);
   }, [replyCount, awaitedAt]);
-  const working = busy || awaitedAt !== null;
+  // The agent is working whenever the thread process is RUNNING — not just
+  // right after the user's own submit. An autonomous multi-step turn (cut a
+  // task, run tools, reply, run more) keeps the indicator up the whole time,
+  // even across intermediate messages, so a quiet gap never reads as dead.
+  const working = busy || awaitedAt !== null || thread?.status === 'RUNNING';
   // Start time of the current working period, so the indicator can show a
   // ticking elapsed counter — a long, quiet think shouldn't read as dead.
   const [workingSince, setWorkingSince] = useState<number | null>(null);
-  useEffect(() => { if (!working) setWorkingSince(null); }, [working]);
+  useEffect(() => {
+    setWorkingSince(prev => (working ? prev ?? Date.now() : null));
+  }, [working]);
 
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -172,7 +185,6 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     setText('');
     setBusy(true);
     setAwaitedAt(replyCount);
-    setWorkingSince(Date.now());
     window.bridge.sendTrunkMessage(threadId, body)
       .then(() => load())
       .catch(() => { setAwaitedAt(null); })
@@ -196,7 +208,8 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   // card at the foot of the conversation (matching the trunk design),
   // not only in the Tasks tab, so the in-flight work is visible without
   // leaving the thread. Latest such task wins when more than one is live.
-  const foreground = [...tasks].reverse().find(t => cardStatus(t.status) === 'foreground');
+  const foreground = [...tasks].reverse().find(
+    t => !HIDDEN_TASK_STATUSES.has(t.status) && cardStatus(t.status) === 'foreground');
 
   const conversation = (
     <Conv>
@@ -221,7 +234,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     </Conv>
   );
 
-  const active = tasks.filter(t => t.status !== 'PENDING' && t.status !== 'COMPLETED').map(toCard);
+  const active = tasks.filter(t => t.status !== 'PENDING' && !HIDDEN_TASK_STATUSES.has(t.status)).map(toCard);
   const queued = tasks.filter(t => t.status === 'PENDING').map(toCard);
 
   return (

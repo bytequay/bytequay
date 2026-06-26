@@ -102,6 +102,10 @@ export type PlanCardSignals = {
   estimatedComplexity: 'trivial' | 'small' | 'medium' | 'large';
   componentsCount: number;
   expectedGain: string;
+  /** Overall confidence the plan succeeds as written. The backend always
+   *  sends it (derived from risk for older plans); optional for legacy
+   *  fixtures. */
+  confidence?: 'low' | 'medium' | 'high';
 };
 
 export type PlanFollowupDto = {
@@ -117,6 +121,7 @@ export type PlanCardDto = {
   state: PlanCardState;
   status: 'suggested' | 'finalized';
   source: string;                       // brain | brain-revision | trunk | brain-confirmation
+  goal?: string;                        // concise one-line objective (card headline)
   understandingSummary: string;
   intentSummary: string;
   steps: { ordinal: number; action: string }[];

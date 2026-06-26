@@ -13,22 +13,23 @@
  */
 import type { ReactNode } from 'react';
 import { PlanTabContent } from '../ui/pane';
-import type { PlanSignal } from '../ui/pane';
+import type { PlanConfidence } from '../ui/pane';
 import { MarkdownProse } from '../threads/MarkdownProse';
 import type { PlanCardDto } from '../types/brainView';
 
 /**
- * Renders the right-pane Plan tab from the brain's plan card. Shared by the
- * task brain page and the Plan-stage page so the plan (and its Approve
+ * Renders the right-pane Plan tab from the brain's plan card — distilled to
+ * the goal, the developing steps, and a single confidence badge. Shared by
+ * the task brain page and the Plan-stage page so the plan (and its Approve
  * action when awaiting) shows identically in both. `onApprove` is supplied
  * only when the plan is finalized and awaiting the user.
  */
 export function planTab(plan: PlanCardDto, onApprove?: () => void): ReactNode {
-  const signals: PlanSignal[] = [
-    { kind: 'risk-low', label: `${plan.signals.riskLevel} risk` },
-    { kind: 'cmplx', label: plan.signals.estimatedComplexity },
-    { kind: 'push', label: plan.pushStrategy === 'await_approval' ? 'awaits approval' : 'autonomous' },
-  ];
+  // Backend sends both; fall back for plans recorded before they existed.
+  const goalText = plan.goal !== undefined && plan.goal.trim() !== ''
+    ? plan.goal
+    : plan.understandingSummary;
+  const confidence: PlanConfidence = plan.signals.confidence ?? confidenceFromRisk(plan.signals.riskLevel);
   return (
     <PlanTabContent
       source={{
@@ -36,13 +37,18 @@ export function planTab(plan: PlanCardDto, onApprove?: () => void): ReactNode {
         label: plan.source,
         revPill: plan.revisionCount > 0 ? `rev ${plan.revisionCount}` : undefined,
       }}
-      // Agents write markdown (code spans, bold, lists) — render it as
-      // prose rather than raw text so the plan reads cleanly.
-      summary={<MarkdownProse text={plan.understandingSummary} variant="card" />}
+      // Agents write markdown (code spans, bold) — render it as prose so the
+      // goal reads cleanly. Kept to one concise line by the plan schema.
+      goal={<MarkdownProse text={goalText} variant="card" />}
       steps={plan.steps.map(s => ({ text: <MarkdownProse text={s.action} variant="card" /> }))}
-      signals={signals}
+      confidence={confidence}
       approved={plan.state === 'locked'}
       onApprove={onApprove}
     />
   );
+}
+
+/** Invert risk → confidence for plans recorded before the brain emitted it. */
+function confidenceFromRisk(risk: 'low' | 'medium' | 'high'): PlanConfidence {
+  return risk === 'low' ? 'high' : risk === 'high' ? 'low' : 'medium';
 }

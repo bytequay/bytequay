@@ -57,24 +57,25 @@ describe('InlineChips', () => {
 });
 
 describe('PlanTabContent', () => {
-  it('renders sections + actions and switches to locked when approved', () => {
+  it('renders goal / steps / confidence + actions and switches to locked when approved', () => {
     const onApprove = vi.fn();
     const { container, rerender } = render(
       <PlanTabContent
         source={{ label: 'recorded 2m ago' }}
-        summary="Add a cost meter"
-        affectedFiles={[<code key="f">Foo.java</code>]}
+        goal="Add a cost meter"
         steps={[{ text: 'Wire the meter', file: 'Bar.java' }]}
-        signals={[{ kind: 'risk-low', label: 'Low risk' }]}
+        confidence="high"
         onApprove={onApprove}
         onRequestChanges={() => {}}
       />,
     );
     expect(container.querySelector('.plan-step .ord')?.textContent).toBe('1');
-    expect(container.querySelector('.sig.risk-low')).toBeTruthy();
+    expect(container.querySelector('.plan-goal')?.textContent).toBe('Add a cost meter');
+    // A single confidence badge, not the old signal-chip row.
+    expect(container.querySelector('.conf.conf--high')?.textContent).toBe('high');
     fireEvent.click(screen.getByRole('button', { name: 'Approve plan' }));
     expect(onApprove).toHaveBeenCalledOnce();
-    rerender(<PlanTabContent summary="Add a cost meter" approved />);
+    rerender(<PlanTabContent goal="Add a cost meter" approved />);
     expect(screen.getByText(/Approved/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Approve plan' })).toBeNull();
   });

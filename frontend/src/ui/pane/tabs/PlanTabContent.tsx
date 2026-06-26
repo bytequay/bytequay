@@ -16,25 +16,28 @@ import type { ReactNode } from 'react';
 
 /** Where the plan came from — the initial pass or a revision. */
 export type PlanSource = { revised?: boolean; label: string; revPill?: string };
-/** One intent step in the plan. */
+/** One developing step in the plan. */
 export type PlanStep = { text: ReactNode; file?: string };
-/** A plan signal chip (risk / complexity / push budget). */
+/** A plan signal chip (risk / complexity / push budget) — legacy fallback. */
 export type PlanSignal = { kind: 'risk-low' | 'cmplx' | 'push'; label: string };
+/** Overall confidence the plan succeeds as written. */
+export type PlanConfidence = 'low' | 'medium' | 'high';
 
 /**
- * The Plan tab — renders the agent's recorded plan (understanding,
- * affected files, intent steps, signals) plus the approve / request
- * changes actions. Presentational: the host supplies the plan data and
- * action callbacks. When `approved`, the actions collapse to a locked
- * note.
+ * The Plan tab — the recorded plan distilled to what the user decides on:
+ * the goal, the developing steps, and a single confidence badge, plus the
+ * approve / request-changes actions. Presentational: the host supplies the
+ * data and callbacks. When `approved`, the actions collapse to a locked
+ * note. `signals` is kept as a fallback for plans recorded before the brain
+ * emitted a confidence level.
  */
 export function PlanTabContent({
-  source, summary, affectedFiles, steps, signals, approved = false, onApprove, onRequestChanges,
+  source, goal, steps, confidence, signals, approved = false, onApprove, onRequestChanges,
 }: {
   source?: PlanSource;
-  summary: ReactNode;
-  affectedFiles?: ReactNode[];
+  goal: ReactNode;
   steps?: PlanStep[];
+  confidence?: PlanConfidence;
   signals?: PlanSignal[];
   approved?: boolean;
   onApprove?: () => void;
@@ -56,22 +59,13 @@ export function PlanTabContent({
       )}
 
       <div className="plan-sec">
-        <span className="lbl">Understanding</span>
-        <div className="summary">{summary}</div>
+        <span className="lbl">Goal</span>
+        <div className="summary plan-goal">{goal}</div>
       </div>
-
-      {affectedFiles !== undefined && affectedFiles.length > 0 && (
-        <div className="plan-sec">
-          <span className="lbl">Affected files</span>
-          <ul className="plan-bullets">
-            {affectedFiles.map((f, i) => <li key={i}>{f}</li>)}
-          </ul>
-        </div>
-      )}
 
       {steps !== undefined && steps.length > 0 && (
         <div className="plan-sec">
-          <span className="lbl">Intent</span>
+          <span className="lbl">Developing steps</span>
           <div className="plan-steps">
             {steps.map((s, i) => (
               <div className="plan-step" key={i}>
@@ -86,9 +80,16 @@ export function PlanTabContent({
         </div>
       )}
 
-      {signals !== undefined && signals.length > 0 && (
+      {confidence !== undefined ? (
         <div className="plan-sec">
-          <span className="lbl">Signals</span>
+          <span className="lbl">Confidence</span>
+          <div className="plan-confidence">
+            <span className={`conf conf--${confidence}`}>{confidence}</span>
+          </div>
+        </div>
+      ) : signals !== undefined && signals.length > 0 && (
+        <div className="plan-sec">
+          <span className="lbl">Confidence</span>
           <div className="plan-sigs">
             {signals.map((sig, i) => <span className={`sig ${sig.kind}`} key={i}>{sig.label}</span>)}
           </div>

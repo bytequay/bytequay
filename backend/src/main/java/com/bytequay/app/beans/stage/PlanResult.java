@@ -44,6 +44,8 @@ public record PlanResult(
         String revisionOf,
         String revisionReason,
         String plannedAt,
+        /** One concise sentence naming the objective — the card headline. */
+        String goal,
         Understanding understanding,
         Intent intent,
         Signals signals,
@@ -80,5 +82,7 @@ public record PlanResult(
             List<String> riskNotes,
             int componentsCount,
             String estimatedComplexity,
-            String expectedGain) {}
+            String expectedGain,
+            /** Overall confidence the plan succeeds as written: high / medium / low. */
+            String confidence) {}
 }

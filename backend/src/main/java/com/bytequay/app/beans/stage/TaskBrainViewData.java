@@ -113,6 +113,10 @@ public record TaskBrainViewData(
             String state,
             String status,
             String source,
+            /** One concise sentence naming the objective — the card's
+             *  headline. Falls back to the understanding summary for plans
+             *  recorded before the brain emitted a dedicated goal. */
+            String goal,
             String understandingSummary,
             String intentSummary,
             List<PlanStep> steps,
@@ -130,7 +134,11 @@ public record TaskBrainViewData(
     public record PlanStep(int ordinal, String action) {}
 
     public record PlanSignals(
-            String riskLevel, String estimatedComplexity, int componentsCount, String expectedGain) {}
+            String riskLevel, String estimatedComplexity, int componentsCount, String expectedGain,
+            /** Overall confidence the plan will succeed as written: {@code
+             *  high} / {@code medium} / {@code low}. Derived from risk for
+             *  plans recorded before the brain emitted it explicitly. */
+            String confidence) {}
 
     public record PlanFollowup(
             String eventId, String note, String sourceAgent, String createdAt, String status) {}

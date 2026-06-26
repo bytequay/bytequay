@@ -148,6 +148,23 @@ class SqliteTaskStore
 
     @Override
     @Transactional
+    public void setBaseCommit(String taskId, String baseCommit)
+    {
+        // Load-set-save: saveTask never maps base_commit, so a later full-row
+        // save can't clobber the cut-time base we pin here.
+        mutate(taskId, entity -> entity.setBaseCommit(baseCommit));
+    }
+
+    @Override
+    public Optional<String> findBaseCommit(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(TaskEntity::getBaseCommit)
+                .filter(commit -> commit != null && !commit.isBlank());
+    }
+
+    @Override
+    @Transactional
     public void linkPullRequest(String taskId, int prNumber, String prState)
     {
         mutate(taskId, entity -> {

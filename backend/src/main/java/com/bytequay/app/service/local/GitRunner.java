@@ -474,6 +474,24 @@ public class GitRunner
         return result.exitCode() == 0;
     }
 
+    /** Resolve {@code ref} to the full commit SHA it points at, or empty when
+     *  it doesn't resolve. Used to pin a task's base at cut time so the diff
+     *  is a fixed {@code base..HEAD} instead of a re-guessed branch name. */
+    public Optional<String> resolveCommitSha(Path workingDir, String ref)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(ref, "ref is null");
+        GitResult result = run(
+                List.of("git", "rev-parse", "--verify", "--quiet", ref + "^{commit}"),
+                workingDir,
+                5);
+        if (result.exitCode() != 0) {
+            return Optional.empty();
+        }
+        String sha = result.stdout().strip();
+        return sha.isEmpty() ? Optional.empty() : Optional.of(sha);
+    }
+
     /**
      * Returns the unified diff for what {@code headRef} adds on top of
      * its merge-base with {@code baseRef} — same set of changes

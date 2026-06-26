@@ -636,7 +636,7 @@ class TestThreadServiceScheduler
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
                 new WorktreeService.WorktreeHandle(
                         Path.of("/tmp/repo/.worktrees/task-1"),
-                        "dev/task-1")));
+                        "dev/task-1", null)));
         // Use the recording task store + a store wrapper so the
         // active-task projection actually populates on read-back.
         InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();

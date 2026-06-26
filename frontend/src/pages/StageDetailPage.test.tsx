@@ -59,7 +59,9 @@ describe('StageDetailPage', () => {
     const onOpenCi = vi.fn();
     renderStage('ci-fix', { onOpenCi });
     expect(screen.getByTestId('details-tab')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'CI Status' }));
+    // CI Status appears twice now: the top-bar button and the always-on
+    // inline chip above the composer. Either fires onOpenCi.
+    fireEvent.click(screen.getAllByRole('button', { name: 'CI Status' })[0]);
     expect(onOpenCi).toHaveBeenCalledOnce();
   });
 

@@ -126,14 +126,15 @@ export function StageDetailPage({
         <div className={paneOpen ? 'body with-pane' : 'body'}>
           <div className="conv-col">
             {conversation}
-            {!paneOpen && (
-              <InlineChips chips={[
-                ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
-                ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
-                ...(showCi ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
-              ]}
-              />
-            )}
+            {/* Quick-access chips float just above the composer at all times
+                (not only when the pane is closed) so Plan / Changes stay one
+                click away from where you're typing. */}
+            <InlineChips chips={[
+              ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
+              ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
+              ...(showCi ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
+            ]}
+            />
             <Composer
               value={composer.value}
               onChange={composer.onChange}

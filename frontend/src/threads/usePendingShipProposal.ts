@@ -34,7 +34,14 @@ export function usePendingShipProposal(threadId: string, taskId: string): Notifi
       const next = list.find((n) => {
         if (n.kind !== 'AWAITING_REVIEW' || n.taskId !== taskId) return false;
         if (n.status !== 'UNREAD' && n.status !== 'RESOLVING') return false;
-        try { return JSON.parse(n.payloadJson)?.action === 'ship_task'; }
+        // Any parked publish proposal — ship_task, open_pr, push, … — is an
+        // approval gate the user must see; matching only ship_task left
+        // open_pr/push parks invisible. A parked proposal always carries a
+        // non-empty `action`, which distinguishes it from a bare notice.
+        try {
+          const action = JSON.parse(n.payloadJson)?.action;
+          return typeof action === 'string' && action.length > 0;
+        }
         catch { return false; }
       }) ?? null;
       setProposal(next);

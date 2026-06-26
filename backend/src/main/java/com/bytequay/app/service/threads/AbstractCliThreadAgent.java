@@ -106,6 +106,12 @@ public abstract class AbstractCliThreadAgent
     protected final String threadId;
     /** Working directory the subprocess runs in. */
     protected final String workingDir;
+    /** Best-effort hook run at the start of every turn, before the CLI
+     *  spawns — the trunk session wires this to fetch + reset its planning
+     *  worktree to the latest base. No-op by default (task sessions don't
+     *  set it). A failure here is logged, not fatal: the turn proceeds on
+     *  the last-known checkout. */
+    private volatile Runnable preTurnHook = () -> {};
     /** Resolved CLI binary name (overridable for tests). */
     protected final String binary;
 
@@ -637,10 +643,28 @@ public abstract class AbstractCliThreadAgent
         return () -> listeners.remove(listener);
     }
 
+    /** Wire a per-turn hook run before each turn's CLI spawn — the trunk
+     *  session uses it to refresh its planning worktree to the latest
+     *  base. Passing {@code null} clears it back to a no-op. */
+    public final void setPreTurnHook(Runnable hook)
+    {
+        this.preTurnHook = hook == null ? () -> {} : hook;
+    }
+
     // ---- Turn execution ----------------------------------------------
 
     private void runTurn(String userInput)
     {
+        // Trunk sessions sync their planning worktree to the latest base
+        // here (on this worker thread, not the scheduler lock). The user's
+        // prompt is already the tail message, so the UI shows "Syncing…"
+        // for this window until the model streams its first output.
+        try {
+            preTurnHook.run();
+        }
+        catch (RuntimeException e) {
+            log.warn("Pre-turn hook for thread {} failed: {}", threadId, e.getMessage());
+        }
         ProcessBuilder pb = buildCommand(userInput);
         // Clear any stale interrupt flag from a prior turn so a fresh
         // turn's non-zero exit isn't misread as a user cancellation.

@@ -236,6 +236,9 @@ public class LogicLoopThreadAgent
             // The trunk reads files so it can plan against real source — and
             // so a pasted image (saved to a path it's handed) can be opened.
             "read_file",
+            // Force a fresh fetch + reset of the planning worktree to the
+            // latest base mid-turn (planning also auto-syncs at turn start).
+            "sync_repo",
             "create_task",
             // Planning the queue is core trunk work — without these the
             // trunk can cut a task but never line one up behind the active

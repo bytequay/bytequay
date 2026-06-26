@@ -29,6 +29,7 @@ import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.TaskQueueMaterialiser;
 import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -91,6 +92,7 @@ public class AgentToolHandlers
     private final ThreadService threads;
     private final TaskQueueMaterialiser queueMaterialiser;
     private final TaskQueueScheduler queueScheduler;
+    private final WorktreeService worktreeService;
     private final ObjectMapper mapper;
 
     public AgentToolHandlers(
@@ -107,6 +109,7 @@ public class AgentToolHandlers
             ThreadService threads,
             TaskQueueMaterialiser queueMaterialiser,
             TaskQueueScheduler queueScheduler,
+            WorktreeService worktreeService,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -122,6 +125,7 @@ public class AgentToolHandlers
         this.threads = requireNonNull(threads, "threads is null");
         this.queueMaterialiser = requireNonNull(queueMaterialiser, "queueMaterialiser is null");
         this.queueScheduler = requireNonNull(queueScheduler, "queueScheduler is null");
+        this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -315,6 +319,62 @@ public class AgentToolHandlers
 
     /** Wire shape for {@code read_workspace_memory}'s result. */
     public record WorkspaceMemory(String workspaceId, String memoryMd) {}
+
+    /** Args record for {@code sync_repo} — no args; the workspace/clone is
+     *  derived from the calling thread. */
+    public record SyncRepoArgs() {}
+
+    @AgentTool(
+            name = "sync_repo",
+            description = "Fetch the latest base branch and refresh the trunk's read-only "
+                    + "planning worktree to it — upstream/master for a fork, origin's default "
+                    + "branch for a direct clone — so your code search reflects the current "
+                    + "base. Trunk planning already auto-syncs at the start of every turn; call "
+                    + "this to force a fresh fetch mid-turn before searching or planning.",
+            security = SecurityType.GIT_LOCAL,
+            gating = Gating.AUTO,
+            roles = AgentRole.TRUNK)
+    public ToolOutcome syncRepo(SyncRepoArgs args, ToolCall call)
+    {
+        Optional<Thread> threadOpt = threadStore.findThreadById(call.threadId());
+        if (threadOpt.isEmpty()) {
+            return ToolOutcome.Completed.error("thread not found: " + call.threadId());
+        }
+        Optional<String> cloneRoot = resolveTrunkCloneRoot(threadOpt.get().workspaceId());
+        if (cloneRoot.isEmpty()) {
+            return ToolOutcome.Completed.ok(
+                    "No local clone is linked to this workspace — nothing to sync.");
+        }
+        return worktreeService.ensurePlanningWorktree(Path.of(cloneRoot.get()))
+                .map(sync -> ToolOutcome.Completed.ok("Synced the planning base to " + sync.baseRef() + "."))
+                .orElseGet(() -> ToolOutcome.Completed.ok(
+                        "Could not sync the base (git unavailable or no resolvable base ref); "
+                                + "planning will use the last-known checkout."));
+    }
+
+    /** Clone root the trunk plans in for {@code workspaceId}: the first
+     *  pinned repo with a local clone, else any watched repo with one.
+     *  Mirrors the trunk cwd resolution in ThreadRegistry. */
+    private Optional<String> resolveTrunkCloneRoot(String workspaceId)
+    {
+        List<String> pinned = workspaceId == null || workspaceId.isBlank()
+                ? List.of()
+                : workspaces.listRepos(workspaceId).stream()
+                        .map(r -> r.repoFullName())
+                        .toList();
+        Optional<String> pinnedClone = watchedRepos.findAll().stream()
+                .filter(wr -> pinned.contains(wr.fullName()))
+                .map(WatchedRepo::localClonePath)
+                .filter(p -> p != null && !p.isBlank())
+                .findFirst();
+        if (pinnedClone.isPresent()) {
+            return pinnedClone;
+        }
+        return watchedRepos.findAll().stream()
+                .map(WatchedRepo::localClonePath)
+                .filter(p -> p != null && !p.isBlank())
+                .findFirst();
+    }
 
     /** Args record for {@code list_tools} — no args. */
     public record ListToolsArgs() {}

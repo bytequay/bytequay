@@ -29,6 +29,7 @@ import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.TaskQueueMaterialiser;
 import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -44,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -64,6 +67,8 @@ class TestAgentToolHandlersCreateTask
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
     private final ThreadService threads = mock(ThreadService.class);
+    private final WorkspaceService workspaces = mock(WorkspaceService.class);
+    private final WorktreeService worktreeService = mock(WorktreeService.class);
 
     private AgentToolHandlers handlers;
 
@@ -74,7 +79,7 @@ class TestAgentToolHandlersCreateTask
                 taskStore,
                 mock(PullRequestStore.class),
                 threadStore,
-                mock(WorkspaceService.class),
+                workspaces,
                 mock(AgentToolRegistry.class),
                 mock(SkillTools.class),
                 mock(ThreadCheckpointStore.class),
@@ -84,6 +89,7 @@ class TestAgentToolHandlersCreateTask
                 threads,
                 mock(TaskQueueMaterialiser.class),
                 mock(TaskQueueScheduler.class),
+                worktreeService,
                 new ObjectMapper());
 
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(trunkThread()));
@@ -140,6 +146,38 @@ class TestAgentToolHandlersCreateTask
         // Title comes from the prompt (→ branch dev/clean-…), not the thread title.
         assertThat(req.getValue().title()).isEqualTo("Clean duplicate and unused code");
         assertThat(req.getValue().trunkPlan()).isSameAs(plan);
+    }
+
+    @Test
+    void syncRepoRefreshesPlanningWorktreeAndReportsTheBaseRef()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(worktreeService.ensurePlanningWorktree(Path.of("/tmp/clone")))
+                .thenReturn(Optional.of(new WorktreeService.PlanningSync(
+                        Path.of("/tmp/clone/.worktrees/_planning"), "origin/main")));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.syncRepo(
+                new AgentToolHandlers.SyncRepoArgs(),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.text()).contains("origin/main");
+        verify(worktreeService).ensurePlanningWorktree(Path.of("/tmp/clone"));
+    }
+
+    @Test
+    void syncRepoReportsWhenNoCloneIsLinkedAndDoesNotTouchGit()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of());
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.syncRepo(
+                new AgentToolHandlers.SyncRepoArgs(),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.text()).contains("nothing to sync");
+        verify(worktreeService, never()).ensurePlanningWorktree(any());
     }
 
     private ToolOutcome.Completed createTask(String repo)

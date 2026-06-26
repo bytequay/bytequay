@@ -41,6 +41,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -147,6 +148,7 @@ public class ThreadRegistry
             WorkspaceService workspaces,
             WorktreeLeaseService leaseService,
             WatchedRepoStore watchedRepos,
+            WorktreeService worktreeService,
             SkillMaterializer skillMaterializer,
             RoleSkillService roleSkillService,
             WorkModelResolver workModelResolver,
@@ -160,7 +162,12 @@ public class ThreadRegistry
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
                 leaseService,
-                thread -> resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread),
+                // The trunk runs in a read-only planning worktree pinned to the
+                // up-to-date base (upstream/master for a fork, origin/main for a
+                // direct clone), not the user's arbitrary checkout. Resolving the
+                // cwd also fetches + resets that worktree; the CLI trunk session
+                // re-runs it per turn via setPreTurnHook below.
+                thread -> resolveTrunkPlanningCwd(worktreeService, workspaces, watchedRepos, thread),
                 skillMaterializer,
                 roleSkillService,
                 workModelResolver,
@@ -220,6 +227,25 @@ public class ThreadRegistry
                 .filter(p -> p != null && !p.isBlank())
                 .findFirst()
                 .orElseGet(() -> System.getProperty("java.io.tmpdir"));
+    }
+
+    /**
+     * Trunk cwd resolver that anchors planning to the base branch: resolve
+     * the clone root as before, then fetch + checkout a read-only planning
+     * worktree at the up-to-date base ref and run the trunk there. Falls
+     * back to the clone root when no planning worktree can be cut (no git,
+     * unresolvable base) so planning still launches.
+     */
+    private static String resolveTrunkPlanningCwd(
+            WorktreeService worktreeService,
+            WorkspaceService workspaces,
+            WatchedRepoStore watchedRepos,
+            Thread thread)
+    {
+        String cloneRoot = resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread);
+        return worktreeService.ensurePlanningWorktree(Path.of(cloneRoot))
+                .map(sync -> sync.worktree().toString())
+                .orElse(cloneRoot);
     }
 
     ThreadRegistry(
@@ -430,19 +456,29 @@ public class ThreadRegistry
     private ThreadAgent buildTrunk(Thread thread)
     {
         return switch (thread.kind()) {
-            case CLI_AGENT -> isCodex(thread)
-                    ? new CodexCliThreadAgent(
-                            thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemoryProvider,
-                            roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                            trunkCwdResolver.apply(thread),
-                            CodexCliThreadAgent.TrunkMode.ENABLED)
-                    : new ClaudeCodeCliThreadAgent(
-                            thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemoryProvider, skillMaterializer,
-                            roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                            trunkCwdResolver.apply(thread),
-                            ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+            case CLI_AGENT -> {
+                // trunkCwdResolver also fetches + resets the planning worktree
+                // (the cwd). Re-run it before every turn so each planning turn
+                // searches an up-to-date base.
+                AbstractCliThreadAgent agent = isCodex(thread)
+                        ? new CodexCliThreadAgent(
+                                thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                                workspaceMemoryProvider,
+                                roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                                trunkCwdResolver.apply(thread),
+                                CodexCliThreadAgent.TrunkMode.ENABLED)
+                        : new ClaudeCodeCliThreadAgent(
+                                thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                                workspaceMemoryProvider, skillMaterializer,
+                                roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                                trunkCwdResolver.apply(thread),
+                                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                agent.setPreTurnHook(() -> {
+                    String synced = trunkCwdResolver.apply(thread);
+                    log.debug("trunk {} planning base synced at {}", thread.id(), synced);
+                });
+                yield agent;
+            }
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
                 yield new LogicLoopThreadAgent(

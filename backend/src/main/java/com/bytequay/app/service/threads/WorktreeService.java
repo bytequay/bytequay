@@ -29,6 +29,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.util.Objects.requireNonNull;
 
@@ -65,6 +66,10 @@ public class WorktreeService
      *  ({@code docs/mockups/workspace-thread-task-design.md}) names this
      *  exact path: {@code <repo>/.worktrees/<task-id>/}. */
     static final String WORKTREE_ROOT_REL = ".worktrees";
+    /** Dir name (under {@link #WORKTREE_ROOT_REL}) of the shared trunk
+     *  planning worktree. Distinct from any task id, so the task-orphan
+     *  sweeper never mistakes it for a task worktree. */
+    static final String PLANNING_WORKTREE_REL = "_planning";
 
     /** Branch-name prefix for dev branches. The branch is named for the
      *  task's purpose ({@code dev/<title-slug>}) — short and readable —
@@ -89,6 +94,9 @@ public class WorktreeService
 
     private final GitRunner git;
     private final WatchedRepoStore watchedRepos;
+    /** Per-clone monitors so concurrent trunk turns serialise their
+     *  fetch + reset of the shared planning worktree. */
+    private final ConcurrentHashMap<String, Object> planningLocks = new ConcurrentHashMap<>();
 
     public WorktreeService(GitRunner git, WatchedRepoStore watchedRepos)
     {
@@ -377,6 +385,92 @@ public class WorktreeService
     }
 
     /**
+     * Ensures a shared, read-only <b>planning worktree</b> for {@code
+     * repoRoot}, checked out detached at the up-to-date base ref —
+     * {@code upstream/master} for a fork-based clone, {@code
+     * origin/<default>} for a direct clone. Fetches the base remote, then
+     * creates the worktree (first call) or hard-resets it to the fresh
+     * ref (subsequent calls). The trunk planning session runs here so its
+     * code search reflects the latest base instead of whatever branch the
+     * user's main checkout happens to be on — without disturbing that
+     * checkout.
+     *
+     * <p>One worktree per clone at {@code .worktrees/_planning}, shared
+     * across all trunk threads rooted in that clone (planning is
+     * read-only). Serialised per clone so concurrent trunk turns don't
+     * race on the fetch/reset. Best-effort: returns empty on any failure
+     * (no git, unresolvable base, add failed) so the caller can fall back
+     * to the clone root. Not a task worktree, so the orphan sweeper —
+     * which only reaps task rows — leaves it alone.
+     */
+    public Optional<PlanningSync> ensurePlanningWorktree(Path repoRoot)
+    {
+        requireNonNull(repoRoot, "repoRoot is null");
+        if (!git.isAvailable()) {
+            return Optional.empty();
+        }
+        Path planningPath = repoRoot.resolve(WORKTREE_ROOT_REL).resolve(PLANNING_WORKTREE_REL)
+                .toAbsolutePath().normalize();
+        synchronized (planningLockFor(repoRoot)) {
+            try {
+                String baseRef = resolvePlanningBaseRef(repoRoot);
+                if (baseRef == null) {
+                    return Optional.empty();
+                }
+                if (Files.isDirectory(planningPath)) {
+                    git.resetHard(planningPath, baseRef);
+                }
+                else {
+                    appendToGitInfoExclude(repoRoot);
+                    git.worktreeAddDetached(repoRoot, planningPath, baseRef);
+                }
+                return Optional.of(new PlanningSync(planningPath, baseRef));
+            }
+            catch (IOException | RuntimeException e) {
+                log.warn("Planning worktree for {} unavailable ({}); trunk will use the clone root",
+                        repoRoot, e.getMessage());
+                return Optional.empty();
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Optional.empty();
+            }
+        }
+    }
+
+    /**
+     * The {@code <remote>/<default>} remote-tracking ref the planning
+     * worktree should track, after fetching that remote. Upstream remote
+     * for a fork, {@code origin} otherwise. Null when no default branch
+     * resolves. A fetch failure (offline) is tolerated — we reset to the
+     * last-known ref.
+     */
+    private String resolvePlanningBaseRef(Path repoRoot)
+            throws IOException, InterruptedException
+    {
+        WatchedRepo repo = watchedRepoFor(repoRoot).orElse(null);
+        String remote = repo != null
+                && repo.upstreamRemoteName() != null
+                && !repo.upstreamRemoteName().isBlank()
+                ? repo.upstreamRemoteName()
+                : "origin";
+        try {
+            git.fetchRemote(repoRoot, remote);
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Fetch of {} in {} failed ({}); planning from last-known {}/HEAD",
+                    remote, repoRoot, e.getMessage(), remote);
+        }
+        Optional<String> branch = git.defaultBranch(repoRoot, remote);
+        return branch.filter(b -> !b.isBlank()).map(b -> remote + "/" + b).orElse(null);
+    }
+
+    private Object planningLockFor(Path repoRoot)
+    {
+        return planningLocks.computeIfAbsent(repoRoot.toString(), k -> new Object());
+    }
+
+    /**
      * Adds {@code /.worktrees/} to {@code .git/info/exclude} if it's
      * not already there. Per-repo, not committed — the user's
      * {@code .gitignore} stays untouched. The previous layout added
@@ -412,4 +506,8 @@ public class WorktreeService
 
     /** Outcome of a successful {@link #create} call. */
     public record WorktreeHandle(Path worktreePath, String branchName) {}
+
+    /** Outcome of {@link #ensurePlanningWorktree}: the planning worktree's
+     *  path and the base ref it was synced to (e.g. {@code upstream/master}). */
+    public record PlanningSync(Path worktree, String baseRef) {}
 }

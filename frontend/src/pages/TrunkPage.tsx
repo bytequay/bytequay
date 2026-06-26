@@ -83,6 +83,9 @@ export function TrunkPage({
   const [paneOpen, setPaneOpen] = useState(true);
 
   const unreadCount = pane.signals.filter(s => s.readAt === null).length;
+  // The Tasks tab renders the active cards AND the Queued folder, so the
+  // badge counts both — otherwise it reads one short of the cards shown.
+  const taskCount = tasks.active.length + tasks.queued.length;
 
   const openTab = (tab: TrunkTab) => { setActiveTab(tab); setPaneOpen(true); };
 
@@ -135,7 +138,7 @@ export function TrunkPage({
             {conversation}
             {!paneOpen && (
               <InlineChips chips={[
-                { icon: '◳', label: 'Tasks', count: tasks.active.length, countColor: 'acc', onClick: () => openTab('tasks') },
+                { icon: '◳', label: 'Tasks', count: taskCount, countColor: 'acc', onClick: () => openTab('tasks') },
                 { icon: '☷', label: 'Backlog', count: pane.backlog.length, onClick: () => openTab('backlog') },
                 { icon: '🔔', label: 'Notifications', count: unreadCount, countColor: 'red', onClick: () => openTab('notifications') },
               ]}
@@ -154,7 +157,7 @@ export function TrunkPage({
             <RightPane>
               <RightPane.Tabs<TrunkTab>
                 tabs={[
-                  { key: 'tasks', label: 'Tasks', count: tasks.active.length, countColor: 'acc' },
+                  { key: 'tasks', label: 'Tasks', count: taskCount, countColor: 'acc' },
                   { key: 'backlog', label: 'Backlog', count: pane.backlog.length, countColor: 'muted' },
                   { key: 'notifications', label: 'Notifications', count: unreadCount },
                 ]}

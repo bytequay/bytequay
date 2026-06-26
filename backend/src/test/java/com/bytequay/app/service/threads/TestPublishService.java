@@ -129,7 +129,7 @@ class TestPublishService
     }
 
     @Test
-    void approvePushLeavesInterruptedClaimForLocalRecoveryWhenGitPushThrows()
+    void approvePushReleasesTheGateForRetryWhenGitPushThrows()
             throws Exception
     {
         Notification parked = parkedPush("notif-2", "task-2",
@@ -137,18 +137,18 @@ class TestPublishService
         when(notifications.find("notif-2")).thenReturn(Optional.of(parked));
         when(taskStore.findTaskById("task-2"))
                 .thenReturn(Optional.of(taskAt("task-2", TaskStatus.AWAITING_REVIEW)));
-        // Mimic a real remote-rejection / network blip — IOException is
-        // what GitRunner.push surfaces for those failures.
+        // A failed push means nothing reached the remote — IOException is what
+        // GitRunner.push surfaces for a rejection / network blip.
         doThrow(new IOException("rejected: non-fast-forward"))
                 .when(git).push(any(Path.class));
 
-        PublishResult result = service.approve("notif-2", null, "push");
-
-        assertThat(result.ok()).isFalse();
-        assertThat(result.resolution()).isEqualTo("interrupted");
-        assertThat(result.message()).contains("will not be repeated");
+        // The gate is released back to UNREAD (safe to retry) and the caller
+        // gets a clear error — not a pinned RESOLVING claim.
+        assertThatThrownBy(() -> service.approve("notif-2", null, "push"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("push failed");
+        verify(notifications).releaseResolution("notif-2");
         verify(parkedProposals, never()).finishApproved(any(), anyBoolean());
-        assertAuditRowWritten(parked, "interrupted_unconfirmed", "push", "may or may not have run");
     }
 
     @Test

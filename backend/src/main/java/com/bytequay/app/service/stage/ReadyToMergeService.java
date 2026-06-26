@@ -21,13 +21,13 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
@@ -82,13 +82,8 @@ public class ReadyToMergeService
                 && noUnresolvedRemoteComments(task.id());
 
         if (ready && !armed) {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("reason", "ready_to_merge");
-            payload.put("repo", detail.repo());
-            payload.put("number", detail.number());
             if (taskStore.markMergeNotificationSentIfUnset(task.id(), Instant.now())) {
-                notifications.notifyReadyToMerge(task.threadId(), task.id(), toJson(payload));
-                recordOnActiveStage(task.id(), StageEventType.NOTIFY_FIRED, payload);
+                parkMergeGate(task, detail);
             }
             else {
                 recordOnActiveStage(task.id(), StageEventType.NOTIFY_SKIPPED,
@@ -100,6 +95,61 @@ public class ReadyToMergeService
             recordOnActiveStage(task.id(), StageEventType.NOTIFY_SKIPPED,
                     Map.of("reason", "conditions_broke"));
         }
+    }
+
+    /**
+     * Park a {@code merge_pr} proposal so the user gets a one-click
+     * "Approve &amp; merge" gate once the PR is merge-ready. Created as an
+     * AWAITING_REVIEW notification directly (not via {@code
+     * ParkedProposalService.park}) so the shipped task stays {@code IN_REVIEW}
+     * on the remote spine the lifecycle driver monitors — the gate is a prompt
+     * to merge, not a status change. The merge's own preflight + GitHub call
+     * re-check mergeability at approval time, so a gate that goes stale (CI
+     * breaks after it parks) can't merge a broken PR.
+     */
+    private void parkMergeGate(Task task, PullRequestDetail detail)
+    {
+        ParkedProposal.PrRef pr = prRefFor(task, detail);
+        if (pr == null) {
+            recordOnActiveStage(task.id(), StageEventType.NOTIFY_SKIPPED,
+                    Map.of("reason", "no_pr_ref"));
+            return;
+        }
+        // strategy null → squash (PublishService default).
+        ParkedProposal proposal = new ParkedProposal.MergePr(null, pr);
+        notifications.notifyAwaitingReview(task.threadId(), task.id(), toJson(proposal));
+        recordOnActiveStage(task.id(), StageEventType.NOTIFY_FIRED,
+                Map.of("reason", "ready_to_merge", "action", "merge_pr", "number", detail.number()));
+    }
+
+    /** Build the merge target from the task's linked PR ref
+     *  ({@code owner/repo#number}), falling back to the PR detail. Null when
+     *  neither yields a complete owner/repo/number. */
+    private static ParkedProposal.PrRef prRefFor(Task task, PullRequestDetail detail)
+    {
+        String ref = task.linkedPrRef();
+        if (ref != null) {
+            int hash = ref.lastIndexOf('#');
+            int slash = hash > 0 ? ref.lastIndexOf('/', hash) : -1;
+            if (hash > 0 && slash > 0) {
+                try {
+                    return new ParkedProposal.PrRef(
+                            ref.substring(0, slash),
+                            ref.substring(slash + 1, hash),
+                            Integer.parseInt(ref.substring(hash + 1)));
+                }
+                catch (NumberFormatException ignore) {
+                    // Malformed ref — fall through to the PR detail.
+                }
+            }
+        }
+        String repo = detail.repo();
+        if (repo != null && repo.contains("/")) {
+            int slash = repo.indexOf('/');
+            return new ParkedProposal.PrRef(
+                    repo.substring(0, slash), repo.substring(slash + 1), detail.number());
+        }
+        return null;
     }
 
     private boolean noUnresolvedRemoteComments(String taskId)

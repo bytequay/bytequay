@@ -500,9 +500,11 @@ export default function TaskCodePage({
                 disabled={actionBusy || hasUnresolved}
                 title={hasUnresolved
                   ? 'resolve the open review comments first'
-                  : 'Approve and ship this task'}
+                  : proposalAction === 'merge_pr'
+                    ? 'Approve and merge this pull request'
+                    : 'Approve and ship this task'}
               >
-                Approve &amp; ship
+                {proposalAction === 'merge_pr' ? 'Approve & merge' : 'Approve & ship'}
               </button>
             </div>
           )}

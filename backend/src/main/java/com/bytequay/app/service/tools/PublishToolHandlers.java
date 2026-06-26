@@ -849,12 +849,17 @@ public class PublishToolHandlers
             @ToolParam(description = "Proposed title for the draft PR this ship opens. "
                     + "Falls back to the thread title when omitted.",
                     wireName = "pr_title") String prTitle,
-            @ToolParam(description = "Proposed PR description (markdown) summarizing the "
-                    + "change. If the repo ships a pull-request template (e.g. "
-                    + ".github/PULL_REQUEST_TEMPLATE.md, a root/docs PULL_REQUEST_TEMPLATE, "
-                    + "or a file under .github/PULL_REQUEST_TEMPLATE/), read it and make the "
-                    + "body follow it — keep its headings/checklists and fill in each "
-                    + "section. The user can edit it before approving.",
+            @ToolParam(description = "Proposed PR description (markdown). If the repo ships a "
+                    + "pull-request template (.github/PULL_REQUEST_TEMPLATE.md, a root/docs "
+                    + "PULL_REQUEST_TEMPLATE, or a file under .github/PULL_REQUEST_TEMPLATE/), "
+                    + "read it and follow it EXACTLY — fill in its sections and add no "
+                    + "others. If there is NO template, keep it minimal and match the size "
+                    + "of the change: a small / nit change gets ONE line saying what it does "
+                    + "(e.g. \"Add a requireNonNull check for currentPredicate in "
+                    + "DynamicFilterSnapshot\") — do NOT add Description / Changes / "
+                    + "Validation headings, and do NOT list every edit or describe testing. "
+                    + "Only a substantial change warrants a short summary paragraph. The user "
+                    + "can edit it before approving.",
                     wireName = "pr_body") String prBody) {}
 
     @AgentTool(

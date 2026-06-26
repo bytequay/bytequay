@@ -235,6 +235,21 @@ public class GitRunner
     }
 
     /**
+     * Fetches a single named remote — {@code git fetch --prune
+     * <remote>}. Used before cutting a worktree off a fork's upstream
+     * so {@code <remote>/HEAD} reflects the latest upstream tip rather
+     * than whatever was last pulled. Narrower (and faster) than {@link
+     * #fetch}'s {@code --all} when only one remote matters.
+     */
+    public void fetchRemote(Path workingDir, String remote)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
+        run(List.of("git", "fetch", "--prune", remote), workingDir, 300)
+                .requireSuccess();
+    }
+
+    /**
      * Runs {@code git pull --ff-only} — fast-forward only, no merge
      * commits. If the local branch has diverged from upstream the
      * pull fails loudly; resolving the divergence is explicitly out
@@ -570,14 +585,30 @@ public class GitRunner
     public Optional<String> defaultBranch(Path workingDir)
             throws IOException, InterruptedException
     {
+        return defaultBranch(workingDir, "origin");
+    }
+
+    /**
+     * Default branch of a named remote — read from {@code
+     * refs/remotes/<remote>/HEAD}. {@link #defaultBranch(Path)} is the
+     * {@code origin} case; a fork-based clone resolves its upstream's
+     * default (e.g. {@code master}) by passing the upstream remote name
+     * so a worktree branches off the right base instead of the fork's.
+     * Empty when the remote has no recorded HEAD (never fetched, or a
+     * bare mirror without a symbolic HEAD).
+     */
+    public Optional<String> defaultBranch(Path workingDir, String remote)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
         GitResult result = run(
-                List.of("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"),
+                List.of("git", "symbolic-ref", "--short", "refs/remotes/" + remote + "/HEAD"),
                 workingDir,
                 5);
         if (result.exitCode() != 0) {
             return Optional.empty();
         }
-        // symbolic-ref --short returns "origin/main"; strip the remote
+        // symbolic-ref --short returns "<remote>/main"; strip the remote
         // prefix to get the bare branch name the user types.
         String full = result.stdout().strip();
         int slash = full.indexOf('/');
@@ -1348,6 +1379,59 @@ public class GitRunner
     }
 
     public record Remote(String name, String url) {}
+
+    /**
+     * Owner segment of a remote's URL — {@code "trinodb"} for
+     * {@code git@github.com:trinodb/trino.git} or
+     * {@code https://github.com/trinodb/trino}. Empty when the remote is
+     * unknown or the URL isn't a recognised {@code owner/repo} form. Used
+     * to form a cross-fork PR head ({@code <fork-owner>:<branch>}) from
+     * the fork clone's {@code origin} owner.
+     */
+    public Optional<String> remoteOwner(Path workingDir, String remote)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
+        GitResult result = run(List.of("git", "remote", "get-url", remote), workingDir, 5);
+        if (result.exitCode() != 0) {
+            return Optional.empty();
+        }
+        return parseRepoOwner(result.stdout().strip());
+    }
+
+    /** Parses the {@code owner} from a git remote URL across the common
+     *  forms: {@code https://host/owner/repo(.git)},
+     *  {@code ssh://git@host/owner/repo(.git)}, and the scp-like
+     *  {@code git@host:owner/repo(.git)}. Package-private for unit tests. */
+    static Optional<String> parseRepoOwner(String url)
+    {
+        if (url == null || url.isBlank()) {
+            return Optional.empty();
+        }
+        String s = url.strip();
+        if (s.endsWith(".git")) {
+            s = s.substring(0, s.length() - 4);
+        }
+        String path;
+        if (s.contains("://")) {
+            String rest = s.substring(s.indexOf("://") + 3);
+            int slash = rest.indexOf('/');
+            path = slash < 0 ? "" : rest.substring(slash + 1);
+        }
+        else if (s.contains(":")) {
+            // scp-like host:owner/repo — the path is after the colon.
+            path = s.substring(s.indexOf(':') + 1);
+        }
+        else {
+            path = s;
+        }
+        String[] parts = path.split("/");
+        if (parts.length >= 2) {
+            String owner = parts[parts.length - 2].trim();
+            return owner.isEmpty() ? Optional.empty() : Optional.of(owner);
+        }
+        return Optional.empty();
+    }
 
     /**
      * Returns the URL of {@code remote.origin.url}, or null if no

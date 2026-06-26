@@ -14,6 +14,8 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,10 +88,12 @@ public class WorktreeService
     static final String HOOK_DIR_REL = ".bytequay-hooks";
 
     private final GitRunner git;
+    private final WatchedRepoStore watchedRepos;
 
-    public WorktreeService(GitRunner git)
+    public WorktreeService(GitRunner git, WatchedRepoStore watchedRepos)
     {
         this.git = requireNonNull(git, "git is null");
+        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
     }
 
     /**
@@ -263,13 +267,29 @@ public class WorktreeService
     }
 
     /**
-     * Picks a sensible base ref. Tries {@link GitRunner#defaultBranch}
-     * first (from the {@code origin/HEAD} symref); falls back to the
-     * branch checked out in the main repo.
+     * Picks the ref a new task branch is cut from.
+     *
+     * <p>For a <b>fork-based clone</b> — a watched repo whose
+     * {@code upstreamRemoteName} names the remote pointing at the
+     * watched (upstream) repo — the base is the upstream's default
+     * branch, e.g. {@code upstream/master}. The upstream remote is
+     * fetched first so that ref is current, and the returned value is
+     * the remote-tracking ref itself (not a bare branch name) so the
+     * worktree starts from the latest upstream tip rather than a
+     * possibly-stale local branch. This matches the fork workflow:
+     * branch off upstream/master, then open the PR against it.
+     *
+     * <p>For a <b>direct clone</b> (no upstream remote) the base is the
+     * local default branch from {@code origin/HEAD}, falling back to the
+     * currently checked-out branch — the prior behaviour, unchanged.
      */
     private String resolveBaseRef(Path repoRoot)
             throws IOException, InterruptedException
     {
+        String forkBase = resolveForkBaseRef(repoRoot);
+        if (forkBase != null) {
+            return forkBase;
+        }
         Optional<String> defaultBranch = git.defaultBranch(repoRoot);
         if (defaultBranch.isPresent() && !defaultBranch.get().isBlank()) {
             return defaultBranch.get();
@@ -279,6 +299,81 @@ public class WorktreeService
             return current;
         }
         return null;
+    }
+
+    /**
+     * The {@code <upstream>/<default>} remote-tracking ref to branch a
+     * fork's worktree from, or {@code null} when {@code repoRoot} is not
+     * a fork-based clone (no matching watched repo, or no upstream
+     * remote configured). Fetches the upstream remote first so its HEAD
+     * is current; a fetch failure (offline) is tolerated — we fall back
+     * to whatever {@code <upstream>/HEAD} already points at.
+     */
+    private String resolveForkBaseRef(Path repoRoot)
+            throws IOException, InterruptedException
+    {
+        WatchedRepo repo = watchedRepoFor(repoRoot).orElse(null);
+        if (repo == null || repo.upstreamRemoteName() == null || repo.upstreamRemoteName().isBlank()) {
+            return null;
+        }
+        String upstream = repo.upstreamRemoteName();
+        try {
+            git.fetchRemote(repoRoot, upstream);
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Fetch of upstream remote {} in {} failed ({}); branching from last-known {}/HEAD",
+                    upstream, repoRoot, e.getMessage(), upstream);
+        }
+        Optional<String> upstreamDefault = git.defaultBranch(repoRoot, upstream);
+        if (upstreamDefault.isEmpty() || upstreamDefault.get().isBlank()) {
+            log.info("Fork clone {} has no resolvable {}/HEAD; falling back to origin default",
+                    repoRoot, upstream);
+            return null;
+        }
+        return upstream + "/" + upstreamDefault.get();
+    }
+
+    /**
+     * The bare branch name a PR off {@code repoRoot} should target — the
+     * upstream's default branch for a fork-based clone (e.g. {@code
+     * master} for a trinodb/trino fork), else the local clone's default
+     * branch ({@code origin/HEAD}), falling back to {@code main}. This is
+     * the PR-base counterpart to {@link #resolveBaseRef} (which yields the
+     * remote-tracking ref a worktree branches from); both agree on the
+     * branch for a fork — {@code upstream/master} to branch from, {@code
+     * master} to target. No fetch here — task creation cuts the worktree
+     * (which fetches the upstream) immediately before this is read.
+     */
+    public String resolveBaseBranchName(Path repoRoot)
+    {
+        try {
+            WatchedRepo repo = watchedRepoFor(repoRoot).orElse(null);
+            if (repo != null && repo.upstreamRemoteName() != null && !repo.upstreamRemoteName().isBlank()) {
+                Optional<String> upstreamDefault = git.defaultBranch(repoRoot, repo.upstreamRemoteName());
+                if (upstreamDefault.isPresent() && !upstreamDefault.get().isBlank()) {
+                    return upstreamDefault.get();
+                }
+            }
+            return git.defaultBranch(repoRoot).filter(b -> !b.isBlank()).orElse("main");
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Resolving base branch for {} failed ({}); defaulting to main", repoRoot, e.getMessage());
+            return "main";
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "main";
+        }
+    }
+
+    /** The watched repo whose local clone is {@code repoRoot}, if any. */
+    private Optional<WatchedRepo> watchedRepoFor(Path repoRoot)
+    {
+        return watchedRepos.findAll().stream()
+                .filter(r -> r.localClonePath() != null
+                        && !r.localClonePath().isBlank()
+                        && Path.of(r.localClonePath()).equals(repoRoot))
+                .findFirst();
     }
 
     /**

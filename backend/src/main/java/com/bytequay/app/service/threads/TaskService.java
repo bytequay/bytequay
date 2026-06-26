@@ -20,6 +20,8 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskPhase;
@@ -29,6 +31,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -75,6 +78,7 @@ public class TaskService
 
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
+    private final StageStore stageStore;
     private final WatchedRepoStore watchedRepoStore;
     private final WorktreeService worktreeService;
     private final GitRunner git;
@@ -91,6 +95,7 @@ public class TaskService
     public TaskService(
             ThreadStore threadStore,
             TaskStore taskStore,
+            StageStore stageStore,
             WatchedRepoStore watchedRepoStore,
             WorktreeService worktreeService,
             GitRunner git,
@@ -106,6 +111,7 @@ public class TaskService
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.git = requireNonNull(git, "git is null");
@@ -326,6 +332,10 @@ public class TaskService
             if (prNumber == null) {
                 String pat = patResolver.resolve(repoFullName);
                 String prBase = resolveMergeTarget(repoFullName, workingDir);
+                // Cross-fork PRs need an owner-qualified head: when the
+                // clone's origin is a fork of the target repo, GitHub wants
+                // <fork-owner>:<branch>; a same-repo PR uses the bare branch.
+                String prHead = crossForkHead(workingDir, watched.owner(), current.branchName());
                 try {
                     // Ship opens the PR as a DRAFT and keeps the worktree alive:
                     // the post-ship loop (CI auto-fix, addressing review
@@ -340,8 +350,8 @@ public class TaskService
                             : request.prTitle();
                     CreatePullRequestCommand command = mode == ParkMode.SHIP
                             ? CreatePullRequestCommand.draft(
-                                    current.branchName(), prBase, shipTitle, request.prBody())
-                            : CreatePullRequestCommand.of(current.branchName(), prBase, thread.title());
+                                    prHead, prBase, shipTitle, request.prBody())
+                            : CreatePullRequestCommand.of(prHead, prBase, thread.title());
                     PullRequest pr = pullRequestRepository.createPullRequest(pat, repoRef, command);
                     prNumber = pr.number();
                 }
@@ -352,7 +362,10 @@ public class TaskService
                     // of needing the user to attach it manually.
                     log.info("PR create failed for {} branch {}: {} — looking up existing",
                             repoFullName, current.branchName(), e.getMessage());
-                    prNumber = findExistingPrNumber(pat, repoRef, current.branchName())
+                    String headFilter = prHead.contains(":")
+                            ? prHead
+                            : repoRef.owner() + ":" + current.branchName();
+                    prNumber = findExistingPrNumber(pat, repoRef, headFilter)
                             .orElse(null);
                 }
             }
@@ -552,32 +565,64 @@ public class TaskService
         if (override.isPresent()) {
             return override.get();
         }
-        return git.defaultBranch(workingDir).orElse("main");
+        // Fork-aware: the upstream's default branch for a fork-based clone
+        // (so a trinodb/trino fork targets master, not the fork's HEAD),
+        // else the local clone's default. Same resolver the worktree base
+        // uses, so branch-from and PR-base agree.
+        return worktreeService.resolveBaseBranchName(workingDir);
     }
 
     /**
-     * Look up an already-open PR by head branch when create returns
-     * 422. GitHub's list-PRs API takes a {@code head=<owner>:<branch>}
-     * filter; we ask for the single newest match. Best-effort — a
-     * second failure here just leaves pr_number null and the user
-     * attaches the PR manually.
+     * Look up an already-open PR by head ref when create returns 422.
+     * GitHub's list-PRs API takes a {@code head=<owner>:<branch>} filter
+     * — {@code headFilter} is already in that owner-qualified form (the
+     * fork owner for a cross-fork PR, else the target owner), so a fork's
+     * existing PR is found under its real head. We ask for the single
+     * newest match. Best-effort — a second failure here just leaves
+     * pr_number null and the user attaches the PR manually.
      */
-    private Optional<Integer> findExistingPrNumber(String pat, RepoRef repo, String branchName)
+    private Optional<Integer> findExistingPrNumber(String pat, RepoRef repo, String headFilter)
     {
         try {
             ListPullRequestsQuery query = new ListPullRequestsQuery(
                     "open",
-                    Optional.of(repo.owner() + ":" + branchName),
+                    Optional.of(headFilter),
                     Optional.empty(),
                     "created", "desc", 1, 1);
             List<PullRequest> hits = pullRequestRepository.listPullRequests(pat, repo, query);
             return hits.stream().findFirst().map(PullRequest::number);
         }
         catch (RuntimeException e) {
-            log.warn("Lookup of existing PR for {} branch {} failed: {}",
-                    repo.owner() + "/" + repo.repo(), branchName, e.getMessage());
+            log.warn("Lookup of existing PR for {} head {} failed: {}",
+                    repo.owner() + "/" + repo.repo(), headFilter, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * PR head ref for a branch in {@code workingDir}'s clone against a PR
+     * target owned by {@code targetOwner}. When the clone's {@code origin}
+     * is a fork of the target (its owner differs from {@code
+     * targetOwner}), GitHub needs the owner-qualified {@code
+     * <fork-owner>:<branch>}; a same-repo PR uses the bare branch. Falls
+     * back to the bare branch if the origin owner can't be read.
+     */
+    private String crossForkHead(Path workingDir, String targetOwner, String branch)
+    {
+        try {
+            Optional<String> forkOwner = git.remoteOwner(workingDir, "origin");
+            if (forkOwner.isPresent() && !forkOwner.get().equalsIgnoreCase(targetOwner)) {
+                return forkOwner.get() + ":" + branch;
+            }
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Resolving origin owner for cross-fork head in {} failed: {}",
+                    workingDir, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+        }
+        return branch;
     }
 
     private WatchedRepo resolveRepo(Path workingDir)
@@ -680,6 +725,14 @@ public class TaskService
         // the task and the queue scheduler frees its slot.
         if (task.phase() != TaskPhase.COMPLETED) {
             taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
+        }
+        // Seal every still-open stage (Plan / Dev / CI-fix …); otherwise the
+        // stage pages keep reporting the work as live after the task itself
+        // is CANCELED. closeStage is a no-op on already-closed stages.
+        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
+            if (stage.state() != StageState.CLOSED) {
+                stageStore.closeStage(stage.id(), "task_canceled");
+            }
         }
         worktreeService.reap(task);
         return taskStore.findTaskById(taskId).orElse(task);

@@ -34,6 +34,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ForkJoinPool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -102,7 +103,7 @@ class TestReviewerSeat
                 diffCache,
                 reviewStore,
                 mapper,
-                new CliReviewRunner(mapper),
+                new CliReviewRunner(mapper, ForkJoinPool.commonPool()),
                 new CliReviewSessionRegistry());
     }
 

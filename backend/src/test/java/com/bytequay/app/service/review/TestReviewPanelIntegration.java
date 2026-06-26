@@ -52,6 +52,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -128,6 +129,7 @@ class TestReviewPanelIntegration
         AgentScheduler scheduler = new AgentScheduler(
                 mock(ThreadStore.class), mock(ThreadTurnStore.class),
                 mock(ThreadTurnEventStore.class), mock(ThreadRegistry.class),
+                ForkJoinPool.commonPool(),
                 /* maxCliRunning */ 1, /* maxApiRunning */ 6);
 
         // Endpoint resolution is faked (no credentials in tests); the
@@ -143,7 +145,7 @@ class TestReviewPanelIntegration
         ReviewerSeat reviewerSeat = new ReviewerSeat(
                 turnRunner, new SeatContextAssembler(reviewStore), seatToolset,
                 endpoints, budget, diffCache, reviewStore, mapper,
-                new CliReviewRunner(mapper), new CliReviewSessionRegistry());
+                new CliReviewRunner(mapper, ForkJoinPool.commonPool()), new CliReviewSessionRegistry());
         LeadToolset leadToolset = new LeadToolset(
                 reviewStore, seatToolset, reviewerSeat, scheduler, mapper);
         LeadOrchestrator leadOrchestrator = new LeadOrchestrator(

@@ -66,6 +66,7 @@ import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,7 +88,7 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -133,7 +134,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -172,7 +173,7 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -212,7 +213,7 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -285,7 +286,7 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -318,7 +319,7 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -352,7 +353,7 @@ class TestThreadServiceScheduler
                 registry,
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -384,7 +385,7 @@ class TestThreadServiceScheduler
                 registry,
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -412,7 +413,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -436,7 +437,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -461,7 +462,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -486,7 +487,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -517,7 +518,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -559,7 +560,7 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -589,7 +590,7 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -616,7 +617,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -649,7 +650,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 worktrees,
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -731,7 +732,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
+                gitRunner(),
                 worktrees,
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
@@ -958,7 +959,7 @@ class TestThreadServiceScheduler
 
         private RecordingWorktreeService(Optional<WorktreeHandle> createResult)
         {
-            super(new GitRunner());
+            super(gitRunner());
             this.createResult = createResult;
         }
 
@@ -991,6 +992,11 @@ class TestThreadServiceScheduler
         private Map<String, String> cannedRangePatches = Map.of();
         private List<GitRunner.CommitFileChange> cannedCommitFiles = List.of();
         private Map<String, String> cannedCommitPatches = Map.of();
+
+        private RecordingGitRunner()
+        {
+            super(ForkJoinPool.commonPool());
+        }
 
         @Override
         public List<GitRunner.WorkingTreeFile> workingTreeFiles(Path workingDir)
@@ -1794,6 +1800,11 @@ class TestThreadServiceScheduler
                 ThreadTurnEventType.TURN_QUEUED,
                 createdAt,
                 /* message */ null);
+    }
+
+    private static GitRunner gitRunner()
+    {
+        return new GitRunner(ForkJoinPool.commonPool());
     }
 
     private static ThreadGroup group(String id)

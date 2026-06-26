@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.ForkJoinPool;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TestGitRunnerCommitsAhead
 {
-    private final GitRunner git = new GitRunner();
+    private final GitRunner git = new GitRunner(ForkJoinPool.commonPool());
 
     @Test
     void listsOnlyCommitsAddedOnTopOfTheBaseBranch(@TempDir Path repo)

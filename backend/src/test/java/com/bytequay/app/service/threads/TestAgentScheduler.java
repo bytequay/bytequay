@@ -53,6 +53,7 @@ import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
 
 import static com.bytequay.app.domain.ThreadKind.CLI_AGENT;
@@ -435,7 +436,8 @@ class TestAgentScheduler
 
         private TestHarness(int maxCliRunning, int maxApiRunning)
         {
-            scheduler = new AgentScheduler(threads, turns, events, registry, maxCliRunning, maxApiRunning);
+            scheduler = new AgentScheduler(
+                    threads, turns, events, registry, ForkJoinPool.commonPool(), maxCliRunning, maxApiRunning);
         }
 
         private RecordingSession register(Thread thread)

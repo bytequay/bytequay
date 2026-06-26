@@ -86,7 +86,25 @@ public class ClaudeCodeCliThreadAgent
             SkillMaterializer skillMaterializer,
             String roleSkillText)
     {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(thread, store, taskStore, parser, mapper, gate, executor, executor, checkpointTrigger,
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, (String) null);
+    }
+
+    public ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            ExecutorService processIoExecutor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
+            String roleSkillText)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, (String) null);
     }
 
@@ -110,7 +128,27 @@ public class ClaudeCodeCliThreadAgent
             String trunkCwd,
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(thread, store, taskStore, parser, mapper, gate, executor, executor, checkpointTrigger,
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, trunkCwd);
+    }
+
+    public ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            ExecutorService processIoExecutor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
+            String roleSkillText,
+            String trunkCwd,
+            @SuppressWarnings("unused") TrunkMode trunkMode)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, trunkCwd);
     }
 
@@ -132,7 +170,26 @@ public class ClaudeCodeCliThreadAgent
             String roleSkillText,
             String binary)
     {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(thread, store, taskStore, parser, mapper, gate, executor, executor, checkpointTrigger,
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, binary, (String) null);
+    }
+
+    ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            ExecutorService processIoExecutor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
+            String roleSkillText,
+            String binary)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, binary, (String) null);
     }
 
@@ -144,6 +201,7 @@ public class ClaudeCodeCliThreadAgent
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
+            ExecutorService processIoExecutor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             SkillMaterializer skillMaterializer,
@@ -151,7 +209,7 @@ public class ClaudeCodeCliThreadAgent
             String binary,
             String trunkCwd)
     {
-        super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        super(thread, store, taskStore, parser, mapper, gate, executor, processIoExecutor, checkpointTrigger,
                 binary, trunkCwd);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         // skillMaterializer is allowed to be null on legacy / test paths

@@ -26,6 +26,7 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
@@ -49,8 +50,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
+import static com.bytequay.app.config.AsyncConfig.AGENT_TURN_EXECUTOR;
 import static com.bytequay.app.domain.ThreadResourceLane.API;
 import static com.bytequay.app.domain.ThreadResourceLane.CLI;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_CANCELLED;
@@ -87,6 +90,7 @@ public class AgentScheduler
     private final ThreadTurnStore turns;
     private final ThreadTurnEventStore events;
     private final ThreadRegistry sessions;
+    private final Executor executor;
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
     private final Set<String> runningTaskIds = new HashSet<>();
     private final Object lock = new Object();
@@ -100,6 +104,7 @@ public class AgentScheduler
             ThreadTurnStore turns,
             ThreadTurnEventStore events,
             ThreadRegistry sessions,
+            @Qualifier(AGENT_TURN_EXECUTOR) Executor executor,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
@@ -107,6 +112,7 @@ public class AgentScheduler
         this.turns = requireNonNull(turns, "turns is null");
         this.events = requireNonNull(events, "events is null");
         this.sessions = requireNonNull(sessions, "sessions is null");
+        this.executor = requireNonNull(executor, "executor is null");
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
     }
@@ -222,7 +228,7 @@ public class AgentScheduler
         for (Callable<T> item : work) {
             CompletableFuture<T> future = new CompletableFuture<>();
             futures.add(future);
-            java.lang.Thread.startVirtualThread(() -> {
+            CompletableFuture.runAsync(() -> {
                 try {
                     acquireApiSlot();
                 }
@@ -240,7 +246,7 @@ public class AgentScheduler
                 finally {
                     releaseApiSlot();
                 }
-            });
+            }, executor);
         }
         List<T> results = new ArrayList<>(futures.size());
         RuntimeException failure = null;

@@ -15,6 +15,7 @@ package com.bytequay.app.service.local.ds4;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -25,10 +26,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.config.AsyncConfig.DS4_WORK_EXECUTOR;
+import static com.bytequay.app.config.AsyncConfig.PROCESS_IO_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -60,11 +67,18 @@ public class Ds4InstallerService
     private static final Logger log = LoggerFactory.getLogger(Ds4InstallerService.class);
 
     private final Ds4LifecycleService lifecycle;
+    private final ExecutorService ds4WorkExecutor;
+    private final ExecutorService processIoExecutor;
     private final AtomicReference<InstallStatus> status = new AtomicReference<>(InstallStatus.idle());
 
-    public Ds4InstallerService(Ds4LifecycleService lifecycle)
+    public Ds4InstallerService(
+            Ds4LifecycleService lifecycle,
+            @Qualifier(DS4_WORK_EXECUTOR) ExecutorService ds4WorkExecutor,
+            @Qualifier(PROCESS_IO_EXECUTOR) ExecutorService processIoExecutor)
     {
         this.lifecycle = requireNonNull(lifecycle, "lifecycle is null");
+        this.ds4WorkExecutor = requireNonNull(ds4WorkExecutor, "ds4WorkExecutor is null");
+        this.processIoExecutor = requireNonNull(processIoExecutor, "processIoExecutor is null");
     }
 
     public InstallStatus current()
@@ -101,7 +115,7 @@ public class Ds4InstallerService
 
         Path repo = Path.of(repoDir);
         status.set(InstallStatus.starting(repoDir, modelVariant));
-        Thread.ofVirtual().name("ds4-installer").start(
+        ds4WorkExecutor.execute(
                 () -> runInstall(repo, modelVariant, installUrl, req.reuseExisting()));
         return status.get();
     }
@@ -205,7 +219,7 @@ public class Ds4InstallerService
         pb.directory(workingDir.toFile());
         pb.redirectErrorStream(true);
         Process p = pb.start();
-        Thread drain = new Thread(() -> {
+        Future<?> drain = processIoExecutor.submit(() -> {
             try (BufferedReader r = new BufferedReader(
                     new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -216,15 +230,38 @@ public class Ds4InstallerService
             catch (IOException ignored) {
                 // stream closed at exit
             }
-        }, "ds4-install-stdout");
-        drain.setDaemon(true);
-        drain.start();
-        boolean exited = p.waitFor(120, TimeUnit.MINUTES);
+        });
+        boolean exited;
+        try {
+            exited = p.waitFor(120, TimeUnit.MINUTES);
+        }
+        catch (InterruptedException e) {
+            drain.cancel(true);
+            p.destroyForcibly();
+            throw e;
+        }
         if (!exited) {
             p.destroyForcibly();
+            drain.cancel(true);
             throw new IOException("command timed out: " + String.join(" ", argv));
         }
+        awaitDrain(drain, 5_000L);
         return p.exitValue();
+    }
+
+    private static void awaitDrain(Future<?> drain, long timeoutMillis)
+            throws InterruptedException
+    {
+        try {
+            drain.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        }
+        catch (TimeoutException e) {
+            drain.cancel(true);
+        }
+        catch (ExecutionException e) {
+            // Logging drain failures are non-fatal; the process exit code is
+            // the installer command's source of truth.
+        }
     }
 
     private void progress(InstallPhase phase, Path repoDir, String modelVariant, String step)

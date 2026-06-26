@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -92,7 +93,7 @@ class TestWorktreeService
     void testCreateAndRemoveAgainstRealRepo(@TempDir Path tempDir)
             throws IOException, InterruptedException
     {
-        GitRunner git = new GitRunner();
+        GitRunner git = gitRunner();
         if (!git.isAvailable()) {
             return;
         }
@@ -138,7 +139,7 @@ class TestWorktreeService
     void testExcludeFileAppendIsIdempotent(@TempDir Path tempDir)
             throws IOException, InterruptedException
     {
-        GitRunner git = new GitRunner();
+        GitRunner git = gitRunner();
         if (!git.isAvailable()) {
             return;
         }
@@ -165,7 +166,7 @@ class TestWorktreeService
     @Test
     void testCreateReturnsEmptyForNonGitDirectory(@TempDir Path tempDir)
     {
-        GitRunner git = new GitRunner();
+        GitRunner git = gitRunner();
         WorktreeService service = new WorktreeService(git);
         Optional<WorktreeService.WorktreeHandle> handle =
                 service.create(tempDir, "sess999", "Whatever title");
@@ -179,7 +180,7 @@ class TestWorktreeService
     void testCommitInWorktreeHasNoTaskTrailer(@TempDir Path tempDir)
             throws IOException, InterruptedException
     {
-        GitRunner git = new GitRunner();
+        GitRunner git = gitRunner();
         if (!git.isAvailable()) {
             return;
         }
@@ -214,7 +215,7 @@ class TestWorktreeService
     void testRemoveToleratesMissingWorktreeDir(@TempDir Path tempDir)
             throws IOException, InterruptedException
     {
-        GitRunner git = new GitRunner();
+        GitRunner git = gitRunner();
         if (!git.isAvailable()) {
             return;
         }
@@ -230,6 +231,11 @@ class TestWorktreeService
     }
 
     // ── helpers ──────────────────────────────────────────────────
+
+    private static GitRunner gitRunner()
+    {
+        return new GitRunner(ForkJoinPool.commonPool());
+    }
 
     private static Path initEmptyRepo(Path tempDir)
             throws IOException, InterruptedException

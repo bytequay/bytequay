@@ -22,6 +22,7 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -35,8 +36,15 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import static com.bytequay.app.config.AsyncConfig.PROCESS_IO_EXECUTOR;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Runs one review turn through a CLI agent ({@code claude -p} or
@@ -74,11 +82,13 @@ public class CliReviewRunner
     private static final String SIDECAR_BASE_URL = "http://127.0.0.1:53123";
 
     private final ObjectMapper mapper;
+    private final ExecutorService processIoExecutor;
     private final long timeoutMs = DEFAULT_TIMEOUT_MS;
 
-    CliReviewRunner(ObjectMapper mapper)
+    public CliReviewRunner(ObjectMapper mapper, @Qualifier(PROCESS_IO_EXECUTOR) ExecutorService processIoExecutor)
     {
-        this.mapper = mapper;
+        this.mapper = requireNonNull(mapper, "mapper is null");
+        this.processIoExecutor = requireNonNull(processIoExecutor, "processIoExecutor is null");
     }
 
     /** The CLI agents that can hold a reviewer seat. */
@@ -194,7 +204,7 @@ public class CliReviewRunner
         }
 
         deliverPrompt(process, provider, prompt);
-        Thread stderrDrain = drainStderr(process, binary);
+        Future<?> stderrDrain = drainStderr(process, binary);
 
         CliStreamParser parser = provider == Provider.CLAUDE
                 ? new StreamJsonParser(mapper)
@@ -218,14 +228,16 @@ public class CliReviewRunner
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
+            stderrDrain.cancel(true);
             throw new CliReviewException("CLI reviewer " + binary + " interrupted", e);
         }
         if (!exited) {
             process.destroyForcibly();
+            stderrDrain.cancel(true);
             throw new CliReviewException("CLI reviewer " + binary + " timed out after "
                     + timeoutMs + "ms");
         }
-        stderrDrain.interrupt();
+        awaitDrain(stderrDrain, 2_000L);
 
         return assemble(parser, lines);
     }
@@ -380,11 +392,11 @@ public class CliReviewRunner
         }
     }
 
-    /** Drain stderr on a daemon thread so a chatty CLI can't deadlock by
-     *  filling its stderr pipe while we read stdout. */
-    private static Thread drainStderr(Process process, String binary)
+    /** Drain stderr off-thread so a chatty CLI can't deadlock by filling
+     *  its stderr pipe while we read stdout. */
+    private Future<?> drainStderr(Process process, String binary)
     {
-        Thread thread = new Thread(() -> {
+        return processIoExecutor.submit(() -> {
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -395,9 +407,23 @@ public class CliReviewRunner
             catch (IOException ignored) {
                 // Pipe closed when the process exits — nothing to do.
             }
-        }, "cli-review-stderr");
-        thread.setDaemon(true);
-        thread.start();
-        return thread;
+        });
+    }
+
+    private static void awaitDrain(Future<?> future, long timeoutMillis)
+    {
+        try {
+            future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.cancel(true);
+        }
+        catch (TimeoutException e) {
+            future.cancel(true);
+        }
+        catch (ExecutionException e) {
+            // The drainer treats expected pipe closes as non-fatal.
+        }
     }
 }

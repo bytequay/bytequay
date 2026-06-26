@@ -15,6 +15,7 @@ package com.bytequay.app.service.local;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -23,9 +24,16 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
+
+import static com.bytequay.app.config.AsyncConfig.PROCESS_IO_EXECUTOR;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Runs one bounded shell command for the {@code run_shell} agent
@@ -72,6 +80,13 @@ public class ShellRunner
      *  can request_review / next_task if it genuinely needs a shell
      *  pipeline. */
     private static final Pattern FORBIDDEN_PATTERN = Pattern.compile("[|&;><`]|\\$\\(");
+
+    private final ExecutorService processIoExecutor;
+
+    public ShellRunner(@Qualifier(PROCESS_IO_EXECUTOR) ExecutorService processIoExecutor)
+    {
+        this.processIoExecutor = requireNonNull(processIoExecutor, "processIoExecutor is null");
+    }
 
     public Result run(Path workingDir, String command)
             throws InterruptedException
@@ -122,30 +137,52 @@ public class ShellRunner
         // child is still alive and we destroy it.
         StringBuilder out = new StringBuilder();
         AtomicBoolean truncated = new AtomicBoolean(false);
-        Thread drain = new Thread(
-                () -> drainStream(process, out, truncated, maxOutputBytes, argv),
-                "shell-drain");
-        drain.setDaemon(true);
-        drain.start();
+        Future<?> drain = processIoExecutor.submit(
+                () -> drainStream(process, out, truncated, maxOutputBytes, argv));
 
-        boolean exited = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-        if (!exited) {
-            process.destroy();
-            if (!process.waitFor(2, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                process.waitFor(2, TimeUnit.SECONDS);
+        try {
+            boolean exited = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            if (!exited) {
+                process.destroy();
+                if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    process.waitFor(2, TimeUnit.SECONDS);
+                }
+                awaitDrain(drain, 1_000L);
+                synchronized (out) {
+                    return new Result(false, -1, out.toString(), true, "timed out after "
+                            + timeoutSeconds + "s");
+                }
             }
-            drain.join(1_000L);
+            // Process exited within the deadline — let the drain finish
+            // flushing whatever's left in the pipe before we read it.
+            awaitDrain(drain, 2_000L);
             synchronized (out) {
-                return new Result(false, -1, out.toString(), true, "timed out after "
-                        + timeoutSeconds + "s");
+                return new Result(true, process.exitValue(), out.toString(), truncated.get(), null);
             }
         }
-        // Process exited within the deadline — let the drain finish
-        // flushing whatever's left in the pipe before we read it.
-        drain.join(2_000L);
-        synchronized (out) {
-            return new Result(true, process.exitValue(), out.toString(), truncated.get(), null);
+        catch (InterruptedException e) {
+            drain.cancel(true);
+            process.destroyForcibly();
+            throw e;
+        }
+    }
+
+    private void awaitDrain(Future<?> future, long timeoutMillis)
+            throws InterruptedException
+    {
+        try {
+            future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            future.cancel(true);
+            throw e;
+        }
+        catch (TimeoutException e) {
+            future.cancel(true);
+        }
+        catch (ExecutionException e) {
+            log.debug("ShellRunner drain failed: {}", e.getCause().getMessage());
         }
     }
 

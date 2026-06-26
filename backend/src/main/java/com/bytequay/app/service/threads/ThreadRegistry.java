@@ -33,10 +33,10 @@ import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -49,6 +49,8 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static com.bytequay.app.config.AsyncConfig.AGENT_TURN_EXECUTOR;
+import static com.bytequay.app.config.AsyncConfig.PROCESS_IO_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -88,6 +90,7 @@ public class ThreadRegistry
     private final ObjectMapper mapper;
     private final McpPermissionGate gate;
     private final ExecutorService executor;
+    private final ExecutorService processIoExecutor;
     private final CheckpointTrigger checkpointTrigger;
     private final Supplier<String> workspaceMemoryProvider;
     /** Resolves the skills the CLI lane materializes for each session.
@@ -143,6 +146,8 @@ public class ThreadRegistry
             TaskStore taskStore,
             ObjectMapper mapper,
             McpPermissionGate gate,
+            @Qualifier(AGENT_TURN_EXECUTOR) ExecutorService executor,
+            @Qualifier(PROCESS_IO_EXECUTOR) ExecutorService processIoExecutor,
             CheckpointTrigger checkpointTrigger,
             WorkspaceService workspaces,
             WorktreeLeaseService leaseService,
@@ -157,7 +162,7 @@ public class ThreadRegistry
             AgentContextDigest contextDigest)
     {
         this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
-                ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
+                executor, processIoExecutor, checkpointTrigger,
                 () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
                 leaseService,
                 thread -> resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread),
@@ -233,7 +238,7 @@ public class ThreadRegistry
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService)
     {
-        this(store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(store, taskStore, parser, mapper, gate, executor, executor, checkpointTrigger,
                 workspaceMemoryProvider, leaseService,
                 thread -> System.getProperty("java.io.tmpdir"),
                 null,
@@ -253,6 +258,7 @@ public class ThreadRegistry
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
+            ExecutorService processIoExecutor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService,
@@ -273,6 +279,7 @@ public class ThreadRegistry
         this.codexParser = new CodexJsonParser(mapper);
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.processIoExecutor = requireNonNull(processIoExecutor, "processIoExecutor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
@@ -405,11 +412,13 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
-                            thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                            thread, store, taskStore, codexParser, mapper, gate,
+                            executor, processIoExecutor, checkpointTrigger,
                             workspaceMemoryProvider,
                             resolveTaskRoleSkill(thread))
                     : new ClaudeCodeCliThreadAgent(
-                            thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                            thread, store, taskStore, parser, mapper, gate,
+                            executor, processIoExecutor, checkpointTrigger,
                             workspaceMemoryProvider, skillMaterializer,
                             resolveTaskRoleSkill(thread));
             case LOGIC_LOOP -> {
@@ -432,13 +441,15 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
-                            thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                            thread, store, taskStore, codexParser, mapper, gate,
+                            executor, processIoExecutor, checkpointTrigger,
                             workspaceMemoryProvider,
                             roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                             trunkCwdResolver.apply(thread),
                             CodexCliThreadAgent.TrunkMode.ENABLED)
                     : new ClaudeCodeCliThreadAgent(
-                            thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                            thread, store, taskStore, parser, mapper, gate,
+                            executor, processIoExecutor, checkpointTrigger,
                             workspaceMemoryProvider, skillMaterializer,
                             roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                             trunkCwdResolver.apply(thread),
@@ -535,11 +546,5 @@ public class ThreadRegistry
                 .or(() -> taskStore.findLatestTaskForThread(thread.id()))
                 .map(Task::roleSkill)
                 .orElse(null);
-    }
-
-    @PreDestroy
-    void shutdown()
-    {
-        executor.shutdownNow();
     }
 }

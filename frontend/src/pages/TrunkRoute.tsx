@@ -14,9 +14,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import type { ReactNode } from 'react';
-import { Callout, Card, Conv, EventRow, Thought, UserMsg, Working } from '../ui/conv';
+import { Callout, Card, Conv, EventRow, Thought, ToolBlock, UserMsg, Working } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
+import { isShellTool, shellCommand } from '../threads/toolDisplay';
 import type { TaskCardData } from '../ui/pane';
 import { TrunkPage } from './TrunkPage';
 
@@ -37,12 +38,40 @@ function extractText(contentJson: string): string {
   return '';
 }
 
+/** Read a tool-call message into a tool name + a one-line summary (the
+ *  shell command, or the most telling input field) so the trunk shows what
+ *  it's actually doing — grep, a sub-agent delegation, a read — instead of
+ *  a blank "thinking". */
+function parseToolCall(contentJson: string): { name: string; summary: string } {
+  try {
+    const c = JSON.parse(contentJson) as { toolName?: unknown; input?: unknown };
+    const name = typeof c.toolName === 'string' && c.toolName.length > 0 ? c.toolName : 'Tool';
+    let summary = '';
+    if (isShellTool(name)) {
+      summary = shellCommand(c.input);
+    }
+    else if (c.input !== null && typeof c.input === 'object') {
+      const o = c.input as Record<string, unknown>;
+      for (const k of ['description', 'prompt', 'pattern', 'query', 'path', 'file_path', 'url', 'command']) {
+        const v = o[k];
+        if (typeof v === 'string' && v.length > 0) { summary = v; break; }
+      }
+    }
+    summary = summary.replace(/\s+/g, ' ').trim();
+    return { name, summary: summary.length > 160 ? `${summary.slice(0, 160)}…` : summary };
+  }
+  catch {
+    return { name: 'Tool', summary: '' };
+  }
+}
+
 /** Build the trunk conversation rows, grouping consecutive thinking
  *  messages into one collapsible "Thought for Xs" block (the planning
- *  reasoning) and rendering text turns inline. */
+ *  reasoning), rendering text turns inline, and surfacing tool calls so
+ *  the agent's live activity is visible. */
 function buildRows(messages: ThreadMessageDto[]): ReactNode[] {
   const planning = messages.filter(
-    m => m.taskId === null && (m.type === 'text' || m.type === 'thinking'));
+    m => m.taskId === null && (m.type === 'text' || m.type === 'thinking' || m.type === 'tool_call'));
   const rows: ReactNode[] = [];
   let i = 0;
   while (i < planning.length) {
@@ -68,6 +97,11 @@ function buildRows(messages: ThreadMessageDto[]): ReactNode[] {
           </Thought>
         )
         : <Thought key={group[0].id} seconds={seconds} />);
+    }
+    else if (m.type === 'tool_call') {
+      const { name, summary } = parseToolCall(m.contentJson);
+      rows.push(<ToolBlock key={m.id} tag={name} desc={summary} />);
+      i += 1;
     }
     else {
       const txt = extractText(m.contentJson);
@@ -211,6 +245,15 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   const foreground = [...tasks].reverse().find(
     t => !HIDDEN_TASK_STATUSES.has(t.status) && cardStatus(t.status) === 'foreground');
 
+  // Label the working indicator with the current activity — if the latest
+  // trunk message is a tool call, say which tool is running rather than the
+  // generic "thinking" that sits there for minutes during a long tool/turn.
+  const lastActivity = [...messages].reverse().find(
+    m => m.taskId === null && (m.type === 'tool_call' || m.type === 'text' || m.type === 'thinking'));
+  const workingLabel = lastActivity?.type === 'tool_call'
+    ? `Running ${parseToolCall(lastActivity.contentJson).name}…`
+    : 'Trunk is working…';
+
   const conversation = (
     <Conv>
       {buildRows(messages)}
@@ -230,7 +273,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       {liveText.length > 0 && <EventRow kind="brain" who="Agent" markdown={liveText} />}
       {working && liveText.length === 0 && (
         <Working
-          label="Trunk is thinking…"
+          label={workingLabel}
           since={workingSince ?? undefined}
           onStop={() => { void window.bridge?.interruptTask(threadId).then(load).catch(() => { /* poll reconciles */ }); }}
         />

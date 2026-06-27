@@ -39,6 +39,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -54,9 +55,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -127,6 +130,29 @@ class TestPublishService
         assertAuditRowWritten(parked, "approved", "push", "Pushed feature/x");
         // The approved push advances the task onto the remote spine.
         verify(phaseMachine).observe("task-1", TaskPhase.PUSHED_AWAITING_CI, "publish_approved");
+    }
+
+    @Test
+    void approvePushCommitsAnUncommittedWorktreeBeforePushing()
+            throws Exception
+    {
+        Notification parked = parkedPush("notif-dirty", "task-dirty",
+                "feature/x", "/tmp/wt/feature-x");
+        when(notifications.find("notif-dirty")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-dirty"))
+                .thenReturn(Optional.of(taskAt("task-dirty", TaskStatus.AWAITING_REVIEW)));
+        Path worktree = Path.of("/tmp/wt/feature-x");
+        when(git.hasUncommittedChanges(worktree)).thenReturn(true);
+
+        PublishResult result = service.approve("notif-dirty", null, "push");
+
+        assertThat(result.resolution()).isEqualTo("approved");
+        // The agent's uncommitted edits are staged + committed, then pushed —
+        // rather than pushing an empty branch.
+        InOrder order = inOrder(git);
+        order.verify(git).stageAll(eq(worktree), anyList());
+        order.verify(git).commit(eq(worktree), anyString());
+        order.verify(git).push(worktree);
     }
 
     @Test

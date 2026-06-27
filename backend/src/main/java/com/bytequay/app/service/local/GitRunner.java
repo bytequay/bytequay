@@ -1287,13 +1287,48 @@ public class GitRunner
                 workingDir,
                 30);
         result.requireSuccess();
-        String stdout = result.stdout();
+        return parseNameStatusZ(result.stdout());
+    }
+
+    /**
+     * Files changed between {@code base} and the current <em>working tree</em>
+     * — committed <strong>and</strong> uncommitted, including new untracked
+     * files. Unlike {@link #rangeFiles} ({@code base..HEAD}, committed only),
+     * this shows everything a task has changed even before it commits, so the
+     * diff view isn't blank when the agent edited but never committed.
+     */
+    public List<CommitFileChange> effectiveFiles(Path workingDir, String base)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        // Tracked changes vs base: committed (base..HEAD) + working-tree edits.
+        GitResult tracked = run(
+                List.of("git", "diff", "--name-status", "-z", base), workingDir, 30);
+        tracked.requireSuccess();
+        ImmutableList.Builder<CommitFileChange> out = ImmutableList.builder();
+        out.addAll(parseNameStatusZ(tracked.stdout()));
+        // Untracked new files — git-diff ignores them; list them as adds. The
+        // two sets are disjoint (tracked vs untracked), so no dedup is needed.
+        GitResult untracked = run(
+                List.of("git", "ls-files", "--others", "--exclude-standard", "-z"), workingDir, 30);
+        untracked.requireSuccess();
+        for (String path : untracked.stdout().split(NUL_SEP, -1)) {
+            if (!path.isEmpty()) {
+                out.add(new CommitFileChange(path, "A", 0, 0));
+            }
+        }
+        return out.build();
+    }
+
+    /** Parse {@code git diff --name-status -z} output into file changes.
+     *  {@code -z} splits records by NUL; renames/copies are
+     *  {@code R<score><NUL>old<NUL>new} (three tokens). */
+    private static List<CommitFileChange> parseNameStatusZ(String stdout)
+    {
         if (stdout.isEmpty()) {
             return ImmutableList.of();
         }
         ImmutableList.Builder<CommitFileChange> out = ImmutableList.builder();
-        // -z splits records by NUL. For renames/copies the format is
-        // R<score><NUL>old<NUL>new — three NUL-separated tokens.
         String[] parts = stdout.split(NUL_SEP, -1);
         for (int i = 0; i < parts.length; i++) {
             String tok = parts[i];
@@ -1303,7 +1338,6 @@ public class GitRunner
             char status = tok.charAt(0);
             String path;
             if ((status == 'R' || status == 'C') && i + 2 < parts.length) {
-                // R/C entries take both an old path (skipped) and a new path.
                 i++;
                 path = parts[i + 1];
                 i++;
@@ -1332,6 +1366,36 @@ public class GitRunner
                 60);
         result.requireSuccess();
         String stdout = result.stdout();
+        if (maxBytes > 0 && stdout.length() > maxBytes) {
+            return stdout.substring(0, maxBytes)
+                    + "\n\n... (diff truncated at " + maxBytes + " bytes; "
+                    + (stdout.length() - maxBytes) + " more bytes omitted)\n";
+        }
+        return stdout;
+    }
+
+    /**
+     * Unified diff for one file between {@code base} and the current working
+     * tree (committed + uncommitted). For an untracked new file — which
+     * {@code git diff base} ignores — falls back to a {@code --no-index} diff
+     * against {@code /dev/null} so its full content shows as an add. Pairs
+     * with {@link #effectiveFiles}.
+     */
+    public String effectiveFileDiff(Path workingDir, String base, String path, int maxBytes)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        requireNonNull(path, "path is null");
+        GitResult result = run(List.of("git", "diff", base, "--", path), workingDir, 60);
+        String stdout = result.exitCode() == 0 ? result.stdout() : "";
+        if (stdout.isBlank()) {
+            GitResult untracked = run(
+                    List.of("git", "diff", "--no-index", "--", "/dev/null", path), workingDir, 60);
+            // --no-index exits 1 when the files differ — that's the diff we want.
+            if (untracked.exitCode() == 0 || untracked.exitCode() == 1) {
+                stdout = untracked.stdout();
+            }
+        }
         if (maxBytes > 0 && stdout.length() > maxBytes) {
             return stdout.substring(0, maxBytes)
                     + "\n\n... (diff truncated at " + maxBytes + " bytes; "

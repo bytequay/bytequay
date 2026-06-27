@@ -115,6 +115,33 @@ class TestGitRunnerCommitsAhead
         assertThat(git.listCommitsAhead(repo, mergeBase, 100)).hasSize(2);
     }
 
+    @Test
+    void effectiveFilesIncludesCommittedUncommittedAndUntracked(@TempDir Path repo)
+            throws Exception
+    {
+        git(repo, "init", "-b", "main");
+        git(repo, "config", "user.email", "t@example.com");
+        git(repo, "config", "user.name", "Test");
+        commit(repo, "base.txt", "base");
+
+        // A task branch with one committed change, plus working-tree edits
+        // the agent made but never committed.
+        git(repo, "checkout", "-b", "dev/test");
+        commit(repo, "committed.txt", "a committed change");
+        Files.writeString(repo.resolve("base.txt"), "edited but not committed");
+        Files.writeString(repo.resolve("untracked.txt"), "brand new file");
+
+        List<GitRunner.CommitFileChange> files = git.effectiveFiles(repo, "main");
+
+        // base → working tree: committed + uncommitted + untracked, all shown.
+        assertThat(files).extracting(GitRunner.CommitFileChange::path)
+                .containsExactlyInAnyOrder("committed.txt", "base.txt", "untracked.txt");
+
+        // The untracked file renders as a full add via the --no-index fallback.
+        String patch = git.effectiveFileDiff(repo, "main", "untracked.txt", 0);
+        assertThat(patch).contains("new file").contains("+brand new file");
+    }
+
     private static void commit(Path repo, String file, String message)
             throws IOException, InterruptedException
     {

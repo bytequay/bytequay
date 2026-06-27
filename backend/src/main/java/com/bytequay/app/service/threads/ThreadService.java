@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -36,12 +38,14 @@ import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,6 +103,7 @@ public class ThreadService
 
     private final ThreadStore store;
     private final TaskStore taskStore;
+    private final PullRequestService pullRequests;
     private final ThreadGroupStore groupStore;
     private final ThreadTurnStore turnStore;
     private final ThreadTurnEventStore turnEventStore;
@@ -126,9 +131,11 @@ public class ThreadService
             GitRunner git,
             WorktreeService worktreeService,
             RoleSkillService roleSkillService,
-            IdGenerator idGenerator)
+            IdGenerator idGenerator,
+            @Lazy PullRequestService pullRequests)
     {
         this.store = requireNonNull(store, "store is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -938,12 +945,15 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         // A merged task's worktree gets reaped (deleted) by the lifecycle
-        // driver, so the dir can be gone while the task row lives on.
-        // Running git in a missing directory throws — return no commits
-        // instead of 500ing the page.
+        // driver, so the dir can be gone while the task row lives on. Fall
+        // back to the PR's commits on GitHub so a merged task stays viewable
+        // instead of showing an empty Commits tab.
         Optional<Path> cwd = existingAgentCwd(thread);
         if (cwd.isEmpty()) {
-            return List.of();
+            return taskPrLocator(thread)
+                    .map(pr -> pullRequests.getPullRequestCommits(pr.repoFullName(), pr.number())
+                            .stream().map(ThreadService::toCommitEntry).toList())
+                    .orElseGet(List::of);
         }
         Task task = taskStore.findActiveTaskForThread(threadId)
                 .or(() -> taskStore.findLatestTaskForThread(threadId))
@@ -1062,7 +1072,11 @@ public class ThreadService
         Thread thread = requireTask(threadId);
         Optional<Path> cwd = existingAgentCwd(thread);
         if (cwd.isEmpty()) {
-            return List.of();
+            // Worktree reaped (PR merged) — serve the PR's full diff from GitHub.
+            return taskPrLocator(thread)
+                    .map(pr -> toTaskDiffFiles(
+                            pullRequests.getPullRequestDiffFiles(pr.repoFullName(), pr.number())))
+                    .orElseGet(List::of);
         }
         Task task = taskStore.findActiveTaskForThread(threadId)
                 .or(() -> taskStore.findLatestTaskForThread(threadId))
@@ -1095,7 +1109,11 @@ public class ThreadService
         Thread thread = requireTask(threadId);
         Optional<Path> cwd = existingAgentCwd(thread);
         if (cwd.isEmpty()) {
-            return List.of();
+            // Worktree reaped (PR merged) — serve this commit's diff from GitHub.
+            return taskPrLocator(thread)
+                    .map(pr -> toTaskDiffFiles(
+                            pullRequests.getCommitDiffFiles(pr.repoFullName(), pr.number(), sha)))
+                    .orElseGet(List::of);
         }
         return runGit("build commit diff " + sha + " for " + threadId, () -> {
             List<TaskDiffFile> out = new ArrayList<>();
@@ -1107,6 +1125,54 @@ public class ThreadService
             return List.copyOf(out);
         });
     }
+
+    /** The thread's task PR target ({@code owner/repo} + number), parsed
+     *  from the task's {@code linkedPrRef} ({@code owner/repo#number}). Used
+     *  to serve a merged task's diff/commits from GitHub once its worktree is
+     *  gone. Empty when the task has no linked PR. */
+    private Optional<PrLocator> taskPrLocator(Thread thread)
+    {
+        Task task = taskStore.findActiveTaskForThread(thread.id())
+                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
+                .orElse(null);
+        if (task == null || task.linkedPrRef() == null) {
+            return Optional.empty();
+        }
+        String ref = task.linkedPrRef();
+        int hash = ref.lastIndexOf('#');
+        int slash = hash > 0 ? ref.lastIndexOf('/', hash) : -1;
+        if (hash <= 0 || slash <= 0) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new PrLocator(
+                    ref.substring(0, hash), Integer.parseInt(ref.substring(hash + 1))));
+        }
+        catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static List<TaskDiffFile> toTaskDiffFiles(List<DiffFile> files)
+    {
+        return files.stream()
+                .map(f -> new TaskDiffFile(
+                        f.filename(), f.status(), f.additions(), f.deletions(), f.patch()))
+                .toList();
+    }
+
+    private static GitRunner.CommitEntry toCommitEntry(PullRequestCommit c)
+    {
+        String sha = c.sha() == null ? "" : c.sha();
+        String shortSha = sha.length() >= 7 ? sha.substring(0, 7) : sha;
+        String subject = c.message() == null ? "" : c.message().split("\n", 2)[0];
+        String authoredAt = c.authoredAt() == null ? null : c.authoredAt().toString();
+        String author = c.authorName() != null ? c.authorName() : c.authorLogin();
+        return new GitRunner.CommitEntry(sha, shortSha, author, null, authoredAt, subject);
+    }
+
+    /** Owner/repo + number target for a task's linked PR. */
+    private record PrLocator(String repoFullName, int number) {}
 
     /** Count added/removed lines in a unified diff: a line starting
      *  with '+' (but not the "+++" file header) is an addition, '-'

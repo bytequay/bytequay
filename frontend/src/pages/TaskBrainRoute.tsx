@@ -16,22 +16,14 @@ import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
-import type { BrainFeedRow, StageDto, StageType } from '../types/brainView';
+import type { BrainFeedRow, TaskPhase } from '../types/brainView';
 import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
-import type { StageChip } from '../ui/shell';
+import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { planTab } from './planTab';
 import { TaskBrainPage } from './TaskBrainPage';
-
-const SHORT_LABEL: Record<StageType, string> = {
-  PLAN_STAGE: 'Plan',
-  DEVELOPMENT_STAGE: 'Dev',
-  CI_FIXING_STAGE: 'CI Fix',
-  REVIEW_MONITOR_STAGE: 'Comments',
-  CLEANUP_STAGE: 'Cleanup',
-  REVIEW_STAGE: 'Review',
-};
 
 function feedKind(type: BrainFeedRow['type']): { kind: EventKind; who: string } {
   switch (type) {
@@ -45,21 +37,15 @@ function feedKind(type: BrainFeedRow['type']): { kind: EventKind; who: string } 
   }
 }
 
-function stageDot(state: StageDto['state']): StageChip['dot'] | undefined {
-  if (state === 'ACTIVE') return 'active';
-  if (state === 'CLOSED') return 'done';
-  return undefined;
-}
-
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
  * data. Wires the brain feed → conversation, the composer → the brain
- * agent, the lifecycle Run menu, and the stage-chip strip. Plan/PR tabs
- * and the full sidebar tree are backfilled later; Details shows the task's
- * status for now.
+ * agent, the lifecycle Run menu, and the task-scoped sidebar's live-plan
+ * diagram (which replaces the old stage-chip strip as the stage-navigation
+ * surface). Details shows the task's status for now.
  */
 export function TaskBrainRoute({
-  threadId, taskId, onOpenStage, onOpenCode, onClosed,
+  threadId, taskId, onOpenStage, onOpenCode, onClosed, onBack,
 }: {
   threadId: string;
   taskId: string;
@@ -68,6 +54,8 @@ export function TaskBrainRoute({
   /** Closing a task seals it terminal + reaps its worktree, so the page is
    *  a dead end afterwards — navigate away (back to the thread trunk). */
   onClosed: () => void;
+  /** Navigate back to the thread trunk (the task sidebar's back button). */
+  onBack?: () => void;
 }) {
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
@@ -138,13 +126,6 @@ export function TaskBrainRoute({
   );
 
   const allStages = [...stages, ...subStages];
-  const stageChips: StageChip[] = stages.map(s => ({
-    label: SHORT_LABEL[s.type],
-    dot: stageDot(s.state),
-    current: s.state === 'ACTIVE',
-    onClick: () => onOpenStage(s.id),
-  }));
-
   const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
 
   // Once shipped, the linked PR shows as a clickable chip that opens it on
@@ -162,12 +143,34 @@ export function TaskBrainRoute({
       }
     : undefined;
 
+  // The task-scoped sidebar with the live-plan diagram — the stage-navigation
+  // surface that replaces the top-bar chip strip (design decision #17).
+  const livePlanNodes = buildLivePlan({
+    stages,
+    subStages,
+    task: { prNumber: task.prNumber, currentPhase: task.currentPhase as TaskPhase, terminal: task.terminal },
+    prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
+    viewedStageId: null,
+  });
+  const sidebar = (
+    <TaskSidebar
+      task={{
+        taskNumber: task.taskNumber, title: task.title, branch: task.branch, metaLine: task.statusLabel,
+      }}
+      nodes={livePlanNodes}
+      onBack={onBack}
+      onOpenStage={onOpenStage}
+      onOpenCode={onOpenCode}
+      onOpenPr={pr?.onOpen}
+    />
+  );
+
   return (
     <TaskBrainPage
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch }}
       pr={pr}
+      sidebar={sidebar}
       conversation={conversation}
-      stageChips={stageChips}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Ask the brain, or steer the task…' }}
       run={{
         statusLabel: task.statusLabel,

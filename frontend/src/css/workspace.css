@@ -811,6 +811,48 @@
   outline-offset: 3px;
 }
 
+/* Wrapper so a delete affordance can overlay the card (the card itself
+   is a <button>, which can't nest another button). */
+.workspace-landing-card-wrap {
+  position: relative;
+  display: flex;
+}
+.workspace-landing-card-wrap > .workspace-landing-card {
+  flex: 1;
+  width: 100%;
+}
+.workspace-landing-card__delete {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--ws-card-border);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ws-text-3);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--ws-fast), color var(--ws-fast),
+              border-color var(--ws-fast), background var(--ws-fast);
+}
+.workspace-landing-card-wrap:hover .workspace-landing-card__delete,
+.workspace-landing-card__delete:focus-visible {
+  opacity: 1;
+}
+.workspace-landing-card__delete:hover {
+  color: #b91c1c;
+  border-color: #fca5a5;
+  background: #fff;
+}
+
 .workspace-landing-card--current {
   box-shadow:
     0 0 0 2px var(--ws-accent),

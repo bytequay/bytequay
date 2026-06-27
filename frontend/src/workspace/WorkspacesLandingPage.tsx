@@ -53,6 +53,25 @@ function WorkspacesLandingPage({
     return cards.filter(c => c.name.toLowerCase().includes(needle));
   }, [cards, filter]);
 
+  // Delete a workspace from its card. The backend leaves any threads in
+  // it orphaned (no cascade), so warn when the workspace still has some.
+  const handleDelete = (id: string) => {
+    const card = cards?.find(c => c.id === id);
+    const name = card?.name ?? 'this workspace';
+    const threads = card?.activeThreadCount ?? 0;
+    const warn = threads > 0
+      ? ` Its ${threads} thread${threads === 1 ? '' : 's'} will be left without a workspace.`
+      : '';
+    if (!window.confirm(`Delete workspace "${name}"? This can't be undone.${warn}`)) {
+      return;
+    }
+    void window.bridge.deleteWorkspace(id)
+      .then(() => reload())
+      .catch((e: unknown) => {
+        window.alert(`Couldn't delete workspace: ${e instanceof Error ? e.message : String(e)}`);
+      });
+  };
+
   return (
     <section className="workspace-landing">
       <header className="workspace-landing__appbar">
@@ -96,6 +115,7 @@ function WorkspacesLandingPage({
             card={card}
             isCurrent={card.id === currentWorkspaceId}
             onEnter={onEnterWorkspace}
+            onDelete={handleDelete}
           />
         ))}
         {!loading && !error && (

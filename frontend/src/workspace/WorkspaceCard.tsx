@@ -19,6 +19,9 @@ type Props = {
    *  Drives the CURRENT chip + a primary-coloured ring. */
   isCurrent: boolean;
   onEnter: (workspaceId: string) => void;
+  /** When set, a hover-revealed delete affordance is shown on the card
+   *  (real workspaces only). The host confirms + calls the backend. */
+  onDelete?: (workspaceId: string) => void;
 };
 
 /** One tile in the Workspaces landing grid. Mirrors the structure of
@@ -27,11 +30,12 @@ type Props = {
  *  bar, and a footer that surfaces the "N needs you" amber chip,
  *  last-edited time, and the Enter affordance. The whole tile is a
  *  button so the keyboard hits it as one focusable affordance. */
-function WorkspaceCard({ card, isCurrent, onEnter }: Props) {
+function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
   if (card.isScratch) {
     return <ScratchCard card={card} onEnter={onEnter} />;
   }
   return (
+    <div className="workspace-landing-card-wrap">
     <button
       type="button"
       className={`workspace-landing-card${isCurrent ? ' workspace-landing-card--current' : ''}`}
@@ -126,6 +130,18 @@ function WorkspaceCard({ card, isCurrent, onEnter }: Props) {
         <span className="workspace-landing-card__enter">Enter →</span>
       </footer>
     </button>
+      {onDelete !== undefined && (
+        <button
+          type="button"
+          className="workspace-landing-card__delete"
+          aria-label={`Delete workspace ${card.name}`}
+          title="Delete workspace"
+          onClick={() => onDelete(card.id)}
+        >
+          ⌫
+        </button>
+      )}
+    </div>
   );
 }
 

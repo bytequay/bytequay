@@ -91,4 +91,23 @@ interface TaskJpaRepository
     @Query("UPDATE TaskEntity t SET t.readyGateSentAtMs = :atMs "
             + "WHERE t.id = :taskId AND t.readyGateSentAtMs IS NULL")
     int setReadyGateSentAtIfNull(@Param("taskId") String taskId, @Param("atMs") long atMs);
+
+    // ── standing merge consent + auto-retry state (V129) ────────────────
+
+    /** Record standing merge consent and reset the retry counter. */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.mergeAuthorizedAtMs = :atMs, t.mergeQueueRetries = 0 "
+            + "WHERE t.id = :taskId")
+    int authorizeMerge(@Param("taskId") String taskId, @Param("atMs") long atMs);
+
+    /** Drop standing merge consent and reset the retry counter. */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.mergeAuthorizedAtMs = null, t.mergeQueueRetries = 0 "
+            + "WHERE t.id = :taskId")
+    int clearMergeAuthorization(@Param("taskId") String taskId);
+
+    /** Set the auto re-enqueue retry counter. */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.mergeQueueRetries = :retries WHERE t.id = :taskId")
+    int setMergeQueueRetries(@Param("taskId") String taskId, @Param("retries") int retries);
 }

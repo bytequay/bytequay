@@ -941,7 +941,7 @@ public class PublishService
         Optional<PullRequestRepository.MergeQueueProbe> probe = safeProbeMergeQueue(pat, ref);
         if (probe.isPresent()) {
             pullRequests.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
-            return mergeQueuedResult(who, mergePullRequest.action());
+            return onEnqueued(pullRequest, who, mergePullRequest.action());
         }
         try {
             pullRequests.mergePullRequest(pat, ref, command);
@@ -951,7 +951,7 @@ public class PublishService
                 Optional<String> nodeId = pullRequests.pullRequestNodeId(pat, ref);
                 if (nodeId.isPresent()) {
                     pullRequests.enqueuePullRequest(pat, nodeId.get());
-                    return mergeQueuedResult(who, mergePullRequest.action());
+                    return onEnqueued(pullRequest, who, mergePullRequest.action());
                 }
             }
             throw e;
@@ -980,6 +980,14 @@ public class PublishService
     private static PublishResult mergeQueuedResult(String who, String action)
     {
         return new PublishResult(true, RESOLUTION_APPROVED, "Added " + who + " to the merge queue.", action);
+    }
+
+    /** Record standing merge consent (so a queue bounce re-enqueues without
+     *  re-prompting) and report the PR as queued. */
+    private PublishResult onEnqueued(ParkedProposal.PrRef pr, String who, String action)
+    {
+        taskService.authorizeMergeForPr(pr.owner() + "/" + pr.repo(), pr.number());
+        return mergeQueuedResult(who, action);
     }
 
     /** True when a direct-merge rejection is GitHub telling us the change

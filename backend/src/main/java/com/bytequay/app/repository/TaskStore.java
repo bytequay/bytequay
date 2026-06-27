@@ -224,6 +224,38 @@ public interface TaskStore
         return false;
     }
 
+    // ── standing merge consent + auto-retry state (V129) ────────────────
+
+    /** Record the user's standing consent to merge this task's PR (and reset
+     *  the retry counter), so a merge-queue bounce re-enqueues automatically
+     *  instead of re-prompting. No-op default for test stores. */
+    default void authorizeMerge(String taskId, Instant at)
+    {
+    }
+
+    /** Drop standing merge consent + reset the retry counter. No-op default. */
+    default void clearMergeAuthorization(String taskId)
+    {
+    }
+
+    /** Whether the task currently carries standing merge consent. False
+     *  default for test stores. */
+    default boolean isMergeAuthorized(String taskId)
+    {
+        return false;
+    }
+
+    /** The number of silent merge-queue re-enqueues so far. Zero default. */
+    default int mergeQueueRetries(String taskId)
+    {
+        return 0;
+    }
+
+    /** Set the merge-queue auto re-enqueue retry counter. No-op default. */
+    default void setMergeQueueRetries(String taskId, int retries)
+    {
+    }
+
     /** Permanent removal. Drops the row plus its child {@code task_files};
      *  FK cascades handle the join. Callers must already have stopped
      *  any live agent attached to the task. */

@@ -20,6 +20,7 @@ import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -28,10 +29,13 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.threads.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
@@ -39,6 +43,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -50,7 +56,10 @@ import static org.mockito.Mockito.when;
  */
 @SpringBootTest
 @TestExecutionListeners(
-        listeners = DependencyInjectionTestExecutionListener.class,
+        listeners = {
+            DependencyInjectionTestExecutionListener.class,
+            MockitoTestExecutionListener.class,
+        },
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestReadyToMerge
 {
@@ -64,6 +73,8 @@ class TestReadyToMerge
     private ThreadStore threadStore;
     @Autowired
     private NotificationService notifications;
+    @MockBean
+    private PullRequestService pullRequests;
 
     @Test
     void firesOnceOnReadyAndDedupsTheSecondSweep()
@@ -97,6 +108,51 @@ class TestReadyToMerge
         // CI goes red — the armed sentinel clears.
         readyToMerge.evaluate(task, detail(CiStatus.FAILING, 1, 0, 0, false, "open"));
         assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+    }
+
+    @Test
+    void autoReEnqueuesWhenAuthorizedAndTheQueueBounced()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        stageStore.openStage(taskId, StageType.REVIEW_MONITOR_STAGE, null);
+        taskStore.authorizeMerge(taskId, Instant.now());        // standing consent
+        when(pullRequests.enqueueForMerge(anyString(), anyInt())).thenReturn(true);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        // Ready + authorized + not in the queue (bounced) → silent re-enqueue,
+        // not a fresh approval gate.
+        readyToMerge.evaluate(task, readyDetail());
+
+        assertThat(taskStore.mergeQueueRetries(taskId)).isEqualTo(1);
+        assertThat(readyToMergeNotifications(threadId)).isZero();
+    }
+
+    @Test
+    void escalatesToCiFixingAndNotifiesOnceRetriesAreExhausted()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        stageStore.openStage(taskId, StageType.REVIEW_MONITOR_STAGE, null);
+        taskStore.updatePhase(taskId, TaskPhase.AWAITING_REMOTE_REVIEW);
+        taskStore.authorizeMerge(taskId, Instant.now());
+        taskStore.setMergeQueueRetries(taskId, 2);              // already exhausted
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        readyToMerge.evaluate(task, readyDetail());
+
+        assertThat(taskStore.isMergeAuthorized(taskId)).isFalse();
+        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
+                .isEqualTo(TaskPhase.CI_FIXING);
+        assertThat(needsAttentionNotifications(threadId)).isEqualTo(1);
+    }
+
+    private long needsAttentionNotifications(String threadId)
+    {
+        return notifications.listForThread(threadId).stream()
+                .filter(n -> n.kind() == NotificationKind.NEEDS_ATTENTION)
+                .filter(n -> n.payloadJson().contains("merge_queue_failed"))
+                .count();
     }
 
     /** The ready-to-merge gate is now a parked {@code merge_pr} proposal —

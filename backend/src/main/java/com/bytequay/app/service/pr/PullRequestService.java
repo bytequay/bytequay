@@ -1088,6 +1088,40 @@ public class PullRequestService
         return result;
     }
 
+    /**
+     * Add a PR to its repo's merge queue without ever attempting a direct
+     * merge — used for the automatic re-enqueue after a merge-queue bounce
+     * (the user's merge consent already stands). Resolves the PR's GraphQL
+     * node id via the queue probe, falling back to a plain node-id lookup for
+     * ruleset-driven queues. Returns true when the enqueue call succeeded.
+     */
+    public boolean enqueueForMerge(String repo, int number)
+    {
+        String pat = patResolver.resolve(repo);
+        PullRequestRef ref = parseRef(repo, number);
+        Optional<PullRequestRepository.MergeQueueProbe> probe;
+        try {
+            probe = gitHub.probeMergeQueue(pat, ref);
+        }
+        catch (RuntimeException e) {
+            probe = Optional.empty();
+        }
+        String nodeId = probe.map(PullRequestRepository.MergeQueueProbe::pullRequestNodeId)
+                .orElseGet(() -> gitHub.pullRequestNodeId(pat, ref).orElse(null));
+        if (nodeId == null) {
+            return false;
+        }
+        try {
+            gitHub.enqueuePullRequest(pat, nodeId);
+            invalidatePullRequestCaches(repo, number);
+            return true;
+        }
+        catch (RuntimeException e) {
+            log.warn("auto re-enqueue of {}#{} failed: {}", repo, number, e.getMessage());
+            return false;
+        }
+    }
+
     /** True when a direct-merge rejection is GitHub requiring the change to
      *  go through the merge queue (HTTP 405 with a queue message). */
     private static boolean requiresMergeQueue(ResponseStatusException e)

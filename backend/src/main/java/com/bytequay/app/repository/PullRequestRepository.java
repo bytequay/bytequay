@@ -549,6 +549,18 @@ public interface PullRequestRepository
         throw new UnsupportedOperationException("dequeuePullRequest not implemented");
     }
 
+    /**
+     * The PR's GraphQL node id, looked up by ref. Unlike
+     * {@link #probeMergeQueue}, this does not gate on a merge queue being
+     * present — it's the fallback path for repos that require the queue via
+     * <em>rulesets</em> (where GraphQL's {@code pullRequest.mergeQueue} is
+     * null), so a direct-merge rejection can still be retried as an enqueue.
+     */
+    default Optional<String> pullRequestNodeId(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("pullRequestNodeId not implemented");
+    }
+
     /** Result of {@link #probeMergeQueue}. The PR's GraphQL node id is
      *  what {@link #enqueuePullRequest} needs as input. */
     record MergeQueueProbe(String pullRequestNodeId) {}

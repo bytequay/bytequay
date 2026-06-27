@@ -1670,6 +1670,42 @@ public class GitHubClient
     }
 
     @Override
+    public Optional<String> pullRequestNodeId(String pat, PullRequestRef pr)
+    {
+        // Same shape as the merge-queue probe but without the mergeQueue
+        // gate — used when a direct merge is rejected because a ruleset
+        // requires the queue (GraphQL's pullRequest.mergeQueue is null for
+        // ruleset-driven queues, so the probe can't see it).
+        String query = "query($owner: String!, $name: String!, $number: Int!) {"
+                + " repository(owner: $owner, name: $name) {"
+                + "   pullRequest(number: $number) { id }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", query,
+                "variables", ImmutableMap.of(
+                        "owner", pr.owner(),
+                        "name", pr.repo(),
+                        "number", pr.number()));
+        try {
+            MergeQueueProbeGqlResponse response = graphqlRestClient.post()
+                    .header("Authorization", authorization(pat))
+                    .body(body)
+                    .retrieve()
+                    .body(MergeQueueProbeGqlResponse.class);
+            if (response == null
+                    || response.data() == null
+                    || response.data().repository() == null
+                    || response.data().repository().pullRequest() == null) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(response.data().repository().pullRequest().id());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId)
     {
         // enqueuePullRequest takes only the PR id — the queue's

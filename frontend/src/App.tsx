@@ -490,7 +490,8 @@ function App() {
   // Stage / brain pages render their own task-scoped sidebar (the live-plan
   // diagram), so the global workspace rail steps aside for them. Cast to a
   // plain string so this alias doesn't narrow `nav` inside the rail JSX.
-  const ownsTaskSidebar = (nav.view as string) === 'stage-detail';
+  const ownsTaskSidebar = (nav.view as string) === 'stage-detail'
+    || (nav.view as string) === 'task-brain';
 
   return (
     <div className="app-shell">
@@ -663,6 +664,7 @@ function App() {
               view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
             })}
             onClosed={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
+            onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
           />
         )}
         {nav.view === 'task-code' && (

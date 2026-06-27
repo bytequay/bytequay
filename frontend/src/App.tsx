@@ -502,7 +502,10 @@ function App() {
           task={inWorkspaceFlow && threadStages.taskId !== null
             ? { id: threadStages.taskId, label: threadStages.taskLabel ?? 'Task', dot: threadStages.taskDot }
             : undefined}
-          stages={inWorkspaceFlow ? threadStages.stages : undefined}
+          /* Stage rows are intentionally omitted from the threads tree — the
+             sidebar is a session tree (threads → tasks only); stage navigation
+             lives on the task brain's live-plan diagram (design decision #3). */
+          stages={undefined}
           selectedTaskId={navTaskId}
           selectedStageId={'stageId' in nav ? nav.stageId : undefined}
           activeNav={sidebarActiveNav}

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
+import { MergeIcon } from '../primitives';
 import { LivePlan } from './LivePlan';
 import type { LivePlanNode } from './livePlanModel';
 
@@ -25,7 +26,10 @@ import type { LivePlanNode } from './livePlanModel';
 export function TaskSidebar({
   task, threadLabel, nodes, onBack, onOpenStage, onOpenCode, onOpenPr, actions,
 }: {
-  task: { taskNumber: number; title: string; branch: string; statusPill?: ReactNode; metaLine?: ReactNode };
+  task: {
+    taskNumber: number; title: string; branch: string;
+    statusPill?: ReactNode; metaLine?: ReactNode; finished?: boolean;
+  };
   threadLabel?: string;
   nodes: LivePlanNode[];
   onBack?: () => void;
@@ -49,7 +53,7 @@ export function TaskSidebar({
           <span className="task-num">▣ TASK #{task.taskNumber}</span>
           {task.statusPill !== undefined && <span className="status">{task.statusPill}</span>}
         </div>
-        <div className="ti-title">{task.title}</div>
+        <div className="ti-title">{task.finished === true && <MergeIcon />}{task.title}</div>
         <div className="ti-branch">{task.branch}</div>
         {task.metaLine !== undefined && <div className="ti-meta">{task.metaLine}</div>}
       </div>

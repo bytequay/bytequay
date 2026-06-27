@@ -273,16 +273,20 @@ export function StageDetailRoute({
     return chips;
   }, [pr]);
 
+  // A completed task's PR has landed — show it merged even if the cached PR
+  // detail (no longer polled once terminal) still reads open/queued.
+  const taskCompleted = data?.task.currentPhase === 'COMPLETED';
+  const prStatus = taskCompleted ? 'merged' : pr?.status;
   const prNode = pr !== null ? (
     <PRTabContent
       title={data?.task.title}
       prNumber={pr.number}
-      status={pr.status}
-      statusLabel={pr.status === 'merged'
+      status={prStatus}
+      statusLabel={prStatus === 'merged'
         ? 'Merged'
-        : pr.status === 'queued'
+        : prStatus === 'queued'
           ? `Queued for merge${pr.queueState !== null ? ` · ${pr.queueState.toLowerCase().replace(/_/g, ' ')}` : ''}`
-          : pr.status === 'draft'
+          : prStatus === 'draft'
             ? 'Draft'
             : 'Open · ready for review'}
       headBranch={pr.headRef ?? branch}
@@ -321,6 +325,7 @@ export function StageDetailRoute({
         title: data.task.title,
         branch: data.task.branch,
         metaLine: data.task.currentPhase.replace(/_/g, ' ').toLowerCase(),
+        finished: taskCompleted,
       }}
       nodes={livePlanNodes}
       onBack={onBack}

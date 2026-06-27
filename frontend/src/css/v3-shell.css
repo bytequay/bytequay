@@ -786,3 +786,11 @@
 .shell .task-sidebar .panel-action-btn:hover { border-color: var(--accent); }
 .shell .task-sidebar .panel-action-btn .ic { color: var(--text-3); font-size: 12px; }
 .shell .task-sidebar .panel-action-btn .count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+
+/* The git-merge glyph before a finished task's name (merged / done). */
+.shell .merge-icon {
+  color: #8b5cf6;
+  vertical-align: -2px;
+  margin-right: 5px;
+  flex-shrink: 0;
+}

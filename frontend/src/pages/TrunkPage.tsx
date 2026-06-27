@@ -55,14 +55,11 @@ function signalToNotif(s: ThreadSignalDto, formatTime: (ms: number) => string): 
  * tabs are wired here to the new per-thread APIs via {@link useTrunkPane}.
  */
 export function TrunkPage({
-  threadId, thread, status, sidebar, conversation, collapsed = false, composer,
+  threadId, thread, sidebar, conversation, collapsed = false, composer,
   tasks, onOpenTask, onCutTask, formatTime = () => '',
 }: {
   threadId: string;
   thread: { title: string; createdLabel?: string };
-  /** Headline status chip for the thread (running / in review / done …),
-   *  derived from its tasks — the at-a-glance "is this finished?" signal. */
-  status?: { label: string; tone: string };
   sidebar?: ReactNode;
   conversation: ReactNode;
   collapsed?: boolean;
@@ -96,15 +93,6 @@ export function TrunkPage({
     <TopBar>
       <Pill kind="thread" icon="💭">THREAD</Pill>
       <TopBarTitle>{thread.title}</TopBarTitle>
-      {status !== undefined && (
-        <>
-          <CrumbSep />
-          <span className={`trunk-status trunk-status--${status.tone}`}>
-            <span className="dot" aria-hidden />
-            {status.label}
-          </span>
-        </>
-      )}
       {thread.createdLabel !== undefined && (
         <>
           <CrumbSep />

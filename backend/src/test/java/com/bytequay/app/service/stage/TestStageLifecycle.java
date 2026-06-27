@@ -170,17 +170,20 @@ class TestStageLifecycle
         assertActive(taskId, StageType.CI_FIXING_STAGE);
         assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
 
-        // PR closes: CiFixing closes, Cleanup opens (terminal).
+        // PR merges: CiFixing closes, and the terminal Cleanup stage opens
+        // then immediately closes (it's a marker, not live work) — so a
+        // finished task leaves nothing "running".
         machine.transition(taskId, TaskPhase.COMPLETED, "merged", Actor.HUMAN);
-        assertActive(taskId, StageType.CLEANUP_STAGE);
+        assertThat(stageStore.findActiveStage(taskId)).isEmpty();
         assertThat(only(taskId, StageType.CI_FIXING_STAGE).state()).isEqualTo(StageState.CLOSED);
+        assertThat(only(taskId, StageType.CLEANUP_STAGE).state()).isEqualTo(StageState.CLOSED);
 
         List<StageInstance> stages = stageStore.findStagesByTask(taskId);
         assertThat(stages).extracting(StageInstance::type).containsExactlyInAnyOrder(
                 StageType.PLAN_STAGE, StageType.DEVELOPMENT_STAGE,
                 StageType.CI_FIXING_STAGE, StageType.CLEANUP_STAGE);
-        // Plan, dev, and ci-fixing closed; cleanup still open.
-        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(3);
+        // Every stage closed — a finished task has nothing running.
+        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(4);
     }
 
     @Test

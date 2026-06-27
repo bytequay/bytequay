@@ -695,6 +695,9 @@ public class TaskService
                     continue;
                 }
                 taskStore.completeTask(task.id(), Instant.now());
+                // Record the merged PR state so the task/stage surfaces show
+                // the PR as merged, not open, after it lands.
+                taskStore.linkPullRequest(task.id(), prNumber, "merged");
                 // Drive the dev-lifecycle phase to its terminal COMPLETED
                 // through the machine (not just the runtime status) so the
                 // phase audit + transition event fire — the latter is what

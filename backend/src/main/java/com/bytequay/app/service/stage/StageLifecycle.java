@@ -137,6 +137,15 @@ public class StageLifecycle
         // Phase-driven stages are top-level — only a callable review panel
         // carries a caller pointer, so callerStageId stays null here.
         StageInstance opened = stageStore.openStage(taskId, target.get(), null);
+        // The CleanupStage is a terminal marker, not live work — the worktree
+        // reap happens in the completion path, not in an agent turn. Open and
+        // immediately close it so a finished task shows "done", never a stage
+        // stuck "running".
+        if (target.get() == StageType.CLEANUP_STAGE) {
+            stageStore.closeStage(opened.id(), "task_completed");
+            log.debug("opened + closed CleanupStage {} for completed task {}", opened.id(), taskId);
+            return;
+        }
         // Seed a monitor stage's budget / review config at open time.
         budgetService.onStageOpened(opened);
         log.debug("opened {} stage {} for task {} on phase {}",

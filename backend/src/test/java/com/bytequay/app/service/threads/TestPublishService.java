@@ -15,6 +15,7 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
@@ -172,6 +173,46 @@ class TestPublishService
                 eq("ghp_secret"), eq(new PullRequestRef("acme", "widget", 42)), eq(edited));
         verify(notifications).claimResolution("notif-3");
         verify(parkedProposals).finishApproved(parked, false);
+    }
+
+    @Test
+    void approveMergeFallsBackToEnqueueWhenARulesetRequiresTheMergeQueue()
+            throws Exception
+    {
+        Notification parked = parkedMergePr("notif-mq", "task-mq", "trinodb", "trino", 30070);
+        when(notifications.find("notif-mq")).thenReturn(Optional.of(parked));
+        when(patResolver.resolve("trinodb/trino")).thenReturn("ghp_secret");
+        PullRequestRef ref = new PullRequestRef("trinodb", "trino", 30070);
+        // No queue is visible to the probe (Mockito default Optional.empty()),
+        // so the direct merge runs and GitHub 405s for the ruleset rule.
+        when(pullRequests.mergePullRequest(eq("ghp_secret"), eq(ref), any()))
+                .thenThrow(new ResponseStatusException(HttpStatusCode.valueOf(405),
+                        "Repository rule violations found\n\nChanges must be made through the merge queue\n\n"));
+        when(pullRequests.pullRequestNodeId("ghp_secret", ref)).thenReturn(Optional.of("PR_node_1"));
+        when(pullRequests.enqueuePullRequest("ghp_secret", "PR_node_1"))
+                .thenReturn(MergeResult.enqueued("Added to merge queue"));
+
+        PublishResult result = service.approve("notif-mq", null, "merge_pr");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.resolution()).isEqualTo("approved");
+        assertThat(result.message()).contains("merge queue");
+        verify(pullRequests).enqueuePullRequest("ghp_secret", "PR_node_1");
+        verify(parkedProposals).finishApproved(parked, false);
+    }
+
+    private static Notification parkedMergePr(
+            String notificationId, String taskId, String owner, String repo, int number)
+    {
+        String json = "{"
+                + "\"action\":\"merge_pr\","
+                + "\"pr\":{\"owner\":" + quote(owner) + ",\"repo\":" + quote(repo)
+                + ",\"number\":" + number + "},"
+                + "\"source\":\"mcp:merge_pr\""
+                + "}";
+        return new Notification(
+                notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,
+                NotificationStatus.UNREAD, json, Instant.now(), null);
     }
 
     @Test

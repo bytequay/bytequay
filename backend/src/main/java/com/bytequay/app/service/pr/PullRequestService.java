@@ -1057,7 +1057,25 @@ public class PullRequestService
             return queued;
         }
         MergePullRequestCommand command = strategyCommand(strategy);
-        MergeResult result = gitHub.mergePullRequest(pat, ref, command);
+        MergeResult result;
+        try {
+            result = gitHub.mergePullRequest(pat, ref, command);
+        }
+        catch (ResponseStatusException e) {
+            // Rulesets can require the merge queue without exposing it to the
+            // probe above (GraphQL's pullRequest.mergeQueue is null for
+            // ruleset-driven queues). GitHub then 405s the direct merge —
+            // recover by enqueueing instead.
+            if (requiresMergeQueue(e)) {
+                Optional<String> nodeId = gitHub.pullRequestNodeId(pat, ref);
+                if (nodeId.isPresent()) {
+                    MergeResult queued = gitHub.enqueuePullRequest(pat, nodeId.get());
+                    invalidatePullRequestCaches(repo, number);
+                    return queued;
+                }
+            }
+            throw e;
+        }
         viewStateStore.markReviewed(prId, HandledAction.MERGED);
         // The PR actually landed (not just queued) — let a shipped task
         // that owns this PR advance from IN_REVIEW to COMPLETED.
@@ -1068,6 +1086,15 @@ public class PullRequestService
         // (~2 min) to refresh the cached StoredPrDetail.
         invalidatePullRequestCaches(repo, number);
         return result;
+    }
+
+    /** True when a direct-merge rejection is GitHub requiring the change to
+     *  go through the merge queue (HTTP 405 with a queue message). */
+    private static boolean requiresMergeQueue(ResponseStatusException e)
+    {
+        return e.getStatusCode().value() == 405
+                && e.getReason() != null
+                && e.getReason().toLowerCase(Locale.ROOT).contains("merge queue");
     }
 
     private static MergePullRequestCommand strategyCommand(String strategy)

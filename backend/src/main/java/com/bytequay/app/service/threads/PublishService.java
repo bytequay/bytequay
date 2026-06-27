@@ -53,6 +53,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import static com.google.common.base.Strings.nullToEmpty;
@@ -929,14 +930,65 @@ public class PublishService
             default -> MergePullRequestCommand.squash();
         };
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
-        pullRequests.mergePullRequest(pat, toPullRequestRef(pullRequest), command);
+        PullRequestRef ref = toPullRequestRef(pullRequest);
+        String who = pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number();
+
+        // Repos that require a merge queue reject a direct merge. Detect the
+        // queue up front when GitHub exposes it (classic branch protection);
+        // otherwise attempt the direct merge and, if it's rejected for a
+        // queue rule (rulesets — where the queue isn't visible via GraphQL),
+        // retry as an enqueue.
+        Optional<PullRequestRepository.MergeQueueProbe> probe = safeProbeMergeQueue(pat, ref);
+        if (probe.isPresent()) {
+            pullRequests.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
+            return mergeQueuedResult(who, mergePullRequest.action());
+        }
+        try {
+            pullRequests.mergePullRequest(pat, ref, command);
+        }
+        catch (ResponseStatusException e) {
+            if (requiresMergeQueue(e)) {
+                Optional<String> nodeId = pullRequests.pullRequestNodeId(pat, ref);
+                if (nodeId.isPresent()) {
+                    pullRequests.enqueuePullRequest(pat, nodeId.get());
+                    return mergeQueuedResult(who, mergePullRequest.action());
+                }
+            }
+            throw e;
+        }
         // Advance a shipped task that owns this PR to COMPLETED — the
         // dashboard merge does the same via PullRequestMergedEvent.
         taskService.completeTasksForMergedPr(pullRequest.owner() + "/" + pullRequest.repo(), pullRequest.number());
         return new PublishResult(true, RESOLUTION_APPROVED,
-                "Merged " + pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number()
-                        + " (" + strategy + ").",
+                "Merged " + who + " (" + strategy + ").",
                 mergePullRequest.action());
+    }
+
+    /** Probe the PR's base branch for a (classic branch-protection) merge
+     *  queue, swallowing probe failures so we can still attempt a direct
+     *  merge. */
+    private Optional<PullRequestRepository.MergeQueueProbe> safeProbeMergeQueue(String pat, PullRequestRef ref)
+    {
+        try {
+            return pullRequests.probeMergeQueue(pat, ref);
+        }
+        catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static PublishResult mergeQueuedResult(String who, String action)
+    {
+        return new PublishResult(true, RESOLUTION_APPROVED, "Added " + who + " to the merge queue.", action);
+    }
+
+    /** True when a direct-merge rejection is GitHub telling us the change
+     *  must go through the merge queue (HTTP 405 with a queue message). */
+    private static boolean requiresMergeQueue(ResponseStatusException e)
+    {
+        return e.getStatusCode().value() == 405
+                && e.getReason() != null
+                && e.getReason().toLowerCase(Locale.ROOT).contains("merge queue");
     }
 
     private PublishResult doCreateReviewComment(

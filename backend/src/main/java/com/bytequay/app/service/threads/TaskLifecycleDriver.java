@@ -387,6 +387,12 @@ public class TaskLifecycleDriver
         if (task.status() != TaskStatus.COMPLETED) {
             taskStore.completeTask(task.id(), Instant.now());
         }
+        // Record the terminal PR state so the task/stage surfaces stop showing
+        // a merged PR as "open" once the remote PR resolves (incl. via the
+        // merge queue, where no in-app merge action ran).
+        if (task.prNumber() != null) {
+            taskStore.linkPullRequest(task.id(), task.prNumber(), merged ? "merged" : "closed");
+        }
         phaseMachine.observe(
                 task.id(), TaskPhase.COMPLETED, merged ? "pr_merged_observed" : "pr_closed_observed");
         // Reap only on a real merge — a closed-unmerged PR may still carry

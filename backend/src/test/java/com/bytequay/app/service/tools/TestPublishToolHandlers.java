@@ -52,6 +52,7 @@ class TestPublishToolHandlers
     private TaskStore taskStore;
     private ParkedProposalService parkedProposals;
     private PullRequestService pullRequestService;
+    private GitRunner git;
     private PublishToolHandlers handlers;
 
     @BeforeEach
@@ -60,11 +61,12 @@ class TestPublishToolHandlers
         taskStore = mock(TaskStore.class);
         parkedProposals = mock(ParkedProposalService.class);
         pullRequestService = mock(PullRequestService.class);
+        git = mock(GitRunner.class);
         handlers = new PublishToolHandlers(
                 taskStore,
                 mock(WatchedRepoStore.class),
                 parkedProposals,
-                mock(GitRunner.class),
+                git,
                 new ObjectMapper(),
                 mock(TaskPhaseMachine.class),
                 pullRequestService);
@@ -181,6 +183,26 @@ class TestPublishToolHandlers
         ParkedProposal.ShipTask parked = (ParkedProposal.ShipTask) captor.getValue();
         assertThat(parked.prTitle()).isNull();
         assertThat(parked.prBody()).isNull();
+    }
+
+    @Test
+    void shipTaskBouncesTheTurnBackWhenTheWorktreeHasUncommittedChanges()
+            throws Exception
+    {
+        Task task = taskAt("task-dirty", TaskStatus.RUNNING);
+        when(taskStore.findActiveTaskForThread("thread-dirty")).thenReturn(Optional.of(task));
+        when(git.hasUncommittedChanges(any())).thenReturn(true);
+
+        ToolOutcome outcome = handlers.shipTask(
+                new PublishToolHandlers.ShipTaskArgs(null, "main", "Add cache layer", "body"),
+                new ToolCall("thread-dirty", null, AgentRole.TASK));
+
+        // Nothing parks — the agent is told to commit its own work and re-ship,
+        // so the user never reviews an empty branch.
+        ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
+        assertThat(completed.isError()).isFalse();
+        assertThat(completed.text()).contains("uncommitted changes").contains("ship_task again");
+        verify(parkedProposals, never()).park(any(), any());
     }
 
     private static Task taskAt(String id, TaskStatus status)

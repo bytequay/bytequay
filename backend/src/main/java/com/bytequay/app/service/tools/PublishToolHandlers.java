@@ -884,7 +884,21 @@ public class PublishToolHandlers
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — ship needs an isolated branch");
         }
-        DiffBundle bundle = collectDiffBundle(Path.of(task.worktreePath()), task);
+        Path worktree = Path.of(task.worktreePath());
+        // The user reviews COMMITTED diffs before approving the push, so an
+        // uncommitted worktree would park an empty branch. Don't commit for the
+        // agent — bounce the turn back so it commits its own work (proper
+        // message + authorship), then calls ship_task again. Repo-agnostic: this
+        // holds regardless of what the target repo's conventions say about who
+        // commits.
+        if (worktreeIsDirty(worktree)) {
+            return ToolOutcome.Completed.ok(
+                    "Not shipped — the worktree still has uncommitted changes. The user reviews "
+                    + "your committed diff before approving the push, so shipping now would park "
+                    + "an empty branch. Commit ALL of your work first: stage every change and "
+                    + "commit with a clear message describing it, then call ship_task again.");
+        }
+        DiffBundle bundle = collectDiffBundle(worktree, task);
         String prTitle = nullToEmpty(args.prTitle()).trim();
         String prBody = nullToEmpty(args.prBody());
         return park(task, new ParkedProposal.ShipTask(
@@ -1021,6 +1035,24 @@ public class PublishToolHandlers
      *  don't abort the park — the audit trail is still useful even
      *  without the preview, so we capture the error in {@link
      *  DiffBundle#diffError} instead of raising. */
+    /** True when the worktree has staged, unstaged, or untracked changes. On
+     *  any git failure return false — let the ship park rather than wedge the
+     *  agent in a commit loop; the user still reviews before the push. */
+    private boolean worktreeIsDirty(Path worktree)
+    {
+        try {
+            return git.hasUncommittedChanges(worktree);
+        }
+        catch (IOException e) {
+            log.warn("dirty-check for {} failed: {}", worktree, e.getMessage());
+            return false;
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     private DiffBundle collectDiffBundle(Path worktree, Task task)
     {
         try {

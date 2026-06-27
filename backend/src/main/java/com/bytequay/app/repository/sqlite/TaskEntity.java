@@ -145,6 +145,16 @@ class TaskEntity
     @Column(name = "ready_gate_sent_at_ms")
     private Long readyGateSentAtMs;
 
+    /** When the user approved the "Approve &amp; merge" gate — standing consent
+     *  to merge this PR, so the lifecycle re-enqueues automatically after a
+     *  merge-queue bounce instead of re-prompting. Null until approved. */
+    @Column(name = "merge_authorized_at_ms")
+    private Long mergeAuthorizedAtMs;
+
+    /** Count of silent auto re-enqueues after merge-queue bounces. */
+    @Column(name = "merge_queue_retries")
+    private int mergeQueueRetries;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -249,6 +259,12 @@ class TaskEntity
 
     Long getMergeNotificationSentAtMs() { return mergeNotificationSentAtMs; }
     void setMergeNotificationSentAtMs(Long mergeNotificationSentAtMs) { this.mergeNotificationSentAtMs = mergeNotificationSentAtMs; }
+
+    Long getMergeAuthorizedAtMs() { return mergeAuthorizedAtMs; }
+    void setMergeAuthorizedAtMs(Long mergeAuthorizedAtMs) { this.mergeAuthorizedAtMs = mergeAuthorizedAtMs; }
+
+    int getMergeQueueRetries() { return mergeQueueRetries; }
+    void setMergeQueueRetries(int mergeQueueRetries) { this.mergeQueueRetries = mergeQueueRetries; }
 
     Long getReadyGateSentAtMs() { return readyGateSentAtMs; }
     void setReadyGateSentAtMs(Long readyGateSentAtMs) { this.readyGateSentAtMs = readyGateSentAtMs; }

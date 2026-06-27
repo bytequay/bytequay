@@ -284,6 +284,43 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional
+    public void authorizeMerge(String taskId, Instant at)
+    {
+        tasks.authorizeMerge(taskId, at.toEpochMilli());
+    }
+
+    @Override
+    @Transactional
+    public void clearMergeAuthorization(String taskId)
+    {
+        tasks.clearMergeAuthorization(taskId);
+    }
+
+    @Override
+    public boolean isMergeAuthorized(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(TaskEntity::getMergeAuthorizedAtMs)
+                .isPresent();
+    }
+
+    @Override
+    public int mergeQueueRetries(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(TaskEntity::getMergeQueueRetries)
+                .orElse(0);
+    }
+
+    @Override
+    @Transactional
+    public void setMergeQueueRetries(String taskId, int retries)
+    {
+        tasks.setMergeQueueRetries(taskId, retries);
+    }
+
+    @Override
     public Optional<Task> findActiveTaskByPrRef(String prRef)
     {
         return tasks.findFirstByLinkedPrRefAndPhaseNot(prRef, TaskPhase.COMPLETED.name())

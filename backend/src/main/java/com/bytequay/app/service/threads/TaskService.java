@@ -723,6 +723,27 @@ public class TaskService
     }
 
     /**
+     * Record the user's standing consent to merge the PR after they approve
+     * an "Approve &amp; merge" gate that enqueues into the merge queue. With
+     * consent on file, the lifecycle re-enqueues automatically if the queue
+     * bounces the PR, instead of re-prompting for approval each time.
+     */
+    public void authorizeMergeForPr(String repoFullName, int prNumber)
+    {
+        try {
+            for (Task task : taskStore.findByLinkedPrNumber(prNumber)) {
+                if (task.status() == TaskStatus.IN_REVIEW && repoMatches(task, repoFullName)) {
+                    taskStore.authorizeMerge(task.id(), Instant.now());
+                }
+            }
+        }
+        catch (RuntimeException e) {
+            log.warn("recording merge consent for PR {} #{} failed: {}",
+                    repoFullName, prNumber, e.getMessage());
+        }
+    }
+
+    /**
      * Close a task the user is done with: stop the agent, seal it
      * CANCELED, and reap its worktree + branch. The explicit "throw this
      * away" action — distinct from ship (publish) and from a clean

@@ -1058,6 +1058,18 @@ class TestThreadServiceScheduler
         {
             return cannedRangePatches.getOrDefault(path, "");
         }
+
+        @Override
+        public List<GitRunner.CommitFileChange> effectiveFiles(Path workingDir, String base)
+        {
+            return cannedRangeFiles;
+        }
+
+        @Override
+        public String effectiveFileDiff(Path workingDir, String base, String path, int maxBytes)
+        {
+            return cannedRangePatches.getOrDefault(path, "");
+        }
     }
 
     private static final class RecordingScheduler

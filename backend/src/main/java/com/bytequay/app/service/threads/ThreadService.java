@@ -1086,9 +1086,11 @@ public class ThreadService
             if (base == null) {
                 return List.<TaskDiffFile>of();
             }
+            // base → working tree (committed + uncommitted + untracked), so the
+            // diff isn't blank when the agent edited but hasn't committed yet.
             List<TaskDiffFile> out = new ArrayList<>();
-            for (GitRunner.CommitFileChange f : git.rangeFiles(cwd.get(), base, "HEAD")) {
-                String patch = git.rangeFileDiff(cwd.get(), base, "HEAD", f.path(), DIFF_MAX_BYTES);
+            for (GitRunner.CommitFileChange f : git.effectiveFiles(cwd.get(), base)) {
+                String patch = git.effectiveFileDiff(cwd.get(), base, f.path(), DIFF_MAX_BYTES);
                 int[] counts = countDiffLines(patch);
                 out.add(new TaskDiffFile(
                         f.path(), statusWord(f.status()), counts[0], counts[1], patch));

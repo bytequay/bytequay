@@ -51,11 +51,14 @@ public record StageDetailData(
      * realtime-CI snapshot already fetches, so it adds no extra GitHub call.
      * Null when the task has no linked PR.
      *
-     * @param status open | draft | merged
+     * @param status open | draft | queued | merged
+     * @param queueState the raw merge-queue entry state (e.g. AWAITING_CHECKS)
+     *                   when {@code status} is {@code queued}; null otherwise
      */
     public record PrTab(
             int number,
             String status,
+            String queueState,
             String headRef,
             String baseRef,
             List<String> reviewers,

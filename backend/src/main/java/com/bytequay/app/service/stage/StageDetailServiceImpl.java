@@ -583,7 +583,14 @@ public class StageDetailServiceImpl
         if (ref.isEmpty() || detail == null) {
             return null;
         }
-        String status = detail.merged() ? "merged" : detail.draft() ? "draft" : "open";
+        // A non-blank merge-queue entry state means the PR is sitting in the
+        // queue (approved + waiting for its slot) rather than plainly open.
+        boolean queued = detail.mergeQueueState() != null
+                && !detail.mergeQueueState().isBlank()
+                && !detail.merged();
+        String status = detail.merged() ? "merged"
+                : queued ? "queued"
+                : detail.draft() ? "draft" : "open";
 
         int passed = 0;
         int failed = 0;
@@ -617,6 +624,7 @@ public class StageDetailServiceImpl
         return new StageDetailData.PrTab(
                 ref.get().number(),
                 status,
+                queued ? detail.mergeQueueState() : null,
                 detail.headRef(),
                 detail.baseRef(),
                 detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers(),

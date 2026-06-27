@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 import { Avatar } from '../../primitives';
 
 /** Pull-request lifecycle state. */
-export type PRStatus = 'open' | 'merged' | 'draft';
+export type PRStatus = 'open' | 'merged' | 'draft' | 'queued';
 /** A clickable metadata chip (reviewers, labels, …). */
 export type PRMetaChip = { icon?: ReactNode; label: ReactNode; count?: number };
 /** CI check-run tallies for the summary card. */

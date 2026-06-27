@@ -454,6 +454,11 @@
   color: var(--text-3);
   border: 1px solid var(--border-mid);
 }
+.shell .pr-status-badge.queued {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
 .shell .pr-branch-flow {
   font-family: var(--mono);
   font-size: 11.5px;

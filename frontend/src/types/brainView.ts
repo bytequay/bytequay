@@ -265,7 +265,10 @@ export type StageDetailData = {
 /** The PR-tab payload surfaced on the stage detail (frames 6/7). */
 export type StagePrTab = {
   number: number;
-  status: 'open' | 'draft' | 'merged';
+  status: 'open' | 'draft' | 'queued' | 'merged';
+  /** Raw merge-queue entry state (e.g. AWAITING_CHECKS) when status is
+   *  'queued'; null otherwise. */
+  queueState: string | null;
   headRef: string | null;
   baseRef: string | null;
   reviewers: string[];

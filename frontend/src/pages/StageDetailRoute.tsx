@@ -272,7 +272,13 @@ export function StageDetailRoute({
       title={data?.task.title}
       prNumber={pr.number}
       status={pr.status}
-      statusLabel={pr.status === 'merged' ? 'Merged' : pr.status === 'draft' ? 'Draft' : 'Open · ready for review'}
+      statusLabel={pr.status === 'merged'
+        ? 'Merged'
+        : pr.status === 'queued'
+          ? `Queued for merge${pr.queueState !== null ? ` · ${pr.queueState.toLowerCase().replace(/_/g, ' ')}` : ''}`
+          : pr.status === 'draft'
+            ? 'Draft'
+            : 'Open · ready for review'}
       headBranch={pr.headRef ?? branch}
       baseBranch={pr.baseRef ?? undefined}
       metaChips={prMetaChips}

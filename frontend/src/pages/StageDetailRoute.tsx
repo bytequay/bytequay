@@ -32,6 +32,9 @@ import { planTab } from './planTab';
 import { stageRow } from './stageConversationRow';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
+import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { buildLivePlan } from '../ui/shell/livePlanModel';
+import type { TaskPhase } from '../types/brainView';
 
 const KIND: Partial<Record<StageType, StageKind>> = {
   PLAN_STAGE: 'plan',
@@ -52,15 +55,18 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * comment threads.
  */
 export function StageDetailRoute({
-  threadId, taskId, stageId, onOpenCode, onOpenStage,
+  threadId, taskId, stageId, onOpenCode, onOpenStage, onBack,
 }: {
   threadId: string;
   taskId: string;
   stageId: string;
   onOpenCode: () => void;
   /** Jump to another stage — used after approving the plan, which closes
-   *  this Plan stage and opens the Development stage. */
+   *  this Plan stage and opens the Development stage, and by the live-plan
+   *  diagram in the task sidebar. */
   onOpenStage?: (stageId: string) => void;
+  /** Navigate back to the thread trunk (the task sidebar's back button). */
+  onBack?: () => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
   const shipProposal = usePendingShipProposal(threadId, taskId);
@@ -294,9 +300,40 @@ export function StageDetailRoute({
   const totalAdds = files?.reduce((n, f) => n + f.additions, 0) ?? 0;
   const totalDels = files?.reduce((n, f) => n + f.deletions, 0) ?? 0;
 
+  // The task-scoped sidebar with the live-plan lifecycle diagram, replacing
+  // the global rail while inside a task. Nodes derive from the actual stages.
+  const livePlanNodes = useMemo(() => buildLivePlan({
+    stages: data?.allStages ?? [],
+    subStages: data?.subStages ?? [],
+    task: {
+      prNumber,
+      currentPhase: (data?.task.currentPhase ?? 'IMPLEMENTING') as TaskPhase,
+      terminal: state === 'CLOSED',
+    },
+    prStatus: pr?.status ?? null,
+    viewedStageId: stageId,
+  }), [data, prNumber, pr, state, stageId]);
+
+  const sidebar = data === null ? undefined : (
+    <TaskSidebar
+      task={{
+        taskNumber: data.task.taskNumber,
+        title: data.task.title,
+        branch: data.task.branch,
+        metaLine: data.task.currentPhase.replace(/_/g, ' ').toLowerCase(),
+      }}
+      nodes={livePlanNodes}
+      onBack={onBack}
+      onOpenStage={onOpenStage}
+      onOpenCode={onOpenCode}
+      onOpenPr={pr !== null ? openPr : undefined}
+    />
+  );
+
   return (
     <StageDetailPage
       stageKind={stageKind}
+      sidebar={sidebar}
       stage={{ title: data?.task.title ?? 'Stage', branch: data?.task.branch }}
       conversation={conversation}
       composer={{

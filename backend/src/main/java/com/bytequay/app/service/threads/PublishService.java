@@ -822,6 +822,14 @@ public class PublishService
         Path worktree = Path.of(worktreePath);
         String branch = orElse(push.branch(), "the branch");
         try {
+            // The agent may have finished editing without committing — stage +
+            // commit the worktree (minus app-managed hook files) first, so the
+            // push lands the work instead of pushing an empty branch. Mirrors
+            // the ship path's pre-push commit.
+            if (git.hasUncommittedChanges(worktree)) {
+                git.stageAll(worktree, List.of(WorktreeService.HOOK_DIR_REL));
+                git.commit(worktree, "ByteQuay: commit pending task changes before push");
+            }
             git.push(worktree);
         }
         catch (IOException e) {

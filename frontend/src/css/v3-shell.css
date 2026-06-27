@@ -684,3 +684,105 @@
   color: var(--text-3);
   border: 1px solid var(--border);
 }
+
+/* ── Task-scoped sidebar + live-plan lifecycle diagram (frames 2/6/7) ── */
+.shell .task-sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+.shell .task-sidebar .back-row { padding: 9px 12px 0; }
+.shell .task-sidebar .back-to-thread {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 7px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-mid);
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+}
+.shell .task-sidebar .back-to-thread:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
+.shell .task-sidebar .back-to-thread .arrow { font-size: 11px; color: var(--text-4); flex-shrink: 0; }
+.shell .task-sidebar .back-to-thread .label { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.shell .task-identity { padding: 12px 14px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.shell .task-identity .pill-row { display: flex; align-items: center; gap: 8px; }
+.shell .task-identity .task-num {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-border);
+  border-radius: 5px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
+}
+.shell .task-identity .ti-title { font-size: 13.5px; font-weight: 700; color: var(--text-1); line-height: 1.35; }
+.shell .task-identity .ti-branch { font-family: var(--mono); font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell .task-identity .ti-meta { font-size: 10.5px; color: var(--text-4); display: flex; align-items: center; gap: 8px; padding-top: 2px; }
+.shell .task-identity .ti-meta .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-4); }
+
+.shell .plan-section-h {
+  padding: 14px 14px 0; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--text-3); text-transform: uppercase; display: flex; align-items: baseline;
+}
+.shell .plan-section-h .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #16a34a; margin-left: auto; animation: working-pulse 1.4s infinite; }
+
+.shell .live-plan { padding: 10px 12px 14px; display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+.shell .plan-node {
+  display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px;
+  padding: 7px 10px; background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer; font-family: inherit; text-align: left;
+  transition: all 0.15s; width: 100%;
+}
+.shell .plan-node:hover { border-color: var(--accent); transform: translateX(1px); }
+.shell .plan-node:disabled { cursor: default; }
+.shell .plan-node:disabled:hover { transform: none; }
+.shell .plan-node.sm { padding: 5px 9px; }
+.shell .plan-node.sm .pn-name { font-size: 11.5px; }
+.shell .plan-node.done { background: rgba(34, 197, 94, 0.06); border-color: rgba(34, 197, 94, 0.28); }
+.shell .plan-node.done .pn-glyph { color: #16a34a; }
+.shell .plan-node.done .pn-name { color: var(--text-1); }
+.shell .plan-node.running { background: rgba(217, 119, 6, 0.08); border-color: var(--orange); }
+.shell .plan-node.running .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
+.shell .plan-node.running .pn-name { color: var(--text-1); font-weight: 600; }
+.shell .plan-node.planning { background: var(--accent-soft); border-color: var(--accent-border); }
+.shell .plan-node.planning .pn-glyph { color: var(--accent); animation: working-pulse 1.4s infinite; }
+.shell .plan-node.sleep .pn-glyph { color: var(--text-4); }
+.shell .plan-node.sleep .pn-name { color: var(--text-3); }
+.shell .plan-node.future { background: transparent; border-style: dashed; opacity: 0.6; }
+.shell .plan-node.future .pn-glyph { color: var(--text-4); }
+.shell .plan-node.future .pn-name { color: var(--text-4); }
+.shell .plan-node.errored { background: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.32); }
+.shell .plan-node.errored .pn-glyph { color: var(--red); }
+.shell .plan-node.active-view { box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(139, 92, 246, 0.20); border-color: var(--accent); }
+.shell .plan-node .pn-glyph { font-size: 11px; line-height: 1; text-align: center; font-weight: 700; }
+.shell .plan-node .pn-name { font-size: 12px; font-weight: 500; color: var(--text-2); line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell .plan-node .pn-meta { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+.shell .plan-node.running .pn-meta, .shell .plan-node.planning .pn-meta { color: inherit; opacity: 0.7; }
+
+.shell .plan-line { width: 2px; height: 14px; background: var(--border-mid); margin-left: 18px; }
+.shell .plan-line.dim { background: var(--border); }
+.shell .plan-sub-row { display: grid; grid-template-columns: 18px 1fr; align-items: center; padding: 0 0 0 14px; margin: 4px 0 0; }
+.shell .plan-sub-row .branch-glyph { color: var(--text-4); font-size: 11px; padding-top: 3px; }
+
+.shell .plan-split { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+.shell .plan-split .split-glyph { padding: 4px 0; display: flex; align-items: center; justify-content: center; }
+.shell .plan-split .split-icon, .shell .plan-split .converge-icon { font-size: 9px; color: var(--text-4); padding: 0 4px; font-family: var(--mono); }
+.shell .plan-split .split-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.shell .plan-split .converge-glyph { padding: 6px 0 4px; display: flex; align-items: center; justify-content: center; }
+
+.shell .task-sidebar .panel-actions { margin-top: auto; padding: 12px 12px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); }
+.shell .task-sidebar .panel-action-btn {
+  display: flex; align-items: center; gap: 7px; padding: 7px 11px; background: var(--bg-elev);
+  border: 1px solid var(--border); border-radius: 7px; font-size: 11.5px; color: var(--text-2);
+  cursor: pointer; font-family: inherit; text-align: left;
+}
+.shell .task-sidebar .panel-action-btn:hover { border-color: var(--accent); }
+.shell .task-sidebar .panel-action-btn .ic { color: var(--text-3); font-size: 12px; }
+.shell .task-sidebar .panel-action-btn .count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text-4); }

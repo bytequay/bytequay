@@ -486,7 +486,39 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--orange);
+  background: var(--text-4);
+}
+/* Colour-coded status tones, shared by the list pill and the trunk chip. */
+.shell .tasks-pill--running .dot,
+.shell .trunk-status--running .dot { background: var(--orange); animation: working-pulse 1.4s infinite; }
+.shell .tasks-pill--review .dot,
+.shell .trunk-status--review .dot { background: #2563eb; }
+.shell .tasks-pill--attention .dot,
+.shell .trunk-status--attention .dot { background: var(--red); }
+.shell .tasks-pill--done .dot,
+.shell .trunk-status--done .dot { background: #16a34a; }
+.shell .tasks-pill--idle .dot,
+.shell .trunk-status--idle .dot { background: var(--text-4); }
+
+/* The thread-page (trunk) headline status chip in the top bar. */
+.shell .trunk-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.shell .trunk-status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
 }
 
 /* Breadcrumb in the top bar when a thread is open. */

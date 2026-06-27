@@ -13,6 +13,7 @@
  */
 import { Logo } from '../ui/primitives';
 import { logoColorFor, monogram, threadRepo } from '../pages/useWorkspaceNav';
+import { taskStatusBadge } from '../threads/taskStatusBadge';
 import type { ThreadDto, WorkUnitTaskDto } from '../types';
 
 /**
@@ -62,14 +63,24 @@ function ThreadCard({ thread, onOpen }: { thread: ThreadDto; onOpen?: (id: strin
       </div>
       <div className="right">
         <span className="ts">{relativeTime(thread.updatedAt)}</span>
-        {pillText(thread.activeTask) !== null && (
-          <span className="tasks-pill">
-            {thread.activeTask?.status === 'RUNNING' && <span className="dot" aria-hidden />}
-            {pillText(thread.activeTask)}
-          </span>
+        {thread.activeTask !== null && (
+          <TaskPill task={thread.activeTask} />
         )}
       </div>
     </button>
+  );
+}
+
+/** The right-hand task pill: a colour-coded status dot + "N tasks · status",
+ *  so running vs finished reads at a glance across the list. */
+function TaskPill({ task }: { task: WorkUnitTaskDto }) {
+  const { label, tone } = taskStatusBadge(task.status);
+  const count = `${task.seq} task${task.seq === 1 ? '' : 's'}`;
+  return (
+    <span className={`tasks-pill tasks-pill--${tone}`}>
+      <span className="dot" aria-hidden />
+      {`${count} · ${label.toLowerCase()}`}
+    </span>
   );
 }
 
@@ -80,28 +91,6 @@ function subText(repo: string, task: WorkUnitTaskDto | null): string {
     return `${repo} · ${task.branchName}`;
   }
   return `${repo} · no branch yet`;
-}
-
-/** The right-hand task pill. Null on a 0-task discussion thread (the
- *  card then shows just a timestamp). */
-function pillText(task: WorkUnitTaskDto | null): string | null {
-  if (task === null) return null;
-  const word = statusWord(task);
-  const count = `${task.seq} task${task.seq === 1 ? '' : 's'}`;
-  return word === null ? count : `${count} · ${word}`;
-}
-
-function statusWord(task: WorkUnitTaskDto): string | null {
-  switch (task.status) {
-    case 'RUNNING': return 'running';
-    case 'AWAITING': return 'awaiting approval';
-    case 'AWAITING_REVIEW': return 'awaiting review';
-    case 'IN_REVIEW': return 'in review';
-    case 'COMPLETED': return 'shipped';
-    case 'ERRORED': return 'errored';
-    case 'IDLE': case 'PENDING': return 'idle';
-    default: return null;
-  }
 }
 
 /** Open = non-terminal: everything except the resting states

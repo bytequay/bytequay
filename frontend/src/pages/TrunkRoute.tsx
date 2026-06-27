@@ -17,7 +17,6 @@ import type { ReactNode } from 'react';
 import { Callout, Card, Conv, EventRow, Thought, UserMsg, Working } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
-import { headlineStatus, taskStatusBadge } from '../threads/taskStatusBadge';
 import type { TaskCardData } from '../ui/pane';
 import { TrunkPage } from './TrunkPage';
 
@@ -242,18 +241,10 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   const active = tasks.filter(t => t.status !== 'PENDING' && !HIDDEN_TASK_STATUSES.has(t.status)).map(toCard);
   const queued = tasks.filter(t => t.status === 'PENDING').map(toCard);
 
-  // Headline status chip for the top bar — the at-a-glance "is this thread
-  // running or finished?" signal, picked from the most salient live task
-  // (a finished thread reads "Done"). Dead tasks don't count.
-  const headline = headlineStatus(
-    tasks.filter(t => t.status !== 'CANCELED' && t.status !== 'ARCHIVED').map(t => t.status));
-  const status = headline !== null ? taskStatusBadge(headline) : undefined;
-
   return (
     <TrunkPage
       threadId={threadId}
       thread={{ title: thread?.title ?? 'Thread' }}
-      status={status}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
       tasks={{ active, queued }}

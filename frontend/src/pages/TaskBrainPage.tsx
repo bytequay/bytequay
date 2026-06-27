@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { IconBtn, Pill } from '../ui/primitives';
+import { IconBtn, MergeIcon, Pill } from '../ui/primitives';
 import {
   Composer, CtxChip, Grow, Main, RunMenu, Shell, StageChips, TopBar, TopBarButton, TopBarTitle,
 } from '../ui/shell';
@@ -36,7 +36,7 @@ export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
   tabs, priorityTab, onOpenChanges, onOpenCi,
 }: {
-  task: { pillLabel: string; title: string; branch?: string };
+  task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
    *  shipped — clicking opens the PR on GitHub. */
   pr?: { number: number; status: string; onOpen: () => void };
@@ -95,7 +95,7 @@ export function TaskBrainPage({
   const topBar = (
     <TopBar>
       <Pill kind="task" icon="▣">{task.pillLabel}</Pill>
-      <TopBarTitle>{task.title}</TopBarTitle>
+      <TopBarTitle>{task.finished === true && <MergeIcon />}{task.title}</TopBarTitle>
       {task.branch !== undefined && <CtxChip>{task.branch}</CtxChip>}
       {pr !== undefined && (
         <button type="button" className="pr-chip" onClick={pr.onOpen} title="Open the pull request on GitHub">

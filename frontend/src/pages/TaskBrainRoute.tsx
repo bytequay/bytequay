@@ -131,11 +131,14 @@ export function TaskBrainRoute({
   // Once shipped, the linked PR shows as a clickable chip that opens it on
   // GitHub. The brain view doesn't carry the PR's html URL, so build the
   // canonical one from the repo + number.
+  // A completed task's PR has landed (merged, or the queue merged it) — show
+  // it merged + flag the task finished, rather than the stale "open"/draft.
+  const finished = task.currentPhase === 'COMPLETED';
   const linkedPr = data.rightRail.linkedPr;
   const pr = task.prNumber !== null
     ? {
         number: task.prNumber,
-        status: linkedPr?.status ?? (task.prDraft ? 'draft' : 'open'),
+        status: finished ? 'merged' : (linkedPr?.status ?? (task.prDraft ? 'draft' : 'open')),
         onOpen: () => {
           void bridge?.openExternal(
             `https://github.com/${task.repoFullName}/pull/${task.prNumber}`);
@@ -155,7 +158,8 @@ export function TaskBrainRoute({
   const sidebar = (
     <TaskSidebar
       task={{
-        taskNumber: task.taskNumber, title: task.title, branch: task.branch, metaLine: task.statusLabel,
+        taskNumber: task.taskNumber, title: task.title, branch: task.branch,
+        metaLine: task.statusLabel, finished,
       }}
       nodes={livePlanNodes}
       onBack={onBack}
@@ -167,7 +171,7 @@ export function TaskBrainRoute({
 
   return (
     <TaskBrainPage
-      task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch }}
+      task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
       pr={pr}
       sidebar={sidebar}
       conversation={conversation}

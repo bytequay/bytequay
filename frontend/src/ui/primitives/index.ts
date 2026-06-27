@@ -27,3 +27,4 @@ export { Chev } from './Chev';
 export { IconBtn } from './IconBtn';
 export { Logo } from './Logo';
 export type { LogoColor, LogoSize } from './Logo';
+export { MergeIcon } from './MergeIcon';

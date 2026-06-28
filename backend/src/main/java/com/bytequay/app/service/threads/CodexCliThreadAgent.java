@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -69,10 +70,11 @@ public class CodexCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
-            String roleSkillText)
+            String roleSkillText,
+            Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null);
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null, boundTask);
     }
 
     /** Trunk-mode constructor: no focused Task, cwd defaulting to {@code
@@ -92,7 +94,7 @@ public class CodexCliThreadAgent
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd);
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd, (Task) null);
     }
 
     /** Marker enum disambiguating the trailing-string constructor
@@ -110,10 +112,11 @@ public class CodexCliThreadAgent
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             String roleSkillText,
-            String binary)
+            String binary,
+            Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, binary, (String) null);
+                workspaceMemoryProvider, roleSkillText, binary, (String) null, boundTask);
     }
 
     private CodexCliThreadAgent(
@@ -128,10 +131,11 @@ public class CodexCliThreadAgent
             Supplier<String> workspaceMemoryProvider,
             String roleSkillText,
             String binary,
-            String trunkCwd)
+            String trunkCwd,
+            Task boundTask)
     {
         super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                binary, trunkCwd);
+                binary, trunkCwd, boundTask);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.roleSkillText = roleSkillText;
     }

@@ -153,7 +153,7 @@ class TestCodexCliThreadAgent
         CodexCliThreadAgent agent = new CodexCliThreadAgent(
                 thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, "codex");
+                mock(CheckpointTrigger.class), () -> "", null, "codex", active);
 
         AgentMetrics metrics = agent.metrics();
 
@@ -232,6 +232,6 @@ class TestCodexCliThreadAgent
         return new CodexCliThreadAgent(
                 thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> memory, roleSkillText, "codex");
+                mock(CheckpointTrigger.class), () -> memory, roleSkillText, "codex", active);
     }
 }

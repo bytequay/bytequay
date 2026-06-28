@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -84,10 +85,12 @@ public class ClaudeCodeCliThreadAgent
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             SkillMaterializer skillMaterializer,
-            String roleSkillText)
+            String roleSkillText,
+            Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, (String) null);
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
+                (String) null, boundTask);
     }
 
     /**
@@ -111,7 +114,8 @@ public class ClaudeCodeCliThreadAgent
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, trunkCwd);
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
+                trunkCwd, (Task) null);
     }
 
     /** Marker enum disambiguating the two-argument trailing-string
@@ -130,10 +134,12 @@ public class ClaudeCodeCliThreadAgent
             Supplier<String> workspaceMemoryProvider,
             SkillMaterializer skillMaterializer,
             String roleSkillText,
-            String binary)
+            String binary,
+            Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, binary, (String) null);
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, binary,
+                (String) null, boundTask);
     }
 
     private ClaudeCodeCliThreadAgent(
@@ -149,10 +155,11 @@ public class ClaudeCodeCliThreadAgent
             SkillMaterializer skillMaterializer,
             String roleSkillText,
             String binary,
-            String trunkCwd)
+            String trunkCwd,
+            Task boundTask)
     {
         super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                binary, trunkCwd);
+                binary, trunkCwd, boundTask);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         // skillMaterializer is allowed to be null on legacy / test paths
         // that don't care about skill materialization; the buildCommand

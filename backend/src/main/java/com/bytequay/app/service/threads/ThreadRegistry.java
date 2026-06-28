@@ -428,16 +428,26 @@ public class ThreadRegistry
 
     private ThreadAgent build(Thread thread)
     {
+        // The CLI agent binds to an explicit task resolved here (active-or-
+        // latest), rather than re-deriving it inside the agent ctor. The
+        // active-or-latest fallback covers the resume-from-terminal path.
+        Task boundTask = thread.kind() == ThreadKind.CLI_AGENT
+                ? taskStore.findActiveTaskForThread(thread.id())
+                        .or(() -> taskStore.findLatestTaskForThread(thread.id()))
+                        .orElse(null)
+                : null;
         return switch (thread.kind()) {
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider,
-                            resolveTaskRoleSkill(thread))
+                            resolveTaskRoleSkill(thread),
+                            boundTask)
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider, skillMaterializer,
-                            resolveTaskRoleSkill(thread));
+                            resolveTaskRoleSkill(thread),
+                            boundTask);
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
                 String workingDir = taskStore.findActiveTaskForThread(thread.id())

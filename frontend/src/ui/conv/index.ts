@@ -14,7 +14,7 @@
 
 /** V3 Layer 3a — conversation content blocks. */
 export { Conv } from './Conv';
-export { EventRow, EventIcon, WhoRow, Tx } from './EventRow';
+export { EventRow, EventIcon, WhoRow, Tx, EventTimestamp } from './EventRow';
 export type { EventKind } from './EventRow';
 export { ToolBlock } from './ToolBlock';
 export { UserMsg } from './UserMsg';

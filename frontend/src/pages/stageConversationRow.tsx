@@ -13,7 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import type { StageConversationRow } from '../types/brainView';
-import { EventRow, ToolBlock, UserMsg } from '../ui/conv';
+import { EventRow, EventTimestamp, ToolBlock, UserMsg } from '../ui/conv';
 
 /** A blank-safe trim: empty/whitespace strings count as absent. */
 function nonBlank(s: string | null): string | null {
@@ -41,15 +41,24 @@ function toolDesc(label: string | null, detail: string | null): ReactNode {
 export function stageRow(r: StageConversationRow): ReactNode {
   switch (r.kind) {
     case 'user':
-      return <UserMsg key={r.id} text={r.text ?? ''} />;
+      return <UserMsg key={r.id} text={r.text ?? ''} timestamp={<EventTimestamp iso={r.ts} />} />;
     case 'agent':
-      return <EventRow key={r.id} kind="agent" who="Agent" markdown={r.text ?? ''} />;
+      return (
+        <EventRow
+          key={r.id}
+          kind="agent"
+          who="Agent"
+          timestamp={<EventTimestamp iso={r.ts} />}
+          markdown={r.text ?? ''}
+        />
+      );
     case 'iteration_marker':
       return (
         <EventRow
           key={r.id}
           kind="system"
           who={`Iteration ${r.iterationNumber ?? ''}`}
+          timestamp={<EventTimestamp iso={r.ts} />}
           markdown={r.text ?? undefined}
         />
       );

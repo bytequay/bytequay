@@ -22,6 +22,7 @@ import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,11 +59,16 @@ public class StageLifecycle
 
     private final StageStore stageStore;
     private final StageBudgetService budgetService;
+    private final ApplicationEventPublisher events;
 
-    public StageLifecycle(StageStore stageStore, StageBudgetService budgetService)
+    public StageLifecycle(
+            StageStore stageStore,
+            StageBudgetService budgetService,
+            ApplicationEventPublisher events)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.budgetService = requireNonNull(budgetService, "budgetService is null");
+        this.events = requireNonNull(events, "events is null");
     }
 
     @EventListener
@@ -123,6 +129,11 @@ public class StageLifecycle
                 return;
             }
             stageStore.closeStage(active.get().id(), "phase_transition_to_" + toPhase.name());
+            // Let the runtime reap the closed stage's per-stage CLI agent
+            // (its subprocess + worktree lease) — the next stage spawns a
+            // fresh one. Fires only for a real stage transition; the
+            // synthetic CleanupStage below never had an agent.
+            events.publishEvent(new StageClosedEvent(taskId, active.get().id().toString()));
         }
         // The DevelopmentStage is gated on an approved plan: it may only open
         // once the user has approved the PlanStage (a PLAN_APPROVED event).

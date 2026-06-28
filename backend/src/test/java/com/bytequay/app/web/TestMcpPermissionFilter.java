@@ -19,9 +19,14 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -55,6 +60,8 @@ class TestMcpPermissionFilter
     private ThreadStore threads;
     @Autowired
     private TaskStore tasks;
+    @Autowired
+    private ThreadTurnStore turns;
     @Autowired
     private ObjectMapper mapper;
 
@@ -265,6 +272,13 @@ class TestMcpPermissionFilter
         // The thread is at TASK altitude only once the task is doing dev
         // work; a PLANNING task (the default after saveTask) stays TRUNK.
         tasks.updatePhase(task.id(), TaskPhase.IMPLEMENTING);
+        // The role comes from the running turn's scope, so put a task-scoped
+        // turn in flight for the thread to resolve to the TASK role.
+        Instant now = Instant.now();
+        turns.saveTurn(new ThreadTurn(
+                UUID.randomUUID().toString(), id, task.id(),
+                ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
+                now, now, now, null, null, TurnInitiator.user()));
         return id;
     }
 }

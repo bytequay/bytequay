@@ -14,15 +14,17 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.PermissionGrant;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.PermissionGrantStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -31,27 +33,32 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * The role + task target come from the scope the running turn was created
+ * with (trunk turn → TRUNK, task/stage turn → TASK), not from a re-derived
+ * thread task projection; the cascade then tightens with deny grants.
+ */
 class TestCascadingPermissionResolver
 {
     private final ThreadStore threadStore = mock(ThreadStore.class);
-    private final TaskStore taskStore = mock(TaskStore.class);
+    private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final PermissionGrantStore grantStore = mock(PermissionGrantStore.class);
 
     private final CascadingPermissionResolver resolver =
-            new CascadingPermissionResolver(threadStore, taskStore, grantStore);
+            new CascadingPermissionResolver(threadStore, turnStore, grantStore);
 
     @Test
-    void zeroTaskThreadResolvesToTrunkBaseWhenNoGrants()
+    void trunkTurnResolvesToTrunkBaseWhenNoGrants()
     {
         String threadId = "t-trunk";
-        when(taskStore.listTasksByThread(threadId)).thenReturn(List.of());
+        runningTurn(threadId, trunkTurn(threadId));
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
-        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.empty());
         noGrants();
 
         assertThat(resolver.roleFor(threadId)).isEqualTo(AgentRole.TRUNK);
@@ -62,12 +69,11 @@ class TestCascadingPermissionResolver
     }
 
     @Test
-    void taskThreadResolvesToTaskBaseWhenNoGrants()
+    void taskTurnResolvesToTaskBaseWhenNoGrants()
     {
         String threadId = "t-task";
-        when(taskStore.listTasksByThread(threadId)).thenReturn(List.of(task("task-1")));
+        runningTurn(threadId, taskTurn(threadId, "task-1"));
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
-        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.of(task("task-1")));
         noGrants();
 
         assertThat(resolver.roleFor(threadId)).isEqualTo(AgentRole.TASK);
@@ -76,35 +82,30 @@ class TestCascadingPermissionResolver
     }
 
     /**
-     * Revival pattern: a thread has historic completed tasks but no live
-     * one. The trunk re-enters as the active role so it can plan / queue
-     * more work. See workspace-thread-task-design.md
-     * §"Trunk re-enters when the chain runs dry."
+     * No turn in flight (e.g. the chain ran dry and the trunk hasn't started
+     * planning yet): the read-only trunk role is the safe default rather than
+     * an escalation.
      */
     @Test
-    void completedChainThreadResolvesBackToTrunk()
+    void noRunningTurnResolvesToTrunk()
     {
-        String threadId = "t-revival";
-        when(taskStore.listTasksByThread(threadId))
-                .thenReturn(List.of(task("task-1"), task("task-2")));
-        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.empty());
+        String threadId = "t-idle";
+        runningTurn(threadId, null);
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
         noGrants();
 
         assertThat(resolver.roleFor(threadId)).isEqualTo(AgentRole.TRUNK);
         assertThat(resolver.grants(threadId))
                 .isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK))
-                .contains(SecurityType.TASK_MANAGE, SecurityType.CODE_READ)
                 .doesNotContain(SecurityType.GIT_PUSH);
     }
 
     @Test
-    void workspaceDenyRemovesCapabilityFromTaskThread()
+    void workspaceDenyRemovesCapabilityFromTaskTurn()
     {
         String threadId = "t-task";
-        when(taskStore.listTasksByThread(threadId)).thenReturn(List.of(task("task-1")));
+        runningTurn(threadId, taskTurn(threadId, "task-1"));
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-locked")));
-        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.of(task("task-1")));
         when(grantStore.findGlobal()).thenReturn(List.of());
         when(grantStore.findForScope("workspace", "ws-locked"))
                 .thenReturn(List.of(deny("workspace", "ws-locked", SecurityType.GIT_PUSH)));
@@ -119,12 +120,12 @@ class TestCascadingPermissionResolver
     @Test
     void taskLevelAllowCannotReAddAWorkspaceDeniedCapability()
     {
-        // Tighten-only: a deny at the workspace stays denied even when
-        // a deeper task scope explicitly allows it.
+        // Tighten-only: a deny at the workspace stays denied even when a deeper
+        // task scope explicitly allows it. The task scope is the running turn's
+        // task id.
         String threadId = "t-task";
-        when(taskStore.listTasksByThread(threadId)).thenReturn(List.of(task("task-1")));
+        runningTurn(threadId, taskTurn(threadId, "task-1"));
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-locked")));
-        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.of(task("task-1")));
         when(grantStore.findGlobal()).thenReturn(List.of());
         when(grantStore.findForScope("workspace", "ws-locked"))
                 .thenReturn(List.of(deny("workspace", "ws-locked", SecurityType.VCS_PUBLISH)));
@@ -139,9 +140,8 @@ class TestCascadingPermissionResolver
     void globalDenyAppliesToEveryThread()
     {
         String threadId = "t-trunk";
-        when(taskStore.listTasksByThread(threadId)).thenReturn(List.of());
+        runningTurn(threadId, trunkTurn(threadId));
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
-        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.empty());
         when(grantStore.findGlobal())
                 .thenReturn(List.of(deny("global", null, SecurityType.TASK_MANAGE)));
         when(grantStore.findForScope(anyString(), anyString())).thenReturn(List.of());
@@ -155,9 +155,8 @@ class TestCascadingPermissionResolver
     void unknownCapabilityInAGrantIsIgnored()
     {
         String threadId = "t-trunk";
-        when(taskStore.listTasksByThread(threadId)).thenReturn(List.of());
+        runningTurn(threadId, trunkTurn(threadId));
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
-        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.empty());
         when(grantStore.findGlobal()).thenReturn(List.of(new PermissionGrant(
                 1L, "global", null, "DECOMMISSIONED_CAP", "deny", null,
                 Instant.now(), Instant.now())));
@@ -165,6 +164,12 @@ class TestCascadingPermissionResolver
 
         // The stray capability name is skipped — the base set is intact.
         assertThat(resolver.grants(threadId)).isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK));
+    }
+
+    private void runningTurn(String threadId, ThreadTurn turn)
+    {
+        when(turnStore.listTurnsByTaskIdAndStatus(eq(threadId), eq(ThreadTurnStatus.RUNNING), anyInt()))
+                .thenReturn(turn == null ? List.of() : List.of(turn));
     }
 
     private void noGrants()
@@ -195,13 +200,23 @@ class TestCascadingPermissionResolver
                 ThreadFlow.BUILD, workspaceId, null, null);
     }
 
-    private static Task task(String id)
+    /** A trunk-scoped running turn (no task) → derives ThreadScope.TRUNK. */
+    private static ThreadTurn trunkTurn(String threadId)
+    {
+        return turn(threadId, null);
+    }
+
+    /** A task-scoped running turn → derives ThreadScope.TASK. */
+    private static ThreadTurn taskTurn(String threadId, String taskId)
+    {
+        return turn(threadId, taskId);
+    }
+
+    private static ThreadTurn turn(String threadId, String taskId)
     {
         Instant now = Instant.parse("2026-05-28T00:00:00Z");
-        return new Task(
-                id, "t-task", 1L, TaskStatus.RUNNING,
-                "branch", "/tmp/wt", "main", "/tmp/repo",
-                null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, now, null, null, null, null, null);
+        return new ThreadTurn(
+                "turn-1", threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING,
+                "input", now, now, now, null, null, TurnInitiator.user());
     }
 }

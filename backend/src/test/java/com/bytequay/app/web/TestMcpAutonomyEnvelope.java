@@ -191,8 +191,12 @@ class TestMcpAutonomyEnvelope
     private void saveRunningTurn(String threadId, TurnInitiator initiator)
     {
         Instant now = Instant.parse("2026-05-28T12:00:00Z");
+        // Task-scope the turn so the resolver derives the TASK role from it
+        // (the role now comes from the running turn's scope, not the thread's
+        // task projection).
+        String taskId = tasks.findActiveTaskForThread(threadId).map(Task::id).orElse(null);
         turns.saveTurn(new ThreadTurn(
-                UUID.randomUUID().toString(), threadId, /* taskId */ null,
+                UUID.randomUUID().toString(), threadId, taskId,
                 ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
                 now, now, now, null, null, initiator));
     }

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -44,6 +45,7 @@ class TestAgentSchedulerInvokeAll
                 mock(ThreadTurnEventStore.class),
                 mock(ThreadRegistry.class),
                 mock(StageStore.class),
+                mock(TaskStore.class),
                 /* maxCliRunning */ 1,
                 maxApi);
     }

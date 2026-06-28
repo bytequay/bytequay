@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
@@ -25,6 +26,7 @@ import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -90,6 +92,7 @@ public class AgentScheduler
     private final ThreadTurnEventStore events;
     private final ThreadRegistry sessions;
     private final StageStore stages;
+    private final TaskStore tasks;
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
     private final Set<String> runningTaskIds = new HashSet<>();
     private final Object lock = new Object();
@@ -104,6 +107,7 @@ public class AgentScheduler
             ThreadTurnEventStore events,
             ThreadRegistry sessions,
             StageStore stages,
+            TaskStore tasks,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
@@ -112,6 +116,7 @@ public class AgentScheduler
         this.events = requireNonNull(events, "events is null");
         this.sessions = requireNonNull(sessions, "sessions is null");
         this.stages = requireNonNull(stages, "stages is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
     }
@@ -489,11 +494,19 @@ public class AgentScheduler
         ThreadAgent session;
         try {
             // Trunk turn (task_id IS NULL) routes to the trunk-scope
-            // agent — no worktree lease, planning altitude. Task turns
-            // keep going through the worktree-leased task agent.
-            session = runningTurn.taskId() == null
-                    ? sessions.getOrCreateTrunk(thread)
-                    : sessions.getOrCreate(thread);
+            // agent — no worktree lease, planning altitude. A task turn
+            // routes to the per-stage agent keyed off the turn's stamped
+            // stage id (each stage — Development, CI-fixing, Comments-
+            // addressing — gets its own fresh agent); a task-level turn
+            // with no stage falls back to keying by task id inside the
+            // registry.
+            if (runningTurn.taskId() == null) {
+                session = sessions.getOrCreateTrunk(thread);
+            }
+            else {
+                Task task = tasks.findTaskById(runningTurn.taskId()).orElse(null);
+                session = sessions.getOrCreate(thread, task, runningTurn.stageId());
+            }
         }
         catch (RuntimeException e) {
             completeTurn(runningTurn, null, e);
@@ -633,7 +646,13 @@ public class AgentScheduler
                 startedAt,
                 finishedAt,
                 errorMessage,
-                turn.initiator());
+                turn.initiator(),
+                // Preserve the stamped stage id + scope across status
+                // updates — the dispatcher keys the per-stage agent off the
+                // running turn's stage id, and the running row must keep the
+                // scope so the permission resolver reads the right role.
+                turn.stageId(),
+                turn.scope());
     }
 
     private static Throwable unwrap(Throwable failure)

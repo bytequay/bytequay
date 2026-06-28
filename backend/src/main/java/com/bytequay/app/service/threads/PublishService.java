@@ -822,7 +822,11 @@ public class PublishService
         Path worktree = Path.of(worktreePath);
         String branch = orElse(push.branch(), "the branch");
         try {
-            git.push(worktree);
+            // Force-with-lease: a post-ship branch may have been rebased onto
+            // its base (diverging from its remote), so a plain push would be
+            // rejected as a non-fast-forward. The lease still refuses if the
+            // remote moved unexpectedly, so a teammate's push is never clobbered.
+            git.pushForceWithLease(worktree);
         }
         catch (IOException e) {
             // Push failed → nothing on the remote → release for a clean retry.

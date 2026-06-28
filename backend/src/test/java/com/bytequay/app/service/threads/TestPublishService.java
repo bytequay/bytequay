@@ -121,7 +121,7 @@ class TestPublishService
         assertThat(result.action()).isEqualTo("push");
         assertThat(result.message()).contains("Pushed feature/x");
 
-        verify(git).push(Path.of("/tmp/wt/feature-x"));
+        verify(git).pushForceWithLease(Path.of("/tmp/wt/feature-x"));
         verify(parkedProposals).finishApproved(parked, false);
         verify(notifications).claimResolution("notif-1");
         assertAuditRowWritten(parked, "approved", "push", "Pushed feature/x");
@@ -139,9 +139,9 @@ class TestPublishService
         when(taskStore.findTaskById("task-2"))
                 .thenReturn(Optional.of(taskAt("task-2", TaskStatus.AWAITING_REVIEW)));
         // A failed push means nothing reached the remote — IOException is what
-        // GitRunner.push surfaces for a rejection / network blip.
+        // GitRunner surfaces for a rejection / network blip.
         doThrow(new IOException("rejected: non-fast-forward"))
-                .when(git).push(any(Path.class));
+                .when(git).pushForceWithLease(any(Path.class));
 
         // The gate is released back to UNREAD (safe to retry) and the caller
         // gets a clear error — not a pinned RESOLVING claim.

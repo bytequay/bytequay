@@ -632,8 +632,11 @@ public class AutomationCoordinator
                 .append("If they ARE caused by this branch, fix them on the current branch, ")
                 .append("run the local checks to confirm green (`mvn verify` for the backend, ")
                 .append("`npx tsc --noEmit` + `npm test` for the frontend), then commit and ")
-                .append("`git push` the fix so CI re-runs. This is an autonomous CI-fix turn: ")
-                .append("push directly, do not wait for review.");
+                .append("push the fix so CI re-runs. Use `git push --force-with-lease` — if you ")
+                .append("rebased onto the base the branch will have diverged from its remote, and ")
+                .append("force-with-lease lands it safely (it still refuses if someone else "
+                        + "pushed in between). This is an autonomous CI-fix turn: push directly, ")
+                .append("do not wait for review.");
         return out.toString();
     }
 

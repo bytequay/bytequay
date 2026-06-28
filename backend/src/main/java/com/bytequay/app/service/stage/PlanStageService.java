@@ -223,7 +223,7 @@ public class PlanStageService
                                     + "/ Validation headings, list every edit, or describe "
                                     + "testing. Only a substantial change warrants a short "
                                     + "summary paragraph.");
-            scheduler.enqueueTurn(dev, nudge, TurnInitiator.unattended("ship-nudge"));
+            scheduler.enqueueTaskTurn(dev, nudge, task.id(), TurnInitiator.unattended("ship-nudge"));
             log.debug("nudged dev thread {} to ship task {}", dev.id(), event.taskId());
         });
     }
@@ -419,7 +419,8 @@ public class PlanStageService
         if (dev == null) {
             return;
         }
-        scheduler.enqueueTurn(dev, devKickoffPrompt(plan), TurnInitiator.unattended("plan-approved"));
+        scheduler.enqueueTaskTurn(
+                dev, devKickoffPrompt(plan), task.id(), TurnInitiator.unattended("plan-approved"));
     }
 
     private static String devKickoffPrompt(JsonNode plan)

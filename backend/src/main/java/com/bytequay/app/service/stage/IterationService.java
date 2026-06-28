@@ -226,8 +226,12 @@ public class IterationService
                 + "with a one-line description (max " + SUMMARY_MAX_CHARS + " chars) of what you "
                 + "did this iteration. Do not do any other work in this turn.";
         try {
-            String turnId = scheduler.enqueueTurn(
-                    thread.get(), prompt, TurnInitiator.unattended("iteration-summary-request"));
+            // Bind the task id so the summary request runs on the monitor
+            // stage's own (task) agent — a monitor-stage task is IN_REVIEW, so
+            // the no-id enqueue would misroute it to the read-only trunk.
+            String turnId = scheduler.enqueueTaskTurn(
+                    thread.get(), prompt, iteration.taskId(),
+                    TurnInitiator.unattended("iteration-summary-request"));
             iterationStore.save(iteration.withSummaryRequestTurnId(turnId));
         }
         catch (RuntimeException e) {

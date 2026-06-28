@@ -63,7 +63,7 @@ class TestValidationPassService
         assertThat(result.passed()).isTrue();
         assertThat(result.fixRounds()).isZero();
         verify(validationStore).finishPass(anyLong(), any(), eq(true), eq(0), eq("[]"));
-        verify(scheduler, never()).enqueueTurn(any(), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString());
     }
 
     @Test
@@ -78,7 +78,8 @@ class TestValidationPassService
         assertThat(result.passed()).isFalse();
         assertThat(result.fixRounds()).isEqualTo(ValidationPassService.CAP_FIX_ROUNDS);
         // One auto-fix turn per failing round.
-        verify(scheduler, times(ValidationPassService.CAP_FIX_ROUNDS)).enqueueTurn(any(), anyString());
+        verify(scheduler, times(ValidationPassService.CAP_FIX_ROUNDS))
+                .enqueueTaskTurn(any(), anyString(), anyString());
         verify(validationStore).finishPass(anyLong(), any(), eq(false),
                 eq(ValidationPassService.CAP_FIX_ROUNDS), anyString());
     }
@@ -96,7 +97,7 @@ class TestValidationPassService
 
         assertThat(result.passed()).isTrue();
         assertThat(result.fixRounds()).isEqualTo(2);
-        verify(scheduler, times(2)).enqueueTurn(any(), anyString());
+        verify(scheduler, times(2)).enqueueTaskTurn(any(), anyString(), anyString());
     }
 
     private ValidationPassService service(List<ValidationCheck> checks)

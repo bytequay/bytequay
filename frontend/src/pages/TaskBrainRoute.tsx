@@ -17,7 +17,7 @@ import { usePendingShipProposal, proposalAction } from '../threads/usePendingShi
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import type { BrainFeedRow, TaskPhase } from '../types/brainView';
-import { Conv, EventRow, UserMsg, Working } from '../ui/conv';
+import { Conv, EventRow, EventTimestamp, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
@@ -115,8 +115,16 @@ export function TaskBrainRoute({
       {brainFeed.map(row => {
         const { kind, who } = feedKind(row.type);
         return kind === 'user'
-          ? <UserMsg key={row.id} text={row.body} />
-          : <EventRow key={row.id} kind={kind} who={who} markdown={row.body} />;
+          ? <UserMsg key={row.id} text={row.body} timestamp={<EventTimestamp iso={row.ts} />} />
+          : (
+            <EventRow
+              key={row.id}
+              kind={kind}
+              who={who}
+              timestamp={<EventTimestamp iso={row.ts} />}
+              markdown={row.body}
+            />
+          );
       })}
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
         ? <MarkReadyPrompt onReview={onOpenCode} />

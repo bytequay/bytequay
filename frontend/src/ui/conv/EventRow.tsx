@@ -13,6 +13,20 @@
  */
 import type { ReactNode } from 'react';
 import { MarkdownProse } from '../../threads/MarkdownProse';
+import { relativeShort } from '../../threads/brain/format';
+
+/**
+ * The timestamp chip for a row's who-row: short relative time (`now`,
+ * `14m ago`, `3d ago`) with the absolute local time on hover. `nowMs` is
+ * injectable so tests can pin the reference clock.
+ */
+export function EventTimestamp({ iso, nowMs }: { iso: string; nowMs?: number }) {
+  return (
+    <span title={new Date(iso).toLocaleString()}>
+      {relativeShort(iso, nowMs ?? Date.now())}
+    </span>
+  );
+}
 
 /** Who produced the event — drives the icon colour + name colour. */
 export type EventKind = 'agent' | 'user' | 'system' | 'brain' | 'followup';

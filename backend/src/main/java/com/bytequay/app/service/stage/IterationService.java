@@ -36,7 +36,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -188,6 +190,36 @@ public class IterationService
                     trimmed));
         }
         return summarised;
+    }
+
+    /**
+     * The recorded iteration summaries of the task's most recent
+     * CI-fixing stage, oldest-first — the cross-stage context the
+     * Comments-addressing stage seeds its first prompt with so the agent
+     * knows what the CI-fix loop just did. Empty when the task never ran a
+     * CI-fixing stage or that stage recorded no summaries.
+     */
+    public List<String> latestCiFixingSummaries(String taskId)
+    {
+        StageInstance latest = null;
+        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
+            if (stage.type() != StageType.CI_FIXING_STAGE) {
+                continue;
+            }
+            if (latest == null || stage.openedAt().isAfter(latest.openedAt())) {
+                latest = stage;
+            }
+        }
+        if (latest == null) {
+            return List.of();
+        }
+        List<String> summaries = new ArrayList<>();
+        for (TaskStageIteration it : iterationStore.findByStage(latest.id())) {
+            if (it.summaryText() != null && !it.summaryText().isBlank()) {
+                summaries.add(it.summaryText().strip());
+            }
+        }
+        return summaries;
     }
 
     private void endIteration(TaskStageIteration iteration, boolean failed)

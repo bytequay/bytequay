@@ -13,9 +13,11 @@
  */
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import ResizeHandle from '../ResizeHandle';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
   Composer, CtxChip, Grow, Main, RunMenu, Shell, StageChips, TopBar, TopBarButton, TopBarTitle,
+  usePaneWidth,
 } from '../ui/shell';
 import type { StageChip } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
@@ -96,6 +98,7 @@ export function StageDetailPage({
   const initial = available.find(t => t.key === preferred)?.key ?? available[available.length - 1].key;
   const [activeTab, setActiveTab] = useState<StageTab>(initial);
   const [paneOpen, setPaneOpen] = useState(true);
+  const { paneWidth, bodyRef, onResize } = usePaneWidth();
 
   const active = available.find(t => t.key === activeTab) ?? available[available.length - 1];
   const paneTabs: PaneTab<StageTab>[] = available.map(t => ({
@@ -134,7 +137,11 @@ export function StageDetailPage({
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
       {sidebar}
       <Main topBar={topBar}>
-        <div className={paneOpen ? 'body with-pane' : 'body'}>
+        <div
+          ref={bodyRef}
+          className={paneOpen ? 'body with-pane' : 'body'}
+          style={paneOpen ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+        >
           <div className="conv-col">
             {conversation}
             {/* Quick-access chips float just above the composer at all times
@@ -155,6 +162,7 @@ export function StageDetailPage({
               placeholder={composer.placeholder}
             />
           </div>
+          {paneOpen && <ResizeHandle onResize={onResize} ariaLabel="Resize the side pane" />}
           {paneOpen && (
             <RightPane>
               <RightPane.Tabs<StageTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />

@@ -19,6 +19,11 @@ package com.bytequay.app.beans.stage;
  * from {@code task_stage_event}); the conversational and iteration-summary
  * types fill in as later milestones write them.
  *
+ * <p>A {@code STAGE_CLOSED} row's {@code body} carries the stage's rollup
+ * inline — e.g. {@code "CI-fixing finished · 3m · 30k tokens · 2 files"} —
+ * so the frontend renders the duration / token / changed-file counts
+ * through the same markdown path as every other feed row.
+ *
  * @param body markdown
  */
 public record BrainFeedRow(

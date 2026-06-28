@@ -32,6 +32,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.repository.StageStore;
@@ -134,7 +135,7 @@ public class StageServiceImpl
                 topLevel,
                 subStages,
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
-                        brainMessages, stageNameIndex),
+                        brainMessages, stageNameIndex, buildStageStats(task, allStages)),
                 buildRightRail(task, allStages, cost),
                 buildScrubbers(allEvents, brainMessages));
     }
@@ -341,6 +342,103 @@ public class StageServiceImpl
         return new TaskBrainViewData.CostBreakdown(totalCents, perStage, perAgent, costPerPush);
     }
 
+    /** Per-stage rollup surfaced on a STAGE_CLOSED feed row: how long the
+     *  stage ran, how many tokens it spent, and how many distinct files it
+     *  touched. */
+    private record StageStat(long durationSec, long tokens, int files) {}
+
+    /**
+     * Compute the duration / tokens / changed-files rollup for each
+     * top-level stage of a task, keyed by stage id. Tokens are attributed
+     * by the stamped {@code stage_id} on the dev thread's {@code turn_done}
+     * rows; files are the distinct {@code thread_files} paths last touched
+     * within the stage's open→close window (a window proxy, since file rows
+     * carry no stage id). Used to enrich the brain feed's stage-closed rows.
+     */
+    private Map<UUID, StageStat> buildStageStats(Task task, List<StageInstance> stages)
+    {
+        if (task.threadId() == null) {
+            return Map.of();
+        }
+        List<ThreadMessage> devMessages = threadStore.listMessages(task.threadId()).stream()
+                .filter(m -> task.id().equals(m.taskId()))
+                .toList();
+        List<ThreadFile> files = threadStore.listFiles(task.threadId());
+        Map<UUID, StageStat> out = new HashMap<>();
+        for (StageInstance s : stages) {
+            if (s.callerStageId().isPresent()) {
+                continue;
+            }
+            Instant end = s.closedAt().orElse(Instant.now());
+            String stageId = s.id().toString();
+            long tokens = devMessages.stream()
+                    .filter(m -> stageId.equals(m.stageId()))
+                    .mapToLong(m -> nz(m.tokensIn()) + nz(m.tokensOut()))
+                    .sum();
+            // Fall back to the time window for legacy rows that predate the
+            // stamped stage id, so an old stage still shows a token count.
+            if (tokens == 0) {
+                tokens = devMessages.stream()
+                        .filter(m -> m.stageId() == null && inWindow(m.ts(), s.openedAt(), end))
+                        .mapToLong(m -> nz(m.tokensIn()) + nz(m.tokensOut()))
+                        .sum();
+            }
+            int touched = (int) files.stream()
+                    .filter(f -> inWindow(f.lastTouchedAt(), s.openedAt(), end))
+                    .count();
+            out.put(s.id(), new StageStat(
+                    Math.max(0, (end.toEpochMilli() - s.openedAt().toEpochMilli()) / 1000),
+                    tokens, touched));
+        }
+        return out;
+    }
+
+    /** Append a "· 3m · 30k tokens · 2 files" suffix to a stage-closed body
+     *  from its rollup. Omits any segment that's zero so a no-op stage stays
+     *  terse. */
+    private static String appendStageStats(String body, StageStat stat)
+    {
+        if (stat == null) {
+            return body;
+        }
+        StringBuilder out = new StringBuilder(body);
+        if (stat.durationSec() > 0) {
+            out.append(" · ").append(humanizeDuration(stat.durationSec()));
+        }
+        if (stat.tokens() > 0) {
+            out.append(" · ").append(humanizeTokens(stat.tokens())).append(" tokens");
+        }
+        if (stat.files() > 0) {
+            out.append(" · ").append(stat.files()).append(stat.files() == 1 ? " file" : " files");
+        }
+        return out.toString();
+    }
+
+    private static String humanizeDuration(long sec)
+    {
+        if (sec < 60) {
+            return sec + "s";
+        }
+        long minutes = sec / 60;
+        if (minutes < 60) {
+            return minutes + "m";
+        }
+        long hours = minutes / 60;
+        long remMin = minutes % 60;
+        return remMin == 0 ? hours + "h" : hours + "h " + remMin + "m";
+    }
+
+    private static String humanizeTokens(long tokens)
+    {
+        if (tokens < 1_000) {
+            return Long.toString(tokens);
+        }
+        if (tokens < 1_000_000) {
+            return (tokens / 1_000) + "k";
+        }
+        return String.format(Locale.ROOT, "%.1fM", tokens / 1_000_000.0);
+    }
+
     /** The most-recent ci-fixing stage's budget, if any has one. */
     private Optional<StageMetrics.AutoPushBudget> latestCiFixingBudget(List<StageInstance> stages)
     {
@@ -366,11 +464,12 @@ public class StageServiceImpl
             Map<UUID, StageType> stageTypes,
             List<ThreadTurnEvent> summaries,
             List<ThreadMessage> brainMessages,
-            Map<String, String> stageNameIndex)
+            Map<String, String> stageNameIndex,
+            Map<UUID, StageStat> stageStats)
     {
         List<FeedEntry> entries = new ArrayList<>();
         for (StageEvent e : events) {
-            brainFeedRow(e, stageTypes)
+            brainFeedRow(e, stageTypes, stageStats)
                     .ifPresent(row -> entries.add(new FeedEntry(e.eventAt(), row)));
         }
         for (ThreadTurnEvent s : summaries) {
@@ -463,7 +562,8 @@ public class StageServiceImpl
                 null);
     }
 
-    private Optional<BrainFeedRow> brainFeedRow(StageEvent e, Map<UUID, StageType> stageTypes)
+    private Optional<BrainFeedRow> brainFeedRow(
+            StageEvent e, Map<UUID, StageType> stageTypes, Map<UUID, StageStat> stageStats)
     {
         StageType stageType = stageTypes.get(e.stageId());
 
@@ -495,7 +595,9 @@ public class StageServiceImpl
         String stageLabel = stageType == null ? "Stage" : humanize(stageType);
         String body = switch (e.eventType()) {
             case OPENED -> stageLabel + " opened";
-            case CLOSED -> stageLabel + " closed";
+            // A closed stage carries its rollup: "<label> finished · 3m ·
+            // 30k tokens · 2 files".
+            case CLOSED -> appendStageStats(stageLabel + " finished", stageStats.get(e.stageId()));
             case NOTIFY_FIRED -> "Ready to merge";
             case BUDGET_EXHAUSTED -> stageLabel + " auto-push budget exhausted";
             default -> "";

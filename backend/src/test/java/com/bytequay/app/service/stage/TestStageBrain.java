@@ -304,6 +304,31 @@ class TestStageBrain
     }
 
     @Test
+    void closedStageFeedRowCarriesTokenRollup()
+    {
+        String taskId = seedTask();
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        // A turn_done row stamped with this stage's id contributes its tokens.
+        ThreadMessage turnDone = new ThreadMessage(
+                UUID.randomUUID().toString(), devThread, taskId, 1, "system", "turn_done",
+                "{}", 1_000L, 20_000L, 10_000L, 0L, stage.openedAt())
+                .withStageScope(stage.id().toString(), null);
+        threadStore.appendMessage(turnDone);
+        stageStore.closeStage(stage.id(), "phase_transition");
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        BrainFeedRow closed = brain.brainFeed().stream()
+                .filter(r -> "STAGE_CLOSED".equals(r.type())
+                        && stage.id().toString().equals(r.stageId()))
+                .findFirst()
+                .orElseThrow();
+        // 30k combined tokens; "finished" verb + token segment present.
+        assertThat(closed.body()).contains("finished").contains("30k tokens");
+    }
+
+    @Test
     void rightRailPlanCardReflectsAnAwaitingFinalizedPlan()
     {
         String taskId = seedTask();

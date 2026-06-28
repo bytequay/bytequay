@@ -438,7 +438,8 @@ class TestAgentScheduler
         private TestHarness(int maxCliRunning, int maxApiRunning)
         {
             scheduler = new AgentScheduler(
-                    threads, turns, events, registry, mock(StageStore.class), maxCliRunning, maxApiRunning);
+                    threads, turns, events, registry, mock(StageStore.class),
+                    new StubTaskStore(), maxCliRunning, maxApiRunning);
         }
 
         private RecordingSession register(Thread thread)
@@ -477,6 +478,15 @@ class TestAgentScheduler
                 throw new IllegalStateException("no session for " + thread.id());
             }
             return session;
+        }
+
+        @Override
+        public ThreadAgent getOrCreate(Thread thread, Task task, String stageId)
+        {
+            // The scheduler tests record one session per thread and don't
+            // distinguish per-stage agents — route the per-stage call back
+            // to the recorded session.
+            return getOrCreate(thread);
         }
 
         @Override

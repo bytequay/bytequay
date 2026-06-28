@@ -29,6 +29,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -129,7 +130,7 @@ class TestReviewPanelIntegration
         AgentScheduler scheduler = new AgentScheduler(
                 mock(ThreadStore.class), mock(ThreadTurnStore.class),
                 mock(ThreadTurnEventStore.class), mock(ThreadRegistry.class),
-                mock(StageStore.class),
+                mock(StageStore.class), mock(TaskStore.class),
                 /* maxCliRunning */ 1, /* maxApiRunning */ 6);
 
         // Endpoint resolution is faked (no credentials in tests); the

@@ -67,6 +67,18 @@ function glyphFor(status: LivePlanStatus, future = '○'): string {
   return future;
 }
 
+/** Status for a monitor (looping) stage. It loops while its phase is the
+ *  current work, so its row can sit OPEN (not ACTIVE) between turns / during
+ *  a CI re-run — which would otherwise dim the node to `sleep`. Treat it as
+ *  `running` whenever the task is in that phase so the node reflects the live
+ *  work; otherwise fall back to the generic state mapping. */
+function monitorStatus(stage: StageDto | undefined, activePhase: boolean): LivePlanStatus {
+  if (activePhase && stage !== undefined && stage.state !== 'CLOSED') {
+    return 'running';
+  }
+  return stageStatus(stage);
+}
+
 /** Meta hint for a looping stage ("iter N"), omitted at iteration 0. */
 function iterMeta(stage: StageDto | undefined): string | undefined {
   if (stage === undefined || stage.loopIteration <= 0) return undefined;
@@ -99,8 +111,8 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const planStatus = stageStatus(plan, true);
   const devStatus = stageStatus(dev);
   const reviewStatus = stageStatus(review);
-  const ciStatus = stageStatus(ciFix);
-  const commentsStatus = stageStatus(comments);
+  const ciStatus = monitorStatus(ciFix, task.currentPhase === 'CI_FIXING');
+  const commentsStatus = monitorStatus(comments, task.currentPhase === 'ADDRESSING_COMMENTS');
   const cleanupStatus = stageStatus(cleanup);
 
   // Push isn't a stage — it's the milestone of having opened the PR.

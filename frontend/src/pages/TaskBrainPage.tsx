@@ -13,9 +13,11 @@
  */
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import ResizeHandle from '../ResizeHandle';
 import { IconBtn, MergeIcon, Pill } from '../ui/primitives';
 import {
   Composer, CtxChip, Grow, Main, RunMenu, Shell, StageChips, TopBar, TopBarButton, TopBarTitle,
+  usePaneWidth,
 } from '../ui/shell';
 import type { StageChip } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
@@ -76,6 +78,7 @@ export function TaskBrainPage({
   ];
   const [activeTab, setActiveTab] = useState<BrainTab>(available[0].key);
   const [paneOpen, setPaneOpen] = useState(true);
+  const { paneWidth, bodyRef, onResize } = usePaneWidth();
 
   // Snap to (and reveal) the priority tab when it appears — e.g. a plan
   // that just finished and now awaits approval shouldn't sit hidden
@@ -124,7 +127,11 @@ export function TaskBrainPage({
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
       {sidebar}
       <Main topBar={topBar}>
-        <div className={paneOpen ? 'body with-pane' : 'body'}>
+        <div
+          ref={bodyRef}
+          className={paneOpen ? 'body with-pane' : 'body'}
+          style={paneOpen ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+        >
           <div className="conv-col">
             {conversation}
             {!paneOpen && (
@@ -144,6 +151,7 @@ export function TaskBrainPage({
               placeholder={composer.placeholder}
             />
           </div>
+          {paneOpen && <ResizeHandle onResize={onResize} ariaLabel="Resize the side pane" />}
           {paneOpen && (
             <RightPane>
               <RightPane.Tabs<BrainTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />

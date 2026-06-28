@@ -13,9 +13,13 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.repository.CiFixingLogQueryMarkerStore;
 import com.bytequay.app.service.stage.IterationService;
+import com.bytequay.app.service.stage.IterationService.CiFixingSummaryEntry;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -32,10 +36,14 @@ import static java.util.Objects.requireNonNull;
 public class IterationToolHandlers
 {
     private final IterationService iterationService;
+    private final CiFixingLogQueryMarkerStore ciFixingLogMarkers;
 
-    public IterationToolHandlers(IterationService iterationService)
+    public IterationToolHandlers(
+            IterationService iterationService,
+            CiFixingLogQueryMarkerStore ciFixingLogMarkers)
     {
         this.iterationService = requireNonNull(iterationService, "iterationService is null");
+        this.ciFixingLogMarkers = requireNonNull(ciFixingLogMarkers, "ciFixingLogMarkers is null");
     }
 
     /** Args record for {@code record_iteration_summary}. */
@@ -79,5 +87,51 @@ public class IterationToolHandlers
             return ToolOutcome.Completed.error("No such iteration: " + iterationId);
         }
         return ToolOutcome.Completed.ok("Iteration summary recorded.");
+    }
+
+    /** Args record for {@code get_new_updated_ci_fixing_log} — no args. */
+    public record GetNewUpdatedCiFixingLogArgs() {}
+
+    @AgentTool(
+            name = "get_new_updated_ci_fixing_log",
+            description = "Read the CI-fixing iteration summaries recorded since you last "
+                    + "called this tool. Use it from the comments-addressing stage to stay "
+                    + "in sync with what the CI-fixing loop is doing. Returns only summaries "
+                    + "newer than your previous call (or all of them on the first call); says "
+                    + "so explicitly when nothing is new.",
+            security = SecurityType.TASK_READ,
+            gating = Gating.AUTO,
+            roles = AgentRole.TASK)
+    public ToolOutcome getNewUpdatedCiFixingLog(GetNewUpdatedCiFixingLogArgs args, ToolCall call)
+    {
+        String taskId = call.taskId();
+        if (taskId == null || taskId.isBlank()) {
+            return ToolOutcome.Completed.ok(
+                    "No task is in scope for this turn — cannot read the CI-fixing log.");
+        }
+        Instant since = ciFixingLogMarkers.find(taskId).orElse(Instant.EPOCH);
+        List<CiFixingSummaryEntry> entries = iterationService.latestCiFixingSummaryEntries(taskId);
+        Instant newest = since;
+        StringBuilder out = new StringBuilder();
+        int count = 0;
+        for (CiFixingSummaryEntry entry : entries) {
+            if (!entry.summarizedAt().isAfter(since)) {
+                continue;
+            }
+            out.append("- iteration #").append(entry.iterationNumber())
+                    .append(": ").append(entry.text()).append('\n');
+            count++;
+            if (entry.summarizedAt().isAfter(newest)) {
+                newest = entry.summarizedAt();
+            }
+        }
+        if (count == 0) {
+            return ToolOutcome.Completed.ok("No new CI-fixing iterations since your last check.");
+        }
+        // Advance the marker so the next call only returns rows newer than
+        // the newest one we just handed back.
+        ciFixingLogMarkers.mark(taskId, newest);
+        return ToolOutcome.Completed.ok(
+                count + " new CI-fixing iteration summar" + (count == 1 ? "y" : "ies") + ":\n" + out);
     }
 }

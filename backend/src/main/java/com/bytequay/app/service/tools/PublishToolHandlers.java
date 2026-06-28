@@ -122,7 +122,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome validate(ValidateArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to validate");
         }
@@ -165,7 +165,7 @@ public class PublishToolHandlers
     {
         String summary = nullToEmpty(args.summary());
         String draftReply = nullToEmpty(args.draftReply());
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to request review for");
         }
@@ -206,7 +206,7 @@ public class PublishToolHandlers
         if (body.isBlank()) {
             return ToolOutcome.Completed.ok("body is required");
         }
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to comment on");
         }
@@ -233,7 +233,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome push(PushArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to push");
         }
@@ -281,7 +281,7 @@ public class PublishToolHandlers
         if (body.isBlank()) {
             return ToolOutcome.Completed.ok("body is required");
         }
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to reply on");
         }
@@ -367,7 +367,7 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok(
                     "no PR to act on — pass repo + pr_number, or link a PR to the active task");
         }
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to park the resolution on");
         }
@@ -408,7 +408,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome approvePr(ApprovePrArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to approve");
         }
@@ -439,7 +439,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome mergePr(MergePrArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to merge");
         }
@@ -485,7 +485,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome createReviewComment(CreateReviewCommentArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to comment on");
         }
@@ -532,7 +532,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome updatePrBody(UpdatePrBodyArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to update");
         }
@@ -566,7 +566,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome requestReviewer(RequestReviewerArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to request review on");
         }
@@ -602,7 +602,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome commentOnIssue(CommentOnIssueArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to comment on");
         }
@@ -641,7 +641,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome setIssueState(SetIssueStateArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to flip");
         }
@@ -690,7 +690,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome openPr(OpenPrArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to open a PR for");
         }
@@ -753,7 +753,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome publishReview(PublishReviewArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to review");
         }
@@ -814,7 +814,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome nextTask(NextTaskArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to advance");
         }
@@ -876,7 +876,7 @@ public class PublishToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome shipTask(ShipTaskArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to ship");
         }
@@ -919,6 +919,25 @@ public class PublishToolHandlers
     }
 
     // ── shared helpers ───────────────────────────────────────────────
+
+    /**
+     * Resolve the task a publish tool acts on from the running turn's
+     * stamped task id, falling back to the thread's active task only when
+     * the turn carried none (a trunk turn / a legacy caller). Resolving by
+     * the running turn's task id is what lets a shipped (IN_REVIEW) task —
+     * whose active-task projection is null — still ship / push / comment:
+     * the turn is stamped with the task it runs under, so we use that.
+     */
+    private Optional<Task> resolveTaskForCall(ToolCall call)
+    {
+        if (call.taskId() != null && !call.taskId().isBlank()) {
+            Optional<Task> byId = taskStore.findTaskById(call.taskId());
+            if (byId.isPresent()) {
+                return byId;
+            }
+        }
+        return taskStore.findActiveTaskForThread(call.threadId());
+    }
 
     /** Persist a parked proposal and return the synchronous text the
      *  agent sees. The park is transactional; on failure we return a

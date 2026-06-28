@@ -205,6 +205,27 @@ class TestPublishToolHandlers
         verify(parkedProposals, never()).park(any(), any());
     }
 
+    @Test
+    void resolvesTheTaskFromTheRunningTurnWhenNoActiveTaskOnThread()
+    {
+        // A shipped task is IN_REVIEW, so the thread's active-task
+        // projection is null — but the running turn is stamped with the
+        // task id. The handler must resolve by that id, not give up with
+        // "no active task on this thread".
+        Task shipped = taskAt("task-ship", TaskStatus.IN_REVIEW);
+        when(taskStore.findTaskById("task-ship")).thenReturn(Optional.of(shipped));
+        when(taskStore.findActiveTaskForThread("thread-task-ship")).thenReturn(Optional.empty());
+
+        ToolOutcome outcome = handlers.requestReview(
+                new PublishToolHandlers.RequestReviewArgs("ready", null),
+                new ToolCall("thread-task-ship", null, AgentRole.TASK, "task-ship", null));
+
+        ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
+        assertThat(completed.isError()).isFalse();
+        assertThat(completed.text()).doesNotContain("no active task");
+        verify(parkedProposals).park(eq(shipped), any());
+    }
+
     private static Task taskAt(String id, TaskStatus status)
     {
         Instant now = Instant.parse("2026-05-22T12:00:00Z");

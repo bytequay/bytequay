@@ -80,6 +80,14 @@ public class CascadingPermissionResolver
     }
 
     @Override
+    public RunningScope runningScope(String threadId)
+    {
+        return runningTurn(threadId)
+                .map(turn -> new RunningScope(turn.taskId(), turn.stageId()))
+                .orElse(RunningScope.NONE);
+    }
+
+    @Override
     public Set<SecurityType> grants(String threadId)
     {
         Optional<ThreadTurn> turn = runningTurn(threadId);

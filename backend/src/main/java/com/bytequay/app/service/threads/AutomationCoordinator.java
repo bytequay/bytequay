@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PrCheckRunState;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
@@ -237,6 +238,19 @@ public class AutomationCoordinator
     /** Returns true when this scan actually wrote a new notification. */
     private boolean maybeEmitCiFail(Task task)
     {
+        // A shipped task drives its own autonomous CI-fix sequence — re-run →
+        // agent fix → escalate — off the PR's LIVE state, fetched straight from
+        // GitHub by ref exactly like the lifecycle driver and the PR panel.
+        // This is deliberately independent of the dashboard sync's cached
+        // pull_request row, which a freshly-opened (or fork) PR may not carry
+        // yet — without the live fetch the loop would never see the failure
+        // even though the panel (which also fetches live) shows CI red.
+        if (task.linkedPrRef() != null) {
+            return driveShippedCiFixFromLiveDetail(task);
+        }
+        // A plain linked-PR task (not shipped through our flow) is, by
+        // definition, a dashboard PR — read its cached detail and keep the
+        // conservative behaviour: one NEEDS_ATTENTION row plus an opt-in turn.
         Optional<WatchedRepo> repo = findRepoForWorkingDir(task.workingDir());
         if (repo.isEmpty()) {
             return false;
@@ -254,14 +268,6 @@ public class AutomationCoordinator
         CiAggregate ci = aggregateChecks(detail.get().checkRuns());
         if (!ci.isFailing()) {
             return false;
-        }
-        // A shipped task (linked into the post-ship PR loop) drives its own
-        // autonomous CI-fix sequence — re-run → agent fix → escalate —
-        // regardless of the per-repo dashboard auto-fix opt-in. A plain
-        // linked-PR task keeps the conservative dashboard behaviour below:
-        // one NEEDS_ATTENTION row plus an opt-in fix turn.
-        if (task.linkedPrRef() != null) {
-            return driveShippedCiFix(task, repoFullName, ci);
         }
         if (hasOpenNotificationForTask(task.id())) {
             return false;
@@ -357,7 +363,11 @@ public class AutomationCoordinator
         }
         String prompt = buildAutoFixPrompt(task, repoFullName, failingChecks);
         try {
-            String turnId = scheduler.enqueueTurn(thread, prompt, TurnInitiator.unattended("auto-fix-ci-fail"));
+            // Bind the task id so the turn runs on the task's (worktree-leased)
+            // agent, never the read-only trunk planner — task/stage work must
+            // never fall back to the trunk.
+            String turnId = scheduler.enqueueTaskTurn(
+                    thread, prompt, task.id(), TurnInitiator.unattended("auto-fix-ci-fail"));
             iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI,
                     ciFixContext(failingRuns));
             log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
@@ -414,6 +424,61 @@ public class AutomationCoordinator
      *
      * Returns true only when this step wrote a user-facing notification.
      */
+    /**
+     * Run the shipped CI-fix loop off the PR's live state. Fetches the linked
+     * PR directly by {@code owner/repo#n} — the same call the PR panel and the
+     * lifecycle driver use — so it sees the real check-run state whether or not
+     * the dashboard sync has cached the PR. Without this the loop read an empty
+     * cache for a freshly-opened PR and never started, leaving the CI-fixing
+     * stage open with nothing driving it.
+     */
+    private boolean driveShippedCiFixFromLiveDetail(Task task)
+    {
+        String ref = task.linkedPrRef();
+        int hash = ref.lastIndexOf('#');
+        if (hash <= 0 || hash == ref.length() - 1) {
+            return false;
+        }
+        String repoFullName = ref.substring(0, hash);
+        int number;
+        try {
+            number = Integer.parseInt(ref.substring(hash + 1).trim());
+        }
+        catch (NumberFormatException e) {
+            return false;
+        }
+        PullRequestDetail detail;
+        try {
+            detail = pullRequests.getPullRequestDetail(repoFullName, number);
+        }
+        catch (RuntimeException e) {
+            log.warn("shipped CI-fix: live fetch of {} failed (task {}): {}",
+                    ref, task.id(), e.getMessage());
+            return false;
+        }
+        CiAggregate ci = aggregateChecks(toCheckRunStates(detail.checkRuns()));
+        if (!ci.isFailing()) {
+            return false;
+        }
+        return driveShippedCiFix(task, repoFullName, ci);
+    }
+
+    /** Adapt the live detail's check runs to the aggregator's input shape —
+     *  the two records carry identical fields. */
+    private static List<PrCheckRunState> toCheckRunStates(List<PullRequestDetail.CheckRun> runs)
+    {
+        if (runs == null || runs.isEmpty()) {
+            return List.of();
+        }
+        List<PrCheckRunState> out = new ArrayList<>(runs.size());
+        for (PullRequestDetail.CheckRun r : runs) {
+            out.add(new PrCheckRunState(
+                    r.githubId(), r.name(), r.status(), r.conclusion(),
+                    r.htmlUrl(), r.outputTitle(), r.outputSummary()));
+        }
+        return out;
+    }
+
     private boolean driveShippedCiFix(Task task, String repoFullName, CiAggregate ci)
     {
         Instant now = Instant.now();
@@ -500,8 +565,12 @@ public class AutomationCoordinator
         }
         String prompt = buildShippedCiFixPrompt(task, repoFullName, failingChecks);
         try {
-            String turnId = scheduler.enqueueTurn(
-                    thread, prompt, TurnInitiator.unattended("ci-fix-shipped"));
+            // Bind the task id: a shipped task is IN_REVIEW, so the active-task
+            // projection is empty and the no-id enqueue would stamp task_id =
+            // null and route this autonomous fix to the read-only trunk agent.
+            // Task/stage work must always run on the task's own agent.
+            String turnId = scheduler.enqueueTaskTurn(
+                    thread, prompt, task.id(), TurnInitiator.unattended("ci-fix-shipped"));
             iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI,
                     ciFixContext(failingRuns));
             int attempt = ciFixAttempts.merge(task.id(), 1, Integer::sum);

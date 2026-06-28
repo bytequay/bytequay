@@ -201,7 +201,8 @@ public abstract class AbstractCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             String binary,
-            String trunkCwd)
+            String trunkCwd,
+            Task boundTask)
     {
         requireNonNull(thread, "thread is null");
         // CLI_AGENT is the dev/trunk case; BRAIN_AGENT is a brain thread whose
@@ -255,19 +256,17 @@ public abstract class AbstractCliThreadAgent
             }
         }
         else {
-            // Look up the active task directly from TaskStore so the ctor
-            // works whether the caller built the Thread via the store
-            // (activeTask projected) or hand-assembled it (may be null).
-            // The fallback to findLatestTaskForThread covers the resume-
-            // from-terminal path: a COMPLETED thread's most-recent task
-            // is terminal, so the active lookup returns empty, but we
-            // still need that task's worktree + branch when the user picks
-            // the conversation back up.
-            Task active = taskStore.findActiveTaskForThread(thread.id())
-                    .or(() -> taskStore.findLatestTaskForThread(thread.id()))
-                    .orElseThrow(() -> new IllegalStateException(
-                            "thread " + thread.id()
-                                    + " has no task; cannot spawn CLI agent"));
+            // The Task this agent is bound to is resolved by the caller (the
+            // ThreadRegistry) and handed in explicitly, rather than re-derived
+            // here from the thread's active-task projection. Per-stage agents
+            // each bind their own task; the registry resolves it from the
+            // running turn's stamped task id (active-or-latest for the
+            // resume-from-terminal path).
+            if (boundTask == null) {
+                throw new IllegalStateException(
+                        "thread " + thread.id() + " has no task; cannot spawn CLI agent");
+            }
+            Task active = boundTask;
             this.workingDir = requireNonNull(active.agentCwd(),
                     "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
             this.branchName = active.branchName();

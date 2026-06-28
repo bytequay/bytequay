@@ -37,4 +37,18 @@ public interface PermissionResolver
      *  allowed to exercise. The registry refuses any tool whose
      *  {@link ToolSpec#security()} isn't in this set. */
     Set<SecurityType> grants(String threadId);
+
+    /** The task + stage the thread's in-flight turn is scoped to, read
+     *  from the running turn's stamped ids. Both null when no turn is
+     *  running or the running turn is a trunk turn. Tool handlers use this
+     *  to resolve their task from the actual running turn rather than
+     *  guessing the thread's active task. */
+    RunningScope runningScope(String threadId);
+
+    /** The stamped task/stage of a thread's running turn. */
+    record RunningScope(String taskId, String stageId)
+    {
+        /** No running turn, or a trunk turn — both ids null. */
+        public static final RunningScope NONE = new RunningScope(null, null);
+    }
 }

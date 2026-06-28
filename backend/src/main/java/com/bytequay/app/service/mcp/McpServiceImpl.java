@@ -309,8 +309,9 @@ public class McpServiceImpl
         // a ToolOutcome bind their args inside the registry and run
         // there. Stubs (void return type) fall through to the strategy
         // map so the per-tool flow takes over.
+        PermissionResolver.RunningScope scope = permissions.runningScope(threadId);
         Optional<ToolOutcome> outcome = registry.invoke(
-                name, new ToolCall(threadId, params.arguments(), role));
+                name, new ToolCall(threadId, params.arguments(), role, scope.taskId(), scope.stageId()));
         if (outcome.isPresent()) {
             deferred.setResult(adaptOutcome(id, outcome.get()));
             return;

@@ -28,5 +28,21 @@ import com.fasterxml.jackson.databind.JsonNode;
  *                   args record, but handlers can also read them
  *                   directly when a field isn't on the record
  * @param role       the caller's resolved agent role
+ * @param taskId     the task the in-flight turn is scoped to (from the
+ *                   running turn's stamped {@code task_id}), or null on a
+ *                   trunk turn. Publish handlers resolve their task from
+ *                   this rather than guessing the thread's active task,
+ *                   which is null for a shipped (IN_REVIEW) task.
+ * @param stageId    the stage the in-flight turn is scoped to, or null for
+ *                   a task-level / trunk turn
  */
-public record ToolCall(String threadId, JsonNode arguments, AgentRole role) {}
+public record ToolCall(
+        String threadId, JsonNode arguments, AgentRole role, String taskId, String stageId)
+{
+    /** Convenience for callers (and tests) that don't carry the running
+     *  turn's scope — task/stage default to null, matching a trunk turn. */
+    public ToolCall(String threadId, JsonNode arguments, AgentRole role)
+    {
+        this(threadId, arguments, role, null, null);
+    }
+}

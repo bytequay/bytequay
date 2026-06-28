@@ -60,6 +60,12 @@ class TestConceptToolHandlers
         {
             return EnumSet.allOf(SecurityType.class);
         }
+
+        @Override
+        public RunningScope runningScope(String threadId)
+        {
+            return RunningScope.NONE;
+        }
     };
 
     @BeforeEach

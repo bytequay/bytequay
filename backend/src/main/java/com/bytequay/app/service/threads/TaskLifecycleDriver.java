@@ -277,7 +277,8 @@ public class TaskLifecycleDriver
                     thread.id(), thread.status(), task.id());
             return;
         }
-        String prompt = buildReviewAnalysisPrompt(repo, number, detail);
+        String prompt = buildReviewAnalysisPrompt(
+                repo, number, detail, iterationService.latestCiFixingSummaries(task.id()));
         try {
             // Bind the task id so this runs on the task's own agent. The task
             // is IN_REVIEW (no active-task projection), so the no-id enqueue
@@ -342,11 +343,22 @@ public class TaskLifecycleDriver
      *  threads inline so the agent needn't re-fetch the PR, asks for a
      *  structured per-comment analysis, and tells it to STOP and wait for
      *  the user before addressing anything. */
-    private static String buildReviewAnalysisPrompt(String repo, int number, PullRequestDetail detail)
+    private static String buildReviewAnalysisPrompt(
+            String repo, int number, PullRequestDetail detail, List<String> ciFixingSummaries)
     {
         StringBuilder out = new StringBuilder();
         out.append("New review comments arrived on ").append(repo).append(" #").append(number)
-                .append(". Do NOT change code or reply on the PR yet.\n\n")
+                .append(". Do NOT change code or reply on the PR yet.\n\n");
+        // Seed the agent with what the CI-fixing stage just did, so it
+        // doesn't re-derive context the prior stage already established.
+        if (ciFixingSummaries != null && !ciFixingSummaries.isEmpty()) {
+            out.append("Recent CI-fixing iterations on this task:\n");
+            for (String summary : ciFixingSummaries) {
+                out.append("  - ").append(summary).append('\n');
+            }
+            out.append('\n');
+        }
+        out
                 .append("For EACH unresolved review thread below, write a short analysis:\n")
                 .append("  1. Summary — what is the comment asking?\n")
                 .append("  2. Problem — what is actually wrong, if anything?\n")

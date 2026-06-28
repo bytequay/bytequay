@@ -32,9 +32,11 @@ import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -143,7 +145,56 @@ class TestIterationService
         verify(turnEventStore).appendEvent(any(ThreadTurnEvent.class));
     }
 
+    @Test
+    void latestCiFixingSummariesReturnsTheNewestCiStagesSummariesInOrder()
+    {
+        UUID oldStage = UUID.randomUUID();
+        UUID newStage = UUID.randomUUID();
+        Instant t0 = Instant.parse("2026-06-01T00:00:00Z");
+        when(stageStore.findStagesByTask(TASK_ID)).thenReturn(List.of(
+                new StageInstance(oldStage, TASK_ID, StageType.CI_FIXING_STAGE,
+                        StageState.CLOSED, t0, t0.plusSeconds(60), null),
+                new StageInstance(newStage, TASK_ID, StageType.CI_FIXING_STAGE,
+                        StageState.CLOSED, t0.plusSeconds(120), t0.plusSeconds(180), null),
+                new StageInstance(UUID.randomUUID(), TASK_ID, StageType.DEVELOPMENT_STAGE,
+                        StageState.CLOSED, t0.plusSeconds(30), t0.plusSeconds(40), null)));
+        when(iterationStore.findByStage(newStage)).thenReturn(List.of(
+                summarised(newStage, 1, "bumped retry 3->5"),
+                summarised(newStage, 2, "fixed flaky test"),
+                noSummary(newStage, 3)));
+
+        List<String> summaries = service.latestCiFixingSummaries(TASK_ID);
+
+        assertThat(summaries)
+                .containsExactly("bumped retry 3->5", "fixed flaky test");
+    }
+
+    @Test
+    void latestCiFixingSummariesIsEmptyWhenNoCiStageRan()
+    {
+        when(stageStore.findStagesByTask(TASK_ID)).thenReturn(List.of(
+                new StageInstance(UUID.randomUUID(), TASK_ID, StageType.DEVELOPMENT_STAGE,
+                        StageState.CLOSED, Instant.now(), Instant.now(), null)));
+
+        assertThat(service.latestCiFixingSummaries(TASK_ID)).isEmpty();
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────
+
+    private TaskStageIteration summarised(UUID stage, int n, String text)
+    {
+        return TaskStageIteration.opened(
+                        UUID.randomUUID(), stage, TASK_ID, "turn-" + n, n,
+                        IterationService.TRIGGER_RED_CI, Instant.now())
+                .withSummary(text, Instant.now());
+    }
+
+    private TaskStageIteration noSummary(UUID stage, int n)
+    {
+        return TaskStageIteration.opened(
+                UUID.randomUUID(), stage, TASK_ID, "turn-" + n, n,
+                IterationService.TRIGGER_RED_CI, Instant.now());
+    }
 
     private void activeStage(StageType type)
     {

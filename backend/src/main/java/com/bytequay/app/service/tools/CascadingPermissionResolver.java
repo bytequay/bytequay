@@ -14,12 +14,13 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.PermissionGrant;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadScope;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.PermissionGrantStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
@@ -43,11 +44,14 @@ import static java.util.Objects.requireNonNull;
  * capability is denied at, say, the workspace, no thread- or
  * task-level grant can bring it back.
  *
- * <p>Role derivation: a thread with no task — or whose active task is only
- * PLANNING / QUEUED (pre-dev) — is {@link AgentRole#TRUNK}; a thread whose
- * active task is doing development work is {@link AgentRole#TASK}. The
- * {@code roles} filter on each tool still governs discovery; this resolver
- * governs capability.
+ * <p>Role derivation reads the <em>scope the running turn was created
+ * with</em> ({@link ThreadScope}, stamped at enqueue) rather than
+ * re-deriving it from the thread's task projection: a trunk turn (no
+ * task) is {@link AgentRole#TRUNK}; a task- or stage-scoped turn is
+ * {@link AgentRole#TASK}. The same running turn supplies the task
+ * target for task-scoped deny grants. With no turn in flight the
+ * read-only trunk role is the safe default. The {@code roles} filter on
+ * each tool governs discovery; this resolver governs capability.
  */
 @Component
 public class CascadingPermissionResolver
@@ -56,53 +60,31 @@ public class CascadingPermissionResolver
     private static final String DENY = "deny";
 
     private final ThreadStore threadStore;
-    private final TaskStore taskStore;
+    private final ThreadTurnStore turnStore;
     private final PermissionGrantStore grantStore;
 
     public CascadingPermissionResolver(
             ThreadStore threadStore,
-            TaskStore taskStore,
+            ThreadTurnStore turnStore,
             PermissionGrantStore grantStore)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.grantStore = requireNonNull(grantStore, "grantStore is null");
     }
 
     @Override
     public AgentRole roleFor(String threadId)
     {
-        if (threadId == null || threadId.isBlank()) {
-            return AgentRole.TRUNK;
-        }
-        // The thread is at TASK altitude only while its active task is doing
-        // dev work; a task that's merely PLANNING (the brain plans on its own
-        // thread) or QUEUED (not started) leaves the trunk free to plan and
-        // queue more work — otherwise the trunk loses create_task / queue_task
-        // the moment a plan opens, which reads as the tool going offline. A
-        // thread whose chain has fully COMPLETED likewise hands back to the
-        // trunk. See workspace-thread-task-design.md §"Trunk re-enters when the
-        // chain runs dry" and §"TaskQueue — planning ahead."
-        return taskStore.findActiveTaskForThread(threadId)
-                .filter(t -> isDevAltitude(t.phase()))
-                .isPresent()
-                ? AgentRole.TASK
-                : AgentRole.TRUNK;
-    }
-
-    /** True when an active task's phase means the thread's own agent is doing
-     *  the task's development work (so it's at TASK altitude). PLANNING and
-     *  QUEUED are pre-dev: the trunk stays in control. */
-    private static boolean isDevAltitude(TaskPhase phase)
-    {
-        return phase != TaskPhase.PLANNING && phase != TaskPhase.QUEUED;
+        return roleForTurn(runningTurn(threadId));
     }
 
     @Override
     public Set<SecurityType> grants(String threadId)
     {
+        Optional<ThreadTurn> turn = runningTurn(threadId);
         Set<SecurityType> effective = EnumSet.noneOf(SecurityType.class);
-        effective.addAll(RoleCapabilities.forRole(roleFor(threadId)));
+        effective.addAll(RoleCapabilities.forRole(roleForTurn(turn)));
 
         // Global first, then narrower scopes. Each deny subtracts and
         // stays subtracted — walking order doesn't matter for a pure
@@ -120,11 +102,35 @@ public class CascadingPermissionResolver
             applyDenials(effective, grantStore.findForScope("thread", threadId));
         }
 
-        taskStore.findActiveTaskForThread(threadId)
-                .map(Task::id)
+        // Task-scoped denies target the task the running turn belongs to —
+        // the same stamped fact that drives the role.
+        turn.map(ThreadTurn::taskId)
+                .filter(id -> id != null && !id.isBlank())
                 .ifPresent(taskId -> applyDenials(effective, grantStore.findForScope("task", taskId)));
 
         return ImmutableSet.copyOf(effective);
+    }
+
+    /** The thread's in-flight turn, whose stamped scope + task id are the
+     *  authoritative role and task target for this resolution. */
+    private Optional<ThreadTurn> runningTurn(String threadId)
+    {
+        if (threadId == null || threadId.isBlank()) {
+            return Optional.empty();
+        }
+        return turnStore.listTurnsByTaskIdAndStatus(threadId, ThreadTurnStatus.RUNNING, 1)
+                .stream()
+                .findFirst();
+    }
+
+    /** TRUNK for a trunk-scoped (planning) turn, TASK for task- or
+     *  stage-scoped work, and the read-only trunk role when nothing is
+     *  running — never escalate on the absence of a known scope. */
+    private static AgentRole roleForTurn(Optional<ThreadTurn> turn)
+    {
+        return turn.map(ThreadTurn::scope)
+                .map(scope -> scope == ThreadScope.TRUNK ? AgentRole.TRUNK : AgentRole.TASK)
+                .orElse(AgentRole.TRUNK);
     }
 
     /** Remove every capability a deny grant names. Unknown capability

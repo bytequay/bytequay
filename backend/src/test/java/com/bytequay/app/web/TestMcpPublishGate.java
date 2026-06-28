@@ -24,10 +24,15 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.threads.McpPermissionGate;
@@ -71,6 +76,8 @@ class TestMcpPublishGate
     private ThreadStore threads;
     @Autowired
     private TaskStore tasks;
+    @Autowired
+    private ThreadTurnStore turns;
     @Autowired
     private StageStore stageStore;
     @Autowired
@@ -325,6 +332,7 @@ class TestMcpPublishGate
         String threadId = newThread("Ship task gate fixture");
         Task seeded = newTask(threadId, "feature/finished", "/tmp/bytequay-test-ship-current");
         tasks.saveTask(seeded);
+        seedRunningTurn(seeded);
         approvePlan(seeded.id());
 
         JsonNode response = invokeShipTask(threadId, "After ship", "main");
@@ -355,6 +363,7 @@ class TestMcpPublishGate
         String threadId = newThread("Validate fixture");
         Task seeded = newTask(threadId, "feature/x", "/tmp/bytequay-test-validate");
         tasks.saveTask(seeded);
+        seedRunningTurn(seeded);
         approvePlan(seeded.id());
 
         JsonNode response = invokeValidate(threadId, "ran the unit tests");
@@ -373,6 +382,7 @@ class TestMcpPublishGate
         String threadId = newThread("Validate no-op fixture");
         Task seeded = newTask(threadId, "feature/y", "/tmp/bytequay-test-validate-noop");
         tasks.saveTask(seeded);
+        seedRunningTurn(seeded);
         tasks.updatePhase(seeded.id(), TaskPhase.AWAITING_PUSH);
 
         JsonNode response = invokeValidate(threadId, null);
@@ -737,6 +747,19 @@ class TestMcpPublishGate
     {
         tasks.saveTask(seeded);
         tasks.updatePhase(seeded.id(), TaskPhase.IMPLEMENTING);
+        seedRunningTurn(seeded);
+    }
+
+    /** Put a task-scoped RUNNING turn in flight: the permission role is derived
+     *  from the running turn's scope, so without one the thread resolves to the
+     *  read-only TRUNK role and the publish tools are denied. */
+    private void seedRunningTurn(Task task)
+    {
+        Instant now = Instant.parse("2026-05-22T12:00:00Z");
+        turns.saveTurn(new ThreadTurn(
+                UUID.randomUUID().toString(), task.threadId(), task.id(),
+                ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "gate fixture",
+                now, now, now, null, null, TurnInitiator.user()));
     }
 
     private String newThread(String title)

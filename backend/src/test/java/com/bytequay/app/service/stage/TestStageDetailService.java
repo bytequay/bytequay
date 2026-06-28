@@ -24,6 +24,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
@@ -277,6 +278,35 @@ class TestStageDetailService
     }
 
     @Test
+    void conversationPrefersExplicitStageIdOverTheTimeWindow()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        Instant open = stage.openedAt();
+        iterationStore.save(TaskStageIteration
+                .opened(UUID.randomUUID(), stage.id(), taskId, "turn-1", 1, "red_ci", open));
+
+        // Stamped with THIS stage but dated a day before the window opened —
+        // still belongs, because stage_id is the source of truth, not the clock.
+        appendStageMessage(threadId, taskId, 1, "assistant", "text",
+                "{\"text\":\"mine despite the old timestamp\"}",
+                open.minusSeconds(86_400), stage.id().toString());
+        // Stamped with a DIFFERENT stage but inside this stage's window — must
+        // be excluded (the overlap that time-windowing alone would mis-include).
+        appendStageMessage(threadId, taskId, 2, "assistant", "text",
+                "{\"text\":\"belongs to another stage\"}",
+                open, UUID.randomUUID().toString());
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("agent") && "mine despite the old timestamp".equals(r.text()));
+        assertThat(detail.conversation()).noneMatch(
+                r -> "belongs to another stage".equals(r.text()));
+    }
+
+    @Test
     void unknownStageIs404()
     {
         assertThatThrownBy(() -> detailService.getDetail(UUID.randomUUID()))
@@ -289,6 +319,16 @@ class TestStageDetailService
         threadStore.appendMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, taskId, seq, role, type, json,
                 null, 100L, 50L, 5L, ts));
+    }
+
+    private void appendStageMessage(
+            String threadId, String taskId, long seq, String role, String type, String json,
+            Instant ts, String stageId)
+    {
+        threadStore.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), threadId, taskId, seq, role, type, json,
+                null, 100L, 50L, 5L, ts)
+                .withStageScope(stageId, ThreadScope.of(taskId, stageId)));
     }
 
     private String seedThread()

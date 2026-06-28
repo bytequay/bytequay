@@ -24,6 +24,7 @@ import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -281,6 +282,8 @@ class SqliteThreadStore
         entity.setTokensOut(message.tokensOut());
         entity.setCostUsdMilli(message.costUsdMilli());
         entity.setTsMs(message.ts().toEpochMilli());
+        entity.setStageId(message.stageId());
+        entity.setScope(message.scope() == null ? null : message.scope().name());
         messages.save(entity);
     }
 
@@ -553,7 +556,11 @@ class SqliteThreadStore
                 e.getTokensIn(),
                 e.getTokensOut(),
                 e.getCostUsdMilli(),
-                Instant.ofEpochMilli(e.getTsMs()));
+                Instant.ofEpochMilli(e.getTsMs()),
+                e.getStageId(),
+                e.getScope() == null
+                        ? ThreadScope.of(e.getTaskId(), e.getStageId())
+                        : ThreadScope.valueOf(e.getScope()));
     }
 
     private static TaskStatus mapStatus(ThreadStatus status)

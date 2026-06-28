@@ -154,6 +154,47 @@ detects a missing git on launch and points you to this section.
 
 ---
 
+## Task lifecycle
+
+Every dev task runs the same tracked pipeline. The current phase is shown
+live in the task brain view; each step is either a human approval gate or an
+automated stage, and nothing reaches GitHub without your click.
+
+```
+Task
+ ├─ Plan          one approved plan: the goal + architecture (affected
+ │                components, existing patterns, constraints), risk signals
+ │                + a confidence level, and the ordered implementation steps
+ ├─ Develop       the agent writes the change in an isolated git worktree
+ ├─ Validate      tests + checkstyle + repo rules, with a bounded auto-fix loop
+ ├─ Review        you and/or an AI panel review the LOCAL diff — before any push
+ ├─ Push → PR     you approve the push; the branch lands and a (draft) GitHub
+ │                PR opens
+ ├─ CI            watches remote CI; red → the agent Fixes and re-pushes (loop),
+ │                green → it holds
+ ├─ Mark ready    you flip the draft PR ready for review
+ ├─ Remote review external reviewers comment on the live PR
+ ├─ Address       the agent addresses comments → an AI re-review verifies →
+ │   comments     update push → back through CI
+ ├─ Merge         the PR merges; a server-side reconciler completes the task
+ └─ Cleanup       the worktree + dev branch are reaped
+```
+
+How this maps to a classic *plan → review → PR → merge* mental model:
+
+- **One plan, not three passes.** "Architecture plan", "risk analysis", and
+  "implementation plan" are folded into a single user-approved plan
+  (`understanding` + `signals` + `intent.steps`), not separate stages.
+- **The pre-push review runs on the local diff** — and it can be you, an AI
+  panel, or both. There's no separate "local PR"; the push *is* the remote
+  GitHub PR.
+- **Two review passes:** the pre-push review above, and an AI re-review after
+  you've addressed the remote comments.
+- **Human gates** at every irreversible step: approve the plan, approve each
+  push, mark the PR ready, and merge — the agent can do none of these itself.
+
+---
+
 ## Quick start
 
 ```bash

@@ -14,7 +14,7 @@
 
 /**
  * The purple git-merge glyph, shown before a finished task's name to mark
- * it as merged / done (mockup `design/copilot-redesign/img_3.png`).
+ * it as merged / done/ closed.
  */
 export function MergeIcon({ title = 'Merged' }: { title?: string }) {
   return (

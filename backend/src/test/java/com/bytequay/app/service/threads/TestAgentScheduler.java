@@ -32,6 +32,7 @@ import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorktreeLease;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
@@ -69,6 +70,7 @@ import static com.bytequay.app.domain.ThreadTurnStatus.FAILED;
 import static com.bytequay.app.domain.ThreadTurnStatus.QUEUED;
 import static com.bytequay.app.domain.ThreadTurnStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class TestAgentScheduler
 {
@@ -435,7 +437,8 @@ class TestAgentScheduler
 
         private TestHarness(int maxCliRunning, int maxApiRunning)
         {
-            scheduler = new AgentScheduler(threads, turns, events, registry, maxCliRunning, maxApiRunning);
+            scheduler = new AgentScheduler(
+                    threads, turns, events, registry, mock(StageStore.class), maxCliRunning, maxApiRunning);
         }
 
         private RecordingSession register(Thread thread)

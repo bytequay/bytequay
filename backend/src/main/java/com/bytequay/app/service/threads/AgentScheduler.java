@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
@@ -23,6 +24,7 @@ import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -87,6 +89,7 @@ public class AgentScheduler
     private final ThreadTurnStore turns;
     private final ThreadTurnEventStore events;
     private final ThreadRegistry sessions;
+    private final StageStore stages;
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
     private final Set<String> runningTaskIds = new HashSet<>();
     private final Object lock = new Object();
@@ -100,6 +103,7 @@ public class AgentScheduler
             ThreadTurnStore turns,
             ThreadTurnEventStore events,
             ThreadRegistry sessions,
+            StageStore stages,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
@@ -107,6 +111,7 @@ public class AgentScheduler
         this.turns = requireNonNull(turns, "turns is null");
         this.events = requireNonNull(events, "events is null");
         this.sessions = requireNonNull(sessions, "sessions is null");
+        this.stages = requireNonNull(stages, "stages is null");
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
     }
@@ -179,6 +184,12 @@ public class AgentScheduler
             throw new IllegalArgumentException("input is blank");
         }
         Instant now = Instant.now();
+        // Resolve the task's active stage so the turn (and its messages) carry
+        // an explicit stage_id + scope rather than leaving stage attribution to
+        // a time window. A trunk turn (no task) stays stage-less.
+        String stageId = taskId == null || taskId.isBlank()
+                ? null
+                : stages.findActiveStage(taskId).map(s -> s.id().toString()).orElse(null);
         ThreadTurn turn = new ThreadTurn(
                 UUID.randomUUID().toString(),
                 thread.id(),
@@ -191,7 +202,9 @@ public class AgentScheduler
                 /* startedAt */ null,
                 /* finishedAt */ null,
                 /* errorMessage */ null,
-                initiator);
+                initiator,
+                stageId,
+                ThreadScope.of(taskId, stageId));
         turns.saveTurn(turn);
         appendEvent(turn, TURN_QUEUED, null);
         enqueuePersistedTurn(turn);

@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
@@ -60,6 +61,8 @@ class SqliteThreadTurnStore
         TurnInitiator initiator = turn.initiator() == null ? TurnInitiator.user() : turn.initiator();
         entity.setInitiatorAttended(initiator.attended());
         entity.setInitiatorSource(initiator.source());
+        entity.setStageId(turn.stageId());
+        entity.setScope(turn.scope() == null ? null : turn.scope().name());
         turns.save(entity);
     }
 
@@ -148,6 +151,10 @@ class SqliteThreadTurnStore
                 Timestamps.instant(e.getStartedAtMs()),
                 Timestamps.instant(e.getFinishedAtMs()),
                 e.getErrorMessage(),
-                new TurnInitiator(e.isInitiatorAttended(), e.getInitiatorSource()));
+                new TurnInitiator(e.isInitiatorAttended(), e.getInitiatorSource()),
+                e.getStageId(),
+                e.getScope() == null
+                        ? ThreadScope.of(e.getTaskId(), e.getStageId())
+                        : ThreadScope.valueOf(e.getScope()));
     }
 }

@@ -694,7 +694,26 @@ public class ThreadService
 
     public void interrupt(String threadId)
     {
-        sessionOrThrow(threadId).interrupt();
+        requireNonNull(threadId, "threadId is null");
+        // A thread may have several concurrent stage-agents in flight;
+        // interrupt every live one (and the trunk agent if present) rather
+        // than guessing a single session. Interrupt is a no-op on an agent
+        // whose subprocess isn't running, so hitting them all is safe.
+        boolean any = false;
+        for (ThreadAgent agent : registry.findAll(threadId)) {
+            agent.interrupt();
+            any = true;
+        }
+        Optional<ThreadAgent> trunk = registry.findTrunk(threadId);
+        if (trunk.isPresent()) {
+            trunk.get().interrupt();
+            any = true;
+        }
+        if (!any) {
+            // Preserve the prior contract: a thread with no live session
+            // still validates that the thread exists / can be addressed.
+            sessionOrThrow(threadId).interrupt();
+        }
     }
 
     /**
@@ -729,12 +748,12 @@ public class ThreadService
     {
         requireNonNull(threadId, "threadId is null");
         Thread thread = requireTask(threadId);
-        registry.find(threadId).ifPresent(session -> {
-            if (thread.status() == ThreadStatus.RUNNING
-                    || thread.status() == ThreadStatus.AWAITING) {
-                session.interrupt();
-            }
-        });
+        if (thread.status() == ThreadStatus.RUNNING
+                || thread.status() == ThreadStatus.AWAITING) {
+            // Interrupt every live stage-agent so a mid-flight CLI exits at
+            // its next tool boundary and releases its worktree lease.
+            registry.findAll(threadId).forEach(ThreadAgent::interrupt);
+        }
         // Release the lease on the active task's worktree. The CLI
         // agent's shutdown path also releases on exit; doing it here
         // makes the transfer atomic from the user's perspective.
@@ -767,10 +786,14 @@ public class ThreadService
     {
         requireTask(threadId);
         scheduler.cancelQueuedTurns(threadId);
-        registry.find(threadId).ifPresent(session -> {
-            session.stop();
+        // Stop every live stage-agent before evicting — a thread may have
+        // several concurrent stages running. evict() then drops all of
+        // them and releases each worktree lease.
+        List<ThreadAgent> live = registry.findAll(threadId);
+        if (!live.isEmpty()) {
+            live.forEach(ThreadAgent::stop);
             registry.evict(threadId);
-        });
+        }
     }
 
     /**
@@ -818,14 +841,14 @@ public class ThreadService
         // Stop the live agent + drop any queued turns so we don't
         // leave a subprocess running against a deleted row.
         Thread thread = existing.get();
-        registry.find(threadId).ifPresent(agent -> {
+        for (ThreadAgent agent : registry.findAll(threadId)) {
             try {
                 agent.stop();
             }
             catch (RuntimeException e) {
                 log.warn("agent stop on delete threw for {}: {}", threadId, e.getMessage());
             }
-        });
+        }
         scheduler.cancelQueuedTurns(threadId);
         registry.evict(threadId);
         // Best-effort worktree cleanup. Errors are logged inside the

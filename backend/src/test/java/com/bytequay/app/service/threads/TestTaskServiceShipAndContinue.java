@@ -316,13 +316,14 @@ class TestTaskServiceShipAndContinue
         Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(active));
         ThreadAgent session = mock(ThreadAgent.class);
-        when(registry.find("t1")).thenReturn(Optional.of(session));
+        when(registry.findStages(List.of("t1.k1"))).thenReturn(List.of(session));
 
         Task paused = service.pauseTask("t1", "t1.k1");
 
-        // Agent stopped + evicted so the thread frees its lease.
+        // The task's stage agent(s) interrupted + evicted so the task frees
+        // its lease; the thread's other tasks are untouched.
         verify(session).interrupt();
-        verify(registry).evict("t1");
+        verify(registry).evictStages("t1", List.of("t1.k1"));
         // Pause keeps the work — the worktree is NOT reaped (unlike cancel).
         verify(worktreeService, never()).reap(any());
         ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
@@ -427,7 +428,7 @@ class TestTaskServiceShipAndContinue
         Task t = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone");
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(t));
         ThreadAgent session = mock(ThreadAgent.class);
-        when(registry.find("t1")).thenReturn(Optional.of(session));
+        when(registry.findStages(List.of("t1.k1"))).thenReturn(List.of(session));
 
         service.cancelTask("t1", "t1.k1");
 

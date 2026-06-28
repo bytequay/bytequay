@@ -44,6 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -482,6 +483,39 @@ public class ThreadRegistry
             String leased = leasedWorktrees.remove(key);
             if (leased != null) {
                 releaseLeaseQuietly(leased);
+            }
+        }
+    }
+
+    /** The live agents for a set of stage keys belonging to one thread —
+     *  e.g. every stage of a single task. Used to interrupt/stop the
+     *  agents of one task without touching the thread's other tasks. */
+    public List<ThreadAgent> findStages(Collection<String> stageKeys)
+    {
+        if (stageKeys == null || stageKeys.isEmpty()) {
+            return List.of();
+        }
+        List<ThreadAgent> out = new ArrayList<>();
+        for (String key : stageKeys) {
+            ThreadAgent agent = key == null ? null : sessions.get(key);
+            if (agent != null) {
+                out.add(agent);
+            }
+        }
+        return out;
+    }
+
+    /** Evict + release every stage-agent in {@code stageKeys} for the
+     *  given thread. Targets one task's stages without disturbing the
+     *  thread's other concurrent tasks. */
+    public void evictStages(String threadId, Collection<String> stageKeys)
+    {
+        if (stageKeys == null) {
+            return;
+        }
+        for (String key : stageKeys) {
+            if (key != null) {
+                evictStage(threadId, key);
             }
         }
     }

@@ -44,7 +44,9 @@ describe('buildLivePlan', () => {
         stage('CI_FIXING_STAGE', 'OPEN'),
       ],
       subStages: [],
-      task: { prNumber: 145, currentPhase: 'CI_FIXING' as TaskPhase, terminal: false },
+      // Not in the CI-fixing phase here, so an OPEN CI stage stays "sleep"
+      // (the monitor-running rule is exercised in its own test below).
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
     expect(node(nodes, 'plan').status).toBe('done');
     expect(node(nodes, 'dev').status).toBe('running');
@@ -52,6 +54,30 @@ describe('buildLivePlan', () => {
     expect(node(nodes, 'ci-fix').status).toBe('sleep');
     expect(node(nodes, 'comments').status).toBe('future');
     expect(node(nodes, 'cleanup').status).toBe('future');
+  });
+
+  it('marks a monitor stage running while its phase is the current work', () => {
+    // CI fixing loops, so the stage row sits OPEN between turns. While the
+    // task is in CI_FIXING the node must still read "running", not "sleep".
+    const ciFixing = buildLivePlan({
+      stages: [stage('CI_FIXING_STAGE', 'OPEN')], subStages: [],
+      task: { prNumber: 145, currentPhase: 'CI_FIXING' as TaskPhase, terminal: false },
+    });
+    expect(node(ciFixing, 'ci-fix').status).toBe('running');
+
+    // Same for the review-monitor while addressing comments.
+    const addressing = buildLivePlan({
+      stages: [stage('REVIEW_MONITOR_STAGE', 'OPEN')], subStages: [],
+      task: { prNumber: 145, currentPhase: 'ADDRESSING_COMMENTS' as TaskPhase, terminal: false },
+    });
+    expect(node(addressing, 'comments').status).toBe('running');
+
+    // A closed CI stage is done even if the phase lingers.
+    const closed = buildLivePlan({
+      stages: [stage('CI_FIXING_STAGE', 'CLOSED')], subStages: [],
+      task: { prNumber: 145, currentPhase: 'CI_FIXING' as TaskPhase, terminal: false },
+    });
+    expect(node(closed, 'ci-fix').status).toBe('done');
   });
 
   it('uses the planning variant for an active Plan stage', () => {

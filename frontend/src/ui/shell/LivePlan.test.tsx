@@ -59,11 +59,11 @@ describe('LivePlan', () => {
     expect(onOpenStage).toHaveBeenCalledWith('CI_FIXING_STAGE-id');
   });
 
-  it('routes the Push milestone to the changes view', () => {
-    const onOpenCode = vi.fn();
-    render(<LivePlan nodes={model()} onOpenCode={onOpenCode} />);
+  it('routes the Push sub-node to the Development conversation', () => {
+    const onOpenStage = vi.fn();
+    render(<LivePlan nodes={model()} onOpenStage={onOpenStage} />);
     fireEvent.click(screen.getByText('Push'));
-    expect(onOpenCode).toHaveBeenCalledOnce();
+    expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
   });
 
   it('disables future nodes that have nowhere to navigate', () => {

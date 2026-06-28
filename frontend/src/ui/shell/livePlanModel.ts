@@ -76,9 +76,10 @@ function iterMeta(stage: StageDto | undefined): string | undefined {
 /**
  * Derives the ordered live-plan node list from the task's actual stages,
  * phase, and PR state. The lifecycle shape is fixed (Plan → Development →
- * Push → {CI Fix ‖ Comments} → Merge → Cleanup, with Review as a callable
- * sub-node); only each node's status/meta is data-driven. Stages that don't
- * exist yet render as `future` (dashed), matching lazy stage instantiation.
+ * {CI Fix ‖ Comments} → Merge → Cleanup), with Review (callable) and Push
+ * hanging as sub-nodes under Development; only each node's status/meta is
+ * data-driven. Stages that don't exist yet render as `future` (dashed),
+ * matching lazy stage instantiation.
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const { stages, subStages, task, prStatus = null, viewedStageId = null } = input;
@@ -133,10 +134,12 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       placement: 'sub', activeView: isViewed(review), nav: stageNav(review),
     },
     {
+      // Push isn't its own stage — it's the tail of Development (the dev agent
+      // opens the PR). So it hangs as a sub-node under Development and a click
+      // routes to the Development conversation rather than a dead/empty view.
       key: 'push', label: 'Push', status: pushStatus, glyph: glyphFor(pushStatus),
       meta: task.prNumber !== null ? `PR #${task.prNumber}` : undefined,
-      placement: 'full', activeView: false,
-      nav: task.prNumber !== null ? { kind: 'code' } : { kind: 'none' },
+      placement: 'sub', activeView: false, nav: stageNav(dev),
     },
     {
       key: 'ci-fix', label: 'CI Fix', status: ciStatus, glyph: glyphFor(ciStatus),

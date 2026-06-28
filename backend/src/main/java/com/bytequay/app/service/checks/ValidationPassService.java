@@ -128,7 +128,9 @@ public class ValidationPassService
             return;
         }
         try {
-            scheduler.enqueueTurn(thread, fixPrompt(failures));
+            // Bind the task id so the validation-fix turn runs on the task's
+            // own agent rather than falling back to the read-only trunk.
+            scheduler.enqueueTaskTurn(thread, fixPrompt(failures), task.id());
         }
         catch (RuntimeException e) {
             log.warn("enqueue validation fix turn for task {} failed: {}", task.id(), e.getMessage());

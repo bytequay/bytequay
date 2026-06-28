@@ -256,7 +256,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler).enqueueTurn(any(), contains("ship_task"), any());
+        verify(scheduler).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
     }
 
     @Test
@@ -271,7 +271,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, true));
 
-        verify(scheduler, never()).enqueueTurn(any(), contains("ship_task"), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
     }
 
     @Test
@@ -287,7 +287,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler, never()).enqueueTurn(any(), contains("ship_task"), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
     }
 
     @Test

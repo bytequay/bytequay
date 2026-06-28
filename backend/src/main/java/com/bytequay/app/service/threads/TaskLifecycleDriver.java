@@ -279,8 +279,12 @@ public class TaskLifecycleDriver
         }
         String prompt = buildReviewAnalysisPrompt(repo, number, detail);
         try {
-            String turnId = scheduler.enqueueTurn(
-                    thread, prompt, TurnInitiator.unattended("address-comments-analysis"));
+            // Bind the task id so this runs on the task's own agent. The task
+            // is IN_REVIEW (no active-task projection), so the no-id enqueue
+            // would route it to the read-only trunk agent — task/stage work
+            // must never use the trunk.
+            String turnId = scheduler.enqueueTaskTurn(
+                    thread, prompt, task.id(), TurnInitiator.unattended("address-comments-analysis"));
             iterationService.begin(task.id(), turnId, IterationService.TRIGGER_NEW_COMMENTS);
             log.info("address-comments: analysis turn queued for task {} on {} #{}",
                     task.id(), repo, number);

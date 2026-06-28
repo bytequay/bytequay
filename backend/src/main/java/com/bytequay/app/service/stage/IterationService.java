@@ -201,15 +201,7 @@ public class IterationService
      */
     public List<String> latestCiFixingSummaries(String taskId)
     {
-        StageInstance latest = null;
-        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
-            if (stage.type() != StageType.CI_FIXING_STAGE) {
-                continue;
-            }
-            if (latest == null || stage.openedAt().isAfter(latest.openedAt())) {
-                latest = stage;
-            }
-        }
+        StageInstance latest = latestCiFixingStage(taskId);
         if (latest == null) {
             return List.of();
         }
@@ -220,6 +212,48 @@ public class IterationService
             }
         }
         return summaries;
+    }
+
+    /** A recorded CI-fixing iteration summary with the time it was
+     *  recorded — drives the {@code get_new_updated_ci_fixing_log} tool's
+     *  newer-than-marker filter. */
+    public record CiFixingSummaryEntry(int iterationNumber, String text, Instant summarizedAt) {}
+
+    /**
+     * The recorded iteration summaries of the task's most recent CI-fixing
+     * stage, oldest-first, each with its recorded-at timestamp. The
+     * {@code get_new_updated_ci_fixing_log} tool filters these against its
+     * per-task last-query marker. Empty when no CI-fixing stage ran or it
+     * recorded no summaries.
+     */
+    public List<CiFixingSummaryEntry> latestCiFixingSummaryEntries(String taskId)
+    {
+        StageInstance latest = latestCiFixingStage(taskId);
+        if (latest == null) {
+            return List.of();
+        }
+        List<CiFixingSummaryEntry> out = new ArrayList<>();
+        for (TaskStageIteration it : iterationStore.findByStage(latest.id())) {
+            if (it.summaryText() != null && !it.summaryText().isBlank() && it.summarizedAt() != null) {
+                out.add(new CiFixingSummaryEntry(
+                        it.iterationNumber(), it.summaryText().strip(), it.summarizedAt()));
+            }
+        }
+        return out;
+    }
+
+    private StageInstance latestCiFixingStage(String taskId)
+    {
+        StageInstance latest = null;
+        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
+            if (stage.type() != StageType.CI_FIXING_STAGE) {
+                continue;
+            }
+            if (latest == null || stage.openedAt().isAfter(latest.openedAt())) {
+                latest = stage;
+            }
+        }
+        return latest;
     }
 
     private void endIteration(TaskStageIteration iteration, boolean failed)

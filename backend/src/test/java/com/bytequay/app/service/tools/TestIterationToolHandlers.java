@@ -13,10 +13,16 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.repository.CiFixingLogQueryMarkerStore;
 import com.bytequay.app.service.stage.IterationService;
+import com.bytequay.app.service.stage.IterationService.CiFixingSummaryEntry;
+import com.bytequay.app.service.tools.IterationToolHandlers.GetNewUpdatedCiFixingLogArgs;
 import com.bytequay.app.service.tools.IterationToolHandlers.RecordIterationSummaryArgs;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,11 +31,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class TestIterationToolHandlers
 {
     private final IterationService iterationService = mock(IterationService.class);
-    private final IterationToolHandlers handlers = new IterationToolHandlers(iterationService);
+    private final CiFixingLogQueryMarkerStore ciFixingLogMarkers = mock(CiFixingLogQueryMarkerStore.class);
+    private final IterationToolHandlers handlers =
+            new IterationToolHandlers(iterationService, ciFixingLogMarkers);
 
     private final ToolCall call = new ToolCall("thread-1", null, AgentRole.TASK);
 
@@ -73,5 +82,53 @@ class TestIterationToolHandlers
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
         verify(iterationService, never()).recordSummary(any(), any());
+    }
+
+    private final ToolCall taskCall =
+            new ToolCall("thread-1", null, AgentRole.TASK, "task-1", null);
+
+    @Test
+    void ciFixingLogReturnsOnlySummariesNewerThanTheMarkerAndAdvancesIt()
+    {
+        Instant marker = Instant.parse("2026-06-01T00:00:00Z");
+        when(ciFixingLogMarkers.find("task-1")).thenReturn(Optional.of(marker));
+        Instant older = marker.minusSeconds(10);
+        Instant newer = marker.plusSeconds(30);
+        when(iterationService.latestCiFixingSummaryEntries("task-1")).thenReturn(List.of(
+                new CiFixingSummaryEntry(1, "already seen", older),
+                new CiFixingSummaryEntry(2, "fresh fix", newer)));
+
+        ToolOutcome outcome = handlers.getNewUpdatedCiFixingLog(
+                new GetNewUpdatedCiFixingLogArgs(), taskCall);
+
+        ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
+        assertThat(completed.isError()).isFalse();
+        assertThat(completed.text()).contains("fresh fix").doesNotContain("already seen");
+        verify(ciFixingLogMarkers).mark("task-1", newer);
+    }
+
+    @Test
+    void ciFixingLogReportsNothingNewAndLeavesTheMarkerUntouched()
+    {
+        Instant marker = Instant.parse("2026-06-01T00:00:00Z");
+        when(ciFixingLogMarkers.find("task-1")).thenReturn(Optional.of(marker));
+        when(iterationService.latestCiFixingSummaryEntries("task-1")).thenReturn(List.of(
+                new CiFixingSummaryEntry(1, "already seen", marker.minusSeconds(10))));
+
+        ToolOutcome outcome = handlers.getNewUpdatedCiFixingLog(
+                new GetNewUpdatedCiFixingLogArgs(), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).text()).contains("No new CI-fixing");
+        verify(ciFixingLogMarkers, never()).mark(any(), any());
+    }
+
+    @Test
+    void ciFixingLogRefusesWhenNoTaskIsInScope()
+    {
+        ToolOutcome outcome = handlers.getNewUpdatedCiFixingLog(
+                new GetNewUpdatedCiFixingLogArgs(), call);
+
+        assertThat(((ToolOutcome.Completed) outcome).text()).contains("No task is in scope");
+        verify(iterationService, never()).latestCiFixingSummaryEntries(any());
     }
 }

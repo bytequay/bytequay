@@ -70,7 +70,23 @@ describe('buildLivePlan', () => {
     });
     expect(node(nodes, 'push').status).toBe('done');
     expect(node(nodes, 'push').meta).toBe('PR #145');
-    expect(node(nodes, 'push').nav).toEqual({ kind: 'code' });
+  });
+
+  it('nests Push under Development and routes its click to the dev conversation', () => {
+    const dev = stage('DEVELOPMENT_STAGE', 'CLOSED');
+    const nodes = buildLivePlan({
+      stages: [dev], subStages: [],
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+    });
+    expect(node(nodes, 'push').placement).toBe('sub');
+    expect(node(nodes, 'push').nav).toEqual({ kind: 'stage', stageId: dev.id });
+
+    // No Development stage yet → nowhere to navigate, so the node is inert.
+    const early = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+    });
+    expect(node(early, 'push').nav).toEqual({ kind: 'none' });
   });
 
   it('drives the Merge node from PR/merge state', () => {

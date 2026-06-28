@@ -127,12 +127,14 @@ function cardStatus(status: string): TaskStatus {
   }
 }
 
-/** Statuses that don't belong in the Tasks tab's active list: shipped work
- *  (COMPLETED / IN_REVIEW) lives in the conversation history, and terminal
- *  tasks (CANCELED / ARCHIVED) are closed/reaped — they linger as bogus
- *  "foreground" cards otherwise, since cardStatus maps them to the running
- *  pill. PENDING is handled separately (the Queued folder). */
-const HIDDEN_TASK_STATUSES = new Set(['COMPLETED', 'IN_REVIEW', 'CANCELED', 'ARCHIVED']);
+/** Statuses that don't belong in the Tasks tab's active list: COMPLETED work
+ *  is done and lives in the conversation history, and terminal tasks
+ *  (CANCELED / ARCHIVED) are closed/reaped — they linger as bogus "foreground"
+ *  cards otherwise, since cardStatus maps them to the running pill. IN_REVIEW
+ *  is NOT hidden: a shipped task is still in-flight (CI-fixing / addressing
+ *  comments / awaiting merge), so it shows as a "shipped" card and counts.
+ *  PENDING is handled separately (the Queued folder). */
+const HIDDEN_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
 
 /** "Task 1 · Remove PersonaRequest bean", or just "Task 1" without a rename. */
 function cardTitle(t: WorkUnitTaskDto): string {

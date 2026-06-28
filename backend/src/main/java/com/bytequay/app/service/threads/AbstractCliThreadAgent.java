@@ -22,6 +22,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -142,6 +143,9 @@ public abstract class AbstractCliThreadAgent
      *  sibling — which creates a fresh agent against the other task —
      *  never mixes histories. */
     private final String activeTaskId;
+    /** The stage the in-flight turn belongs to, set by the scheduler before
+     *  each {@link #send}; messages emitted during the turn inherit it. */
+    private volatile String activeStageId;
     private final AtomicReference<String> model = new AtomicReference<>("");
     private final AtomicReference<Process> currentProcess = new AtomicReference<>();
     /** Set true by {@link #interrupt} just before {@code destroy()} so
@@ -412,6 +416,12 @@ public abstract class AbstractCliThreadAgent
     public final List<ThreadMessage> history()
     {
         return store.listMessages(threadId);
+    }
+
+    @Override
+    public final void setActiveStage(String stageId)
+    {
+        this.activeStageId = stageId;
     }
 
     @Override
@@ -927,7 +937,7 @@ public abstract class AbstractCliThreadAgent
         long seq = nextSeq.getAndIncrement();
         String id = UUID.randomUUID().toString();
         Instant ts = event.timestamp();
-        return switch (event) {
+        ThreadMessage built = switch (event) {
             case StreamEvent.SessionStarted e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "system", "session_started",
                     String.format("{\"sessionId\":\"%s\",\"cwd\":\"%s\",\"model\":\"%s\"}",
@@ -1005,6 +1015,12 @@ public abstract class AbstractCliThreadAgent
                                     : "\"" + jsonEscape(e.errorMessage()) + "\""),
                     null, null, null, null, ts);
         };
+        // Stamp the explicit stage + scope for the turn this session is
+        // running, so the row joins to its stage instead of relying on a time
+        // window. activeStageId is set by the scheduler before each send.
+        return built == null
+                ? null
+                : built.withStageScope(activeStageId, ThreadScope.of(activeTaskId, activeStageId));
     }
 
     private void publish(StreamEvent event)

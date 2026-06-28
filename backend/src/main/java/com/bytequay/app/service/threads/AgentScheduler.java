@@ -502,6 +502,9 @@ public class AgentScheduler
 
         CompletionStage<Void> completion;
         try {
+            // Tell the session which stage this turn runs under so the
+            // messages it emits inherit an explicit stage_id.
+            session.setActiveStage(runningTurn.stageId());
             completion = requireNonNull(
                     session.send(runningTurn.input()),
                     "session send returned null");

@@ -59,6 +59,18 @@ class ThreadMessageEntity
     @Column(name = "ts_ms", nullable = false)
     private long tsMs;
 
+    @Column(name = "stage_id")
+    private String stageId;
+
+    @Column(name = "scope")
+    private String scope;
+
+    String getStageId() { return stageId; }
+    void setStageId(String stageId) { this.stageId = stageId; }
+
+    String getScope() { return scope; }
+    void setScope(String scope) { this.scope = scope; }
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 

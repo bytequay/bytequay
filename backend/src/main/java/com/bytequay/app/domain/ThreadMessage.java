@@ -54,6 +54,39 @@ public record ThreadMessage(
         Long tokensIn,
         Long tokensOut,
         Long costUsdMilli,
-        Instant ts)
+        Instant ts,
+        /** Owning stage when stage-scoped; null for task- or trunk-level rows. */
+        String stageId,
+        /** Explicit TRUNK | TASK | STAGE discriminator (see {@link ThreadScope}). */
+        ThreadScope scope)
 {
+    /** Legacy constructor for callers (and rows) that predate the explicit
+     *  scope/stage_id fields. Derives the scope from the ids; the owning
+     *  agent stamps the stage afterward via {@link #withStageScope}. */
+    public ThreadMessage(
+            String id,
+            String threadId,
+            String taskId,
+            long seq,
+            String role,
+            String type,
+            String contentJson,
+            Long durationMs,
+            Long tokensIn,
+            Long tokensOut,
+            Long costUsdMilli,
+            Instant ts)
+    {
+        this(id, threadId, taskId, seq, role, type, contentJson, durationMs,
+                tokensIn, tokensOut, costUsdMilli, ts,
+                /* stageId */ null, ThreadScope.of(taskId, null));
+    }
+
+    /** A copy carrying the explicit stage_id + scope, stamped by the agent
+     *  for the turn it is emitting under. */
+    public ThreadMessage withStageScope(String stageId, ThreadScope scope)
+    {
+        return new ThreadMessage(id, threadId, taskId, seq, role, type, contentJson,
+                durationMs, tokensIn, tokensOut, costUsdMilli, ts, stageId, scope);
+    }
 }

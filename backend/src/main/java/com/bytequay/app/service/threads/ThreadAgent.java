@@ -130,6 +130,14 @@ public interface ThreadAgent
      *  released its local resources. */
     CompletionStage<Void> send(String userInput);
 
+    /** Set the stage the next {@link #send} runs under, so messages emitted
+     *  during the turn carry an explicit {@code stage_id}. Null clears it
+     *  (task- or trunk-level turn). Default no-op for agents that don't
+     *  persist a stage-scoped transcript. */
+    default void setActiveStage(String stageId)
+    {
+    }
+
     /** Best-effort cancel of the currently-running turn. The
      *  session moves to {@link ThreadStatus#IDLE} once the loop
      *  acknowledges. Equivalent to ESC in {@code claude code}. */

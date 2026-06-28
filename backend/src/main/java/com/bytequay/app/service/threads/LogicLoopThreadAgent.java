@@ -20,6 +20,7 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
@@ -140,6 +141,9 @@ public class LogicLoopThreadAgent
     private final ThreadKind kind;
     private final ThreadStore store;
     private final TaskStore taskStore;
+    /** Stage of the in-flight turn, set by the scheduler before each send;
+     *  emitted messages inherit it as their explicit stage_id. */
+    private volatile String activeStageId;
     private final ObjectMapper mapper;
     private final ExecutorService executor;
     private final CredentialService credentialService;
@@ -826,7 +830,7 @@ public class LogicLoopThreadAgent
         catch (Exception e) {
             contentJson = "{}";
         }
-        store.appendMessage(new ThreadMessage(
+        appendStamped(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "tool", "tool_call", contentJson,
                 null, null, null, null, Instant.now()));
@@ -846,7 +850,7 @@ public class LogicLoopThreadAgent
         catch (Exception e) {
             contentJson = "{}";
         }
-        store.appendMessage(new ThreadMessage(
+        appendStamped(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "tool", "tool_result", contentJson,
                 null, null, null, null, Instant.now()));
@@ -1017,7 +1021,7 @@ public class LogicLoopThreadAgent
     {
         long seq = nextSeq.getAndIncrement();
         String contentJson = encodeText(text);
-        store.appendMessage(new ThreadMessage(
+        appendStamped(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "user", "text", contentJson,
                 /* durationMs */ null, /* tokensIn */ null, /* tokensOut */ null,
@@ -1029,7 +1033,7 @@ public class LogicLoopThreadAgent
             long tokensIn, long tokensOut, long costMilli)
     {
         long seq = nextSeq.getAndIncrement();
-        store.appendMessage(new ThreadMessage(
+        appendStamped(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "assistant", "text", encodeText(text),
                 durationMs, tokensIn, tokensOut, costMilli, ts));
@@ -1042,6 +1046,19 @@ public class LogicLoopThreadAgent
         return taskStore.findActiveTaskForThread(threadId)
                 .map(t -> t.id())
                 .orElse(null);
+    }
+
+    @Override
+    public void setActiveStage(String stageId)
+    {
+        this.activeStageId = stageId;
+    }
+
+    /** Persist a message stamped with the turn's explicit stage + scope. */
+    private void appendStamped(ThreadMessage message)
+    {
+        store.appendMessage(message.withStageScope(
+                activeStageId, ThreadScope.of(message.taskId(), activeStageId)));
     }
 
     /** True when this turn is happening at the trunk (planning) level

@@ -341,6 +341,13 @@ public class ThreadRegistry
                 .or(() -> all.stream().findFirst());
     }
 
+    /** The live stage-agent for a stage key (= stage id for a stage-
+     *  scoped agent), if one exists. */
+    public Optional<ThreadAgent> findStage(String stageKey)
+    {
+        return Optional.ofNullable(stageKey == null ? null : sessions.get(stageKey));
+    }
+
     /** Every live stage-agent for this thread (zero, one, or — with
      *  concurrent stages — several). */
     public List<ThreadAgent> findAll(String threadId)

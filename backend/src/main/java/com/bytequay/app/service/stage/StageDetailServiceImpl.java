@@ -207,7 +207,7 @@ public class StageDetailServiceImpl
             StageInstance stage, List<TaskStageIteration> iters,
             TimeWindow window, List<ThreadMessage> devMessages)
     {
-        List<ThreadMessage> inWindow = window.messages(devMessages);
+        List<ThreadMessage> inWindow = stageMessages(stage, window, devMessages);
         List<OperationGroup> groups = operationGroups(inWindow);
         long toolCalls = groups.stream().mapToLong(g -> g.messages().size()).sum();
         long tokens = inWindow.stream()
@@ -255,6 +255,24 @@ public class StageDetailServiceImpl
     /** A run of consecutive tool calls grouped at read time. {@code kind} is
      *  null for ungrouped calls (each is its own single-message group). */
     private record OperationGroup(String kind, List<ThreadMessage> messages) {}
+
+    /**
+     * The dev-thread messages that belong to {@code stage}: rows explicitly
+     * stamped with this stage id (the durable attribution), plus legacy rows
+     * with no stage id that fall inside the stage's time window (backfill for
+     * pre-migration transcripts). A row stamped with a <em>different</em> stage
+     * is excluded even when its timestamp overlaps — which is what makes a
+     * callable sub-stage's transcript unambiguous, unlike pure time windowing.
+     */
+    private static List<ThreadMessage> stageMessages(
+            StageInstance stage, TimeWindow window, List<ThreadMessage> devMessages)
+    {
+        String id = stage.id().toString();
+        return devMessages.stream()
+                .filter(m -> id.equals(m.stageId())
+                        || (m.stageId() == null && window.contains(m.ts())))
+                .toList();
+    }
 
     private record TimeWindow(Instant start, Instant end, String closedAtText)
     {
@@ -484,7 +502,7 @@ public class StageDetailServiceImpl
                 ? threadStore.findBrainThreadByTask(task.id())
                         .map(t -> threadStore.listMessages(t.id()))
                         .orElseGet(List::of)
-                : window.messages(devMessages);
+                : stageMessages(stage, window, devMessages);
 
         // Pair each tool call with its result row (same callId) so the
         // transcript can show command + outcome on a single card.

@@ -56,6 +56,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -445,7 +446,11 @@ public class TaskService
             //    whole ship rollback-only and discard the already-done push +
             //    PR. Not stopping avoids that entirely for the ship path.)
             if (startSuccessor) {
-                registry.find(threadId).ifPresent(agent -> {
+                // Drop only the shipped task's stage agent(s) so the
+                // successor spawns fresh in its own worktree; the thread's
+                // other concurrent tasks keep their agents.
+                List<String> stageKeys = stageKeysForTask(current.id());
+                for (ThreadAgent agent : registry.findStages(stageKeys)) {
                     try {
                         agent.stop();
                     }
@@ -453,8 +458,8 @@ public class TaskService
                         log.warn("agent stop on ship-and-continue threw for {}: {}",
                                 threadId, e.getMessage());
                     }
-                });
-                registry.evict(threadId);
+                }
+                registry.evictStages(threadId, stageKeys);
             }
 
             // Drop an informational notification so the bell / center
@@ -757,14 +762,18 @@ public class TaskService
     {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("no task " + taskId));
-        // Interrupt the subprocess and wait for it to actually exit before we
-        // reap the worktree. interrupt() only sends destroy() (SIGTERM); without
-        // the wait, `git worktree remove` can race a still-live process that's
-        // mid-tool-call inside the worktree we're deleting.
-        registry.find(threadId).ifPresent(agent -> {
+        // Interrupt the subprocess(es) and wait for them to actually exit
+        // before we reap the worktree. interrupt() only sends destroy()
+        // (SIGTERM); without the wait, `git worktree remove` can race a
+        // still-live process that's mid-tool-call inside the worktree we're
+        // deleting. A task can have several per-stage agents in flight, so
+        // hit each of this task's stage agents.
+        List<String> stageKeys = stageKeysForTask(taskId);
+        for (ThreadAgent agent : registry.findStages(stageKeys)) {
             agent.interrupt();
             awaitAgentStopped(agent);
-        });
+        }
+        registry.evictStages(threadId, stageKeys);
         taskStore.cancelTask(taskId, Instant.now());
         // Drive the phase terminal so the lifecycle reconciler stops polling
         // the task and the queue scheduler frees its slot.
@@ -785,6 +794,21 @@ public class TaskService
         notificationService.dismissOpenForTask(threadId, taskId);
         worktreeService.reap(task);
         return taskStore.findTaskById(taskId).orElse(task);
+    }
+
+    /** The set of registry stage keys a task's per-stage agents are keyed
+     *  by: each of its stage ids plus the task id itself (the key for a
+     *  task-level agent that ran with no stage). Lets the cancel / pause /
+     *  ship paths reach exactly this task's agents without disturbing the
+     *  thread's other concurrent tasks. */
+    private List<String> stageKeysForTask(String taskId)
+    {
+        List<String> keys = new ArrayList<>();
+        keys.add(taskId);
+        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
+            keys.add(stage.id().toString());
+        }
+        return keys;
     }
 
     /** Longest we block a cancel waiting for the interrupted subprocess to die
@@ -829,11 +853,13 @@ public class TaskService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "task " + taskId + " cannot be paused from status " + task.status());
         }
-        // Stop the live agent and drop it so the thread frees its lease — the
-        // next turn can spawn for another task or the trunk. The worktree is
-        // NOT reaped (cancel does that); pause keeps it for resume.
-        registry.find(threadId).ifPresent(ThreadAgent::interrupt);
-        registry.evict(threadId);
+        // Stop this task's live stage agent(s) and drop them so the task
+        // frees its lease — the thread's other tasks keep running. The
+        // worktree is NOT reaped (cancel does that); pause keeps it for
+        // resume.
+        List<String> stageKeys = stageKeysForTask(taskId);
+        registry.findStages(stageKeys).forEach(ThreadAgent::interrupt);
+        registry.evictStages(threadId, stageKeys);
         Task paused = task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
         taskStore.saveTask(paused);
         // Clear any parked approve/discard notification for this task — a

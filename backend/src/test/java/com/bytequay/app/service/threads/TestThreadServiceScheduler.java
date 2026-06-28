@@ -1168,6 +1168,12 @@ class TestThreadServiceScheduler
         }
 
         @Override
+        public List<ThreadAgent> findAll(String threadId)
+        {
+            return List.of(session);
+        }
+
+        @Override
         public void evict(String threadId)
         {
             events.add("evict:" + threadId);

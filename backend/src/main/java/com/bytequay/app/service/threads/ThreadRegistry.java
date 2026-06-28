@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
@@ -42,6 +43,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -125,17 +128,27 @@ public class ThreadRegistry
      *  scoped: it must be one of the active workspace's pinned
      *  repos, never an arbitrary watched repo from another workspace. */
     private final Function<Thread, String> trunkCwdResolver;
+    /** Live dev/CLI sessions keyed by <em>stage key</em>, not threadId:
+     *  each stage of a task (Development, CI-fixing, Comments-addressing)
+     *  gets its own fresh agent. The stage key is the stage id when the
+     *  turn is stage-scoped, the task id for a task-level turn with no
+     *  stage, and the thread id on a legacy 0-stage path. A trunk thread's
+     *  many concurrent tasks therefore map to many concurrent entries. */
     private final ConcurrentHashMap<String, ThreadAgent> sessions = new ConcurrentHashMap<>();
+    /** Secondary index: threadId → the set of stage keys it currently has
+     *  a live session for. Lets {@link #find}/{@link #evict} reach every
+     *  stage-agent on a thread without scanning {@link #sessions}. */
+    private final ConcurrentHashMap<String, Set<String>> threadStageKeys = new ConcurrentHashMap<>();
     /** Per-thread trunk-mode agent — the planning-altitude runtime
      *  that runs without a focused Task. Lives alongside (not instead
      *  of) the task-scope {@link #sessions} so switching trunk ↔ task
      *  inside one Thread doesn't tear down either session. */
     private final ConcurrentHashMap<String, ThreadAgent> trunkSessions = new ConcurrentHashMap<>();
-    /** Worktree path each live session holds the lease against, so
-     *  {@link #evict} can release the exact path acquired in
-     *  {@link #getOrCreate} even after the underlying task rolled
-     *  over. Empty when the thread had no isolated worktree (legacy
-     *  0-Task rows). */
+    /** Worktree path each live session holds the lease against, keyed by
+     *  the same stage key as {@link #sessions}, so {@link #evict} can
+     *  release the exact path acquired in {@link #getOrCreate} even after
+     *  the underlying task rolled over. Empty when the stage had no
+     *  isolated worktree (legacy 0-Task rows). */
     private final ConcurrentHashMap<String, String> leasedWorktrees = new ConcurrentHashMap<>();
 
     @Autowired
@@ -313,9 +326,37 @@ public class ThreadRegistry
         this.contextDigest = contextDigest;
     }
 
+    /**
+     * A live stage-agent for this thread, preferring one whose turn is
+     * still RUNNING (the one an interrupt should hit). Returns empty when
+     * the thread has no live stage-agent. Use {@link #findAll} when every
+     * stage-agent matters (evict / stop).
+     */
     public Optional<ThreadAgent> find(String threadId)
     {
-        return Optional.ofNullable(sessions.get(threadId));
+        List<ThreadAgent> all = findAll(threadId);
+        return all.stream()
+                .filter(a -> a.status() == ThreadStatus.RUNNING)
+                .findFirst()
+                .or(() -> all.stream().findFirst());
+    }
+
+    /** Every live stage-agent for this thread (zero, one, or — with
+     *  concurrent stages — several). */
+    public List<ThreadAgent> findAll(String threadId)
+    {
+        Set<String> keys = threadStageKeys.get(threadId);
+        if (keys == null || keys.isEmpty()) {
+            return List.of();
+        }
+        List<ThreadAgent> out = new ArrayList<>();
+        for (String key : Set.copyOf(keys)) {
+            ThreadAgent agent = sessions.get(key);
+            if (agent != null) {
+                out.add(agent);
+            }
+        }
+        return out;
     }
 
     /** Trunk-scope counterpart of {@link #find(String)} — the
@@ -358,52 +399,122 @@ public class ThreadRegistry
     public ThreadAgent getOrCreate(Thread thread)
     {
         requireNonNull(thread, "thread is null");
-        ThreadAgent existing = sessions.get(thread.id());
+        // Legacy entry point: resolve the active-or-latest task and its
+        // active stage, then route through the per-stage path. Kept so
+        // callers that haven't yet threaded the running turn's stage id
+        // keep working with the same behaviour.
+        Task task = taskStore.findActiveTaskForThread(thread.id())
+                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
+                .orElse(null);
+        return getOrCreate(thread, task, null);
+    }
+
+    /**
+     * Build (or return) the per-stage CLI agent for {@code stageId}. Each
+     * stage of a task — Development, CI-fixing, Comments-addressing — gets
+     * its own fresh agent, so a trunk thread can drive several stages
+     * concurrently. The session is keyed by the stage key derived from
+     * ({@code stageId}, {@code task}, {@code thread}), and the worktree
+     * lease is taken against that same key so two live stage-agents never
+     * share one worktree.
+     *
+     * @param task the task this stage belongs to; null only on the legacy
+     *             0-task trunk-ish path, which never reaches a worktree.
+     * @param stageId the stamped stage id of the running turn; null for a
+     *             task-level turn with no stage (keys by task id) or a
+     *             0-task path (keys by thread id).
+     */
+    public ThreadAgent getOrCreate(Thread thread, Task task, String stageId)
+    {
+        requireNonNull(thread, "thread is null");
+        String key = stageKey(thread.id(), task, stageId);
+        ThreadAgent existing = sessions.get(key);
         if (existing != null) {
             return existing;
         }
-        // Take the lease BEFORE inserting the agent into the session
-        // map. If the lease is held by a live holder, sessions stays
-        // unchanged and the caller sees the 409. One TaskStore lookup
-        // covers both the "is there a worktree to protect?" check and
-        // the acquire's taskId argument.
-        Optional<Task> active = taskStore.findActiveTaskForThread(thread.id());
-        String leasedPath = active
-                .map(Task::worktreePath)
-                .filter(p -> p != null && !p.isBlank())
-                .orElse(null);
+        // Take the lease BEFORE inserting the agent into the session map.
+        // If the lease is held by a live holder, sessions stays unchanged
+        // and the caller sees the 409.
+        String leasedPath = task == null
+                ? null
+                : Optional.ofNullable(task.worktreePath())
+                        .filter(p -> !p.isBlank())
+                        .orElse(null);
         if (leasedPath != null) {
-            acquireLease(thread.id(), active.get(), leasedPath);
+            acquireLease(key, task, leasedPath);
         }
         try {
-            return sessions.computeIfAbsent(thread.id(), id -> build(thread));
+            ThreadAgent agent = sessions.computeIfAbsent(key, k -> buildStage(thread, task));
+            threadStageKeys.computeIfAbsent(thread.id(), id -> ConcurrentHashMap.newKeySet()).add(key);
+            return agent;
         }
         catch (RuntimeException e) {
             // Build failed after the lease was acquired; give it back
             // so a retry doesn't keep tripping on our own row.
             if (leasedPath != null) {
                 releaseLeaseQuietly(leasedPath);
-                leasedWorktrees.remove(thread.id());
+                leasedWorktrees.remove(key);
             }
             throw e;
         }
     }
 
-    /** Drop a session from the map. The session is not stopped: call
-     *  {@link ThreadAgent#stop} first if that matters. Releases the
-     *  worktree lease this session was holding so the next attachment
-     *  (the user's, an auto-fix run, the next task's session after a
-     *  ship-and-continue rollover) sees the worktree as free. */
+    /** Evict and release every stage-agent for the given thread. The
+     *  sessions are not stopped: call {@link ThreadAgent#stop} first if
+     *  that matters. Releases each worktree lease so the next attachment
+     *  sees the worktree as free. */
     public void evict(String threadId)
     {
-        sessions.remove(threadId);
-        String leased = leasedWorktrees.remove(threadId);
-        if (leased != null) {
-            releaseLeaseQuietly(leased);
+        Set<String> keys = threadStageKeys.remove(threadId);
+        if (keys == null) {
+            // Legacy 0-stage callers may have keyed directly by threadId.
+            keys = Set.of(threadId);
+        }
+        for (String key : keys) {
+            sessions.remove(key);
+            String leased = leasedWorktrees.remove(key);
+            if (leased != null) {
+                releaseLeaseQuietly(leased);
+            }
         }
     }
 
-    private void acquireLease(String threadId, Task active, String worktreePath)
+    /** Evict and release a single stage-agent by its stage key (= stage
+     *  id for a stage-scoped agent). Used when a stage closes so its CLI
+     *  process + worktree lease are released without touching the thread's
+     *  other concurrent stages. */
+    public void evictStage(String threadId, String stageKey)
+    {
+        requireNonNull(stageKey, "stageKey is null");
+        sessions.remove(stageKey);
+        String leased = leasedWorktrees.remove(stageKey);
+        if (leased != null) {
+            releaseLeaseQuietly(leased);
+        }
+        Set<String> keys = threadStageKeys.get(threadId);
+        if (keys != null) {
+            keys.remove(stageKey);
+            if (keys.isEmpty()) {
+                threadStageKeys.remove(threadId, keys);
+            }
+        }
+    }
+
+    /** The find/evict key for a stage-agent: the stage id when stage-
+     *  scoped, else the task id for a task-level turn, else the thread id
+     *  on the legacy 0-task path. */
+    private static String stageKey(String threadId, Task task, String stageId)
+    {
+        if (stageId != null && !stageId.isBlank()) {
+            return stageId;
+        }
+        if (task != null && task.id() != null && !task.id().isBlank()) {
+            return task.id();
+        }
+        return threadId;
+    }
+
+    private void acquireLease(String stageKey, Task active, String worktreePath)
     {
         Integer jvmPid = (int) ProcessHandle.current().pid();
         Optional<WorktreeLease> acquired = leaseService.tryAcquireOrReclaim(
@@ -413,7 +524,7 @@ public class ThreadRegistry
                     HttpStatusCode.valueOf(409),
                     "worktree " + worktreePath + " is leased by another live session");
         }
-        leasedWorktrees.put(threadId, worktreePath);
+        leasedWorktrees.put(stageKey, worktreePath);
     }
 
     private void releaseLeaseQuietly(String worktreePath)
@@ -426,37 +537,31 @@ public class ThreadRegistry
         }
     }
 
-    private ThreadAgent build(Thread thread)
+    private ThreadAgent buildStage(Thread thread, Task boundTask)
     {
-        // The CLI agent binds to an explicit task resolved here (active-or-
-        // latest), rather than re-deriving it inside the agent ctor. The
-        // active-or-latest fallback covers the resume-from-terminal path.
-        Task boundTask = thread.kind() == ThreadKind.CLI_AGENT
-                ? taskStore.findActiveTaskForThread(thread.id())
-                        .or(() -> taskStore.findLatestTaskForThread(thread.id()))
-                        .orElse(null)
-                : null;
+        // The CLI agent binds to the explicit task the caller resolved for
+        // this stage, rather than re-deriving it inside the agent ctor.
         return switch (thread.kind()) {
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider,
-                            resolveTaskRoleSkill(thread),
+                            resolveTaskRoleSkill(boundTask),
                             boundTask)
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider, skillMaterializer,
-                            resolveTaskRoleSkill(thread),
+                            resolveTaskRoleSkill(boundTask),
                             boundTask);
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
-                String workingDir = taskStore.findActiveTaskForThread(thread.id())
-                        .map(Task::workingDir)
-                        .orElseGet(() -> trunkCwdResolver.apply(thread));
+                String workingDir = boundTask != null
+                        ? boundTask.workingDir()
+                        : trunkCwdResolver.apply(thread);
                 yield new LogicLoopThreadAgent(
                         thread, store, taskStore, mapper, executor,
                         credentialService, resolved, workingDir,
-                        resolveTaskRoleSkill(thread), toolRegistry,
+                        resolveTaskRoleSkill(boundTask), toolRegistry,
                         ds4, ds4Instrumentation, gate);
             }
             case BRAIN_AGENT -> buildBrain(thread);
@@ -572,15 +677,11 @@ public class ThreadRegistry
         return new WorkModel(WorkModelKind.API, "anthropic", null, null);
     }
 
-    /** Resolve the active task's frozen role skill body for the CLI
-     *  agent's session role block. The active lookup mirrors the
-     *  agent's own resolution so we hand it the same row. */
-    private String resolveTaskRoleSkill(Thread thread)
+    /** The bound task's frozen role skill body for the CLI agent's
+     *  session role block, or null when no task is bound. */
+    private static String resolveTaskRoleSkill(Task boundTask)
     {
-        return taskStore.findActiveTaskForThread(thread.id())
-                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
-                .map(Task::roleSkill)
-                .orElse(null);
+        return boundTask == null ? null : boundTask.roleSkill();
     }
 
     @PreDestroy

@@ -175,12 +175,12 @@ class TestThreadRegistryLease
         registry.getOrCreate(thread("thread-1"));
         registry.getOrCreate(thread("thread-1"));
 
-        // Two getOrCreate calls — the first looks up the active task
-        // three times (once for the lease acquire, once to resolve
-        // the role-skill text for the session, once inside the agent
-        // ctor), the second returns the cached session without
-        // touching the task store again.
-        verify(taskStore, times(3)).findActiveTaskForThread("thread-1");
+        // The legacy getOrCreate(Thread) resolves the active task once per
+        // call to derive the stage key (it has no stage id to key on), so
+        // two calls hit the store twice. The second call still returns the
+        // cached per-stage session — no second agent is built and the lease
+        // is taken only once.
+        verify(taskStore, times(2)).findActiveTaskForThread("thread-1");
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
     }
 

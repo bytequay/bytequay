@@ -200,9 +200,17 @@ export function StageDetailRoute({
     setWorkingSince(prev => (working ? prev ?? Date.now() : null));
   }, [working]);
 
+  // Memoize the canonical transcript rows (each renders markdown) on the
+  // conversation data alone — NOT on the composer's `text` or the streaming
+  // `liveText`. Without this, every keystroke re-maps + re-renders the whole
+  // feed, which makes typing crawl on a long conversation.
+  const transcriptRows = useMemo(
+    () => data?.conversation.map(stageRow),
+    [data?.conversation],
+  );
   const conversation = (
     <Conv>
-      {data?.conversation.map(stageRow)}
+      {transcriptRows}
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
         ? <MarkReadyPrompt onReview={onOpenCode} />
@@ -221,7 +229,9 @@ export function StageDetailRoute({
   );
 
   // ── Right-pane tab nodes ────────────────────────────────────────────────
-  const changesNode = (
+  // Memoized on their own data so a keystroke (or a streaming token) can't
+  // re-render the diff — PaneDiff over a large change set is expensive.
+  const changesNode = useMemo(() => (
     <>
       {stageKind === 'ci-fix' && realtimeCi !== null && (
         <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
@@ -234,9 +244,9 @@ export function StageDetailRoute({
         <PaneDiff files={files} />
       )}
     </>
-  );
+  ), [stageKind, realtimeCi, files, openPr]);
 
-  const filesNode = (
+  const filesNode = useMemo(() => (
     <DiffFileTreePane<DiffFileDto>
       files={files}
       error={null}
@@ -248,7 +258,7 @@ export function StageDetailRoute({
       collapsedDirs={collapsedDirs}
       onToggleDir={toggleDir}
     />
-  );
+  ), [files, selectedPath, collapsedDirs, toggleDir]);
 
   // PR tab content — built from the stage-detail `pr` block (status, branch
   // flow, reviewers, labels, CI check summary, and the per-line review

@@ -411,6 +411,7 @@ exports[`Shell > matches snapshot in default and collapsed states > default 1`] 
 <div>
   <div
     class="shell"
+    style="grid-template-columns: 232px minmax(0, 1fr);"
   >
     <aside
       class="sidebar"
@@ -810,6 +811,13 @@ exports[`Shell > matches snapshot in default and collapsed states > default 1`] 
         class="body"
       />
     </div>
+    <div
+      aria-label="Resize the sidebar"
+      aria-orientation="vertical"
+      class="resize-handle sidebar-resize"
+      role="separator"
+      style="left: 230px;"
+    />
   </div>
 </div>
 `;

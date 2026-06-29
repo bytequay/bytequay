@@ -16,6 +16,16 @@
   background: var(--bg);
   color: var(--text-1);
   font-family: var(--font);
+  position: relative;
+}
+/* The sidebar↔conversation drag target rides the sidebar's right edge; it's
+   absolutely placed (left set inline from the live width) so it overlays the
+   grid without taking a column of its own. */
+.shell .sidebar-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
 }
 .shell.sidebar-collapsed {
   grid-template-columns: 48px 1fr;

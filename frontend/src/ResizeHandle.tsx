@@ -11,13 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
 
 type Props = {
   /** Called on every mousemove while dragging, with the viewport clientX. */
   onResize: (clientX: number) => void;
   className?: string;
   ariaLabel?: string;
+  /** Inline overrides — used to position an absolutely-placed handle (e.g.
+   *  the sidebar edge, whose offset tracks the live sidebar width). */
+  style?: CSSProperties;
 };
 
 /**
@@ -26,7 +29,7 @@ type Props = {
  * the handle. We also swap the body cursor + disable user-select for the
  * duration so text doesn't highlight while dragging.
  */
-function ResizeHandle({ onResize, className, ariaLabel }: Props) {
+function ResizeHandle({ onResize, className, ariaLabel, style }: Props) {
   const handleMouseDown = (e: ReactMouseEvent) => {
     e.preventDefault();
     const prevCursor = document.body.style.cursor;
@@ -50,6 +53,7 @@ function ResizeHandle({ onResize, className, ariaLabel }: Props) {
       role="separator"
       aria-orientation="vertical"
       aria-label={ariaLabel ?? 'Resize panel'}
+      style={style}
       onMouseDown={handleMouseDown}
     />
   );

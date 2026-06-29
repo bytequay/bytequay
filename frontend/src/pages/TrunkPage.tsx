@@ -13,8 +13,11 @@
  */
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import ResizeHandle from '../ResizeHandle';
 import { IconBtn, Pill } from '../ui/primitives';
-import { Composer, Main, Shell, TopBar, TopBarButton, TopBarTitle, CrumbSep, CreatedChip, Grow } from '../ui/shell';
+import {
+  Composer, Main, Shell, TopBar, TopBarButton, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
+} from '../ui/shell';
 import {
   BacklogTabContent, InlineChips, NotificationsTabContent, RightPane, TasksTabContent,
 } from '../ui/pane';
@@ -81,6 +84,8 @@ export function TrunkPage({
   const pane = useTrunkPane(threadId);
   const [activeTab, setActiveTab] = useState<TrunkTab>('tasks');
   const [paneOpen, setPaneOpen] = useState(true);
+  // Trunk keeps its own pane width, independent of the brain/stage surfaces.
+  const { paneWidth, bodyRef, onResize } = usePaneWidth('bq.trunkPaneWidth');
 
   const unreadCount = pane.signals.filter(s => s.readAt === null).length;
   // The Tasks tab renders the active cards AND the Queued folder, so the
@@ -133,7 +138,11 @@ export function TrunkPage({
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
       {sidebar}
       <Main topBar={topBar}>
-        <div className={paneOpen ? 'body with-pane' : 'body'}>
+        <div
+          ref={bodyRef}
+          className={paneOpen ? 'body with-pane' : 'body'}
+          style={paneOpen ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+        >
           <div className="conv-col">
             {conversation}
             {!paneOpen && (
@@ -153,6 +162,7 @@ export function TrunkPage({
               placeholder={composer.placeholder}
             />
           </div>
+          {paneOpen && <ResizeHandle onResize={onResize} ariaLabel="Resize the side pane" />}
           {paneOpen && (
             <RightPane>
               <RightPane.Tabs<TrunkTab>

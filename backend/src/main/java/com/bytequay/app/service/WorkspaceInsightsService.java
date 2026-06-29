@@ -196,6 +196,7 @@ public class WorkspaceInsightsService
     private static boolean isTerminal(TaskStatus status)
     {
         return status == TaskStatus.COMPLETED
+                || status == TaskStatus.REMOTE_CLOSED
                 || status == TaskStatus.CANCELED
                 || status == TaskStatus.ERRORED;
     }

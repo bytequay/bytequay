@@ -32,6 +32,7 @@ export function taskStatusBadge(status: string): StatusBadge {
     case 'AWAITING_REVIEW': return { label: 'Awaiting your review', tone: 'review' };
     case 'IN_REVIEW': return { label: 'In review', tone: 'review' };
     case 'COMPLETED': return { label: 'Done', tone: 'done' };
+    case 'REMOTE_CLOSED': return { label: 'Remote closed', tone: 'done' };
     case 'IDLE':
     case 'PENDING': return { label: 'Idle', tone: 'idle' };
     default: return { label: status.toLowerCase().replace(/_/g, ' '), tone: 'idle' };
@@ -42,7 +43,7 @@ export function taskStatusBadge(status: string): StatusBadge {
  *  attention/running surface over a finished or idle sibling. */
 const PRIORITY = [
   'NEEDS_ATTENTION', 'ERRORED', 'RUNNING', 'AWAITING_REVIEW', 'AWAITING',
-  'IN_REVIEW', 'COMPLETED', 'IDLE', 'PENDING',
+  'IN_REVIEW', 'COMPLETED', 'REMOTE_CLOSED', 'IDLE', 'PENDING',
 ];
 
 /** The single most salient status across a thread's tasks, or null when it

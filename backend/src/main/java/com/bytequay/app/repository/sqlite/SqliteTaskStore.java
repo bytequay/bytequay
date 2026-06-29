@@ -206,6 +206,16 @@ class SqliteTaskStore
 
     @Override
     @Transactional
+    public void remoteCloseTask(String taskId, Instant endedAt)
+    {
+        mutate(taskId, entity -> {
+            entity.setStatus(TaskStatus.REMOTE_CLOSED.name());
+            entity.setEndedAtMs(Timestamps.epochMilli(endedAt));
+        });
+    }
+
+    @Override
+    @Transactional
     public void updatePhase(String taskId, TaskPhase phase)
     {
         mutate(taskId, entity -> entity.setPhase(phase.name()));

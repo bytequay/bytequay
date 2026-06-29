@@ -541,7 +541,8 @@ public abstract class AbstractCliThreadAgent
             // unfinished work can be picked back up; a COMPLETED (shipped)
             // task stays done.
             taskStore.findLatestTaskForThread(threadId).ifPresent(task -> {
-                if (task.status() != TaskStatus.COMPLETED) {
+                if (task.status() != TaskStatus.COMPLETED
+                        && task.status() != TaskStatus.REMOTE_CLOSED) {
                     taskStore.saveTask(new Task(
                             task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
                             task.branchName(), task.worktreePath(), task.baseBranch(),

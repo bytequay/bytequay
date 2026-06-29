@@ -17,12 +17,15 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
 import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -41,6 +44,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -100,6 +104,8 @@ public class TaskLifecycleDriver
     private final RemoteCommentIngestor commentIngestor;
     private final ReadyToMergeService readyToMerge;
     private final IterationService iterationService;
+    private final ThreadRegistry registry;
+    private final StageStore stageStore;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -113,7 +119,9 @@ public class TaskLifecycleDriver
             ObjectMapper mapper,
             RemoteCommentIngestor commentIngestor,
             ReadyToMergeService readyToMerge,
-            IterationService iterationService)
+            IterationService iterationService,
+            ThreadRegistry registry,
+            StageStore stageStore)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -127,6 +135,8 @@ public class TaskLifecycleDriver
         this.commentIngestor = requireNonNull(commentIngestor, "commentIngestor is null");
         this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
         this.iterationService = requireNonNull(iterationService, "iterationService is null");
+        this.registry = requireNonNull(registry, "registry is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -149,7 +159,7 @@ public class TaskLifecycleDriver
     /** Terminal states whose worktree should already be gone — if one still
      *  has a worktree on disk, an earlier reap failed (or raced) and we retry. */
     private static final List<TaskStatus> REAPABLE_TERMINAL =
-            List.of(TaskStatus.CANCELED, TaskStatus.COMPLETED);
+            List.of(TaskStatus.CANCELED, TaskStatus.COMPLETED, TaskStatus.REMOTE_CLOSED);
     private static final int ORPHAN_SWEEP_LIMIT = 200;
 
     /**
@@ -389,27 +399,63 @@ public class TaskLifecycleDriver
         return out.toString();
     }
 
-    /** Drive a task to terminal COMPLETED from an observed remote merge /
-     *  close: flip the runtime status (the phase machine owns the phase
-     *  axis) and, on a real merge, reap the now-dead worktree + branch. */
+    /** Drive a task to a terminal state from an observed remote merge /
+     *  close. A merge lands at COMPLETED; a close-without-merge lands at the
+     *  distinct REMOTE_CLOSED. Either way it is terminal, so we tear the
+     *  task's resources down the same way: interrupt + evict any running
+     *  per-stage agents, seal the stages, then reap the worktree + branch.
+     *  A closed PR cleans up just like a merged one — the work didn't land,
+     *  so the branch is dead weight. */
     private void completeRemotelyTerminal(Task task, boolean merged)
     {
-        if (task.status() != TaskStatus.COMPLETED) {
-            taskStore.completeTask(task.id(), Instant.now());
+        // Interrupt + evict any still-running per-stage agents BEFORE the reap,
+        // so a live subprocess isn't yanked out from under a worktree it's
+        // mid-tool-call inside. Best-effort: the orphan sweep retries the reap.
+        evictRunningStages(task);
+        if (!isTerminal(task.status())) {
+            if (merged) {
+                taskStore.completeTask(task.id(), Instant.now());
+            }
+            else {
+                taskStore.remoteCloseTask(task.id(), Instant.now());
+            }
         }
         // Record the terminal PR state so the task/stage surfaces stop showing
-        // a merged PR as "open" once the remote PR resolves (incl. via the
-        // merge queue, where no in-app merge action ran).
+        // a merged/closed PR as "open" once the remote PR resolves (incl. via
+        // the merge queue, where no in-app merge action ran).
         if (task.prNumber() != null) {
             taskStore.linkPullRequest(task.id(), task.prNumber(), merged ? "merged" : "closed");
         }
         phaseMachine.observe(
                 task.id(), TaskPhase.COMPLETED, merged ? "pr_merged_observed" : "pr_closed_observed");
-        // Reap only on a real merge — a closed-unmerged PR may still carry
-        // local commits the user hasn't landed, so deleting its branch
-        // would lose work.
-        if (merged) {
-            worktrees.reap(task);
+        // Seal any still-open stage so the stage pages stop reporting live work
+        // after the task itself is terminal.
+        for (StageInstance stage : stageStore.findStagesByTask(task.id())) {
+            if (stage.state() != StageState.CLOSED) {
+                stageStore.closeStage(stage.id(), merged ? "pr_merged" : "pr_closed");
+            }
         }
+        worktrees.reap(task);
+    }
+
+    private static boolean isTerminal(TaskStatus status)
+    {
+        return status == TaskStatus.COMPLETED
+                || status == TaskStatus.REMOTE_CLOSED
+                || status == TaskStatus.CANCELED;
+    }
+
+    /** Interrupt + evict every per-stage agent of a task (its stage ids plus
+     *  the task id itself, the key for a task-level agent that ran with no
+     *  stage), so no subprocess survives the task's terminal teardown. */
+    private void evictRunningStages(Task task)
+    {
+        List<String> stageKeys = new ArrayList<>();
+        for (StageInstance stage : stageStore.findStagesByTask(task.id())) {
+            stageKeys.add(stage.id().toString());
+        }
+        stageKeys.add(task.id());
+        registry.findStages(stageKeys).forEach(ThreadAgent::interrupt);
+        registry.evictStages(task.threadId(), stageKeys);
     }
 }

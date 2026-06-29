@@ -101,6 +101,13 @@ public enum TaskStatus
     /** Task finished cleanly — for a shipped task, this means its PR merged. */
     COMPLETED,
 
+    /** Terminal: the task's PR was closed on the remote <em>without</em>
+     *  merging (closed on github.com, via API, or rejected by the merge
+     *  queue). The work never landed, so this is distinct from
+     *  {@link #COMPLETED} (merged) — but it is just as terminal, and its
+     *  resources (worktree + branch) are reaped the same way. */
+    REMOTE_CLOSED,
+
     /** Task failed (budget, timeout, exception, killed, crashed). */
     ERRORED,
 

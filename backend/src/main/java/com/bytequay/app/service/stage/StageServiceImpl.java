@@ -218,7 +218,7 @@ public class StageServiceImpl
     private static boolean isTerminal(TaskStatus status)
     {
         return switch (status) {
-            case COMPLETED, ERRORED, CANCELED, ARCHIVED -> true;
+            case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
             default -> false;
         };
     }
@@ -963,6 +963,7 @@ public class StageServiceImpl
             return switch (task.status()) {
                 case CANCELED -> "CANCELLED";
                 case COMPLETED -> "COMPLETED";
+                case REMOTE_CLOSED -> "REMOTE CLOSED";
                 case ERRORED -> "ERRORED";
                 case ARCHIVED -> "ARCHIVED";
                 default -> task.status().name();

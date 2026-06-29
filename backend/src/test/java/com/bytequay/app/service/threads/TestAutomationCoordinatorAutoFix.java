@@ -195,15 +195,14 @@ class TestAutomationCoordinatorAutoFix
     {
         Task task = newShippedTask("ship-1", "thread-1");
         wireShippedFailingCi(task);
-        when(git.headSha(any())).thenReturn("sha123");
         AutomationCoordinator coordinator = newCoordinator();
 
         coordinator.scanForFailingCi();
 
-        // Cheapest first: the failed checks are re-run in place — no agent
-        // turn, no NEEDS_ATTENTION yet — even though the repo never opted
-        // into dashboard auto-fix (shipped tasks are always-on).
-        verify(pullRequests).rerunFailedChecks(eq(REPO), eq("sha123"));
+        // Cheapest first: the failed checks are re-run in place by PR number —
+        // no agent turn, no NEEDS_ATTENTION yet — even though the repo never
+        // opted into dashboard auto-fix (shipped tasks are always-on).
+        verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
         verify(notificationService, never())
                 .notifyNeedsAttention(anyString(), anyString(), anyString());
@@ -215,7 +214,6 @@ class TestAutomationCoordinatorAutoFix
     {
         Task task = newShippedTask("ship-2", "thread-2");
         wireShippedFailingCi(task);
-        when(git.headSha(any())).thenReturn("sha123");
         AutomationCoordinator coordinator = newCoordinator();
 
         coordinator.scanForFailingCi();
@@ -223,7 +221,7 @@ class TestAutomationCoordinatorAutoFix
 
         // The cooldown holds the loop while the re-run is in flight, so the
         // second sweep neither re-runs again nor jumps to an agent turn.
-        verify(pullRequests).rerunFailedChecks(eq(REPO), eq("sha123"));
+        verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
     }
 
@@ -310,6 +308,23 @@ class TestAutomationCoordinatorAutoFix
         coordinator.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-push", "turn-y", false));
 
         verify(git, after(300).never()).pushForceWithLease(any());
+    }
+
+    @Test
+    void reRunsFailingCiViaThePrNumberNotTheWorktree()
+            throws Exception
+    {
+        // Attempt-0 re-run must resolve the head commit from the PR (number
+        // overload), never the local worktree — a reaped/missing worktree used
+        // to dead-end every sweep on "could not resolve HEAD".
+        Task task = newShippedTask("ship-rerun", "thread-9");
+        wireShippedFailingCi(task);
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.scanForFailingCi();
+
+        verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
+        verify(git, never()).headSha(any());
     }
 
     private void wireShippedFailingCi(Task task)

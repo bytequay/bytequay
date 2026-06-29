@@ -44,8 +44,8 @@ class TestWorktreeEditStep
     void allowsEditInWorktreeDuringAWorkStage()
     {
         // A CI-fixing (autonomous work) stage edits its own worktree without
-        // a prompt — regardless of the accept-edits toggle, which is off here.
-        arm(false, TaskPhase.CI_FIXING);
+        // a prompt — editing the worktree is the whole job of the stage.
+        arm(TaskPhase.CI_FIXING);
         assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
                 .isInstanceOf(ApprovalStepResult.Resolve.class);
     }
@@ -53,7 +53,7 @@ class TestWorktreeEditStep
     @Test
     void promptsForEditOutsideWorktree()
     {
-        arm(false, TaskPhase.IMPLEMENTING);
+        arm(TaskPhase.IMPLEMENTING);
         assertThat(step.apply(editCtx("/repo/other/Bar.java")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
@@ -61,7 +61,7 @@ class TestWorktreeEditStep
     @Test
     void promptsForPathEscapingTheWorktree()
     {
-        arm(false, TaskPhase.IMPLEMENTING);
+        arm(TaskPhase.IMPLEMENTING);
         assertThat(step.apply(editCtx(WORKTREE + "/../../etc/passwd")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
@@ -77,26 +77,17 @@ class TestWorktreeEditStep
     }
 
     @Test
-    void outsideAWorkStageHonoursTheAcceptEditsToggle()
+    void promptsForEditOutsideAWorkStage()
     {
-        // PlanStage is read-only; with the toggle off an edit still prompts.
-        arm(false, TaskPhase.PLANNING);
+        // PlanStage is read-only; an edit there is not auto-approved.
+        arm(TaskPhase.PLANNING);
         assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
 
-    @Test
-    void outsideAWorkStageAllowsWhenAcceptEditsOn()
-    {
-        arm(true, TaskPhase.PLANNING);
-        assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
-                .isInstanceOf(ApprovalStepResult.Resolve.class);
-    }
-
-    private void arm(boolean acceptEdits, TaskPhase phase)
+    private void arm(TaskPhase phase)
     {
         when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task(phase)));
-        when(taskStore.isAcceptEdits("task-1")).thenReturn(acceptEdits);
     }
 
     private ApprovalContext editCtx(String filePath)

@@ -55,36 +55,18 @@ public interface TaskStore
         return Optional.empty();
     }
 
-    /** Whether the task's "accept edits in worktree" toggle is on.
-     *  False for an unknown id. Read by {@code WorktreeEditStep} to
-     *  decide whether to auto-approve in-worktree file edits. Default
-     *  is the safe "off" so in-memory test stores need not implement it;
-     *  the SQLite store overrides with the persisted column. */
-    default boolean isAcceptEdits(String taskId)
-    {
-        return false;
-    }
-
-    /** Flip the task's "accept edits in worktree" toggle. Persists so
-     *  the choice survives a restart, unlike a session tool-budget.
-     *  No-op default for test stores; the SQLite store overrides. */
-    default void setAcceptEdits(String taskId, boolean enabled)
-    {
-    }
-
     /** Record that the task's branch reached the remote at {@code
      *  pushedAt}. Set on a {@code push} approval and on the implicit push
      *  an {@code open_pr} approval performs. Persisted on its own column
      *  (not via {@link #saveTask}) so a later full-row save can't clobber
-     *  it — mirrors {@link #setAcceptEdits}. No-op default for test
-     *  stores; the SQLite store overrides. */
+     *  it. No-op default for test stores; the SQLite store overrides. */
     default void markPushed(String taskId, Instant pushedAt)
     {
     }
 
     /** Attach the opened PR's number + state to the task so the UI can
      *  show it and deep-link into the in-app PR page. Persisted directly
-     *  on the entity (like {@link #setAcceptEdits}). No-op default for
+     *  on the entity (like {@link #markPushed}). No-op default for
      *  test stores; the SQLite store overrides. */
     default void linkPullRequest(String taskId, int prNumber, String prState)
     {
@@ -101,7 +83,7 @@ public interface TaskStore
 
     /** Seal a task as COMPLETED with its end timestamp — used when the
      *  task's PR merges. Entity-level update (like {@link
-     *  #setAcceptEdits}) so it can't clobber unrelated columns. No-op
+     *  #markPushed}) so it can't clobber unrelated columns. No-op
      *  default for test stores; the SQLite store overrides. */
     default void completeTask(String taskId, Instant endedAt)
     {
@@ -125,7 +107,7 @@ public interface TaskStore
     // ── dev-lifecycle phase (V106) ─────────────────────────────────────
 
     /** Write the task's dev-lifecycle {@code phase} column. Load-set-save
-     *  (like {@link #setAcceptEdits}) so {@code saveTask} — which never
+     *  (like {@link #markPushed}) so {@code saveTask} — which never
      *  maps phase — can't clobber it. No-op default for test stores. */
     default void updatePhase(String taskId, TaskPhase phase)
     {
@@ -180,7 +162,7 @@ public interface TaskStore
     }
 
     /** Permanently link a task to a PR ref. Entity-level update (like
-     *  {@link #setAcceptEdits}); the link is set once and lives for the
+     *  {@link #markPushed}); the link is set once and lives for the
      *  task. No-op default for test stores. */
     default void linkTaskToPr(String taskId, String prRef)
     {

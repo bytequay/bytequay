@@ -280,6 +280,49 @@ class TestWorktreeService
                 .isNotEqualTo(revParse(fork, "main"));
     }
 
+    /** A direct clone (no upstream remote) branches a task from {@code
+     *  origin/<default>}, not the local default branch — so un-pushed
+     *  commits sitting on the user's local main never leak into a task
+     *  branch (and from there into its PR). */
+    @Test
+    void testDirectCloneBranchesFromOriginDefaultNotAheadLocalMain(@TempDir Path tempDir)
+            throws IOException, InterruptedException
+    {
+        GitRunner git = new GitRunner();
+        if (!git.isAvailable()) {
+            return;
+        }
+        // The published origin with one commit on main.
+        Path origin = tempDir.resolve("origin");
+        Files.createDirectories(origin);
+        runGit(origin, List.of("git", "init", "--initial-branch=main"));
+        runGit(origin, List.of("git", "config", "user.email", "o@example.com"));
+        runGit(origin, List.of("git", "config", "user.name", "O"));
+        Files.writeString(origin.resolve("ORIGIN.md"), "o", StandardCharsets.UTF_8);
+        runGit(origin, List.of("git", "add", "ORIGIN.md"));
+        runGit(origin, List.of("git", "commit", "-m", "origin base"));
+
+        // A clone whose LOCAL main raced ahead with an un-pushed commit.
+        Path clone = initEmptyRepo(tempDir);
+        runGit(clone, List.of("git", "remote", "add", "origin", origin.toString()));
+        runGit(clone, List.of("git", "fetch", "origin"));
+        runGit(clone, List.of("git", "remote", "set-head", "origin", "main"));
+        Files.writeString(clone.resolve("LOCAL.md"), "l", StandardCharsets.UTF_8);
+        runGit(clone, List.of("git", "add", "LOCAL.md"));
+        runGit(clone, List.of("git", "commit", "-m", "un-pushed local commit"));
+
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
+
+        var handle = service.create(clone, "task-direct", "add a direct feature").orElseThrow();
+
+        // The branch starts from origin/main's published tip …
+        assertThat(revParse(clone, handle.branchName()))
+                .isEqualTo(revParse(clone, "origin/main"));
+        // … and NOT from the ahead, un-pushed local main.
+        assertThat(revParse(clone, handle.branchName()))
+                .isNotEqualTo(revParse(clone, "main"));
+    }
+
     /** The trunk planning worktree is a detached checkout of the upstream
      *  base, and re-running ensure fetches + resets it to the latest base
      *  — so planning always searches an up-to-date upstream/master, not the

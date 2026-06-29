@@ -60,17 +60,19 @@ public class BudgetStep
         if (remaining.isEmpty()) {
             return ApprovalStepResult.cont();
         }
-        notePermissionAutoAllowed(ctx.threadId(), ctx.callId(), ctx.toolName(), remaining.getAsInt());
+        notePermissionAutoAllowed(
+                ctx.threadId(), ctx.agentKey(), ctx.callId(), ctx.toolName(), remaining.getAsInt());
         return ApprovalStepResult.resolve(
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
     }
 
     /** Best-effort: record the auto-approval notice without letting
      *  a notification failure tank the tool call. */
-    private void notePermissionAutoAllowed(String threadId, String callId, String toolName, int remaining)
+    private void notePermissionAutoAllowed(
+            String threadId, String agentKey, String callId, String toolName, int remaining)
     {
         try {
-            threads.notifyPermissionAutoAllowed(threadId, callId, toolName, remaining);
+            threads.notifyPermissionAutoAllowed(threadId, agentKey, callId, toolName, remaining);
         }
         catch (RuntimeException e) {
             log.warn("Failed to record auto-approval notice for thread {}: {}",

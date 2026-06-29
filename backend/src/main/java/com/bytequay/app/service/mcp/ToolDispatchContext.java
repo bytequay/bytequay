@@ -39,18 +39,23 @@ public record ToolDispatchContext(
          *  task_id (null for a trunk turn). Authoritative — never re-derived
          *  from a thread-level "active task" guess. */
         String taskId,
+        /** The registry agent key of the agent that issued this call (its
+         *  per-agent MCP URL segment, == the stage key). Lets permission
+         *  prompts and budget events route back to the exact stage agent
+         *  that raised them, not a thread-level "active session" guess. */
+        String agentKey,
         JsonNode id,
         ToolCallParams params,
         AgentRole role,
         Set<SecurityType> grants,
         ToolSpec spec)
 {
-    /** No task bound to the turn (a trunk turn, or a caller that doesn't
-     *  carry task scope). */
+    /** No task / agent scope bound (a trunk turn, or a caller that doesn't
+     *  carry it). */
     public ToolDispatchContext(
             String threadId, JsonNode id, ToolCallParams params,
             AgentRole role, Set<SecurityType> grants, ToolSpec spec)
     {
-        this(threadId, null, id, params, role, grants, spec);
+        this(threadId, null, null, id, params, role, grants, spec);
     }
 }

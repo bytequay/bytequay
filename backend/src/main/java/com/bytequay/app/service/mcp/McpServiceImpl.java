@@ -328,7 +328,7 @@ public class McpServiceImpl
             return;
         }
         handler.handle(
-                new ToolDispatchContext(threadId, scope.taskId(), id, params, role, grants, spec),
+                new ToolDispatchContext(threadId, scope.taskId(), agentKey, id, params, role, grants, spec),
                 deferred);
     }
 

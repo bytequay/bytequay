@@ -108,7 +108,7 @@ public class ApprovalPromptHandler
         }
 
         ApprovalContext approvalCtx = new ApprovalContext(
-                threadId, ctx.taskId(), id, toolName, callId, toolInput, ctx.grants());
+                threadId, ctx.taskId(), ctx.agentKey(), id, toolName, callId, toolInput, ctx.grants());
         for (ApprovalStep step : steps) {
             ApprovalStepResult result = step.apply(approvalCtx);
             if (result instanceof ApprovalStepResult.Resolve resolve) {
@@ -139,7 +139,8 @@ public class ApprovalPromptHandler
         // Pass the tool name so a later `Allow next N` grant on the
         // same tool can drain still-pending callIds in one click
         // instead of leaving the user with a backlog of prompts.
-        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, toolName);
+        CompletableFuture<PermissionDecision> decisionFuture =
+                gate.register(callId, toolName, ctx.agentKey());
         CompletableFuture<PermissionDecision> responseFuture = decisionFuture
                 .whenComplete((decision, ex) -> completePrompt(deferred, id, toolInput, decision, ex));
 
@@ -150,7 +151,7 @@ public class ApprovalPromptHandler
         // response future.
         OptionalInt remaining = threads.tryConsumeToolBudget(threadId, toolName);
         if (remaining.isPresent()) {
-            notePermissionAutoAllowed(threadId, callId, toolName, remaining.getAsInt());
+            notePermissionAutoAllowed(threadId, ctx.agentKey(), callId, toolName, remaining.getAsInt());
             gate.decide(callId, PermissionDecision.ALLOW);
             return;
         }
@@ -161,7 +162,8 @@ public class ApprovalPromptHandler
         // Surface the prompt in the conversation pane after the call
         // is registered so a concurrent `Allow next N` can drain it.
         try {
-            threads.notifyPermissionRequested(threadId, callId, toolName, summarize(toolName, toolInput));
+            threads.notifyPermissionRequested(
+                    threadId, ctx.agentKey(), callId, toolName, summarize(toolName, toolInput));
         }
         catch (RuntimeException e) {
             log.warn("Failed to surface permission prompt for thread {}: {}",
@@ -218,10 +220,11 @@ public class ApprovalPromptHandler
 
     /** Best-effort: record the auto-approval notice without letting
      *  a notification failure tank the tool call. */
-    private void notePermissionAutoAllowed(String threadId, String callId, String toolName, int remaining)
+    private void notePermissionAutoAllowed(
+            String threadId, String agentKey, String callId, String toolName, int remaining)
     {
         try {
-            threads.notifyPermissionAutoAllowed(threadId, callId, toolName, remaining);
+            threads.notifyPermissionAutoAllowed(threadId, agentKey, callId, toolName, remaining);
         }
         catch (RuntimeException e) {
             log.warn("Failed to record auto-approval notice for thread {}: {}",

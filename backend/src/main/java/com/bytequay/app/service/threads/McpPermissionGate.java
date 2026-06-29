@@ -56,6 +56,12 @@ public class McpPermissionGate
     // click Approve N more times. Keys live only as long as the entry
     // in `pending`; decide / cancel remove from both maps.
     private final ConcurrentHashMap<String, String> toolByCall = new ConcurrentHashMap<>();
+    // Side index callId → the registry agent key of the agent that raised
+    // the prompt, so a decision arriving from the UI (which knows only the
+    // callId) routes its persisted decision event back to that exact stage
+    // agent instead of a thread-level "active session" guess. Cleared
+    // alongside `pending` in decide / cancel.
+    private final ConcurrentHashMap<String, String> agentByCall = new ConcurrentHashMap<>();
 
     /** Register a fresh future for {@code callId}; the MCP controller
      *  awaits this to know what to send back to Claude. Calling
@@ -76,11 +82,30 @@ public class McpPermissionGate
      *  prefer this overload. */
     public CompletableFuture<PermissionDecision> register(String callId, String toolName)
     {
+        return register(callId, toolName, null);
+    }
+
+    /** Same as {@link #register(String, String)} but also records the
+     *  registry agent key that raised the prompt, so {@link #agentKeyFor}
+     *  can route the decision event back to that exact stage agent. */
+    public CompletableFuture<PermissionDecision> register(String callId, String toolName, String agentKey)
+    {
         requireNonNull(callId, "callId is null");
         if (toolName != null) {
             toolByCall.put(callId, toolName);
         }
+        if (agentKey != null) {
+            agentByCall.put(callId, agentKey);
+        }
         return pending.computeIfAbsent(callId, k -> new CompletableFuture<>());
+    }
+
+    /** The registry agent key that registered {@code callId}, or null when
+     *  unknown (a registration that didn't carry it, or an already-resolved
+     *  call). Callers fall back to a thread-level lookup on null. */
+    public String agentKeyFor(String callId)
+    {
+        return callId == null ? null : agentByCall.get(callId);
     }
 
     /** Snapshot of every still-pending callId whose registration named
@@ -111,6 +136,7 @@ public class McpPermissionGate
         requireNonNull(decision, "decision is null");
         CompletableFuture<PermissionDecision> future = pending.remove(callId);
         toolByCall.remove(callId);
+        agentByCall.remove(callId);
         if (future != null) {
             future.complete(decision);
         }
@@ -125,6 +151,7 @@ public class McpPermissionGate
         requireNonNull(callId, "callId is null");
         CompletableFuture<PermissionDecision> future = pending.remove(callId);
         toolByCall.remove(callId);
+        agentByCall.remove(callId);
         if (future != null) {
             future.cancel(true);
         }

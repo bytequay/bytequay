@@ -32,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -63,14 +64,14 @@ class TestApprovalPromptHandler
 
         assertThat(deferred.getResult()).isNotNull();
         assertThat(laterRan).isFalse();
-        verify(gate, never()).register(anyString(), anyString());
+        verify(gate, never()).register(anyString(), anyString(), any());
     }
 
     @Test
     void whenEveryStepContinuesTheCallIsRegisteredForTheUserPrompt()
     {
         ApprovalStep cont = c -> ApprovalStepResult.cont();
-        when(gate.register("call-1", "Bash")).thenReturn(new CompletableFuture<>());
+        when(gate.register("call-1", "Bash", null)).thenReturn(new CompletableFuture<>());
         when(threads.tryConsumeToolBudget("thread-1", "Bash")).thenReturn(OptionalInt.empty());
         ApprovalPromptHandler handler = new ApprovalPromptHandler(
                 List.of(cont), threads, gate, responses);
@@ -79,7 +80,7 @@ class TestApprovalPromptHandler
         handler.handle(ctx("Bash", "call-1"), deferred);
 
         // Fell through the chain → blocks on the user's decision via the gate.
-        verify(gate).register("call-1", "Bash");
+        verify(gate).register("call-1", "Bash", null);
         assertThat(deferred.getResult()).isNull();
     }
 
@@ -100,7 +101,7 @@ class TestApprovalPromptHandler
         assertThat(deferred.getResult()).isNotNull();
         assertThat(deferred.getResult().toString()).contains("tool_use_id");
         assertThat(stepRan).isFalse();
-        verify(gate, never()).register(anyString(), anyString());
+        verify(gate, never()).register(anyString(), anyString(), any());
     }
 
     private ToolDispatchContext ctx(String toolName, String callId)

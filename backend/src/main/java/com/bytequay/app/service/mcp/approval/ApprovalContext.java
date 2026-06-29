@@ -31,20 +31,34 @@ public record ApprovalContext(
          *  null for a trunk turn). Authoritative — gates use this instead of
          *  guessing the thread's "active task". */
         String taskId,
+        /** The registry agent key of the agent that issued this call (== the
+         *  stage key). Lets a registered permission prompt / auto-allow event
+         *  route back to the exact stage agent that raised it. */
+        String agentKey,
         JsonNode id,
         String toolName,
         String callId,
         JsonNode toolInput,
         Set<SecurityType> grants)
 {
-    /** A context with no task bound to the turn (a trunk turn, or a caller
+    /** A context with no task / agent scope bound (a trunk turn, or a caller
      *  that doesn't exercise task-scoped gating). Task-scoped steps fail
      *  closed when {@code taskId} is null, so this is the safe default. */
     public ApprovalContext(
             String threadId, JsonNode id, String toolName, String callId,
             JsonNode toolInput, Set<SecurityType> grants)
     {
-        this(threadId, null, id, toolName, callId, toolInput, grants);
+        this(threadId, null, null, id, toolName, callId, toolInput, grants);
+    }
+
+    /** Carries task scope but no agent key — a caller that resolves the task
+     *  from the running turn but doesn't route the issuing agent (tests, and
+     *  non-MCP paths). */
+    public ApprovalContext(
+            String threadId, String taskId, JsonNode id, String toolName,
+            String callId, JsonNode toolInput, Set<SecurityType> grants)
+    {
+        this(threadId, taskId, null, id, toolName, callId, toolInput, grants);
     }
 
     /** Claude Code prefixes MCP tool names with {@code mcp__<server>__};

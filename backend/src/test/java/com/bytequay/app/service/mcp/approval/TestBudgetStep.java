@@ -45,7 +45,7 @@ class TestBudgetStep
         assertThat(step.apply(ctx("Bash")))
                 .isInstanceOf(ApprovalStepResult.Resolve.class);
         // The auto-allow is surfaced to the user with the remaining count.
-        verify(threads).notifyPermissionAutoAllowed("thread-1", "call-1", "Bash", 3);
+        verify(threads).notifyPermissionAutoAllowed("thread-1", null, "call-1", "Bash", 3);
     }
 
     @Test
@@ -55,7 +55,8 @@ class TestBudgetStep
 
         assertThat(step.apply(ctx("Bash")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
-        verify(threads, never()).notifyPermissionAutoAllowed(anyString(), anyString(), anyString(), anyInt());
+        verify(threads, never())
+                .notifyPermissionAutoAllowed(anyString(), anyString(), anyString(), anyString(), anyInt());
     }
 
     private ApprovalContext ctx(String toolName)

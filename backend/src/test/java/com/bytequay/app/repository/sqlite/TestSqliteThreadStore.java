@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -21,9 +22,11 @@ import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -55,6 +58,41 @@ class TestSqliteThreadStore
     private ThreadStore store;
     @Autowired
     private TaskStore taskStore;
+    @Autowired
+    private StageStore stageStore;
+
+    @Test
+    void stageScopedMessagesRouteToTheStageStoreNotTheThreadLog()
+    {
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);
+        store.saveThread(thread);
+        Instant ts = Instant.parse("2026-05-15T12:00:00Z");
+        String taskId = UUID.randomUUID().toString();
+        taskStore.saveTask(new Task(
+                taskId, thread.id(), 1L, TaskStatus.RUNNING, "feature", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, ts, null, null, null, null, null));
+        String stageId = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null).id().toString();
+
+        store.appendStageMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), thread.id(), taskId, 0L,
+                "assistant", "text", "stage row", null, null, null, 0L, ts,
+                stageId, ThreadScope.STAGE));
+        // A trunk row for contrast — stays in the per-thread log.
+        store.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), thread.id(), null, 0L,
+                "user", "text", "trunk row", null, null, null, 0L, ts));
+
+        // The stage row landed in the decoupled stage_messages store …
+        assertThat(store.listStageMessages(stageId)).extracting(ThreadMessage::contentJson)
+                .containsExactly("stage row");
+        assertThat(store.maxStageMessageSeq(stageId)).hasValue(0L);
+        assertThat(store.listStageMessagesByTask(taskId)).hasSize(1);
+        // … and NOT in the per-thread log — so seq 0 is free for both with no
+        // collision on the old thread-global (thread_id, seq) key.
+        assertThat(store.listMessages(thread.id())).extracting(ThreadMessage::contentJson)
+                .containsExactly("trunk row");
+    }
 
     @Test
     void roundtripsACliAgentTask()

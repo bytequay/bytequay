@@ -161,6 +161,10 @@ public abstract class AbstractCliThreadAgent
      *  real crash. */
     private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
+    /** Per-stage seq counters. A STAGE-scoped message uses its stage's own
+     *  seq space (stage_messages), seeded lazily from the store, so concurrent
+     *  per-stage agents never collide on the thread-global (thread_id, seq). */
+    private final ConcurrentHashMap<String, AtomicLong> stageNextSeq = new ConcurrentHashMap<>();
 
     /** Accumulates {@code thinking_delta} chunks for the in-flight thinking
      *  block. In {@code --include-partial-messages} mode the final assistant
@@ -949,16 +953,31 @@ public abstract class AbstractCliThreadAgent
             return;
         }
         try {
-            store.appendMessage(msg);
+            if (msg.scope() == ThreadScope.STAGE) {
+                store.appendStageMessage(msg);
+            }
+            else {
+                store.appendMessage(msg);
+            }
         }
         catch (RuntimeException e) {
             log.warn("Failed to persist message for thread {}: {}", threadId, e.getMessage());
         }
     }
 
+    /** Next seq in a stage's own space, seeded lazily from the stage store. */
+    private long nextStageSeq(String stageId)
+    {
+        return stageNextSeq
+                .computeIfAbsent(stageId, id ->
+                        new AtomicLong(store.maxStageMessageSeq(id).map(m -> m + 1).orElse(0L)))
+                .getAndIncrement();
+    }
+
     private ThreadMessage toMessage(StreamEvent event)
     {
-        long seq = nextSeq.getAndIncrement();
+        boolean stageScoped = activeStageId != null && !activeStageId.isBlank();
+        long seq = stageScoped ? nextStageSeq(activeStageId) : nextSeq.getAndIncrement();
         String id = UUID.randomUUID().toString();
         Instant ts = event.timestamp();
         ThreadMessage built = switch (event) {

@@ -135,6 +135,40 @@ public interface ThreadStore
     /** All messages for a thread, oldest-first by seq. */
     List<ThreadMessage> listMessages(String threadId);
 
+    // ── Stage transcripts (the decoupled stage_messages store) ────────────
+    // A STAGE-scoped message has its own per-stage seq space, so concurrent
+    // per-stage agents can't collide on the thread-global (thread_id, seq).
+    // These delegate to StageMessageStore; defaults are no-ops for test
+    // stores that don't opt in.
+
+    /** Append a STAGE-scoped message to its stage's transcript.
+     *  {@code message.stageId()} must be set; {@code message.seq()} is the
+     *  per-stage sequence the caller allocated. */
+    default void appendStageMessage(ThreadMessage message)
+    {
+    }
+
+    /** Highest per-stage seq for a stage, or empty when it has none — the
+     *  seed for a stage agent's per-stage next-seq counter. */
+    default Optional<Long> maxStageMessageSeq(String stageId)
+    {
+        return Optional.empty();
+    }
+
+    /** A stage's transcript, oldest-first by per-stage seq. */
+    default List<ThreadMessage> listStageMessages(String stageId)
+    {
+        return List.of();
+    }
+
+    /** Every stage message across all of a task's stages, oldest-first by
+     *  seq — for per-task aggregation and merging into the stage-detail feed
+     *  during the transition off the shared log. */
+    default List<ThreadMessage> listStageMessagesByTask(String taskId)
+    {
+        return List.of();
+    }
+
     /** Tail window for the conversation index's initial load: the
      *  most-recent {@code limit} messages, returned <b>oldest-first</b>
      *  for direct render. The index panel walks the same set to derive

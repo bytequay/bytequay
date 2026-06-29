@@ -279,32 +279,43 @@ public class WorktreeService
     }
 
     /**
-     * Picks the ref a new task branch is cut from.
+     * Picks the ref a new task branch is cut from — always a
+     * <b>remote-tracking ref</b>, fetched fresh, so the worktree starts
+     * from the latest <em>published</em> trunk rather than a local
+     * checkout that may have raced ahead with un-pushed commits.
      *
-     * <p>For a <b>fork-based clone</b> — a watched repo whose
-     * {@code upstreamRemoteName} names the remote pointing at the
-     * watched (upstream) repo — the base is the upstream's default
-     * branch, e.g. {@code upstream/master}. The upstream remote is
-     * fetched first so that ref is current, and the returned value is
-     * the remote-tracking ref itself (not a bare branch name) so the
-     * worktree starts from the latest upstream tip rather than a
-     * possibly-stale local branch. This matches the fork workflow:
-     * branch off upstream/master, then open the PR against it.
+     * <p>The base remote is the {@code upstreamRemoteName} for a
+     * <b>fork-based clone</b> (branch off {@code upstream/master}, open the
+     * PR against it) and {@code origin} for a <b>direct clone</b> (branch
+     * off {@code origin/<default>}). Either way the remote is fetched first
+     * so the ref is current, and the returned value is the remote-tracking
+     * ref itself — branching from the bare local {@code main} would fold any
+     * un-pushed local commits into the task branch, and from there into its
+     * PR. Mirrors {@link #resolvePlanningBaseRef}.
      *
-     * <p>For a <b>direct clone</b> (no upstream remote) the base is the
-     * local default branch from {@code origin/HEAD}, falling back to the
-     * currently checked-out branch — the prior behaviour, unchanged.
+     * <p>When the remote is unreachable or has no resolvable {@code HEAD}
+     * (offline first run, never-fetched clone) we fall back to the local
+     * default branch, then the currently checked-out branch, so creation
+     * still works without a reachable remote.
      */
     private String resolveBaseRef(Path repoRoot)
             throws IOException, InterruptedException
     {
-        String forkBase = resolveForkBaseRef(repoRoot);
-        if (forkBase != null) {
-            return forkBase;
+        String remote = baseRemoteName(repoRoot);
+        try {
+            git.fetchRemote(repoRoot, remote);
         }
-        Optional<String> defaultBranch = git.defaultBranch(repoRoot);
-        if (defaultBranch.isPresent() && !defaultBranch.get().isBlank()) {
-            return defaultBranch.get();
+        catch (IOException | RuntimeException e) {
+            log.warn("Fetch of {} in {} failed ({}); branching from last-known {}/HEAD",
+                    remote, repoRoot, e.getMessage(), remote);
+        }
+        Optional<String> remoteDefault = git.defaultBranch(repoRoot, remote);
+        if (remoteDefault.isPresent() && !remoteDefault.get().isBlank()) {
+            return remote + "/" + remoteDefault.get();
+        }
+        Optional<String> localDefault = git.defaultBranch(repoRoot);
+        if (localDefault.isPresent() && !localDefault.get().isBlank()) {
+            return localDefault.get();
         }
         String current = git.currentBranch(repoRoot);
         if (current != null && !current.isBlank()) {
@@ -314,35 +325,17 @@ public class WorktreeService
     }
 
     /**
-     * The {@code <upstream>/<default>} remote-tracking ref to branch a
-     * fork's worktree from, or {@code null} when {@code repoRoot} is not
-     * a fork-based clone (no matching watched repo, or no upstream
-     * remote configured). Fetches the upstream remote first so its HEAD
-     * is current; a fetch failure (offline) is tolerated — we fall back
-     * to whatever {@code <upstream>/HEAD} already points at.
+     * The remote a task worktree branches from: the upstream remote for a
+     * fork-based clone (a watched repo whose {@code upstreamRemoteName} names
+     * the remote pointing at the upstream repo), {@code origin} otherwise.
      */
-    private String resolveForkBaseRef(Path repoRoot)
-            throws IOException, InterruptedException
+    private String baseRemoteName(Path repoRoot)
     {
         WatchedRepo repo = watchedRepoFor(repoRoot).orElse(null);
-        if (repo == null || repo.upstreamRemoteName() == null || repo.upstreamRemoteName().isBlank()) {
-            return null;
+        if (repo != null && repo.upstreamRemoteName() != null && !repo.upstreamRemoteName().isBlank()) {
+            return repo.upstreamRemoteName();
         }
-        String upstream = repo.upstreamRemoteName();
-        try {
-            git.fetchRemote(repoRoot, upstream);
-        }
-        catch (IOException | RuntimeException e) {
-            log.warn("Fetch of upstream remote {} in {} failed ({}); branching from last-known {}/HEAD",
-                    upstream, repoRoot, e.getMessage(), upstream);
-        }
-        Optional<String> upstreamDefault = git.defaultBranch(repoRoot, upstream);
-        if (upstreamDefault.isEmpty() || upstreamDefault.get().isBlank()) {
-            log.info("Fork clone {} has no resolvable {}/HEAD; falling back to origin default",
-                    repoRoot, upstream);
-            return null;
-        }
-        return upstream + "/" + upstreamDefault.get();
+        return "origin";
     }
 
     /**

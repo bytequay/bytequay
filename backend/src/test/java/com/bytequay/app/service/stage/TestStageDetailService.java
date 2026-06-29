@@ -190,6 +190,25 @@ class TestStageDetailService
     }
 
     @Test
+    void conversationMergesRowsFromTheDecoupledStageStore()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        // A turn written to the NEW stage_messages store (its own seq 0) must
+        // still surface in the stage's conversation — the read-side merge.
+        threadStore.appendStageMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), threadId, taskId, 0L,
+                "assistant", "text", "{\"text\":\"From the stage store.\"}",
+                null, 100L, 50L, 5L, stage.openedAt(), stage.id().toString(), ThreadScope.STAGE));
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("agent") && "From the stage store.".equals(r.text()));
+    }
+
+    @Test
     void toolCallDetailComesFromTheNestedInputArgs()
     {
         String threadId = seedThread();

@@ -44,9 +44,10 @@ describe('buildLivePlan', () => {
         stage('CI_FIXING_STAGE', 'OPEN'),
       ],
       subStages: [],
-      // Not in the CI-fixing phase here, so an OPEN CI stage stays "sleep"
-      // (the monitor-running rule is exercised in its own test below).
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      // Neither the CI-fixing nor the pushed-awaiting-CI phase here, so an OPEN
+      // CI stage stays "sleep" (the running / monitoring rules are exercised in
+      // their own tests below).
+      task: { prNumber: 145, currentPhase: 'AWAITING_READY' as TaskPhase, terminal: false },
     });
     expect(node(nodes, 'root').status).toBe('done');
     expect(node(nodes, 'dev').status).toBe('running');
@@ -78,6 +79,26 @@ describe('buildLivePlan', () => {
       task: { prNumber: 145, currentPhase: 'CI_FIXING' as TaskPhase, terminal: false },
     });
     expect(node(closed, 'ci-fix').status).toBe('done');
+  });
+
+  it('marks a monitor stage "monitoring" while polling the remote after a push', () => {
+    // Pushed and waiting on remote CI — the node watches, it isn't running an
+    // agent turn. Distinct "monitoring" state + a "watching CI" hint.
+    const awaitingCi = buildLivePlan({
+      stages: [stage('CI_FIXING_STAGE', 'OPEN')], subStages: [],
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+    });
+    expect(node(awaitingCi, 'ci-fix').status).toBe('monitoring');
+    expect(node(awaitingCi, 'ci-fix').glyph).toBe('◎');
+    expect(node(awaitingCi, 'ci-fix').meta).toBe('watching CI');
+
+    // The review monitor watches the remote while the PR is out for review.
+    const outForReview = buildLivePlan({
+      stages: [stage('REVIEW_MONITOR_STAGE', 'OPEN')], subStages: [],
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+    });
+    expect(node(outForReview, 'comments').status).toBe('monitoring');
+    expect(node(outForReview, 'comments').meta).toBe('watching review');
   });
 
   it('uses the planning variant for an active Plan stage', () => {

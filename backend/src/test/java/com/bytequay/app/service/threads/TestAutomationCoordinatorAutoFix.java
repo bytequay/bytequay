@@ -23,7 +23,10 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
@@ -31,6 +34,7 @@ import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -40,6 +44,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -50,8 +55,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -87,6 +94,7 @@ class TestAutomationCoordinatorAutoFix
     private final GitRunner git = mock(GitRunner.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final IterationService iterationService = mock(IterationService.class);
+    private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
 
     @Test
     void enqueuesAnAutoFixTurnWhenOptedInAndThreadIdle()
@@ -267,6 +275,43 @@ class TestAutomationCoordinatorAutoFix
         verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
     }
 
+    @Test
+    void autoPushesAShippedCiFixCommitWithForceWithLease()
+            throws Exception
+    {
+        // The CI-fix agent commits but can't raw-push (blocked); when its turn
+        // finishes, the app pushes the commit force-with-lease so CI re-runs.
+        Task task = newShippedTask("ship-push", "thread-1");
+        when(taskStore.findTaskById("ship-push")).thenReturn(Optional.of(task));
+        Instant now = Instant.parse("2026-05-15T12:00:00Z");
+        when(turnStore.findTurnById("turn-x")).thenReturn(Optional.of(new ThreadTurn(
+                "turn-x", "thread-1", "ship-push", ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "fix", now, now, now, now, null,
+                TurnInitiator.unattended("ci-fix-shipped"))));
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-push", "turn-x", false));
+
+        // The push runs off-thread; await it.
+        verify(git, timeout(2000)).pushForceWithLease(Path.of(WORKTREE_PATH));
+    }
+
+    @Test
+    void doesNotAutoPushForANonCiFixTurn()
+            throws Exception
+    {
+        when(turnStore.findTurnById("turn-y")).thenReturn(Optional.of(new ThreadTurn(
+                "turn-y", "thread-1", "ship-push", ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "chat",
+                Instant.parse("2026-05-15T12:00:00Z"), Instant.parse("2026-05-15T12:00:00Z"),
+                null, null, null, TurnInitiator.user())));
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-push", "turn-y", false));
+
+        verify(git, after(300).never()).pushForceWithLease(any());
+    }
+
     private void wireShippedFailingCi(Task task)
     {
         when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(task));
@@ -322,7 +367,7 @@ class TestAutomationCoordinatorAutoFix
         return new AutomationCoordinator(
                 leaseService, taskStore, threadStore, watchedRepoStore,
                 pullRequestStore, prDetailStore, notificationService,
-                workspaceStore, scheduler, pullRequests, git, mapper, iterationService);
+                workspaceStore, scheduler, pullRequests, git, mapper, iterationService, turnStore);
     }
 
     private void wireFailingCi(Task task, Thread thread, boolean autoFixEnabled, boolean leaseHeld)

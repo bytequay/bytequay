@@ -314,7 +314,7 @@ public class PublishToolHandlers
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
     public ToolOutcome listPrReviewThreads(ListPrReviewThreadsArgs args, ToolCall call)
     {
-        Optional<PullRequestRef> prRef = resolvePrRef(args.repo(), args.prNumber(), call.threadId());
+        Optional<PullRequestRef> prRef = resolvePrRef(args.repo(), args.prNumber(), call);
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok(
                     "no PR to read — pass repo + pr_number, or link a PR to the active task");
@@ -362,7 +362,7 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("root_comment_id is required");
         }
         boolean resolved = args.resolved() == null || args.resolved();
-        Optional<PullRequestRef> prRef = resolvePrRef(args.repo(), args.prNumber(), call.threadId());
+        Optional<PullRequestRef> prRef = resolvePrRef(args.repo(), args.prNumber(), call);
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok(
                     "no PR to act on — pass repo + pr_number, or link a PR to the active task");
@@ -377,9 +377,9 @@ public class PublishToolHandlers
                         + (resolved ? "resolve" : "re-open") + " from the thread.");
     }
 
-    /** Resolve a PR from explicit repo + number args, falling back to the active
-     *  task's linked PR when the args are omitted. */
-    private Optional<PullRequestRef> resolvePrRef(String repo, Integer prNumber, String threadId)
+    /** Resolve a PR from explicit repo + number args, falling back to the
+     *  turn's task's linked PR when the args are omitted. */
+    private Optional<PullRequestRef> resolvePrRef(String repo, Integer prNumber, ToolCall call)
     {
         if (repo != null && !repo.isBlank() && prNumber != null && prNumber > 0) {
             int slash = repo.indexOf('/');
@@ -389,7 +389,7 @@ public class PublishToolHandlers
             return Optional.of(new PullRequestRef(
                     repo.substring(0, slash), repo.substring(slash + 1), prNumber));
         }
-        return taskStore.findActiveTaskForThread(threadId).flatMap(this::resolvePrRefFromTask);
+        return resolveTaskForCall(call).flatMap(this::resolvePrRefFromTask);
     }
 
     /** Args record for {@code approve_pr}. */
@@ -922,21 +922,17 @@ public class PublishToolHandlers
 
     /**
      * Resolve the task a publish tool acts on from the running turn's
-     * stamped task id, falling back to the thread's active task only when
-     * the turn carried none (a trunk turn / a legacy caller). Resolving by
-     * the running turn's task id is what lets a shipped (IN_REVIEW) task —
-     * whose active-task projection is null — still ship / push / comment:
-     * the turn is stamped with the task it runs under, so we use that.
+     * stamped task id. Resolving by the turn's task id is what lets a
+     * shipped (IN_REVIEW) task still ship / push / comment: the turn is
+     * stamped with the task it runs under, so we use that and never guess
+     * the thread's "active task" (which excludes shipped tasks).
      */
     private Optional<Task> resolveTaskForCall(ToolCall call)
     {
-        if (call.taskId() != null && !call.taskId().isBlank()) {
-            Optional<Task> byId = taskStore.findTaskById(call.taskId());
-            if (byId.isPresent()) {
-                return byId;
-            }
+        if (call.taskId() == null || call.taskId().isBlank()) {
+            return Optional.empty();
         }
-        return taskStore.findActiveTaskForThread(call.threadId());
+        return taskStore.findTaskById(call.taskId());
     }
 
     /** Persist a parked proposal and return the synchronous text the

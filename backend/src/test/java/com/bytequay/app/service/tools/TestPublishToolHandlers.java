@@ -76,11 +76,11 @@ class TestPublishToolHandlers
     void resolveReviewThreadParksTheTypedProposalFromExplicitRepoAndPrNumber()
     {
         Task task = taskAt("task-1", TaskStatus.RUNNING);
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(task));
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task));
 
         ToolOutcome outcome = handlers.resolveReviewThread(
                 new PublishToolHandlers.ResolveReviewThreadArgs(555L, true, "acme/widget", 42),
-                new ToolCall("thread-1", null, AgentRole.TASK));
+                new ToolCall("thread-1", null, AgentRole.TASK, "task-1", null));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
@@ -96,11 +96,11 @@ class TestPublishToolHandlers
     void resolveReviewThreadDefaultsResolvedToTrueWhenTheFlagIsOmitted()
     {
         Task task = taskAt("task-2", TaskStatus.RUNNING);
-        when(taskStore.findActiveTaskForThread("thread-2")).thenReturn(Optional.of(task));
+        when(taskStore.findTaskById("task-2")).thenReturn(Optional.of(task));
 
         handlers.resolveReviewThread(
                 new PublishToolHandlers.ResolveReviewThreadArgs(7L, null, "acme/widget", 5),
-                new ToolCall("thread-2", null, AgentRole.TASK));
+                new ToolCall("thread-2", null, AgentRole.TASK, "task-2", null));
 
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
         verify(parkedProposals).park(eq(task), captor.capture());
@@ -121,8 +121,6 @@ class TestPublishToolHandlers
     @Test
     void listPrReviewThreadsReportsNoPrWhenNeitherArgsNorAnActiveTaskCarryOne()
     {
-        when(taskStore.findActiveTaskForThread("thread-4")).thenReturn(Optional.empty());
-
         ToolOutcome outcome = handlers.listPrReviewThreads(
                 new PublishToolHandlers.ListPrReviewThreadsArgs(null, null),
                 new ToolCall("thread-4", null, AgentRole.TASK));
@@ -152,12 +150,12 @@ class TestPublishToolHandlers
     void shipTaskParksTheProposedPrTitleAndBody()
     {
         Task task = taskAt("task-ship", TaskStatus.RUNNING);
-        when(taskStore.findActiveTaskForThread("thread-ship")).thenReturn(Optional.of(task));
+        when(taskStore.findTaskById("task-ship")).thenReturn(Optional.of(task));
 
         ToolOutcome outcome = handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(
                         "Next thing", "main", "Add cache layer", "## Summary\nCaches reads."),
-                new ToolCall("thread-ship", null, AgentRole.TASK));
+                new ToolCall("thread-ship", null, AgentRole.TASK, "task-ship", null));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
@@ -172,11 +170,11 @@ class TestPublishToolHandlers
     void shipTaskNormalisesBlankPrTitleAndBodyToNull()
     {
         Task task = taskAt("task-ship-blank", TaskStatus.RUNNING);
-        when(taskStore.findActiveTaskForThread("thread-ship-blank")).thenReturn(Optional.of(task));
+        when(taskStore.findTaskById("task-ship-blank")).thenReturn(Optional.of(task));
 
         handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(null, null, "   ", ""),
-                new ToolCall("thread-ship-blank", null, AgentRole.TASK));
+                new ToolCall("thread-ship-blank", null, AgentRole.TASK, "task-ship-blank", null));
 
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
         verify(parkedProposals).park(eq(task), captor.capture());
@@ -190,12 +188,12 @@ class TestPublishToolHandlers
             throws Exception
     {
         Task task = taskAt("task-dirty", TaskStatus.RUNNING);
-        when(taskStore.findActiveTaskForThread("thread-dirty")).thenReturn(Optional.of(task));
+        when(taskStore.findTaskById("task-dirty")).thenReturn(Optional.of(task));
         when(git.hasUncommittedChanges(any())).thenReturn(true);
 
         ToolOutcome outcome = handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(null, "main", "Add cache layer", "body"),
-                new ToolCall("thread-dirty", null, AgentRole.TASK));
+                new ToolCall("thread-dirty", null, AgentRole.TASK, "task-dirty", null));
 
         // Nothing parks — the agent is told to commit its own work and re-ship,
         // so the user never reviews an empty branch.
@@ -214,7 +212,6 @@ class TestPublishToolHandlers
         // "no active task on this thread".
         Task shipped = taskAt("task-ship", TaskStatus.IN_REVIEW);
         when(taskStore.findTaskById("task-ship")).thenReturn(Optional.of(shipped));
-        when(taskStore.findActiveTaskForThread("thread-task-ship")).thenReturn(Optional.empty());
 
         ToolOutcome outcome = handlers.requestReview(
                 new PublishToolHandlers.RequestReviewArgs("ready", null),

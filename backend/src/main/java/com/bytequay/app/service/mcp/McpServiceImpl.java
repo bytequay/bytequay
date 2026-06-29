@@ -111,7 +111,7 @@ public class McpServiceImpl
     }
 
     @Override
-    public DeferredResult<JsonNode> handle(String threadId, JsonNode request)
+    public DeferredResult<JsonNode> handle(String threadId, String agentKey, JsonNode request)
     {
         // Defensive guards for the cross-service reuse path — the
         // controller already returned 400 on a blank threadId or a
@@ -143,8 +143,8 @@ public class McpServiceImpl
                     callTool.isEmpty() ? "" : " tool=" + callTool);
             switch (method) {
                 case "initialize" -> deferred.setResult(initialize(id, paramsNode));
-                case "tools/list" -> deferred.setResult(listTools(threadId, id));
-                case "tools/call" -> handleToolCall(threadId, id, paramsNode, deferred);
+                case "tools/list" -> deferred.setResult(listTools(threadId, agentKey, id));
+                case "tools/call" -> handleToolCall(threadId, agentKey, id, paramsNode, deferred);
                 case "notifications/initialized", "notifications/cancelled" ->
                         // Notifications carry no id and need no response — Spring
                         // returns an empty body when the result is null.
@@ -188,14 +188,16 @@ public class McpServiceImpl
         return threadStore.findThreadById(threadId).map(Thread::kind).orElse(null);
     }
 
-    private JsonNode listTools(String threadId, JsonNode id)
+    private JsonNode listTools(String threadId, String agentKey, JsonNode id)
     {
         // Tools are declared via @AgentTool on the stub methods below;
         // the registry scans them at startup, sorts by name, and emits
         // a deterministic spec list. The MCP envelope just wraps each
         // spec into the wire shape, filtered to the caller's role so
-        // a trunk agent doesn't even see task-only tools.
-        AgentRole role = permissions.roleFor(threadId);
+        // a trunk agent doesn't even see task-only tools. The role is
+        // resolved against THIS agent's running turn (agentKey), not just
+        // the thread, so concurrent stage agents list their own tools.
+        AgentRole role = permissions.roleFor(threadId, agentKey);
         ThreadKind kind = kindFor(threadId);
         List<ToolDescriptor> tools = new ArrayList<>();
         for (ToolSpec spec : registry.visibleTo(role)) {
@@ -250,7 +252,8 @@ public class McpServiceImpl
     @SuppressWarnings("unused")
     public void declareRunShell(RunShellArgs args) {}
 
-    private void handleToolCall(String threadId, JsonNode id, JsonNode paramsNode, DeferredResult<JsonNode> deferred)
+    private void handleToolCall(
+            String threadId, String agentKey, JsonNode id, JsonNode paramsNode, DeferredResult<JsonNode> deferred)
     {
         ToolCallParams params;
         try {
@@ -273,7 +276,7 @@ public class McpServiceImpl
             deferred.setResult(responses.error(id, -32602, "unknown tool: " + name));
             return;
         }
-        AgentRole role = permissions.roleFor(threadId);
+        AgentRole role = permissions.roleFor(threadId, agentKey);
         if (!spec.availableTo(role)) {
             // The roles array on @AgentTool is both a discovery filter
             // (tools/list hides tools the role can't see) and a call-
@@ -297,7 +300,7 @@ public class McpServiceImpl
                             + kind + ")")));
             return;
         }
-        Set<SecurityType> grants = permissions.grants(threadId);
+        Set<SecurityType> grants = permissions.grants(threadId, agentKey);
         if (!grants.contains(spec.security())) {
             deferred.setResult(responses.toolResponse(id, responses.deny(
                     "tool '" + name + "' requires capability " + spec.security()
@@ -309,7 +312,7 @@ public class McpServiceImpl
         // a ToolOutcome bind their args inside the registry and run
         // there. Stubs (void return type) fall through to the strategy
         // map so the per-tool flow takes over.
-        PermissionResolver.RunningScope scope = permissions.runningScope(threadId);
+        PermissionResolver.RunningScope scope = permissions.runningScope(threadId, agentKey);
         Optional<ToolOutcome> outcome = registry.invoke(
                 name, new ToolCall(threadId, params.arguments(), role, scope.taskId(), scope.stageId()));
         if (outcome.isPresent()) {

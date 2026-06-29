@@ -138,6 +138,15 @@ public interface ThreadAgent
     {
     }
 
+    /** Bind this agent to the registry stage key it connects to the MCP
+     *  server under, so a CLI agent writes a per-agent MCP URL
+     *  ({@code .../agents/{agentKey}/mcp}) and its tool calls resolve role /
+     *  capability against its own running turn under concurrent stage
+     *  agents. Default no-op — only the CLI agents drive an MCP subprocess. */
+    default void setMcpAgentKey(String agentKey)
+    {
+    }
+
     /** Best-effort cancel of the currently-running turn. The
      *  session moves to {@link ThreadStatus#IDLE} once the loop
      *  acknowledges. Equivalent to ESC in {@code claude code}. */

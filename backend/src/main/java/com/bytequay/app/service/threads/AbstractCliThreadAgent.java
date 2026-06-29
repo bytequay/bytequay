@@ -26,6 +26,7 @@ import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.tools.PermissionResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -105,6 +106,13 @@ public abstract class AbstractCliThreadAgent
     /** Thread id this agent serves. Protected so a subclass's
      *  {@link #buildCommand} can name per-thread temp files. */
     protected final String threadId;
+    /** The registry stage key this agent connects to the MCP server under,
+     *  embedded in its per-agent MCP URL ({@code .../agents/{agentKey}/mcp})
+     *  so its tool calls resolve role / capability against its OWN running
+     *  turn under concurrent stage agents. Set by {@link ThreadRegistry}
+     *  right after construction; defaults to the reserved trunk key so the
+     *  legacy single-agent path keeps working when it's never set. */
+    private volatile String mcpAgentKey = PermissionResolver.TRUNK_AGENT_KEY;
     /** Working directory the subprocess runs in. */
     protected final String workingDir;
     /** Best-effort hook run at the start of every turn, before the CLI
@@ -421,6 +429,22 @@ public abstract class AbstractCliThreadAgent
     public final void setActiveStage(String stageId)
     {
         this.activeStageId = stageId;
+    }
+
+    @Override
+    public final void setMcpAgentKey(String agentKey)
+    {
+        if (agentKey != null && !agentKey.isBlank()) {
+            this.mcpAgentKey = agentKey;
+        }
+    }
+
+    /** The registry stage key this agent embeds in its MCP server URL.
+     *  Defaults to the reserved trunk key until {@link #setMcpAgentKey} runs,
+     *  so the legacy single-agent URL keeps resolving. */
+    protected final String mcpAgentKey()
+    {
+        return mcpAgentKey;
     }
 
     @Override

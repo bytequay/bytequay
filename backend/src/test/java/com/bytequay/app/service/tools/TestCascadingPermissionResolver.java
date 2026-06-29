@@ -18,6 +18,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -166,6 +167,53 @@ class TestCascadingPermissionResolver
         assertThat(resolver.grants(threadId)).isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK));
     }
 
+    /**
+     * Two task agents running concurrently on one thread: the resolver must
+     * read EACH agent's own running turn by its registry stage key, not the
+     * thread's first running turn. Without the agent-key filter both calls
+     * would collapse onto turn-A's task.
+     */
+    @Test
+    void concurrentTaskAgentsResolveTheirOwnRunningTurnByAgentKey()
+    {
+        String threadId = "t-multi";
+        ThreadTurn turnA = turnWithId("turn-a", threadId, "task-a", null);
+        ThreadTurn turnB = turnWithId("turn-b", threadId, "task-b", null);
+        when(turnStore.listTurnsByTaskIdAndStatus(eq(threadId), eq(ThreadTurnStatus.RUNNING), anyInt()))
+                .thenReturn(List.of(turnA, turnB));
+
+        // Each task agent keys by its task id (no stage); the resolver picks
+        // the matching turn so its scope is its own task.
+        assertThat(resolver.runningScope(threadId, "task-a").taskId()).isEqualTo("task-a");
+        assertThat(resolver.runningScope(threadId, "task-b").taskId()).isEqualTo("task-b");
+        // The legacy thread-only overload keeps returning the first running
+        // turn, unchanged for single-agent callers.
+        assertThat(resolver.runningScope(threadId).taskId()).isEqualTo("task-a");
+    }
+
+    /**
+     * A stage agent keys by its stage id; the reserved trunk key selects the
+     * task-less turn. Both stage and trunk turns can be in flight at once.
+     */
+    @Test
+    void stageAndTrunkAgentsResolveByStageIdAndTrunkKey()
+    {
+        String threadId = "t-mix";
+        ThreadTurn stage = turnWithId("turn-s", threadId, "task-x", "stage-7");
+        ThreadTurn trunk = turnWithId("turn-t", threadId, null, null);
+        when(turnStore.listTurnsByTaskIdAndStatus(eq(threadId), eq(ThreadTurnStatus.RUNNING), anyInt()))
+                .thenReturn(List.of(stage, trunk));
+        when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
+        noGrants();
+
+        assertThat(resolver.runningScope(threadId, "stage-7").stageId()).isEqualTo("stage-7");
+        assertThat(resolver.roleFor(threadId, "stage-7")).isEqualTo(AgentRole.TASK);
+        assertThat(resolver.roleFor(threadId, PermissionResolver.TRUNK_AGENT_KEY))
+                .isEqualTo(AgentRole.TRUNK);
+        assertThat(resolver.runningScope(threadId, PermissionResolver.TRUNK_AGENT_KEY).taskId())
+                .isNull();
+    }
+
     private void runningTurn(String threadId, ThreadTurn turn)
     {
         when(turnStore.listTurnsByTaskIdAndStatus(eq(threadId), eq(ThreadTurnStatus.RUNNING), anyInt()))
@@ -218,5 +266,16 @@ class TestCascadingPermissionResolver
         return new ThreadTurn(
                 "turn-1", threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING,
                 "input", now, now, now, null, null, TurnInitiator.user());
+    }
+
+    /** A RUNNING turn with explicit id + stamped task/stage scope, used to
+     *  seed several concurrent turns on one thread. */
+    private static ThreadTurn turnWithId(String id, String threadId, String taskId, String stageId)
+    {
+        Instant now = Instant.parse("2026-05-28T00:00:00Z");
+        return new ThreadTurn(
+                id, threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING,
+                "input", now, now, now, null, null, TurnInitiator.user(),
+                stageId, ThreadScope.of(taskId, stageId));
     }
 }

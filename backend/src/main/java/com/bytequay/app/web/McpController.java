@@ -20,7 +20,6 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 import org.springframework.web.server.ResponseStatusException;
@@ -41,7 +40,6 @@ import static java.util.Objects.requireNonNull;
  * other controllers — wiring goes through services.
  */
 @RestController
-@RequestMapping("/api/threads/{threadId}/mcp")
 public class McpController
 {
     private final McpService service;
@@ -78,17 +76,43 @@ public class McpController
      *       the 200, which is why it lists/uses our tools and Codex did not.</li>
      * </ul>
      */
-    @PostMapping
+    @PostMapping("/api/threads/{threadId}/mcp")
     public DeferredResult<JsonNode> handle(
             @PathVariable String threadId,
             @RequestBody JsonNode request,
             HttpServletResponse response)
     {
+        // Legacy / trunk path: no agent key in the URL, so role / capability
+        // resolution falls back to the thread's first RUNNING turn. The trunk
+        // agent and any single-agent thread reach the server here, unchanged.
+        return dispatch(threadId, /* agentKey */ null, request, response);
+    }
+
+    /**
+     * Stage-scoped entry point: the URL carries the connecting agent's
+     * registry stage key, so role / capability / running-turn resolution
+     * targets THAT agent's own turn even when several stage agents on one
+     * thread are running concurrently. Each stage agent writes this URL with
+     * its own key; the trunk agent uses the reserved {@code trunk} key.
+     */
+    @PostMapping("/api/threads/{threadId}/agents/{agentKey}/mcp")
+    public DeferredResult<JsonNode> handle(
+            @PathVariable String threadId,
+            @PathVariable String agentKey,
+            @RequestBody JsonNode request,
+            HttpServletResponse response)
+    {
+        return dispatch(threadId, agentKey, request, response);
+    }
+
+    private DeferredResult<JsonNode> dispatch(
+            String threadId, String agentKey, JsonNode request, HttpServletResponse response)
+    {
         response.setHeader(SESSION_HEADER, threadId == null ? "" : threadId);
         if (isNotification(request)) {
             response.setStatus(HttpServletResponse.SC_ACCEPTED);
         }
-        return handle(threadId, request);
+        return handle(threadId, agentKey, request);
     }
 
     /** A JSON-RPC notification carries no {@code id}; the JSON-RPC methods we
@@ -100,6 +124,17 @@ public class McpController
                 && request.path("method").asText("").startsWith("notifications/");
     }
 
+    /** Legacy / trunk overload with no agent key — role / capability
+     *  resolution falls back to the thread's first RUNNING turn. Kept so
+     *  the in-JVM lane and the existing unit suite exercise the JSON-RPC
+     *  contract via the same single-agent path the old URL served. */
+    DeferredResult<JsonNode> handle(
+            String threadId,
+            JsonNode request)
+    {
+        return handle(threadId, /* agentKey */ null, request);
+    }
+
     /**
      * The transport-agnostic core: validates the envelope and hands off to
      * the service. Kept separate (and unmapped) so the in-JVM lane and the
@@ -108,6 +143,7 @@ public class McpController
      */
     DeferredResult<JsonNode> handle(
             String threadId,
+            String agentKey,
             JsonNode request)
     {
         // First-round transport-level validation. Anything deeper —
@@ -126,6 +162,6 @@ public class McpController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "request body must be a JSON-RPC object");
         }
-        return service.handle(threadId, request);
+        return service.handle(threadId, agentKey, request);
     }
 }

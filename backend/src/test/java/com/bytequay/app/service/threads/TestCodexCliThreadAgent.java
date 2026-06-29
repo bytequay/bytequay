@@ -92,12 +92,14 @@ class TestCodexCliThreadAgent
     void wiresTheThreadMcpServerOnEveryTurn()
     {
         // Both a fresh and a resumed turn must carry the -c overrides that
-        // point Codex at our per-thread MCP server, auto-approve its tool
+        // point Codex at our per-agent MCP server, auto-approve its tool
         // calls (non-interactive exec can't answer the approval prompt), AND
         // enable the rmcp client (which actually enumerates the server's
         // tools), so a Codex trunk gets create_task / read_task / … the same
-        // as the Claude agent.
-        String url = "mcp_servers.bytequay.url=\"http://127.0.0.1:53123/api/threads/thread-1/mcp\"";
+        // as the Claude agent. An agent built directly (not via the registry)
+        // defaults to the reserved "trunk" agent key in its URL.
+        String url = "mcp_servers.bytequay.url="
+                + "\"http://127.0.0.1:53123/api/threads/thread-1/agents/trunk/mcp\"";
         String approval = "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"";
         String rmcp = "experimental_use_rmcp_client=true";
 

@@ -36,6 +36,9 @@ type TaskProps = CommonProps & {
   /** Monospace branch chip. */
   branch?: string;
   createdLabel?: string;
+  /** The task's PR is ready to merge (CI green, no unresolved comments,
+   *  mergeable) — tints the card + adds a "Ready to merge" badge. */
+  mergeReady?: boolean;
 };
 
 type BacklogProps = CommonProps & {
@@ -64,6 +67,7 @@ export function Card(props: CardProps) {
   const classes = ['task-card'];
   if (kind === 'backlog') classes.push('backlog');
   if (kind === 'backlog' && props.started) classes.push('started');
+  if (kind === 'task' && props.mergeReady === true) classes.push('merge-ready');
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (onClick !== undefined && (e.key === 'Enter' || e.key === ' ')) {
@@ -92,13 +96,14 @@ export function Card(props: CardProps) {
   );
 }
 
-function TaskMeta({ branch, createdLabel, status, statusText }: TaskProps) {
+function TaskMeta({ branch, createdLabel, status, statusText, mergeReady }: TaskProps) {
   return (
     <>
       {branch !== undefined && (
         <span className="branch-tag"><span className="ic" aria-hidden>⎇</span>{branch}</span>
       )}
       {createdLabel !== undefined && <span className="created">{createdLabel}</span>}
+      {mergeReady === true && <span className="merge-ready-pill">Ready to merge</span>}
       {status !== undefined && (
         <span className={`status-pill ${status}`}>
           {statusText ?? status.toUpperCase()}

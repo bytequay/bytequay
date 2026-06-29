@@ -19,6 +19,7 @@ import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
 import { isShellTool, shellCommand } from '../threads/toolDisplay';
 import type { TaskCardData } from '../ui/pane';
+import { proposalAction } from '../threads/usePendingShipProposal';
 import { TrunkPage } from './TrunkPage';
 
 /** Best-effort plain text out of a message's JSON envelope. Thinking rows
@@ -141,12 +142,13 @@ function cardTitle(t: WorkUnitTaskDto): string {
   return t.name !== null && t.name !== '' ? `Task ${t.seq} · ${t.name}` : `Task ${t.seq}`;
 }
 
-function toCard(t: WorkUnitTaskDto): TaskCardData {
+function toCard(t: WorkUnitTaskDto, mergeReady: boolean): TaskCardData {
   return {
     id: t.id,
     title: cardTitle(t),
     status: cardStatus(t.status),
     branch: t.branchName ?? undefined,
+    mergeReady,
   };
 }
 
@@ -164,6 +166,8 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[]>([]);
   const [tasks, setTasks] = useState<WorkUnitTaskDto[]>([]);
+  // Task ids whose PR has an open merge gate (ready to merge).
+  const [mergeReadyIds, setMergeReadyIds] = useState<ReadonlySet<string>>(new Set());
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   // Clear the "working" indicator only when a new assistant reply lands,
@@ -190,14 +194,22 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (bridge?.getTask === undefined) return;
     try {
-      const [t, page, taskList] = await Promise.all([
+      const [t, page, taskList, notifs] = await Promise.all([
         bridge.getTask(threadId),
         bridge.getTaskIndex(threadId, { direction: 'initial' }),
         bridge.listTasksForThread(threadId),
+        bridge.listNotificationsForThread(threadId),
       ]);
       setThread(t);
       setMessages(page.messages);
       setTasks(taskList);
+      // A task is "ready to merge" when it has an open merge_pr gate.
+      setMergeReadyIds(new Set(
+        notifs
+          .filter(n => n.kind === 'AWAITING_REVIEW' && n.status === 'UNREAD'
+            && n.taskId !== null && proposalAction(n) === 'merge_pr')
+          .map(n => n.taskId as string),
+      ));
     }
     catch { /* leave the last loaded state */ }
   }, [threadId]);
@@ -283,8 +295,10 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     </Conv>
   );
 
-  const active = tasks.filter(t => t.status !== 'PENDING' && !HIDDEN_TASK_STATUSES.has(t.status)).map(toCard);
-  const queued = tasks.filter(t => t.status === 'PENDING').map(toCard);
+  const active = tasks
+    .filter(t => t.status !== 'PENDING' && !HIDDEN_TASK_STATUSES.has(t.status))
+    .map(t => toCard(t, mergeReadyIds.has(t.id)));
+  const queued = tasks.filter(t => t.status === 'PENDING').map(t => toCard(t, false));
 
   return (
     <TrunkPage

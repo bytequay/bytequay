@@ -14,6 +14,7 @@
 import type { ReactNode } from 'react';
 import type { StageConversationRow } from '../types/brainView';
 import { EventRow, EventTimestamp, ToolBlock, UserMsg } from '../ui/conv';
+import { PermissionCard, type PermissionDecideHandler } from '../threads/PermissionCard';
 
 /** A blank-safe trim: empty/whitespace strings count as absent. */
 function nonBlank(s: string | null): string | null {
@@ -36,9 +37,11 @@ function toolDesc(label: string | null, detail: string | null): ReactNode {
 /**
  * Renders one stage-transcript row into a V3 conversation element. Shared
  * by the stage detail page and the code-diff page's conversation column so
- * both show an identical transcript.
+ * both show an identical transcript. {@code onDecide} wires the Allow / Deny
+ * buttons on a pending {@code permission} row; surfaces that pass none (the
+ * read-only code-diff column) render it as a static "awaiting approval" note.
  */
-export function stageRow(r: StageConversationRow): ReactNode {
+export function stageRow(r: StageConversationRow, onDecide?: PermissionDecideHandler): ReactNode {
   switch (r.kind) {
     case 'user':
       return <UserMsg key={r.id} text={r.text ?? ''} timestamp={<EventTimestamp iso={r.ts} />} />;
@@ -70,6 +73,27 @@ export function stageRow(r: StageConversationRow): ReactNode {
         <ToolBlock key={r.id} tag={nonBlank(r.toolTag) ?? 'Tool'} desc={toolDesc(r.toolLabel, r.toolDetail)}>
           {r.toolResult ?? r.toolDiff ?? undefined}
         </ToolBlock>
+      );
+    case 'permission':
+      if (onDecide && r.callId) {
+        return (
+          <PermissionCard
+            key={r.id}
+            permission={{ callId: r.callId, toolName: nonBlank(r.toolLabel) ?? 'tool', summary: r.text ?? '' }}
+            onDecide={onDecide}
+          />
+        );
+      }
+      // Read-only surface (the code-diff conversation column) can't act on a
+      // prompt — show a static note rather than an inert card.
+      return (
+        <EventRow
+          key={r.id}
+          kind="system"
+          who="Permission"
+          timestamp={<EventTimestamp iso={r.ts} />}
+          markdown={`Awaiting approval: \`${nonBlank(r.toolLabel) ?? 'tool'}\``}
+        />
       );
     default:
       return null;

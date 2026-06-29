@@ -30,6 +30,7 @@ import { Conv, EventRow, Working } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
 import { planTab } from './planTab';
 import { stageRow } from './stageConversationRow';
+import type { PermissionDecideHandler } from '../threads/PermissionCard';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
@@ -200,13 +201,25 @@ export function StageDetailRoute({
     setWorkingSince(prev => (working ? prev ?? Date.now() : null));
   }, [working]);
 
+  // Answer a pending permission prompt that the agent raised on this stage
+  // (e.g. a run_shell command), then refresh so the resolved card drops out.
+  const onDecide = useCallback<PermissionDecideHandler>((callId, decision, preApprove) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (!bridge) {
+      return;
+    }
+    void bridge.decideTaskPermission(threadId, callId, decision, preApprove)
+      .then(() => refresh())
+      .catch(() => { /* the next data refresh re-reflects the gate state */ });
+  }, [threadId, refresh]);
+
   // Memoize the canonical transcript rows (each renders markdown) on the
   // conversation data alone — NOT on the composer's `text` or the streaming
   // `liveText`. Without this, every keystroke re-maps + re-renders the whole
   // feed, which makes typing crawl on a long conversation.
   const transcriptRows = useMemo(
-    () => data?.conversation.map(stageRow),
-    [data?.conversation],
+    () => data?.conversation.map(r => stageRow(r, onDecide)),
+    [data?.conversation, onDecide],
   );
   const conversation = (
     <Conv>

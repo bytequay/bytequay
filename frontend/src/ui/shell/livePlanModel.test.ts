@@ -33,7 +33,7 @@ describe('buildLivePlan', () => {
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
     });
     expect(nodes.map(n => n.key)).toEqual(
-      ['plan', 'dev', 'review', 'push', 'ci-fix', 'comments', 'merge', 'cleanup']);
+      ['root', 'dev', 'review', 'push', 'ci-fix', 'comments', 'merge', 'cleanup']);
   });
 
   it('maps stage state to node status (closed→done, active→running, open→sleep, absent→future)', () => {
@@ -48,7 +48,7 @@ describe('buildLivePlan', () => {
       // (the monitor-running rule is exercised in its own test below).
       task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
-    expect(node(nodes, 'plan').status).toBe('done');
+    expect(node(nodes, 'root').status).toBe('done');
     expect(node(nodes, 'dev').status).toBe('running');
     expect(node(nodes, 'dev').meta).toBe('iter 3');
     expect(node(nodes, 'ci-fix').status).toBe('sleep');
@@ -85,8 +85,8 @@ describe('buildLivePlan', () => {
       stages: [stage('PLAN_STAGE', 'ACTIVE')], subStages: [],
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
     });
-    expect(node(nodes, 'plan').status).toBe('planning');
-    expect(node(nodes, 'plan').glyph).toBe('●');
+    expect(node(nodes, 'root').status).toBe('planning');
+    expect(node(nodes, 'root').glyph).toBe('●');
   });
 
   it('marks Push done with the PR number once a PR exists', () => {
@@ -156,7 +156,19 @@ describe('buildLivePlan', () => {
       viewedStageId: dev.id,
     });
     expect(node(nodes, 'dev').activeView).toBe(true);
-    expect(node(nodes, 'plan').activeView).toBe(false);
+    expect(node(nodes, 'root').activeView).toBe(false);
+  });
+
+  it('routes the Root node to the brain page and tracks viewingBrain', () => {
+    const onBrain = buildLivePlan({
+      stages: [stage('PLAN_STAGE', 'CLOSED')], subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      viewingBrain: true,
+    });
+    expect(node(onBrain, 'root').nav).toEqual({ kind: 'brain' });
+    expect(node(onBrain, 'root').activeView).toBe(true);
+    // No "Plan" stage node any more.
+    expect(onBrain.some(n => n.key === 'plan')).toBe(false);
   });
 
   it('places CI Fix / Comments on the parallel split', () => {

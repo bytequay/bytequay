@@ -54,8 +54,11 @@ function stageDot(state: StageState): StatusDotVariant | undefined {
  * the user sees CI-fixing and Addressing-comments side by side from ship.
  */
 function buildStageNav(stages: StageDto[], phase: TaskPhase, prNumber: number | null): StageNavRow[] {
-  const rows: StageNavRow[] = stages.map(
-    s => ({ id: s.id, label: STAGE_LABEL[s.type], dot: stageDot(s.state) }));
+  const rows: StageNavRow[] = stages
+    // The Plan "stage" is the brain/root conversation, not a drill-in stage —
+    // it's reached via the task (its brain page), not a stage row.
+    .filter(s => s.type !== 'PLAN_STAGE')
+    .map(s => ({ id: s.id, label: STAGE_LABEL[s.type], dot: stageDot(s.state) }));
   const inReview = IN_REVIEW_PHASES.has(phase) || prNumber !== null;
   if (!inReview) return rows;
   for (const type of MONITOR_STAGES) {

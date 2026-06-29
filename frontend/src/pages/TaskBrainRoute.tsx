@@ -162,6 +162,8 @@ export function TaskBrainRoute({
     task: { prNumber: task.prNumber, currentPhase: task.currentPhase as TaskPhase, terminal: task.terminal },
     prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
     viewedStageId: null,
+    // This IS the brain page, so the Root node is the active view.
+    viewingBrain: true,
   });
   const sidebar = (
     <TaskSidebar

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.mcp.approval;
 
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
@@ -53,6 +54,17 @@ public class WorktreeEditStep
     private static final Set<String> FILE_EDIT_TOOLS =
             Set.of("Edit", "Write", "MultiEdit", "NotebookEdit");
 
+    /** The autonomous work stages whose whole job is editing the worktree —
+     *  Development, CI-fixing, Addressing-comments (the review monitor) and
+     *  Cleanup. In-worktree edits during these stages are always allowed,
+     *  with no prompt and regardless of the manual accept-edits toggle; the
+     *  read-only PlanStage is deliberately excluded. */
+    private static final Set<StageType> ALWAYS_EDIT_STAGES = Set.of(
+            StageType.DEVELOPMENT_STAGE,
+            StageType.CI_FIXING_STAGE,
+            StageType.REVIEW_MONITOR_STAGE,
+            StageType.CLEANUP_STAGE);
+
     /** Input keys the file-edit tools carry their target path under. */
     private static final String[] PATH_KEYS = {"file_path", "notebook_path", "path"};
 
@@ -77,7 +89,7 @@ public class WorktreeEditStep
         Task active = ctx.taskId() == null
                 ? null
                 : taskStore.findTaskById(ctx.taskId()).orElse(null);
-        if (active == null || !taskStore.isAcceptEdits(active.id())) {
+        if (active == null || !editsAllowed(active)) {
             return ApprovalStepResult.cont();
         }
         String worktree = active.worktreePath();
@@ -92,6 +104,20 @@ public class WorktreeEditStep
         }
         return ApprovalStepResult.resolve(
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
+    }
+
+    /** Whether the task's edits to its own worktree need no prompt. Always
+     *  true in the autonomous work stages (editing is their whole job), so
+     *  Development / CI-fixing / Addressing-comments / Cleanup never block on
+     *  approval. Outside those stages it falls back to the manual accept-edits
+     *  toggle. A cross-cutting phase that maps to no stage (e.g.
+     *  NEEDS_ATTENTION) is not a work stage, so it honours the toggle. */
+    private boolean editsAllowed(Task task)
+    {
+        boolean workStage = StageType.forPhase(task.phase())
+                .map(ALWAYS_EDIT_STAGES::contains)
+                .orElse(false);
+        return workStage || taskStore.isAcceptEdits(task.id());
     }
 
     private static String filePath(JsonNode input)

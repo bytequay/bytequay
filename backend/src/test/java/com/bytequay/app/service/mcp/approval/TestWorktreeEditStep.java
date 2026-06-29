@@ -14,6 +14,7 @@
 package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
@@ -40,9 +41,11 @@ class TestWorktreeEditStep
     private final WorktreeEditStep step = new WorktreeEditStep(taskStore, responses);
 
     @Test
-    void allowsEditInsideWorktreeWhenToggleOn()
+    void allowsEditInWorktreeDuringAWorkStage()
     {
-        arm(true);
+        // A CI-fixing (autonomous work) stage edits its own worktree without
+        // a prompt — regardless of the accept-edits toggle, which is off here.
+        arm(false, TaskPhase.CI_FIXING);
         assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
                 .isInstanceOf(ApprovalStepResult.Resolve.class);
     }
@@ -50,7 +53,7 @@ class TestWorktreeEditStep
     @Test
     void promptsForEditOutsideWorktree()
     {
-        arm(true);
+        arm(false, TaskPhase.IMPLEMENTING);
         assertThat(step.apply(editCtx("/repo/other/Bar.java")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
@@ -58,7 +61,7 @@ class TestWorktreeEditStep
     @Test
     void promptsForPathEscapingTheWorktree()
     {
-        arm(true);
+        arm(false, TaskPhase.IMPLEMENTING);
         assertThat(step.apply(editCtx(WORKTREE + "/../../etc/passwd")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
@@ -66,7 +69,6 @@ class TestWorktreeEditStep
     @Test
     void promptsForBashEvenInsideTheWorktree()
     {
-        arm(true);
         JsonNode input = mapper.createObjectNode().put("command", "git push");
         ApprovalContext ctx = new ApprovalContext(
                 "thread-1", JsonNodeFactory.instance.numberNode(1),
@@ -75,16 +77,25 @@ class TestWorktreeEditStep
     }
 
     @Test
-    void promptsWhenToggleOff()
+    void outsideAWorkStageHonoursTheAcceptEditsToggle()
     {
-        arm(false);
+        // PlanStage is read-only; with the toggle off an edit still prompts.
+        arm(false, TaskPhase.PLANNING);
         assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
 
-    private void arm(boolean acceptEdits)
+    @Test
+    void outsideAWorkStageAllowsWhenAcceptEditsOn()
     {
-        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task()));
+        arm(true, TaskPhase.PLANNING);
+        assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
+                .isInstanceOf(ApprovalStepResult.Resolve.class);
+    }
+
+    private void arm(boolean acceptEdits, TaskPhase phase)
+    {
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task(phase)));
         when(taskStore.isAcceptEdits("task-1")).thenReturn(acceptEdits);
     }
 
@@ -98,7 +109,7 @@ class TestWorktreeEditStep
                 "Edit", "call-1", input, Set.of());
     }
 
-    private static Task task()
+    private static Task task(TaskPhase phase)
     {
         return new Task(
                 "task-1", "thread-1", 1L, TaskStatus.RUNNING,
@@ -106,6 +117,7 @@ class TestWorktreeEditStep
                 null, null, null, null, null,
                 "DEVELOP", null, null,
                 0L, 0L, 0L, null,
-                Instant.EPOCH, null, null, null, null, null);
+                Instant.EPOCH, null, null, null, null, null,
+                null, phase, null, 0, null);
     }
 }

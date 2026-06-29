@@ -557,11 +557,6 @@ public class ThreadService
                 roleSkillText,
                 /* workModel */ null);
         taskStore.saveTask(task);
-        // Pin the base commit the worktree was cut from, so the task's diff
-        // is a fixed base..HEAD instead of a re-guessed branch name.
-        handle.map(WorktreeService.WorktreeHandle::baseCommit)
-                .filter(commit -> commit != null && !commit.isBlank())
-                .ifPresent(commit -> taskStore.setBaseCommit(taskId, commit));
         // Open the PlanStage at creation and kick off planning. Guarded
         // because the publisher is only wired under Spring (see the field's
         // note). Planning is the brain's job: the opening prompt seeds a
@@ -1002,20 +997,17 @@ public class ThreadService
      * task's commits nor over-includes the base's. Null when nothing resolves.
      */
     /**
-     * The base to diff the task against: the commit SHA pinned when its
-     * worktree was cut (deterministic — exactly {@code base..HEAD}), falling
-     * back to the branch-name heuristic only for legacy tasks created before
-     * the base was recorded, or if the recorded commit no longer resolves.
+     * The base to diff the task against: the live merge-base of HEAD and the
+     * branch the worktree was cut from (its configured base branch, resolved
+     * to {@code origin/<base>} / the remote default). Computing it live tracks
+     * the real fork point even after the branch is rebased onto a newer base —
+     * a pinned cut-point SHA would go stale on a rebase and sweep in every
+     * commit that landed in between (the "35 commits for a 2-commit task"
+     * symptom). Null when no base branch ref resolves.
      */
     private String taskDiffBase(Path cwd, Task task)
             throws IOException, InterruptedException
     {
-        if (task != null) {
-            String recorded = taskStore.findBaseCommit(task.id()).orElse(null);
-            if (recorded != null && git.refExists(cwd, recorded)) {
-                return recorded;
-            }
-        }
         return resolveCommitBase(cwd, task);
     }
 

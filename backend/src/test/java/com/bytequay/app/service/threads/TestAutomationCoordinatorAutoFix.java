@@ -327,6 +327,32 @@ class TestAutomationCoordinatorAutoFix
         verify(git, never()).headSha(any());
     }
 
+    @Test
+    void seedsTheCiFixKickoffWithThePriorStagePrDescription()
+    {
+        // A fresh CI-fix agent no longer resumes the dev session, so its
+        // kickoff is seeded with the Development summary = the PR description.
+        Task task = newShippedTask("ship-seed", "thread-seed");
+        wireShippedFailingCi(task);
+        when(pullRequests.getPullRequestDetail(eq(REPO), eq(PR_NUMBER)))
+                .thenReturn(liveDetailWithFailingCi("Built the widget and wired it up."));
+        Thread thread = newThread("thread-seed", ThreadStatus.IDLE);
+        when(threadStore.findThreadById(eq("thread-seed"))).thenReturn(Optional.of(thread));
+        when(leaseService.isHeld(eq(WORKTREE_PATH))).thenReturn(false);
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any())).thenReturn("turn-id");
+        AutomationCoordinator coordinator = newCoordinator();
+        // Re-run already spent → this sweep enqueues the agent fix turn.
+        coordinator.seedCiFixAttemptsForTest("ship-seed", 1);
+
+        coordinator.scanForFailingCi();
+
+        ArgumentCaptor<String> promptArg = ArgumentCaptor.forClass(String.class);
+        verify(scheduler).enqueueTaskTurn(any(), promptArg.capture(), eq("ship-seed"), any());
+        assertThat(promptArg.getValue())
+                .contains("Context from prior stages")
+                .contains("Built the widget and wired it up.");
+    }
+
     private void wireShippedFailingCi(Task task)
     {
         when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(task));
@@ -346,8 +372,13 @@ class TestAutomationCoordinatorAutoFix
      *  CI-fix loop now fetches directly from GitHub. */
     private static PullRequestDetail liveDetailWithFailingCi()
     {
+        return liveDetailWithFailingCi(/* body */ null);
+    }
+
+    private static PullRequestDetail liveDetailWithFailingCi(String body)
+    {
         return new PullRequestDetail(
-                REPO, PR_NUMBER, null, List.of(), false,
+                REPO, PR_NUMBER, body, List.of(), false,
                 null, null, 0, 0, 0, 0, 0, 0, List.of(),
                 PullRequestDetail.CiStatus.FAILING, List.of(), List.of(),
                 List.of(new PullRequestDetail.CheckRun(

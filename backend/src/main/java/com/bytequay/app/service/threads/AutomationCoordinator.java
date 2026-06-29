@@ -603,7 +603,8 @@ public class AutomationCoordinator
                     thread.id(), thread.status(), task.id(), task.linkedPrNumber());
             return;
         }
-        String prompt = buildShippedCiFixPrompt(task, repoFullName, failingChecks);
+        String prompt = buildShippedCiFixPrompt(
+                task, repoFullName, failingChecks, priorStageContext(task, repoFullName));
         try {
             // Bind the task id: a shipped task is IN_REVIEW, so the active-task
             // projection is empty and the no-id enqueue would stamp task_id =
@@ -651,10 +652,46 @@ public class AutomationCoordinator
      *  (the post-ship loop is autonomous on CI): the agent first decides
      *  whether the failure is ours, and only changes + pushes code when it
      *  is — otherwise it stops and the system re-runs. */
+    /**
+     * Context a fresh CI-fix stage agent gets seeded with, since it no longer
+     * resumes the Development session: the task's plan/agenda and the
+     * Development summary (the drafted PR description). Assembled from existing
+     * rows — no extra agent turn. Empty when neither is available.
+     */
+    private String priorStageContext(Task task, String repoFullName)
+    {
+        StringBuilder ctx = new StringBuilder();
+        if (task.agendaJson() != null && !task.agendaJson().isBlank()) {
+            ctx.append("Plan / agenda for this task:\n").append(task.agendaJson()).append("\n\n");
+        }
+        if (task.linkedPrNumber() != null) {
+            try {
+                PullRequestDetail pr = pullRequests.getPullRequestDetail(
+                        repoFullName, task.linkedPrNumber());
+                if (pr != null && pr.body() != null && !pr.body().isBlank()) {
+                    ctx.append("What this PR set out to do (its description, written when the ")
+                            .append("development work shipped):\n").append(pr.body()).append("\n\n");
+                }
+            }
+            catch (RuntimeException e) {
+                log.debug("prior-stage seed: PR detail fetch failed for task {}: {}",
+                        task.id(), e.getMessage());
+            }
+        }
+        return ctx.toString();
+    }
+
     private static String buildShippedCiFixPrompt(
-            Task task, String repoFullName, List<String> failingChecks)
+            Task task, String repoFullName, List<String> failingChecks, String priorContext)
     {
         StringBuilder out = new StringBuilder();
+        if (priorContext != null && !priorContext.isBlank()) {
+            out.append("## Context from prior stages\n")
+                    .append("You are a fresh agent for the CI-fixing stage — you did NOT do the ")
+                    .append("development work, so here is what came before:\n\n")
+                    .append(priorContext)
+                    .append("---\n\n");
+        }
         out.append("CI is failing on the shipped PR ").append(repoFullName)
                 .append(" #").append(task.linkedPrNumber()).append(".\n");
         if (failingChecks != null && !failingChecks.isEmpty()) {

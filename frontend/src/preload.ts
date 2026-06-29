@@ -795,6 +795,17 @@ const bridge: Bridge = {
     name: string,
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:rename', { threadId, taskId, name }),
+  getTaskAutoApprove: (
+    threadId: string,
+    taskId: string,
+  ): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke('threads:tasks:autoApprove:get', { threadId, taskId }),
+  setTaskAutoApprove: (
+    threadId: string,
+    taskId: string,
+    enabled: boolean,
+  ): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke('threads:tasks:autoApprove:set', { threadId, taskId, enabled }),
   sendTrunkMessage: (
     threadId: string,
     input: string,

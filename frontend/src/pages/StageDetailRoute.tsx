@@ -323,7 +323,6 @@ export function StageDetailRoute({
   const sidebar = data === null ? undefined : (
     <TaskSidebar
       task={{
-        taskNumber: data.task.taskNumber,
         title: data.task.title,
         branch: data.task.branch,
         metaLine: data.task.currentPhase.replace(/_/g, ' ').toLowerCase(),

@@ -27,7 +27,7 @@ export function TaskSidebar({
   task, threadLabel, nodes, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, actions,
 }: {
   task: {
-    taskNumber: number; title: string; branch: string;
+    title: string; branch: string;
     statusPill?: ReactNode; metaLine?: ReactNode; finished?: boolean;
   };
   threadLabel?: string;
@@ -51,10 +51,11 @@ export function TaskSidebar({
         </div>
       )}
       <div className="task-identity">
-        <div className="pill-row">
-          <span className="task-num">▣ TASK #{task.taskNumber}</span>
-          {task.statusPill !== undefined && <span className="status">{task.statusPill}</span>}
-        </div>
+        {task.statusPill !== undefined && (
+          <div className="pill-row">
+            <span className="status">{task.statusPill}</span>
+          </div>
+        )}
         <div className="ti-title">{task.finished === true && <MergeIcon />}{task.title}</div>
         <div className="ti-branch">{task.branch}</div>
         {task.metaLine !== undefined && <div className="ti-meta">{task.metaLine}</div>}

@@ -28,13 +28,12 @@ describe('TaskSidebar', () => {
   it('renders the task identity and the live-plan diagram', () => {
     render(
       <TaskSidebar
-        task={{ taskNumber: 4, title: 'Add cost-meter card', branch: 'feat/cost-meter' }}
+        task={{ title: 'Add cost-meter card', branch: 'feat/cost-meter' }}
         nodes={nodes}
       />,
     );
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
     expect(screen.getByText('feat/cost-meter')).toBeTruthy();
-    expect(screen.getByText(/TASK #4/)).toBeTruthy();
     expect(screen.getByText('Live plan')).toBeTruthy();
     // The live plan leads with the Root node (brain/root conversation),
     // not a "Plan" stage.
@@ -46,7 +45,7 @@ describe('TaskSidebar', () => {
     const onBack = vi.fn();
     render(
       <TaskSidebar
-        task={{ taskNumber: 4, title: 'x', branch: 'b' }}
+        task={{ title: 'x', branch: 'b' }}
         nodes={nodes}
         onBack={onBack}
         threadLabel="Backend cleanup review"
@@ -60,7 +59,7 @@ describe('TaskSidebar', () => {
     const onOpenStage = vi.fn();
     render(
       <TaskSidebar
-        task={{ taskNumber: 4, title: 'x', branch: 'b' }}
+        task={{ title: 'x', branch: 'b' }}
         nodes={buildLivePlan({
           stages: [{
             id: 'dev-1', taskId: 't', type: 'DEVELOPMENT_STAGE', state: 'ACTIVE',

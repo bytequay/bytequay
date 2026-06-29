@@ -587,6 +587,16 @@
   color: var(--text-1);
   border: 1px solid var(--border-mid);
 }
+/* Ready-to-merge task: a green-tinted card + a "Ready to merge" pill so a
+   mergeable PR stands out in the Tasks and Ready-to-merge tabs. */
+.shell .task-card.merge-ready { border-color: var(--green-border); background: rgba(34, 197, 94, 0.05); }
+.shell .task-card.merge-ready .title { color: #15803d; }
+.shell .task-card .merge-ready-pill {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  color: #15803d; background: rgba(34, 197, 94, 0.12); border: 1px solid var(--green-border);
+}
+.shell .pane-empty-note { padding: 16px; color: var(--text-3); font-size: 12.5px; }
 .shell .task-card .status-pill.pending {
   background: var(--bg-hover);
   color: var(--text-3);

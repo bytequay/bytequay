@@ -23,6 +23,8 @@ export type TaskCardData = {
   status: TaskStatus;
   branch?: string;
   createdLabel?: string;
+  /** PR is ready to merge — tints the card + drives the "Ready to merge" tab. */
+  mergeReady?: boolean;
 };
 
 /**
@@ -56,6 +58,7 @@ export function TasksTabContent({ active, queued, queuedExpanded, onToggleQueued
           status={t.status}
           branch={t.branch}
           createdLabel={t.createdLabel}
+          mergeReady={t.mergeReady}
           onClick={onOpenTask !== undefined ? () => onOpenTask(t.id) : undefined}
         />
       ))}

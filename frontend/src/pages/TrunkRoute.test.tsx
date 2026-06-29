@@ -37,6 +37,7 @@ function mockBridge(over: Record<string, unknown> = {}) {
     sendTrunkMessage: vi.fn().mockResolvedValue(undefined),
     listBacklog: vi.fn().mockResolvedValue([]),
     listThreadSignals: vi.fn().mockResolvedValue([]),
+    listNotificationsForThread: vi.fn().mockResolvedValue([]),
     ...over,
   };
   (window as unknown as { bridge: unknown }).bridge = bridge;

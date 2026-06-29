@@ -168,7 +168,7 @@ export function TaskBrainRoute({
   const sidebar = (
     <TaskSidebar
       task={{
-        taskNumber: task.taskNumber, title: task.title, branch: task.branch,
+        title: task.title, branch: task.branch,
         metaLine: task.statusLabel, finished,
       }}
       nodes={livePlanNodes}

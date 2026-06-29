@@ -154,6 +154,23 @@ public class TaskService
         return taskStore.findActiveTaskForThread(threadId);
     }
 
+    /** Read the task's auto-approve mode. */
+    public boolean isAutoApprove(String threadId, String taskId)
+    {
+        requireTask(threadId, taskId);
+        return taskStore.isAutoApprove(taskId);
+    }
+
+    /** Flip the task's auto-approve mode, returning the stored value. While
+     *  on, the task's parked publish gates + tool prompts auto-approve — the
+     *  final PR merge stays manually gated. */
+    public boolean setAutoApprove(String threadId, String taskId, boolean enabled)
+    {
+        requireTask(threadId, taskId);
+        taskStore.setAutoApprove(taskId, enabled);
+        return taskStore.isAutoApprove(taskId);
+    }
+
     /** Single task lookup. 404s if the task is missing OR if it
      *  belongs to a different thread than the URL implies. */
     public Task requireTask(String threadId, String taskId)

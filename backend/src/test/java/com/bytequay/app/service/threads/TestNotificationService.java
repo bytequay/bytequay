@@ -19,6 +19,7 @@ import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.repository.NotificationStore;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -40,7 +41,8 @@ import static org.mockito.Mockito.when;
 class TestNotificationService
 {
     private final NotificationStore store = mock(NotificationStore.class);
-    private final NotificationService service = new NotificationService(store);
+    private final NotificationService service = new NotificationService(
+            store, mock(ApplicationEventPublisher.class));
 
     @Test
     void actionableBadgeIncludesInterruptedApprovalsNewestFirst()

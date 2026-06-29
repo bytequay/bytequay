@@ -207,6 +207,38 @@ public class TaskController
     {
     }
 
+    /** GET the task's auto-approve mode. */
+    @GetMapping("/{taskId}/auto-approve")
+    public AutoApproveResponse getAutoApprove(
+            @PathVariable String threadId,
+            @PathVariable String taskId)
+    {
+        return new AutoApproveResponse(taskService.isAutoApprove(threadId, taskId));
+    }
+
+    /** Set the task's auto-approve mode. While on, the task's parked publish
+     *  gates + in-turn tool prompts auto-approve; the final PR merge stays
+     *  manually gated. */
+    @PutMapping("/{taskId}/auto-approve")
+    public AutoApproveResponse setAutoApprove(
+            @PathVariable String threadId,
+            @PathVariable String taskId,
+            @RequestBody AutoApproveBody body)
+    {
+        boolean enabled = body != null && body.enabled();
+        return new AutoApproveResponse(taskService.setAutoApprove(threadId, taskId, enabled));
+    }
+
+    /** Body for {@link #setAutoApprove}. */
+    public record AutoApproveBody(boolean enabled)
+    {
+    }
+
+    /** Response for the auto-approve endpoints. */
+    public record AutoApproveResponse(boolean enabled)
+    {
+    }
+
     /**
      * GET /api/threads/{threadId}/tasks/{taskId}/work-model — resolve the
      * effective work model for a task, returning both the scope's own

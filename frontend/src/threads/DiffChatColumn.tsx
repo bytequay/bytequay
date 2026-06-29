@@ -80,7 +80,7 @@ function StageChat({ stageId }: { stageId: string }) {
   return (
     <>
       <Conv>
-        {data?.conversation.map(stageRow)}
+        {data?.conversation.map(r => stageRow(r))}
         {(busy || data?.stage.state === 'ACTIVE') && <Working label="Agent is working…" />}
       </Conv>
       <Composer

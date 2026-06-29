@@ -64,6 +64,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -513,11 +514,21 @@ public class StageDetailServiceImpl
         // Pair each tool call with its result row (same callId) so the
         // transcript can show command + outcome on a single card.
         Map<String, ToolResultPayload> resultsByCallId = new HashMap<>();
+        // Permission prompts that already got an answer (decided or auto-
+        // allowed) — a prompt with no entry here is still pending and gets a
+        // clickable card.
+        Set<String> decidedCallIds = new HashSet<>();
         for (ThreadMessage m : source) {
             if ("tool_result".equals(m.type())) {
                 ToolResultPayload r = toolResult(m);
                 if (r.callId() != null) {
                     resultsByCallId.put(r.callId(), r);
+                }
+            }
+            else if ("permission_decision".equals(m.type()) || "permission_auto_allowed".equals(m.type())) {
+                String cid = callIdOf(m);
+                if (cid != null) {
+                    decidedCallIds.add(cid);
                 }
             }
         }
@@ -531,7 +542,7 @@ public class StageDetailServiceImpl
                 rows.add(new ConversationRow(m.id(), "tool_call", null,
                         tc.tag(), tc.label(), tc.detail(),
                         r == null ? null : r.output(), r == null ? null : r.isError(),
-                        editDiff(m), null, m.ts().toString()));
+                        editDiff(m), null, m.ts().toString(), null));
             }
             else if ("text".equals(m.type())) {
                 String text = decodeText(m.contentJson());
@@ -539,13 +550,22 @@ public class StageDetailServiceImpl
                     continue;
                 }
                 rows.add(new ConversationRow(m.id(), "user".equals(m.role()) ? "user" : "agent",
-                        text, null, null, null, null, null, null, null, m.ts().toString()));
+                        text, null, null, null, null, null, null, null, m.ts().toString(), null));
+            }
+            else if ("permission_request".equals(m.type())) {
+                String callId = callIdOf(m);
+                if (callId != null && !decidedCallIds.contains(callId)) {
+                    rows.add(new ConversationRow(m.id(), "permission",
+                            permissionField(m, "summary"),
+                            null, permissionField(m, "toolName"), null,
+                            null, null, null, null, m.ts().toString(), callId));
+                }
             }
         }
         for (TaskStageIteration it : iters) {
             rows.add(new ConversationRow(it.id() + ":marker", "iteration_marker",
                     it.trigger(), null, null, null, null, null, null, it.iterationNumber(),
-                    TimeWindow.forIteration(it).start().toString()));
+                    TimeWindow.forIteration(it).start().toString(), null));
         }
         rows.sort(Comparator.comparing(ConversationRow::ts));
         return rows;
@@ -736,6 +756,21 @@ public class StageDetailServiceImpl
         }
         try {
             return firstText(mapper.readTree(m.contentJson()), "callId");
+        }
+        catch (JsonProcessingException ignore) {
+            return null;
+        }
+    }
+
+    /** Read one field from a {@code permission_request} message's JSON body
+     *  ({@code toolName} / {@code summary}); null when absent or unparseable. */
+    private String permissionField(ThreadMessage m, String field)
+    {
+        if (m.contentJson() == null) {
+            return null;
+        }
+        try {
+            return firstText(mapper.readTree(m.contentJson()), field);
         }
         catch (JsonProcessingException ignore) {
             return null;

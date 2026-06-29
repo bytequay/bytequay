@@ -96,7 +96,9 @@ public record StageDetailData(
      * meaningful: {@code agent}/{@code user} use {@code text}; {@code tool_call}
      * uses {@code toolTag}/{@code toolLabel}/{@code toolDetail}; {@code
      * iteration_marker} uses {@code iterationNumber}/{@code text} (the loop
-     * trigger). All carry {@code ts} for ordering.
+     * trigger); {@code permission} (a still-pending prompt) uses {@code
+     * toolLabel} (tool name) + {@code text} (summary) + {@code callId} (to
+     * answer it). All carry {@code ts} for ordering.
      */
     public record ConversationRow(
             String id,
@@ -111,7 +113,10 @@ public record StageDetailData(
              *  input (old_string → new_string, or written content). */
             String toolDiff,
             Integer iterationNumber,
-            String ts) {}
+            String ts,
+            /** For a pending {@code permission} row, the callId to answer the
+             *  prompt with; null for every other row kind. */
+            String callId) {}
 
     /**
      * @param prNumber null when the task has no PR

@@ -291,7 +291,7 @@ export type StagePrThread = {
  *  iteration_marker → iterationNumber + text (the loop trigger). */
 export type StageConversationRow = {
   id: string;
-  kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker';
+  kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker' | 'permission';
   text: string | null;
   toolTag: string | null;
   toolLabel: string | null;
@@ -304,6 +304,9 @@ export type StageConversationRow = {
   toolDiff: string | null;
   iterationNumber: number | null;
   ts: string;
+  /** For a pending {@code permission} row, the callId to answer the prompt
+   *  with (Allow / Deny); null for every other row kind. */
+  callId: string | null;
 };
 
 /** Uncomputed catalog fields are absent (not zero); panelInvocationsCount

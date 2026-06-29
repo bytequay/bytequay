@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StageConversationRow } from '../types/brainView';
 import { stageRow } from './stageConversationRow';
 
@@ -55,5 +55,24 @@ describe('stageRow tool_call', () => {
     expect(container.querySelector('.tool-block')).toBeTruthy();
     expect(screen.getByText('Tool')).toBeTruthy();
     expect(screen.getByText('Tool call')).toBeTruthy();
+  });
+});
+
+describe('stageRow permission', () => {
+  const perm = () => row({
+    kind: 'permission', toolLabel: 'run_shell', text: 'cmd: git status', callId: 'c1',
+  });
+
+  it('renders an actionable card whose Approve answers the prompt', () => {
+    const onDecide = vi.fn();
+    render(<>{stageRow(perm(), onDecide)}</>);
+    fireEvent.click(screen.getByText('Approve once'));
+    expect(onDecide).toHaveBeenCalledWith('c1', 'ALLOW');
+  });
+
+  it('falls back to a static note on a read-only surface (no onDecide)', () => {
+    render(<>{stageRow(perm())}</>);
+    expect(screen.getByText(/Awaiting approval/)).toBeTruthy();
+    expect(screen.queryByText('Approve once')).toBeNull();
   });
 });

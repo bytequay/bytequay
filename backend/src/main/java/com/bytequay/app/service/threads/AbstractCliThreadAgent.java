@@ -154,6 +154,11 @@ public abstract class AbstractCliThreadAgent
     /** The stage the in-flight turn belongs to, set by the scheduler before
      *  each {@link #send}; messages emitted during the turn inherit it. */
     private volatile String activeStageId;
+    /** The stage this agent has bound to (set on its first stage turn). A work
+     *  stage starts a BRAND-NEW session — it never {@code --resume}s the task's
+     *  or a prior stage's session — so cross-stage context flows only through
+     *  the seeded kickoff, not a shared provider session. */
+    private volatile String boundStageId;
     private final AtomicReference<String> model = new AtomicReference<>("");
     private final AtomicReference<Process> currentProcess = new AtomicReference<>();
     /** Set true by {@link #interrupt} just before {@code destroy()} so
@@ -432,6 +437,14 @@ public abstract class AbstractCliThreadAgent
     @Override
     public final void setActiveStage(String stageId)
     {
+        if (stageId != null && !stageId.isBlank() && !stageId.equals(boundStageId)) {
+            // First turn of a new work stage: drop any inherited resume id so
+            // this stage starts a fresh session instead of continuing the
+            // task's (or a prior stage's). Within the stage, the id captured
+            // from its own SessionStarted is reused across iterations.
+            this.boundStageId = stageId;
+            this.agentSessionId.set(null);
+        }
         this.activeStageId = stageId;
     }
 
@@ -1099,9 +1112,13 @@ public abstract class AbstractCliThreadAgent
         // and keep the Thread row's trunk session id untouched. Trunk
         // mode: the captured session IS the trunk session, so it lands on
         // threads.agent_session_id directly.
-        if (activeTaskId != null
+        if (activeStageId == null
+                && activeTaskId != null
                 && capturedSession != null
                 && !capturedSession.isBlank()) {
+            // Only a task-level (non-stage) turn writes its session onto the
+            // task. A stage's session is per-stage and in-memory — never
+            // pushed to the task, so the next stage can't --resume it.
             taskStore.findTaskById(activeTaskId).ifPresent(task -> {
                 if (!capturedSession.equals(task.agentSessionId())) {
                     taskStore.saveTask(new Task(

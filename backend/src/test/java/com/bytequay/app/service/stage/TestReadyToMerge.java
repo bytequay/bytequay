@@ -96,6 +96,23 @@ class TestReadyToMerge
     }
 
     @Test
+    void doesNotFireWhenThePrIsNotMergeable()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        // CI green, no reviewer blocking, no unresolved comments — but GitHub
+        // reports a conflict, so the merge gate must stay closed.
+        PullRequestDetail conflicted = detail(CiStatus.PASSING, 0, 0, false, "open");
+        when(conflicted.mergeable()).thenReturn(false);
+
+        readyToMerge.evaluate(task, conflicted);
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+        assertThat(readyToMergeNotifications(threadId)).isEqualTo(0);
+    }
+
+    @Test
     void autoResetsWhenAConditionBreaks()
     {
         String threadId = seedThread();
@@ -106,7 +123,7 @@ class TestReadyToMerge
         assertThat(taskStore.mergeNotificationSentAt(taskId)).isPresent();
 
         // CI goes red — the armed sentinel clears.
-        readyToMerge.evaluate(task, detail(CiStatus.FAILING, 1, 0, 0, false, "open"));
+        readyToMerge.evaluate(task, detail(CiStatus.FAILING, 0, 0, false, "open"));
         assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
     }
 
@@ -168,19 +185,21 @@ class TestReadyToMerge
 
     private static PullRequestDetail readyDetail()
     {
-        return detail(CiStatus.PASSING, 1, 0, 0, false, "open");
+        return detail(CiStatus.PASSING, 0, 0, false, "open");
     }
 
     private static PullRequestDetail detail(
-            CiStatus ci, int approvals, int changesRequested, int pending, boolean merged, String state)
+            CiStatus ci, int changesRequested, int pending, boolean merged, String state)
     {
         PullRequestDetail detail = mock(PullRequestDetail.class);
         when(detail.ciStatus()).thenReturn(ci);
-        when(detail.approvalCount()).thenReturn(approvals);
         when(detail.changesRequestedCount()).thenReturn(changesRequested);
         when(detail.pendingReviewerCount()).thenReturn(pending);
         when(detail.merged()).thenReturn(merged);
         when(detail.state()).thenReturn(state);
+        // Mergeable by default; the CI-failing paths short-circuit before the
+        // mergeable check, so keep it lenient.
+        lenient().when(detail.mergeable()).thenReturn(true);
         lenient().when(detail.repo()).thenReturn("octo/repo");
         lenient().when(detail.number()).thenReturn(7);
         return detail;

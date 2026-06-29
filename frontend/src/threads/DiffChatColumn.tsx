@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useStageDetailData } from './brain/useStageDetailData';
 import { stageRow } from '../pages/stageConversationRow';
 import { Conv, Working } from '../ui/conv';
@@ -61,21 +61,20 @@ function useDiffChatStageId(stageId?: string, taskId?: string): string | null {
 
 function StageChat({ stageId }: { stageId: string }) {
   const { data, refresh } = useStageDetailData(stageId);
-  const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const closed = data?.stage.state === 'CLOSED';
 
-  const submit = () => {
-    const body = text.trim();
+  // Sending is owned here (it touches `busy` + refreshes the feed), but the
+  // draft text deliberately is NOT — see StageChatComposer.
+  const send = useCallback((body: string) => {
     if (body.length === 0 || busy) return;
-    setText('');
     setBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     bridge?.steerStage(stageId, body)
       .then(() => refresh())
       .catch(() => { /* poll reconciles */ })
       .finally(() => setBusy(false));
-  };
+  }, [stageId, busy, refresh]);
 
   return (
     <>
@@ -83,15 +82,44 @@ function StageChat({ stageId }: { stageId: string }) {
         {data?.conversation.map(r => stageRow(r))}
         {(busy || data?.stage.state === 'ACTIVE') && <Working label="Agent is working…" />}
       </Conv>
-      <Composer
-        value={text}
-        onChange={setText}
-        onSubmit={submit}
+      <StageChatComposer
+        onSend={send}
         busy={busy}
         disabled={closed}
         placeholder={closed ? 'This stage is closed.' : 'Talk to the agent about this change…'}
       />
     </>
+  );
+}
+
+/**
+ * The draft-text owner, split out from {@link StageChat} so a keystroke
+ * re-renders only the composer — not the conversation feed beside a large
+ * diff. (Keeping the text in the parent forced a full re-render + layout
+ * flush of the feed on every character, which made typing crawl.)
+ */
+function StageChatComposer({ onSend, busy, disabled, placeholder }: {
+  onSend: (body: string) => void;
+  busy: boolean;
+  disabled: boolean;
+  placeholder: string;
+}) {
+  const [text, setText] = useState('');
+  const submit = () => {
+    const body = text.trim();
+    if (body.length === 0 || busy) return;
+    setText('');
+    onSend(body);
+  };
+  return (
+    <Composer
+      value={text}
+      onChange={setText}
+      onSubmit={submit}
+      busy={busy}
+      disabled={disabled}
+      placeholder={placeholder}
+    />
   );
 }
 

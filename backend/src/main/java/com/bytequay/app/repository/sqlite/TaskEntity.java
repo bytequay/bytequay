@@ -44,9 +44,6 @@ class TaskEntity
     @Column(name = "base_branch")
     private String baseBranch;
 
-    @Column(name = "base_commit")
-    private String baseCommit;
-
     @Column(name = "working_dir")
     private String workingDir;
 
@@ -172,9 +169,6 @@ class TaskEntity
 
     String getBaseBranch() { return baseBranch; }
     void setBaseBranch(String baseBranch) { this.baseBranch = baseBranch; }
-
-    String getBaseCommit() { return baseCommit; }
-    void setBaseCommit(String baseCommit) { this.baseCommit = baseCommit; }
 
     String getWorkingDir() { return workingDir; }
     void setWorkingDir(String workingDir) { this.workingDir = workingDir; }

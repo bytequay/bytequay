@@ -120,27 +120,10 @@ class SqliteTaskStore
     @Transactional
     public void markPushed(String taskId, Instant pushedAt)
     {
-        // Load-set-save like setAcceptEdits: saveTask deliberately never
-        // maps pushed_at_ms, so editing the live entity is the only path
-        // that writes it and no later full-row save can clobber it.
+        // Load-set-save: saveTask deliberately never maps pushed_at_ms, so
+        // editing the live entity is the only path that writes it and no
+        // later full-row save can clobber it.
         mutate(taskId, entity -> entity.setPushedAtMs(Timestamps.epochMilli(pushedAt)));
-    }
-
-    @Override
-    @Transactional
-    public void setBaseCommit(String taskId, String baseCommit)
-    {
-        // Load-set-save: saveTask never maps base_commit, so a later full-row
-        // save can't clobber the cut-time base we pin here.
-        mutate(taskId, entity -> entity.setBaseCommit(baseCommit));
-    }
-
-    @Override
-    public Optional<String> findBaseCommit(String taskId)
-    {
-        return tasks.findById(taskId)
-                .map(TaskEntity::getBaseCommit)
-                .filter(commit -> commit != null && !commit.isBlank());
     }
 
     @Override

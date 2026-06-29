@@ -230,6 +230,21 @@ public class StageServiceImpl
     private static final Set<TaskPhase> USER_GATED_PHASES = EnumSet.of(
             TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.NEEDS_ATTENTION);
 
+    /** A task's full dev-side transcript: the per-thread rows plus the
+     *  decoupled per-stage stage_messages, merged chronologically. Until the
+     *  backfill consolidates them, stage turns live in stage_messages while
+     *  legacy stage rows may still sit in thread_messages. */
+    private List<ThreadMessage> devMessagesFor(Task task)
+    {
+        if (task.threadId() == null) {
+            return List.of();
+        }
+        List<ThreadMessage> merged = new ArrayList<>(threadStore.listMessages(task.threadId()));
+        merged.addAll(threadStore.listStageMessagesByTask(task.id()));
+        merged.sort(Comparator.comparing(ThreadMessage::ts));
+        return merged;
+    }
+
     private TaskBrainViewData.Aggregate buildAggregate(
             Task task, List<StageInstance> stages, List<ThreadMessage> brainMessages, long costCents)
     {
@@ -249,8 +264,7 @@ public class StageServiceImpl
         // Task-wide totals across the dev thread (tool calls + agent messages)
         // and the brain thread (planning/steering messages); turns and
         // user-gated waiting time are counted for the whole task.
-        List<ThreadMessage> devMessages = task.threadId() == null ? List.of()
-                : threadStore.listMessages(task.threadId());
+        List<ThreadMessage> devMessages = devMessagesFor(task);
         int toolCalls = (int) devMessages.stream()
                 .filter(m -> "tool_call".equals(m.type()))
                 .count();
@@ -308,10 +322,9 @@ public class StageServiceImpl
     private TaskBrainViewData.CostBreakdown buildCostBreakdown(
             Task task, List<StageInstance> stages, List<ThreadMessage> brainMessages)
     {
-        List<ThreadMessage> devMessages = task.threadId() == null ? List.of()
-                : threadStore.listMessages(task.threadId()).stream()
-                        .filter(m -> task.id().equals(m.taskId()))
-                        .toList();
+        List<ThreadMessage> devMessages = devMessagesFor(task).stream()
+                .filter(m -> task.id().equals(m.taskId()))
+                .toList();
         long devMilli = devMessages.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
         long brainMilli = brainMessages.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
         long totalCents = (devMilli + brainMilli) / 10;
@@ -360,7 +373,7 @@ public class StageServiceImpl
         if (task.threadId() == null) {
             return Map.of();
         }
-        List<ThreadMessage> devMessages = threadStore.listMessages(task.threadId()).stream()
+        List<ThreadMessage> devMessages = devMessagesFor(task).stream()
                 .filter(m -> task.id().equals(m.taskId()))
                 .toList();
         List<ThreadFile> files = threadStore.listFiles(task.threadId());

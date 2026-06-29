@@ -23,6 +23,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -66,10 +67,12 @@ class TestTaskLifecycleDriver
     private final RemoteCommentIngestor commentIngestor = mock(RemoteCommentIngestor.class);
     private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
     private final IterationService iterationService = mock(IterationService.class);
+    private final ThreadRegistry registry = mock(ThreadRegistry.class);
+    private final StageStore stageStore = mock(StageStore.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     reviewMarkers, threadStore, scheduler, notifications, mapper,
-                    commentIngestor, readyToMerge, iterationService);
+                    commentIngestor, readyToMerge, iterationService, registry, stageStore);
 
     @TempDir
     private Path tempDir;
@@ -170,7 +173,7 @@ class TestTaskLifecycleDriver
     }
 
     @Test
-    void completesButDoesNotReapAClosedUnmergedPr()
+    void closedUnmergedPrLandsAtRemoteClosedAndReaps()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
         PullRequestDetail closed = mock(PullRequestDetail.class);
@@ -180,12 +183,13 @@ class TestTaskLifecycleDriver
 
         driver.reconcileTask(task);
 
-        // A closed-unmerged PR is terminal too — complete the task — but
-        // its branch may still hold unlanded local commits, so leave the
-        // worktree alone rather than delete the work.
-        verify(taskStore).completeTask(eq("t1.k2"), any());
+        // A closed-unmerged PR is terminal too: land at the distinct
+        // REMOTE_CLOSED status (not a merge-COMPLETED) and clean up resources
+        // anyway — the work never landed, so the branch is dead weight.
+        verify(taskStore).remoteCloseTask(eq("t1.k2"), any());
+        verify(taskStore, never()).completeTask(any(), any());
         verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_closed_observed");
-        verify(worktrees, never()).reap(any());
+        verify(worktrees).reap(task);
     }
 
     @Test

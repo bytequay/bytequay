@@ -752,13 +752,17 @@ public class ThreadService
             // its next tool boundary and releases its worktree lease.
             registry.findAll(threadId).forEach(ThreadAgent::interrupt);
         }
-        // Release the lease on the active task's worktree. The CLI
-        // agent's shutdown path also releases on exit; doing it here
-        // makes the transfer atomic from the user's perspective.
-        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
-        active.map(Task::worktreePath)
-                .filter(p -> p != null && !p.isBlank())
-                .ifPresent(leases::release);
+        // Release the lease on every task's worktree. The CLI agents'
+        // shutdown paths also release on exit; doing it here makes the
+        // transfer atomic. A thread can hold several tasks' worktrees at
+        // once (a shipped task in CI-fixing alongside a fresh one), so we
+        // release them all rather than guessing a single "active" one.
+        for (Task task : taskStore.listTasksByThread(threadId)) {
+            String worktree = task.worktreePath();
+            if (worktree != null && !worktree.isBlank()) {
+                leases.release(worktree);
+            }
+        }
         // Deliberately do NOT mark the thread's parked notifications
         // read here. Jump-in transfers the lease but does not resolve
         // the parked work: an AWAITING_REVIEW proposal still needs an
@@ -839,7 +843,6 @@ public class ThreadService
         }
         // Stop the live agent + drop any queued turns so we don't
         // leave a subprocess running against a deleted row.
-        Thread thread = existing.get();
         for (ThreadAgent agent : registry.findAll(threadId)) {
             try {
                 agent.stop();
@@ -851,17 +854,16 @@ public class ThreadService
         scheduler.cancelQueuedTurns(threadId);
         registry.evict(threadId);
         // Best-effort worktree cleanup. Errors are logged inside the
-        // service; we don't fail the delete if the worktree is already
-        // gone or git can't remove it cleanly — the thread row going
-        // away is the authoritative signal.
-        Task active = thread.activeTask() != null
-                ? thread.activeTask()
-                : taskStore.findActiveTaskForThread(threadId).orElse(null);
-        if (active != null
-                && active.worktreePath() != null && !active.worktreePath().isBlank()
-                && active.workingDir() != null && !active.workingDir().isBlank()) {
-            worktreeService.remove(Path.of(active.workingDir()),
-                    active.worktreePath(), active.branchName());
+        // service; we don't fail the delete if a worktree is already gone
+        // or git can't remove it cleanly — the thread row going away is the
+        // authoritative signal. Remove every task's worktree: deleting the
+        // thread retires all its work, not just whichever task was active.
+        for (Task task : allTasks) {
+            if (task.worktreePath() != null && !task.worktreePath().isBlank()
+                    && task.workingDir() != null && !task.workingDir().isBlank()) {
+                worktreeService.remove(Path.of(task.workingDir()),
+                        task.worktreePath(), task.branchName());
+            }
         }
         store.deleteThread(threadId);
     }

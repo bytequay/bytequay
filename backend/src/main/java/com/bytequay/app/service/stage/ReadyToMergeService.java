@@ -96,8 +96,9 @@ public class ReadyToMergeService
         }
 
         boolean ready = detail.ciStatus() == CiStatus.PASSING
-                && reviewersApproved(detail)
-                && noUnresolvedRemoteComments(task.id());
+                && !reviewersBlocking(detail)
+                && noUnresolvedRemoteComments(task.id())
+                && !Boolean.FALSE.equals(detail.mergeable());
 
         // Standing consent: once the user approved, keep the merge moving
         // automatically (re-enqueue after a queue bounce) instead of
@@ -241,11 +242,16 @@ public class ReadyToMergeService
                 stageStore.recordEvent(stage.id(), taskId, type, payload));
     }
 
-    private static boolean reviewersApproved(PullRequestDetail detail)
+    /** A reviewer is blocking the merge when someone requested changes or a
+     *  requested reviewer hasn't responded yet. A solo PR (no reviewers
+     *  requested → no approvals, none pending) is never blocked here: an
+     *  explicit approval isn't required, so readiness rests on CI + no
+     *  unresolved comments + GitHub reporting the branch mergeable — and
+     *  {@code mergeable} already encodes any required-approval branch
+     *  protection, so a repo that mandates review still gates correctly. */
+    private static boolean reviewersBlocking(PullRequestDetail detail)
     {
-        return detail.approvalCount() > 0
-                && detail.changesRequestedCount() == 0
-                && detail.pendingReviewerCount() == 0;
+        return detail.changesRequestedCount() > 0 || detail.pendingReviewerCount() > 0;
     }
 
     private static boolean isClosed(PullRequestDetail detail)

@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.repository.NotificationStore;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -48,17 +49,22 @@ public class NotificationService
     private static final int DEFAULT_LIMIT = 50;
 
     private final NotificationStore store;
+    private final ApplicationEventPublisher events;
 
-    public NotificationService(NotificationStore store)
+    public NotificationService(NotificationStore store, ApplicationEventPublisher events)
     {
         this.store = requireNonNull(store, "store is null");
+        this.events = requireNonNull(events, "events is null");
     }
 
     /** Headless run parked with a proposed diff + reply at the
-     *  publish gate. {@code payloadJson} is renderer-defined. */
+     *  publish gate. {@code payloadJson} is renderer-defined. Publishes a
+     *  {@link GateParkedEvent} so auto-approve mode can resolve the gate. */
     public Notification notifyAwaitingReview(String threadId, String taskId, String payloadJson)
     {
-        return create(NotificationKind.AWAITING_REVIEW, threadId, taskId, payloadJson);
+        Notification notification = create(NotificationKind.AWAITING_REVIEW, threadId, taskId, payloadJson);
+        events.publishEvent(new GateParkedEvent(notification.id(), taskId, payloadJson));
+        return notification;
     }
 
     /** Headless run hit a conflict / question / push rejection and

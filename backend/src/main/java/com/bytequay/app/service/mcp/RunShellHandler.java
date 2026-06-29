@@ -121,6 +121,16 @@ public class RunShellHandler
         CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, NAME, ctx.agentKey());
         decisionFuture.whenComplete((decision, ex) ->
                 completeRunShell(deferred, id, decision, ex, worktree, command));
+        // Auto-approve mode runs the command without a prompt. The final PR
+        // merge is a parked proposal, never run_shell, so nothing here can
+        // bypass it. ponytail: the run then executes inline on this thread;
+        // fine for the short git/grep commands run_shell carries (long builds
+        // go through the un-gated run_checks) — move to an executor if a slow
+        // command starves the request pool.
+        if (ctx.taskId() != null && taskStore.isAutoApprove(ctx.taskId())) {
+            gate.decide(callId, PermissionDecision.ALLOW);
+            return;
+        }
         try {
             threads.notifyPermissionRequested(ctx.threadId(), ctx.agentKey(), callId, NAME,
                     "cmd: " + truncate(command, PROMPT_SUMMARY_CAP));

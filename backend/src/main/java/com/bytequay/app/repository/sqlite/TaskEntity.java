@@ -104,6 +104,9 @@ class TaskEntity
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Column(name = "auto_approve", nullable = false)
+    private boolean autoApprove;
+
     @Column(name = "pushed_at_ms")
     private Long pushedAtMs;
 
@@ -226,6 +229,9 @@ class TaskEntity
 
     String getErrorMessage() { return errorMessage; }
     void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+
+    boolean isAutoApprove() { return autoApprove; }
+    void setAutoApprove(boolean autoApprove) { this.autoApprove = autoApprove; }
 
     Long getPushedAtMs() { return pushedAtMs; }
     void setPushedAtMs(Long pushedAtMs) { this.pushedAtMs = pushedAtMs; }

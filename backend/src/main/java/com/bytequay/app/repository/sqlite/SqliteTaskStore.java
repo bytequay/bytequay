@@ -359,6 +359,19 @@ class SqliteTaskStore
         return !activeTasksForThread(threadId).isEmpty();
     }
 
+    @Override
+    public boolean isAutoApprove(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::isAutoApprove).orElse(false);
+    }
+
+    @Override
+    @Transactional
+    public void setAutoApprove(String taskId, boolean enabled)
+    {
+        mutate(taskId, entity -> entity.setAutoApprove(enabled));
+    }
+
     /** Non-terminal tasks for a thread (runtime status not COMPLETED/ERRORED
      *  <em>and</em> dev-lifecycle phase not COMPLETED), latest seq first.
      *  The phase guard matters because a remote merge advances phase to

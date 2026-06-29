@@ -251,6 +251,22 @@ public interface TaskStore
      *  intent-clearer than materialising the task just to test presence. */
     boolean hasActiveTask(String threadId);
 
+    /** Whether the task is in auto-approve mode: its parked publish gates and
+     *  in-turn tool prompts are approved automatically (the final PR merge is
+     *  the one exception). False for an unknown id; default off. No-op-ish
+     *  default for test stores; the SQLite store overrides with the column. */
+    default boolean isAutoApprove(String taskId)
+    {
+        return false;
+    }
+
+    /** Flip the task's auto-approve mode. Persisted (load-set-save like
+     *  {@link #markPushed}) so it survives a restart. No-op default for test
+     *  stores; the SQLite store overrides. */
+    default void setAutoApprove(String taskId, boolean enabled)
+    {
+    }
+
     /** Latest task on a thread by seq, regardless of status. Used by
      *  the resume-from-terminal path: a COMPLETED thread's most-recent
      *  task is also terminal, so {@link #findActiveTaskForThread}

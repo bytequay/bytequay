@@ -62,6 +62,23 @@ export function TaskBrainRoute({
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Per-task auto-approve mode (default off); loaded once, toggled from the
+  // brain page's top bar.
+  const [autoApprove, setAutoApprove] = useState(false);
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.getTaskAutoApprove?.(threadId, taskId)
+      .then(r => setAutoApprove(r.enabled))
+      .catch(() => { /* default off */ });
+  }, [threadId, taskId]);
+  const toggleAutoApprove = () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const next = !autoApprove;
+    setAutoApprove(next);
+    bridge?.setTaskAutoApprove?.(threadId, taskId, next)
+      .then(r => setAutoApprove(r.enabled))
+      .catch(() => setAutoApprove(!next));
+  };
   // Track the brain's answer count so the "working" indicator clears only
   // when a new response actually lands (not when the user's own message
   // persists into the feed).
@@ -184,6 +201,8 @@ export function TaskBrainRoute({
     <TaskBrainPage
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
       pr={pr}
+      autoApprove={autoApprove}
+      onToggleAutoApprove={toggleAutoApprove}
       sidebar={sidebar}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Ask the brain, or steer the task…' }}

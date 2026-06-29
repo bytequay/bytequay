@@ -3726,6 +3726,18 @@ export type Bridge = {
     taskId: string,
     name: string,
   ) => Promise<WorkUnitTaskDto>;
+  /** Read the task's auto-approve mode (gates + tool prompts auto-approve,
+   *  except the final PR merge). */
+  getTaskAutoApprove: (
+    threadId: string,
+    taskId: string,
+  ) => Promise<{ enabled: boolean }>;
+  /** Flip the task's auto-approve mode; returns the persisted value. */
+  setTaskAutoApprove: (
+    threadId: string,
+    taskId: string,
+    enabled: boolean,
+  ) => Promise<{ enabled: boolean }>;
   /** Trunk-scope counterpart of {@link sendTaskMessage} — drives the
    *  trunk planning agent for cross-task talk. The persisted row lands
    *  with {@code task_id = null} so it filters into the trunk slice

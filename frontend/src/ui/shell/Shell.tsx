@@ -12,12 +12,19 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
+import ResizeHandle from '../../ResizeHandle';
+import { useSidebarWidth } from './useSidebarWidth';
 
 /**
  * The V3 outer shell: a 2-column grid of sidebar + main, used by every
  * surface. `collapsed` narrows the sidebar to the 48px toggle rail
  * (full-page views auto-collapse it); the sidebar markup is unchanged —
  * the collapse is driven entirely by this class.
+ *
+ * When the sidebar is shown (not collapsed, not full-width) its width is
+ * user-draggable: the column is sized from {@link useSidebarWidth} and an
+ * absolutely-positioned {@link ResizeHandle} rides the sidebar's right
+ * edge. Collapsed / full-width fall back to the class-driven columns.
  *
  * Children are the `<Sidebar>` and `<Main>` for the surface, in that
  * order. `.shell` is the single V3 styling root, so all V3 structural
@@ -31,8 +38,26 @@ export function Shell({ collapsed = false, fullWidth = false, children }: {
   fullWidth?: boolean;
   children: ReactNode;
 }) {
+  const { sidebarWidth, shellRef, onResize } = useSidebarWidth();
   const classes = ['shell'];
   if (fullWidth) classes.push('full-width');
   else if (collapsed) classes.push('sidebar-collapsed');
-  return <div className={classes.join(' ')}>{children}</div>;
+  const resizable = !fullWidth && !collapsed;
+  return (
+    <div
+      ref={shellRef}
+      className={classes.join(' ')}
+      style={resizable ? { gridTemplateColumns: `${sidebarWidth}px minmax(0, 1fr)` } : undefined}
+    >
+      {children}
+      {resizable && (
+        <ResizeHandle
+          className="sidebar-resize"
+          ariaLabel="Resize the sidebar"
+          onResize={onResize}
+          style={{ left: sidebarWidth - 2 }}
+        />
+      )}
+    </div>
+  );
 }

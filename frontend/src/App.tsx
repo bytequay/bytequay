@@ -692,6 +692,9 @@ function App() {
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
+            onOpenBrain={() => setNav({
+              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
+            })}
           />
         )}
         {nav.view === 'notifications' && (

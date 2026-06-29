@@ -55,7 +55,7 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * comment threads.
  */
 export function StageDetailRoute({
-  threadId, taskId, stageId, onOpenCode, onOpenStage, onBack,
+  threadId, taskId, stageId, onOpenCode, onOpenStage, onBack, onOpenBrain,
 }: {
   threadId: string;
   taskId: string;
@@ -67,6 +67,8 @@ export function StageDetailRoute({
   onOpenStage?: (stageId: string) => void;
   /** Navigate back to the thread trunk (the task sidebar's back button). */
   onBack?: () => void;
+  /** Navigate to this task's brain page — the live plan's Root node. */
+  onOpenBrain?: () => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
   const shipProposal = usePendingShipProposal(threadId, taskId);
@@ -332,6 +334,7 @@ export function StageDetailRoute({
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr !== null ? openPr : undefined}
+      onOpenBrain={onOpenBrain}
     />
   );
 

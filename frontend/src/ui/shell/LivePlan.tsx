@@ -46,17 +46,20 @@ function PlanNode({ node, onClick, small }: {
  * and the parallel CI-Fix ‖ Comments split. Clicking a node navigates to its
  * stage (or the changes / PR surface for the Push / Merge milestones).
  */
-export function LivePlan({ nodes, onOpenStage, onOpenCode, onOpenPr }: {
+export function LivePlan({ nodes, onOpenStage, onOpenCode, onOpenPr, onOpenBrain }: {
   nodes: LivePlanNode[];
   onOpenStage?: (stageId: string) => void;
   onOpenCode?: () => void;
   onOpenPr?: () => void;
+  /** Navigate to the task's brain page — the Root node uses this. */
+  onOpenBrain?: () => void;
 }) {
   const click = (node: LivePlanNode) => () => {
     switch (node.nav.kind) {
       case 'stage': onOpenStage?.(node.nav.stageId); break;
       case 'code': onOpenCode?.(); break;
       case 'pr': onOpenPr?.(); break;
+      case 'brain': onOpenBrain?.(); break;
       default: break;
     }
   };

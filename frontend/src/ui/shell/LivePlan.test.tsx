@@ -43,7 +43,9 @@ function model(viewedStageId?: string) {
 describe('LivePlan', () => {
   it('renders every lifecycle node with its status class', () => {
     const { container } = render(<LivePlan nodes={model()} />);
-    expect(screen.getByText('Plan').closest('.plan-node')?.className).toContain('done');
+    // The first node is Root (the brain/root conversation) — Plan as a
+    // drill-in stage is gone. A closed PlanStage reads as 'done'.
+    expect(screen.getByText('Root').closest('.plan-node')?.className).toContain('done');
     expect(screen.getByText('CI Fix').closest('.plan-node')?.className).toContain('running');
     expect(screen.getByText('Comments').closest('.plan-node')?.className).toContain('future');
     // Push milestone shows the PR number.
@@ -57,6 +59,13 @@ describe('LivePlan', () => {
     render(<LivePlan nodes={model()} onOpenStage={onOpenStage} />);
     fireEvent.click(screen.getByText('CI Fix'));
     expect(onOpenStage).toHaveBeenCalledWith('CI_FIXING_STAGE-id');
+  });
+
+  it('navigates to the brain page when the Root node is clicked', () => {
+    const onOpenBrain = vi.fn();
+    render(<LivePlan nodes={model()} onOpenBrain={onOpenBrain} />);
+    fireEvent.click(screen.getByText('Root'));
+    expect(onOpenBrain).toHaveBeenCalledOnce();
   });
 
   it('routes the Push sub-node to the Development conversation', () => {

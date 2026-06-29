@@ -25,6 +25,7 @@ export type LivePlanNav =
   | { kind: 'stage'; stageId: string }
   | { kind: 'code' }
   | { kind: 'pr' }
+  | { kind: 'brain' }
   | { kind: 'none' };
 
 export type LivePlanNode = {
@@ -47,6 +48,9 @@ export type LivePlanInput = {
   prStatus?: 'open' | 'draft' | 'queued' | 'merged' | null;
   /** The stage currently open on screen, highlighted as the active view. */
   viewedStageId?: string | null;
+  /** True on the brain page — marks the Root node as the active view (the
+   *  brain/root conversation, not any stage). */
+  viewingBrain?: boolean;
 };
 
 /** Status for a stage-backed node: closed → done, active → running (or
@@ -94,7 +98,7 @@ function iterMeta(stage: StageDto | undefined): string | undefined {
  * matching lazy stage instantiation.
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
-  const { stages, subStages, task, prStatus = null, viewedStageId = null } = input;
+  const { stages, subStages, task, prStatus = null, viewedStageId = null, viewingBrain = false } = input;
   const byType = (type: StageType): StageDto | undefined => stages.find(s => s.type === type);
   const isViewed = (stage: StageDto | undefined): boolean =>
     stage !== undefined && stage.id === viewedStageId;
@@ -108,7 +112,11 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const comments = byType('REVIEW_MONITOR_STAGE');
   const cleanup = byType('CLEANUP_STAGE');
 
-  const planStatus = stageStatus(plan, true);
+  // The Root node stands in for the plan "stage" — which is really the
+  // brain/root conversation, not a drill-in stage. It tracks the plan's
+  // progress (planning while the PlanStage is active, done once approved)
+  // but navigates back to the brain page instead of a stage page.
+  const rootStatus: LivePlanStatus = plan === undefined ? 'planning' : stageStatus(plan, true);
   const devStatus = stageStatus(dev);
   const reviewStatus = stageStatus(review);
   const ciStatus = monitorStatus(ciFix, task.currentPhase === 'CI_FIXING');
@@ -132,9 +140,9 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
 
   const nodes: LivePlanNode[] = [
     {
-      key: 'plan', label: 'Plan', status: planStatus, glyph: glyphFor(planStatus),
-      meta: planStatus === 'done' ? 'done' : undefined,
-      placement: 'full', activeView: isViewed(plan), nav: stageNav(plan),
+      key: 'root', label: 'Root', status: rootStatus, glyph: glyphFor(rootStatus),
+      meta: rootStatus === 'done' ? 'plan approved' : 'planning',
+      placement: 'full', activeView: viewingBrain, nav: { kind: 'brain' },
     },
     {
       key: 'dev', label: 'Development', status: devStatus, glyph: glyphFor(devStatus),

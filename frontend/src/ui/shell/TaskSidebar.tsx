@@ -24,7 +24,7 @@ import type { LivePlanNode } from './livePlanModel';
  * actions render at the bottom.
  */
 export function TaskSidebar({
-  task, threadLabel, nodes, onBack, onOpenStage, onOpenCode, onOpenPr, actions,
+  task, threadLabel, nodes, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, actions,
 }: {
   task: {
     taskNumber: number; title: string; branch: string;
@@ -36,6 +36,8 @@ export function TaskSidebar({
   onOpenStage?: (stageId: string) => void;
   onOpenCode?: () => void;
   onOpenPr?: () => void;
+  /** Navigate to the task's brain page — the Root node in the live plan. */
+  onOpenBrain?: () => void;
   actions?: ReactNode;
 }) {
   return (
@@ -58,7 +60,13 @@ export function TaskSidebar({
         {task.metaLine !== undefined && <div className="ti-meta">{task.metaLine}</div>}
       </div>
       <div className="plan-section-h"><span>Live plan</span><span className="live-dot" aria-hidden /></div>
-      <LivePlan nodes={nodes} onOpenStage={onOpenStage} onOpenCode={onOpenCode} onOpenPr={onOpenPr} />
+      <LivePlan
+        nodes={nodes}
+        onOpenStage={onOpenStage}
+        onOpenCode={onOpenCode}
+        onOpenPr={onOpenPr}
+        onOpenBrain={onOpenBrain}
+      />
       {actions !== undefined && <div className="panel-actions">{actions}</div>}
     </aside>
   );

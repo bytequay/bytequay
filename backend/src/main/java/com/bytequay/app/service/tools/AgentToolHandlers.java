@@ -589,10 +589,12 @@ public class AgentToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome runChecks(RunChecksArgs args, ToolCall call)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        Optional<Task> active = call.taskId() == null
+                ? Optional.empty()
+                : taskStore.findTaskById(call.taskId());
         if (active.isEmpty() || active.get().worktreePath() == null
                 || active.get().worktreePath().isBlank()) {
-            return ToolOutcome.Completed.error("run_checks requires an active task with a worktree");
+            return ToolOutcome.Completed.error("run_checks requires a task with a worktree");
         }
         Path worktree = Path.of(active.get().worktreePath());
         Optional<TestRunnerDetector.Detected> detected = testRunnerDetector.detect(worktree);

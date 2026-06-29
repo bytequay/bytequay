@@ -71,7 +71,12 @@ public class WorktreeEditStep
         if (!FILE_EDIT_TOOLS.contains(ctx.toolName())) {
             return ApprovalStepResult.cont();
         }
-        Task active = taskStore.findActiveTaskForThread(ctx.threadId()).orElse(null);
+        // Resolve the task from the turn's stamped task_id — NOT a thread-level
+        // "active task" guess, which excluded shipped (IN_REVIEW) tasks and so
+        // never auto-approved a CI-fix stage's edits to its own worktree.
+        Task active = ctx.taskId() == null
+                ? null
+                : taskStore.findTaskById(ctx.taskId()).orElse(null);
         if (active == null || !taskStore.isAcceptEdits(active.id())) {
             return ApprovalStepResult.cont();
         }

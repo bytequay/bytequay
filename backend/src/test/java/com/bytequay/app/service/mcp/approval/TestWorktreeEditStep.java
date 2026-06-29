@@ -84,15 +84,17 @@ class TestWorktreeEditStep
 
     private void arm(boolean acceptEdits)
     {
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(task()));
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task()));
         when(taskStore.isAcceptEdits("task-1")).thenReturn(acceptEdits);
     }
 
     private ApprovalContext editCtx(String filePath)
     {
         JsonNode input = mapper.createObjectNode().put("file_path", filePath);
+        // The gate resolves the task from the turn's stamped task_id (task-1),
+        // not a thread-level "active task" guess.
         return new ApprovalContext(
-                "thread-1", JsonNodeFactory.instance.numberNode(1),
+                "thread-1", "task-1", JsonNodeFactory.instance.numberNode(1),
                 "Edit", "call-1", input, Set.of());
     }
 

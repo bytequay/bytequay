@@ -27,12 +27,26 @@ import java.util.Set;
  */
 public record ApprovalContext(
         String threadId,
+        /** The task this turn is bound to (the running turn's stamped task_id;
+         *  null for a trunk turn). Authoritative — gates use this instead of
+         *  guessing the thread's "active task". */
+        String taskId,
         JsonNode id,
         String toolName,
         String callId,
         JsonNode toolInput,
         Set<SecurityType> grants)
 {
+    /** A context with no task bound to the turn (a trunk turn, or a caller
+     *  that doesn't exercise task-scoped gating). Task-scoped steps fail
+     *  closed when {@code taskId} is null, so this is the safe default. */
+    public ApprovalContext(
+            String threadId, JsonNode id, String toolName, String callId,
+            JsonNode toolInput, Set<SecurityType> grants)
+    {
+        this(threadId, null, id, toolName, callId, toolInput, grants);
+    }
+
     /** Claude Code prefixes MCP tool names with {@code mcp__<server>__};
      *  the registry and gating logic key off the short name. */
     private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";

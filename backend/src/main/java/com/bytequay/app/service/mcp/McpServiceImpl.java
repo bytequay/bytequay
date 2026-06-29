@@ -327,7 +327,9 @@ public class McpServiceImpl
             deferred.setResult(responses.error(id, -32602, "no handler for tool: " + name));
             return;
         }
-        handler.handle(new ToolDispatchContext(threadId, id, params, role, grants, spec), deferred);
+        handler.handle(
+                new ToolDispatchContext(threadId, scope.taskId(), id, params, role, grants, spec),
+                deferred);
     }
 
     /** Adapt a registry handler's lane-neutral {@link ToolOutcome} to

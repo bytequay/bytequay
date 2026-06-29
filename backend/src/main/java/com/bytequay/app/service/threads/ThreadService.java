@@ -1352,7 +1352,7 @@ public class ThreadService
         // (the one users hit) the permission-prompt + tool-budget path
         // that fires when the trunk agent calls a gated MCP tool like
         // list_skills.
-        return taskStore.findActiveTaskForThread(threadId).isPresent()
+        return taskStore.hasActiveTask(threadId)
                 ? registry.getOrCreate(thread)
                 : registry.getOrCreateTrunk(thread);
     }

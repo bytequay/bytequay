@@ -22,7 +22,6 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,7 +51,7 @@ class TestParkGuardStep
     {
         Task awaitingReview = task(TaskStatus.AWAITING_REVIEW);
         when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(awaitingReview));
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.empty());
+        when(taskStore.hasActiveTask("thread-1")).thenReturn(false);
 
         assertThat(step.apply(ctx("Read")))
                 .isInstanceOf(ApprovalStepResult.Resolve.class);
@@ -64,9 +63,8 @@ class TestParkGuardStep
         // A parked-for-review task exists, but another task is active —
         // the thread isn't blocked, so tool calls flow on.
         Task awaitingReview = task(TaskStatus.AWAITING_REVIEW);
-        Task active = task(TaskStatus.RUNNING);
         when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(awaitingReview));
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(active));
+        when(taskStore.hasActiveTask("thread-1")).thenReturn(true);
 
         assertThat(step.apply(ctx("Read")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
@@ -76,9 +74,8 @@ class TestParkGuardStep
     void fallsThroughWhenNothingIsParked()
     {
         Task running = task(TaskStatus.RUNNING);
-        Task active = task(TaskStatus.RUNNING);
         when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(running));
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(active));
+        when(taskStore.hasActiveTask("thread-1")).thenReturn(true);
 
         assertThat(step.apply(ctx("Read")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);

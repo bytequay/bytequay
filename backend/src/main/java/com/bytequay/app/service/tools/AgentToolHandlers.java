@@ -699,7 +699,7 @@ public class AgentToolHandlers
         // brand-new thread, OR revival after the previous chain completed).
         // See workspace-thread-task-design.md §"Trunk re-enters when the
         // chain runs dry."
-        if (taskStore.findActiveTaskForThread(threadId).isPresent()) {
+        if (taskStore.hasActiveTask(threadId)) {
             return ToolOutcome.Completed.error(
                     "thread has an active task — use queue_task to line a new task up "
                             + "behind it, or next_task / ship_task to chain off the current "

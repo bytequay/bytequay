@@ -387,23 +387,33 @@ class SqliteTaskStore
     @Override
     public Optional<Task> findActiveTaskForThread(String threadId)
     {
-        // Non-terminal = anything that isn't COMPLETED or ERRORED.
-        // Listed seq-desc so the first row is the latest active task.
+        return activeTasksForThread(threadId).stream().findFirst();
+    }
+
+    @Override
+    public boolean hasActiveTask(String threadId)
+    {
+        return !activeTasksForThread(threadId).isEmpty();
+    }
+
+    /** Non-terminal tasks for a thread (runtime status not COMPLETED/ERRORED
+     *  <em>and</em> dev-lifecycle phase not COMPLETED), latest seq first.
+     *  The phase guard matters because a remote merge advances phase to
+     *  COMPLETED without flipping the runtime status off IDLE — such a task
+     *  is done, not active, and reading status alone would let it masquerade
+     *  as the thread's active task. */
+    private List<Task> activeTasksForThread(String threadId)
+    {
         List<String> active = List.of(
                 TaskStatus.PENDING.name(),
                 TaskStatus.RUNNING.name(),
                 TaskStatus.AWAITING.name(),
                 TaskStatus.IDLE.name());
-        // Also exclude tasks whose dev-lifecycle phase is terminal even when
-        // the runtime status lags behind it — a remote merge advances phase
-        // to COMPLETED without flipping status off IDLE, and such a task is
-        // done, not active. Reading status alone would let it masquerade as
-        // the thread's active task and pull trunk turns into its lane.
         return tasks.findByThreadIdAndStatusInOrderBySeqDesc(threadId, active)
                 .stream()
                 .map(this::toTask)
                 .filter(t -> t.phase() != TaskPhase.COMPLETED)
-                .findFirst();
+                .toList();
     }
 
     @Override

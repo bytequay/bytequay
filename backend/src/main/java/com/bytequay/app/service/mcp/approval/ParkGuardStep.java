@@ -78,7 +78,7 @@ public class ParkGuardStep
         if (tasks.stream().anyMatch(t -> t.status() == TaskStatus.NEEDS_ATTENTION)) {
             return true;
         }
-        return taskStore.findActiveTaskForThread(threadId).isEmpty()
+        return !taskStore.hasActiveTask(threadId)
                 && tasks.stream().anyMatch(t -> t.status() == TaskStatus.AWAITING_REVIEW);
     }
 }

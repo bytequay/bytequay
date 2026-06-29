@@ -628,7 +628,7 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "resolve the " + openComments + " open review comment(s) before shipping");
         }
-        if (taskStore.findActiveTaskForThread(parked.threadId()).isPresent()) {
+        if (taskStore.hasActiveTask(parked.threadId())) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "thread " + parked.threadId() + " already has an active successor");
         }

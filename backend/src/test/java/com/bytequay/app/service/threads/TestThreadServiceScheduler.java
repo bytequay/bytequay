@@ -219,7 +219,7 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class));
 
-        String turnId = service.send(thread.id(), "next");
+        String turnId = service.send(thread.id(), null, "next");
 
         assertThat(turnId).isEqualTo("turn-1");
         assertThat(scheduler.requests).containsExactly(new QueuedRequest(thread, "next"));
@@ -229,11 +229,11 @@ class TestThreadServiceScheduler
     @Test
     void followUpSendBindsTheTurnToTheLatestTaskWhenNoTaskIsActive()
     {
-        // The task-window composer sends through /messages while the task
-        // is parked at AWAITING_REVIEW: findActiveTaskForThread is empty but
-        // the task still exists. send() must bind the turn to that task
-        // (active-or-latest) so the row lands in the task's slice — not as a
-        // task_id = null trunk row that leaks into the trunk conversation.
+        // The task-window composer sends through /messages with no explicit
+        // taskId while the task is parked at AWAITING_REVIEW. send() must fall
+        // back to the thread's latest task so the row lands in the task's
+        // slice — not as a task_id = null trunk row that leaks into the trunk
+        // conversation.
         Thread thread = thread();
         InMemoryTaskStore store = new InMemoryTaskStore();
         store.saveThread(thread);
@@ -258,7 +258,7 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class));
 
-        service.send(thread.id(), "keep going");
+        service.send(thread.id(), null, "keep going");
 
         assertThat(scheduler.taskTurnTaskIds).containsExactly("task-9");
     }
@@ -785,11 +785,11 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class));
 
-        service.listWorkingChanges(thread.id());
-        service.getWorkingDiff(thread.id(), "src/App.java");
-        service.listTaskCommits(thread.id());
-        service.listCommitFiles(thread.id(), "abc123");
-        service.getCommitDiff(thread.id(), "abc123", "src/App.java");
+        service.listWorkingChanges(thread.id(), null);
+        service.getWorkingDiff(thread.id(), null, "src/App.java");
+        service.listTaskCommits(thread.id(), null);
+        service.listCommitFiles(thread.id(), null, "abc123");
+        service.getCommitDiff(thread.id(), null, "abc123", "src/App.java");
 
         Path expected = Path.of(active.agentCwd());
         assertThat(git.workingTreeFilesPaths).containsExactly(expected);
@@ -829,8 +829,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class));
 
-        assertThat(service.listTaskCommits(thread.id())).isEmpty();
-        assertThat(service.getWorkingDiff(thread.id(), "src/App.java")).isEmpty();
+        assertThat(service.listTaskCommits(thread.id(), null)).isEmpty();
+        assertThat(service.getWorkingDiff(thread.id(), null, "src/App.java")).isEmpty();
         // git was never invoked against the missing directory.
         assertThat(git.listCommitsAheadPaths).isEmpty();
         assertThat(git.workingTreeDiffPaths).isEmpty();
@@ -871,7 +871,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class));
 
-        List<ThreadService.TaskDiffFile> diff = service.taskCumulativeDiff(thread.id());
+        List<ThreadService.TaskDiffFile> diff = service.taskCumulativeDiff(thread.id(), null);
 
         assertThat(diff).hasSize(2);
         assertThat(diff.get(0))
@@ -917,7 +917,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class));
 
-        assertThat(service.taskCumulativeDiff(thread.id())).isEmpty();
+        assertThat(service.taskCumulativeDiff(thread.id(), null)).isEmpty();
     }
 
     private record WorktreeCreateRequest(Path repoRoot, String sessionId, String title) {}

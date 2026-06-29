@@ -487,9 +487,11 @@ public class ThreadController
     /** GET /api/threads/{id}/working-changes — paths the AI session has
      *  modified but not yet committed. Drives the Files tab. */
     @GetMapping("/{id}/working-changes")
-    public List<GitRunner.WorkingTreeFile> workingChanges(@PathVariable String id)
+    public List<GitRunner.WorkingTreeFile> workingChanges(
+            @PathVariable String id,
+            @RequestParam(required = false) String taskId)
     {
-        return threads.listWorkingChanges(id);
+        return threads.listWorkingChanges(id, taskId);
     }
 
     /** GET /api/threads/{id}/working-diff?path=... — unified diff for
@@ -497,17 +499,20 @@ public class ThreadController
     @GetMapping("/{id}/working-diff")
     public Map<String, String> workingDiff(
             @PathVariable String id,
+            @RequestParam(required = false) String taskId,
             @RequestParam String path)
     {
-        return ImmutableMap.of("diff", threads.getWorkingDiff(id, path));
+        return ImmutableMap.of("diff", threads.getWorkingDiff(id, taskId, path));
     }
 
     /** GET /api/threads/{id}/commits — commits authored since the thread
      *  was created. Drives the Commits tab. */
     @GetMapping("/{id}/commits")
-    public List<GitRunner.CommitEntry> commits(@PathVariable String id)
+    public List<GitRunner.CommitEntry> commits(
+            @PathVariable String id,
+            @RequestParam(required = false) String taskId)
     {
-        return threads.listTaskCommits(id);
+        return threads.listTaskCommits(id, taskId);
     }
 
     /** GET /api/threads/{id}/commits/{sha}/files — per-file rollup for
@@ -515,9 +520,10 @@ public class ThreadController
     @GetMapping("/{id}/commits/{sha}/files")
     public List<GitRunner.CommitFileChange> commitFiles(
             @PathVariable String id,
+            @RequestParam(required = false) String taskId,
             @PathVariable String sha)
     {
-        return threads.listCommitFiles(id, sha);
+        return threads.listCommitFiles(id, taskId, sha);
     }
 
     /** GET /api/threads/{id}/commits/{sha}/diff?path=... — unified diff
@@ -525,19 +531,22 @@ public class ThreadController
     @GetMapping("/{id}/commits/{sha}/diff")
     public Map<String, String> commitDiff(
             @PathVariable String id,
+            @RequestParam(required = false) String taskId,
             @PathVariable String sha,
             @RequestParam String path)
     {
-        return ImmutableMap.of("diff", threads.getCommitDiff(id, sha, path));
+        return ImmutableMap.of("diff", threads.getCommitDiff(id, taskId, sha, path));
     }
 
     /** GET /api/threads/{id}/cumulative-diff — the task's full diff
      *  against its base branch, one {@code DiffFileDto}-shaped row per
      *  file, so the frontend reuses the PR diff component. */
     @GetMapping("/{id}/cumulative-diff")
-    public List<ThreadService.TaskDiffFile> cumulativeDiff(@PathVariable String id)
+    public List<ThreadService.TaskDiffFile> cumulativeDiff(
+            @PathVariable String id,
+            @RequestParam(required = false) String taskId)
     {
-        return threads.taskCumulativeDiff(id);
+        return threads.taskCumulativeDiff(id, taskId);
     }
 
     /** GET /api/threads/{id}/commits/{sha}/diff-files — one commit's
@@ -545,9 +554,10 @@ public class ThreadController
     @GetMapping("/{id}/commits/{sha}/diff-files")
     public List<ThreadService.TaskDiffFile> commitDiffFiles(
             @PathVariable String id,
+            @RequestParam(required = false) String taskId,
             @PathVariable String sha)
     {
-        return threads.taskCommitDiffFiles(id, sha);
+        return threads.taskCommitDiffFiles(id, taskId, sha);
     }
 
     /** POST /api/threads/{id}/messages — send a follow-up turn. */
@@ -558,7 +568,7 @@ public class ThreadController
         if (body.input() == null || body.input().isBlank()) {
             throw new IllegalArgumentException("input is required");
         }
-        String turnId = threads.send(id, body.input());
+        String turnId = threads.send(id, body.taskId(), body.input());
         return ImmutableMap.of("status", "queued", "turnId", turnId);
     }
 
@@ -785,7 +795,7 @@ public class ThreadController
              *  the brain validates or revises it instead of planning cold. */
             JsonNode trunkPlan) {}
 
-    public record SendBody(String input) {}
+    public record SendBody(String taskId, String input) {}
 
     public record DecisionBody(
             String callId,

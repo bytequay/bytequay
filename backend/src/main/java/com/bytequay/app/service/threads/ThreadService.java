@@ -666,23 +666,19 @@ public class ThreadService
      *
      *  <p>This is the task-altitude composer's path ({@code POST
      *  /messages}), distinct from the trunk's {@link #sendTrunk}. The
-     *  turn is bound to the thread's task resolved as active-or-latest —
-     *  the same resolution {@link ThreadRegistry#getOrCreate} uses to
-     *  pick which task's session handles the turn. Binding here rather
-     *  than letting the scheduler re-derive from {@code
-     *  Thread.activeTask()} is what keeps a task-window turn out of the
-     *  trunk slice when the task is parked / awaiting review / phase-
-     *  complete: in those states the active-task projection is null, so
-     *  the old path stamped the row {@code task_id = null} and the
-     *  conversation leaked into the trunk planning view. */
-    public String send(String threadId, String input)
+     *  surface passes the {@code taskId} it is scoped to so the turn binds
+     *  to exactly that task; when omitted it falls back to the thread's
+     *  latest task. Binding the row to a concrete task keeps a task-window
+     *  turn out of the trunk slice even when the task is parked / awaiting
+     *  review / phase-complete — states in which a thread-level "active
+     *  task" guess would be null and leak the row into the trunk view. */
+    public String send(String threadId, String taskId, String input)
     {
         Thread thread = requireTask(threadId);
-        String taskId = taskStore.findActiveTaskForThread(threadId)
-                .or(() -> taskStore.findLatestTaskForThread(threadId))
+        String resolved = resolveSurfaceTask(threadId, taskId)
                 .map(Task::id)
                 .orElse(null);
-        return scheduler.enqueueTaskTurn(thread, input, taskId);
+        return scheduler.enqueueTaskTurn(thread, input, resolved);
     }
 
     /** Trunk-scope counterpart of {@link #send} — drives the trunk
@@ -929,14 +925,14 @@ public class ThreadService
 
     /** Files the AI session has modified but not yet committed —
      *  feeds the "Files" tab. Mirrors {@code git status --porcelain}. */
-    public List<GitRunner.WorkingTreeFile> listWorkingChanges(String threadId)
+    public List<GitRunner.WorkingTreeFile> listWorkingChanges(String threadId, String taskId)
     {
         Thread thread = requireTask(threadId);
         // Hide the app's own per-worktree hook dir — it's ByteQuay
         // infrastructure (the BQ-Task commit-trailer hook), not the
         // user's work, so it has no business in the Changed-files list.
         return runGit("list working-tree changes for " + threadId,
-                () -> git.workingTreeFiles(agentCwd(thread)).stream()
+                () -> git.workingTreeFiles(agentCwd(thread, taskId)).stream()
                         .filter(f -> !isHookDirPath(f.path()))
                         .toList());
     }
@@ -951,11 +947,11 @@ public class ThreadService
     }
 
     /** Unified diff for one uncommitted file. */
-    public String getWorkingDiff(String threadId, String path)
+    public String getWorkingDiff(String threadId, String taskId, String path)
     {
         requireNonNull(path, "path is null");
         Thread thread = requireTask(threadId);
-        Optional<Path> cwd = existingAgentCwd(thread);
+        Optional<Path> cwd = existingAgentCwd(thread, taskId);
         if (cwd.isEmpty()) {
             return "";
         }
@@ -968,23 +964,21 @@ public class ThreadService
      *  the base history the worktree was cut from — a time-based filter
      *  over-includes commits that landed on the base branch during the
      *  task's lifetime (they're recent but aren't the task's). */
-    public List<GitRunner.CommitEntry> listTaskCommits(String threadId)
+    public List<GitRunner.CommitEntry> listTaskCommits(String threadId, String taskId)
     {
         Thread thread = requireTask(threadId);
+        Task task = resolveSurfaceTask(threadId, taskId).orElse(null);
         // A merged task's worktree gets reaped (deleted) by the lifecycle
         // driver, so the dir can be gone while the task row lives on. Fall
         // back to the PR's commits on GitHub so a merged task stays viewable
         // instead of showing an empty Commits tab.
-        Optional<Path> cwd = existingAgentCwd(thread);
+        Optional<Path> cwd = existingAgentCwd(thread, taskId);
         if (cwd.isEmpty()) {
-            return taskPrLocator(thread)
+            return taskPrLocator(task)
                     .map(pr -> pullRequests.getPullRequestCommits(pr.repoFullName(), pr.number())
                             .stream().map(ThreadService::toCommitEntry).toList())
                     .orElseGet(List::of);
         }
-        Task task = taskStore.findActiveTaskForThread(threadId)
-                .or(() -> taskStore.findLatestTaskForThread(threadId))
-                .orElse(null);
         return runGit("list commits for " + threadId, () -> {
             String base = taskDiffBase(cwd.get(), task);
             return base == null ? List.<GitRunner.CommitEntry>of()
@@ -1067,22 +1061,22 @@ public class ThreadService
 
     /** Per-file rollup for one commit (path + status + +/-) so the
      *  Commits tab can render a sub-list inside an expanded commit. */
-    public List<GitRunner.CommitFileChange> listCommitFiles(String threadId, String sha)
+    public List<GitRunner.CommitFileChange> listCommitFiles(String threadId, String taskId, String sha)
     {
         requireNonNull(sha, "sha is null");
         Thread thread = requireTask(threadId);
         return runGit("list files for commit " + sha + " (thread " + threadId + ")",
-                () -> git.commitFiles(agentCwd(thread), sha));
+                () -> git.commitFiles(agentCwd(thread, taskId), sha));
     }
 
     /** Unified diff for one file at one commit. */
-    public String getCommitDiff(String threadId, String sha, String path)
+    public String getCommitDiff(String threadId, String taskId, String sha, String path)
     {
         requireNonNull(sha, "sha is null");
         requireNonNull(path, "path is null");
         Thread thread = requireTask(threadId);
         return runGit("diff " + path + " at " + sha + " (thread " + threadId + ")",
-                () -> git.commitFileDiff(agentCwd(thread), sha, path, DIFF_MAX_BYTES));
+                () -> git.commitFileDiff(agentCwd(thread, taskId), sha, path, DIFF_MAX_BYTES));
     }
 
     /**
@@ -1094,20 +1088,18 @@ public class ThreadService
      * range listing reports 0 for those). Empty when the worktree was
      * reaped or no base ref resolves.
      */
-    public List<TaskDiffFile> taskCumulativeDiff(String threadId)
+    public List<TaskDiffFile> taskCumulativeDiff(String threadId, String taskId)
     {
         Thread thread = requireTask(threadId);
-        Optional<Path> cwd = existingAgentCwd(thread);
+        Task task = resolveSurfaceTask(threadId, taskId).orElse(null);
+        Optional<Path> cwd = existingAgentCwd(thread, taskId);
         if (cwd.isEmpty()) {
             // Worktree reaped (PR merged) — serve the PR's full diff from GitHub.
-            return taskPrLocator(thread)
+            return taskPrLocator(task)
                     .map(pr -> toTaskDiffFiles(
                             pullRequests.getPullRequestDiffFiles(pr.repoFullName(), pr.number())))
                     .orElseGet(List::of);
         }
-        Task task = taskStore.findActiveTaskForThread(threadId)
-                .or(() -> taskStore.findLatestTaskForThread(threadId))
-                .orElse(null);
         return runGit("build cumulative diff for " + threadId, () -> {
             String base = taskDiffBase(cwd.get(), task);
             if (base == null) {
@@ -1132,14 +1124,14 @@ public class ThreadService
      * per-file additions/deletions, so those are used directly rather
      * than recounted from the patch. Empty when the worktree was reaped.
      */
-    public List<TaskDiffFile> taskCommitDiffFiles(String threadId, String sha)
+    public List<TaskDiffFile> taskCommitDiffFiles(String threadId, String taskId, String sha)
     {
         requireNonNull(sha, "sha is null");
         Thread thread = requireTask(threadId);
-        Optional<Path> cwd = existingAgentCwd(thread);
+        Optional<Path> cwd = existingAgentCwd(thread, taskId);
         if (cwd.isEmpty()) {
             // Worktree reaped (PR merged) — serve this commit's diff from GitHub.
-            return taskPrLocator(thread)
+            return taskPrLocator(resolveSurfaceTask(threadId, taskId).orElse(null))
                     .map(pr -> toTaskDiffFiles(
                             pullRequests.getCommitDiffFiles(pr.repoFullName(), pr.number(), sha)))
                     .orElseGet(List::of);
@@ -1159,12 +1151,9 @@ public class ThreadService
      *  from the task's {@code linkedPrRef} ({@code owner/repo#number}). Used
      *  to serve a merged task's diff/commits from GitHub once its worktree is
      *  gone. Empty when the task has no linked PR. */
-    private Optional<PrLocator> taskPrLocator(Thread thread)
+    private Optional<PrLocator> taskPrLocator(Task task)
     {
-        Task task = taskStore.findActiveTaskForThread(thread.id())
-                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
-                .orElse(null);
-        if (task == null) {
+        if (task == null || task.linkedPrRef() == null) {
             return Optional.empty();
         }
         return PullRequestRef.parse(task.linkedPrRef())
@@ -1235,42 +1224,39 @@ public class ThreadService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no thread: " + threadId));
     }
 
-    private Path agentCwd(Thread thread)
+    /** The task a thread-scoped read or turn operates on: the explicit
+     *  {@code taskId} the surface passed, else the thread's latest task.
+     *  The latest-task fallback covers the resume-from-terminal path — a
+     *  reopened thread whose work went terminal still has its worktree on
+     *  disk, and the diff / commits surfaces should keep showing what was
+     *  shipped. We never guess a thread-level "active task": with parallel
+     *  tasks per thread the surface knows which one it means. */
+    private Optional<Task> resolveSurfaceTask(String threadId, String taskId)
     {
-        // Prefer the projected activeTask (set by SqliteThreadStore.toThread)
-        // but fall back to a fresh TaskStore lookup. The bridge teardown
-        // means thread.activeTask() can be null on Thread records that
-        // weren't built via the SQLite store (e.g. some in-memory test
-        // doubles); going through TaskStore makes those keep working.
-        //
-        // The final fallback to findLatestTaskForThread covers the
-        // resume-from-terminal path: a COMPLETED thread's latest task
-        // is also terminal so findActiveTaskForThread returns empty,
-        // but the worktree is still on disk and the diff / commits
-        // surfaces should keep working — the user wants to look at
-        // what was shipped, not edit it.
-        Task active = thread.activeTask();
-        if (active == null) {
-            active = taskStore.findActiveTaskForThread(thread.id()).orElse(null);
+        if (taskId != null && !taskId.isBlank()) {
+            return taskStore.findTaskById(taskId);
         }
-        if (active == null) {
-            active = taskStore.findLatestTaskForThread(thread.id()).orElse(null);
-        }
-        if (active == null || active.agentCwd() == null) {
+        return taskStore.findLatestTaskForThread(threadId);
+    }
+
+    private Path agentCwd(Thread thread, String taskId)
+    {
+        Task task = resolveSurfaceTask(thread.id(), taskId).orElse(null);
+        if (task == null || task.agentCwd() == null) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(409),
                     "thread " + thread.id() + " has no task with a working dir");
         }
-        return Path.of(active.agentCwd());
+        return Path.of(task.agentCwd());
     }
 
     /** {@link #agentCwd} narrowed to a directory that still exists. Empty
      *  when the worktree has been reaped (a merged task's worktree is
      *  deleted), so read-only commit/diff surfaces can return nothing
      *  rather than failing on a missing directory. */
-    private Optional<Path> existingAgentCwd(Thread thread)
+    private Optional<Path> existingAgentCwd(Thread thread, String taskId)
     {
-        Path cwd = agentCwd(thread);
+        Path cwd = agentCwd(thread, taskId);
         return Files.isDirectory(cwd) ? Optional.of(cwd) : Optional.empty();
     }
 

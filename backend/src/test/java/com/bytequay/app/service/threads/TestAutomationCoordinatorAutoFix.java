@@ -330,10 +330,11 @@ class TestAutomationCoordinatorAutoFix
     private void wireShippedFailingCi(Task task)
     {
         when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(task));
-        // A shipped task reads its PR's CI state LIVE by ref — not the
-        // dashboard cache — so the loop fires even when the PR was never
-        // synced into the local pull_request table.
-        when(pullRequests.getPullRequestDetail(eq(REPO), eq(PR_NUMBER)))
+        // A shipped task reads its PR's CI state LIVE by ref (a forced
+        // refresh) — NOT the dashboard cache — so the loop fires on the
+        // freshest state even when the PR was never synced into the local
+        // pull_request table.
+        when(pullRequests.refreshPullRequestDetail(eq(REPO), eq(PR_NUMBER)))
                 .thenReturn(liveDetailWithFailingCi());
         when(notificationService.listUnread()).thenReturn(List.of());
         // Deliberately NOT stubbing the dashboard store / prDetailStore /

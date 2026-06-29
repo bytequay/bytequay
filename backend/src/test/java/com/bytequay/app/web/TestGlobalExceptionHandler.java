@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.NotFoundException;
+import com.bytequay.app.web.GlobalExceptionHandler.ErrorResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -53,5 +55,21 @@ class TestGlobalExceptionHandler
         // Body-less: nothing to content-negotiate against the SSE probe's Accept.
         assertThat(response.getBody()).isNull();
         assertThat(response.getHeaders().getFirst(HttpHeaders.ALLOW)).contains("POST");
+    }
+
+    @Test
+    void notFoundBecomesA404CarryingTheMessage()
+    {
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "PUT", "/api/credentials/AI/openai/nope/default");
+        NotFoundException exception = new NotFoundException("no credential for AI/openai/nope");
+
+        ResponseEntity<ErrorResponse> response = handler.handleNotFoundException(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().status()).isEqualTo(HttpStatus.NOT_FOUND.value());
+        assertThat(response.getBody().message()).isEqualTo("no credential for AI/openai/nope");
+        assertThat(response.getBody().path()).isEqualTo("/api/credentials/AI/openai/nope/default");
     }
 }

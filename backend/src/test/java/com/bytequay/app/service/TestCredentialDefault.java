@@ -15,6 +15,7 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
+import com.bytequay.app.domain.NotFoundException;
 import com.bytequay.app.repository.CredentialStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -127,15 +128,16 @@ class TestCredentialDefault
     }
 
     @Test
-    void setDefaultOnMissingInstanceThrows()
+    void setDefaultOnMissingInstanceThrowsNotFound()
     {
         String name = uniqueName("missing");
         service.upsert(CredentialType.AI, name, "personal", "sk-aaa", null, null);
 
-        // Spring wraps IllegalArgumentException from a JPA boundary in
-        // InvalidDataAccessApiUsageException; match the message rather
-        // than the exact type so the test is robust to that wrapping.
+        // NotFoundException (unlike IllegalArgumentException) is not an
+        // exception type Spring's JPA boundary translates, so it
+        // propagates unwrapped for GlobalExceptionHandler to map to 404.
         assertThatThrownBy(() -> service.setDefault(CredentialType.AI, name, "nope"))
+                .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("no credential for AI");
     }
 

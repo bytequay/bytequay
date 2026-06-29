@@ -61,12 +61,16 @@ class TestSqliteIterationStore
 
         assertThat(iterationStore.nextIterationNumber(stage.id())).isEqualTo(1);
 
+        // Unique turn id: the SQLite DB is shared across @SpringBootTest classes and a
+        // literal like "turn-1" collides with rows other suites persist, so findByTurnId
+        // could match a foreign row. Turn ids are globally unique in production.
+        String turnId = "turn-" + UUID.randomUUID();
         UUID iterId = UUID.randomUUID();
         iterationStore.save(TaskStageIteration.opened(
-                iterId, stage.id(), taskId, "turn-1", 1, "red_ci", now));
+                iterId, stage.id(), taskId, turnId, 1, "red_ci", now));
 
         assertThat(iterationStore.findById(iterId)).isPresent();
-        assertThat(iterationStore.findByTurnId("turn-1").map(TaskStageIteration::id)).hasValue(iterId);
+        assertThat(iterationStore.findByTurnId(turnId).map(TaskStageIteration::id)).hasValue(iterId);
         assertThat(iterationStore.nextIterationNumber(stage.id())).isEqualTo(2);
         assertThat(iterationStore.findRecentSummaries(taskId, 5)).isEmpty();
 

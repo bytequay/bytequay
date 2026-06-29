@@ -37,6 +37,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestMergedEvent;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -507,7 +508,7 @@ public class TaskService
             return successor != null ? successor : parked;
         }
         catch (IOException e) {
-            throw new RuntimeException("Ship and continue failed for task " + taskId, e);
+            throw new UncheckedGitException("Ship and continue failed for task " + taskId, e);
         }
         catch (InterruptedException e) {
             java.lang.Thread.currentThread().interrupt();

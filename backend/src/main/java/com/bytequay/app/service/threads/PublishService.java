@@ -32,6 +32,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -1248,7 +1249,7 @@ public class PublishService
             git.push(worktree);
         }
         catch (IOException e) {
-            throw new RuntimeException("git push before open_pr failed: " + e.getMessage(), e);
+            throw new UncheckedGitException("git push before open_pr failed: " + e.getMessage(), e);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();

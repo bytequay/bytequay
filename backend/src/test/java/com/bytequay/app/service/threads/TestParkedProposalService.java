@@ -151,6 +151,39 @@ class TestParkedProposalService
         return taskAt(TaskStatus.RUNNING, null);
     }
 
+    @Test
+    void approvedMidLoopPushKeepsAShippedTaskInReview()
+    {
+        // A shipped task (linked PR) parks a push to land a CI fix; approving
+        // it must NOT complete the task — it is still in the PR / CI-fix loop.
+        // Closing it would let the orphan sweep reap the worktree the loop
+        // needs, dead-ending the autonomous fix.
+        Task task = shippedTask();
+        Notification proposal = proposal();
+        when(tasks.findTaskById(task.id())).thenReturn(Optional.of(task));
+        when(notifications.finishResolution(proposal.id())).thenReturn(true);
+
+        service.finishApproved(proposal, /* taskAlreadyAdvanced */ false);
+
+        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
+        verify(tasks).saveTask(saved.capture());
+        assertThat(saved.getValue().status()).isEqualTo(TaskStatus.IN_REVIEW);
+    }
+
+    /** A shipped task: AWAITING_REVIEW with a linked PR, so it is in the
+     *  post-ship CI-fix / review loop. */
+    private static Task shippedTask()
+    {
+        Instant now = Instant.parse("2026-05-22T12:00:00Z");
+        return new Task(
+                "task-1", "thread-1", 1L, TaskStatus.AWAITING_REVIEW,
+                "feature/x", "/tmp/wt/x", "main", "/tmp/repo",
+                null, null, null, null, null,
+                "DEVELOP", /* linkedPrNumber */ 21, /* linkedIssueNumber */ null,
+                0L, 0L, 0L, null,
+                now, null, null, null, null, null);
+    }
+
     private static Task taskAt(TaskStatus status, Integer processPid)
     {
         Instant now = Instant.parse("2026-05-22T12:00:00Z");

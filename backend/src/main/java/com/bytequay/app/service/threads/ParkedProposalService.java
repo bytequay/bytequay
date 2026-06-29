@@ -189,7 +189,19 @@ public class ParkedProposalService
             return;
         }
         taskStore.findTaskById(taskId).ifPresent(task -> {
-            if (task.status() == TaskStatus.AWAITING_REVIEW) {
+            if (task.status() != TaskStatus.AWAITING_REVIEW) {
+                return;
+            }
+            if (task.linkedPrNumber() != null) {
+                // A shipped task is still in its PR / CI-fix / review loop: a
+                // resolved mid-loop proposal (push a fix, post a comment, …) is
+                // not the end of the task. Keep it reviewable so its worktree
+                // survives (the orphan sweep only reaps terminal tasks) and the
+                // autonomous loop keeps driving it. The lifecycle driver
+                // completes it for real once the PR actually merges or closes.
+                taskStore.saveTask(task.withStatus(TaskStatus.IN_REVIEW));
+            }
+            else {
                 taskStore.saveTask(task.withStatus(TaskStatus.COMPLETED));
             }
         });

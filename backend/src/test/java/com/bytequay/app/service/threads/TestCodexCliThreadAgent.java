@@ -112,6 +112,22 @@ class TestCodexCliThreadAgent
     }
 
     @Test
+    void aBoundStageKeyReplacesTheTrunkKeyInTheMcpUrl()
+    {
+        // The registry binds each stage agent its own key; that key must flow
+        // into the agent's own MCP URL so concurrent stage agents on one thread
+        // resolve role/turn separately instead of colliding on /agents/trunk.
+        CodexCliThreadAgent agent = agent("gpt-5", /* sessionId */ null, "");
+        agent.setMcpAgentKey("stage-abc");
+
+        List<String> cmd = agent.buildCommand("go").command();
+
+        assertThat(cmd).anyMatch(arg -> arg.contains(
+                "http://127.0.0.1:53123/api/threads/thread-1/agents/stage-abc/mcp"));
+        assertThat(cmd).noneMatch(arg -> arg.contains("/agents/trunk/mcp"));
+    }
+
+    @Test
     void autoApprovesOurMcpToolsWithApproveNotAuto()
     {
         // The per-server approval override MUST be "approve" (unconditional

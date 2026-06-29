@@ -188,6 +188,10 @@ public class LogicLoopThreadAgent
     private final AtomicReference<CompletableFuture<Void>> currentTurn = new AtomicReference<>();
     private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
+    /** Per-stage seq counters — a STAGE-scoped message uses its stage's own
+     *  seq space (stage_messages), so concurrent per-stage agents don't
+     *  collide on the thread-global (thread_id, seq). */
+    private final ConcurrentHashMap<String, AtomicLong> stageNextSeq = new ConcurrentHashMap<>();
     private final AtomicLong runningTokensIn = new AtomicLong();
     private final AtomicLong runningTokensOut = new AtomicLong();
     private final AtomicLong runningCostUsdMilli = new AtomicLong();
@@ -1055,11 +1059,33 @@ public class LogicLoopThreadAgent
         this.activeStageId = stageId;
     }
 
-    /** Persist a message stamped with the turn's explicit stage + scope. */
+    /** Persist a message stamped with the turn's explicit stage + scope. A
+     *  STAGE-scoped row is re-keyed into its stage's own seq space and the
+     *  decoupled stage_messages store; the thread seq the caller pre-allocated
+     *  is left unused (a harmless gap in the thread's seq). */
     private void appendStamped(ThreadMessage message)
     {
-        store.appendMessage(message.withStageScope(
-                activeStageId, ThreadScope.of(message.taskId(), activeStageId)));
+        if (activeStageId != null && !activeStageId.isBlank()) {
+            long seq = nextStageSeq(activeStageId);
+            store.appendStageMessage(new ThreadMessage(
+                    message.id(), message.threadId(), message.taskId(), seq,
+                    message.role(), message.type(), message.contentJson(),
+                    message.durationMs(), message.tokensIn(), message.tokensOut(),
+                    message.costUsdMilli(), message.ts(), activeStageId, ThreadScope.STAGE));
+        }
+        else {
+            store.appendMessage(message.withStageScope(
+                    activeStageId, ThreadScope.of(message.taskId(), activeStageId)));
+        }
+    }
+
+    /** Next seq in a stage's own space, seeded lazily from the stage store. */
+    private long nextStageSeq(String stageId)
+    {
+        return stageNextSeq
+                .computeIfAbsent(stageId, id ->
+                        new AtomicLong(store.maxStageMessageSeq(id).map(m -> m + 1).orElse(0L)))
+                .getAndIncrement();
     }
 
     /** True when this turn is happening at the trunk (planning) level

@@ -129,7 +129,12 @@ public class StageDetailServiceImpl
         List<StageEvent> events = stageStore.findEventsByStage(stageId);
         // The task's single dev thread carries the operation tool calls; we
         // attribute them to this stage by time window (stages don't overlap).
-        List<ThreadMessage> devMessages = threadStore.listMessages(task.threadId());
+        // Stage transcripts now live in the decoupled stage_messages store, so
+        // merge those in (chronologically) alongside any legacy stage rows
+        // still in thread_messages — until the backfill consolidates them.
+        List<ThreadMessage> devMessages = new ArrayList<>(threadStore.listMessages(task.threadId()));
+        devMessages.addAll(threadStore.listStageMessagesByTask(task.id()));
+        devMessages.sort(Comparator.comparing(ThreadMessage::ts));
 
         List<StageInstance> allStages = stageStore.findStagesByTask(task.id());
         List<StageDto> topLevel = allStages.stream()

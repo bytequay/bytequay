@@ -548,35 +548,22 @@ public class AutomationCoordinator
         return false;
     }
 
-    /** Re-runs the failed checks on the task's pushed head commit (the
-     *  cheap flaky guard, attempt 0). The head SHA comes from the kept
-     *  worktree — a shipped task keeps its worktree precisely so the loop
-     *  can act on it. Bumps the attempt counter and arms the cooldown. */
+    /** Re-runs the failed checks on the PR's head commit (the cheap flaky
+     *  guard, attempt 0). Resolves the head SHA from the PR itself via the
+     *  number overload, NOT the local worktree — a reaped or missing worktree
+     *  must not dead-end the loop (it used to skip every sweep on "could not
+     *  resolve HEAD"). Bumps the attempt counter and arms the cooldown. */
     private void rerunShippedCi(Task task, String repoFullName, Instant now)
     {
-        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
-            return;
-        }
-        String headSha;
-        try {
-            headSha = git.headSha(Path.of(task.worktreePath()));
-        }
-        catch (IOException e) {
-            log.warn("CI re-run skipped: could not resolve HEAD for task {} ({}): {}",
-                    task.id(), task.worktreePath(), e.getMessage());
-            return;
-        }
-        catch (InterruptedException e) {
-            java.lang.Thread.currentThread().interrupt();
-            log.warn("CI re-run interrupted resolving HEAD for task {}", task.id());
+        if (task.linkedPrNumber() == null) {
             return;
         }
         try {
-            int n = pullRequests.rerunFailedChecks(repoFullName, headSha);
+            int n = pullRequests.rerunFailedChecks(repoFullName, task.linkedPrNumber());
             ciFixAttempts.put(task.id(), 1);
             ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
-            log.info("CI re-run requested for shipped task {} on {} PR #{} (head {}): {} run(s)",
-                    task.id(), repoFullName, task.linkedPrNumber(), headSha, n);
+            log.info("CI re-run requested for shipped task {} on {} PR #{}: {} run(s)",
+                    task.id(), repoFullName, task.linkedPrNumber(), n);
         }
         catch (RuntimeException e) {
             log.warn("CI re-run failed for task {}: {}", task.id(), e.getMessage());

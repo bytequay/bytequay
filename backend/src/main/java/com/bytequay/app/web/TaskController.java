@@ -207,38 +207,6 @@ public class TaskController
     {
     }
 
-    /** GET the task's "accept edits in worktree" toggle. */
-    @GetMapping("/{taskId}/accept-edits")
-    public AcceptEditsResponse getAcceptEdits(
-            @PathVariable String threadId,
-            @PathVariable String taskId)
-    {
-        return new AcceptEditsResponse(taskService.isAcceptEdits(threadId, taskId));
-    }
-
-    /** Set the task's "accept edits in worktree" toggle. While on, file
-     *  edits inside the task's worktree are auto-approved; Bash / push /
-     *  out-of-worktree writes still prompt. */
-    @PutMapping("/{taskId}/accept-edits")
-    public AcceptEditsResponse setAcceptEdits(
-            @PathVariable String threadId,
-            @PathVariable String taskId,
-            @RequestBody AcceptEditsBody body)
-    {
-        boolean enabled = body != null && body.enabled();
-        return new AcceptEditsResponse(taskService.setAcceptEdits(threadId, taskId, enabled));
-    }
-
-    /** Body for {@link #setAcceptEdits}. */
-    public record AcceptEditsBody(boolean enabled)
-    {
-    }
-
-    /** Response for the accept-edits endpoints. */
-    public record AcceptEditsResponse(boolean enabled)
-    {
-    }
-
     /**
      * GET /api/threads/{threadId}/tasks/{taskId}/work-model — resolve the
      * effective work model for a task, returning both the scope's own

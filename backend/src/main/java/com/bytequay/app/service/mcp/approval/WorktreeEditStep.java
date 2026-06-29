@@ -27,9 +27,11 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Per-task "accept edits in worktree" auto-approval. When the thread's
- * active Task has the toggle on, a file-edit tool whose target path is
- * inside that Task's worktree is allowed without a prompt.
+ * Worktree-edit auto-approval. While a Task is in one of the autonomous
+ * work stages (Development, CI-fixing, Addressing-comments, Cleanup), a
+ * file-edit tool whose target path is inside that Task's worktree is
+ * allowed without a prompt — editing the worktree is the whole job of
+ * those stages.
  *
  * <p>Deliberately narrow so the app's "nothing reaches GitHub without an
  * explicit action" invariant holds:
@@ -106,18 +108,16 @@ public class WorktreeEditStep
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
     }
 
-    /** Whether the task's edits to its own worktree need no prompt. Always
-     *  true in the autonomous work stages (editing is their whole job), so
+    /** Whether the task's edits to its own worktree need no prompt: true in
+     *  the autonomous work stages (editing is their whole job), so
      *  Development / CI-fixing / Addressing-comments / Cleanup never block on
-     *  approval. Outside those stages it falls back to the manual accept-edits
-     *  toggle. A cross-cutting phase that maps to no stage (e.g.
-     *  NEEDS_ATTENTION) is not a work stage, so it honours the toggle. */
-    private boolean editsAllowed(Task task)
+     *  approval. The read-only PlanStage and cross-cutting phases that map to
+     *  no stage (e.g. NEEDS_ATTENTION) fall through to a normal prompt. */
+    private static boolean editsAllowed(Task task)
     {
-        boolean workStage = StageType.forPhase(task.phase())
+        return StageType.forPhase(task.phase())
                 .map(ALWAYS_EDIT_STAGES::contains)
                 .orElse(false);
-        return workStage || taskStore.isAcceptEdits(task.id());
     }
 
     private static String filePath(JsonNode input)

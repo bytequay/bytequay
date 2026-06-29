@@ -118,11 +118,11 @@ public class RunShellHandler
         // Surface a permission card in the conversation pane so the
         // user sees the exact cmdline before deciding. Same shape
         // the approval_prompt path uses for built-in Bash / Edit.
-        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, NAME);
+        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, NAME, ctx.agentKey());
         decisionFuture.whenComplete((decision, ex) ->
                 completeRunShell(deferred, id, decision, ex, worktree, command));
         try {
-            threads.notifyPermissionRequested(ctx.threadId(), callId, NAME,
+            threads.notifyPermissionRequested(ctx.threadId(), ctx.agentKey(), callId, NAME,
                     "cmd: " + truncate(command, PROMPT_SUMMARY_CAP));
         }
         catch (RuntimeException e) {

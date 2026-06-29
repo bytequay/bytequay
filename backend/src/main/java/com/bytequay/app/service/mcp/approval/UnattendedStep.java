@@ -80,7 +80,7 @@ public class UnattendedStep
         }
         SecurityType capability = capabilityForBuiltinTool(ctx.toolName());
         if (capability != null && ctx.grants().contains(capability)) {
-            notePermissionAutoAllowed(ctx.threadId(), ctx.callId(), ctx.toolName());
+            notePermissionAutoAllowed(ctx.threadId(), ctx.agentKey(), ctx.callId(), ctx.toolName());
             return ApprovalStepResult.resolve(
                     responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
         }
@@ -147,10 +147,10 @@ public class UnattendedStep
     /** Best-effort: record the auto-approval notice without letting
      *  a notification failure tank the tool call. {@code -1} is the
      *  sentinel used elsewhere for "no countable remaining slots". */
-    private void notePermissionAutoAllowed(String threadId, String callId, String toolName)
+    private void notePermissionAutoAllowed(String threadId, String agentKey, String callId, String toolName)
     {
         try {
-            threads.notifyPermissionAutoAllowed(threadId, callId, toolName, -1);
+            threads.notifyPermissionAutoAllowed(threadId, agentKey, callId, toolName, -1);
         }
         catch (RuntimeException e) {
             log.warn("Failed to record auto-approval notice for thread {}: {}",

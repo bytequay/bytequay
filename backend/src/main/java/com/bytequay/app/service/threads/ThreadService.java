@@ -110,6 +110,7 @@ public class ThreadService
     private final ThreadTurnStore turnStore;
     private final ThreadTurnEventStore turnEventStore;
     private final ThreadRegistry registry;
+    private final McpPermissionGate gate;
     private final ThreadTurnScheduler scheduler;
     private final WorktreeLeaseService leases;
     private final GitRunner git;
@@ -128,6 +129,7 @@ public class ThreadService
             ThreadTurnStore turnStore,
             ThreadTurnEventStore turnEventStore,
             ThreadRegistry registry,
+            McpPermissionGate gate,
             ThreadTurnScheduler scheduler,
             WorktreeLeaseService leases,
             GitRunner git,
@@ -143,6 +145,7 @@ public class ThreadService
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
         this.registry = requireNonNull(registry, "registry is null");
+        this.gate = requireNonNull(gate, "gate is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.leases = requireNonNull(leases, "leases is null");
         this.git = requireNonNull(git, "git is null");
@@ -1270,14 +1273,18 @@ public class ThreadService
     /** Surface a permission prompt in the conversation pane. Called
      *  by the MCP controller when Claude's {@code approval_prompt}
      *  tool fires. */
-    public void notifyPermissionRequested(String threadId, String callId, String toolName, String summary)
+    public void notifyPermissionRequested(
+            String threadId, String agentKey, String callId, String toolName, String summary)
     {
-        sessionOrThrow(threadId).notifyPermissionRequested(callId, toolName, summary);
+        sessionForAgent(threadId, agentKey).notifyPermissionRequested(callId, toolName, summary);
     }
 
     public void decide(String threadId, String callId, PermissionDecision decision)
     {
-        sessionOrThrow(threadId).decide(callId, decision);
+        // The UI sends only the callId; resolve the agent that raised the
+        // prompt from the gate so the decision event lands in that stage's
+        // feed (not a thread-level "active session" guess).
+        sessionForAgent(threadId, gate.agentKeyFor(callId)).decide(callId, decision);
     }
 
     /** Pre-authorise the next {@code count} invocations of {@code toolName}
@@ -1309,10 +1316,11 @@ public class ThreadService
      *  the conversation pane can show the user which tool was auto-
      *  approved by their pre-approval budget, and how many slots are
      *  left. */
-    public void notifyPermissionAutoAllowed(String threadId, String callId, String toolName, int remaining)
+    public void notifyPermissionAutoAllowed(
+            String threadId, String agentKey, String callId, String toolName, int remaining)
     {
         try {
-            sessionOrThrow(threadId).notifyPermissionAutoAllowed(callId, toolName, remaining);
+            sessionForAgent(threadId, agentKey).notifyPermissionAutoAllowed(callId, toolName, remaining);
         }
         catch (NoSuchElementException ignored) {
             // session vanished — nothing to notify
@@ -1325,6 +1333,16 @@ public class ThreadService
     public Runnable subscribe(String threadId, Consumer<StreamEvent> listener)
     {
         return sessionOrThrow(threadId).subscribeToEvents(listener);
+    }
+
+    /** The exact agent that issued an MCP call, by its {@code agentKey}
+     *  (== the registry stage key), falling back to the thread-altitude
+     *  session when the key is absent or its agent was evicted. Routing
+     *  permission prompts / decisions this way lands them in the stage that
+     *  raised them instead of a thread-level "active session" guess. */
+    private ThreadAgent sessionForAgent(String threadId, String agentKey)
+    {
+        return registry.findByAgentKey(agentKey).orElseGet(() -> sessionOrThrow(threadId));
     }
 
     private ThreadAgent sessionOrThrow(String threadId)

@@ -368,6 +368,18 @@ public class ThreadRegistry
         return out;
     }
 
+    /** The exact stage-agent filed under {@code agentKey} (the per-agent
+     *  MCP key, == the stage key it was registered with). Lets a permission
+     *  prompt / decision route back to the precise agent that raised it
+     *  rather than a thread-level "active session" guess. Empty when the key
+     *  names a trunk agent or an evicted session. */
+    public Optional<ThreadAgent> findByAgentKey(String agentKey)
+    {
+        return agentKey == null || agentKey.isBlank()
+                ? Optional.empty()
+                : Optional.ofNullable(sessions.get(agentKey));
+    }
+
     /** Trunk-scope counterpart of {@link #find(String)} — the
      *  planning-altitude runtime, present only when the user has
      *  driven at least one turn on the trunk in this JVM. */

@@ -498,7 +498,11 @@ public class AutomationCoordinator
         String ref = parsed.get().fullName();
         PullRequestDetail detail;
         try {
-            detail = pullRequests.getPullRequestDetail(repoFullName, number);
+            // Force a live read (conditional GET, maxAge=0) — NOT
+            // getPullRequestDetail, which serves the SQLite snapshot and would
+            // let the loop act on stale CI. The loop must see the freshest
+            // pass/fail to decide whether to re-run, fix, or stand down.
+            detail = pullRequests.refreshPullRequestDetail(repoFullName, number);
         }
         catch (RuntimeException e) {
             log.warn("shipped CI-fix: live fetch of {} failed (task {}): {}",

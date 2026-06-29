@@ -21,6 +21,7 @@ import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
@@ -29,6 +30,7 @@ import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -40,6 +42,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -126,6 +129,7 @@ public class AutomationCoordinator
     private final GitRunner git;
     private final ObjectMapper mapper;
     private final IterationService iterationService;
+    private final ThreadTurnStore turnStore;
 
     /** Tracks tasks that already had an auto-fix turn queued during
      *  this process's lifetime. Without it the 60-second CI sweep
@@ -162,7 +166,8 @@ public class AutomationCoordinator
             PullRequestService pullRequests,
             GitRunner git,
             ObjectMapper mapper,
-            IterationService iterationService)
+            IterationService iterationService,
+            ThreadTurnStore turnStore)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -177,6 +182,55 @@ public class AutomationCoordinator
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.iterationService = requireNonNull(iterationService, "iterationService is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
+    }
+
+    /**
+     * After an autonomous shipped CI-fix agent turn finishes, push its commit
+     * for it. The agent fixes + commits but cannot push — raw {@code git push}
+     * is blocked (it must publish through the app, never raw git). Force-with-
+     * lease so a branch the agent rebased onto its base still lands; the lease
+     * still refuses if the remote moved unexpectedly. The push runs off-thread
+     * so the turn-completion path isn't blocked on the network.
+     */
+    @EventListener
+    public void autoPushAfterCiFix(TaskTurnFinishedEvent event)
+    {
+        if (event.failed()) {
+            return;
+        }
+        ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
+        if (turn == null || turn.initiator() == null
+                || !"ci-fix-shipped".equals(turn.initiator().source())) {
+            return;
+        }
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null || task.worktreePath() == null || task.worktreePath().isBlank()) {
+            return;
+        }
+        Path worktree = Path.of(task.worktreePath());
+        java.lang.Thread.startVirtualThread(() -> pushCiFix(task, worktree));
+    }
+
+    private void pushCiFix(Task task, Path worktree)
+    {
+        try {
+            // Belt-and-braces: if the agent forgot to commit, checkpoint its
+            // edits (minus app-managed hook files) so the fix isn't lost.
+            if (git.hasUncommittedChanges(worktree)) {
+                git.stageAll(worktree, List.of(WorktreeService.HOOK_DIR_REL));
+                git.commit(worktree, "ByteQuay: CI-fix changes");
+            }
+            git.pushForceWithLease(worktree);
+            log.info("Auto-pushed CI-fix for task {} ({})", task.id(), task.linkedPrRef());
+        }
+        catch (IOException e) {
+            log.warn("Auto-push after CI-fix for task {} failed: {}", task.id(), e.getMessage());
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            log.warn("Auto-push after CI-fix for task {} interrupted", task.id());
+        }
     }
 
     /**
@@ -631,12 +685,12 @@ public class AutomationCoordinator
                 .append("checks.\n")
                 .append("If they ARE caused by this branch, fix them on the current branch, ")
                 .append("run the local checks to confirm green (`mvn verify` for the backend, ")
-                .append("`npx tsc --noEmit` + `npm test` for the frontend), then commit and ")
-                .append("push the fix so CI re-runs. Use `git push --force-with-lease` — if you ")
-                .append("rebased onto the base the branch will have diverged from its remote, and ")
-                .append("force-with-lease lands it safely (it still refuses if someone else "
-                        + "pushed in between). This is an autonomous CI-fix turn: push directly, ")
-                .append("do not wait for review.");
+                .append("`npx tsc --noEmit` + `npm test` for the frontend), then commit your fix ")
+                .append("with a normal `git commit`. Do NOT run `git push` yourself — direct "
+                        + "pushes are blocked. ByteQuay pushes your commit for you (with "
+                        + "--force-with-lease, so rebasing onto the base first is fine) and CI "
+                        + "re-runs automatically. This is an autonomous CI-fix turn: commit and "
+                        + "stop, do not wait for review.");
         return out.toString();
     }
 

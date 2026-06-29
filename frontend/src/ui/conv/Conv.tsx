@@ -31,13 +31,32 @@ export function Conv({ children, scrollRef }: { children: ReactNode; scrollRef?:
   const elRef = useRef<HTMLDivElement | null>(null);
   const stick = useRef(true);
 
-  // After every content change, pin to the bottom when the user is following.
+  // After every render, pin to the bottom when the user is following.
   useEffect(() => {
     const el = elRef.current;
     if (el !== null && stick.current) {
       el.scrollTop = el.scrollHeight;
     }
   });
+
+  // A render's scrollHeight can be short-lived: markdown finishing layout, an
+  // expanding card, or a streamed token grows the feed *after* the effect
+  // above already pinned, leaving the latest content below the fold with no
+  // re-render to correct it. Watch the subtree and re-pin on any growth while
+  // the user is still following the bottom.
+  useEffect(() => {
+    const el = elRef.current;
+    if (el === null || typeof MutationObserver === 'undefined') {
+      return undefined;
+    }
+    const observer = new MutationObserver(() => {
+      if (stick.current && elRef.current !== null) {
+        elRef.current.scrollTop = elRef.current.scrollHeight;
+      }
+    });
+    observer.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
 
   const onScroll = () => {
     const el = elRef.current;

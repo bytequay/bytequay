@@ -13,8 +13,12 @@
  */
 import type { StageDto, StageType, TaskPhase } from '../../types/brainView';
 
-/** Visual state of one node in the live-plan diagram. */
-export type LivePlanStatus = 'done' | 'running' | 'planning' | 'sleep' | 'future' | 'errored';
+/** Visual state of one node in the live-plan diagram. {@code monitoring} is a
+ *  looping stage that has pushed and is now polling remote CI / review (no
+ *  local agent turn running) — distinct from {@code running} (agent working)
+ *  and {@code sleep} (idle/open). */
+export type LivePlanStatus =
+  | 'done' | 'running' | 'monitoring' | 'planning' | 'sleep' | 'future' | 'errored';
 
 /** Where a node sits in the lifecycle layout. `split-*` are the parallel
  *  CI-Fix / Comments branch; `sub` is the indented Review (callable) node. */
@@ -66,20 +70,25 @@ function stageStatus(stage: StageDto | undefined, planning = false): LivePlanSta
 
 function glyphFor(status: LivePlanStatus, future = '○'): string {
   if (status === 'done') return '✓';
+  if (status === 'monitoring') return '◎';
   if (status === 'running' || status === 'planning' || status === 'errored') return '●';
   if (status === 'sleep') return '○';
   return future;
 }
 
 /** Status for a monitor (looping) stage. It loops while its phase is the
- *  current work, so its row can sit OPEN (not ACTIVE) between turns / during
- *  a CI re-run — which would otherwise dim the node to `sleep`. Treat it as
- *  `running` whenever the task is in that phase so the node reflects the live
- *  work; otherwise fall back to the generic state mapping. */
-function monitorStatus(stage: StageDto | undefined, activePhase: boolean): LivePlanStatus {
-  if (activePhase && stage !== undefined && stage.state !== 'CLOSED') {
-    return 'running';
+ *  current work, so its row can sit OPEN (not ACTIVE) between turns — which
+ *  would otherwise dim the node to `sleep`. When the task has pushed and is
+ *  polling the remote (CI re-running / out for review) it's `monitoring`;
+ *  when an agent turn is actively fixing it's `running`; otherwise fall back
+ *  to the generic state mapping. */
+function monitorStatus(
+  stage: StageDto | undefined, activePhase: boolean, waitingPhase: boolean): LivePlanStatus {
+  if (stage === undefined || stage.state === 'CLOSED') {
+    return stageStatus(stage);
   }
+  if (waitingPhase) return 'monitoring';
+  if (activePhase) return 'running';
   return stageStatus(stage);
 }
 
@@ -119,8 +128,14 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const rootStatus: LivePlanStatus = plan === undefined ? 'planning' : stageStatus(plan, true);
   const devStatus = stageStatus(dev);
   const reviewStatus = stageStatus(review);
-  const ciStatus = monitorStatus(ciFix, task.currentPhase === 'CI_FIXING');
-  const commentsStatus = monitorStatus(comments, task.currentPhase === 'ADDRESSING_COMMENTS');
+  // PUSHED_AWAITING_CI = pushed, polling remote CI (monitoring); CI_FIXING =
+  // agent actively fixing. AWAITING_REMOTE_REVIEW = out for review (monitoring);
+  // ADDRESSING_COMMENTS = agent fixing comments.
+  const ciStatus = monitorStatus(
+    ciFix, task.currentPhase === 'CI_FIXING', task.currentPhase === 'PUSHED_AWAITING_CI');
+  const commentsStatus = monitorStatus(
+    comments, task.currentPhase === 'ADDRESSING_COMMENTS',
+    task.currentPhase === 'AWAITING_REMOTE_REVIEW');
   const cleanupStatus = stageStatus(cleanup);
 
   // Push isn't a stage — it's the milestone of having opened the PR.
@@ -163,11 +178,14 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     },
     {
       key: 'ci-fix', label: 'CI Fix', status: ciStatus, glyph: glyphFor(ciStatus),
-      meta: iterMeta(ciFix), placement: 'split-left', activeView: isViewed(ciFix), nav: stageNav(ciFix),
+      meta: ciStatus === 'monitoring' ? 'watching CI' : iterMeta(ciFix),
+      placement: 'split-left', activeView: isViewed(ciFix), nav: stageNav(ciFix),
     },
     {
       key: 'comments', label: 'Comments', status: commentsStatus, glyph: glyphFor(commentsStatus),
-      meta: comments === undefined ? undefined : commentsStatus === 'sleep' ? 'armed' : undefined,
+      meta: comments === undefined ? undefined
+        : commentsStatus === 'monitoring' ? 'watching review'
+          : commentsStatus === 'sleep' ? 'armed' : undefined,
       placement: 'split-right', activeView: isViewed(comments), nav: stageNav(comments),
     },
     {

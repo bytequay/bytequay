@@ -299,7 +299,7 @@ public class TaskService
                 throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                         "task " + taskId + " is no longer awaiting approval");
             }
-            if (taskStore.findActiveTaskForThread(threadId).isPresent()) {
+            if (taskStore.hasActiveTask(threadId)) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                         "thread " + threadId + " already has an active successor");
             }

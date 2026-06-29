@@ -277,6 +277,11 @@ public interface TaskStore
      *  Empty for a 0-Task thread (brainstorm / Q&A with no branch). */
     Optional<Task> findActiveTaskForThread(String threadId);
 
+    /** Whether the thread has any non-terminal task. A presence check
+     *  callers use to gate "this thread is already working on something" —
+     *  intent-clearer than materialising the task just to test presence. */
+    boolean hasActiveTask(String threadId);
+
     /** Latest task on a thread by seq, regardless of status. Used by
      *  the resume-from-terminal path: a COMPLETED thread's most-recent
      *  task is also terminal, so {@link #findActiveTaskForThread}

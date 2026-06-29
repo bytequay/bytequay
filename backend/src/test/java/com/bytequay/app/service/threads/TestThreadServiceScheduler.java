@@ -1433,6 +1433,7 @@ class TestThreadServiceScheduler
         @Override public Optional<Task> findTaskById(String id) { return Optional.empty(); }
         @Override public void deleteTask(String id) {}
         @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
+        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Task> findLatestTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
@@ -1464,6 +1465,7 @@ class TestThreadServiceScheduler
         @Override public List<Task> listTasksByThread(String threadId) {
             return task.threadId().equals(threadId) ? List.of(task) : List.of();
         }
+        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) {
             return Optional.empty();
         }
@@ -1497,6 +1499,7 @@ class TestThreadServiceScheduler
         @Override public List<Task> listTasksByThread(String threadId) {
             return byId.values().stream().filter(t -> t.threadId().equals(threadId)).toList();
         }
+        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) {
             return byId.values().stream()
                     .filter(t -> t.threadId().equals(threadId))
@@ -1586,6 +1589,7 @@ class TestThreadServiceScheduler
         @Override public List<Task> listTasksByThread(String threadId) {
             return task.threadId().equals(threadId) ? List.of(task) : List.of();
         }
+        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) {
             return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();
         }

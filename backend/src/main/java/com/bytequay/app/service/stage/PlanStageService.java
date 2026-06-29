@@ -201,7 +201,10 @@ public class PlanStageService
             return;
         }
         threadStore.findThreadById(task.threadId()).ifPresent(dev -> {
-            String nudge = "Your implementation turn ended without proposing to publish. If the "
+            String nudge = "Your implementation turn ended without proposing to publish. First, if "
+                    + "any work is uncommitted, stage and commit it now with a clear message per "
+                    + "logical change — your commits become the PR's history verbatim, and "
+                    + "ship_task bounces you if the worktree is dirty. Then, if the "
                     + "work is complete, call ship_task(...) now — do NOT call push by "
                     + "itself. When you call ship_task you MUST include a pr_title and a "
                     + "pr_body. ship_task parks ONE proposal that, on the "

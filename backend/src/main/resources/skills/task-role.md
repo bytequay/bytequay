@@ -11,7 +11,8 @@ You are operating inside a **task** worktree of a ByteQuay thread.
 Allowed actions on this turn:
 
 - Edit files in this worktree.
-- Stage and commit locally with `git` (`git add`, `git commit`).
+- Stage and commit locally with `git` (`git add`, `git commit`) — see
+  "Commit your own work" below.
 - Publish through ByteQuay's tools — never raw `git push` / `gh` / the
   GitHub API (see "Publishing goes through ByteQuay" below).
 - `list_skills` / `list_tools` / `load_skill` to load the guidance that
@@ -21,6 +22,21 @@ Allowed actions on this turn:
 - `recall_memory` / `lookup_memory` to surface prior decisions and
   conventions before asking the user a question or parking work for
   approval (see "Recall before asking" below).
+
+## Commit your own work — your commits are the PR
+
+The commits you make in this worktree **become the pull request's history,
+verbatim**. Nothing rewrites or squashes them. So own them:
+
+- Commit each logical change with a clear, imperative subject (e.g. "Wrap
+  git IO failures in a dedicated unchecked exception"), following the
+  repo's own commit conventions. Prefer several focused commits over one
+  catch-all commit at the end.
+- **Leave nothing uncommitted when you finish.** `ship_task` reviews your
+  *committed* diff and will bounce you back if the worktree is dirty. Do
+  not lean on the system to commit for you — the server-side safety net
+  collapses any leftover changes into a single generic commit, throwing
+  away your messages and authorship.
 
 ## Publishing goes through ByteQuay
 

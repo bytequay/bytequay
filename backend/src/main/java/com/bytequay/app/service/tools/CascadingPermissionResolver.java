@@ -59,6 +59,12 @@ public class CascadingPermissionResolver
 {
     private static final String DENY = "deny";
 
+    /** Upper bound on RUNNING turns scanned to find the one a given agent
+     *  key connects under. A thread can have at most the CLI lane cap of
+     *  concurrent agents (4) plus the API lane; this leaves generous head
+     *  room while bounding the read. */
+    private static final int RUNNING_TURN_SCAN_LIMIT = 32;
+
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
     private final PermissionGrantStore grantStore;
@@ -74,23 +80,23 @@ public class CascadingPermissionResolver
     }
 
     @Override
-    public AgentRole roleFor(String threadId)
+    public AgentRole roleFor(String threadId, String agentKey)
     {
-        return roleForTurn(runningTurn(threadId));
+        return roleForTurn(runningTurn(threadId, agentKey));
     }
 
     @Override
-    public RunningScope runningScope(String threadId)
+    public RunningScope runningScope(String threadId, String agentKey)
     {
-        return runningTurn(threadId)
+        return runningTurn(threadId, agentKey)
                 .map(turn -> new RunningScope(turn.taskId(), turn.stageId()))
                 .orElse(RunningScope.NONE);
     }
 
     @Override
-    public Set<SecurityType> grants(String threadId)
+    public Set<SecurityType> grants(String threadId, String agentKey)
     {
-        Optional<ThreadTurn> turn = runningTurn(threadId);
+        Optional<ThreadTurn> turn = runningTurn(threadId, agentKey);
         Set<SecurityType> effective = EnumSet.noneOf(SecurityType.class);
         effective.addAll(RoleCapabilities.forRole(roleForTurn(turn)));
 
@@ -119,16 +125,41 @@ public class CascadingPermissionResolver
         return ImmutableSet.copyOf(effective);
     }
 
-    /** The thread's in-flight turn, whose stamped scope + task id are the
-     *  authoritative role and task target for this resolution. */
-    private Optional<ThreadTurn> runningTurn(String threadId)
+    /**
+     * The in-flight turn whose stamped scope + task id are the authoritative
+     * role and task target for this resolution.
+     *
+     * <p>When {@code agentKey} is null the resolver returns the thread's
+     * first RUNNING turn — the legacy single-agent behaviour, unchanged.
+     * When {@code agentKey} is given (concurrent stage agents on one thread),
+     * the RUNNING turns are filtered to the one this agent connects under:
+     * {@link PermissionResolver#TRUNK_AGENT_KEY} selects the trunk turn
+     * (task_id null), any other key selects the turn whose registry stage
+     * key ({@code stage_id}, else {@code task_id}) equals it. Filtering is
+     * done in memory over the thread's RUNNING turns — at most a handful
+     * with the CLI lane cap of 4.
+     */
+    private Optional<ThreadTurn> runningTurn(String threadId, String agentKey)
     {
         if (threadId == null || threadId.isBlank()) {
             return Optional.empty();
         }
-        return turnStore.listTurnsByTaskIdAndStatus(threadId, ThreadTurnStatus.RUNNING, 1)
-                .stream()
+        List<ThreadTurn> running = turnStore.listTurnsByTaskIdAndStatus(
+                threadId, ThreadTurnStatus.RUNNING, RUNNING_TURN_SCAN_LIMIT);
+        if (agentKey == null || agentKey.isBlank()) {
+            return running.stream().findFirst();
+        }
+        return running.stream()
+                .filter(turn -> agentKey.equals(agentKeyOf(turn)))
                 .findFirst();
+    }
+
+    /** The registry stage key a running turn connects under — the same
+     *  derivation the scheduler's run gate and the MCP URL use: stage id,
+     *  else task id, else the reserved trunk key for a task-less turn. */
+    private static String agentKeyOf(ThreadTurn turn)
+    {
+        return PermissionResolver.agentKeyFor(turn.taskId(), turn.stageId());
     }
 
     /** TRUNK for a trunk-scoped (planning) turn, TASK for task- or

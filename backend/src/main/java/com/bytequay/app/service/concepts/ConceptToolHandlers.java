@@ -116,8 +116,13 @@ public class ConceptToolHandlers
                     "unknown kind: " + args.kind() + " (expected NOUN/STATE/FILTER/VERB)");
         }
         String needle = args.query() == null ? "" : args.query().toLowerCase(Locale.ROOT).trim();
-        AgentRole role = permissions.roleFor(call.threadId());
-        Set<SecurityType> grants = permissions.grants(call.threadId());
+        // Resolve role + grants against THIS call's own agent (its stamped
+        // task/stage), not the thread's first running turn — under concurrent
+        // stage agents on one thread that would otherwise read a sibling's
+        // scope. The role is already stamped on the call at dispatch.
+        AgentRole role = call.role();
+        Set<SecurityType> grants = permissions.grants(
+                call.threadId(), PermissionResolver.agentKeyFor(call.taskId(), call.stageId()));
         List<ConceptBrief> briefs = registry.list(kindFilter).stream()
                 .filter(s -> visibleToRole(s, role, grants))
                 .filter(s -> matchesQuery(s, needle))

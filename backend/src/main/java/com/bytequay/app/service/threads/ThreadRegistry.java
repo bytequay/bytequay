@@ -452,7 +452,14 @@ public class ThreadRegistry
             acquireLease(key, task, leasedPath);
         }
         try {
-            ThreadAgent agent = sessions.computeIfAbsent(key, k -> buildStage(thread, task));
+            ThreadAgent agent = sessions.computeIfAbsent(key, k -> {
+                ThreadAgent built = buildStage(thread, task);
+                // Bind the agent to the stage key it's filed under so its CLI
+                // subprocess writes a per-agent MCP URL and tool calls resolve
+                // role / capability against its own running turn.
+                built.setMcpAgentKey(key);
+                return built;
+            });
             threadStageKeys.computeIfAbsent(thread.id(), id -> ConcurrentHashMap.newKeySet()).add(key);
             return agent;
         }

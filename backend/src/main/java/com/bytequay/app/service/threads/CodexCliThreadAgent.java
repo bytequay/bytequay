@@ -213,12 +213,15 @@ public class CodexCliThreadAgent
         return pb;
     }
 
-    /** Our per-thread MCP endpoint — matches McpController's route and the
-     *  local sidecar port. The Claude agent reaches the same server via
-     *  --mcp-config; Codex reaches it via the -c override above. */
+    /** Our per-agent MCP endpoint — matches McpController's stage-scoped
+     *  route and the local sidecar port. The agent key scopes role /
+     *  capability resolution to this agent's own running turn (the trunk
+     *  uses the reserved "trunk" key). The Claude agent reaches the same
+     *  server via --mcp-config; Codex reaches it via the -c override above. */
     private String mcpServerUrl()
     {
-        return "http://127.0.0.1:53123/api/threads/" + threadId + "/mcp";
+        return "http://127.0.0.1:53123/api/threads/" + threadId
+                + "/agents/" + mcpAgentKey() + "/mcp";
     }
 
     /** Codex takes its prompt as an argv arg, so there's nothing to feed

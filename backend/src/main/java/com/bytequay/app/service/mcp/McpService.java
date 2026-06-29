@@ -52,7 +52,21 @@ public interface McpService
      * Allow / Deny; synchronous methods ({@code initialize},
      * {@code tools/list}) resolve immediately.
      */
-    DeferredResult<JsonNode> handle(String threadId, JsonNode request);
+    default DeferredResult<JsonNode> handle(String threadId, JsonNode request)
+    {
+        return handle(threadId, null, request);
+    }
+
+    /**
+     * Handle one JSON-RPC request for a specific agent on the thread.
+     * {@code agentKey} identifies the connecting agent — the registry stage
+     * key (stage id, else task id) of a stage agent, or the reserved trunk
+     * key for the planning agent. It scopes role / capability / running-turn
+     * resolution to that agent's own turn so concurrent stage agents on one
+     * thread don't read each other's scope. A null {@code agentKey} falls
+     * back to the thread's first RUNNING turn (legacy single-agent path).
+     */
+    DeferredResult<JsonNode> handle(String threadId, String agentKey, JsonNode request);
 
     /**
      * MCP {@code approval_prompt} — Claude's

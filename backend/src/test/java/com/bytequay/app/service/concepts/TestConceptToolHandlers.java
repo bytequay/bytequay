@@ -50,19 +50,19 @@ class TestConceptToolHandlers
     private final PermissionResolver permissions = new PermissionResolver()
     {
         @Override
-        public AgentRole roleFor(String threadId)
+        public AgentRole roleFor(String threadId, String agentKey)
         {
             return AgentRole.TRUNK;
         }
 
         @Override
-        public Set<SecurityType> grants(String threadId)
+        public Set<SecurityType> grants(String threadId, String agentKey)
         {
             return EnumSet.allOf(SecurityType.class);
         }
 
         @Override
-        public RunningScope runningScope(String threadId)
+        public RunningScope runningScope(String threadId, String agentKey)
         {
             return RunningScope.NONE;
         }

@@ -182,6 +182,27 @@ class TestAgentScheduler
     }
 
     @Test
+    void differentTasksOnOneThreadRunConcurrently()
+    {
+        // Two task turns on one thread now key the run gate by task (the
+        // registry stage key), not by thread, so both dispatch at once when
+        // the CLI lane has room. This is the intra-thread parallelism the
+        // per-stage agent runtime enables.
+        TestHarness harness = new TestHarness(2, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        String firstTurn = harness.scheduler.enqueueTaskTurn(thread, "first", "task-a");
+        String secondTurn = harness.scheduler.enqueueTaskTurn(thread, "second", "task-b");
+
+        assertThat(harness.turns.findTurnById(firstTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("first", "second");
+    }
+
+    @Test
     void cancelQueuedTurnsRemovesOnlyQueuedTurnsForTask()
     {
         TestHarness harness = new TestHarness(1, 4);
@@ -286,7 +307,7 @@ class TestAgentScheduler
                 .anySatisfy(event -> {
                     assertThat(event.turnId()).isEqualTo(waitingTurn);
                     assertThat(event.event()).isEqualTo(WAITING_FOR_CAPACITY);
-                    assertThat(event.message()).isEqualTo("waiting for previous turn for this thread");
+                    assertThat(event.message()).isEqualTo("waiting for previous turn for this agent");
                 });
     }
 

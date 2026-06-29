@@ -166,22 +166,9 @@ public class CredentialController
             @PathVariable String name,
             @PathVariable String instanceName)
     {
-        try {
-            return credentialService.setDefault(parseType(type), name, instanceName);
-        }
-        catch (RuntimeException e) {
-            // The store throws IllegalArgumentException; Spring's JPA
-            // boundary may rewrap it in InvalidDataAccessApiUsageException
-            // — both translate to "instance not found" for the API.
-            Throwable cause = e;
-            while (cause != null) {
-                if (cause instanceof IllegalArgumentException) {
-                    throw new ResponseStatusException(HttpStatusCode.valueOf(404), cause.getMessage());
-                }
-                cause = cause.getCause();
-            }
-            throw e;
-        }
+        // A missing instance surfaces as NotFoundException, which
+        // GlobalExceptionHandler maps to a 404.
+        return credentialService.setDefault(parseType(type), name, instanceName);
     }
 
     private static String resolveInstanceName(String fromRequest)

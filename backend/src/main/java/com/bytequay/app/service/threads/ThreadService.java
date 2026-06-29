@@ -38,6 +38,7 @@ import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -915,7 +916,7 @@ public class ThreadService
             return call.run();
         }
         catch (IOException e) {
-            throw new RuntimeException("Failed to " + action, e);
+            throw new UncheckedGitException("Failed to " + action, e);
         }
         catch (InterruptedException e) {
             java.lang.Thread.currentThread().interrupt();

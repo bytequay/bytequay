@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
+import com.bytequay.app.domain.NotFoundException;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.security.CredentialCipher;
 import org.springframework.stereotype.Repository;
@@ -124,7 +125,7 @@ public class SqliteCredentialStore
         requireNonNull(name, "name is null");
         requireNonNull(instanceName, "instanceName is null");
         CredentialEntity target = jpaRepository.findByTypeAndNameAndInstanceName(type, name, instanceName)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new NotFoundException(
                         "no credential for " + type + "/" + name + "/" + instanceName));
         if (target.isDefault()) {
             return toDomain(target);

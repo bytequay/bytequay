@@ -340,8 +340,9 @@ export function StageDetailRoute({
       terminal: state === 'CLOSED',
     },
     prStatus: pr?.status ?? null,
+    mergeReady: proposalAction(shipProposal) === 'merge_pr',
     viewedStageId: stageId,
-  }), [data, prNumber, pr, state, stageId]);
+  }), [data, prNumber, pr, state, stageId, shipProposal]);
 
   const sidebar = data === null ? undefined : (
     <TaskSidebar

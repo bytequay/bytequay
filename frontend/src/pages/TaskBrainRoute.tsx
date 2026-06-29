@@ -161,6 +161,7 @@ export function TaskBrainRoute({
     subStages,
     task: { prNumber: task.prNumber, currentPhase: task.currentPhase as TaskPhase, terminal: task.terminal },
     prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
+    mergeReady: proposalAction(shipProposal) === 'merge_pr',
     viewedStageId: null,
     // This IS the brain page, so the Root node is the active view.
     viewingBrain: true,

@@ -50,6 +50,9 @@ export type LivePlanInput = {
   task: { prNumber: number | null; currentPhase: TaskPhase; terminal: boolean };
   /** The PR's merge-state, when known — drives the Merge node. */
   prStatus?: 'open' | 'draft' | 'queued' | 'merged' | null;
+  /** True when a ready-to-merge gate is open (CI green, no unresolved
+   *  comments, mergeable) — lights the Merge node as actionable. */
+  mergeReady?: boolean;
   /** The stage currently open on screen, highlighted as the active view. */
   viewedStageId?: string | null;
   /** True on the brain page — marks the Root node as the active view (the
@@ -107,7 +110,10 @@ function iterMeta(stage: StageDto | undefined): string | undefined {
  * matching lazy stage instantiation.
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
-  const { stages, subStages, task, prStatus = null, viewedStageId = null, viewingBrain = false } = input;
+  const {
+    stages, subStages, task, prStatus = null, mergeReady = false,
+    viewedStageId = null, viewingBrain = false,
+  } = input;
   const byType = (type: StageType): StageDto | undefined => stages.find(s => s.type === type);
   const isViewed = (stage: StageDto | undefined): boolean =>
     stage !== undefined && stage.id === viewedStageId;
@@ -146,12 +152,14 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const mergeStatus: LivePlanStatus =
     task.currentPhase === 'COMPLETED' || prStatus === 'merged' ? 'done'
       : prStatus === 'queued' ? 'running'
-        : task.currentPhase === 'AWAITING_REMOTE_REVIEW' || task.currentPhase === 'ADDRESSING_COMMENTS'
-          ? 'sleep'
-          : 'future';
+        : mergeReady ? 'monitoring'
+          : task.currentPhase === 'AWAITING_REMOTE_REVIEW' || task.currentPhase === 'ADDRESSING_COMMENTS'
+            ? 'sleep'
+            : 'future';
   const mergeMeta = prStatus === 'queued' ? 'queued'
     : mergeStatus === 'done' ? 'merged'
-      : mergeStatus === 'sleep' ? 'awaiting' : undefined;
+      : mergeStatus === 'monitoring' ? 'ready to merge'
+        : mergeStatus === 'sleep' ? 'awaiting' : undefined;
 
   const nodes: LivePlanNode[] = [
     {

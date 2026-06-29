@@ -153,6 +153,17 @@ describe('buildLivePlan', () => {
     expect(node(merged, 'merge').status).toBe('done');
   });
 
+  it('lights the Merge node as ready-to-merge when a merge gate is open', () => {
+    const ready = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      prStatus: 'open',
+      mergeReady: true,
+    });
+    expect(node(ready, 'merge').status).toBe('monitoring');
+    expect(node(ready, 'merge').meta).toBe('ready to merge');
+  });
+
   it('shows Review (callable) as not-invoked until a ReviewStage exists', () => {
     const none = buildLivePlan({
       stages: [], subStages: [],

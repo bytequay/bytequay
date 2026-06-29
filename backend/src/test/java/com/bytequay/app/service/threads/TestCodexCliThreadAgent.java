@@ -89,6 +89,21 @@ class TestCodexCliThreadAgent
     }
 
     @Test
+    void aStageTurnStartsAFreshSessionInsteadOfResumingTheTask()
+    {
+        // The task carries a session, but entering a work stage must start a
+        // BRAND-NEW session (no --resume) — cross-stage context flows through
+        // the seeded kickoff, not a shared provider session.
+        CodexCliThreadAgent agent = agent("gpt-5", "sess-abc", "");
+        agent.setActiveStage("stage-1");
+
+        List<String> cmd = agent.buildCommand("go").command();
+
+        assertThat(cmd).doesNotContain("resume");
+        assertThat(cmd.get(cmd.size() - 1)).isEqualTo("go");
+    }
+
+    @Test
     void wiresTheThreadMcpServerOnEveryTurn()
     {
         // Both a fresh and a resumed turn must carry the -c overrides that

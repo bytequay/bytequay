@@ -214,10 +214,11 @@ export default function TaskCodePage({
   const [composerPending, setComposerPending] = useState(false);
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  // After a successful approve, a confirmation dialog: 'shipped' (push + PR
-  // opened, CI/comments to follow), 'merged' (the PR was merged), or 'ready'
+  // After a successful approve, a confirmation dialog: 'shipped' (first push +
+  // PR opened, CI/comments to follow), 'pushed' (a mid-cycle fix pushed to the
+  // already-open PR, CI re-runs), 'merged' (the PR was merged), or 'ready'
   // (a draft PR flipped ready for review + reviewers requested).
-  const [shipNotice, setShipNotice] = useState<null | 'shipped' | 'merged' | 'ready'>(null);
+  const [shipNotice, setShipNotice] = useState<null | 'shipped' | 'pushed' | 'merged' | 'ready'>(null);
 
   // Poll for a pending ship_task proposal, like PendingApprovalToast.
   const refreshProposal = useCallback(async () => {
@@ -406,7 +407,13 @@ export default function TaskCodePage({
       // Shipped pill then reflects the task's IN_REVIEW state.
       setProposal(null);
       setActionBusy(false);
-      setShipNotice(action === 'merge_pr' ? 'merged' : 'shipped');
+      // A bare `push` updates an already-open PR (the mid-cycle CI-fix /
+      // address-comments loop); `ship_task` / `open_pr` are the first push
+      // that opens the draft PR.
+      setShipNotice(
+        action === 'merge_pr' ? 'merged'
+          : action === 'push' ? 'pushed'
+            : 'shipped');
     }
     catch (e) {
       setActionNote(e instanceof Error ? e.message : String(e));
@@ -793,15 +800,20 @@ export default function TaskCodePage({
             ? 'Pull request merged'
             : shipNotice === 'ready'
               ? 'Marked ready for review'
-              : 'Changes approved'}
+              : shipNotice === 'pushed'
+                ? 'Fix pushed'
+                : 'Changes approved'}
           body={shipNotice === 'merged'
             ? 'The pull request was merged and the task is complete.'
             : shipNotice === 'ready'
               ? 'The pull request is out of draft and ready for review. Any reviewers you '
                 + 'requested have been notified, and incoming review comments are addressed '
                 + 'automatically from here.'
-              : 'The branch is pushed and a draft pull request is open. CI fixes and review '
-                + 'comments are handled automatically from here — come back to merge once it’s ready.'}
+              : shipNotice === 'pushed'
+                ? 'Your changes are pushed to the open pull request. CI re-runs automatically — '
+                  + 'come back to merge once it’s green.'
+                : 'The branch is pushed and a draft pull request is open. CI fixes and review '
+                  + 'comments are handled automatically from here — come back to merge once it’s ready.'}
           confirmLabel="Back to thread"
           cancelLabel="Stay here"
           onConfirm={() => { setShipNotice(null); onBack(); }}

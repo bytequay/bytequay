@@ -136,16 +136,59 @@ class TestAgentToolHandlersCreateTask
 
         handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
-                        "chenjian2664/bytequay", "Clean duplicate and unused code",
+                        "chenjian2664/bytequay", /* title */ null,
+                        "Clean duplicate and unused code",
                         null, null, null, plan),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
                 ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
         verify(threads).materialiseTask(eq(THREAD_ID), req.capture());
-        // Title comes from the prompt (→ branch dev/clean-…), not the thread title.
+        // No explicit title → derived from the prompt's first sentence
+        // (→ branch dev/clean-…), not the thread title.
         assertThat(req.getValue().title()).isEqualTo("Clean duplicate and unused code");
         assertThat(req.getValue().trunkPlan()).isSameAs(plan);
+    }
+
+    @Test
+    void prefersTheAgentSuppliedTitleOverThePrompt()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(mock(Task.class));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Clean up backend exception handling",
+                        "Clean up a few backend exception-handling spots. Scope is limited to X.",
+                        null, null, null, null),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        ArgumentCaptor<ThreadService.NewTaskRequest> req =
+                ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
+        verify(threads).materialiseTask(eq(THREAD_ID), req.capture());
+        assertThat(req.getValue().title()).isEqualTo("Clean up backend exception handling");
+    }
+
+    @Test
+    void fallbackTitleCutsAtTheFirstSentenceNotMidThought()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(mock(Task.class));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", /* title */ null,
+                        "Clean up a few backend exception-handling spots. Scope is limited to X.",
+                        null, null, null, null),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        ArgumentCaptor<ThreadService.NewTaskRequest> req =
+                ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
+        verify(threads).materialiseTask(eq(THREAD_ID), req.capture());
+        // Cut at the sentence, not a hard char slice into "Scope is".
+        assertThat(req.getValue().title()).isEqualTo("Clean up a few backend exception-handling spots.");
     }
 
     @Test
@@ -183,7 +226,7 @@ class TestAgentToolHandlersCreateTask
     private ToolOutcome.Completed createTask(String repo)
     {
         ToolOutcome outcome = handlers.createTask(
-                new AgentToolHandlers.CreateTaskArgs(repo, null, null, null, null, null),
+                new AgentToolHandlers.CreateTaskArgs(repo, null, null, null, null, null, null),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
         return (ToolOutcome.Completed) outcome;
     }

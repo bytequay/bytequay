@@ -644,6 +644,11 @@ public class AgentToolHandlers
                     + "Must already be a watched repo with a local clone path; the task's "
                     + "worktree is cut from that clone.",
                     required = true) String repo,
+            @ToolParam(description = "A short, purpose-written task title — what this task "
+                    + "accomplishes, phrased like a PR title (e.g. \"Clean up backend exception "
+                    + "handling\"). Imperative, under 60 chars, no trailing scope/justification "
+                    + "fragments. It names the task row and the dev branch. Omit only if you "
+                    + "have nothing better than the prompt's first line.") String title,
             @ToolParam(description = "Optional first user prompt to seed the new task's "
                     + "conversation. When set, the task starts running this turn immediately; "
                     + "when omitted, the task lands at PENDING and waits for the user.",
@@ -751,13 +756,16 @@ public class AgentToolHandlers
         }
         String initialPrompt = args.initialPrompt() == null ? "" : args.initialPrompt();
         String taskType = args.taskType() == null ? "" : args.taskType();
+        // Prefer the agent's purpose-written title; fall back to the first
+        // sentence of the prompt so the name never reads truncated mid-thought.
+        String title = args.title() != null && !args.title().isBlank()
+                ? args.title().strip()
+                : createTaskTitle(initialPrompt, thread.title());
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 thread.kind(),
                 thread.provider(),
                 thread.model(),
-                // Title from the task's own purpose (so the branch reads like
-                // dev/clean-duplicate-code), falling back to the thread title.
-                createTaskTitle(initialPrompt, thread.title()),
+                title,
                 /* workingDir */ watched.localClonePath(),
                 /* branchName — let worktree create derive it */ null,
                 initialPrompt.isBlank() ? null : initialPrompt,
@@ -796,7 +804,31 @@ public class AgentToolHandlers
             return threadTitle;
         }
         String firstLine = initialPrompt.strip().lines().findFirst().orElse(initialPrompt).strip();
-        return firstLine.length() > 72 ? firstLine.substring(0, 72).strip() : firstLine;
+        return firstSentence(firstLine);
+    }
+
+    /** First complete sentence of {@code text} so a derived name reads as a
+     *  whole clause rather than a mid-thought cut (the old hard 72-char slice
+     *  produced names like "Clean up X. Scope is"). Cuts at the first period
+     *  that is followed by whitespace — ignoring dotted abbreviations /
+     *  decimals ("e.g.", "v1.2") which have no following space. Falls back to
+     *  a 72-char word-boundary trim when there's no early sentence break. */
+    static String firstSentence(String text)
+    {
+        for (int i = 0; i < text.length() - 1; i++) {
+            if (text.charAt(i) == '.' && Character.isWhitespace(text.charAt(i + 1))) {
+                if (i + 1 <= 72) {
+                    return text.substring(0, i + 1).strip();
+                }
+                break;
+            }
+        }
+        if (text.length() <= 72) {
+            return text;
+        }
+        String head = text.substring(0, 72);
+        int lastSpace = head.lastIndexOf(' ');
+        return (lastSpace > 0 ? head.substring(0, lastSpace) : head).strip();
     }
 
     /** Wire shape for {@code create_task}'s result — the just-cut task's

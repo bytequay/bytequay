@@ -35,8 +35,22 @@ import java.util.Set;
  */
 public record ToolDispatchContext(
         String threadId,
+        /** The task this turn is bound to, from the running turn's stamped
+         *  task_id (null for a trunk turn). Authoritative — never re-derived
+         *  from a thread-level "active task" guess. */
+        String taskId,
         JsonNode id,
         ToolCallParams params,
         AgentRole role,
         Set<SecurityType> grants,
-        ToolSpec spec) {}
+        ToolSpec spec)
+{
+    /** No task bound to the turn (a trunk turn, or a caller that doesn't
+     *  carry task scope). */
+    public ToolDispatchContext(
+            String threadId, JsonNode id, ToolCallParams params,
+            AgentRole role, Set<SecurityType> grants, ToolSpec spec)
+    {
+        this(threadId, null, id, params, role, grants, spec);
+    }
+}

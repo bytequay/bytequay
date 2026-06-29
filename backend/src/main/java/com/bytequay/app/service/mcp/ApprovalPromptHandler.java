@@ -108,7 +108,7 @@ public class ApprovalPromptHandler
         }
 
         ApprovalContext approvalCtx = new ApprovalContext(
-                threadId, id, toolName, callId, toolInput, ctx.grants());
+                threadId, ctx.taskId(), id, toolName, callId, toolInput, ctx.grants());
         for (ApprovalStep step : steps) {
             ApprovalStepResult result = step.apply(approvalCtx);
             if (result instanceof ApprovalStepResult.Resolve resolve) {

@@ -100,11 +100,16 @@ public class RunShellHandler
             deferred.setResult(responses.toolResponse(id, responses.deny("command is required")));
             return;
         }
-        Optional<Task> active = taskStore.findActiveTaskForThread(ctx.threadId());
+        // Resolve the task from the turn's stamped task_id — not a thread-level
+        // "active task" guess, which excluded shipped (IN_REVIEW) tasks and so
+        // denied run_shell on a CI-fix / address-comments turn ("not active").
+        Optional<Task> active = ctx.taskId() == null
+                ? Optional.empty()
+                : taskStore.findTaskById(ctx.taskId());
         if (active.isEmpty() || active.get().worktreePath() == null
                 || active.get().worktreePath().isBlank()) {
             deferred.setResult(responses.toolResponse(id,
-                    responses.deny("run_shell requires an active task with a worktree")));
+                    responses.deny("run_shell requires a task with a worktree")));
             return;
         }
         Path worktree = Path.of(active.get().worktreePath());

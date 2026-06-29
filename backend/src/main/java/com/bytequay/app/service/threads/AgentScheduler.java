@@ -94,7 +94,14 @@ public class AgentScheduler
     private final StageStore stages;
     private final TaskStore tasks;
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
-    private final Set<String> runningTaskIds = new HashSet<>();
+    /** Per-agent-identity run gate: holds the agent key of every turn
+     *  currently dispatched, so two turns for the SAME agent serialize
+     *  while different stages/tasks of one thread run concurrently. The
+     *  key is the thread id for a trunk turn (one trunk agent per thread)
+     *  and the registry stage key (stage id, else task id) for a
+     *  task/stage turn — the same key the registry uses to find the live
+     *  agent. The global lane cap still bounds total concurrent agents. */
+    private final Set<String> runningAgentKeys = new HashSet<>();
     private final Object lock = new Object();
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct the scheduler directly, where
@@ -438,7 +445,7 @@ public class AgentScheduler
                     }
                     ThreadTurn turn = maybeTurn.get();
                     lane.running++;
-                    runningTaskIds.add(turn.threadId());
+                    runningAgentKeys.add(agentKeyOf(turn));
                     dispatch(turn);
                     madeProgress = true;
                 }
@@ -452,7 +459,7 @@ public class AgentScheduler
         Iterator<ThreadTurn> iterator = lane.queue.iterator();
         while (iterator.hasNext()) {
             ThreadTurn turn = iterator.next();
-            if (runningTaskIds.contains(turn.threadId())) {
+            if (runningAgentKeys.contains(agentKeyOf(turn))) {
                 continue;
             }
             iterator.remove();
@@ -554,7 +561,7 @@ public class AgentScheduler
         synchronized (lock) {
             LaneState lane = lane(runningTurn.lane());
             lane.running = Math.max(0, lane.running - 1);
-            runningTaskIds.remove(runningTurn.threadId());
+            runningAgentKeys.remove(agentKeyOf(runningTurn));
             drainLocked();
             // Wake blocked invokeAll slot acquisitions — they share
             // the lane capacity with turns.
@@ -590,6 +597,27 @@ public class AgentScheduler
         return state;
     }
 
+    /**
+     * The run-gate key identifying the AGENT a turn dispatches to — the
+     * same key {@link ThreadRegistry} uses to find that agent. A trunk
+     * turn (no task) routes to the one-per-thread trunk agent, so it keys
+     * by thread id and stays serialized. A task/stage turn keys by its
+     * stamped stage id (each stage gets its own agent), falling back to
+     * the task id for a task-level turn with no stage. Two turns sharing
+     * a key serialize; turns for different stages/tasks of one thread do
+     * not block each other.
+     */
+    static String agentKeyOf(ThreadTurn turn)
+    {
+        if (turn.taskId() == null || turn.taskId().isBlank()) {
+            return turn.threadId();
+        }
+        if (turn.stageId() != null && !turn.stageId().isBlank()) {
+            return turn.stageId();
+        }
+        return turn.taskId();
+    }
+
     static ThreadResourceLane laneFor(Thread thread)
     {
         return switch (thread.kind()) {
@@ -608,8 +636,8 @@ public class AgentScheduler
         if (lane.running >= lane.maxRunning) {
             return "waiting for " + turn.lane().name().toLowerCase(Locale.ROOT) + " lane capacity";
         }
-        if (runningTaskIds.contains(turn.threadId())) {
-            return "waiting for previous turn for this thread";
+        if (runningAgentKeys.contains(agentKeyOf(turn))) {
+            return "waiting for previous turn for this agent";
         }
         return "waiting for scheduler capacity";
     }

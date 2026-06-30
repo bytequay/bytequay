@@ -12,9 +12,12 @@
  * limitations under the License.
  */
 
-/** Stage / task / CI-check status. `active` + `planning` pulse; `future`
- *  is a dim dashed outline for a stage that hasn't been instantiated. */
-export type StatusDotVariant = 'active' | 'planning' | 'sleep' | 'done' | 'future';
+/** Stage / task / CI-check status. `active`, `planning` + `developing` pulse;
+ *  `future` is a dim dashed outline for a stage that hasn't been instantiated.
+ *  `created` (green) → `developing` (yellow) are the pre-PR task-lifecycle
+ *  marks shown before a task name until a real PR glyph takes over. */
+export type StatusDotVariant =
+  'active' | 'planning' | 'sleep' | 'done' | 'future' | 'created' | 'developing';
 
 /**
  * A small round status indicator, reused across the sidebar stage

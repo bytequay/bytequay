@@ -294,10 +294,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Status dot sits at the right edge, matching the stage rows + thread rows. */
+/* The lifecycle mark leads the row, before the task name. */
 .shell .task-subhead .v3-dot {
   flex-shrink: 0;
-  margin-left: 8px;
+  margin-right: 7px;
 }
 
 .shell .stage-sublist {

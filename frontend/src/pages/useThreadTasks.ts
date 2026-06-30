@@ -17,17 +17,19 @@ import type { TaskNavRow } from '../ui/workspace';
 import type { WorkUnitTaskDto } from '../types';
 import { taskLabel } from '../threads/taskLabel';
 
-/** A task row's status dot. A thread can run several tasks at once, so each
- *  row carries its own state: done (green) when merged/completed, sleep
- *  (gray) when paused / errored / closed, active otherwise. */
+/** The pre-PR leading mark for a task row: green when freshly created, amber
+ *  while in development, gray when paused / errored / closed. This only shows
+ *  before a PR exists — once it does, {@link navPr} supplies the GitHub PR
+ *  glyph instead (open / merged), so COMPLETED never reaches the dot. */
 function navDot(status: string): StatusDotVariant {
   switch (status) {
-    case 'COMPLETED': return 'done';
+    case 'PENDING': return 'created';
     case 'PAUSED':
     case 'ERRORED':
     case 'CANCELED':
     case 'ARCHIVED': return 'sleep';
-    default: return 'active';
+    case 'COMPLETED': return 'done';
+    default: return 'developing';
   }
 }
 

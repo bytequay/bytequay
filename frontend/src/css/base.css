@@ -22,10 +22,12 @@
 
   --accent-soft: rgba(139, 92, 246, 0.1);
   --accent-border: rgba(139, 92, 246, 0.22);
+  --accent-deep: #6d40d8;
 
   --teal: #0d9488;
   --teal-soft: rgba(13, 148, 136, 0.1);
   --teal-border: rgba(13, 148, 136, 0.26);
+  --teal-deep: #0f766e;
 
   --orange: #c2632a;
   --orange-soft: rgba(194, 99, 42, 0.1);
@@ -37,6 +39,20 @@
 
   --red: #dc2626;
   --red-soft: rgba(220, 38, 38, 0.06);
+  --red-border: rgba(220, 38, 38, 0.26);
+
+  /* Stage-spine hues: Development blue + CI/gate amber. Additive to the
+     V3 palette (not a parallel color system) — the timeline spine needs a
+     distinct color per lifecycle stage. */
+  --blue: #2563eb;
+  --blue-soft: rgba(37, 99, 235, 0.09);
+  --blue-border: rgba(37, 99, 235, 0.26);
+  --blue-deep: #1d4ed8;
+
+  --amber: #b45309;
+  --amber-soft: rgba(245, 158, 11, 0.13);
+  --amber-border: rgba(245, 158, 11, 0.4);
+  --amber-deep: #92400e;
 
   --code-border: rgba(180, 140, 80, 0.2);
   --code-bg-warm: #f9f4ec;

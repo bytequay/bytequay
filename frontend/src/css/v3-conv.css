@@ -792,3 +792,260 @@
   font-weight: 600;
 }
 .shell .triage-card__btn--start:hover { filter: brightness(1.05); }
+
+/* ════════════════════════════════════════════════════════════════════
+   TIMELINE SPINE (M10) — the shared spine system for the brain feed, the
+   trunk feed, and the task root node. Layers 1–4 of the spine library
+   (ui/conv/spine/*). Ports the locked mockups (design/brain-live-plan/*,
+   trunk/trunk-timeline.html) onto the V3 tokens; no new color system.
+   ════════════════════════════════════════════════════════════════════ */
+.shell .spine { position: relative; padding-left: 30px; }
+.shell .spine::before {
+  content: ""; position: absolute; left: 9px; top: 6px; bottom: 6px;
+  width: 2px; border-radius: 2px;
+  background: linear-gradient(var(--accent), var(--blue) 55%, var(--amber));
+}
+
+/* node colour → --n (mark/label hue) + --nd (deep text hue) */
+.shell .sp-node--purple, .shell .sp-nodecard--purple { --n: var(--accent); --nd: var(--accent-deep); }
+.shell .sp-node--blue,   .shell .sp-nodecard--blue   { --n: var(--blue);   --nd: var(--blue-deep); }
+.shell .sp-node--amber,  .shell .sp-nodecard--amber  { --n: var(--amber);  --nd: var(--amber-deep); }
+.shell .sp-node--teal,   .shell .sp-nodecard--teal   { --n: var(--teal);   --nd: var(--teal-deep); }
+.shell .sp-node--orange, .shell .sp-nodecard--orange { --n: var(--orange); --nd: var(--orange); }
+.shell .sp-node--green,  .shell .sp-nodecard--green  { --n: var(--green);  --nd: var(--green); }
+.shell .sp-node--gray,   .shell .sp-nodecard--gray   { --n: var(--text-4); --nd: var(--text-3); }
+
+/* ── Boundary node (Layer 1) ── */
+.shell .sp-node { position: relative; margin: 0 0 14px -30px; padding-left: 30px; }
+.shell .sp-node:first-child { margin-top: 0; }
+.shell .sp-node__mark {
+  position: absolute; left: 0; top: 1px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--bg-elev); border: 2px solid var(--n, var(--blue));
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; color: var(--n, var(--blue)); font-weight: 800; z-index: 2;
+}
+.shell .sp-node__label {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px;
+  border-radius: 8px; background: var(--bg-elev); border: 1px solid var(--border-mid);
+  font-family: inherit; text-align: left; cursor: default;
+}
+.shell button.sp-node__label { cursor: pointer; }
+.shell button.sp-node__label:hover { background: var(--bg-hover); }
+.shell .sp-node__nm { font-size: 11.5px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; color: var(--n, var(--accent)); }
+.shell .sp-node__st { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-4); }
+.shell .sp-node__meta { font-size: 10.5px; color: var(--text-3); font-family: var(--mono); }
+.shell .sp-node__chev { font-size: 9px; color: var(--text-4); margin-left: 2px; }
+.shell .sp-node__tick {
+  font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--amber-deep); background: var(--amber-soft); border: 1px solid var(--amber-border);
+  border-radius: 999px; padding: 1px 6px;
+}
+
+/* ── Node card (Layer 1 base for gates + milestones) ── */
+.shell .sp-nodecard { position: relative; margin: 6px 0 14px -30px; padding-left: 30px; }
+.shell .sp-nodecard__mark {
+  position: absolute; left: 0; top: 1px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--bg-elev); border: 2px solid var(--n, var(--text-4));
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--n, var(--text-4)); font-weight: 800; z-index: 3;
+}
+.shell .sp-nodecard__body { min-width: 0; }
+
+/* ── Round (Layer 2) ── */
+.shell .sp-round { position: relative; margin: 0 0 4px; }
+.shell .sp-round__tag { position: absolute; left: -30px; top: -7px; font-size: 8.5px; font-weight: 800; color: var(--text-4); letter-spacing: .04em; }
+
+/* ── User turn (Layer 2) — teal anchor, never folds ── */
+.shell .sp-uturn { position: relative; margin: 0 0 11px; }
+.shell .sp-uturn__mark {
+  position: absolute; left: -30px; top: -1px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--teal); border: 2px solid var(--teal); color: #fff;
+  font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; z-index: 3;
+}
+.shell .sp-ublock { background: var(--teal-soft); border: 1px solid var(--teal-border); border-left: 3px solid var(--teal); border-radius: 8px; padding: 8px 11px; }
+.shell .sp-ublock__who { font-size: 11px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; color: var(--teal-deep); margin-bottom: 3px; }
+.shell .sp-ublock__who .ago { font-weight: 500; color: var(--text-4); font-size: 10px; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.shell .sp-ublock__tx { font-size: 12px; color: var(--text-1); line-height: 1.5; }
+.shell .sp-ublock__tx p { margin: 0; }
+
+/* ── Headline (Layer 2) — agent's final reply, always visible ── */
+.shell .sp-headline { position: relative; margin: 0 0 13px; }
+.shell .sp-headline--blue { --hl: var(--blue-deep); --hldot: var(--blue); }
+.shell .sp-headline--purple { --hl: var(--accent-deep); --hldot: var(--accent); }
+.shell .sp-headline::before { content: ""; position: absolute; left: -25.5px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--hldot, var(--blue)); border: 2px solid var(--bg); z-index: 2; }
+.shell .sp-headline__who { font-size: 12px; font-weight: 700; color: var(--hl, var(--blue-deep)); margin-bottom: 2px; }
+.shell .sp-headline__ava { display: inline-flex; width: 16px; height: 16px; border-radius: 4px; background: var(--hl, var(--blue-deep)); color: #fff; font-size: 8px; font-weight: 800; align-items: center; justify-content: center; vertical-align: middle; margin-right: 5px; }
+.shell .sp-headline__who .ago { font-weight: 500; color: var(--text-4); font-size: 10.5px; margin-left: 6px; }
+.shell .sp-headline__tx { font-size: 12px; color: var(--text-2); line-height: 1.55; }
+.shell .sp-headline__tx p { margin: 0 0 6px; }
+.shell .sp-headline__tx p:last-child { margin-bottom: 0; }
+.shell .sp-headline__tx b, .shell .sp-headline__tx strong { color: var(--text-1); }
+
+/* brain chatter dot (Layer 2) — lowest-signal message */
+.shell .sp-bmsg { position: relative; margin: 0 0 13px; }
+.shell .sp-bmsg::before { content: ""; position: absolute; left: -25.5px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); border: 2px solid var(--bg); z-index: 2; }
+.shell .sp-bmsg .sp-headline__who { color: var(--blue-deep); }
+
+/* Q&A reply tucked under a user turn (Layer 2) */
+.shell .sp-reply { position: relative; margin: -4px 0 13px; padding: 9px 11px 2px 13px; border-left: 2px dashed var(--teal-border); margin-left: 2px; }
+.shell .sp-reply::before { content: "↳ replies"; display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--teal-deep); opacity: .75; margin-bottom: 5px; }
+.shell .sp-reply .sp-headline__tx { font-size: 12px; }
+
+/* ── Work fold (Layer 2) ── */
+.shell .sp-work { position: relative; margin: 0 0 9px; }
+.shell .sp-work::before { content: ""; position: absolute; left: -25.5px; top: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--bg-elev); border: 2px solid var(--accent); z-index: 2; }
+.shell .sp-work__bar { display: inline-flex; align-items: center; gap: 9px; padding: 6px 11px; background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: 8px; cursor: pointer; font-family: inherit; }
+.shell .sp-work__bar:hover { filter: brightness(0.99); }
+.shell .sp-work__bar:disabled { cursor: default; }
+.shell .sp-work__sp { font-size: 11px; color: var(--accent-deep); }
+.shell .sp-work__lbl { font-size: 11px; font-weight: 700; color: var(--accent-deep); }
+.shell .sp-work__meta { font-size: 10.5px; color: var(--text-3); font-family: var(--mono); }
+.shell .sp-work__chev { font-size: 9px; color: var(--accent-deep); transition: transform .18s; }
+.shell .sp-work.open .sp-work__chev { transform: rotate(90deg); }
+.shell .sp-work__inner { margin: 8px 0 0 4px; padding-left: 13px; border-left: 2px dashed var(--accent-border); }
+
+/* ── Activity strip (Layer 2) ── */
+.shell .sp-act { position: relative; margin: 0 0 13px; }
+.shell .sp-act::before { content: ""; position: absolute; left: -26px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg-elev); border: 2px solid var(--text-4); z-index: 2; }
+.shell .sp-act__bar { display: flex; align-items: center; gap: 9px; padding: 7px 11px; background: var(--bg-code); border: 1px solid var(--border-mid); border-radius: 8px; cursor: pointer; width: 100%; font-family: inherit; text-align: left; }
+.shell .sp-act__bar:hover { background: var(--code-bg-warm); }
+.shell .sp-act__bar:disabled { cursor: default; }
+.shell .sp-act__gear { font-size: 12px; color: var(--text-3); }
+.shell .sp-act__cnt { font-size: 11.5px; font-weight: 700; color: var(--text-2); }
+.shell .sp-act__brk { font-size: 11px; color: var(--text-3); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shell .sp-act__chev { margin-left: auto; font-size: 10px; color: var(--text-4); transition: transform .18s; }
+.shell .sp-act.open .sp-act__chev { transform: rotate(90deg); }
+.shell .sp-act__log { margin-top: 7px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-elev); }
+.shell .sp-act__grp { padding: 7px 11px; border-bottom: 1px solid var(--border); }
+.shell .sp-act__grp:last-child { border-bottom: none; }
+.shell .sp-act__gh { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-4); margin-bottom: 5px; }
+.shell .sp-trow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 11px; }
+.shell .sp-trow__st { width: 13px; text-align: center; flex-shrink: 0; }
+.shell .sp-trow__st.ok { color: var(--green); }
+.shell .sp-trow__st.fail { color: var(--red); }
+.shell .sp-trow__cmd { font-family: var(--mono); font-size: 10.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shell .sp-trow--fail { background: var(--red-soft); margin: 2px -11px; padding: 5px 11px; border-radius: 5px; }
+.shell .sp-trow--fail .sp-trow__cmd { color: var(--red); }
+.shell .sp-trow__err { font-size: 10px; color: var(--red); margin-left: auto; font-family: var(--mono); }
+
+/* ── Badges (shared by work fold + activity strip) ── */
+.shell .sp-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; font-weight: 700; padding: 1.5px 7px; border-radius: 999px; }
+.shell .sp-badge--fail { background: var(--red-soft); color: var(--red); border: 1px solid var(--red-border); }
+.shell .sp-badge--edit { background: var(--blue-soft); color: var(--blue-deep); border: 1px solid var(--blue-border); }
+
+/* ── Outline-strip jump flash ── */
+.shell .sp-flash { animation: sp-flash 1.2s ease-out; }
+@keyframes sp-flash {
+  from { box-shadow: 0 0 0 3px var(--accent-a40); }
+  to { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ── Ask-user-question card (amber) ───────────────────────────── */
+.shell .trunk-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 32px 8px;
+}
+.shell .ask-question-card {
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  background: #fffbeb;
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shell .ask-question-card__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.shell .ask-question-card__pill {
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  background: #d97706;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.shell .ask-question-card__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b45309;
+}
+.shell .ask-question-card__q {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+.shell .ask-question-card__ctx {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.shell .ask-question-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.shell .ask-question-card__opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 7px 11px;
+  border: 1px solid #fcd34d;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text-1);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+.shell .ask-question-card__opt:hover {
+  border-color: #d97706;
+  background: #fffaf0;
+}
+.shell .ask-question-card__opt-label { flex: 1; }
+.shell .ask-question-card__extra {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.shell .ask-question-card__free {
+  display: flex;
+  gap: 6px;
+}
+.shell .ask-question-card__input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-mid);
+  border-radius: 7px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+.shell .ask-question-card__send {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 7px;
+  background: #d97706;
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.shell .ask-question-card__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

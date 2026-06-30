@@ -133,6 +133,28 @@ class TestThreadRegistryLease
     }
 
     @Test
+    void getOrCreateReclaimsLeaseHeldByASiblingStageOfTheSameTask()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
+        // A sibling session of the SAME task holds the worktree on a LIVE pid
+        // (e.g. the planning/idle session, now handing off to Development).
+        // A task's stages share one worktree and run sequentially, so the new
+        // stage reclaims it rather than 409ing on its own task.
+        leaseStore.save(new WorktreeLease(
+                WORKTREE, "task-1", ThreadKind.CLI_AGENT,
+                (int) ProcessHandle.current().pid(),
+                Instant.now(), /* expiresAt */ null));
+        ThreadRegistry registry = newRegistry();
+
+        registry.getOrCreate(thread("thread-1"));
+
+        assertThat(leaseService.isHeld(WORKTREE)).isTrue();
+        assertThat(leaseService.find(WORKTREE).map(WorktreeLease::taskId))
+                .contains("task-1");
+    }
+
+    @Test
     void evictIsANoOpWhenThereWasNoSession()
     {
         ThreadRegistry registry = newRegistry();

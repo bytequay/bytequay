@@ -105,22 +105,36 @@ public class WorktreeLeaseService
      * restart picks up its old worktrees immediately rather than
      * waiting up to a minute for the reaper sweep.
      *
-     * <p>Reclamation only fires when the existing row has a non-null
-     * holder pid AND that pid is gone. A pid-less LOGIC_LOOP-held
-     * lease or a live-pid lease is treated as a genuine conflict and
-     * returns empty so the caller can surface a 409.
+     * <p>Reclamation fires when either (a) the existing row's holder pid is
+     * gone (a crashed backend), or (b) the existing lease belongs to the
+     * <em>same task</em> being requested — a task's stages share one worktree
+     * and run sequentially, so a new stage (e.g. Development after Planning, or
+     * the next CI-fix round) hands the lease off from its now-idle sibling
+     * session rather than 409ing on it. A live-pid lease held by a
+     * <em>different</em> task is a genuine conflict and returns empty so the
+     * caller can surface a 409 (two tasks must never write one worktree).
      */
     public Optional<WorktreeLease> tryAcquireOrReclaim(
             String worktreePath, String taskId, ThreadKind agentKind, Integer holderPid)
     {
         requireNonNull(worktreePath, "worktreePath is null");
         Optional<WorktreeLease> existing = store.findByWorktreePath(worktreePath);
-        if (existing.isPresent() && isHolderDead(existing.get())) {
-            log.info("Reclaiming stale lease on {} (prior taskId {}, pid {})",
-                    worktreePath, existing.get().taskId(), existing.get().holderPid());
+        if (existing.isPresent() && shouldReclaim(existing.get(), taskId)) {
+            log.info("Reclaiming lease on {} (prior taskId {}, pid {}; requested by {})",
+                    worktreePath, existing.get().taskId(), existing.get().holderPid(), taskId);
             store.releaseByWorktreePath(worktreePath);
         }
         return tryAcquire(worktreePath, taskId, agentKind, holderPid, /* expiresAt */ null);
+    }
+
+    /** Reclaim a prior lease when its holder process is gone, or when it
+     *  belongs to the same task that's now asking (a sibling stage handing off
+     *  the shared worktree). A different live task is left alone — a real
+     *  conflict the caller turns into a 409. */
+    private static boolean shouldReclaim(WorktreeLease existing, String requestingTaskId)
+    {
+        return isHolderDead(existing)
+                || (requestingTaskId != null && requestingTaskId.equals(existing.taskId()));
     }
 
     /** True when the lease names a holder pid that no longer maps to

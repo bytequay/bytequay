@@ -21,6 +21,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -59,12 +60,15 @@ public class PlanToolHandlers
 
     private final StageStore stageStore;
     private final ThreadStore threadStore;
+    private final TaskStore taskStore;
     private final ObjectMapper mapper;
 
-    public PlanToolHandlers(StageStore stageStore, ThreadStore threadStore, ObjectMapper mapper)
+    public PlanToolHandlers(
+            StageStore stageStore, ThreadStore threadStore, TaskStore taskStore, ObjectMapper mapper)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -133,7 +137,27 @@ public class PlanToolHandlers
         StageEvent event = stageStore.recordEvent(
                 plan.id(), args.taskId(), StageEventType.PLAN_RECORDED, payload);
         log.debug("recorded plan ({}) on PlanStage {} for task {}", source, plan.id(), args.taskId());
+
+        // Name the task from the plan's goal — a concise objective sentence —
+        // so the sidebar/list shows what the task DOES, not the raw opening
+        // prompt's first line (which reads like a stray chat message). The
+        // prompt-derived name set at creation stands until the brain plans.
+        renameFromGoal(args.taskId(), args.plan());
         return serialise(event.payloadJson());
+    }
+
+    /** Rename the task to the plan's {@code goal} (a concise objective
+     *  sentence) so its rail/list label reflects the work, not the raw opening
+     *  prompt. No-op when the goal is blank; capped defensively so a runaway
+     *  value can't bloat the label. */
+    private void renameFromGoal(String taskId, JsonNode plan)
+    {
+        String goal = plan.path("goal").asText("").strip();
+        if (goal.isEmpty()) {
+            return;
+        }
+        String name = goal.length() > 120 ? goal.substring(0, 120).strip() : goal;
+        taskStore.findTaskById(taskId).ifPresent(task -> taskStore.saveTask(task.withName(name)));
     }
 
     // ── read_plan_summary ───────────────────────────────────────────────

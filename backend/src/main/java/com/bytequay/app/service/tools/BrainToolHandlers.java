@@ -16,6 +16,7 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.LocalCommitDetail;
 import com.bytequay.app.domain.LocalCommitFile;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageEvent;
@@ -141,11 +142,11 @@ public class BrainToolHandlers
         if (blank(args.taskId()) || blank(args.sha())) {
             return ToolOutcome.Completed.error("task_id and sha are required");
         }
-        Optional<RepoRef> repo = repoFor(args.taskId());
+        Optional<PullRequestRef> repo = repoFor(args.taskId());
         if (repo.isEmpty()) {
             return ToolOutcome.Completed.error("task has no linked repo to read commits from");
         }
-        RepoRef r = repo.get();
+        PullRequestRef r = repo.get();
         try {
             LocalCommitDetail detail = localRepos.commitDetail(r.owner(), r.repo(), args.sha());
             List<LocalCommitFile> files = localRepos.commitFiles(r.owner(), r.repo(), args.sha());
@@ -447,7 +448,7 @@ public class BrainToolHandlers
     {
         return repoFor(taskId).flatMap(r -> {
             try {
-                return Optional.ofNullable(pullRequests.getPullRequestDetail(r.repoFullName(), r.number()));
+                return Optional.ofNullable(pullRequests.getPullRequestDetail(r.repoRef().fullName(), r.number()));
             }
             catch (RuntimeException e) {
                 log.warn("brain prDetail for task {} failed: {}", taskId, e.getMessage());
@@ -457,39 +458,12 @@ public class BrainToolHandlers
     }
 
     /** Resolve owner/repo + PR number from a task's {@code owner/repo#n} link ref. */
-    private Optional<RepoRef> repoFor(String taskId)
+    private Optional<PullRequestRef> repoFor(String taskId)
     {
         return taskStore.findTaskById(taskId)
                 .map(Task::linkedPrRef)
-                .flatMap(BrainToolHandlers::parseRef);
+                .flatMap(PullRequestRef::parse);
     }
-
-    private static Optional<RepoRef> parseRef(String ref)
-    {
-        if (ref == null) {
-            return Optional.empty();
-        }
-        int hash = ref.lastIndexOf('#');
-        if (hash <= 0 || hash == ref.length() - 1) {
-            return Optional.empty();
-        }
-        String repoFull = ref.substring(0, hash);
-        int slash = repoFull.indexOf('/');
-        if (slash <= 0 || slash == repoFull.length() - 1) {
-            return Optional.empty();
-        }
-        int number;
-        try {
-            number = Integer.parseInt(ref.substring(hash + 1).trim());
-        }
-        catch (NumberFormatException e) {
-            return Optional.empty();
-        }
-        return Optional.of(new RepoRef(
-                repoFull.substring(0, slash), repoFull.substring(slash + 1), repoFull, number));
-    }
-
-    private record RepoRef(String owner, String repo, String repoFullName, int number) {}
 
     private String payloadField(StageEvent event, String field)
     {

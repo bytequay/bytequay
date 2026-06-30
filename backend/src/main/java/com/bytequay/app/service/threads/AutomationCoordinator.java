@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
@@ -488,19 +489,13 @@ public class AutomationCoordinator
      */
     private boolean driveShippedCiFixFromLiveDetail(Task task)
     {
-        String ref = task.linkedPrRef();
-        int hash = ref.lastIndexOf('#');
-        if (hash <= 0 || hash == ref.length() - 1) {
+        Optional<PullRequestRef> parsed = PullRequestRef.parse(task.linkedPrRef());
+        if (parsed.isEmpty()) {
             return false;
         }
-        String repoFullName = ref.substring(0, hash);
-        int number;
-        try {
-            number = Integer.parseInt(ref.substring(hash + 1).trim());
-        }
-        catch (NumberFormatException e) {
-            return false;
-        }
+        String repoFullName = parsed.get().repoRef().fullName();
+        int number = parsed.get().number();
+        String ref = parsed.get().fullName();
         PullRequestDetail detail;
         try {
             detail = pullRequests.getPullRequestDetail(repoFullName, number);

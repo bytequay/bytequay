@@ -15,6 +15,7 @@ package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.Task;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -213,21 +215,10 @@ public class ReadyToMergeService
      *  neither yields a complete owner/repo/number. */
     private static ParkedProposal.PrRef prRefFor(Task task, PullRequestDetail detail)
     {
-        String ref = task.linkedPrRef();
-        if (ref != null) {
-            int hash = ref.lastIndexOf('#');
-            int slash = hash > 0 ? ref.lastIndexOf('/', hash) : -1;
-            if (hash > 0 && slash > 0) {
-                try {
-                    return new ParkedProposal.PrRef(
-                            ref.substring(0, slash),
-                            ref.substring(slash + 1, hash),
-                            Integer.parseInt(ref.substring(hash + 1)));
-                }
-                catch (NumberFormatException ignore) {
-                    // Malformed ref — fall through to the PR detail.
-                }
-            }
+        Optional<PullRequestRef> parsed = PullRequestRef.parse(task.linkedPrRef());
+        if (parsed.isPresent()) {
+            PullRequestRef ref = parsed.get();
+            return new ParkedProposal.PrRef(ref.owner(), ref.repo(), ref.number());
         }
         String repo = detail.repo();
         if (repo != null && repo.contains("/")) {

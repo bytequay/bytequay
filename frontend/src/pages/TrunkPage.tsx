@@ -19,7 +19,7 @@ import {
   Composer, Main, Shell, TopBar, TopBarButton, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
 } from '../ui/shell';
 import {
-  BacklogTabContent, InlineChips, NotificationsTabContent, RightPane, TasksTabContent,
+  BacklogFormModal, BacklogTabContent, InlineChips, NotificationsTabContent, RightPane, TasksTabContent,
 } from '../ui/pane';
 import type { NotifData, TaskCardData } from '../ui/pane';
 import type { BacklogItemDto, ThreadSignalDto } from '../types';
@@ -86,6 +86,7 @@ export function TrunkPage({
 }) {
   const pane = useTrunkPane(threadId);
   const [activeTab, setActiveTab] = useState<TrunkTab>('tasks');
+  const [addBacklogOpen, setAddBacklogOpen] = useState(false);
   const [taskSub, setTaskSub] = useState<TaskSubTab>('all');
   const [paneOpen, setPaneOpen] = useState(true);
   // Trunk keeps its own pane width, independent of the brain/stage surfaces.
@@ -146,7 +147,7 @@ export function TrunkPage({
         return (
           <BacklogTabContent
             items={pane.backlog.map(i => backlogToCard(i, formatTime))}
-            onAddItem={() => { void pane.createItem('New backlog item', '', []); }}
+            onAddItem={() => setAddBacklogOpen(true)}
             onStartDevelopment={id => { void pane.startDevelopment(id); }}
           />
         );
@@ -226,6 +227,15 @@ export function TrunkPage({
           )}
         </div>
       </Main>
+      {addBacklogOpen && (
+        <BacklogFormModal
+          onSave={item => {
+            void pane.createItem(item.title, item.body, item.tags, item.priority);
+            setAddBacklogOpen(false);
+          }}
+          onClose={() => setAddBacklogOpen(false)}
+        />
+      )}
     </Shell>
   );
 }

@@ -34,6 +34,14 @@ class TestReadOnlyShellClassifier
         "git log --oneline -20",
         "git diff HEAD~1",
         "git show abc123",
+        // Benign output sinks: stderr/stdout to /dev/null or merged — write
+        // nothing, so a read command that suppresses noise stays read-only.
+        "find . -name \"*.java\" 2>/dev/null",
+        "grep -rn foo src 2>/dev/null",
+        "ls -la /tmp 2>&1",
+        // The motivating case from the dev agent's file discovery.
+        "find /repo -type f -name \"*.java\" \\( -name \"*AiReviewService*\" "
+                + "-o -name \"*TaskService*\" \\) ! -path \"*/.worktrees/*\" 2>/dev/null",
     };
 
     private static final String[] NOT_READ_ONLY = {

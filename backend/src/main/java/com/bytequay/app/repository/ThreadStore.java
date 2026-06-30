@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository;
 
-import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
@@ -52,22 +51,6 @@ public interface ThreadStore
         return Optional.empty();
     }
 
-    /** Replace the thread's planned-task queue (V110). Entity-managed:
-     *  written on its own column outside {@link #saveThread} so a
-     *  full-row save can't clobber a concurrent queue edit. No-op
-     *  default for test stores; the SQLite store overrides. */
-    default void updateThreadQueue(String threadId, List<QueuedTask> queue)
-    {
-    }
-
-    /** Ids of threads that currently hold at least one PENDING queue
-     *  entry — the startup reconciler kicks each so work queued before a
-     *  restart still runs. Empty default for test stores. */
-    default List<String> threadIdsWithPendingQueue()
-    {
-        return List.of();
-    }
-
     /** Permanent removal — drops the thread row plus its child messages
      *  and per-file rollups. Callers must already have stopped any
      *  live session attached to the thread; this method touches only
@@ -94,6 +77,20 @@ public interface ThreadStore
     default List<Thread> listTasksByWorkspaceAndStatus(String workspaceId, ThreadStatus status, int limit)
     {
         return listTasksByStatus(status, limit);
+    }
+
+    /**
+     * Every thread in a workspace, regardless of status — the enumeration
+     * a workspace cascade-delete walks to tear down each thread (and its
+     * tasks / stages / history) before dropping the workspace row.
+     *
+     * <p>Default implementation returns an empty list; the SQLite store
+     * overrides it. In-memory test stubs that don't track {@code
+     * workspace_id} inherit the empty result.
+     */
+    default List<Thread> listThreadsByWorkspace(String workspaceId)
+    {
+        return List.of();
     }
 
     /**

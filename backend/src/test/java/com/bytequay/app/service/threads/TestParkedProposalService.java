@@ -30,11 +30,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -94,23 +92,20 @@ class TestParkedProposalService
     }
 
     @Test
-    void interruptedNextWithActiveSuccessorKeepsPriorTaskParked()
+    void interruptedNextResumesThePriorParkedTask()
     {
+        // next_task no longer cuts a successor; it just resumes the prior
+        // parked task locally so the user can keep editing.
         Task task = taskAt(TaskStatus.AWAITING_REVIEW, null);
-        Task successor = new Task(
-                "task-2", "thread-1", 2L, TaskStatus.PENDING,
-                "feature/y", "/tmp/wt/y", "main", "/tmp/repo",
-                null, null, null, null, null,
-                "DEVELOP", null, null,
-                0L, 0L, 0L, null,
-                task.createdAt(), null, null, null, null, null);
         Notification proposal = proposal();
-        when(tasks.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(successor));
+        when(tasks.findTaskById(task.id())).thenReturn(Optional.of(task));
         when(notifications.finishResolution(proposal.id())).thenReturn(true);
 
         service.finishInterruptedApproval(proposal, "next_task");
 
-        verify(tasks, never()).saveTask(any());
+        ArgumentCaptor<Task> resumed = ArgumentCaptor.forClass(Task.class);
+        verify(tasks).saveTask(resumed.capture());
+        assertThat(resumed.getValue().status()).isEqualTo(TaskStatus.IDLE);
         verify(notifications).finishResolution(proposal.id());
     }
 

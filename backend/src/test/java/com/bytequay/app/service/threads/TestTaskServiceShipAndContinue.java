@@ -33,10 +33,8 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -101,7 +99,6 @@ class TestTaskServiceShipAndContinue
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
-            new RoleSkillService(new ConceptRegistry()),
             NOOP_PUBLISHER,
             taskPhaseMachine);
 
@@ -117,7 +114,7 @@ class TestTaskServiceShipAndContinue
         Task shipped = task("task-1", "thread-1", 1L, shippedBranchName,
                 shippedWorktreePath, workingDir);
         when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(shipped));
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(shipped));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(shipped));
         when(watchedRepoStore.findAll()).thenReturn(List.of(
                 new WatchedRepo(1L, "acme", "widget", 0,
                         workingDir, /* upstreamRemoteName */ null, /* viewFocus */ null)));
@@ -182,7 +179,7 @@ class TestTaskServiceShipAndContinue
         Task shipped = task("task-1", "thread-1", 1L, "dev/task-1",
                 "/tmp/acme/widget/.worktrees/task-1", workingDir);
         when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(shipped));
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(shipped));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(shipped));
         when(watchedRepoStore.findAll()).thenReturn(List.of(
                 new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
         when(workspaces.findDefaultBaseBranch(anyString(), anyString())).thenReturn(Optional.empty());
@@ -216,7 +213,7 @@ class TestTaskServiceShipAndContinue
         Task shipped = task("task-1", "thread-1", 1L, "dev/task-1",
                 "/tmp/acme/widget/.worktrees/task-1", workingDir);
         when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(shipped));
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(shipped));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(shipped));
         when(watchedRepoStore.findAll()).thenReturn(List.of(
                 new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
         when(workspaces.findDefaultBaseBranch(anyString(), anyString())).thenReturn(Optional.empty());
@@ -247,7 +244,6 @@ class TestTaskServiceShipAndContinue
         when(threadStore.findThreadById("thread-parked"))
                 .thenReturn(Optional.of(thread("thread-parked")));
         when(taskStore.findTaskById("task-parked")).thenReturn(Optional.of(parked));
-        when(taskStore.findActiveTaskForThread("thread-parked")).thenReturn(Optional.empty());
         when(watchedRepoStore.findAll()).thenReturn(List.of(
                 new WatchedRepo(1L, "acme", "widget", 0,
                         workingDir, /* upstreamRemoteName */ null, /* viewFocus */ null)));
@@ -257,9 +253,6 @@ class TestTaskServiceShipAndContinue
         when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
         when(pullRequests.createPullRequest(eq("ghp_secret"), any(RepoRef.class), any(CreatePullRequestCommand.class)))
                 .thenReturn(prWithNumber(43));
-        when(worktreeService.create(any(Path.class), anyString(), anyString()))
-                .thenReturn(Optional.of(new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/acme/widget/.worktrees/task-next"), "dev/task-next", null)));
         when(registry.find("thread-parked")).thenReturn(Optional.empty());
 
         Task next = service.startNextFromApprovedParkedTask(
@@ -272,7 +265,11 @@ class TestTaskServiceShipAndContinue
                 .filter(t -> t.id().equals("task-parked"))
                 .map(Task::status))
                 .containsExactly(TaskStatus.AWAITING_REVIEW);
-        assertThat(next.status()).isEqualTo(TaskStatus.PENDING);
+        // No successor is cut — Next parks the current task and returns it; the
+        // trunk's create_task is the only way to start more work.
+        verify(worktreeService, never()).create(any(Path.class), anyString(), anyString());
+        assertThat(next.id()).isEqualTo("task-parked");
+        assertThat(next.status()).isEqualTo(TaskStatus.AWAITING_REVIEW);
     }
 
     @Test

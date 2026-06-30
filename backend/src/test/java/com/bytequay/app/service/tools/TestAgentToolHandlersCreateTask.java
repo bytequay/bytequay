@@ -26,8 +26,6 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
-import com.bytequay.app.service.threads.TaskQueueMaterialiser;
-import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -87,13 +85,10 @@ class TestAgentToolHandlersCreateTask
                 mock(ShellRunner.class),
                 watchedRepos,
                 threads,
-                mock(TaskQueueMaterialiser.class),
-                mock(TaskQueueScheduler.class),
                 worktreeService,
                 new ObjectMapper());
 
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(trunkThread()));
-        when(taskStore.findActiveTaskForThread(THREAD_ID)).thenReturn(Optional.empty());
     }
 
     @Test

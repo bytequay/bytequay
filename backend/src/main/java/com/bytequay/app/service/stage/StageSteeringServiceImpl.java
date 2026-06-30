@@ -83,8 +83,8 @@ public class StageSteeringServiceImpl
                 .orElseThrow(() -> status(404, "no dev thread: " + task.threadId()));
 
         // Bind the turn to the task explicitly. A task parked at
-        // AWAITING_REVIEW (the review gate) has a null Thread.activeTask(),
-        // so the active-task-derived enqueueTurn would stamp task_id = null
+        // AWAITING_REVIEW (the review gate) is no longer in the thread's
+        // active set, so the active-task-derived enqueueTurn would stamp task_id = null
         // and misroute the steer to the trunk planner instead of the dev
         // agent — leaving review comments unaddressed.
         String turnId = scheduler.enqueueTaskTurn(

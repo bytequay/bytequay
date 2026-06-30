@@ -242,9 +242,11 @@ public interface TaskStore
      *  work units the conversation has rolled through). */
     List<Task> listTasksByThread(String threadId);
 
-    /** Latest non-terminal task for a thread, i.e. the "active" one.
-     *  Empty for a 0-Task thread (brainstorm / Q&A with no branch). */
-    Optional<Task> findActiveTaskForThread(String threadId);
+    /** Non-terminal tasks for a thread (runtime status not
+     *  COMPLETED/ERRORED <em>and</em> dev-lifecycle phase not COMPLETED),
+     *  latest seq first. A thread may run several at once; empty for a
+     *  0-Task thread (brainstorm / Q&A with no branch). */
+    List<Task> activeTasksForThread(String threadId);
 
     /** Whether the thread has any non-terminal task. A presence check
      *  callers use to gate "this thread is already working on something" —
@@ -269,10 +271,10 @@ public interface TaskStore
 
     /** Latest task on a thread by seq, regardless of status. Used by
      *  the resume-from-terminal path: a COMPLETED thread's most-recent
-     *  task is also terminal, so {@link #findActiveTaskForThread}
-     *  returns empty, but we still need the task to recover the
-     *  worktree + branch when the user picks the conversation back up.
-     *  Empty for a 0-Task thread. */
+     *  task is also terminal, so {@link #activeTasksForThread} returns
+     *  empty, but we still need the task to recover the worktree +
+     *  branch when the user picks the conversation back up. Empty for a
+     *  0-Task thread. */
     Optional<Task> findLatestTaskForThread(String threadId);
 
     /** Highest seq currently assigned in the thread. Used to compute

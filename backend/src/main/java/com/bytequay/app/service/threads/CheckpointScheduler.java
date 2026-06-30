@@ -212,8 +212,13 @@ public class CheckpointScheduler
         // which compacts into workspace memory). Threads in the
         // 0-Task brainstorm state leave taskId null, which routes the
         // row to the legacy thread-scope slice.
-        String taskId = taskStore.findActiveTaskForThread(threadId)
+        // ponytail: the summarised range isn't stamped with a single task id
+        // here, so attribute to the thread's newest active task (or null on a
+        // 0-task thread). Thread a per-turn task id through if a concurrent
+        // thread ever needs precise per-task attribution.
+        String taskId = taskStore.activeTasksForThread(threadId).stream()
                 .map(Task::id)
+                .findFirst()
                 .orElse(null);
         ThreadCheckpoint cp = new ThreadCheckpoint(
                 UUID.randomUUID().toString(),

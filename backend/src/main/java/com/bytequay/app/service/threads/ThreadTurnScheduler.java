@@ -40,7 +40,7 @@ public interface ThreadTurnScheduler
      *  its task's conversation slice even when that task isn't in the
      *  narrow "active" set — parked at {@code AWAITING_REVIEW}, {@code
      *  NEEDS_ATTENTION}, or with a {@code COMPLETED} dev-lifecycle phase.
-     *  In those states {@code Thread.activeTask()} is null, which used to
+     *  In those states the thread has no active task, which used to
      *  mislabel the turn as a {@code task_id = null} (trunk) row and leak
      *  the task conversation into the trunk slice. A null {@code taskId}
      *  falls back to a trunk turn, matching the no-id behaviour.
@@ -55,8 +55,8 @@ public interface ThreadTurnScheduler
 
     /** As {@link #enqueueTaskTurn(Thread, String, String)} but with an
      *  explicit initiator. Used to steer the dev agent at the review gate:
-     *  a task parked at {@code AWAITING_REVIEW} has a null
-     *  {@link Thread#activeTask()}, so the active-task-derived overloads
+     *  a task parked at {@code AWAITING_REVIEW} is no longer in the
+     *  thread's active set, so the active-task-derived overloads
      *  would misroute the turn to the trunk planner — binding the taskId
      *  keeps it on the dev agent. */
     default String enqueueTaskTurn(Thread thread, String input, String taskId, TurnInitiator initiator)

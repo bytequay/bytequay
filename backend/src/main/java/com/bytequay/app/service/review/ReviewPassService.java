@@ -322,8 +322,7 @@ public class ReviewPassService
                 // fall back to ws-default.
                 opts.workspaceId() == null || opts.workspaceId().isBlank()
                         ? "ws-default" : opts.workspaceId(),
-                /* workModel */ null,
-                /* activeTask */ null);
+                /* workModel */ null);
         threadStore.saveThread(thread);
 
         // 3. Pass row at KICKOFF — a later step transitions it as the

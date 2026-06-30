@@ -21,6 +21,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.ReviewStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +44,7 @@ import static org.mockito.Mockito.when;
 class TestReviewPassResolver
 {
     private ThreadStore threadStore;
+    private TaskStore taskStore;
     private ReviewStore reviewStore;
     private GitRunner git;
     private ReviewPassResolver resolver;
@@ -51,15 +53,16 @@ class TestReviewPassResolver
     void setUp()
     {
         threadStore = mock(ThreadStore.class);
+        taskStore = mock(TaskStore.class);
         reviewStore = mock(ReviewStore.class);
         git = mock(GitRunner.class);
-        resolver = new ReviewPassResolver(threadStore, reviewStore, git);
+        resolver = new ReviewPassResolver(threadStore, taskStore, reviewStore, git);
     }
 
     @Test
     void resolveFromTextsFlipsReferencedAgreedFindingsAndStampsTheBuildThread()
     {
-        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1", null)));
+        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1")));
         when(reviewStore.listFindingsForPass("pass-1")).thenReturn(List.of(
                 finding("f1", ReviewFindingStatus.AGREED),
                 finding("f2", ReviewFindingStatus.AGREED)));
@@ -77,7 +80,7 @@ class TestReviewPassResolver
     @Test
     void ignoresRefsToFindingsOutsideTheParentPass()
     {
-        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1", null)));
+        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1")));
         when(reviewStore.listFindingsForPass("pass-1")).thenReturn(List.of(
                 finding("f1", ReviewFindingStatus.AGREED)));
 
@@ -91,7 +94,7 @@ class TestReviewPassResolver
     @Test
     void isIdempotentAndOnlyTouchesAgreedFindings()
     {
-        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1", null)));
+        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1")));
         when(reviewStore.listFindingsForPass("pass-1")).thenReturn(List.of(
                 finding("f1", ReviewFindingStatus.RESOLVED),    // already resolved
                 finding("f2", ReviewFindingStatus.DISPUTED)));   // not agreed
@@ -105,7 +108,7 @@ class TestReviewPassResolver
     @Test
     void noOpWhenThreadHasNoParentReviewPass()
     {
-        when(threadStore.findThreadById("plain")).thenReturn(Optional.of(buildThread(null, null)));
+        when(threadStore.findThreadById("plain")).thenReturn(Optional.of(buildThread(null)));
         assertThat(resolver.resolveFromTexts("plain", List.of("#finding-f1"))).isZero();
         verify(reviewStore, never()).saveFinding(any());
     }
@@ -113,7 +116,7 @@ class TestReviewPassResolver
     @Test
     void onPublishApprovedResolvesFromASuggestedChangeCommentBody()
     {
-        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1", null)));
+        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1")));
         when(reviewStore.listFindingsForPass("pass-1")).thenReturn(List.of(
                 finding("f1", ReviewFindingStatus.AGREED)));
 
@@ -129,7 +132,8 @@ class TestReviewPassResolver
             throws Exception
     {
         Task task = buildTask("build-branch", "/clones/widget");
-        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1", task)));
+        when(threadStore.findThreadById("bt")).thenReturn(Optional.of(buildThread("pass-1")));
+        when(taskStore.activeTasksForThread("bt")).thenReturn(List.of(task));
         when(reviewStore.listFindingsForPass("pass-1")).thenReturn(List.of(
                 finding("f1", ReviewFindingStatus.AGREED)));
         when(git.listCommits(any(), eq("build-branch"), anyInt())).thenReturn(List.of(
@@ -149,11 +153,11 @@ class TestReviewPassResolver
                 status, "body", null, null, Instant.EPOCH, null, 0);
     }
 
-    private static Thread buildThread(String parentReviewPassId, Task activeTask)
+    private static Thread buildThread(String parentReviewPassId)
     {
         return new Thread("bt", ThreadKind.CLI_AGENT, null, null, "title", null, null,
                 0L, 0L, 0L, Instant.EPOCH, Instant.EPOCH, null, null, ThreadFlow.BUILD,
-                "ws-1", null, activeTask, parentReviewPassId);
+                "ws-1", null, parentReviewPassId);
     }
 
     private static Task buildTask(String branchName, String worktreePath)

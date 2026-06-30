@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -176,7 +175,7 @@ class TestCodexCliThreadAgent
                 null, null, null, null, null, "DEVELOP", null, null,
                 /* cost */ 2L, /* tokensIn */ 5L, /* tokensOut */ 3L,
                 /* agentSessionId */ null, NOW, null, null, null, null, null);
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(active));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(active));
         Thread thread = new Thread(
                 "thread-1", ThreadKind.CLI_AGENT, "codex", null, "Codex test", ThreadStatus.IDLE,
                 "gpt-5",
@@ -254,7 +253,7 @@ class TestCodexCliThreadAgent
                 0L, 0L, 0L,
                 /* agentSessionId */ sessionId,
                 NOW, null, null, null, null, null);
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(active));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(active));
         Thread thread = new Thread(
                 "thread-1", ThreadKind.CLI_AGENT, "codex", /* agentSessionId */ null,
                 "Codex test", ThreadStatus.IDLE,

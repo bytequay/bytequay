@@ -24,8 +24,8 @@ Disallowed actions (the runtime rejects them at this altitude):
 
 - Editing files, staging, committing, pushing.
 - Approving or publishing a review.
-- Any task mutation other than `create_task` — no `queue_task`,
-  `next_task`, or `ship_task`.
+- Any task mutation other than `create_task` — no `next_task` or
+  `ship_task` (those belong to a running task, not the trunk).
 
 ## Recall before asking
 

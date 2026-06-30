@@ -365,8 +365,7 @@ public class ThreadService
                 current.endedAt(), current.errorMessage(),
                 current.flow(),
                 current.workspaceId(),
-                current.workModel(),
-                current.activeTask());
+                current.workModel());
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);
     }
@@ -393,8 +392,7 @@ public class ThreadService
                 current.endedAt(), current.errorMessage(),
                 current.flow(),
                 current.workspaceId(),
-                workModel,
-                current.activeTask());
+                workModel);
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);
     }
@@ -460,8 +458,7 @@ public class ThreadService
                 /* errorMessage */ null,
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
                 request.workspaceId().trim(),
-                request.workModel(),
-                /* activeTask */ null);
+                request.workModel());
         store.saveThread(thread);
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);
@@ -839,18 +836,48 @@ public class ThreadService
                             + " that haven't completed — finish or stop them"
                             + " before deleting the thread.");
         }
-        // Stop the live agent + drop any queued turns so we don't
-        // leave a subprocess running against a deleted row.
-        for (ThreadAgent agent : registry.findAll(threadId)) {
-            try {
-                agent.stop();
-            }
-            catch (RuntimeException e) {
-                log.warn("agent stop on delete threw for {}: {}", threadId, e.getMessage());
-            }
+        teardownAndDelete(threadId, allTasks);
+    }
+
+    /**
+     * Force-delete a thread and everything under it, <em>without</em> the
+     * shipped-task guard {@link #delete} enforces. This is the teardown a
+     * workspace cascade-delete runs per thread: the whole workspace is
+     * going away, so in-flight tasks are stopped and their worktrees reaped
+     * rather than refused. Stops every live agent (stage + trunk), cancels
+     * queued turns, evicts the sessions, reaps each task's worktree, then
+     * drops the row (the DB cascades tasks / stages / messages / backlog).
+     *
+     * <p>Idempotent on a missing id. Not exposed over HTTP — only the
+     * workspace teardown calls it, so a single thread always goes through
+     * the guarded {@link #delete}.
+     */
+    public void purge(String threadId)
+    {
+        requireNonNull(threadId, "threadId is null");
+        if (store.findThreadById(threadId).isEmpty()) {
+            return;
         }
+        teardownAndDelete(threadId, taskStore.listTasksByThread(threadId));
+    }
+
+    /**
+     * Shared teardown for {@link #delete} / {@link #purge}: stop + evict
+     * every agent session (so no subprocess outlives the row), drain queued
+     * turns, reap each task's worktree, then delete the thread row.
+     */
+    private void teardownAndDelete(String threadId, List<Task> allTasks)
+    {
+        // Stop the live agents + drop any queued turns so we don't leave a
+        // subprocess running against a deleted row. A thread may have
+        // several concurrent stage agents plus its trunk/planning agent.
+        for (ThreadAgent agent : registry.findAll(threadId)) {
+            stopQuietly(threadId, agent);
+        }
+        registry.findTrunk(threadId).ifPresent(agent -> stopQuietly(threadId, agent));
         scheduler.cancelQueuedTurns(threadId);
         registry.evict(threadId);
+        registry.evictTrunk(threadId);
         // Best-effort worktree cleanup. Errors are logged inside the
         // service; we don't fail the delete if a worktree is already gone
         // or git can't remove it cleanly — the thread row going away is the
@@ -864,6 +891,16 @@ public class ThreadService
             }
         }
         store.deleteThread(threadId);
+    }
+
+    private void stopQuietly(String threadId, ThreadAgent agent)
+    {
+        try {
+            agent.stop();
+        }
+        catch (RuntimeException e) {
+            log.warn("agent stop on delete threw for {}: {}", threadId, e.getMessage());
+        }
     }
 
     /** Whether the thread is eligible for deletion right now — the

@@ -72,8 +72,7 @@ public class ThreadStartupReconciler
                         thread.endedAt(), thread.errorMessage(),
                         thread.flow(),
                         thread.workspaceId(),
-                        thread.workModel(),
-                        thread.activeTask()));
+                        thread.workModel()));
             }
             reconciled += orphaned.size();
             if (orphaned.size() < RECONCILE_PAGE_SIZE) {

@@ -13,18 +13,22 @@
  */
 package com.bytequay.app.service.workspaces;
 
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptScope;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
+import com.bytequay.app.service.threads.ThreadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -95,15 +99,24 @@ public class WorkspaceService
     private final WorkspaceStore store;
     private final WorkspaceGlossaryParser glossaryParser;
     private final ConceptRegistry concepts;
+    private final ThreadStore threadStore;
+    private final ThreadService threadService;
 
     public WorkspaceService(
             WorkspaceStore store,
             WorkspaceGlossaryParser glossaryParser,
-            ConceptRegistry concepts)
+            ConceptRegistry concepts,
+            ThreadStore threadStore,
+            // @Lazy breaks the cycle WorkspaceService → ThreadService →
+            // ThreadRegistry → WorkspaceService (the registry reads workspace
+            // context). The teardown only needs ThreadService at delete time.
+            @Lazy ThreadService threadService)
     {
         this.store = requireNonNull(store, "store is null");
         this.glossaryParser = requireNonNull(glossaryParser, "glossaryParser is null");
         this.concepts = requireNonNull(concepts, "concepts is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.threadService = requireNonNull(threadService, "threadService is null");
     }
 
     public List<Workspace> list()
@@ -257,16 +270,39 @@ public class WorkspaceService
     }
 
     /**
-     * Delete a workspace. Drops the row plus its workspace_repos
-     * (FK cascade) and the memory-proposal row. Threads pointing at
-     * it are left orphaned — callers should re-home them first (the
-     * frontend warns the user when the workspace still has threads).
+     * Delete a workspace and everything under it. Each thread in the
+     * workspace is purged first ({@link ThreadService#purge}): its agent
+     * sessions are stopped, queued turns cancelled, worktrees reaped, and
+     * the row dropped — which DB-cascades the thread's tasks, stages,
+     * messages, backlog, and review history. Only then is the workspace
+     * row removed (taking its {@code workspace_repos} pins and
+     * memory-proposal row via FK cascade).
+     *
+     * <p>Purging threads first is also required for correctness, not just
+     * cleanup: {@code threads.workspace_id} has no {@code ON DELETE
+     * CASCADE}, so with FK enforcement on, dropping a workspace that still
+     * had threads would fail with a constraint violation.
+     *
+     * <p>Each thread purge is best-effort — one thread's teardown throwing
+     * (a wedged git worktree, say) is logged and skipped so it can't strand
+     * the rest of the cascade.
      */
     public void delete(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         require(workspaceId);
+        List<Thread> threads = threadStore.listThreadsByWorkspace(workspaceId);
+        for (Thread thread : threads) {
+            try {
+                threadService.purge(thread.id());
+            }
+            catch (RuntimeException e) {
+                log.warn("purge of thread {} during workspace {} delete failed: {}",
+                        thread.id(), workspaceId, e.getMessage());
+            }
+        }
         store.deleteWorkspace(workspaceId);
+        log.info("deleted workspace {} and purged {} thread(s)", workspaceId, threads.size());
     }
 
     /**

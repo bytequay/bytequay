@@ -348,12 +348,6 @@ class SqliteTaskStore
     }
 
     @Override
-    public Optional<Task> findActiveTaskForThread(String threadId)
-    {
-        return activeTasksForThread(threadId).stream().findFirst();
-    }
-
-    @Override
     public boolean hasActiveTask(String threadId)
     {
         return !activeTasksForThread(threadId).isEmpty();
@@ -377,8 +371,9 @@ class SqliteTaskStore
      *  The phase guard matters because a remote merge advances phase to
      *  COMPLETED without flipping the runtime status off IDLE — such a task
      *  is done, not active, and reading status alone would let it masquerade
-     *  as the thread's active task. */
-    private List<Task> activeTasksForThread(String threadId)
+     *  as an active task. */
+    @Override
+    public List<Task> activeTasksForThread(String threadId)
     {
         List<String> active = List.of(
                 TaskStatus.PENDING.name(),

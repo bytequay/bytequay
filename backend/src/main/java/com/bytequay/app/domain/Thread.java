@@ -17,30 +17,23 @@ import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 
 import java.time.Instant;
-import java.util.List;
 
 /**
  * Pure projection of one row in the {@code threads} table — the
  * top-level record for an AI coding thread. Lifecycle, ownership of the
  * agent loop, persistent metadata.
  *
- * <p>Bridge teardown complete: the work-unit columns that V72
- * moved onto {@code tasks} ({@code working_dir}, {@code branch_name},
- * {@code worktree_path}, {@code process_pid}, {@code log_path},
- * {@code task_type}, {@code linked_pr_number},
- * {@code linked_issue_number}, {@code metadata_json}) are no longer
- * surfaced as flattened scalars on Thread. Readers go through
- * {@link #activeTask} (a projected {@link Task}) for those, or
- * through {@link com.bytequay.app.repository.TaskStore} directly
- * when they need more than the active task.
+ * <p>A thread accumulates one or more {@link Task}s over its lifetime
+ * and may run several at once — each on its own branch + worktree.
+ * There is no single "active task" projection on Thread: callers that
+ * need a task go through {@link com.bytequay.app.repository.TaskStore}
+ * (the active set, or a specific task id stamped on the running turn).
  *
  * <p>Several fields are conditional on {@link #kind}:
  * <ul>
  *   <li>{@code agentSessionId} is populated for
  *       {@link ThreadKind#CLI_AGENT} threads while a child process
- *       is alive, and {@code null} for {@link ThreadKind#LOGIC_LOOP}.
- *       Per-process diagnostics ({@code process_pid}, {@code log_path})
- *       live on the active {@code tasks} row now, not here.</li>
+ *       is alive, and {@code null} for {@link ThreadKind#LOGIC_LOOP}.</li>
  *   <li>{@code endedAt} / {@code errorMessage} only set on terminal
  *       transitions (COMPLETED / ERRORED).</li>
  * </ul>
@@ -51,18 +44,13 @@ import java.util.List;
  * @param flow structural discriminator. Set at creation, never silently
  * flipped — the persistence layer refuses to rewrite it on an existing
  * row.
- * @param activeTask the most recent non-terminal {@link Task} for the
- * thread, projected at read time. Null on 0-Task brainstorm threads.
- * Carries the per-task execution surface (working dir, branch,
- * worktree path, PR/issue links, etc.) that used to be flattened
- * onto Thread before the bridge teardown.
  */
 @Concept(
         name = "thread",
         kind = ConceptKind.NOUN,
         definition = "A long-lived AI conversation about one piece of work. Owns the agent "
                 + "loop and persistent metadata; accumulates one or more tasks over its "
-                + "lifetime, only one of which is foreground at a time.",
+                + "lifetime, any number of which may run at once.",
         examples = {
                 "A review thread that produces N tasks as the user iterates on feedback.",
                 "A build thread whose trunk plans + delegates each task to a worker."
@@ -94,23 +82,15 @@ public record Thread(
          *  pick, then to the global default. See V95 for the column
          *  and {@link WorkModel} for the value shape. */
         WorkModel workModel,
-        Task activeTask,
         /** The review pass this thread was spawned from ("→ Spawn build
          *  thread"), or null. Set at creation on the spawned BUILD
          *  thread; powers the "← from review of PR #N" breadcrumb and
          *  lets the resolver flip the parent pass's findings to
          *  RESOLVED when this thread's work ships. */
         String parentReviewPassId,
-        /** The trunk-owned queue of planned future tasks (V110). The
-         *  head materialises into a {@link Task} when the active task
-         *  completes. Empty on most threads. Entity-managed — written
-         *  via {@code ThreadStore.updateThreadQueue}, never through
-         *  {@code saveThread}, so a full-row save can't clobber a
-         *  concurrent queue edit. */
-        List<QueuedTask> queue,
         /** Concurrent compute slots the thread's tasks may occupy
-         *  (V110). Invariantly 1 in v1 — the field exists so unlocking
-         *  parallelism in v2 is a config flip, not a re-migration. */
+         *  (V110). The field exists so unlocking wider parallelism is a
+         *  config flip, not a re-migration; floors at 1. */
         int parallelSlots,
         /** For a {@link ThreadKind#BRAIN_AGENT} thread, the dev task this
          *  brain answers questions about (V122). Null for every other
@@ -118,18 +98,15 @@ public record Thread(
          *  task. Entity-managed; the store maps it on INSERT. */
         String parentTaskId)
 {
-    /** Defensive copy + null-safety on the queue so a null persists as
-     *  an empty list and callers can't mutate it underneath the record;
-     *  parallelSlots floors at 1. */
+    /** parallelSlots floors at 1. */
     public Thread
     {
-        queue = queue == null ? List.of() : List.copyOf(queue);
         if (parallelSlots < 1) {
             parallelSlots = 1;
         }
     }
 
-    /** Back-compat constructor for the 21-field shape that predates the
+    /** Back-compat constructor for the shape that predates the
      *  {@code parentTaskId} column (V122). Defaults it to null — correct
      *  for every thread except a brain thread; only the store's row mapper
      *  and the brain-thread creation path thread a real value through the
@@ -152,21 +129,16 @@ public record Thread(
             ThreadFlow flow,
             String workspaceId,
             WorkModel workModel,
-            Task activeTask,
             String parentReviewPassId,
-            List<QueuedTask> queue,
             int parallelSlots)
     {
         this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
                 tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
-                workspaceId, workModel, activeTask, parentReviewPassId, queue, parallelSlots, null);
+                workspaceId, workModel, parentReviewPassId, parallelSlots, null);
     }
 
-    /** Back-compat constructor for the 19-field shape that predates the
-     *  {@code queue} + {@code parallelSlots} columns (V110). Defaults to
-     *  an empty queue and a single slot — correct for every
-     *  fresh-construction call site; only the store's row mapper threads
-     *  the persisted queue through the canonical constructor. */
+    /** Thread with a review-pass parent but the default single slot —
+     *  the shape a build thread spawned from a review pass is copied to. */
     public Thread(
             String id,
             ThreadKind kind,
@@ -185,12 +157,11 @@ public record Thread(
             ThreadFlow flow,
             String workspaceId,
             WorkModel workModel,
-            Task activeTask,
             String parentReviewPassId)
     {
         this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
                 tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
-                workspaceId, workModel, activeTask, parentReviewPassId, List.of(), 1, null);
+                workspaceId, workModel, parentReviewPassId, 1, null);
     }
 
     /** Thread with no review-pass parent — the default for every
@@ -213,22 +184,10 @@ public record Thread(
             String errorMessage,
             ThreadFlow flow,
             String workspaceId,
-            WorkModel workModel,
-            Task activeTask)
+            WorkModel workModel)
     {
         this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
                 tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
-                workspaceId, workModel, activeTask, null);
-    }
-
-    /**
-     * Resolves the directory the agent process should be spawned in
-     * by delegating to {@link Task#agentCwd} on the {@link #activeTask}.
-     * Returns null for 0-Task brainstorm threads — there's no agent
-     * to spawn for those, so the caller has to handle the null.
-     */
-    public String agentCwd()
-    {
-        return activeTask == null ? null : activeTask.agentCwd();
+                workspaceId, workModel, null);
     }
 }

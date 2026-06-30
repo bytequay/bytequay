@@ -191,7 +191,9 @@ public class ReviewBuildSpawnService
         threadStore.saveThread(withParentReviewPass(thread, passId));
         reviewStore.savePass(withSpawnedBuildThread(pass, thread.id()));
 
-        String taskId = thread.activeTask() == null ? null : thread.activeTask().id();
+        // A freshly spawned build thread is 0-task — its first task
+        // materialises later — so there's no task id to report yet.
+        String taskId = null;
         log.info("Spawned build thread {} ({}) from review pass {} on PR {}#{}",
                 thread.id(), mode, passId, repo, prNumber);
         return new BuildSpawn(thread.id(), taskId, mode);
@@ -305,7 +307,7 @@ public class ReviewBuildSpawnService
                 t.id(), t.kind(), t.provider(), t.agentSessionId(), t.title(), t.status(),
                 t.model(), t.costUsdMilli(), t.tokensIn(), t.tokensOut(), t.createdAt(),
                 t.updatedAt(), t.endedAt(), t.errorMessage(), t.flow(), t.workspaceId(),
-                t.workModel(), t.activeTask(), passId);
+                t.workModel(), passId);
     }
 
     private static ReviewPass withSpawnedBuildThread(ReviewPass p, String threadId)

@@ -14,7 +14,6 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.PullRequest;
-import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
@@ -26,8 +25,6 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
-import com.bytequay.app.service.threads.TaskQueueMaterialiser;
-import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -90,8 +87,6 @@ public class AgentToolHandlers
     private final ShellRunner shellRunner;
     private final WatchedRepoStore watchedRepos;
     private final ThreadService threads;
-    private final TaskQueueMaterialiser queueMaterialiser;
-    private final TaskQueueScheduler queueScheduler;
     private final WorktreeService worktreeService;
     private final ObjectMapper mapper;
 
@@ -107,8 +102,6 @@ public class AgentToolHandlers
             ShellRunner shellRunner,
             WatchedRepoStore watchedRepos,
             ThreadService threads,
-            TaskQueueMaterialiser queueMaterialiser,
-            TaskQueueScheduler queueScheduler,
             WorktreeService worktreeService,
             ObjectMapper mapper)
     {
@@ -123,8 +116,6 @@ public class AgentToolHandlers
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.threads = requireNonNull(threads, "threads is null");
-        this.queueMaterialiser = requireNonNull(queueMaterialiser, "queueMaterialiser is null");
-        this.queueScheduler = requireNonNull(queueScheduler, "queueScheduler is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -677,9 +668,8 @@ public class AgentToolHandlers
             description = "Cut a new task on this thread. Trunk-only. Returns the new task's "
                     + "id, branch, worktree path, and seq. A thread may run several tasks at "
                     + "once — each gets its own branch and worktree — so this cuts immediately "
-                    + "whether or not other tasks are already live. Use queue_task instead to "
-                    + "line work up behind a specific task, or next_task / ship_task to chain "
-                    + "off the current one.",
+                    + "whether or not other tasks are already live. This is the only way to "
+                    + "start a task.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)
@@ -696,9 +686,7 @@ public class AgentToolHandlers
         }
         Thread thread = threadOpt.get();
         // A thread can run several tasks concurrently — each on its own branch
-        // and worktree — so create_task always cuts immediately. (queue_task /
-        // next_task / ship_task remain for explicitly sequencing work behind a
-        // chosen task.)
+        // and worktree — so create_task always cuts immediately.
         // GitHub owner/name slugs are case-insensitive (trino/Trino,
         // spark/Spark resolve to the same repo), so match the same way —
         // otherwise an agent that fumbles the case gets a confusing "repo not
@@ -716,38 +704,6 @@ public class AgentToolHandlers
         if (watched.localClonePath() == null || watched.localClonePath().isBlank()) {
             return ToolOutcome.Completed.error(
                     "watched repo " + repo + " has no local clone path — set it under Repos.");
-        }
-        // When the trunk has lined up a queue, cutting a task starts the
-        // head of that queue (its planned title / opening prompt) through
-        // the same dequeue-and-run path the scheduler uses — one execution
-        // rule for queue_task, create_task, and on-completion advancement.
-        // The caller's args are a one-off fallback only when the queue is
-        // empty. create_task is trunk-only (no active task), so the slot is
-        // free and the head starts immediately.
-        Optional<QueuedTask> head = queueMaterialiser.pendingHead(thread);
-        if (head.isPresent()) {
-            try {
-                Optional<Task> started =
-                        queueScheduler.startNextIfIdle(threadId, watched.localClonePath());
-                if (started.isEmpty()) {
-                    return ToolOutcome.Completed.error(
-                            "create_task: the queued head couldn't start now (slot busy or no "
-                                    + "working dir); it will start when a slot frees.");
-                }
-                Task materialised = started.get();
-                return toolOutcome(new CreatedTaskResult(
-                        materialised.id(),
-                        materialised.threadId(),
-                        materialised.seq(),
-                        materialised.status() == null ? null : materialised.status().name(),
-                        materialised.branchName(),
-                        materialised.worktreePath(),
-                        materialised.workingDir(),
-                        materialised.baseBranch()));
-            }
-            catch (IllegalArgumentException | IllegalStateException e) {
-                return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
-            }
         }
         String initialPrompt = args.initialPrompt() == null ? "" : args.initialPrompt();
         String taskType = args.taskType() == null ? "" : args.taskType();

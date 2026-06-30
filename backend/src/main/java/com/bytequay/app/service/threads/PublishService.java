@@ -628,10 +628,6 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "resolve the " + openComments + " open review comment(s) before shipping");
         }
-        if (taskStore.hasActiveTask(parked.threadId())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "thread " + parked.threadId() + " already has an active successor");
-        }
         TaskPreconditions.requireShippable(parked);
         // The original nextTitle JsonNode type check (textual-or-absent)
         // is now enforced by Jackson at deserialisation — a non-string

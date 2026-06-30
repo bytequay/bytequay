@@ -17,7 +17,6 @@ import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
-import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
@@ -25,7 +24,6 @@ import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.ToolCall;
@@ -139,9 +137,13 @@ public class LogicLoopThreadAgent
     // ── Fields ────────────────────────────────────────────────────────────
 
     private final String threadId;
+    /** For a BRAIN_AGENT thread, the dev task this brain is bound to 1:1
+     *  (via the thread's parentTaskId); null for every other thread. Every
+     *  persisted row is stamped with this so a brain's messages attribute to
+     *  its task and a plain LOGIC_LOOP / trunk thread stamps task_id = null. */
+    private final String parentTaskId;
     private final ThreadKind kind;
     private final ThreadStore store;
-    private final TaskStore taskStore;
     /** Stage of the in-flight turn, set by the scheduler before each send;
      *  emitted messages inherit it as their explicit stage_id. */
     private volatile String activeStageId;
@@ -303,7 +305,6 @@ public class LogicLoopThreadAgent
     public LogicLoopThreadAgent(
             Thread thread,
             ThreadStore store,
-            TaskStore taskStore,
             ObjectMapper mapper,
             ExecutorService executor,
             CredentialService credentialService,
@@ -311,7 +312,7 @@ public class LogicLoopThreadAgent
             String workingDir,
             String roleSkillText)
     {
-        this(thread, store, taskStore, mapper, executor, credentialService,
+        this(thread, store, mapper, executor, credentialService,
                 resolvedModel, workingDir, roleSkillText, /* toolRegistry */ null,
                 /* ds4 */ null, /* ds4Instrumentation */ null,
                 /* permissionGate */ null);
@@ -320,7 +321,6 @@ public class LogicLoopThreadAgent
     public LogicLoopThreadAgent(
             Thread thread,
             ThreadStore store,
-            TaskStore taskStore,
             ObjectMapper mapper,
             ExecutorService executor,
             CredentialService credentialService,
@@ -329,7 +329,7 @@ public class LogicLoopThreadAgent
             String roleSkillText,
             LogicLoopToolRegistry toolRegistry)
     {
-        this(thread, store, taskStore, mapper, executor, credentialService,
+        this(thread, store, mapper, executor, credentialService,
                 resolvedModel, workingDir, roleSkillText, toolRegistry,
                 /* ds4 */ null, /* ds4Instrumentation */ null,
                 /* permissionGate */ null);
@@ -338,7 +338,6 @@ public class LogicLoopThreadAgent
     public LogicLoopThreadAgent(
             Thread thread,
             ThreadStore store,
-            TaskStore taskStore,
             ObjectMapper mapper,
             ExecutorService executor,
             CredentialService credentialService,
@@ -349,7 +348,7 @@ public class LogicLoopThreadAgent
             Ds4LifecycleService ds4,
             Ds4Instrumentation ds4Instrumentation)
     {
-        this(thread, store, taskStore, mapper, executor, credentialService,
+        this(thread, store, mapper, executor, credentialService,
                 resolvedModel, workingDir, roleSkillText, toolRegistry,
                 ds4, ds4Instrumentation, /* permissionGate */ null);
     }
@@ -357,7 +356,6 @@ public class LogicLoopThreadAgent
     public LogicLoopThreadAgent(
             Thread thread,
             ThreadStore store,
-            TaskStore taskStore,
             ObjectMapper mapper,
             ExecutorService executor,
             CredentialService credentialService,
@@ -370,15 +368,16 @@ public class LogicLoopThreadAgent
             McpPermissionGate permissionGate)
     {
         this.threadId = thread.id();
+        this.parentTaskId = thread.parentTaskId();
         this.kind = thread.kind();
         this.store = requireNonNull(store, "store is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.resolvedModel = requireNonNull(resolvedModel, "resolvedModel is null");
         this.workingDir = workingDir;
-        this.branchName = thread.activeTask() == null ? null : thread.activeTask().branchName();
+        // A LOGIC_LOOP / brain thread is read-only — it owns no dev branch.
+        this.branchName = null;
         this.roleSkillText = roleSkillText;
         this.sessionId = thread.agentSessionId() == null
                 ? "logic-loop-" + UUID.randomUUID()
@@ -1044,13 +1043,12 @@ public class LogicLoopThreadAgent
                 durationMs, tokensIn, tokensOut, costMilli, ts));
     }
 
-    /** Bind every persisted row to the foreground task at write time so
-     *  jumping back to a parked sibling never mixes histories. */
+    /** The task this thread's rows attribute to. A brain thread is bound
+     *  1:1 to its dev task via parentTaskId; a plain LOGIC_LOOP / trunk
+     *  thread has none, so its rows stamp task_id = null (trunk scope). */
     private String activeTaskId()
     {
-        return taskStore.findActiveTaskForThread(threadId)
-                .map(Task::id)
-                .orElse(null);
+        return parentTaskId;
     }
 
     @Override
@@ -1166,7 +1164,7 @@ public class LogicLoopThreadAgent
                 runningTokensOut.get() + liveTurnTokensOut.get(),
                 t.createdAt(), Instant.now(),
                 t.endedAt(), t.errorMessage(),
-                t.flow(), t.workspaceId(), t.workModel(), t.activeTask());
+                t.flow(), t.workspaceId(), t.workModel());
         store.saveThread(next);
     }
 

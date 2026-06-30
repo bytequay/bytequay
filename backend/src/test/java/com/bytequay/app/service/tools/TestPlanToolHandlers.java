@@ -203,7 +203,7 @@ class TestPlanToolHandlers
                 brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
                 "claude-haiku-4-5-20251001", 0L, 0L, 0L,
                 Instant.parse("2026-06-20T09:00:00Z"), Instant.parse("2026-06-20T09:00:00Z"),
-                null, null, ThreadFlow.BUILD, "ws-default", null, null, null, List.of(), 1, taskId));
+                null, null, ThreadFlow.BUILD, "ws-default", null, null, 1, taskId));
         threadStore.appendMessage(message(brainId, 1, "user", "let's tidy the assertj nits",
                 Instant.parse("2026-06-20T08:59:00Z")));
         threadStore.appendMessage(message(brainId, 2, "assistant", "here is the structured plan",

@@ -726,8 +726,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:submit', taskId),
   listBacklog: (threadId: string): Promise<BacklogItemDto[]> =>
     ipcRenderer.invoke('backlog:list', threadId),
-  createBacklogItem: (threadId: string, title: string, body: string, tags: string[]): Promise<BacklogItemDto> =>
-    ipcRenderer.invoke('backlog:create', { threadId, title, body, tags }),
+  createBacklogItem: (threadId: string, title: string, body: string, tags: string[], priority?: string): Promise<BacklogItemDto> =>
+    ipcRenderer.invoke('backlog:create', { threadId, title, body, tags, priority }),
   updateBacklogItem: (
     itemId: string, patch: { title?: string; body?: string; tags?: string[] },
   ): Promise<BacklogItemDto> =>

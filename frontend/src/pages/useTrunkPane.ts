@@ -23,7 +23,7 @@ export type TrunkPaneState = {
   loading: boolean;
   error: string | null;
   refresh: () => void;
-  createItem: (title: string, body: string, tags: string[]) => Promise<void>;
+  createItem: (title: string, body: string, tags: string[], priority?: string) => Promise<void>;
   updateItem: (itemId: string, patch: { title?: string; body?: string; tags?: string[] }) => Promise<void>;
   deleteItem: (itemId: string) => Promise<void>;
   startDevelopment: (itemId: string) => Promise<string | null>;
@@ -69,8 +69,8 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
 
   const refresh = useCallback(() => { void load(); }, [load]);
 
-  const createItem = useCallback(async (title: string, body: string, tags: string[]) => {
-    await window.bridge.createBacklogItem(threadId, title, body, tags);
+  const createItem = useCallback(async (title: string, body: string, tags: string[], priority?: string) => {
+    await window.bridge.createBacklogItem(threadId, title, body, tags, priority);
     await load();
   }, [threadId, load]);
 

@@ -4167,12 +4167,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('backlog:create', async (_event, args: unknown) => {
-    const params = args as { threadId?: unknown; title?: unknown; body?: unknown; tags?: unknown };
+    const params = args as { threadId?: unknown; title?: unknown; body?: unknown; tags?: unknown; priority?: unknown };
     const id = requireString(params?.threadId, 'threadId');
     const body = {
       title: typeof params.title === 'string' ? params.title : '',
       body: typeof params.body === 'string' ? params.body : '',
       tags: Array.isArray(params.tags) ? params.tags.filter(t => typeof t === 'string') : [],
+      priority: typeof params.priority === 'string' ? params.priority : undefined,
     };
     const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`, {
       method: 'POST',

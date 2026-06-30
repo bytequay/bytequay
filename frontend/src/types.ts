@@ -3600,6 +3600,7 @@ export type Bridge = {
     title: string,
     body: string,
     tags: string[],
+    priority?: string,
   ) => Promise<BacklogItemDto>;
   /** Partial update of a backlog item (omitted fields unchanged). */
   updateBacklogItem: (

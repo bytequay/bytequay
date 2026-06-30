@@ -23,5 +23,7 @@ export { TasksTabContent } from './TasksTabContent';
 export type { TaskCardData } from './TasksTabContent';
 export { BacklogTabContent } from './BacklogTabContent';
 export type { BacklogItemData } from './BacklogTabContent';
+export { BacklogFormModal } from './BacklogFormModal';
+export type { NewBacklogItem } from './BacklogFormModal';
 export { NotificationsTabContent, NotificationRow } from './NotificationsTabContent';
 export type { NotifData, NotifIconKind } from './NotificationsTabContent';

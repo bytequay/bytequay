@@ -26,6 +26,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.google.common.base.Strings.nullToEmpty;
@@ -59,7 +61,7 @@ public class BacklogServiceImpl
     }
 
     @Override
-    public BacklogItem create(String threadId, String title, String body, List<String> tags)
+    public BacklogItem create(String threadId, String title, String body, List<String> tags, String priority)
     {
         String threadIdValue = nullToEmpty(threadId).strip();
         String titleValue = nullToEmpty(title).strip();
@@ -69,35 +71,39 @@ public class BacklogServiceImpl
         if (titleValue.isEmpty()) {
             throw status(400, "title is required");
         }
-        BacklogItem item = new BacklogItem(
+        // The workspace pointer comes from the owning thread — the
+        // workspace-wide backlog view groups items by it.
+        String workspaceId = threadStore.findThreadById(threadIdValue)
+                .map(Thread::workspaceId)
+                .orElse(null);
+        BacklogItem item = BacklogItem.create(
                 UUID.randomUUID().toString(),
                 threadIdValue,
+                workspaceId,
                 titleValue,
                 nullToEmpty(body).strip(),
                 tags == null ? List.of() : tags,
+                normalisePriority(priority),
+                BacklogItem.SOURCE_MANUAL,
+                BacklogItem.CREATED_BY_USER,
                 Instant.now(),
-                /* startedAt */ null,
-                /* linkedTaskId */ null);
+                /* relatedBacklogIds */ List.of());
         return store.save(item);
     }
 
     @Override
-    public BacklogItem update(String id, String title, String body, List<String> tags)
+    public BacklogItem update(String id, String title, String body, List<String> tags, String priority)
     {
         BacklogItem existing = require(id);
         String nextTitle = title == null ? existing.title() : title.strip();
         if (nextTitle.isEmpty()) {
             throw status(400, "title cannot be blank");
         }
-        BacklogItem updated = new BacklogItem(
-                existing.id(),
-                existing.threadId(),
+        BacklogItem updated = existing.withDetails(
                 nextTitle,
                 body == null ? existing.body() : body.strip(),
                 tags == null ? existing.tags() : tags,
-                existing.createdAt(),
-                existing.startedAt(),
-                existing.linkedTaskId());
+                priority == null ? existing.priority() : normalisePriority(priority));
         return store.save(updated);
     }
 
@@ -148,15 +154,7 @@ public class BacklogServiceImpl
         catch (IllegalArgumentException e) {
             throw status(400, "could not start task: " + e.getMessage());
         }
-        BacklogItem updated = new BacklogItem(
-                item.id(),
-                item.threadId(),
-                item.title(),
-                item.body(),
-                item.tags(),
-                item.createdAt(),
-                Instant.now(),
-                linkedTaskId);
+        BacklogItem updated = item.markResolved(linkedTaskId, Instant.now());
         store.save(updated);
         return new StartResult(updated, linkedTaskId);
     }
@@ -166,6 +164,15 @@ public class BacklogServiceImpl
         return store.findById(nullToEmpty(id).strip())
                 .orElseThrow(() -> status(404, "backlog item not found: " + id));
     }
+
+    /** Clamp a priority to the allowed set, defaulting to {@code medium}. */
+    private static String normalisePriority(String priority)
+    {
+        String value = nullToEmpty(priority).strip().toLowerCase(Locale.ROOT);
+        return PRIORITIES.contains(value) ? value : BacklogItem.PRIORITY_MEDIUM;
+    }
+
+    private static final Set<String> PRIORITIES = Set.of("low", "medium", "high");
 
     private static ResponseStatusException status(int code, String message)
     {

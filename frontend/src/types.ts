@@ -2010,12 +2010,26 @@ export type ReviewCommentDto = {
 export type BacklogItemDto = {
   id: string;
   threadId: string;
+  workspaceId: string | null;
   title: string;
   body: string;
   tags: string[];
+  /** low | medium | high. */
+  priority: string;
+  /** manual | trunk-split | external. */
+  source: string;
+  /** created | in-progress | resolved | not-to-proceed. */
+  status: string;
+  /** user | trunk-agent. */
+  createdBy: string;
   createdAt: number;
+  inProgressAt: number | null;
   startedAt: number | null;
+  resolvedAt: number | null;
+  rejectedAt: number | null;
+  rejectionReason: string | null;
   linkedTaskId: string | null;
+  relatedBacklogIds: string[];
 };
 
 /** Result of starting development on a backlog item: the updated item

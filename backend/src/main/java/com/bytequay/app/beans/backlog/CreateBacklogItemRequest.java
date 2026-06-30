@@ -15,7 +15,8 @@ package com.bytequay.app.beans.backlog;
 
 import java.util.List;
 
-/** Body for creating a backlog item. */
-public record CreateBacklogItemRequest(String title, String body, List<String> tags)
+/** Body for creating a backlog item. {@code priority} is optional
+ *  ({@code low} / {@code medium} / {@code high}; defaults to medium). */
+public record CreateBacklogItemRequest(String title, String body, List<String> tags, String priority)
 {
 }

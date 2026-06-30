@@ -33,11 +33,12 @@ public interface BacklogService
     /** Items on a thread, oldest-first. */
     List<BacklogItem> list(String threadId);
 
-    /** Create a new backlog item on the thread. */
-    BacklogItem create(String threadId, String title, String body, List<String> tags);
+    /** Create a new (manual) backlog item on the thread. {@code priority}
+     *  defaults to {@code medium} when null/blank. */
+    BacklogItem create(String threadId, String title, String body, List<String> tags, String priority);
 
     /** Partial update — null fields are left unchanged. 404 when unknown. */
-    BacklogItem update(String id, String title, String body, List<String> tags);
+    BacklogItem update(String id, String title, String body, List<String> tags, String priority);
 
     /** Remove an item. No-op when the id is unknown. */
     void delete(String id);

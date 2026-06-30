@@ -59,7 +59,8 @@ public class BacklogController
         if (body == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "request body is required");
         }
-        return BacklogItemDto.from(backlog.create(threadId, body.title(), body.body(), body.tags()));
+        return BacklogItemDto.from(
+                backlog.create(threadId, body.title(), body.body(), body.tags(), body.priority()));
     }
 
     @PatchMapping("/api/backlog/{itemId}")
@@ -68,7 +69,8 @@ public class BacklogController
         if (body == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "request body is required");
         }
-        return BacklogItemDto.from(backlog.update(itemId, body.title(), body.body(), body.tags()));
+        return BacklogItemDto.from(
+                backlog.update(itemId, body.title(), body.body(), body.tags(), body.priority()));
     }
 
     @DeleteMapping("/api/backlog/{itemId}")

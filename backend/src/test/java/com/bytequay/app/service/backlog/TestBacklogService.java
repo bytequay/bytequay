@@ -65,7 +65,7 @@ class TestBacklogService
     @Test
     void createPersistsAFreshItem()
     {
-        BacklogItem saved = service.create("thread-1", "Add a cost meter", "body text", List.of("ui"));
+        BacklogItem saved = service.create("thread-1", "Add a cost meter", "body text", List.of("ui"), null);
 
         ArgumentCaptor<BacklogItem> captor = ArgumentCaptor.forClass(BacklogItem.class);
         verify(store).save(captor.capture());
@@ -77,13 +77,19 @@ class TestBacklogService
         assertThat(persisted.startedAt()).isNull();
         assertThat(persisted.linkedTaskId()).isNull();
         assertThat(persisted.id()).isNotBlank();
+        // A manual create lands at the head of the lifecycle with the default
+        // priority when none was supplied.
+        assertThat(persisted.status()).isEqualTo("created");
+        assertThat(persisted.source()).isEqualTo("manual");
+        assertThat(persisted.createdBy()).isEqualTo("user");
+        assertThat(persisted.priority()).isEqualTo("medium");
         assertThat(saved).isSameAs(persisted);
     }
 
     @Test
     void createRejectsABlankTitle()
     {
-        assertThatThrownBy(() -> service.create("thread-1", "  ", "b", List.of()))
+        assertThatThrownBy(() -> service.create("thread-1", "  ", "b", List.of(), null))
                 .isInstanceOf(ResponseStatusException.class);
         verify(store, never()).save(any());
     }
@@ -93,7 +99,7 @@ class TestBacklogService
     {
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
 
-        service.update("b1", null, "new body", null);
+        service.update("b1", null, "new body", null, null);
 
         ArgumentCaptor<BacklogItem> captor = ArgumentCaptor.forClass(BacklogItem.class);
         verify(store).save(captor.capture());
@@ -106,7 +112,7 @@ class TestBacklogService
     void updateOnUnknownIdIs404()
     {
         when(store.findById("missing")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.update("missing", "x", null, null))
+        assertThatThrownBy(() -> service.update("missing", "x", null, null, null))
                 .isInstanceOf(ResponseStatusException.class);
     }
 
@@ -161,8 +167,11 @@ class TestBacklogService
 
     private static BacklogItem item(String id, boolean started, String linkedTaskId)
     {
-        return new BacklogItem(id, "thread-1", "Title", "Body", List.of("ui"),
-                NOW, started ? NOW : null, linkedTaskId);
+        BacklogItem base = BacklogItem.create(
+                id, "thread-1", "ws-1", "Title", "Body", List.of("ui"),
+                BacklogItem.PRIORITY_MEDIUM, BacklogItem.SOURCE_MANUAL,
+                BacklogItem.CREATED_BY_USER, NOW, List.of());
+        return started ? base.markResolved(linkedTaskId, NOW) : base;
     }
 
     private static Thread thread()

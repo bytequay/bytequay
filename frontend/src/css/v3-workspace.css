@@ -100,6 +100,11 @@
   flex-direction: column;
   gap: 1px;
 }
+/* The row wrapper hosts the drill-in button + an absolutely-placed delete
+   button, so the delete isn't nested inside the row button. */
+.shell .ws-item-wrap {
+  position: relative;
+}
 .shell .ws-item {
   display: flex;
   align-items: center;
@@ -115,6 +120,40 @@
 }
 .shell .ws-item:hover {
   background: var(--bg-hover);
+}
+/* Delete affordance on a workspace row — revealed on row hover (a list row is
+   obviously hoverable, unlike the landing card), full strength on its own
+   hover. Sits over the right edge where the count badge would be. */
+.shell .ws-item__delete {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--ws-fast, 0.12s), color var(--ws-fast, 0.12s),
+              border-color var(--ws-fast, 0.12s);
+}
+.shell .ws-item-wrap:hover .ws-item__delete,
+.shell .ws-item__delete:focus-visible {
+  opacity: 1;
+}
+.shell .ws-item__delete:hover {
+  color: #b91c1c;
+  border-color: #fca5a5;
 }
 .shell .ws-item.active {
   background: rgba(0, 0, 0, 0.06);

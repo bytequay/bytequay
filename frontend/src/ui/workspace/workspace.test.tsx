@@ -126,6 +126,22 @@ describe('WorkspaceList', () => {
     fireEvent.click(screen.getByText('Trino'));
     expect(onOpen).toHaveBeenCalledWith('tr');
   });
+
+  it('shows a per-row delete only when onDelete is wired, and fires it without drilling in', () => {
+    const onOpen = vi.fn();
+    const onDelete = vi.fn();
+    const rows = [
+      { id: 'bq', initials: 'BQ', color: 'purple' as const, name: 'ByteQuay', sub: '3 repos', count: 5 },
+    ];
+    const { rerender } = render(<WorkspaceList workspaces={rows} onOpen={onOpen} />);
+    expect(screen.queryByLabelText('Delete workspace ByteQuay')).toBeNull();
+
+    rerender(<WorkspaceList workspaces={rows} onOpen={onOpen} onDelete={onDelete} />);
+    fireEvent.click(screen.getByLabelText('Delete workspace ByteQuay'));
+    expect(onDelete).toHaveBeenCalledWith('bq', 'ByteQuay');
+    // Deleting must not also drill into the workspace.
+    expect(onOpen).not.toHaveBeenCalled();
+  });
 });
 
 describe('WorkspaceSwitcher', () => {

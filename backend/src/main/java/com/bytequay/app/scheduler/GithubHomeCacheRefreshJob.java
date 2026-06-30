@@ -70,6 +70,7 @@ public class GithubHomeCacheRefreshJob
     private final GithubHomeCacheStore homeCache;
     private final RepoService repoService;
     private final StatsService statsService;
+    private final QuietHoursPolicy quietHours;
 
     private final AtomicBoolean refreshing = new AtomicBoolean(false);
 
@@ -78,18 +79,24 @@ public class GithubHomeCacheRefreshJob
             AppSettingsStore settingsStore,
             GithubHomeCacheStore homeCache,
             RepoService repoService,
-            StatsService statsService)
+            StatsService statsService,
+            QuietHoursPolicy quietHours)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.homeCache = requireNonNull(homeCache, "homeCache is null");
         this.repoService = requireNonNull(repoService, "repoService is null");
         this.statsService = requireNonNull(statsService, "statsService is null");
+        this.quietHours = requireNonNull(quietHours, "quietHours is null");
     }
 
     @Scheduled(initialDelay = 0, fixedDelay = 15_000)
     public void tick()
     {
+        // Pause the overnight home-cache refresh to conserve rate limit.
+        if (quietHours.isQuietNow()) {
+            return;
+        }
         if (!refreshing.compareAndSet(false, true)) {
             return;
         }

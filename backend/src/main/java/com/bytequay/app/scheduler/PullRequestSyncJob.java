@@ -59,6 +59,7 @@ public class PullRequestSyncJob
     private final StatsService statsService;
     private final CredentialService credentialService;
     private final Executor executor;
+    private final QuietHoursPolicy quietHours;
 
     /** Guards against overlapping syncs whether triggered by tick or immediate request. */
     private final AtomicBoolean syncing = new AtomicBoolean(false);
@@ -69,6 +70,7 @@ public class PullRequestSyncJob
             SyncSettingsService syncSettings,
             StatsService statsService,
             CredentialService credentialService,
+            QuietHoursPolicy quietHours,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
@@ -76,6 +78,7 @@ public class PullRequestSyncJob
         this.syncSettings = requireNonNull(syncSettings, "syncSettings is null");
         this.statsService = requireNonNull(statsService, "statsService is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.quietHours = requireNonNull(quietHours, "quietHours is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -91,6 +94,12 @@ public class PullRequestSyncJob
     @Scheduled(fixedDelay = 60_000)
     public void tick()
     {
+        // Pause scheduled syncing overnight to conserve rate limit. Only
+        // the timer is gated — requestImmediateSync() and every other
+        // user-initiated GitHub call run regardless of the hour.
+        if (quietHours.isQuietNow()) {
+            return;
+        }
         if (!isIntervalElapsed()) {
             return;
         }

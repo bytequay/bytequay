@@ -22,6 +22,7 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
+import com.bytequay.app.scheduler.QuietHoursPolicy;
 import com.bytequay.app.service.threads.NotificationService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -83,6 +84,7 @@ public class ScheduledReviewService
     private final ReviewPassService reviewPassService;
     private final NotificationService notifications;
     private final ObjectMapper mapper;
+    private final QuietHoursPolicy quietHours;
 
     public ScheduledReviewService(
             AppSettingsStore appSettings,
@@ -90,7 +92,8 @@ public class ScheduledReviewService
             ReviewStore reviewStore,
             ReviewPassService reviewPassService,
             NotificationService notifications,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            QuietHoursPolicy quietHours)
     {
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
@@ -98,11 +101,15 @@ public class ScheduledReviewService
         this.reviewPassService = requireNonNull(reviewPassService, "reviewPassService is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.quietHours = requireNonNull(quietHours, "quietHours is null");
     }
 
     @Scheduled(fixedDelay = INTERVAL_MS, initialDelay = INITIAL_DELAY_MS)
     public void runScheduledReviews()
     {
+        if (quietHours.isQuietNow()) {
+            return;
+        }
         if (!isEnabled()) {
             log.debug("Scheduled reviews disabled — skipping.");
             return;

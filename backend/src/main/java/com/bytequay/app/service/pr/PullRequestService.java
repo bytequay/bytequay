@@ -25,6 +25,7 @@ import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrReviewThreadMessage;
+import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
@@ -704,7 +705,16 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         if (body != null && !body.isBlank()) {
-            gitHub.createIssueComment(pat, ref, body);
+            PrTimelineEvent created = gitHub.createIssueComment(pat, ref, body);
+            // Splice the just-posted comment into the cached snapshot so the
+            // next /prs/detail read (including the 10s poll's maxAge fast
+            // path) shows it immediately rather than waiting for the cache
+            // to age out. When closing we drop the whole cache below, so
+            // there's no point patching it first.
+            if (!close && created != null) {
+                patchCachedDetail(store.findIdByRepoAndNumber(repo, number),
+                        cached -> PullRequestDetailPatcher.withTimelineCommentAppended(cached, created));
+            }
         }
         if (close) {
             gitHub.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());

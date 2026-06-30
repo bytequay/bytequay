@@ -176,9 +176,8 @@ describe('ThreadList', () => {
     expect(onOpen).toHaveBeenCalledWith('t2');
   });
 
-  it('nests the task name + its stages under the open thread and jumps on click', () => {
+  it('lists ALL the open thread\'s tasks (with dots + PR glyph) and jumps on click', () => {
     const onOpenTask = vi.fn();
-    const onOpenStage = vi.fn();
     const { container } = render(
       <ThreadList
         threads={[
@@ -186,63 +185,36 @@ describe('ThreadList', () => {
           { id: 't2', initials: 'tr', color: 'pink', name: 'Fix Delta Lake timestamp', status: 'planning' },
         ]}
         selectedId="t1"
-        task={{ id: 'k1', label: 'Add cost meter', dot: 'done', pr: 'merged' }}
-        stages={[
-          { id: 's1', label: 'Plan', dot: 'done' },
-          { id: 's2', label: 'Dev', dot: 'active' },
-          { id: 's3', label: 'CI Fix' },
+        tasks={[
+          { id: 'k1', label: 'Add cost meter', dot: 'done', pr: 'merged' },
+          { id: 'k2', label: 'Drop dead config', dot: 'active', pr: 'open' },
         ]}
-        selectedStageId="s2"
+        selectedTaskId="k2"
         onOpenTask={onOpenTask}
-        onOpenStage={onOpenStage}
       />,
     );
-    // Task name sub-header + its stages render under the selected thread.
-    expect(container.querySelector('.task-subhead')?.textContent).toContain('Add cost meter');
-    // The task row carries its lifecycle dot (done = closed/terminal).
+    // BOTH concurrent tasks render under the selected thread — not just one.
+    const rows = container.querySelectorAll('.task-subhead');
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain('Add cost meter');
+    expect(rows[1].textContent).toContain('Drop dead config');
+    // The selected task is highlighted; each carries its dot + PR glyph.
+    expect(container.querySelector('.task-subhead.active')?.textContent).toContain('Drop dead config');
     expect(container.querySelector('.task-subhead .v3-dot--done')).toBeTruthy();
-    // …and the PR-state glyph (merged) leads the name.
     expect(container.querySelector('.task-subhead .pr-state-icon--merged')).toBeTruthy();
-    expect(container.querySelectorAll('.stage-subitem').length).toBe(3);
-    expect(container.querySelector('.stage-subitem.active')?.textContent).toContain('Dev');
     fireEvent.click(screen.getByText('Add cost meter'));
     expect(onOpenTask).toHaveBeenCalledWith('k1');
-    fireEvent.click(screen.getByText('CI Fix'));
-    expect(onOpenStage).toHaveBeenCalledWith('s3');
   });
 
-  it('renders a pending stage dimmed and non-clickable', () => {
-    const onOpenStage = vi.fn();
-    const { container } = render(
-      <ThreadList
-        threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
-        selectedId="t1"
-        task={{ id: 'k1', label: 'Task' }}
-        stages={[
-          { id: 's1', label: 'CI Fix', dot: 'active' },
-          { label: 'Comments', dot: 'future', pending: true },
-        ]}
-        onOpenStage={onOpenStage}
-      />,
-    );
-    const pending = container.querySelector('.stage-subitem.pending') as HTMLButtonElement;
-    expect(pending.textContent).toContain('Comments');
-    expect(pending.disabled).toBe(true);
-    fireEvent.click(pending);
-    expect(onOpenStage).not.toHaveBeenCalled();
-  });
-
-  it('hides the task + stages when the matching thread is not selected', () => {
+  it('hides the thread\'s tasks when the matching thread is not selected', () => {
     const { container } = render(
       <ThreadList
         threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
         selectedId="t2"
-        task={{ id: 'k1', label: 'Task' }}
-        stages={[{ id: 's1', label: 'Plan' }]}
+        tasks={[{ id: 'k1', label: 'Task' }]}
       />,
     );
     expect(container.querySelector('.task-subhead')).toBeNull();
-    expect(container.querySelector('.stage-subitem')).toBeNull();
   });
 });
 

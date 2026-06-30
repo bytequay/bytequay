@@ -25,19 +25,6 @@ export type ThreadRow = {
   status: StatusDotVariant;
 };
 
-/** A stage of the open thread's active task, nested under its row so the
- *  user can jump straight to a stage (Plan / Dev / CI Fix / Comments). */
-export type StageNavRow = {
-  /** Absent for a {@link pending} stage that has no backing row yet. */
-  id?: string;
-  label: string;
-  /** Status marker — active stage pulses, closed shows done, etc. */
-  dot?: StatusDotVariant;
-  /** A stage shown ahead of time (the backend hasn't opened its row yet),
-   *  so it renders dimmed and isn't clickable. */
-  pending?: boolean;
-};
-
 /** A single sidebar thread row. */
 export function ThreadListItem({ thread, active = false, onOpen }: {
   thread: ThreadRow;
@@ -57,37 +44,8 @@ export function ThreadListItem({ thread, active = false, onOpen }: {
   );
 }
 
-/** The nested stage rows shown under the open thread. */
-function StageSubList({ stages, selectedStageId, onOpenStage }: {
-  stages: StageNavRow[];
-  selectedStageId?: string;
-  onOpenStage?: (id: string) => void;
-}) {
-  return (
-    <div className="stage-sublist">
-      {stages.map(s => {
-        const cls = ['stage-subitem'];
-        if (s.id !== undefined && s.id === selectedStageId) cls.push('active');
-        if (s.pending === true || s.id === undefined) cls.push('pending');
-        const clickable = s.pending !== true && s.id !== undefined;
-        return (
-          <button
-            key={s.id ?? s.label}
-            type="button"
-            className={cls.join(' ')}
-            disabled={!clickable}
-            onClick={clickable ? () => onOpenStage?.(s.id as string) : undefined}
-          >
-            <span className="nm">{s.label}</span>
-            {s.dot !== undefined && <StatusDot variant={s.dot} />}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** The active task of the open thread — a sub-header above its stages. */
+/** A task of the open thread — a sub-header row under the thread. A thread
+ *  can run several at once, so the rail lists them all. */
 export type TaskNavRow = {
   id: string;
   label: string;
@@ -100,27 +58,23 @@ export type TaskNavRow = {
 };
 
 /**
- * The workspace's threads in the sidebar — each prefixed by its repo
- * logo so you see which repo it targets at a glance. The selected thread
- * (when one is open) highlights and expands to show its active task's
- * name, and under that the task's stages (Plan / Dev / CI fixing…), so the
- * user can jump straight to the task or one of its stages.
+ * The workspace's threads in the sidebar — each prefixed by its repo logo so
+ * you see which repo it targets at a glance. The selected thread highlights
+ * and expands to show **all** its tasks (a thread can run several at once),
+ * each a clickable row with its name + status dot + PR glyph. Stage
+ * navigation lives on the brain page's live-plan diagram, not here.
  */
 export function ThreadList({
-  threads, selectedId, task, stages = [], selectedTaskId, selectedStageId,
-  onOpen, onOpenTask, onOpenStage, onNewThread,
+  threads, selectedId, tasks = [], selectedTaskId,
+  onOpen, onOpenTask, onNewThread,
 }: {
   threads: ThreadRow[];
   selectedId?: string;
-  /** The open thread's active task — the sub-header above the stages. */
-  task?: TaskNavRow;
-  /** Stages of the open thread's active task — nested under the task. */
-  stages?: StageNavRow[];
+  /** The open thread's tasks — sub-header rows under it. */
+  tasks?: TaskNavRow[];
   selectedTaskId?: string;
-  selectedStageId?: string;
   onOpen?: (id: string) => void;
   onOpenTask?: (id: string) => void;
-  onOpenStage?: (id: string) => void;
   onNewThread?: () => void;
 }) {
   return (
@@ -136,21 +90,18 @@ export function ThreadList({
         {threads.map(t => (
           <Fragment key={t.id}>
             <ThreadListItem thread={t} active={t.id === selectedId} onOpen={onOpen} />
-            {t.id === selectedId && task !== undefined && (
+            {t.id === selectedId && tasks.map(task => (
               <button
+                key={task.id}
                 type="button"
-                className={task.id === selectedTaskId && selectedStageId === undefined
-                  ? 'task-subhead active' : 'task-subhead'}
+                className={task.id === selectedTaskId ? 'task-subhead active' : 'task-subhead'}
                 onClick={() => onOpenTask?.(task.id)}
               >
                 {task.pr !== undefined && <PrStateIcon state={task.pr} />}
                 <span className="nm">{task.label}</span>
                 {task.dot !== undefined && <StatusDot variant={task.dot} />}
               </button>
-            )}
-            {t.id === selectedId && stages.length > 0 && (
-              <StageSubList stages={stages} selectedStageId={selectedStageId} onOpenStage={onOpenStage} />
-            )}
+            ))}
           </Fragment>
         ))}
       </div>

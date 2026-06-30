@@ -14,6 +14,8 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.backlog.BacklogItemDto;
+import com.bytequay.app.beans.backlog.BatchCreateBacklogRequest;
+import com.bytequay.app.beans.backlog.BatchCreateBacklogResponse;
 import com.bytequay.app.beans.backlog.CreateBacklogItemRequest;
 import com.bytequay.app.beans.backlog.SkipBacklogItemRequest;
 import com.bytequay.app.beans.backlog.StartDevelopmentResponse;
@@ -76,6 +78,20 @@ public class BacklogController
         }
         return BacklogItemDto.from(
                 backlog.create(threadId, body.title(), body.body(), body.tags(), body.priority()));
+    }
+
+    @PostMapping("/api/threads/{threadId}/backlog/batch")
+    public BatchCreateBacklogResponse createBatch(
+            @PathVariable String threadId, @RequestBody BatchCreateBacklogRequest body)
+    {
+        if (body == null || body.items() == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "items are required");
+        }
+        List<BacklogService.NewBacklogItem> items = body.items().stream()
+                .map(i -> new BacklogService.NewBacklogItem(i.title(), i.body(), i.tags(), i.priority()))
+                .toList();
+        BacklogService.BatchResult result = backlog.createBatch(threadId, items);
+        return new BatchCreateBacklogResponse(result.backlogItemIds(), result.relatedBacklogGroupId());
     }
 
     @PatchMapping("/api/backlog/{itemId}")

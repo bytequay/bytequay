@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -107,6 +108,48 @@ public class BacklogServiceImpl
                 Instant.now(),
                 /* relatedBacklogIds */ List.of());
         return store.save(item);
+    }
+
+    @Override
+    public BatchResult createBatch(String threadId, List<NewBacklogItem> items)
+    {
+        String threadIdValue = nullToEmpty(threadId).strip();
+        if (threadIdValue.isEmpty()) {
+            throw status(400, "threadId is required");
+        }
+        if (items == null || items.isEmpty()) {
+            throw status(400, "at least one item is required");
+        }
+        String workspaceId = threadStore.findThreadById(threadIdValue)
+                .map(Thread::workspaceId)
+                .orElse(null);
+        // Pre-generate the ids so each item can carry its siblings as
+        // relatedBacklogIds (the "trunk found N candidates" linkage).
+        List<String> ids = items.stream().map(x -> UUID.randomUUID().toString()).toList();
+        String groupId = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+        for (int i = 0; i < items.size(); i++) {
+            NewBacklogItem in = items.get(i);
+            String title = nullToEmpty(in.title()).strip();
+            if (title.isEmpty()) {
+                throw status(400, "each item needs a title");
+            }
+            List<String> siblings = new ArrayList<>(ids);
+            siblings.remove(i);
+            store.save(BacklogItem.create(
+                    ids.get(i),
+                    threadIdValue,
+                    workspaceId,
+                    title,
+                    nullToEmpty(in.body()).strip(),
+                    in.tags() == null ? List.of() : in.tags(),
+                    normalisePriority(in.priority()),
+                    BacklogItem.SOURCE_TRUNK_SPLIT,
+                    BacklogItem.CREATED_BY_TRUNK_AGENT,
+                    now,
+                    siblings));
+        }
+        return new BatchResult(ids, groupId);
     }
 
     @Override

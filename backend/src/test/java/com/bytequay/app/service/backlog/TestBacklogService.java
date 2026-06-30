@@ -33,6 +33,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -166,6 +167,39 @@ class TestBacklogService
         BacklogItem i = item("b1", false, null);
         when(store.findByThread("thread-1")).thenReturn(List.of(i));
         assertThat(service.list("thread-1")).containsExactly(i);
+    }
+
+    @Test
+    void createBatchCreatesACrossLinkedTrunkSplitGroup()
+    {
+        List<BacklogService.NewBacklogItem> inputs = List.of(
+                new BacklogService.NewBacklogItem("Clean A", "body a", List.of("ui"), "high"),
+                new BacklogService.NewBacklogItem("Clean B", "body b", null, null));
+
+        BacklogService.BatchResult result = service.createBatch("thread-1", inputs);
+
+        assertThat(result.backlogItemIds()).hasSize(2);
+        assertThat(result.relatedBacklogGroupId()).isNotBlank();
+
+        ArgumentCaptor<BacklogItem> captor = ArgumentCaptor.forClass(BacklogItem.class);
+        verify(store, times(2)).save(captor.capture());
+        List<BacklogItem> saved = captor.getAllValues();
+        assertThat(saved).allSatisfy(it -> {
+            assertThat(it.source()).isEqualTo("trunk-split");
+            assertThat(it.createdBy()).isEqualTo("trunk-agent");
+            assertThat(it.status()).isEqualTo("created");
+        });
+        // Each item references its sibling; priority is carried through.
+        assertThat(saved.get(0).relatedBacklogIds()).containsExactly(saved.get(1).id());
+        assertThat(saved.get(1).relatedBacklogIds()).containsExactly(saved.get(0).id());
+        assertThat(saved.get(0).priority()).isEqualTo("high");
+    }
+
+    @Test
+    void createBatchRejectsAnEmptyList()
+    {
+        assertThatThrownBy(() -> service.createBatch("thread-1", List.of()))
+                .isInstanceOf(ResponseStatusException.class);
     }
 
     @Test

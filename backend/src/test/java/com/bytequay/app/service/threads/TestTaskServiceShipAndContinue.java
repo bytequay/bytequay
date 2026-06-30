@@ -379,11 +379,10 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void resumeRevivesAPausedTaskToIdleWhenNoOtherTaskIsActive()
+    void resumeRevivesAPausedTaskToIdle()
     {
         Task paused = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
-        when(taskStore.findActiveTaskForThread("t1")).thenReturn(Optional.empty());
 
         Task resumed = service.resumeTask("t1", "t1.k1");
 
@@ -396,19 +395,17 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void resumeRejectsWhenTheThreadAlreadyHasAnActiveTask()
+    void resumeRevivesAPausedTaskEvenWhenASiblingIsActive()
     {
-        // One active task per thread — the user must park/pause the current
-        // one before reviving a paused sibling.
+        // A thread can run several tasks at once, so reviving a paused task
+        // no longer requires the others to be idle.
         Task paused = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
-        Task other = task("t1.k2", "t1", 2L, "dev/y", "/wt2", "/clone", TaskStatus.IDLE);
-        when(taskStore.findActiveTaskForThread("t1")).thenReturn(Optional.of(other));
 
-        assertThatThrownBy(() -> service.resumeTask("t1", "t1.k1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("already has an active task");
-        verify(taskStore, never()).saveTask(any());
+        Task resumed = service.resumeTask("t1", "t1.k1");
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        verify(taskStore).saveTask(any());
     }
 
     private static Thread thread(String id)

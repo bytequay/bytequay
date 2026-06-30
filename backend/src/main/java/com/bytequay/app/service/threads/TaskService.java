@@ -880,9 +880,8 @@ public class TaskService
     /**
      * Revive a {@link TaskStatus#PAUSED} task back to {@link TaskStatus#IDLE}
      * so the thread runs it again (the next turn re-spawns the agent in its
-     * worktree via {@code --resume}). Requires no other active task on the
-     * thread — one active task per thread, so the user parks/pauses the
-     * current one before reviving a paused sibling.
+     * worktree via {@code --resume}). A thread may run several tasks at once,
+     * so reviving a paused task doesn't require the others to be idle.
      */
     @Transactional
     public Task resumeTask(String threadId, String taskId)
@@ -892,11 +891,6 @@ public class TaskService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "task " + taskId + " is not paused");
         }
-        taskStore.findActiveTaskForThread(threadId).ifPresent(active -> {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "thread " + threadId + " already has an active task (" + active.id()
-                            + "); pause or finish it before resuming this one");
-        });
         Task resumed = task.withStatus(TaskStatus.IDLE);
         taskStore.saveTask(resumed);
         return resumed;

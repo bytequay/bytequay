@@ -675,10 +675,11 @@ public class AgentToolHandlers
     @AgentTool(
             name = "create_task",
             description = "Cut a new task on this thread. Trunk-only. Returns the new task's "
-                    + "id, branch, worktree path, and seq. Cuts immediately only when the "
-                    + "thread has no active task (a brand-new 0-task thread, or after the chain "
-                    + "ran dry). When a task is already active, use queue_task to line this one "
-                    + "up behind it (or next_task / ship_task to chain off the current task).",
+                    + "id, branch, worktree path, and seq. A thread may run several tasks at "
+                    + "once — each gets its own branch and worktree — so this cuts immediately "
+                    + "whether or not other tasks are already live. Use queue_task instead to "
+                    + "line work up behind a specific task, or next_task / ship_task to chain "
+                    + "off the current one.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)
@@ -694,18 +695,10 @@ public class AgentToolHandlers
             return ToolOutcome.Completed.error("thread not found: " + threadId);
         }
         Thread thread = threadOpt.get();
-        // Active-task check, not zero-task check: the trunk can re-enter the
-        // creator role whenever the chain has no live task (bootstrap on a
-        // brand-new thread, OR revival after the previous chain completed).
-        // See workspace-thread-task-design.md §"Trunk re-enters when the
-        // chain runs dry."
-        if (taskStore.hasActiveTask(threadId)) {
-            return ToolOutcome.Completed.error(
-                    "thread has an active task — use queue_task to line a new task up "
-                            + "behind it, or next_task / ship_task to chain off the current "
-                            + "task. create_task only cuts immediately when the chain has no "
-                            + "live task.");
-        }
+        // A thread can run several tasks concurrently — each on its own branch
+        // and worktree — so create_task always cuts immediately. (queue_task /
+        // next_task / ship_task remain for explicitly sequencing work behind a
+        // chosen task.)
         // GitHub owner/name slugs are case-insensitive (trino/Trino,
         // spark/Spark resolve to the same repo), so match the same way —
         // otherwise an agent that fumbles the case gets a confusing "repo not

@@ -18,13 +18,15 @@ import type { WorkUnitTaskDto } from '../types';
 import { taskLabel } from '../threads/taskLabel';
 
 /** A task row's status dot. A thread can run several tasks at once, so each
- *  row carries its own state: done when merged, sleep when paused/errored,
- *  active otherwise. */
+ *  row carries its own state: done (green) when merged/completed, sleep
+ *  (gray) when paused / errored / closed, active otherwise. */
 function navDot(status: string): StatusDotVariant {
   switch (status) {
     case 'COMPLETED': return 'done';
     case 'PAUSED':
-    case 'ERRORED': return 'sleep';
+    case 'ERRORED':
+    case 'CANCELED':
+    case 'ARCHIVED': return 'sleep';
     default: return 'active';
   }
 }
@@ -38,20 +40,14 @@ function navPr(t: WorkUnitTaskDto): PrGlyphState | undefined {
   return typeof t.prState === 'string' && t.prState.toUpperCase() === 'DRAFT' ? 'draft' : 'open';
 }
 
-/** Closed-and-reaped tasks don't belong in the live rail — they'd pile up as
- *  stale rows. Completed / merged tasks stay (they're the thread's landed
- *  work); only canceled / archived ones are hidden. */
-function isHidden(status: string): boolean {
-  return status === 'CANCELED' || status === 'ARCHIVED';
-}
-
 /**
- * The task rows to nest under a thread in the left rail. A thread can have
- * several concurrent tasks now, so this lists them all (newest sequence
- * last), each as a clickable row with its name + status dot + PR glyph —
- * rather than collapsing to a single "active" task. Built straight from the
- * task list (no per-task brain-view fetch). Polls so a newly-cut task appears
- * without a reload. Empty when no thread is open.
+ * The task rows to nest under a thread in the left rail — **every** task the
+ * thread owns (newest sequence last), each a clickable row with its name +
+ * status dot + PR glyph. A thread can run several at once, and closed
+ * (canceled / completed / archived) tasks stay listed so the user can still
+ * open them — they just read as inactive via the gray dot. Built straight
+ * from the task list (no per-task brain-view fetch). Polls so a newly-cut
+ * task appears without a reload. Empty when no thread is open.
  */
 export function useThreadTasks(threadId: string | null): TaskNavRow[] {
   const [tasks, setTasks] = useState<TaskNavRow[]>([]);
@@ -68,9 +64,7 @@ export function useThreadTasks(threadId: string | null): TaskNavRow[] {
       try {
         const list = await bridge.listTasksForThread(threadId);
         if (cancelled) return;
-        setTasks(list
-          .filter(t => !isHidden(t.status))
-          .map(t => ({ id: t.id, label: taskLabel(t), dot: navDot(t.status), pr: navPr(t) })));
+        setTasks(list.map(t => ({ id: t.id, label: taskLabel(t), dot: navDot(t.status), pr: navPr(t) })));
       }
       catch { /* leave the last loaded state */ }
     };

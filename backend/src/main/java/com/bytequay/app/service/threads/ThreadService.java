@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.PullRequestCommit;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -1161,22 +1162,11 @@ public class ThreadService
         Task task = taskStore.findActiveTaskForThread(thread.id())
                 .or(() -> taskStore.findLatestTaskForThread(thread.id()))
                 .orElse(null);
-        if (task == null || task.linkedPrRef() == null) {
+        if (task == null) {
             return Optional.empty();
         }
-        String ref = task.linkedPrRef();
-        int hash = ref.lastIndexOf('#');
-        int slash = hash > 0 ? ref.lastIndexOf('/', hash) : -1;
-        if (hash <= 0 || slash <= 0) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(new PrLocator(
-                    ref.substring(0, hash), Integer.parseInt(ref.substring(hash + 1))));
-        }
-        catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        return PullRequestRef.parse(task.linkedPrRef())
+                .map(ref -> new PrLocator(ref.repoRef().fullName(), ref.number()));
     }
 
     private static List<TaskDiffFile> toTaskDiffFiles(List<DiffFile> files)

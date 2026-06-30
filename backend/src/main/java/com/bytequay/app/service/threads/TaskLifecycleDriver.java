@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
 import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -187,19 +188,12 @@ public class TaskLifecycleDriver
      *  phase to match. */
     void reconcileTask(Task task)
     {
-        String ref = task.linkedPrRef();
-        int hash = ref.lastIndexOf('#');
-        if (hash <= 0 || hash == ref.length() - 1) {
+        Optional<PullRequestRef> parsed = PullRequestRef.parse(task.linkedPrRef());
+        if (parsed.isEmpty()) {
             return;
         }
-        String repo = ref.substring(0, hash);
-        int number;
-        try {
-            number = Integer.parseInt(ref.substring(hash + 1).trim());
-        }
-        catch (NumberFormatException e) {
-            return;
-        }
+        String repo = parsed.get().repoRef().fullName();
+        int number = parsed.get().number();
         PullRequestDetail detail = pullRequests.getPullRequestDetail(repo, number);
         // Mirror any new remote review comments into the unified
         // review_comment table (idempotent) before acting on the phase.

@@ -33,6 +33,7 @@ import com.bytequay.app.beans.stage.StageDetailData.UserMessagePayload;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
@@ -560,13 +561,13 @@ public class StageDetailServiceImpl
      *  fails. Shared by {@link #buildRealtimeCi} and {@link #buildPrTab}. */
     private PullRequestDetail fetchPrDetail(Task task)
     {
-        Optional<RepoRef> ref = parseRef(task.linkedPrRef());
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
         if (ref.isEmpty()) {
             return null;
         }
-        RepoRef r = ref.get();
+        PullRequestRef r = ref.get();
         try {
-            return pullRequests.getPullRequestDetail(r.repoFullName(), r.number());
+            return pullRequests.getPullRequestDetail(r.repoRef().fullName(), r.number());
         }
         catch (RuntimeException e) {
             log.warn("stage detail PR fetch for {} failed: {}", task.id(), e.getMessage());
@@ -576,18 +577,18 @@ public class StageDetailServiceImpl
 
     private RealtimeCi buildRealtimeCi(Task task, PullRequestDetail detail)
     {
-        Optional<RepoRef> ref = parseRef(task.linkedPrRef());
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
         if (ref.isEmpty() || detail == null) {
             return null;
         }
-        RepoRef r = ref.get();
+        PullRequestRef r = ref.get();
         List<CiCheck> checks = detail.checkRuns() == null ? List.of()
                 : detail.checkRuns().stream()
                         .map(c -> new CiCheck(c.name(), ciCheckStatus(c.status(), c.conclusion()), null))
                         .toList();
         return new RealtimeCi(
                 ciStatus(detail.ciStatus()),
-                "https://github.com/" + r.repoFullName() + "/pull/" + r.number(),
+                "https://github.com/" + r.repoRef().fullName() + "/pull/" + r.number(),
                 checks,
                 Instant.now().toString());
     }
@@ -597,7 +598,7 @@ public class StageDetailServiceImpl
      *  detail (no extra GitHub call). Null when the task has no PR. */
     private StageDetailData.PrTab buildPrTab(Task task, PullRequestDetail detail)
     {
-        Optional<RepoRef> ref = parseRef(task.linkedPrRef());
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
         if (ref.isEmpty() || detail == null) {
             return null;
         }
@@ -931,37 +932,12 @@ public class StageDetailServiceImpl
 
     private static String repoFullName(String linkedPrRef)
     {
-        return parseRef(linkedPrRef).map(RepoRef::repoFullName).orElse("");
+        return PullRequestRef.parse(linkedPrRef).map(p -> p.repoRef().fullName()).orElse("");
     }
 
     private static boolean isDraft(String prState)
     {
         return prState != null && prState.toLowerCase(Locale.ROOT).contains("draft");
-    }
-
-    private static Optional<RepoRef> parseRef(String ref)
-    {
-        if (ref == null) {
-            return Optional.empty();
-        }
-        int hash = ref.lastIndexOf('#');
-        if (hash <= 0 || hash == ref.length() - 1) {
-            return Optional.empty();
-        }
-        String repoFull = ref.substring(0, hash);
-        if (repoFull.indexOf('/') <= 0) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(new RepoRef(repoFull, Integer.parseInt(ref.substring(hash + 1).trim())));
-        }
-        catch (NumberFormatException e) {
-            return Optional.empty();
-        }
-    }
-
-    private record RepoRef(String repoFullName, int number)
-    {
     }
 
     private static String nullToEmpty(String value)

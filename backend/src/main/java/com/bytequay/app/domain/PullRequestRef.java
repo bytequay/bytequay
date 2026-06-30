@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.domain;
 
+import java.util.Optional;
+
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -40,6 +42,40 @@ public record PullRequestRef(String owner, String repo, int number)
     public static PullRequestRef of(String owner, String repo, int number)
     {
         return new PullRequestRef(owner, repo, number);
+    }
+
+    /**
+     * Parses the canonical {@code "owner/repo#number"} string produced by
+     * {@link #fullName()} — the inverse of {@code fullName()}. Returns empty
+     * for null or any malformed ref: a missing or edge-positioned {@code '#'},
+     * no {@code '/'} before it, or a non-positive number.
+     */
+    public static Optional<PullRequestRef> parse(String ref)
+    {
+        if (ref == null) {
+            return Optional.empty();
+        }
+        int hash = ref.lastIndexOf('#');
+        if (hash <= 0 || hash == ref.length() - 1) {
+            return Optional.empty();
+        }
+        String repoFull = ref.substring(0, hash);
+        int slash = repoFull.indexOf('/');
+        if (slash <= 0 || slash == repoFull.length() - 1) {
+            return Optional.empty();
+        }
+        int number;
+        try {
+            number = Integer.parseInt(ref.substring(hash + 1).trim());
+        }
+        catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+        if (number <= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new PullRequestRef(
+                repoFull.substring(0, slash), repoFull.substring(slash + 1), number));
     }
 
     /** Returns the {@link RepoRef} for this pull request's repository. */

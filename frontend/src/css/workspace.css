@@ -839,7 +839,9 @@
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0;
+  /* Visible-but-subtle by default so the affordance is discoverable without a
+     hover hunt; the card hover / focus brings it to full strength. */
+  opacity: 0.5;
   transition: opacity var(--ws-fast), color var(--ws-fast),
               border-color var(--ws-fast), background var(--ws-fast);
 }

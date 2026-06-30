@@ -70,13 +70,23 @@ import static java.util.Objects.requireNonNull;
  * Service-layer surface for the work-unit Task — the branch + worktree
  * + PR row that belongs to a Thread. ThreadService still owns the
  * conversation lifecycle (create, send, pause, …); TaskService owns
- * the per-task lifecycle reads plus "ship & continue", which closes
- * out the current task and starts the next one.
+ * the per-task lifecycle reads plus "ship", which parks the current
+ * task at IN_REVIEW with a draft PR open and hands it to the post-ship
+ * PR loop (no successor is cut — the trunk does that).
  */
 @Service
 public class TaskService
 {
     private static final Logger log = LoggerFactory.getLogger(TaskService.class);
+
+    /** Longest we block a cancel waiting for the interrupted subprocess to die
+     *  before reaping anyway. This bounds the agent winding down: interrupt()
+     *  sends destroy() (SIGTERM) and the CLI exits at its next tool boundary,
+     *  so the wait covers an in-flight tool call finishing — not the start of a
+     *  fresh one. destroy() is graceful; a few hundred ms is the norm, and reap
+     *  is --force + best-effort so a timeout is no worse than the pre-wait
+     *  behaviour. */
+    private static final Duration AGENT_STOP_TIMEOUT = Duration.ofSeconds(3);
 
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
@@ -167,28 +177,27 @@ public class TaskService
     }
 
     /**
-     * Ship & continue — close the current task and start the next one
-     * inside the same thread. The full flow is the user-triggered
-     * "I'm done with this piece, roll onto the next" action:
+     * Ship — publish the current task and hand it to the post-ship PR
+     * loop. The user-triggered "I'm done with this piece" action:
      *
      * <ol>
      *   <li>Auto-stage + commit any uncommitted changes in the
      *       worktree with a default message (the agent doesn't always
      *       commit as it goes).</li>
      *   <li>{@code git push} the branch (sets upstream on first push).</li>
-     *   <li>Open a PR via the per-repo GitHub PAT, targeting the
-     *       repo's default branch. If a PR already exists for the
-     *       branch we keep going without one — the caller can attach
-     *       the number later.</li>
-     *   <li>Mark the current task COMPLETED and record its PR number.</li>
-     *   <li>Cut a new worktree at {@code <repo>/.worktrees/<new-task-id>/}
-     *       from either {@code main} (independent next task) or the
-     *       current branch (stacked).</li>
-     *   <li>Persist the new task row at seq+1, status PENDING.</li>
-     *   <li>Stop the current CLI subprocess and evict the in-memory
-     *       agent so the next user turn spawns fresh in the new
-     *       worktree with {@code --resume <thread-agent-id>}.</li>
+     *   <li>Open a draft PR via the per-repo GitHub PAT, targeting the
+     *       repo's merge-target. If a PR already exists for the branch
+     *       we re-fetch its number instead of failing.</li>
+     *   <li>Park the current task at IN_REVIEW (not COMPLETED — that
+     *       waits for the PR to merge), keep its worktree, and link the
+     *       PR so the lifecycle reconciler drives CI-fix → mark-ready →
+     *       merge.</li>
      * </ol>
+     *
+     * <p>No successor is ever cut and the agent keeps running: the
+     * shipped task stays IN_REVIEW and its agent runs the post-ship loop
+     * (CI auto-fix, addressing review comments) on the same worktree.
+     * The trunk cuts the next task when the user wants it.
      *
      * <p>Per CLAUDE.md, opening the PR is the user's explicit action
      * (the ship button), which is why this method calls GitHub.
@@ -311,7 +320,7 @@ public class TaskService
         Path worktreePath = Path.of(current.worktreePath());
         WatchedRepo watched = resolveRepo(workingDir);
         RepoRef repoRef = new RepoRef(watched.owner(), watched.repo());
-        String repoFullName = watched.owner() + "/" + watched.repo();
+        String repoFullName = watched.fullName();
 
         try {
             // 1-2. Commit any uncommitted work (minus our per-worktree hook
@@ -399,10 +408,6 @@ public class TaskService
             // fix / addressing comments push more commits), and the reconciler
             // reaps it only when the PR actually merges.
             String parkedWorktreePath = current.worktreePath();
-            // endedAt stays null for a shipped task too — it isn't
-            // finished until its PR merges, at which point completion
-            // stamps endedAt.
-            Instant parkedEndedAt = null;
             Integer parkedLinkedPrNumber = prNumber != null ? prNumber : current.linkedPrNumber();
             Task parked = current
                     .withStatus(parkedStatus)
@@ -410,7 +415,10 @@ public class TaskService
                     .withProcessPid(null)
                     .withPrNumber(prNumber)
                     .withLinkedPrNumber(parkedLinkedPrNumber)
-                    .withEndedAt(parkedEndedAt);
+                    // endedAt stays null for a shipped task too — it isn't
+                    // finished until its PR merges, at which point completion
+                    // stamps endedAt.
+                    .withEndedAt(null);
             taskStore.saveTask(parked);
             // Ship pushed + opened the PR directly, so fast-forward the phase
             // to match that observed reality: the task is no longer
@@ -620,7 +628,7 @@ public class TaskService
         }
         catch (RuntimeException e) {
             log.warn("Lookup of existing PR for {} head {} failed: {}",
-                    repo.owner() + "/" + repo.repo(), headFilter, e.getMessage());
+                    repo.fullName(), headFilter, e.getMessage());
             return Optional.empty();
         }
     }
@@ -812,12 +820,6 @@ public class TaskService
         return keys;
     }
 
-    /** Longest we block a cancel waiting for the interrupted subprocess to die
-     *  before reaping anyway. destroy() is graceful; a few hundred ms is the
-     *  norm, and reap is --force + best-effort so a timeout is no worse than
-     *  the pre-wait behaviour. */
-    private static final Duration AGENT_STOP_TIMEOUT = Duration.ofSeconds(3);
-
     /** Block until the agent leaves RUNNING (its turn thread transitions to
      *  IDLE once the destroyed subprocess exits) or the timeout elapses. */
     private void awaitAgentStopped(ThreadAgent agent)
@@ -925,7 +927,7 @@ public class TaskService
         }
         try {
             WatchedRepo repo = resolveRepo(Path.of(task.workingDir()));
-            return (repo.owner() + "/" + repo.repo()).equals(repoFullName);
+            return repo.fullName().equals(repoFullName);
         }
         catch (RuntimeException e) {
             return false;

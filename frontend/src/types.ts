@@ -2692,6 +2692,11 @@ export type Bridge = {
    *  probe per cap. The manual ↻ button passes 0 (or omits) to
    *  always probe. */
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number) => Promise<PullRequestDetailDto>;
+  /** Conversation comments created after `sinceEpochMs`, as activity
+   *  items ready to merge into the detail timeline. Powers the detail
+   *  page's tight comments-delta poll, which surfaces a reviewer's new
+   *  comment without the heavier full-detail refetch. */
+  fetchNewComments: (repo: string, number: number, sinceEpochMs: number) => Promise<ActivityItemDto[]>;
   /** Lightweight CI snapshot for the focus-driven detail-page poll. */
   fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;
   /** Enumerates the file paths that would conflict between a PR's

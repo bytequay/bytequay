@@ -618,6 +618,27 @@ class TestPullRequestService
     }
 
     @Test
+    void testFetchNewCommentsMapsIssueCommentsToActivityItems()
+    {
+        when(gitHub.fetchPrIssueComments(eq("pat"), any(PullRequestRef.class),
+                eq(Instant.parse("2026-05-08T00:00:00Z"))))
+                .thenReturn(ImmutableList.of(new PrTimelineEvent(
+                        777L, "commented", "carol", null,
+                        Instant.parse("2026-05-08T01:00:00Z"), "ship it",
+                        null, null, null, null, "MEMBER", Reactions.EMPTY)));
+
+        List<PullRequestDetail.ActivityItem> items = pullRequestService.fetchNewComments(
+                "owner/repo", 7, Instant.parse("2026-05-08T00:00:00Z"));
+
+        assertThat(items).singleElement().satisfies(item -> {
+            assertThat(item.githubId()).isEqualTo(777L);
+            assertThat(item.eventType()).isEqualTo("commented");
+            assertThat(item.actor()).isEqualTo("carol");
+            assertThat(item.body()).isEqualTo("ship it");
+        });
+    }
+
+    @Test
     void testCommentOnPullRequestNoOpWhenBlankBodyAndNoClose()
     {
         pullRequestService.commentOnPullRequest("owner/repo", 7, 99L, "", false);

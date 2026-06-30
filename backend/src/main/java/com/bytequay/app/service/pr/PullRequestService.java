@@ -470,6 +470,25 @@ public class PullRequestService
     }
 
     /**
+     * Returns conversation (issue) comments created on the PR after
+     * {@code since}, mapped to the same activity-item shape the detail
+     * timeline uses. Backs the detail page's lightweight comments-delta
+     * poll: it runs on a tighter cadence than the full-detail refresh and
+     * touches only the issue-comments endpoint, so a reviewer's new comment
+     * surfaces quickly without paying for the multi-call detail refetch.
+     *
+     * <p>{@code since} is GitHub's inclusive lower bound, so a boundary
+     * comment can come back again; the caller dedups by comment id.
+     */
+    public List<PullRequestDetail.ActivityItem> fetchNewComments(String repo, int number, Instant since)
+    {
+        requireNonNull(since, "since is null");
+        String pat = patResolver.resolve(repo);
+        List<PrTimelineEvent> comments = gitHub.fetchPrIssueComments(pat, parseRef(repo, number), since);
+        return PullRequestDetailMapper.toActivityItems(comments);
+    }
+
+    /**
      * Toggles a PR between draft and ready-for-review. Drops the cached
      * detail so the next fetch reflects the new state and the timeline
      * picks up the synthetic "ready for review" / "marked as draft"

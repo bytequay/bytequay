@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import type { ReactNode } from 'react';
-import { Callout, Card, Conv, EventRow, EventTimestamp, Thought, ToolBlock, UserMsg, Working } from '../ui/conv';
+import { Callout, Card, Conv, EventRow, EventTimestamp, QueuedMessages, Thought, ToolBlock, UserMsg, Working } from '../ui/conv';
+import { useMessageQueue } from '../threads/useMessageQueue';
 import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
 import { isShellTool, shellCommand } from '../threads/toolDisplay';
@@ -233,16 +234,23 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   // canonical messages refresh + the live buffers flush once the turn lands.
   const { liveText, liveThinking } = useThreadStream(threadId, thread?.status, load);
 
-  const submit = () => {
-    const body = text.trim();
-    if (body.length === 0 || busy) return;
-    setText('');
+  const sendNow = useCallback((body: string) => {
     setBusy(true);
     setAwaitedAt(replyCount);
     window.bridge.sendTrunkMessage(threadId, body)
       .then(() => load())
       .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
+  }, [threadId, load, replyCount]);
+  // Messages typed while the trunk is working queue up and auto-send when it
+  // goes idle; the user can pull one back into the composer to edit it.
+  const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
+  const submit = () => {
+    const body = text.trim();
+    if (body.length === 0) return;
+    setText('');
+    if (working) enqueue(body);
+    else sendNow(body);
   };
 
   // Manual cut: seed a task from the latest planning prompt and create it
@@ -307,6 +315,11 @@ export function TrunkRoute({ threadId, onOpenTask }: {
         <Thought label="Thinking…" defaultOpen><Callout>{liveThinking}</Callout></Thought>
       )}
       {liveText.length > 0 && <EventRow kind="brain" who="Agent" markdown={liveText} />}
+      <QueuedMessages
+        messages={queue}
+        onEdit={id => setText(takeForEdit(id))}
+        onRemove={remove}
+      />
       {working && liveText.length === 0 && (
         <Working
           label={workingLabel}
@@ -328,7 +341,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       threadId={threadId}
       thread={{ title: thread?.title ?? 'Thread' }}
       conversation={conversation}
-      composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
+      composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
       tasks={{ active, closed }}
       onOpenTask={onOpenTask}
       onCutTask={cutTask}

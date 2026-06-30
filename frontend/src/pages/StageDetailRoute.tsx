@@ -26,7 +26,8 @@ import { PRTabContent } from '../ui/pane/tabs';
 import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
 import type { DiffFileDto } from '../types';
 import type { StageType } from '../types/brainView';
-import { Conv, EventRow, Working } from '../ui/conv';
+import { Conv, EventRow, QueuedMessages, Working } from '../ui/conv';
+import { useMessageQueue } from '../threads/useMessageQueue';
 import { DetailsTabContent } from '../ui/pane';
 import { planTab } from './planTab';
 import { stageRow } from './stageConversationRow';
@@ -152,17 +153,14 @@ export function StageDetailRoute({
       .catch(() => { /* poll reconciles */ });
   }, [prComment, stageId, refresh]);
 
-  const submit = () => {
-    const body = text.trim();
-    if (body.length === 0 || busy) return;
-    setText('');
+  const sendNow = useCallback((body: string) => {
     setBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     bridge?.steerStage(stageId, body)
       .then(() => refresh())
       .catch(() => { /* poll reconciles */ })
       .finally(() => setBusy(false));
-  };
+  }, [stageId, refresh]);
 
   // Live stream of the agent working this stage: its text appears
   // token-by-token (and a non-delta event refreshes the canonical
@@ -200,6 +198,17 @@ export function StageDetailRoute({
   useEffect(() => {
     setWorkingSince(prev => (working ? prev ?? Date.now() : null));
   }, [working]);
+
+  // Messages typed while the stage agent is working queue up and auto-send
+  // when it goes idle; click one to pull it back into the composer to edit.
+  const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
+  const submit = () => {
+    const body = text.trim();
+    if (body.length === 0) return;
+    setText('');
+    if (working) enqueue(body);
+    else sendNow(body);
+  };
 
   // Surface the CLI agent's current activity — the latest tool call and (for
   // a shell command) the command itself — so a long stage turn shows what's
@@ -239,6 +248,11 @@ export function StageDetailRoute({
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
         ? <MarkReadyPrompt onReview={onOpenCode} />
         : <ShipReviewPrompt onReview={onOpenCode} />)}
+      <QueuedMessages
+        messages={queue}
+        onEdit={id => setText(takeForEdit(id))}
+        onRemove={remove}
+      />
       {working && liveText.length === 0 && (
         <Working
           label={workingLabel}
@@ -385,7 +399,8 @@ export function StageDetailRoute({
         value: text,
         onChange: setText,
         onSubmit: submit,
-        busy,
+        busy: working,
+        queueWhenBusy: true,
         placeholder: state === 'CLOSED' ? 'This stage is closed.' : 'Steer this stage…',
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}

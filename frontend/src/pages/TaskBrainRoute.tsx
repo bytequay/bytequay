@@ -11,13 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
+import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import type { BrainFeedRow, TaskPhase } from '../types/brainView';
-import { Conv, EventRow, EventTimestamp, UserMsg, Working } from '../ui/conv';
+import { Conv, EventRow, EventTimestamp, QueuedMessages, UserMsg, Working } from '../ui/conv';
 import type { EventKind } from '../ui/conv';
 import { DetailsTabContent } from '../ui/pane';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
@@ -89,10 +90,7 @@ export function TaskBrainRoute({
   }, [responseCount, awaitedAt]);
   const working = busy || awaitedAt !== null;
 
-  const submit = () => {
-    const body = text.trim();
-    if (body.length === 0 || busy) return;
-    setText('');
+  const sendNow = useCallback((body: string) => {
     setBusy(true);
     setAwaitedAt(responseCount);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -100,6 +98,16 @@ export function TaskBrainRoute({
       .then(() => pollFast())
       .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
+  }, [taskId, pollFast, responseCount]);
+  // Messages typed while the brain is thinking queue up and auto-send when it
+  // goes idle; click one to pull it back into the composer to edit.
+  const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
+  const submit = () => {
+    const body = text.trim();
+    if (body.length === 0) return;
+    setText('');
+    if (working) enqueue(body);
+    else sendNow(body);
   };
 
   const runAction = (fn?: (threadId: string, taskId: string) => Promise<unknown>) => () => {
@@ -146,6 +154,11 @@ export function TaskBrainRoute({
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
         ? <MarkReadyPrompt onReview={onOpenCode} />
         : <ShipReviewPrompt onReview={onOpenCode} />)}
+      <QueuedMessages
+        messages={queue}
+        onEdit={id => setText(takeForEdit(id))}
+        onRemove={remove}
+      />
       {working && <Working label="Brain is thinking…" />}
     </Conv>
   );
@@ -207,7 +220,7 @@ export function TaskBrainRoute({
       onToggleAutoApprove={toggleAutoApprove}
       sidebar={sidebar}
       conversation={conversation}
-      composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Ask the brain, or steer the task…' }}
+      composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Ask the brain, or steer the task…' }}
       run={{
         statusLabel: task.statusLabel,
         paused: task.paused,

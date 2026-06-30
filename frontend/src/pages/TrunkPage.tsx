@@ -73,6 +73,7 @@ export function TrunkPage({
     onChange: (next: string) => void;
     onSubmit: () => void;
     busy?: boolean;
+    queueWhenBusy?: boolean;
     modePill?: ReactNode;
     placeholder?: string;
   };
@@ -185,6 +186,7 @@ export function TrunkPage({
               onChange={composer.onChange}
               onSubmit={composer.onSubmit}
               busy={composer.busy}
+              queueWhenBusy={composer.queueWhenBusy}
               modePill={composer.modePill}
               placeholder={composer.placeholder}
             />

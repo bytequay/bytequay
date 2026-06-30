@@ -24,7 +24,8 @@ const MAX_INPUT_HEIGHT = 160;
  * the send button shows the spinner and submit is blocked.
  */
 export function Composer({
-  value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false, onAddContext,
+  value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false,
+  queueWhenBusy = false, onAddContext,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -34,9 +35,15 @@ export function Composer({
   modePill?: ReactNode;
   busy?: boolean;
   disabled?: boolean;
+  /** Allow submitting while the agent is busy — the host queues the message
+   *  (it sends when the agent goes idle) instead of blocking the send. */
+  queueWhenBusy?: boolean;
   onAddContext?: () => void;
 }) {
-  const canSend = !busy && !disabled && value.trim().length > 0;
+  const canSend = !disabled && value.trim().length > 0 && (!busy || queueWhenBusy);
+  // Spinner only when we're blocked (busy with nothing queueable); when a
+  // message can be queued mid-run the button stays active.
+  const spinning = busy && !canSend;
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow to fit the text (up to MAX_INPUT_HEIGHT, then scroll) so a
@@ -84,12 +91,13 @@ export function Composer({
           <span className="grow" />
           <button
             type="button"
-            className={busy ? 'send spinning' : 'send'}
-            aria-label="Send"
+            className={spinning ? 'send spinning' : 'send'}
+            aria-label={busy && canSend ? 'Queue message' : 'Send'}
+            title={busy && canSend ? 'Queue — sends when the agent is free' : 'Send'}
             disabled={!canSend}
             onClick={submit}
           >
-            {busy ? '○' : '↑'}
+            {spinning ? '○' : '↑'}
           </button>
         </div>
       </div>

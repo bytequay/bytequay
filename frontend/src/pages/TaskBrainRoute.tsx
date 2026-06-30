@@ -18,7 +18,7 @@ import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import type { TaskPhase } from '../types/brainView';
-import { Conv, DensityToggle, QueuedMessages, Working } from '../ui/conv';
+import { Conv, DecisionNode, DensityToggle, QueuedMessages, Working } from '../ui/conv';
 import { BrainFeed } from '../threads/brain/BrainFeed';
 import { DetailsTabContent } from '../ui/pane';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
@@ -139,6 +139,23 @@ export function TaskBrainRoute({
         density={density}
         trailer={(
           <>
+            {data.rightRail.approval !== null && (
+              <DecisionNode tone="approve">
+                <div className="sp-appr">
+                  <div className="sp-appr__head">
+                    <span className="sp-appr__lbl">⚑ {data.rightRail.approval.stageTitle}</span>
+                  </div>
+                  <div className="sp-appr__why">
+                    {data.rightRail.approval.reasonShort} — {data.rightRail.approval.pendingArtifact}
+                  </div>
+                  <div className="sp-appr__actions">
+                    <button type="button" className="sp-ab sp-ab--ok" onClick={onOpenCode}>
+                      {data.rightRail.approval.primaryAction.label}
+                    </button>
+                  </div>
+                </div>
+              </DecisionNode>
+            )}
             {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
               ? <MarkReadyPrompt onReview={onOpenCode} />
               : <ShipReviewPrompt onReview={onOpenCode} />)}

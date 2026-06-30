@@ -29,6 +29,10 @@ export { WorkFold } from './WorkFold';
 export { ActivityStrip } from './ActivityStrip';
 export type { ToolRow, ToolGroup } from './ActivityStrip';
 
+// Layer 3 — gates (approvals + questions), sharing a DecisionNode base.
+export { DecisionNode, ApprovalNode, AskQuestionNode } from './gates';
+export type { ApprovalDecision } from './gates';
+
 // Layer 4 — domain milestone nodes + controls.
 export { StageBoundaryNode } from './StageBoundaryNode';
 export { DensityToggle } from './DensityToggle';

@@ -22,6 +22,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.distillation.DistillationSignalService;
 import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,7 @@ class TestBacklogService
     private ThreadService threadService;
     private ThreadStore threadStore;
     private TaskStore taskStore;
+    private DistillationSignalService distillation;
     private BacklogServiceImpl service;
 
     @BeforeEach
@@ -58,7 +60,8 @@ class TestBacklogService
         threadService = mock(ThreadService.class);
         threadStore = mock(ThreadStore.class);
         taskStore = mock(TaskStore.class);
-        service = new BacklogServiceImpl(store, threadService, threadStore, taskStore);
+        distillation = mock(DistillationSignalService.class);
+        service = new BacklogServiceImpl(store, threadService, threadStore, taskStore, distillation);
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -175,6 +178,9 @@ class TestBacklogService
         assertThat(skipped.status()).isEqualTo("not-to-proceed");
         assertThat(skipped.rejectionReason()).isEqualTo("out of scope");
         assertThat(skipped.rejectedAt()).isNotNull();
+        // The decision is recorded for the distillation log.
+        verify(distillation).record(
+                eq("backlog-skip"), eq("b1"), eq("skipped"), eq("out of scope"), any(), any(), any());
     }
 
     @Test

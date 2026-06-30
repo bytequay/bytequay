@@ -19,6 +19,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.distillation.DistillationSignalService;
 import com.bytequay.app.service.threads.ThreadService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -41,17 +43,20 @@ public class BacklogServiceImpl
     private final ThreadService threadService;
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
+    private final DistillationSignalService distillation;
 
     public BacklogServiceImpl(
             BacklogStore store,
             ThreadService threadService,
             ThreadStore threadStore,
-            TaskStore taskStore)
+            TaskStore taskStore,
+            DistillationSignalService distillation)
     {
         this.store = requireNonNull(store, "store is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.distillation = requireNonNull(distillation, "distillation is null");
     }
 
     @Override
@@ -139,7 +144,12 @@ public class BacklogServiceImpl
             throw status(409, "backlog item already resolved");
         }
         String reasonValue = nullToEmpty(reason).strip();
-        return store.save(item.markNotToProceed(reasonValue.isEmpty() ? null : reasonValue, Instant.now()));
+        BacklogItem skipped = store.save(
+                item.markNotToProceed(reasonValue.isEmpty() ? null : reasonValue, Instant.now()));
+        distillation.record(
+                "backlog-skip", skipped.id(), "skipped", reasonValue.isEmpty() ? null : reasonValue,
+                Map.of("title", skipped.title()), skipped.threadId(), skipped.workspaceId());
+        return skipped;
     }
 
     @Override
@@ -149,7 +159,11 @@ public class BacklogServiceImpl
         if (!BacklogItem.STATUS_NOT_TO_PROCEED.equals(item.status())) {
             throw status(409, "backlog item is not in not-to-proceed");
         }
-        return store.save(item.markCreated());
+        BacklogItem revived = store.save(item.markCreated());
+        distillation.record(
+                "backlog-revive", revived.id(), "revived", null,
+                Map.of("title", revived.title()), revived.threadId(), revived.workspaceId());
+        return revived;
     }
 
     @Override

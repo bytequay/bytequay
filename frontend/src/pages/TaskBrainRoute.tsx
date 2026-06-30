@@ -17,26 +17,15 @@ import { usePendingShipProposal, proposalAction } from '../threads/usePendingShi
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
-import type { BrainFeedRow, TaskPhase } from '../types/brainView';
-import { Conv, EventRow, EventTimestamp, QueuedMessages, UserMsg, Working } from '../ui/conv';
-import type { EventKind } from '../ui/conv';
+import type { TaskPhase } from '../types/brainView';
+import { Conv, DensityToggle, QueuedMessages, Working } from '../ui/conv';
+import { BrainFeed } from '../threads/brain/BrainFeed';
 import { DetailsTabContent } from '../ui/pane';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { usePersistentToggle } from '../ui/shell';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { planTab } from './planTab';
 import { TaskBrainPage } from './TaskBrainPage';
-
-function feedKind(type: BrainFeedRow['type']): { kind: EventKind; who: string } {
-  switch (type) {
-    case 'USER_MESSAGE':
-    case 'TRUNK_MESSAGE':
-      return { kind: 'user', who: 'You' };
-    case 'BRAIN_AGENT_RESPONSE':
-      return { kind: 'brain', who: 'Brain' };
-    default:
-      return { kind: 'system', who: type.replace(/_/g, ' ').toLowerCase() };
-  }
-}
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -135,31 +124,33 @@ export function TaskBrainRoute({
       .catch(() => { /* poll reconciles */ });
   };
 
+  // Conversation density (Focused default / Full), persisted per user.
+  const { value: fullDensity, setValue: setFullDensity } = usePersistentToggle('bq.convDensityFull');
+  const density = fullDensity ? 'full' : 'focused';
+
   const conversation = (
     <Conv>
-      {brainFeed.map(row => {
-        const { kind, who } = feedKind(row.type);
-        return kind === 'user'
-          ? <UserMsg key={row.id} text={row.body} timestamp={<EventTimestamp iso={row.ts} />} />
-          : (
-            <EventRow
-              key={row.id}
-              kind={kind}
-              who={who}
-              timestamp={<EventTimestamp iso={row.ts} />}
-              markdown={row.body}
+      <div className="sp-controls">
+        <DensityToggle value={density} onChange={d => setFullDensity(d === 'full')} />
+      </div>
+      <BrainFeed
+        feed={brainFeed}
+        stages={stages}
+        density={density}
+        trailer={(
+          <>
+            {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
+              ? <MarkReadyPrompt onReview={onOpenCode} />
+              : <ShipReviewPrompt onReview={onOpenCode} />)}
+            <QueuedMessages
+              messages={queue}
+              onEdit={id => setText(takeForEdit(id))}
+              onRemove={remove}
             />
-          );
-      })}
-      {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
-        ? <MarkReadyPrompt onReview={onOpenCode} />
-        : <ShipReviewPrompt onReview={onOpenCode} />)}
-      <QueuedMessages
-        messages={queue}
-        onEdit={id => setText(takeForEdit(id))}
-        onRemove={remove}
+            {working && <Working label="Brain is thinking…" />}
+          </>
+        )}
       />
-      {working && <Working label="Brain is thinking…" />}
     </Conv>
   );
 

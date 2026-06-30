@@ -17,7 +17,12 @@ import { TrunkPage } from './TrunkPage';
 import type { BacklogItemDto, ThreadSignalDto } from '../types';
 
 const BACKLOG: BacklogItemDto[] = [
-  { id: 'b1', threadId: 't1', title: 'Parked idea', body: 'do the thing', tags: ['ui'], createdAt: 1, startedAt: null, linkedTaskId: null },
+  {
+    id: 'b1', threadId: 't1', workspaceId: 'ws-1', title: 'Parked idea', body: 'do the thing',
+    tags: ['ui'], priority: 'medium', source: 'manual', status: 'created', createdBy: 'user',
+    createdAt: 1, inProgressAt: null, startedAt: null, resolvedAt: null, rejectedAt: null,
+    rejectionReason: null, linkedTaskId: null, relatedBacklogIds: [],
+  },
 ];
 const SIGNALS: ThreadSignalDto[] = [
   { id: 's1', threadId: 't1', taskId: null, sourceKind: 'system', iconKind: 'success', title: 'Pushed branch', body: null, sourceUrl: null, createdAt: 2, readAt: null },

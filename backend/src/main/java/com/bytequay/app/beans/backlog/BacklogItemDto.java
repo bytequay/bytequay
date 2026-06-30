@@ -15,30 +15,57 @@ package com.bytequay.app.beans.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
 
+import java.time.Instant;
 import java.util.List;
 
-/** Wire shape of a {@link BacklogItem}. {@code createdAt} / {@code startedAt}
- *  are epoch-millis ({@code startedAt} null until started). */
+/** Wire shape of a {@link BacklogItem}. {@code createdAt} is epoch-millis;
+ *  the lifecycle stamps ({@code inProgressAt} / {@code startedAt} /
+ *  {@code resolvedAt} / {@code rejectedAt}) are epoch-millis or null. */
 public record BacklogItemDto(
         String id,
         String threadId,
+        String workspaceId,
         String title,
         String body,
         List<String> tags,
+        String priority,
+        String source,
+        String status,
+        String createdBy,
         long createdAt,
+        Long inProgressAt,
         Long startedAt,
-        String linkedTaskId)
+        Long resolvedAt,
+        Long rejectedAt,
+        String rejectionReason,
+        String linkedTaskId,
+        List<String> relatedBacklogIds)
 {
     public static BacklogItemDto from(BacklogItem item)
     {
         return new BacklogItemDto(
                 item.id(),
                 item.threadId(),
+                item.workspaceId(),
                 item.title(),
                 item.body(),
                 item.tags(),
+                item.priority(),
+                item.source(),
+                item.status(),
+                item.createdBy(),
                 item.createdAt().toEpochMilli(),
-                item.startedAt() == null ? null : item.startedAt().toEpochMilli(),
-                item.linkedTaskId());
+                epochOrNull(item.inProgressAt()),
+                epochOrNull(item.startedAt()),
+                epochOrNull(item.resolvedAt()),
+                epochOrNull(item.rejectedAt()),
+                item.rejectionReason(),
+                item.linkedTaskId(),
+                item.relatedBacklogIds());
+    }
+
+    private static Long epochOrNull(Instant instant)
+    {
+        return instant == null ? null : instant.toEpochMilli();
     }
 }

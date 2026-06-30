@@ -53,6 +53,37 @@ class BacklogItemEntity
     @Column(name = "linked_task_id")
     private String linkedTaskId;
 
+    @Column(name = "workspace_id")
+    private String workspaceId;
+
+    @Column(name = "priority", nullable = false)
+    private String priority;
+
+    @Column(name = "source", nullable = false)
+    private String source;
+
+    @Column(name = "status", nullable = false)
+    private String status;
+
+    @Column(name = "created_by", nullable = false)
+    private String createdBy;
+
+    @Column(name = "in_progress_at_ms")
+    private Long inProgressAtMs;
+
+    @Column(name = "resolved_at_ms")
+    private Long resolvedAtMs;
+
+    @Column(name = "rejected_at_ms")
+    private Long rejectedAtMs;
+
+    @Column(name = "rejection_reason")
+    private String rejectionReason;
+
+    @Convert(converter = StringListConverter.class)
+    @Column(name = "related_backlog_ids_json", nullable = false)
+    private List<String> relatedBacklogIds;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -76,4 +107,34 @@ class BacklogItemEntity
 
     String getLinkedTaskId() { return linkedTaskId; }
     void setLinkedTaskId(String linkedTaskId) { this.linkedTaskId = linkedTaskId; }
+
+    String getWorkspaceId() { return workspaceId; }
+    void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
+
+    String getPriority() { return priority; }
+    void setPriority(String priority) { this.priority = priority; }
+
+    String getSource() { return source; }
+    void setSource(String source) { this.source = source; }
+
+    String getStatus() { return status; }
+    void setStatus(String status) { this.status = status; }
+
+    String getCreatedBy() { return createdBy; }
+    void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+
+    Long getInProgressAtMs() { return inProgressAtMs; }
+    void setInProgressAtMs(Long inProgressAtMs) { this.inProgressAtMs = inProgressAtMs; }
+
+    Long getResolvedAtMs() { return resolvedAtMs; }
+    void setResolvedAtMs(Long resolvedAtMs) { this.resolvedAtMs = resolvedAtMs; }
+
+    Long getRejectedAtMs() { return rejectedAtMs; }
+    void setRejectedAtMs(Long rejectedAtMs) { this.rejectedAtMs = rejectedAtMs; }
+
+    String getRejectionReason() { return rejectionReason; }
+    void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
+
+    List<String> getRelatedBacklogIds() { return relatedBacklogIds; }
+    void setRelatedBacklogIds(List<String> relatedBacklogIds) { this.relatedBacklogIds = relatedBacklogIds; }
 }

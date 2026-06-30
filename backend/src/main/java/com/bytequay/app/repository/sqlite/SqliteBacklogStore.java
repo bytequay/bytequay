@@ -44,8 +44,18 @@ class SqliteBacklogStore
         entity.setBody(item.body());
         entity.setTags(item.tags());
         entity.setCreatedAtMs(item.createdAt().toEpochMilli());
-        entity.setStartedAtMs(item.startedAt() == null ? null : item.startedAt().toEpochMilli());
+        entity.setStartedAtMs(epochOrNull(item.startedAt()));
         entity.setLinkedTaskId(item.linkedTaskId());
+        entity.setWorkspaceId(item.workspaceId());
+        entity.setPriority(item.priority());
+        entity.setSource(item.source());
+        entity.setStatus(item.status());
+        entity.setCreatedBy(item.createdBy());
+        entity.setInProgressAtMs(epochOrNull(item.inProgressAt()));
+        entity.setResolvedAtMs(epochOrNull(item.resolvedAt()));
+        entity.setRejectedAtMs(epochOrNull(item.rejectedAt()));
+        entity.setRejectionReason(item.rejectionReason());
+        entity.setRelatedBacklogIds(item.relatedBacklogIds());
         return toDomain(repository.save(entity));
     }
 
@@ -77,11 +87,31 @@ class SqliteBacklogStore
         return new BacklogItem(
                 e.getId(),
                 e.getThreadId(),
+                e.getWorkspaceId(),
                 e.getTitle(),
                 e.getBody(),
                 e.getTags(),
+                e.getPriority(),
+                e.getSource(),
+                e.getStatus(),
+                e.getCreatedBy(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                e.getStartedAtMs() == null ? null : Instant.ofEpochMilli(e.getStartedAtMs()),
-                e.getLinkedTaskId());
+                instantOrNull(e.getInProgressAtMs()),
+                instantOrNull(e.getStartedAtMs()),
+                instantOrNull(e.getResolvedAtMs()),
+                instantOrNull(e.getRejectedAtMs()),
+                e.getRejectionReason(),
+                e.getLinkedTaskId(),
+                e.getRelatedBacklogIds());
+    }
+
+    private static Long epochOrNull(Instant instant)
+    {
+        return instant == null ? null : instant.toEpochMilli();
+    }
+
+    private static Instant instantOrNull(Long epochMs)
+    {
+        return epochMs == null ? null : Instant.ofEpochMilli(epochMs);
     }
 }

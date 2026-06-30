@@ -16,6 +16,6 @@ package com.bytequay.app.beans.backlog;
 import java.util.List;
 
 /** Body for a partial update — null fields are left unchanged. */
-public record UpdateBacklogItemRequest(String title, String body, List<String> tags)
+public record UpdateBacklogItemRequest(String title, String body, List<String> tags, String priority)
 {
 }

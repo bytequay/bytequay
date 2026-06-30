@@ -182,6 +182,8 @@ export function TaskBrainRoute({
     viewedStageId: null,
     // This IS the brain page, so the Root node is the active view.
     viewingBrain: true,
+    // Pulse the Root node while the brain is thinking.
+    working,
   });
   const sidebar = (
     <TaskSidebar

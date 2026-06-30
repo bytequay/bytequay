@@ -58,6 +58,11 @@ export type LivePlanInput = {
   /** True on the brain page — marks the Root node as the active view (the
    *  brain/root conversation, not any stage). */
   viewingBrain?: boolean;
+  /** True while the active surface's agent is mid-turn (the brain is thinking,
+   *  or the viewed stage's agent is working). Pulses that node so the user can
+   *  see it's working immediately, ahead of the stage-state poll. Background
+   *  stages still pulse from their own polled {@code ACTIVE} state. */
+  working?: boolean;
 };
 
 /** Status for a stage-backed node: closed → done, active → running (or
@@ -112,7 +117,7 @@ function iterMeta(stage: StageDto | undefined): string | undefined {
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
     stages, subStages, task, prStatus = null, mergeReady = false,
-    viewedStageId = null, viewingBrain = false,
+    viewedStageId = null, viewingBrain = false, working = false,
   } = input;
   const byType = (type: StageType): StageDto | undefined => stages.find(s => s.type === type);
   const isViewed = (stage: StageDto | undefined): boolean =>
@@ -206,5 +211,17 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       placement: 'full', activeView: isViewed(cleanup), nav: stageNav(cleanup),
     },
   ];
+
+  // While the active surface's agent is mid-turn, light its node so the user
+  // sees it working without waiting for the stage-state poll: the Root (brain)
+  // pulses purple ('planning'), a stage node pulses orange ('running').
+  if (working) {
+    for (const node of nodes) {
+      if (node.activeView) {
+        node.status = node.key === 'root' ? 'planning' : 'running';
+        node.glyph = glyphFor(node.status);
+      }
+    }
+  }
   return nodes;
 }

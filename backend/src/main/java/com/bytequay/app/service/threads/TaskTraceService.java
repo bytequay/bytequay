@@ -19,6 +19,7 @@ import com.bytequay.app.beans.trace.NextPossible;
 import com.bytequay.app.beans.trace.TaskTraceResponse;
 import com.bytequay.app.beans.trace.TraceEvent;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskMilestone;
 import com.bytequay.app.domain.TaskPhase;
@@ -99,19 +100,12 @@ public class TaskTraceService
         if (currentPhase == null || !WAIT_STATES.contains(currentPhase) || task.linkedPrRef() == null) {
             return null;
         }
-        String ref = task.linkedPrRef();
-        int hash = ref.lastIndexOf('#');
-        if (hash <= 0 || hash == ref.length() - 1) {
+        Optional<PullRequestRef> parsed = PullRequestRef.parse(task.linkedPrRef());
+        if (parsed.isEmpty()) {
             return null;
         }
-        String repo = ref.substring(0, hash);
-        int number;
-        try {
-            number = Integer.parseInt(ref.substring(hash + 1).trim());
-        }
-        catch (NumberFormatException e) {
-            return null;
-        }
+        String repo = parsed.get().repoRef().fullName();
+        int number = parsed.get().number();
         try {
             PullRequestDetail pr = pullRequests.getPullRequestDetail(repo, number);
             return new LinkedActivePr(

@@ -182,6 +182,43 @@ function clearActiveWorkspaceId(): void {
   catch { /* private browsing — skip silently */ }
 }
 
+/** Per-task memory of the last sub-surface the user viewed (brain, a specific
+ *  stage, or the code page), so reopening a task lands back where they left
+ *  off instead of always on the brain. Persisted so it survives a reload. */
+const TASK_VIEW_KEY = (taskId: string) => `bq.task.lastView.${taskId}`;
+
+/** Record the surface for a task nav, so the next open can restore it. */
+function rememberTaskView(nav: Nav): void {
+  if (typeof window === 'undefined') return;
+  if (nav.view !== 'task-brain' && nav.view !== 'stage-detail' && nav.view !== 'task-code') {
+    return;
+  }
+  // Store only view + stageId — never the recursive `back` chain.
+  const value = nav.view === 'stage-detail'
+    ? { view: nav.view, stageId: nav.stageId }
+    : { view: nav.view };
+  try { window.localStorage.setItem(TASK_VIEW_KEY(nav.taskId), JSON.stringify(value)); }
+  catch { /* private browsing — skip */ }
+}
+
+/** The nav target for opening a task: the last surface the user viewed for it
+ *  (a stage, the code page), or the brain page as the default/fallback. */
+function lastTaskNav(threadId: string, taskId: string): Nav {
+  const fallback: Nav = { view: 'task-brain', threadId, taskId };
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(TASK_VIEW_KEY(taskId));
+    if (raw === null) return fallback;
+    const v = JSON.parse(raw) as { view?: string; stageId?: string };
+    if (v.view === 'stage-detail' && typeof v.stageId === 'string' && v.stageId.length > 0) {
+      return { view: 'stage-detail', threadId, taskId, stageId: v.stageId };
+    }
+    if (v.view === 'task-code') return { view: 'task-code', threadId, taskId };
+    return fallback;
+  }
+  catch { return fallback; }
+}
+
 function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
@@ -197,6 +234,10 @@ function App() {
     if (nav.view === 'task-code' && was !== 'task-code') setRailCollapsed(true);
     else if (was === 'task-code' && nav.view !== 'task-code') setRailCollapsed(false);
   }, [nav.view]);
+
+  // Remember the last task sub-surface (brain / stage / code) per task, so
+  // clicking the task again returns there instead of the brain default.
+  useEffect(() => { rememberTaskView(nav); }, [nav]);
 
   // The open thread + (when inside one) its task — the left rail nests the
   // active task's stages under the thread row so the user can jump to a stage.
@@ -540,7 +581,7 @@ function App() {
           onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
           onOpenTask={taskId => {
             if (navThreadId !== null) {
-              setNav({ view: 'task-brain', threadId: navThreadId, taskId });
+              setNav(lastTaskNav(navThreadId, taskId));
             }
           }}
           onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
@@ -587,7 +628,7 @@ function App() {
             onGoToMyPrs={() => setNav({ view: 'my-prs' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onGoToTeams={() => setNav({ view: 'teams' })}
-            onOpenTask={(threadId, taskId) => setNav({ view: 'task-brain', threadId, taskId })}
+            onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
             onOpenThread={openThread}
           />
         )}
@@ -668,9 +709,7 @@ function App() {
         {nav.view === 'thread-detail' && (
           <TrunkRoute
             threadId={nav.threadId}
-            onOpenTask={taskId => setNav({
-              view: 'task-brain', threadId: nav.threadId, taskId,
-            })}
+            onOpenTask={taskId => setNav(lastTaskNav(nav.threadId, taskId))}
           />
         )}
         {nav.view === 'task-brain' && (

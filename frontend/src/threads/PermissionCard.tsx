@@ -123,6 +123,10 @@ export function PermissionCard({ permission, onDecide }: {
 }) {
   const [choiceIdx, setChoiceIdx] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Once the user acts, the card stays — recoloured to the outcome (green
+  // approved / red rejected) instead of vanishing — so the decision is
+  // legible. Yellow while still requesting.
+  const [decided, setDecided] = useState<'ALLOW' | 'DENY' | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Close the picker when clicking outside — a native <select> would
@@ -143,78 +147,118 @@ export function PermissionCard({ permission, onDecide }: {
     () => describePermission(permission.toolName, permission.summary),
     [permission.toolName, permission.summary]);
 
+  // Record the decision locally so the card recolours to the outcome, then
+  // forward it to the gate.
+  const decide = (decision: 'ALLOW' | 'DENY', preApprove?: PermissionPreApprove) => {
+    setDecided(decision);
+    if (preApprove !== undefined) onDecide(permission.callId, decision, preApprove);
+    else onDecide(permission.callId, decision);
+  };
+
+  const pal = decided === 'ALLOW' ? APPROVED : decided === 'DENY' ? DENIED : REQUESTING;
+  const title = decided === 'ALLOW'
+    ? <>✓ Approved — <strong>{desc.action}</strong></>
+    : decided === 'DENY'
+      ? <>✕ Rejected — <strong>{desc.action}</strong></>
+      : <>⚠ Approval needed — <strong>{desc.action}</strong></>;
+
   return (
-    <article style={cardStyle}>
+    <article style={{ ...cardStyle, background: pal.bg, borderColor: pal.border }}>
       <div style={textColStyle}>
-        <div style={titleStyle} title={permission.toolName}>
-          ⚠ Approval needed — <strong>{desc.action}</strong>
-          {desc.target && <span style={targetStyle}> · {desc.target}</span>}
+        <div style={{ ...titleStyle, color: pal.title }} title={permission.toolName}>
+          {title}
+          {desc.target && <span style={{ color: pal.title, fontWeight: 500 }}> · {desc.target}</span>}
         </div>
         {desc.body && (
-          <pre style={bodyStyle}>{desc.body}</pre>
+          <pre style={{
+            ...bodyStyle,
+            color: pal.bodyText, background: pal.bodyBg, borderColor: pal.bodyBorder,
+          }}
+          >{desc.body}</pre>
         )}
       </div>
-      <div style={actionsStyle}>
-        <button
-          type="button"
-          onClick={() => onDecide(permission.callId, 'ALLOW')}
-          style={approveOnceBtnStyle}
-        >Approve once</button>
-
-        <div ref={menuRef} style={splitWrapStyle}>
-          <button
-            type="button"
-            onClick={() => onDecide(
-              permission.callId,
-              'ALLOW',
-              { toolName: permission.toolName, count: choice.count })}
-            style={allowNextBtnStyle}
-            title={`Allow now + auto-approve ${choice.count === -1
-              ? 'every future call to this tool'
-              : `the next ${choice.count} calls to this tool`} in this session`}
-          >{choice.label}</button>
-          <button
-            type="button"
-            onClick={() => setMenuOpen(o => !o)}
-            style={allowNextCaretStyle}
-            aria-label="Change pre-approval count"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-          >▾</button>
-          {menuOpen && (
-            <div role="menu" style={menuStyle}>
-              <div style={menuHeaderStyle}>auto-approve</div>
-              {PRE_APPROVE_CHOICES.map((c, i) => (
-                <button
-                  key={c.count}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={i === choiceIdx}
-                  onClick={() => { setChoiceIdx(i); setMenuOpen(false); }}
-                  style={{
-                    ...menuItemStyle,
-                    ...(i === choiceIdx ? menuItemSelectedStyle : null),
-                  }}
-                >{c.menu}</button>
-              ))}
-            </div>
-          )}
+      {decided !== null ? (
+        <div style={{ ...statusStyle, color: pal.title, borderColor: pal.border }}>
+          {decided === 'ALLOW' ? '✓ Approved' : '✕ Rejected'}
         </div>
+      ) : (
+        <div style={actionsStyle}>
+          <button
+            type="button"
+            onClick={() => decide('ALLOW')}
+            style={approveOnceBtnStyle}
+          >Approve once</button>
 
-        <button
-          type="button"
-          onClick={() => onDecide(permission.callId, 'DENY')}
-          style={denyBtnStyle}
-        >Reject</button>
-      </div>
+          <div ref={menuRef} style={splitWrapStyle}>
+            <button
+              type="button"
+              onClick={() => decide('ALLOW', { toolName: permission.toolName, count: choice.count })}
+              style={allowNextBtnStyle}
+              title={`Allow now + auto-approve ${choice.count === -1
+                ? 'every future call to this tool'
+                : `the next ${choice.count} calls to this tool`} in this session`}
+            >{choice.label}</button>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(o => !o)}
+              style={allowNextCaretStyle}
+              aria-label="Change pre-approval count"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >▾</button>
+            {menuOpen && (
+              <div role="menu" style={menuStyle}>
+                <div style={menuHeaderStyle}>auto-approve</div>
+                {PRE_APPROVE_CHOICES.map((c, i) => (
+                  <button
+                    key={c.count}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={i === choiceIdx}
+                    onClick={() => { setChoiceIdx(i); setMenuOpen(false); }}
+                    style={{
+                      ...menuItemStyle,
+                      ...(i === choiceIdx ? menuItemSelectedStyle : null),
+                    }}
+                  >{c.menu}</button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => decide('DENY')}
+            style={denyBtnStyle}
+          >Reject</button>
+        </div>
+      )}
     </article>
   );
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Styles. Yellow palette is intentionally literal (not themed) so the
-// card reads as a warning regardless of theme.
+// Styles. Palettes are intentionally literal (not themed) so the card
+// reads as warning / success / danger regardless of theme:
+//   requesting → yellow, approved → green, rejected → red.
 // ────────────────────────────────────────────────────────────────────
+
+type Palette = {
+  bg: string; border: string; title: string;
+  bodyBg: string; bodyBorder: string; bodyText: string;
+};
+const REQUESTING: Palette = {
+  bg: '#FFFBEB', border: '#FCD34D', title: '#92400E',
+  bodyBg: 'rgba(146, 64, 14, 0.08)', bodyBorder: 'rgba(146, 64, 14, 0.15)', bodyText: '#451A03',
+};
+const APPROVED: Palette = {
+  bg: '#ECFDF5', border: '#6EE7B7', title: '#065F46',
+  bodyBg: 'rgba(6, 95, 70, 0.08)', bodyBorder: 'rgba(6, 95, 70, 0.15)', bodyText: '#064E3B',
+};
+const DENIED: Palette = {
+  bg: '#FEF2F2', border: '#FCA5A5', title: '#991B1B',
+  bodyBg: 'rgba(153, 27, 27, 0.07)', bodyBorder: 'rgba(153, 27, 27, 0.15)', bodyText: '#7F1D1D',
+};
 
 const cardStyle: React.CSSProperties = {
   display: 'flex',
@@ -222,12 +266,21 @@ const cardStyle: React.CSSProperties = {
   // when the summary wraps to several lines, instead of riding next
   // to the title.
   alignItems: 'flex-end',
-  gap: 14,
-  padding: '12px 14px',
-  background: '#FFFBEB',
-  border: '1px solid #FCD34D',
-  borderRadius: 8,
+  gap: 18,
+  padding: '18px 22px',
+  border: '1px solid',
+  borderRadius: 10,
   flexWrap: 'wrap',
+};
+const statusStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '8px 16px',
+  border: '1px solid',
+  borderRadius: 6,
+  fontSize: 13,
+  fontWeight: 700,
+  letterSpacing: 0.2,
+  background: 'rgba(255,255,255,0.45)',
 };
 const textColStyle: React.CSSProperties = {
   flex: 1,
@@ -238,39 +291,23 @@ const textColStyle: React.CSSProperties = {
   overflow: 'hidden',
 };
 const titleStyle: React.CSSProperties = {
-  color: '#92400E', fontSize: 13, fontWeight: 600,
-};
-const summaryStyle: React.CSSProperties = {
-  color: '#78350F', fontSize: 12, marginTop: 2,
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-word',
-  // Some tools (Write/Edit) pass the file contents in `input`, which
-  // can be huge. Cap the visible height and let users scroll within
-  // the summary so the card itself stays compact.
-  maxHeight: 90,
-  overflowY: 'auto',
-};
-const targetStyle: React.CSSProperties = {
-  color: '#92400E',
-  fontWeight: 500,
+  fontSize: 14.5, fontWeight: 600, lineHeight: 1.4,
 };
 // The salient detail — a command line or a file path — in a readable
 // monospace block instead of raw JSON. Caps + scrolls like the old
 // summary so a long command can't blow the card's height out.
 const bodyStyle: React.CSSProperties = {
-  margin: '4px 0 0',
-  padding: '6px 8px',
+  margin: '8px 0 0',
+  padding: '9px 12px',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 11.5,
-  lineHeight: 1.4,
-  color: '#451A03',
-  background: 'rgba(146, 64, 14, 0.08)',
-  border: '1px solid rgba(146, 64, 14, 0.15)',
+  fontSize: 12.5,
+  lineHeight: 1.5,
+  border: '1px solid',
   borderRadius: 6,
   whiteSpace: 'pre-wrap',
   overflowWrap: 'anywhere',
   wordBreak: 'break-word',
-  maxHeight: 96,
+  maxHeight: 140,
   overflowY: 'auto',
 };
 const actionsStyle: React.CSSProperties = {
@@ -280,27 +317,27 @@ const splitWrapStyle: React.CSSProperties = {
   position: 'relative', display: 'inline-flex',
 };
 const approveOnceBtnStyle: React.CSSProperties = {
-  padding: '6px 12px',
+  padding: '9px 16px',
   background: '#10B981', color: '#fff',
-  border: 'none', borderRadius: 4,
-  fontWeight: 600, cursor: 'pointer', fontSize: 12,
+  border: 'none', borderRadius: 5,
+  fontWeight: 600, cursor: 'pointer', fontSize: 13,
 };
 const allowNextBtnStyle: React.CSSProperties = {
-  padding: '6px 10px 6px 12px',
+  padding: '9px 12px 9px 16px',
   background: '#15803d', color: '#fff',
   border: 'none',
-  borderTopLeftRadius: 4, borderBottomLeftRadius: 4,
+  borderTopLeftRadius: 5, borderBottomLeftRadius: 5,
   borderTopRightRadius: 0, borderBottomRightRadius: 0,
-  fontWeight: 600, cursor: 'pointer', fontSize: 12,
+  fontWeight: 600, cursor: 'pointer', fontSize: 13,
 };
 const allowNextCaretStyle: React.CSSProperties = {
-  padding: '6px 8px',
+  padding: '9px 10px',
   background: '#15803d', color: '#fff',
   border: 'none',
   borderLeft: '1px solid #166534',
   borderTopLeftRadius: 0, borderBottomLeftRadius: 0,
-  borderTopRightRadius: 4, borderBottomRightRadius: 4,
-  cursor: 'pointer', fontSize: 11,
+  borderTopRightRadius: 5, borderBottomRightRadius: 5,
+  cursor: 'pointer', fontSize: 12,
 };
 const menuStyle: React.CSSProperties = {
   // Anchor to the button's top edge so the menu opens upward — the
@@ -331,8 +368,8 @@ const menuItemSelectedStyle: React.CSSProperties = {
   background: 'var(--accent-a10)', color: 'var(--accent-dark)', fontWeight: 600,
 };
 const denyBtnStyle: React.CSSProperties = {
-  padding: '6px 14px',
-  background: 'transparent', color: '#92400E',
-  border: '1px solid #FCD34D', borderRadius: 4,
-  cursor: 'pointer', fontSize: 12,
+  padding: '9px 18px',
+  background: 'transparent', color: '#B91C1C',
+  border: '1px solid #FCA5A5', borderRadius: 5,
+  cursor: 'pointer', fontWeight: 600, fontSize: 13,
 };

@@ -103,11 +103,12 @@ public class StreamJsonParser
         // every prompt. So skip plain-text user messages and only
         // surface tool_result blocks (which the agent emits to feed
         // tool output back into the loop).
-        if (user.message() == null || user.message().content() == null) {
+        var msg = user.message();
+        if (msg == null || msg.content() == null) {
             return ImmutableList.of();
         }
         ImmutableList.Builder<StreamEvent> out = ImmutableList.builder();
-        for (StreamLine.ContentBlock block : user.message().content()) {
+        for (StreamLine.ContentBlock block : msg.content()) {
             if (block instanceof StreamLine.ContentBlock.ToolResult tr) {
                 String outputJson = tr.content() == null ? "" : tr.content().toString();
                 out.add(new StreamEvent.ToolCallDone(
@@ -119,11 +120,12 @@ public class StreamJsonParser
 
     private static List<StreamEvent> parseAssistantMessage(StreamLine.Assistant assistant, Instant now)
     {
-        if (assistant.message() == null || assistant.message().content() == null) {
+        var msg = assistant.message();
+        if (msg == null || msg.content() == null) {
             return ImmutableList.of();
         }
         ImmutableList.Builder<StreamEvent> out = ImmutableList.builder();
-        for (StreamLine.ContentBlock block : assistant.message().content()) {
+        for (StreamLine.ContentBlock block : msg.content()) {
             switch (block) {
                 case StreamLine.ContentBlock.Text text ->
                         out.add(new StreamEvent.AssistantText(now, nullToEmpty(text.text())));

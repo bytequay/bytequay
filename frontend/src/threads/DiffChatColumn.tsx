@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useStageDetailData } from './brain/useStageDetailData';
 import { stageRow } from '../pages/stageConversationRow';
+import type { PermissionDecideHandler } from './PermissionCard';
 import { Conv, Working } from '../ui/conv';
 import { Composer } from '../ui/shell';
 
@@ -25,13 +26,19 @@ import { Composer } from '../ui/shell';
  * the brain or a ship prompt) it resolves the task's Development stage.
  * Falls back to a chat scaffold only when no stage can be found.
  */
-export function DiffChatColumn({ stageId, taskId }: { stageId?: string; taskId?: string }) {
+export function DiffChatColumn({ stageId, taskId, threadId }: {
+  stageId?: string;
+  taskId?: string;
+  /** The owning thread — needed to approve/deny a permission the agent is
+   *  waiting on. Without it, permission rows still render but read-only. */
+  threadId?: string;
+}) {
   const resolved = useDiffChatStageId(stageId, taskId);
   return (
     // `.shell` scopes the V3 conversation + composer styles; block display
     // overrides the shell's own 2-column grid so it lays out as a column.
     <div className="shell diff-viewer__chat">
-      {resolved !== null ? <StageChat stageId={resolved} /> : <PrChatPlaceholder />}
+      {resolved !== null ? <StageChat stageId={resolved} threadId={threadId} /> : <PrChatPlaceholder />}
     </div>
   );
 }
@@ -59,7 +66,7 @@ function useDiffChatStageId(stageId?: string, taskId?: string): string | null {
   return resolved;
 }
 
-function StageChat({ stageId }: { stageId: string }) {
+function StageChat({ stageId, threadId }: { stageId: string; threadId?: string }) {
   const { data, refresh } = useStageDetailData(stageId);
   const [busy, setBusy] = useState(false);
   const closed = data?.stage.state === 'CLOSED';
@@ -76,10 +83,21 @@ function StageChat({ stageId }: { stageId: string }) {
       .finally(() => setBusy(false));
   }, [stageId, busy, refresh]);
 
+  // Approve / deny a permission the agent is blocked on, right here in the
+  // code-page chat (the same path the stage-detail page uses, routed by
+  // threadId). Without a threadId we can't act, so the row stays read-only.
+  const onDecide = useCallback<PermissionDecideHandler>((callId, decision, preApprove) => {
+    if (threadId === undefined) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.decideTaskPermission(threadId, callId, decision, preApprove)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [threadId, refresh]);
+
   return (
     <>
       <Conv>
-        {data?.conversation.map(r => stageRow(r))}
+        {data?.conversation.map(r => stageRow(r, threadId !== undefined ? onDecide : undefined))}
         {(busy || data?.stage.state === 'ACTIVE') && <Working label="Agent is working…" />}
       </Conv>
       <StageChatComposer

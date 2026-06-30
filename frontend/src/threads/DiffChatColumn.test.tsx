@@ -49,6 +49,39 @@ describe('DiffChatColumn', () => {
     await waitFor(() => expect(bridge.steerStage).toHaveBeenCalledWith('st-1', 'also sort them'));
   });
 
+  it('shows approve/deny on a pending permission and decides it through the bridge', async () => {
+    const decide = vi.fn().mockResolvedValue(undefined);
+    mockBridge({
+      getStageDetail: vi.fn().mockResolvedValue({
+        stage: { id: 'st-1', type: 'DEVELOPMENT_STAGE', state: 'ACTIVE', iterationCount: 1 },
+        task: { id: 'task-1', title: 'x', branch: 'b' },
+        conversation: [
+          { id: 'p1', kind: 'permission', callId: 'call-9', toolLabel: 'Bash', text: '{"command":"mvn verify"}' },
+        ],
+      }),
+      decideTaskPermission: decide,
+    });
+    render(<DiffChatColumn stageId="st-1" threadId="th-1" />);
+
+    const approve = await screen.findByText('Approve once');
+    expect(screen.getByText('Reject')).toBeTruthy();
+    fireEvent.click(approve);
+    await waitFor(() => expect(decide).toHaveBeenCalledWith('th-1', 'call-9', 'ALLOW', undefined));
+  });
+
+  it('renders a permission read-only when no threadId is supplied', async () => {
+    mockBridge({
+      getStageDetail: vi.fn().mockResolvedValue({
+        stage: { id: 'st-1', type: 'DEVELOPMENT_STAGE', state: 'ACTIVE', iterationCount: 1 },
+        task: { id: 'task-1', title: 'x', branch: 'b' },
+        conversation: [{ id: 'p1', kind: 'permission', callId: 'call-9', toolLabel: 'Bash', text: '' }],
+      }),
+    });
+    render(<DiffChatColumn stageId="st-1" />);
+    expect(await screen.findByText(/Awaiting approval/)).toBeTruthy();
+    expect(screen.queryByText('Approve once')).toBeNull();
+  });
+
   it('renders the PR-agent placeholder when there is no stage', () => {
     mockBridge();
     render(<DiffChatColumn />);

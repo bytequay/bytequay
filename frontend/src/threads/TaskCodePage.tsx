@@ -575,7 +575,7 @@ export default function TaskCodePage({
         >
           {/* Conversation column — the originating stage's transcript (with an
               inline steer), or a PR-agent chat scaffold when stageless. */}
-          <DiffChatColumn stageId={stageId} taskId={taskId} />
+          <DiffChatColumn stageId={stageId} taskId={taskId} threadId={threadId} />
           <ResizeHandle onResize={handleConvResize} ariaLabel="Resize conversation panel" />
 
           {/* Middle column: Changed files + Commits folded into two tabs. */}

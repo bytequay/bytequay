@@ -33,6 +33,12 @@ public interface BacklogService
     /** Items on a thread, oldest-first. */
     List<BacklogItem> list(String threadId);
 
+    /** Workspace-wide list, newest-first, with optional filters (a
+     *  null/blank filter means "no filter"): exact {@code status}, exact
+     *  originating {@code threadId}, a {@code tag} the item carries, and a
+     *  free-text {@code query} over title/body. */
+    List<BacklogItem> listForWorkspace(String workspaceId, String status, String threadId, String tag, String query);
+
     /** Create a new (manual) backlog item on the thread. {@code priority}
      *  defaults to {@code medium} when null/blank. */
     BacklogItem create(String threadId, String title, String body, List<String> tags, String priority);
@@ -42,6 +48,14 @@ public interface BacklogService
 
     /** Remove an item. No-op when the id is unknown. */
     void delete(String id);
+
+    /** Mark an item {@code not-to-proceed} with an optional reason. 404 when
+     *  unknown, 409 when it's already resolved. */
+    BacklogItem skip(String id, String reason);
+
+    /** Restore a {@code not-to-proceed} item to {@code created}. 404 when
+     *  unknown, 409 when the item isn't in {@code not-to-proceed}. */
+    BacklogItem revive(String id);
 
     /** Cut a task from the item: append it to the thread's queue (title +
      *  body as the seed prompt) and stamp started_at. 404 when unknown,

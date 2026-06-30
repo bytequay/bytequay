@@ -70,6 +70,15 @@ class SqliteBacklogStore
 
     @Override
     @Transactional(readOnly = true)
+    public List<BacklogItem> findByWorkspace(String workspaceId)
+    {
+        return repository.findByWorkspaceIdOrderByCreatedAtMsDesc(workspaceId).stream()
+                .map(SqliteBacklogStore::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<BacklogItem> findById(String id)
     {
         return repository.findById(id).map(SqliteBacklogStore::toDomain);

@@ -61,6 +61,24 @@ public class BacklogServiceImpl
     }
 
     @Override
+    public List<BacklogItem> listForWorkspace(
+            String workspaceId, String status, String threadId, String tag, String query)
+    {
+        String statusFilter = nullToEmpty(status).strip();
+        String threadFilter = nullToEmpty(threadId).strip();
+        String tagFilter = nullToEmpty(tag).strip();
+        String q = nullToEmpty(query).strip().toLowerCase(Locale.ROOT);
+        return store.findByWorkspace(nullToEmpty(workspaceId).strip()).stream()
+                .filter(i -> statusFilter.isEmpty() || statusFilter.equals(i.status()))
+                .filter(i -> threadFilter.isEmpty() || threadFilter.equals(i.threadId()))
+                .filter(i -> tagFilter.isEmpty() || i.tags().contains(tagFilter))
+                .filter(i -> q.isEmpty()
+                        || i.title().toLowerCase(Locale.ROOT).contains(q)
+                        || i.body().toLowerCase(Locale.ROOT).contains(q))
+                .toList();
+    }
+
+    @Override
     public BacklogItem create(String threadId, String title, String body, List<String> tags, String priority)
     {
         String threadIdValue = nullToEmpty(threadId).strip();
@@ -111,6 +129,27 @@ public class BacklogServiceImpl
     public void delete(String id)
     {
         store.delete(nullToEmpty(id).strip());
+    }
+
+    @Override
+    public BacklogItem skip(String id, String reason)
+    {
+        BacklogItem item = require(id);
+        if (BacklogItem.STATUS_RESOLVED.equals(item.status())) {
+            throw status(409, "backlog item already resolved");
+        }
+        String reasonValue = nullToEmpty(reason).strip();
+        return store.save(item.markNotToProceed(reasonValue.isEmpty() ? null : reasonValue, Instant.now()));
+    }
+
+    @Override
+    public BacklogItem revive(String id)
+    {
+        BacklogItem item = require(id);
+        if (!BacklogItem.STATUS_NOT_TO_PROCEED.equals(item.status())) {
+            throw status(409, "backlog item is not in not-to-proceed");
+        }
+        return store.save(item.markCreated());
     }
 
     @Override

@@ -28,3 +28,8 @@ export { Round, UserTurn, Headline, BrainDot } from './Round';
 export { WorkFold } from './WorkFold';
 export { ActivityStrip } from './ActivityStrip';
 export type { ToolRow, ToolGroup } from './ActivityStrip';
+
+// Layer 4 — domain milestone nodes + controls.
+export { StageBoundaryNode } from './StageBoundaryNode';
+export { DensityToggle } from './DensityToggle';
+export type { Density } from './DensityToggle';

@@ -1,0 +1,92 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useState } from 'react';
+
+export type AskQuestionOption = { id: string; label: string; extra?: string | null };
+
+/**
+ * An agent's clarifying question, rendered as an amber card in the
+ * conversation: the question + optional context, multiple-choice option
+ * buttons, and a free-form reply. Picking an option or sending free-form
+ * resolves it (the answer is posted as the next message). Numbered "i of N"
+ * when several are open at once.
+ */
+export function AskUserQuestionCard({
+  question, context, options, allowFreeForm, index, total, onAnswer,
+}: {
+  question: string;
+  context?: string | null;
+  options: AskQuestionOption[];
+  allowFreeForm: boolean;
+  /** 1-based position when multiple questions are open. */
+  index?: number;
+  total?: number;
+  onAnswer: (optionId?: string, freeForm?: string) => void;
+}) {
+  const [text, setText] = useState('');
+  const submitFreeForm = () => {
+    const t = text.trim();
+    if (t.length > 0) onAnswer(undefined, t);
+  };
+
+  return (
+    <div className="ask-question-card">
+      <div className="ask-question-card__head">
+        <span className="ask-question-card__pill" aria-hidden>?</span>
+        <span className="ask-question-card__label">
+          {total !== undefined && total > 1 ? `Question ${index ?? 1} of ${total}` : 'Agent question'}
+        </span>
+      </div>
+      <div className="ask-question-card__q">{question}</div>
+      {context != null && context.length > 0 && (
+        <div className="ask-question-card__ctx">{context}</div>
+      )}
+      {options.length > 0 && (
+        <div className="ask-question-card__options">
+          {options.map(o => (
+            <button
+              key={o.id}
+              type="button"
+              className="ask-question-card__opt"
+              onClick={() => onAnswer(o.id, undefined)}
+            >
+              <span className="ask-question-card__opt-label">{o.label}</span>
+              {o.extra != null && o.extra.length > 0 && (
+                <span className="ask-question-card__extra">{o.extra}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {allowFreeForm && (
+        <div className="ask-question-card__free">
+          <input
+            className="ask-question-card__input"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitFreeForm(); } }}
+            placeholder={options.length > 0 ? 'Or type your own answer…' : 'Type your answer…'}
+            aria-label="Free-form answer"
+          />
+          <button
+            type="button"
+            className="ask-question-card__send"
+            onClick={submitFreeForm}
+            disabled={text.trim().length === 0}
+          >Send</button>
+        </div>
+      )}
+    </div>
+  );
+}

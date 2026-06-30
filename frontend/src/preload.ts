@@ -96,6 +96,7 @@ import type {
   WorkspaceRepoDto,
   CredentialTestResult,
   ReviewCommentDto,
+  AgentQuestionDto,
   BacklogItemDto,
   StartDevelopmentResponse,
   ThreadSignalDto,
@@ -738,6 +739,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backlog:skip', { itemId, reason }),
   reviveBacklogItem: (itemId: string): Promise<BacklogItemDto> =>
     ipcRenderer.invoke('backlog:revive', itemId),
+  listThreadQuestions: (threadId: string): Promise<AgentQuestionDto[]> =>
+    ipcRenderer.invoke('questions:list', threadId),
+  answerQuestion: (questionId: string, answerOptionId?: string, answerFreeForm?: string): Promise<AgentQuestionDto> =>
+    ipcRenderer.invoke('questions:answer', { questionId, answerOptionId, answerFreeForm }),
   startBacklogDevelopment: (itemId: string): Promise<StartDevelopmentResponse> =>
     ipcRenderer.invoke('backlog:startDevelopment', itemId),
   listThreadSignals: (threadId: string): Promise<ThreadSignalDto[]> =>

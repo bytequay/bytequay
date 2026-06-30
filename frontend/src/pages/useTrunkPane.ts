@@ -12,7 +12,11 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { BacklogItemDto, ThreadSignalDto } from '../types';
+import type { AgentQuestionDto, BacklogItemDto, ThreadSignalDto } from '../types';
+
+/** Poll cadence so the trunk pane reflects live agent activity (a backlog
+ *  item flipping in-progress, a new ask_user_question, a triage batch). */
+const POLL_MS = 5000;
 
 /** Backlog + signal data for a thread's trunk pane, plus the mutations
  *  the Backlog and Notifications tabs need. Each mutation calls the
@@ -20,6 +24,7 @@ import type { BacklogItemDto, ThreadSignalDto } from '../types';
 export type TrunkPaneState = {
   backlog: BacklogItemDto[];
   signals: ThreadSignalDto[];
+  questions: AgentQuestionDto[];
   loading: boolean;
   error: string | null;
   refresh: () => void;
@@ -28,6 +33,7 @@ export type TrunkPaneState = {
   deleteItem: (itemId: string) => Promise<void>;
   startDevelopment: (itemId: string) => Promise<string | null>;
   skip: (itemId: string, reason?: string) => Promise<void>;
+  answerQuestion: (questionId: string, answerOptionId?: string, answerFreeForm?: string) => Promise<void>;
   markSignalRead: (signalId: string) => Promise<void>;
 };
 
@@ -39,6 +45,7 @@ export type TrunkPaneState = {
 export function useTrunkPane(threadId: string): TrunkPaneState {
   const [backlog, setBacklog] = useState<BacklogItemDto[]>([]);
   const [signals, setSignals] = useState<ThreadSignalDto[]>([]);
+  const [questions, setQuestions] = useState<AgentQuestionDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,14 +55,15 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
       setLoading(false);
       return;
     }
-    setLoading(true);
     try {
-      const [b, s] = await Promise.all([
+      const [b, s, q] = await Promise.all([
         bridge.listBacklog(threadId),
         bridge.listThreadSignals(threadId),
+        bridge.listThreadQuestions?.(threadId) ?? Promise.resolve([]),
       ]);
       setBacklog(b);
       setSignals(s);
+      setQuestions(q);
       setError(null);
     }
     catch (e) {
@@ -66,7 +74,11 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
     }
   }, [threadId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const id = setInterval(() => { void load(); }, POLL_MS);
+    return () => clearInterval(id);
+  }, [load]);
 
   const refresh = useCallback(() => { void load(); }, [load]);
 
@@ -96,13 +108,19 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
     await load();
   }, [load]);
 
+  const answerQuestion = useCallback(
+    async (questionId: string, answerOptionId?: string, answerFreeForm?: string) => {
+      await window.bridge.answerQuestion(questionId, answerOptionId, answerFreeForm);
+      await load();
+    }, [load]);
+
   const markSignalRead = useCallback(async (signalId: string) => {
     await window.bridge.markSignalRead(signalId);
     await load();
   }, [load]);
 
   return {
-    backlog, signals, loading, error, refresh,
-    createItem, updateItem, deleteItem, startDevelopment, skip, markSignalRead,
+    backlog, signals, questions, loading, error, refresh,
+    createItem, updateItem, deleteItem, startDevelopment, skip, answerQuestion, markSignalRead,
   };
 }

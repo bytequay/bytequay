@@ -2040,6 +2040,26 @@ export type StartDevelopmentResponse = {
   taskId: string | null;
 };
 
+/** One multiple-choice option on an agent question. */
+export type AgentQuestionOptionDto = { id: string; label: string; extra: string | null };
+
+/** A clarification an agent asked the user via {@code ask_user_question}.
+ *  Timestamps are epoch-millis. */
+export type AgentQuestionDto = {
+  id: string;
+  threadId: string;
+  taskId: string | null;
+  question: string;
+  context: string | null;
+  options: AgentQuestionOptionDto[];
+  allowFreeForm: boolean;
+  status: string;
+  answerOptionId: string | null;
+  answerFreeForm: string | null;
+  createdAt: number;
+  answeredAt: number | null;
+};
+
 /** A passive signal in a thread's Notifications feed. Distinct from the
  *  actionable {@link NotificationDto} gate. {@code createdAt}/{@code readAt}
  *  are epoch-millis; {@code readAt} is null until read. */
@@ -3616,6 +3636,15 @@ export type Bridge = {
   skipBacklogItem: (itemId: string, reason?: string) => Promise<BacklogItemDto>;
   /** Restore a not-to-proceed item to created. */
   reviveBacklogItem: (itemId: string) => Promise<BacklogItemDto>;
+  /** A thread's open agent questions (ask_user_question), oldest-first. */
+  listThreadQuestions: (threadId: string) => Promise<AgentQuestionDto[]>;
+  /** Answer an agent question (an option id and/or free-form text); the
+   *  answer is posted as the next message for the waiting agent. */
+  answerQuestion: (
+    questionId: string,
+    answerOptionId?: string,
+    answerFreeForm?: string,
+  ) => Promise<AgentQuestionDto>;
   /** A thread's passive signal feed, newest-first (Notifications tab). */
   listThreadSignals: (threadId: string) => Promise<ThreadSignalDto[]>;
   /** Mark a thread signal read. */

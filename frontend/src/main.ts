@@ -4235,6 +4235,32 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('questions:list', async (_event, threadId: unknown) => {
+    const id = requireString(threadId, 'threadId');
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/questions`);
+    if (!res.ok) {
+      throw new Error(`backend GET questions returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('questions:answer', async (_event, args: unknown) => {
+    const params = args as { questionId?: unknown; answerOptionId?: unknown; answerFreeForm?: unknown };
+    const id = requireString(params?.questionId, 'questionId');
+    const res = await fetch(`${BACKEND_BASE}/api/questions/${encodeURIComponent(id)}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        answerOptionId: typeof params.answerOptionId === 'string' ? params.answerOptionId : undefined,
+        answerFreeForm: typeof params.answerFreeForm === 'string' ? params.answerFreeForm : undefined,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`backend POST answer returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backlog:startDevelopment', async (_event, itemId: unknown) => {
     const id = requireString(itemId, 'itemId');
     const res = await fetch(

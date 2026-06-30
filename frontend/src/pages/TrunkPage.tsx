@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
-import { TriageCard } from '../ui/conv';
+import { AskUserQuestionCard, TriageCard } from '../ui/conv';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
   Composer, Main, Shell, TopBar, TopBarButton, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
@@ -95,6 +95,10 @@ export function TrunkPage({
   const [keptTriage, setKeptTriage] = useState<Set<string>>(() => new Set());
   const triageItems = pane.backlog.filter(
     i => i.source === 'trunk-split' && i.status === 'created' && !keptTriage.has(i.id));
+  // Open agent questions for this thread, oldest first, rendered as amber
+  // cards in the conversation; answering one posts the reply as the next
+  // message and the card drops out on the next poll.
+  const openQuestions = pane.questions.filter(q => q.status === 'open');
   const [taskSub, setTaskSub] = useState<TaskSubTab>('all');
   const [paneOpen, setPaneOpen] = useState(true);
   // Trunk keeps its own pane width, independent of the brain/stage surfaces.
@@ -180,6 +184,24 @@ export function TrunkPage({
         >
           <div className="conv-col">
             {conversation}
+            {openQuestions.length > 0 && (
+              <div className="trunk-questions">
+                {openQuestions.map((q, i) => (
+                  <AskUserQuestionCard
+                    key={q.id}
+                    question={q.question}
+                    context={q.context}
+                    options={q.options}
+                    allowFreeForm={q.allowFreeForm}
+                    index={i + 1}
+                    total={openQuestions.length}
+                    onAnswer={(optionId, freeForm) => {
+                      void pane.answerQuestion(q.id, optionId, freeForm);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
             {triageItems.length > 0 && (
               <div className="trunk-triage">
                 <div className="trunk-triage__head">Proposed by the trunk — triage these</div>

@@ -1125,3 +1125,105 @@
 
 /* thinking sub-message (folded work) */
 .shell .sp-submsg--think .sp-submsg__tx { font-style: italic; color: var(--text-3); }
+
+/* ════════════════════════════════════════════════════════════════════
+   TASK ROOT NODE (M10 Part A) — seed block + typed plan card + review bar.
+   Render-only; ports plan-stage/root-node-redesign.html onto V3 tokens.
+   ════════════════════════════════════════════════════════════════════ */
+.shell .root-node { display: flex; flex-direction: column; gap: 14px; }
+
+/* seed block */
+.shell .seed { border: 1px solid var(--border); border-left: 3px solid var(--teal); border-radius: 8px; background: var(--bg-elev); overflow: hidden; }
+.shell .seed__hd { display: flex; align-items: center; gap: 9px; padding: 9px 12px; cursor: pointer; width: 100%; background: none; border: none; font-family: inherit; text-align: left; }
+.shell .seed__hd:hover { background: var(--bg-hover); }
+.shell .seed__ic { font-size: 11px; color: var(--teal); }
+.shell .seed__lbl { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--text-3); }
+.shell .seed__meta { font-size: 11px; color: var(--text-4); }
+.shell .seed__chev { margin-left: auto; font-size: 10px; color: var(--text-4); transition: transform .18s; }
+.shell .seed.open .seed__chev { transform: rotate(90deg); }
+.shell .seed__chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 11px; }
+.shell .seed__chips:empty { display: none; }
+.shell .seed-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 9px; border-radius: 6px; background: var(--bg-code); border: 1px solid var(--code-border); color: var(--text-2); max-width: 100%; }
+.shell .seed-chip__k { font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-4); }
+.shell .seed-chip__v { color: var(--text-1); font-weight: 600; }
+.shell .seed-chip__v.mono { font-family: var(--mono); font-size: 10.5px; color: var(--text-warm); }
+.shell .seed-chip.warn { background: var(--amber-soft); border-color: var(--amber-border); }
+.shell .seed-chip.warn .seed-chip__k { color: var(--amber); }
+.shell .seed__full { border-top: 1px dashed var(--border); padding: 12px; background: var(--bg-code); font-size: 11.5px; line-height: 1.62; color: var(--text-2); max-height: 340px; overflow: auto; }
+.shell .seed__full p { margin: 0 0 7px; }
+
+/* plan card */
+.shell .plan-card { border: 1.5px solid var(--accent-border); border-radius: 12px; background: linear-gradient(135deg, var(--accent-a7), var(--accent-a4)); box-shadow: 0 3px 14px rgba(124, 92, 255, 0.1); overflow: hidden; }
+.shell .plan-card__hd { display: flex; align-items: center; gap: 8px; padding: 11px 13px 9px; }
+.shell .plan-card__ic { font-size: 13px; }
+.shell .plan-card__t { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-deep); }
+.shell .plan-card__rev { margin-left: auto; font-family: var(--mono); font-size: 9.5px; padding: 1px 7px; background: rgba(255, 255, 255, 0.75); border: 1px solid var(--border); border-radius: 4px; color: var(--text-3); font-weight: 700; }
+.shell .plan-card__body { padding: 0 13px 13px; }
+.shell .plan-goal { display: flex; gap: 9px; padding: 10px 11px; background: rgba(255, 255, 255, 0.65); border: 1px solid var(--border); border-radius: 8px; }
+.shell .plan-goal__i { font-size: 13px; }
+.shell .plan-goal__t { font-size: 13px; font-weight: 650; line-height: 1.45; color: var(--text-1); }
+.shell .plan-goal__t p { margin: 0; display: inline; }
+.shell .plan-goal__approach { display: block; margin-top: 4px; font-size: 11.5px; font-weight: 400; color: var(--text-3); line-height: 1.5; }
+.shell .plan-goal__approach p { margin: 0; }
+.shell .plan-seclbl { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); margin: 13px 0 6px; }
+.shell .plan-seclbl .cnt { font-family: var(--mono); font-weight: 700; color: var(--text-4); }
+.shell .plan-steps { display: flex; flex-direction: column; gap: 6px; }
+.shell .plan-step { background: rgba(255, 255, 255, 0.6); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.shell .plan-step__hd { display: grid; grid-template-columns: 18px 1fr auto; gap: 9px; align-items: center; padding: 8px 10px; cursor: pointer; width: 100%; background: none; border: none; font-family: inherit; text-align: left; }
+.shell .plan-step__hd:hover { background: rgba(255, 255, 255, 0.5); }
+.shell .plan-step__ord { width: 17px; height: 17px; border-radius: 50%; background: linear-gradient(135deg, #b794f4, #7c5cff); color: #fff; font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+.shell .plan-step__title { font-size: 12px; font-weight: 600; color: var(--text-1); line-height: 1.35; }
+.shell .plan-step__title p { margin: 0; display: inline; }
+.shell .plan-step__right { display: flex; align-items: center; gap: 7px; }
+.shell .plan-step .risk { font-size: 8.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: 1.5px 6px; border-radius: 999px; }
+.shell .plan-step .risk.low { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
+.shell .plan-step .risk.med { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-border); }
+.shell .plan-step .risk.high { background: var(--red-soft); color: var(--red); border: 1px solid var(--red-border); }
+.shell .plan-step__chev { font-size: 9px; color: var(--text-4); transition: transform .18s; }
+.shell .plan-step.open .plan-step__chev { transform: rotate(90deg); }
+.shell .plan-step__detail { padding: 0 10px 10px 37px; font-size: 11.5px; line-height: 1.55; color: var(--text-2); }
+.shell .plan-step__detail p { margin: 0 0 6px; }
+.shell .plan-step__cmt { margin-top: 6px; font-size: 10.5px; color: var(--accent-deep); cursor: pointer; background: none; border: none; padding: 0; font-family: inherit; }
+.shell .plan-step__cmt:hover { text-decoration: underline; }
+.shell .plan-mini { background: rgba(255, 255, 255, 0.55); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+.shell .plan-mini__h { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-4); margin-bottom: 5px; }
+.shell .plan-mini__tx { font-size: 11px; line-height: 1.5; color: var(--text-2); }
+.shell .plan-mini__tx p { margin: 0; }
+.shell .plan-signals { display: flex; gap: 7px; margin-top: 12px; }
+.shell .plan-sig { flex: 1; background: rgba(255, 255, 255, 0.55); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; text-align: center; }
+.shell .plan-sig__l { font-size: 8.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-4); }
+.shell .plan-sig__v { font-size: 12px; font-weight: 700; margin-top: 2px; }
+.shell .plan-sig__v--g { color: var(--green); }
+.shell .plan-sig__v--a { color: var(--amber); }
+.shell .plan-sig__v--r { color: var(--red); }
+.shell .plan-conf { margin-top: 9px; display: flex; align-items: flex-start; gap: 8px; border-radius: 8px; padding: 8px 10px; }
+.shell .plan-conf--high { background: var(--green-soft); border: 1px solid var(--green-border); }
+.shell .plan-conf--medium { background: var(--amber-soft); border: 1px solid var(--amber-border); }
+.shell .plan-conf--low { background: var(--red-soft); border: 1px solid var(--red-border); }
+.shell .plan-conf__b { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; background: var(--bg-elev); border-radius: 999px; padding: 2px 8px; flex-shrink: 0; }
+.shell .plan-conf--high .plan-conf__b { color: var(--green); border: 1px solid var(--green-border); }
+.shell .plan-conf--medium .plan-conf__b { color: var(--amber); border: 1px solid var(--amber-border); }
+.shell .plan-conf--low .plan-conf__b { color: var(--red); border: 1px solid var(--red-border); }
+
+/* review bar */
+.shell .review-bar { margin-top: 13px; border-top: 1px dashed var(--border-mid); padding-top: 11px; }
+.shell .scope-guard { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 11px; background: var(--bg-code); border: 1px solid var(--code-border); border-radius: 8px; font-size: 11px; color: var(--text-2); margin-bottom: 9px; }
+.shell .scope-guard .sg { display: inline-flex; align-items: center; gap: 5px; }
+.shell .scope-guard .dot { width: 6px; height: 6px; border-radius: 50%; }
+.shell .scope-guard .dot.g { background: var(--green); }
+.shell .scope-guard .dot.b { background: var(--accent); }
+.shell .trigger-note { font-size: 10.5px; color: var(--text-3); line-height: 1.5; margin: 0 2px 10px; }
+.shell .trigger-note .flow { font-weight: 700; color: var(--text-2); }
+.shell .actions-row { display: flex; gap: 8px; }
+.shell .rb-btn { flex: 1; padding: 9px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; border: 1px solid transparent; }
+.shell .rb-btn:hover { filter: brightness(1.04); }
+.shell .rb-btn:disabled { opacity: .55; cursor: default; filter: none; }
+.shell .rb-btn--primary { background: var(--green); color: #fff; flex: 1.5; }
+.shell .rb-btn--ghost { background: var(--bg-elev); color: var(--text-2); border-color: var(--border-mid); }
+.shell .rb-btn--amber { color: var(--amber); border-color: var(--amber-border); background: var(--amber-soft); }
+.shell .review-locked { margin-top: 12px; font-size: 11px; color: var(--green); font-weight: 600; }
+.shell .auto-banner { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--green-soft); border: 1px solid var(--green-border); }
+.shell .auto-banner__ic { font-size: 15px; }
+.shell .auto-banner__tx { flex: 1; font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
+.shell .auto-banner__tx b { color: var(--green); }
+.shell .auto-banner__hold { padding: 6px 11px; border-radius: 7px; font-size: 11px; font-weight: 700; font-family: inherit; cursor: pointer; background: var(--bg-elev); color: var(--text-2); border: 1px solid var(--border-mid); }

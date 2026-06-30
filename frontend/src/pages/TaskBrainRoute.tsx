@@ -20,6 +20,7 @@ import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import type { TaskPhase } from '../types/brainView';
 import { Conv, DecisionNode, DensityToggle, QueuedMessages, Working } from '../ui/conv';
 import { BrainFeed } from '../threads/brain/BrainFeed';
+import { TaskRootNode } from '../threads/brain/TaskRootNode';
 import { DetailsTabContent } from '../ui/pane';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { usePersistentToggle } from '../ui/shell';
@@ -123,6 +124,20 @@ export function TaskBrainRoute({
       .then(result => onOpenStage(result.devStageId))
       .catch(() => { /* poll reconciles */ });
   };
+  // Ask the brain to revise — a fresh planning turn that supersedes the draft.
+  const requestRevision = () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.replan?.(taskId).then(() => pollFast()).catch(() => { /* poll reconciles */ });
+  };
+
+  // The root node renders the plan inline (seed + typed card + review bar)
+  // while planning is live (draft / awaiting). Once locked the plan moves to
+  // the right-pane reference tab, so the two never duplicate.
+  const showRoot = plan !== null && (plan.state === 'draft' || plan.state === 'awaiting');
+  // The seed is the prose that opened the PlanStage (the trunk handoff) — the
+  // brain view carries no dedicated seed field (DISCOVERY-FINDINGS #8).
+  const seed = brainFeed.find(r => r.type === 'STAGE_OPENED' && r.stageType === 'PLAN_STAGE')?.body;
+  const planConfidenceHigh = (plan?.signals.confidence ?? null) === 'high';
 
   // Conversation density (Focused default / Full), persisted per user.
   const { value: fullDensity, setValue: setFullDensity } = usePersistentToggle('bq.convDensityFull');
@@ -133,6 +148,18 @@ export function TaskBrainRoute({
       <div className="sp-controls">
         <DensityToggle value={density} onChange={d => setFullDensity(d === 'full')} />
       </div>
+      {showRoot && plan !== null && (
+        <TaskRootNode
+          plan={plan}
+          seed={seed}
+          autoApprove={autoApprove}
+          autoConfidenceHigh={planConfidenceHigh}
+          onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
+          onRequestRevision={requestRevision}
+          onCommentStep={ord => setText(`Re: step ${ord} — `)}
+          onHoldAuto={toggleAutoApprove}
+        />
+      )}
       <BrainFeed
         feed={brainFeed}
         stages={stages}
@@ -237,9 +264,11 @@ export function TaskBrainRoute({
         onResume: runAction(bridge?.resumePausedTask),
         onClose: closeTask,
       }}
-      priorityTab={plan !== null && plan.state === 'awaiting' ? 'plan' : undefined}
+      priorityTab={plan !== null && plan.state === 'awaiting' && !showRoot ? 'plan' : undefined}
       tabs={{
-        plan: plan !== null ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined) : undefined,
+        // While the root node shows the plan inline (planning live), drop the
+        // right-pane copy; once locked the reference tab takes over.
+        plan: plan !== null && !showRoot ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined) : undefined,
         details: (
           <DetailsTabContent sections={[{
             title: 'Task',

@@ -13,112 +13,18 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
-import type { ReactNode } from 'react';
-import { Callout, Card, Conv, EventRow, EventTimestamp, QueuedMessages, Thought, ToolBlock, UserMsg, Working } from '../ui/conv';
+import { Callout, Conv, DensityToggle, EventRow, QueuedMessages, Thought, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
-import { isShellTool, shellCommand } from '../threads/toolDisplay';
+import { usePersistentToggle } from '../ui/shell';
+import { TrunkFeed } from '../threads/TrunkFeed';
+import { extractText, parseToolCall } from '../threads/trunkTimeline';
 import type { TaskCardData } from '../ui/pane';
 import type { PrGlyphState } from '../ui/primitives';
 import { proposalAction } from '../threads/usePendingShipProposal';
 import { taskLabel } from '../threads/taskLabel';
 import { TrunkPage } from './TrunkPage';
-
-/** Best-effort plain text out of a message's JSON envelope. Thinking rows
- *  carry a {@code summary}; text rows carry {@code text}/{@code content}. */
-function extractText(contentJson: string): string {
-  try {
-    const v: unknown = JSON.parse(contentJson);
-    if (typeof v === 'string') return v;
-    if (v !== null && typeof v === 'object') {
-      const o = v as Record<string, unknown>;
-      if (typeof o.text === 'string') return o.text;
-      if (typeof o.content === 'string') return o.content;
-      if (typeof o.summary === 'string') return o.summary;
-    }
-  }
-  catch { /* non-JSON envelope */ }
-  return '';
-}
-
-/** Read a tool-call message into a tool name + a one-line summary (the
- *  shell command, or the most telling input field) so the trunk shows what
- *  it's actually doing — grep, a sub-agent delegation, a read — instead of
- *  a blank "thinking". */
-function parseToolCall(contentJson: string): { name: string; summary: string } {
-  try {
-    const c = JSON.parse(contentJson) as { toolName?: unknown; input?: unknown };
-    const name = typeof c.toolName === 'string' && c.toolName.length > 0 ? c.toolName : 'Tool';
-    let summary = '';
-    if (isShellTool(name)) {
-      summary = shellCommand(c.input);
-    }
-    else if (c.input !== null && typeof c.input === 'object') {
-      const o = c.input as Record<string, unknown>;
-      for (const k of ['description', 'prompt', 'pattern', 'query', 'path', 'file_path', 'url', 'command']) {
-        const v = o[k];
-        if (typeof v === 'string' && v.length > 0) { summary = v; break; }
-      }
-    }
-    summary = summary.replace(/\s+/g, ' ').trim();
-    return { name, summary: summary.length > 160 ? `${summary.slice(0, 160)}…` : summary };
-  }
-  catch {
-    return { name: 'Tool', summary: '' };
-  }
-}
-
-/** Build the trunk conversation rows, grouping consecutive thinking
- *  messages into one collapsible "Thought for Xs" block (the planning
- *  reasoning), rendering text turns inline, and surfacing tool calls so
- *  the agent's live activity is visible. */
-function buildRows(messages: ThreadMessageDto[]): ReactNode[] {
-  const planning = messages.filter(
-    m => m.taskId === null && (m.type === 'text' || m.type === 'thinking' || m.type === 'tool_call'));
-  const rows: ReactNode[] = [];
-  let i = 0;
-  while (i < planning.length) {
-    const m = planning[i];
-    if (m.type === 'thinking') {
-      const group: ThreadMessageDto[] = [];
-      while (i < planning.length && planning[i].type === 'thinking') {
-        group.push(planning[i]);
-        i += 1;
-      }
-      const next = planning[i];
-      const endMs = next !== undefined ? Date.parse(next.ts) : Date.parse(group[group.length - 1].ts);
-      const seconds = Math.max(1, Math.round((endMs - Date.parse(group[0].ts)) / 1000));
-      const texts = group.map(g => extractText(g.contentJson)).filter(t => t.trim().length > 0);
-      // Show the reasoning expanded by default (the Copilot pattern) so the
-      // thought progress is visible without a click. With no extractable
-      // text, fall back to the bare "Thought for Xs" line rather than an
-      // empty disclosure that expands to nothing.
-      rows.push(texts.length > 0
-        ? (
-          <Thought key={group[0].id} seconds={seconds} defaultOpen>
-            {texts.map((t, k) => <Callout key={k}>{t}</Callout>)}
-          </Thought>
-        )
-        : <Thought key={group[0].id} seconds={seconds} />);
-    }
-    else if (m.type === 'tool_call') {
-      const { name, summary } = parseToolCall(m.contentJson);
-      rows.push(<ToolBlock key={m.id} tag={name} desc={summary} />);
-      i += 1;
-    }
-    else {
-      const txt = extractText(m.contentJson);
-      if (txt.trim().length > 0) {
-        rows.push(m.role === 'user'
-          ? <UserMsg key={m.id} text={txt} timestamp={<EventTimestamp iso={m.ts} />} />
-          : <EventRow key={m.id} kind="brain" who="Agent" markdown={txt} timestamp={<EventTimestamp iso={m.ts} />} />);
-      }
-      i += 1;
-    }
-  }
-  return rows;
-}
 
 /** Map a work-unit status string to the card's status pill. */
 function cardStatus(status: string): TaskStatus {
@@ -273,12 +179,6 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   };
 
   // The foreground task — the one actually running now — is echoed as a
-  // card at the foot of the conversation (matching the trunk design),
-  // not only in the Tasks tab, so the in-flight work is visible without
-  // leaving the thread. Latest such task wins when more than one is live.
-  const foreground = [...tasks].reverse().find(
-    t => !TERMINAL_TASK_STATUSES.has(t.status) && cardStatus(t.status) === 'foreground');
-
   // Label the working indicator with the current activity — if the latest
   // trunk message is a tool call, say which tool is running AND (for a shell
   // command) the command itself, rather than a bare "Running Bash…" that
@@ -298,36 +198,43 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     ? activity.summary
     : undefined;
 
+  // Conversation density (Focused default / Full), persisted per user and
+  // shared with the brain feed's toggle.
+  const { value: fullDensity, setValue: setFullDensity } = usePersistentToggle('bq.convDensityFull');
+  const density = fullDensity ? 'full' : 'focused';
+
   const conversation = (
     <Conv>
-      {buildRows(messages)}
-      {foreground !== undefined && (
-        <Card
-          kind="task"
-          title={taskLabel(foreground)}
-          branch={foreground.branchName ?? undefined}
-          status="foreground"
-          statusText="Running"
-          onClick={() => onOpenTask(foreground.id)}
-        />
-      )}
-      {liveThinking.length > 0 && (
-        <Thought label="Thinking…" defaultOpen><Callout>{liveThinking}</Callout></Thought>
-      )}
-      {liveText.length > 0 && <EventRow kind="brain" who="Agent" markdown={liveText} />}
-      <QueuedMessages
-        messages={queue}
-        onEdit={id => setText(takeForEdit(id))}
-        onRemove={remove}
+      <div className="sp-controls">
+        <DensityToggle value={density} onChange={d => setFullDensity(d === 'full')} />
+      </div>
+      <TrunkFeed
+        messages={messages}
+        tasks={tasks}
+        density={density}
+        onOpenTask={onOpenTask}
+        trailer={(
+          <>
+            {liveThinking.length > 0 && (
+              <Thought label="Thinking…" defaultOpen><Callout>{liveThinking}</Callout></Thought>
+            )}
+            {liveText.length > 0 && <EventRow kind="brain" who="Agent" markdown={liveText} />}
+            <QueuedMessages
+              messages={queue}
+              onEdit={id => setText(takeForEdit(id))}
+              onRemove={remove}
+            />
+            {working && liveText.length === 0 && (
+              <Working
+                label={workingLabel}
+                detail={workingDetail}
+                since={workingSince ?? undefined}
+                onStop={() => { void window.bridge?.interruptTask(threadId).then(load).catch(() => { /* poll reconciles */ }); }}
+              />
+            )}
+          </>
+        )}
       />
-      {working && liveText.length === 0 && (
-        <Working
-          label={workingLabel}
-          detail={workingDetail}
-          since={workingSince ?? undefined}
-          onStop={() => { void window.bridge?.interruptTask(threadId).then(load).catch(() => { /* poll reconciles */ }); }}
-        />
-      )}
     </Conv>
   );
 

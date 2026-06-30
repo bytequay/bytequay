@@ -24,6 +24,7 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
+import com.bytequay.app.scheduler.QuietHoursPolicy;
 import com.bytequay.app.service.threads.NotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +57,7 @@ class TestScheduledReviewService
     private ReviewPassService reviewPassService;
     private NotificationService notifications;
     private ObjectMapper mapper;
+    private QuietHoursPolicy quietHours;
     private ScheduledReviewService service;
 
     @BeforeEach
@@ -67,9 +69,11 @@ class TestScheduledReviewService
         reviewPassService = mock(ReviewPassService.class);
         notifications = mock(NotificationService.class);
         mapper = new ObjectMapper();
+        quietHours = mock(QuietHoursPolicy.class);
+        when(quietHours.isQuietNow()).thenReturn(false);
         service = new ScheduledReviewService(
                 appSettings, pullRequestStore, reviewStore,
-                reviewPassService, notifications, mapper);
+                reviewPassService, notifications, mapper, quietHours);
     }
 
     @Test

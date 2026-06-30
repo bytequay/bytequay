@@ -35,7 +35,14 @@ interface PrReviewJpaRepository
      * {@code submitted_at} column. Bounded by the caller via
      * {@link Pageable} to keep the per-sync rate-limit cost
      * predictable.
+     *
+     * <p>PENDING reviews (the viewer's own un-submitted draft) are
+     * excluded: they legitimately have no {@code submitted_at} and never
+     * will until submitted, so counting them would make this query
+     * perpetually re-select the same PRs and burn rate limit every sync.
+     * Every submitted review state (APPROVED / CHANGES_REQUESTED /
+     * COMMENTED / DISMISSED) carries a timestamp.
      */
-    @Query("SELECT DISTINCT e.prId FROM PrReviewEntity e WHERE e.submittedAt IS NULL")
+    @Query("SELECT DISTINCT e.prId FROM PrReviewEntity e WHERE e.submittedAt IS NULL AND e.state <> 'PENDING'")
     List<Long> findDistinctPrIdsWithNullSubmittedAt(Pageable pageable);
 }

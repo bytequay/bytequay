@@ -58,9 +58,11 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -94,6 +96,16 @@ public class PullRequestService
     // backfilled the query returns 0 and this loop is free.
     private static final int REVIEW_TIMESTAMP_BACKFILL_BATCH = 25;
 
+    // Minimum gap between forced detail re-fetches of an *unchanged* PR
+    // that still looks under-enriched (empty reviewer verdicts, null
+    // review timestamps). The enrichment re-check exists to catch
+    // reviewer verdicts that flip without bumping the PR's updatedAt, so
+    // we can't drop it entirely — but re-fetching every ~60s sync tick
+    // for every review-less PR is what exhausts the GitHub rate limit.
+    // Throttling each such PR to one backfill attempt per this interval
+    // keeps the safety net while cutting the steady-state cost ~15x.
+    private static final Duration BACKFILL_RECHECK_INTERVAL = Duration.ofMinutes(15);
+
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
     // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
     // (GitHub's search ceiling is 1000) while still covering reviewers
@@ -126,6 +138,12 @@ public class PullRequestService
      *  a backend restart just means the next probe pays for one
      *  full fetch. */
     private final ConcurrentMap<Long, EtagEntry> detailEtags = new ConcurrentHashMap<>();
+    /** prId → the last time we forced a backfill detail-sync for an
+     *  unchanged-but-under-enriched PR. Gates the enrichment / review-
+     *  timestamp re-check to {@link #BACKFILL_RECHECK_INTERVAL} so a
+     *  review-less PR isn't re-fetched on every sync tick. In-memory
+     *  only — a restart just re-checks each PR once. */
+    private final ConcurrentMap<Long, Instant> lastBackfillAttempt = new ConcurrentHashMap<>();
 
     /** Snapshot of "last ETag and when we got it" for one PR. */
     private record EtagEntry(String etag, Instant lastProbedAt) {}
@@ -238,19 +256,30 @@ public class PullRequestService
                 .collect(toImmutableSet());
         if (!removedIds.isEmpty()) {
             detailStore.deleteByPrIds(removedIds);
+            removedIds.forEach(lastBackfillAttempt::remove);
         }
 
-        List<CompletableFuture<Void>> detailFutures = fresh.stream()
-                .filter(pr -> {
-                    Instant existing = existingUpdatedAt.get(pr.id());
-                    if (existing == null || !existing.equals(pr.updatedAt())) {
-                        return true;
-                    }
-                    if (missingEnrichment.contains(pr.id())) {
-                        return true;
-                    }
-                    return missingReviewTimestamps.contains(pr.id());
-                })
+        // A PR earns a detail sync if its updatedAt moved (definitely
+        // changed), or — to backfill rows GitHub didn't bump — if it
+        // still looks under-enriched AND we haven't re-checked it within
+        // BACKFILL_RECHECK_INTERVAL. The interval gate is what keeps a
+        // review-less PR from being re-fetched on every ~60s tick.
+        Instant now = Instant.now();
+        List<PullRequest> toSync = new ArrayList<>();
+        for (PullRequest pr : fresh) {
+            Instant existing = existingUpdatedAt.get(pr.id());
+            if (existing == null || !existing.equals(pr.updatedAt())) {
+                toSync.add(pr);
+                continue;
+            }
+            boolean underEnriched = missingEnrichment.contains(pr.id())
+                    || missingReviewTimestamps.contains(pr.id());
+            if (underEnriched && backfillDue(pr.id(), now)) {
+                lastBackfillAttempt.put(pr.id(), now);
+                toSync.add(pr);
+            }
+        }
+        List<CompletableFuture<Void>> detailFutures = toSync.stream()
                 .map(pr -> CompletableFuture.runAsync(() -> syncDetailQuietly(pat, pr, currentLogin), executor))
                 .collect(toImmutableList());
 
@@ -266,6 +295,15 @@ public class PullRequestService
         catch (Exception e) {
             log.warn("Snooze auto-wake check failed: {}", e.getMessage());
         }
+    }
+
+    /** True when an under-enriched PR is due for a forced backfill sync:
+     *  either we've never re-checked it or the last attempt is older than
+     *  {@link #BACKFILL_RECHECK_INTERVAL}. */
+    private boolean backfillDue(long prId, Instant now)
+    {
+        Instant last = lastBackfillAttempt.get(prId);
+        return last == null || last.isBefore(now.minus(BACKFILL_RECHECK_INTERVAL));
     }
 
     /**

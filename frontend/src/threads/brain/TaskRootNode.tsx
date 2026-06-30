@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PlanCardDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
@@ -223,13 +223,7 @@ function ReviewBar({ plan, auto, awaiting, onApprove, onEdit, onRequestRevision,
         <span className="sg"><span className="dot b" />push: {pushLabel}</span>
       </div>
       {auto
-        ? (
-          <div className="auto-banner">
-            <span className="auto-banner__ic" aria-hidden>⚡</span>
-            <span className="auto-banner__tx"><b>Auto-approve on.</b> High confidence — development will start automatically. No action needed.</span>
-            {onHoldAuto !== undefined && <button type="button" className="auto-banner__hold" onClick={onHoldAuto}>Hold &amp; review</button>}
-          </div>
-        )
+        ? <AutoBanner onApprove={onApprove} onHoldAuto={onHoldAuto} />
         : (
           <>
             <div className="trigger-note">Approving freezes this plan and activates <span className="flow">Development → Review → Push (user-gated)</span>.</div>
@@ -240,6 +234,34 @@ function ReviewBar({ plan, auto, awaiting, onApprove, onEdit, onRequestRevision,
             </div>
           </>
         )}
+    </div>
+  );
+}
+
+/** The confidence-gated auto-approve banner: a short countdown that calls
+ *  `onApprove` automatically when it elapses, with a Hold escape. Only ever
+ *  mounted on a high-confidence plan (A4.2), so reaching zero is safe. */
+function AutoBanner({ onApprove, onHoldAuto }: { onApprove?: () => void; onHoldAuto?: () => void }) {
+  const [secs, setSecs] = useState(5);
+  const fired = useRef(false);
+  useEffect(() => {
+    const id = setInterval(() => setSecs(s => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (secs === 0 && !fired.current) {
+      fired.current = true;
+      onApprove?.();
+    }
+  }, [secs, onApprove]);
+  return (
+    <div className="auto-banner">
+      <span className="auto-banner__ic" aria-hidden>⚡</span>
+      <span className="auto-banner__tx">
+        <b>Auto-approve on.</b> High confidence — starting development in{' '}
+        <span className="auto-banner__cd">{secs > 0 ? `${secs}s` : 'now'}</span>. No action needed.
+      </span>
+      {onHoldAuto !== undefined && <button type="button" className="auto-banner__hold" onClick={onHoldAuto}>Hold &amp; review</button>}
     </div>
   );
 }

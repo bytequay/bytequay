@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PlanCardDto } from '../../types/brainView';
 import { TaskRootNode } from './TaskRootNode';
@@ -70,7 +70,33 @@ describe('TaskRootNode', () => {
   it('swaps the review bar for an auto-state banner when auto-approve + high confidence', () => {
     const { container } = render(<TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={() => {}} />);
     expect(container.querySelector('.auto-banner')).toBeTruthy();
+    expect(container.querySelector('.auto-banner__cd')?.textContent).toBe('5s');
     expect(container.querySelector('.actions-row')).toBeNull();
+  });
+
+  it('auto-approves when the countdown elapses; Hold cancels it', () => {
+    vi.useFakeTimers();
+    try {
+      const onApprove = vi.fn();
+      const onHold = vi.fn();
+      const { container, rerender } = render(
+        <TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={onApprove} onHoldAuto={onHold} />,
+      );
+      // Hold cancels before the countdown elapses.
+      fireEvent.click(screen.getByText(/Hold & review/));
+      expect(onHold).toHaveBeenCalled();
+
+      // Left alone, the countdown fires onApprove exactly once at zero.
+      rerender(<TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={onApprove} onHoldAuto={onHold} />);
+      act(() => { vi.advanceTimersByTime(5000); });
+      expect(onApprove).toHaveBeenCalledTimes(1);
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(onApprove).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('.auto-banner__cd')?.textContent).toBe('now');
+    }
+    finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a low-confidence plan still shows the manual actions despite auto-approve', () => {

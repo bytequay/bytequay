@@ -165,6 +165,30 @@ class TestThreadRegistryLease
     }
 
     @Test
+    void getOrCreateDoesNotLeaseForAReadOnlyBrainThread()
+    {
+        // The brain (planning) agent is read-only — it must NOT take the
+        // worktree write lease, or an idle brain session would block the
+        // dev/CI-fix turn for the same task. The lease decision happens
+        // before the agent build, so whether the brain build succeeds or
+        // throws here, no lease must land.
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        Task active = task("task-1", "thread-1", WORKTREE);
+        ThreadRegistry registry = newRegistry();
+
+        try {
+            registry.getOrCreate(brainThread("thread-1"), active, "stage-1");
+        }
+        catch (RuntimeException ignored) {
+            // A brain agent build needs deps not fully wired in this unit
+            // test; the lease branch under test runs before the build.
+        }
+
+        assertThat(leaseService.isHeld(WORKTREE)).isFalse();
+        assertThat(leaseStore.rows).isEmpty();
+    }
+
+    @Test
     void getOrCreateIsIdempotentForTheSameThread()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
@@ -205,6 +229,18 @@ class TestThreadRegistryLease
         return new Thread(
                 id, ThreadKind.CLI_AGENT, "claude-code", /* agentSessionId */ null,
                 "Registry lease test", ThreadStatus.IDLE,
+                "claude-sonnet-4.6",
+                0L, 0L, 0L,
+                now, now, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
+    }
+
+    private static Thread brainThread(String id)
+    {
+        Instant now = Instant.parse("2026-05-15T12:00:00Z");
+        return new Thread(
+                id, ThreadKind.BRAIN_AGENT, "claude-code", /* agentSessionId */ null,
+                "Brain lease test", ThreadStatus.IDLE,
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,

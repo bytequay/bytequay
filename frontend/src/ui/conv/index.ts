@@ -25,3 +25,4 @@ export { InlineAction } from './InlineAction';
 export { StageFold } from './StageFold';
 export { Card } from './Card';
 export type { CardProps, CardTag, TaskStatus } from './Card';
+export { QueuedMessages } from './QueuedMessages';

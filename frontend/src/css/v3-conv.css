@@ -249,6 +249,38 @@
 }
 .shell .working__elapsed,
 .shell .working__stop { flex: none; }
+/* ── Queued messages (typed while the agent is working) ──────── */
+.shell .queued-list {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 4px 0;
+}
+.shell .queued-msg {
+  display: flex; align-items: stretch; gap: 6px;
+  align-self: flex-end; max-width: 85%;
+}
+.shell .queued-msg__body {
+  display: flex; align-items: baseline; gap: 8px;
+  text-align: left; cursor: pointer;
+  padding: 7px 11px;
+  background: var(--bg-input);
+  border: 1px dashed var(--border-mid);
+  border-radius: 10px;
+  color: var(--text-2); font-size: 12.5px; line-height: 1.4;
+  font-family: inherit;
+}
+.shell .queued-msg__body:hover { background: var(--bg-hover); border-color: var(--accent); }
+.shell .queued-msg__tag {
+  flex: none; font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-4);
+}
+.shell .queued-msg__text { overflow-wrap: anywhere; white-space: pre-wrap; }
+.shell .queued-msg__remove {
+  flex: none; width: 26px; border: 1px solid var(--border);
+  border-radius: 8px; background: transparent; color: var(--text-3);
+  cursor: pointer; font-size: 14px; line-height: 1;
+}
+.shell .queued-msg__remove:hover { color: var(--red); border-color: var(--red-border); }
+
 /* ── Live CI status panel (CI-fixing stage) ──────────────────── */
 .shell .ci-panel {
   border: 1px solid var(--code-border);

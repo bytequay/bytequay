@@ -972,6 +972,19 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:fetchNewComments', async (_event, repo: string, number: number, sinceEpochMs: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/comments/new`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    url.searchParams.set('sinceEpochMs', String(sinceEpochMs));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/comments/new returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:rerunChecks', async (_event, repo: string, number: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/rerun-checks`);
     url.searchParams.set('repo', repo);

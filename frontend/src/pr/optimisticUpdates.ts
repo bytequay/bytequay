@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDetailDto, ReactionsDto, ReviewMessageDto } from '../types';
+import type { ActivityItemDto, PullRequestDetailDto, ReactionsDto, ReviewMessageDto } from '../types';
 import { REACTION_FIELD, type ReactionContent } from './utils';
 
 const ZERO_REACTIONS: ReactionsDto = {
@@ -164,6 +164,41 @@ export function optimisticallyAppendReply(
     return { ...thread, messages: [...thread.messages, message] };
   });
   return changed ? { ...detail, reviewThreads: nextThreads } : detail;
+}
+
+/** Sort comparator that keeps activity newest-first (larger ISO
+ *  timestamp wins), matching the order the backend emits recentActivity
+ *  in. Entries without a timestamp sink to the bottom. */
+function byTimestampDesc(a: ActivityItemDto, b: ActivityItemDto): number {
+  const at = a.timestamp ?? '';
+  const bt = b.timestamp ?? '';
+  if (at === bt) return 0;
+  if (!at) return 1;
+  if (!bt) return -1;
+  return at < bt ? 1 : -1;
+}
+
+/** Merge conversation comments pulled by the comments-delta poll into the
+ *  cached detail's timeline. Skips any comment whose githubId is already
+ *  present — so a re-fetched `since` boundary comment, or one the full
+ *  refresh already brought in, never doubles up — and keeps
+ *  recentActivity newest-first so the renderer's ordering assumptions
+ *  hold. Returns the original reference when there's nothing new, so an
+ *  empty delta tick triggers no re-render. */
+export function mergeFetchedComments(
+  detail: PullRequestDetailDto | null,
+  comments: ActivityItemDto[],
+): PullRequestDetailDto | null {
+  if (!detail) return detail;
+  const seen = new Set(
+    detail.recentActivity
+      .map(item => item.githubId)
+      .filter((id): id is number => id !== null),
+  );
+  const fresh = comments.filter(c => c.githubId !== null && !seen.has(c.githubId));
+  if (fresh.length === 0) return detail;
+  const merged = [...detail.recentActivity, ...fresh].sort(byTimestampDesc);
+  return { ...detail, recentActivity: merged };
 }
 
 /** Optimistic toggle for a review thread's resolved flag — flips the

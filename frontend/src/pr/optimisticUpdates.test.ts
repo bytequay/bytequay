@@ -13,6 +13,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  mergeFetchedComments,
   optimisticallyBumpReaction,
   optimisticallyToggleResolved,
   optimisticallyUpdateCommentBody,
@@ -253,5 +254,34 @@ describe('optimisticallyUpdateCommentBody', () => {
 
   it('returns null when detail is null', () => {
     expect(optimisticallyUpdateCommentBody(null, 1, 'x')).toBeNull();
+  });
+});
+
+describe('mergeFetchedComments', () => {
+  it('appends a genuinely new comment, keeping recentActivity newest-first', () => {
+    const existing = activity({ githubId: 1001, timestamp: '2026-04-29T10:00:00Z', body: 'first' });
+    const d = detail({ recentActivity: [existing] });
+    const incoming = activity({ githubId: 1002, timestamp: '2026-04-29T11:00:00Z', body: 'second' });
+
+    const next = mergeFetchedComments(d, [incoming])!;
+
+    expect(next).not.toBe(d);
+    expect(next.recentActivity.map(a => a.githubId)).toEqual([1002, 1001]);
+  });
+
+  it('dedupes a comment whose id is already present (e.g. the since boundary)', () => {
+    const existing = activity({ githubId: 1001, timestamp: '2026-04-29T10:00:00Z' });
+    const d = detail({ recentActivity: [existing] });
+
+    expect(mergeFetchedComments(d, [activity({ githubId: 1001 })])).toBe(d);
+  });
+
+  it('returns the original reference when nothing is new', () => {
+    const d = detail({ recentActivity: [activity({ githubId: 1001 })] });
+    expect(mergeFetchedComments(d, [])).toBe(d);
+  });
+
+  it('returns null when detail is null', () => {
+    expect(mergeFetchedComments(null, [activity()])).toBeNull();
   });
 });

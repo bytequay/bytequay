@@ -35,6 +35,7 @@ import {
   type ReactionContent,
 } from './pr/utils';
 import {
+  mergeFetchedComments,
   optimisticallyAppendReply,
   optimisticallyBumpReaction,
   optimisticallyRemoveComment,
@@ -1121,6 +1122,31 @@ type Props = {
  *  user who just left the window open. */
 const CI_POLL_INTERVAL_MS = 12_000;
 
+/** Cadence of the lightweight comments-delta poll. Tighter than the 10s
+ *  full-detail tick so a reviewer's new conversation comment lands within
+ *  a few seconds, but it only hits the issue-comments endpoint so the
+ *  extra requests are cheap. */
+const COMMENT_POLL_INTERVAL_MS = 7_000;
+
+/** Epoch-ms high-water mark to hand the comments-delta poll: the newest
+ *  conversation-comment timestamp we already show, so GitHub returns only
+ *  comments at-or-after it (the boundary one is deduped on merge). Falls
+ *  back to the newest activity timestamp when no comment is on screen yet
+ *  so we don't re-pull the whole comment history each tick; 0 only when
+ *  the timeline is empty. */
+function latestCommentEpochMs(detail: PullRequestDetailDto): number {
+  let latestComment = 0;
+  let latestAny = 0;
+  for (const item of detail.recentActivity) {
+    if (!item.timestamp) continue;
+    const t = Date.parse(item.timestamp);
+    if (Number.isNaN(t)) continue;
+    if (t > latestAny) latestAny = t;
+    if (item.eventType === 'commented' && t > latestComment) latestComment = t;
+  }
+  return latestComment > 0 ? latestComment : latestAny;
+}
+
 
 type ActionState = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
@@ -1414,6 +1440,37 @@ function PullRequestPreview({
 
     void tick(true);
     const interval = setInterval(() => { void tick(false); }, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pr.id, pr.repo, pr.number]);
+
+  // Lightweight comments-delta poll. The 10s tick above is the source of
+  // truth for everything (reviews, files, threads, events); this faster
+  // poll hits only the issue-comments endpoint so a reviewer's new
+  // conversation comment shows up within a few seconds instead of waiting
+  // for the next heavy refetch. New comments merge into recentActivity,
+  // deduped by id, so the two polls never double up. We read the live
+  // detail through a ref so a new comment landing doesn't tear down and
+  // rebuild the interval.
+  const detailRef = useRef<PullRequestDetailDto | null>(null);
+  detailRef.current = detail;
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      const current = detailRef.current;
+      if (!current) return; // wait for the first full load
+      try {
+        const fresh = await window.bridge.fetchNewComments(
+          pr.repo, pr.number, latestCommentEpochMs(current));
+        if (cancelled || fresh.length === 0) return;
+        setDetail(prev => mergeFetchedComments(prev, fresh));
+      } catch {
+        // Best-effort — the 10s full poll reconciles anything missed.
+      }
+    };
+    const interval = setInterval(() => { void poll(); }, COMMENT_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);

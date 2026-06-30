@@ -13,6 +13,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  ActivityItemDto,
   AiLedgerDto,
   AiProviderInfo,
   AiReviewDraftDto,
@@ -144,6 +145,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:refreshPullRequestDetail', repo, number, maxAgeSeconds),
+  fetchNewComments: (repo: string, number: number, sinceEpochMs: number): Promise<ActivityItemDto[]> =>
+    ipcRenderer.invoke('backend:fetchNewComments', repo, number, sinceEpochMs),
   fetchPrCi: (repo: string, number: number) =>
     ipcRenderer.invoke('backend:prCi', repo, number),
   fetchPrConflictPaths: (owner: string, repo: string, prNumber: number, baseRef: string) =>

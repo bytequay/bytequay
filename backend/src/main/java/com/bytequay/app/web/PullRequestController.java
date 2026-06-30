@@ -197,6 +197,23 @@ public class PullRequestController
     }
 
     /**
+     * Conversation (issue) comments created after {@code sinceEpochMs},
+     * as activity items ready to merge into the detail timeline. Backs the
+     * detail page's lightweight comments-delta poll, which runs on a
+     * tighter cadence than the full refresh so a reviewer's new comment
+     * shows up promptly without the heavier multi-call refetch.
+     * GET /prs/comments/new
+     */
+    @GetMapping("/prs/comments/new")
+    public List<PullRequestDetail.ActivityItem> newComments(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("sinceEpochMs") long sinceEpochMs)
+    {
+        return pullRequestService.fetchNewComments(repo, number, Instant.ofEpochMilli(sinceEpochMs));
+    }
+
+    /**
      * Re-runs the PR's failed CI jobs (GitHub "re-run failed jobs") — the
      * one-click flaky-failure fix. {@code rerunCount} is how many workflow
      * runs were re-triggered; 0 means nothing on the head had failed.

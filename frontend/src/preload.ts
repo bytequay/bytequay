@@ -734,6 +734,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backlog:update', { itemId, ...patch }),
   deleteBacklogItem: (itemId: string): Promise<void> =>
     ipcRenderer.invoke('backlog:delete', itemId),
+  skipBacklogItem: (itemId: string, reason?: string): Promise<BacklogItemDto> =>
+    ipcRenderer.invoke('backlog:skip', { itemId, reason }),
+  reviveBacklogItem: (itemId: string): Promise<BacklogItemDto> =>
+    ipcRenderer.invoke('backlog:revive', itemId),
   startBacklogDevelopment: (itemId: string): Promise<StartDevelopmentResponse> =>
     ipcRenderer.invoke('backlog:startDevelopment', itemId),
   listThreadSignals: (threadId: string): Promise<ThreadSignalDto[]> =>

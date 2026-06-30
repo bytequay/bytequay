@@ -4212,6 +4212,29 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('backlog:skip', async (_event, args: unknown) => {
+    const params = args as { itemId?: unknown; reason?: unknown };
+    const id = requireString(params?.itemId, 'itemId');
+    const res = await fetch(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/skip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: typeof params.reason === 'string' ? params.reason : undefined }),
+    });
+    if (!res.ok) {
+      throw new Error(`backend POST backlog skip returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('backlog:revive', async (_event, itemId: unknown) => {
+    const id = requireString(itemId, 'itemId');
+    const res = await fetch(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/revive`, { method: 'POST' });
+    if (!res.ok) {
+      throw new Error(`backend POST backlog revive returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backlog:startDevelopment', async (_event, itemId: unknown) => {
     const id = requireString(itemId, 'itemId');
     const res = await fetch(

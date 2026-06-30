@@ -3609,9 +3609,13 @@ export type Bridge = {
   ) => Promise<BacklogItemDto>;
   /** Delete a backlog item. */
   deleteBacklogItem: (itemId: string) => Promise<void>;
-  /** Cut a task from the item (title + body as the seed prompt) and mark
-   *  it started. Returns the updated item + the materialised task id. */
+  /** Begin trunk exploration of the item (posts its content to the trunk and
+   *  marks it in-progress). The returned taskId is null — no task is cut. */
   startBacklogDevelopment: (itemId: string) => Promise<StartDevelopmentResponse>;
+  /** Mark a backlog item not-to-proceed, with an optional reason. */
+  skipBacklogItem: (itemId: string, reason?: string) => Promise<BacklogItemDto>;
+  /** Restore a not-to-proceed item to created. */
+  reviveBacklogItem: (itemId: string) => Promise<BacklogItemDto>;
   /** A thread's passive signal feed, newest-first (Notifications tab). */
   listThreadSignals: (threadId: string) => Promise<ThreadSignalDto[]>;
   /** Mark a thread signal read. */

@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
+import { TriageCard } from '../ui/conv';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
   Composer, Main, Shell, TopBar, TopBarButton, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
@@ -87,6 +88,13 @@ export function TrunkPage({
   const pane = useTrunkPane(threadId);
   const [activeTab, setActiveTab] = useState<TrunkTab>('tasks');
   const [addBacklogOpen, setAddBacklogOpen] = useState(false);
+  // Triage-card candidates: the trunk's freshly-proposed (trunk-split, still
+  // `created`) items, minus any the user has "kept" this session. Starting or
+  // skipping one flips its status, so it falls out of this list on the next
+  // poll; "Keep" just dismisses the card without a status change.
+  const [keptTriage, setKeptTriage] = useState<Set<string>>(() => new Set());
+  const triageItems = pane.backlog.filter(
+    i => i.source === 'trunk-split' && i.status === 'created' && !keptTriage.has(i.id));
   const [taskSub, setTaskSub] = useState<TaskSubTab>('all');
   const [paneOpen, setPaneOpen] = useState(true);
   // Trunk keeps its own pane width, independent of the brain/stage surfaces.
@@ -172,6 +180,22 @@ export function TrunkPage({
         >
           <div className="conv-col">
             {conversation}
+            {triageItems.length > 0 && (
+              <div className="trunk-triage">
+                <div className="trunk-triage__head">Proposed by the trunk — triage these</div>
+                {triageItems.map(item => (
+                  <TriageCard
+                    key={item.id}
+                    title={item.title}
+                    body={item.body}
+                    tags={item.tags}
+                    onStartDev={() => { void pane.startDevelopment(item.id); }}
+                    onKeep={() => setKeptTriage(prev => new Set(prev).add(item.id))}
+                    onSkip={() => { void pane.skip(item.id); }}
+                  />
+                ))}
+              </div>
+            )}
             {!paneOpen && (
               <InlineChips chips={[
                 { icon: '◳', label: 'Tasks', count: taskCount, countColor: 'acc', onClick: () => openTab('tasks') },

@@ -21,6 +21,7 @@ import { isShellTool, shellCommand } from '../threads/toolDisplay';
 import type { TaskCardData } from '../ui/pane';
 import type { PrGlyphState } from '../ui/primitives';
 import { proposalAction } from '../threads/usePendingShipProposal';
+import { taskLabel } from '../threads/taskLabel';
 import { TrunkPage } from './TrunkPage';
 
 /** Best-effort plain text out of a message's JSON envelope. Thinking rows
@@ -137,11 +138,6 @@ function cardStatus(status: string): TaskStatus {
  *  awaiting merge). PENDING is the Queued folder. */
 const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
 
-/** "Task 1 · Remove PersonaRequest bean", or just "Task 1" without a rename. */
-function cardTitle(t: WorkUnitTaskDto): string {
-  return t.name !== null && t.name !== '' ? `Task ${t.seq} · ${t.name}` : `Task ${t.seq}`;
-}
-
 /** The PR-state glyph before a task's name: merged once the work landed, a
  *  draft / open pull-request mark while it's in flight, nothing before a PR
  *  exists. */
@@ -154,7 +150,7 @@ function cardPr(t: WorkUnitTaskDto): PrGlyphState | undefined {
 function toCard(t: WorkUnitTaskDto, mergeReady: boolean): TaskCardData {
   return {
     id: t.id,
-    title: cardTitle(t),
+    title: taskLabel(t),
     status: cardStatus(t.status),
     branch: t.branchName ?? undefined,
     mergeReady,
@@ -300,7 +296,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       {foreground !== undefined && (
         <Card
           kind="task"
-          title={cardTitle(foreground)}
+          title={taskLabel(foreground)}
           branch={foreground.branchName ?? undefined}
           status="foreground"
           statusText="Running"

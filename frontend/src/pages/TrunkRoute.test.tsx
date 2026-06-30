@@ -56,7 +56,7 @@ describe('TrunkRoute', () => {
     expect(await screen.findByText('plan the cleanup')).toBeTruthy();
     // Active task card shows in the conversation AND the Tasks tab;
     // the COMPLETED task lives in the Closed folder.
-    expect((await screen.findAllByText('Task 1 · Add meter')).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText('Add meter')).length).toBeGreaterThanOrEqual(2);
     // "Closed" shows as both the sub-tab label and the folder header.
     expect(screen.getAllByText('Closed').length).toBeGreaterThanOrEqual(1);
   });
@@ -70,9 +70,9 @@ describe('TrunkRoute', () => {
     const conv = container.querySelector('.conv') as HTMLElement;
     expect(conv).toBeTruthy();
     expect(conv.querySelector('.task-card')).toBeTruthy();
-    expect(conv.textContent).toContain('Task 1 · Add meter');
+    expect(conv.textContent).toContain('Add meter');
     expect(conv.textContent).toContain('Running');
-    expect(conv.textContent).not.toContain('Task 2 · Later');
+    expect(conv.textContent).not.toContain('Later');
   });
 
   it('posts a trunk message from the composer', async () => {
@@ -89,7 +89,7 @@ describe('TrunkRoute', () => {
     mockBridge();
     const onOpenTask = vi.fn();
     render(<TrunkRoute threadId="t1" onOpenTask={onOpenTask} />);
-    fireEvent.click((await screen.findAllByText('Task 1 · Add meter'))[0]);
+    fireEvent.click((await screen.findAllByText('Add meter'))[0]);
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
   });
 

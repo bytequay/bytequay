@@ -26,7 +26,7 @@ import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import { TrunkRoute } from './pages/TrunkRoute';
 import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
-import { useThreadStages } from './pages/useThreadStages';
+import { useThreadTasks } from './pages/useThreadTasks';
 import type { WsNavKey } from './ui/workspace';
 import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
@@ -202,7 +202,7 @@ function App() {
   // active task's stages under the thread row so the user can jump to a stage.
   const navThreadId = 'threadId' in nav ? nav.threadId : null;
   const navTaskId = 'taskId' in nav ? nav.taskId : undefined;
-  const threadStages = useThreadStages(navThreadId, navTaskId);
+  const threadTasks = useThreadTasks(navThreadId);
 
   // Records a footprint whenever nav lands on a tracked surface (PR
   // kanban, a PR, a task, a thread). Single capture point; fire-and-forget.
@@ -504,15 +504,12 @@ function App() {
         <WorkspaceNavShell
           activeWorkspaceId={sidebarWorkspaceId}
           selectedThreadId={selectedThreadId}
-          task={inWorkspaceFlow && threadStages.taskId !== null
-            ? { id: threadStages.taskId, label: threadStages.taskLabel ?? 'Task', dot: threadStages.taskDot, pr: threadStages.taskPr }
-            : undefined}
-          /* Stage rows are intentionally omitted from the threads tree — the
+          /* The selected thread expands to show ALL its tasks (a thread can
+             run several at once). Stage rows are intentionally omitted — the
              sidebar is a session tree (threads → tasks only); stage navigation
              lives on the task brain's live-plan diagram (design decision #3). */
-          stages={undefined}
+          tasks={inWorkspaceFlow ? threadTasks : []}
           selectedTaskId={navTaskId}
-          selectedStageId={'stageId' in nav ? nav.stageId : undefined}
           activeNav={sidebarActiveNav}
           notificationCount={unreadNotificationCount}
           collapsed={railCollapsed}
@@ -544,13 +541,6 @@ function App() {
           onOpenTask={taskId => {
             if (navThreadId !== null) {
               setNav({ view: 'task-brain', threadId: navThreadId, taskId });
-            }
-          }}
-          onOpenStage={stageId => {
-            if (navThreadId !== null && threadStages.taskId !== null) {
-              setNav({
-                view: 'stage-detail', threadId: navThreadId, taskId: threadStages.taskId, stageId,
-              });
             }
           }}
           onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}

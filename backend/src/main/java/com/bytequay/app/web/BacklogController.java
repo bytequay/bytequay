@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.backlog.BacklogItemDto;
 import com.bytequay.app.beans.backlog.CreateBacklogItemRequest;
+import com.bytequay.app.beans.backlog.SkipBacklogItemRequest;
 import com.bytequay.app.beans.backlog.StartDevelopmentResponse;
 import com.bytequay.app.beans.backlog.UpdateBacklogItemRequest;
 import com.bytequay.app.service.backlog.BacklogService;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -53,6 +55,19 @@ public class BacklogController
         return backlog.list(threadId).stream().map(BacklogItemDto::from).toList();
     }
 
+    @GetMapping("/api/workspaces/{workspaceId}/backlog")
+    public List<BacklogItemDto> listForWorkspace(
+            @PathVariable String workspaceId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String thread,
+            @RequestParam(required = false) String tag,
+            @RequestParam(required = false) String q)
+    {
+        return backlog.listForWorkspace(workspaceId, status, thread, tag, q).stream()
+                .map(BacklogItemDto::from)
+                .toList();
+    }
+
     @PostMapping("/api/threads/{threadId}/backlog")
     public BacklogItemDto create(@PathVariable String threadId, @RequestBody CreateBacklogItemRequest body)
     {
@@ -77,6 +92,18 @@ public class BacklogController
     public void delete(@PathVariable String itemId)
     {
         backlog.delete(itemId);
+    }
+
+    @PostMapping("/api/backlog/{itemId}/skip")
+    public BacklogItemDto skip(@PathVariable String itemId, @RequestBody(required = false) SkipBacklogItemRequest body)
+    {
+        return BacklogItemDto.from(backlog.skip(itemId, body == null ? null : body.reason()));
+    }
+
+    @PostMapping("/api/backlog/{itemId}/revive")
+    public BacklogItemDto revive(@PathVariable String itemId)
+    {
+        return BacklogItemDto.from(backlog.revive(itemId));
     }
 
     @PostMapping("/api/backlog/{itemId}/start-development")

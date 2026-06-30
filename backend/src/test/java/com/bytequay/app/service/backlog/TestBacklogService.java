@@ -165,6 +165,63 @@ class TestBacklogService
         assertThat(service.list("thread-1")).containsExactly(i);
     }
 
+    @Test
+    void skipMovesToNotToProceedWithReason()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
+
+        BacklogItem skipped = service.skip("b1", "out of scope");
+
+        assertThat(skipped.status()).isEqualTo("not-to-proceed");
+        assertThat(skipped.rejectionReason()).isEqualTo("out of scope");
+        assertThat(skipped.rejectedAt()).isNotNull();
+    }
+
+    @Test
+    void skipOnAResolvedItemIs409()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", true, "task-1")));
+        assertThatThrownBy(() -> service.skip("b1", null))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void reviveRestoresANotToProceedItemToCreated()
+    {
+        when(store.findById("b1")).thenReturn(
+                Optional.of(item("b1", false, null).markNotToProceed("nope", NOW)));
+
+        BacklogItem revived = service.revive("b1");
+
+        assertThat(revived.status()).isEqualTo("created");
+        assertThat(revived.rejectionReason()).isNull();
+        assertThat(revived.rejectedAt()).isNull();
+    }
+
+    @Test
+    void reviveOnANonRejectedItemIs409()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
+        assertThatThrownBy(() -> service.revive("b1"))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void listForWorkspaceAppliesEveryFilter()
+    {
+        BacklogItem a = BacklogItem.create("a", "t1", "ws", "Add meter", "ui work", List.of("ui"),
+                "medium", "manual", "user", NOW, List.of());
+        BacklogItem b = BacklogItem.create("b", "t2", "ws", "Fix parser", "backend bits", List.of("backend"),
+                "high", "manual", "user", NOW, List.of()).markNotToProceed(null, NOW);
+        when(store.findByWorkspace("ws")).thenReturn(List.of(a, b));
+
+        assertThat(service.listForWorkspace("ws", null, null, null, null)).containsExactly(a, b);
+        assertThat(service.listForWorkspace("ws", "created", null, null, null)).containsExactly(a);
+        assertThat(service.listForWorkspace("ws", null, "t2", null, null)).containsExactly(b);
+        assertThat(service.listForWorkspace("ws", null, null, "ui", null)).containsExactly(a);
+        assertThat(service.listForWorkspace("ws", null, null, null, "parser")).containsExactly(b);
+    }
+
     private static BacklogItem item(String id, boolean started, String linkedTaskId)
     {
         BacklogItem base = BacklogItem.create(

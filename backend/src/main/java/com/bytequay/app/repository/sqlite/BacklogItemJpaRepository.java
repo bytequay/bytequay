@@ -21,4 +21,9 @@ interface BacklogItemJpaRepository
         extends JpaRepository<BacklogItemEntity, String>
 {
     List<BacklogItemEntity> findByThreadIdOrderByCreatedAtMsAsc(String threadId);
+
+    /** Workspace-wide view — newest-first across every thread in the
+     *  workspace. The service applies the status / thread / tag / search
+     *  filters over the result. */
+    List<BacklogItemEntity> findByWorkspaceIdOrderByCreatedAtMsDesc(String workspaceId);
 }

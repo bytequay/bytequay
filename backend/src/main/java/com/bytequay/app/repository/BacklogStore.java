@@ -27,6 +27,9 @@ public interface BacklogStore
     /** Items on a thread, oldest-first. */
     List<BacklogItem> findByThread(String threadId);
 
+    /** Every item in a workspace, newest-first (the workspace-wide view). */
+    List<BacklogItem> findByWorkspace(String workspaceId);
+
     /** One item by id. */
     Optional<BacklogItem> findById(String id);
 

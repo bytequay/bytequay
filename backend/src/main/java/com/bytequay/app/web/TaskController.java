@@ -22,7 +22,6 @@ import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
-import com.bytequay.app.service.threads.TaskQueueService;
 import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.google.common.collect.ImmutableMap;
@@ -61,20 +60,17 @@ public class TaskController
     private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
     private final ReviewStore reviewStore;
-    private final TaskQueueService taskQueue;
 
     public TaskController(
             TaskService taskService,
             ContextAssembler contextAssembler,
             WorkModelResolver workModelResolver,
-            ReviewStore reviewStore,
-            TaskQueueService taskQueue)
+            ReviewStore reviewStore)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
-        this.taskQueue = requireNonNull(taskQueue, "taskQueue is null");
     }
 
     /** All tasks for the thread, oldest seq first. The UI's left-rail
@@ -295,7 +291,7 @@ public class TaskController
         taskService.requireTask(threadId, taskId);
         boolean append = body == null || body.mode() == null || !"replace".equalsIgnoreCase(body.mode());
         String text = body == null ? "" : body.text();
-        return taskQueue.updateOpeningPrompt(taskId, text, append);
+        return taskService.updateOpeningPrompt(taskId, text, append);
     }
 
     /** Body for {@link #setOpeningPrompt} — {@code mode} is 'append'

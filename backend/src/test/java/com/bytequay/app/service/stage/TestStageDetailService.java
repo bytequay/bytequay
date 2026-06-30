@@ -38,7 +38,6 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -281,7 +280,7 @@ class TestStageDetailService
         threadStore.saveThread(new Thread(
                 brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
                 "claude-haiku-4-5-20251001", 0L, 0L, 0L, plan.openedAt(), plan.openedAt(), null, null,
-                ThreadFlow.BUILD, "ws-default", null, null, null, List.of(), 1, taskId));
+                ThreadFlow.BUILD, "ws-default", null, null, 1, taskId));
         appendMessage(brainId, null, 1, "user", "text",
                 "{\"text\":\"tidy the nits\"}", plan.openedAt());
         appendMessage(brainId, null, 2, "assistant", "text",

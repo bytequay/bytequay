@@ -14,8 +14,6 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.StreamEvent;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -23,7 +21,6 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
@@ -128,7 +125,6 @@ class TestLogicLoopThreadAgentCharacterization
     private ScriptedSseServer server;
     private ExecutorService executor;
     private ThreadStore threadStore;
-    private TaskStore taskStore;
     private AgentToolRegistry cliLaneTools;
     private List<ThreadMessage> appendedMessages;
     private List<StreamEvent> events;
@@ -150,12 +146,6 @@ class TestLogicLoopThreadAgentCharacterization
             appendedMessages.add(invocation.getArgument(0));
             return null;
         }).when(threadStore).appendMessage(any());
-
-        taskStore = mock(TaskStore.class);
-        // An active task keeps the loop at task altitude — the trunk
-        // allowlist would otherwise filter the fake tools out of the
-        // rendered catalog.
-        when(taskStore.findActiveTaskForThread(THREAD_ID)).thenReturn(Optional.of(task()));
 
         cliLaneTools = mock(AgentToolRegistry.class);
         when(cliLaneTools.all()).thenReturn(List.of(pushSpec()));
@@ -301,7 +291,6 @@ class TestLogicLoopThreadAgentCharacterization
         LogicLoopThreadAgent agent = new LogicLoopThreadAgent(
                 thread(),
                 threadStore,
-                taskStore,
                 mapper,
                 executor,
                 mock(CredentialService.class),
@@ -319,21 +308,14 @@ class TestLogicLoopThreadAgentCharacterization
     private static Thread thread()
     {
         Instant t0 = Instant.ofEpochMilli(0);
+        // A non-null parentTaskId keeps the loop at task altitude — the trunk
+        // allowlist would otherwise filter the fake tools out of the rendered
+        // catalog. Altitude now derives from the thread's parentTaskId.
         return new Thread(
                 THREAD_ID, ThreadKind.LOGIC_LOOP, "deepseek", null,
                 "test thread", ThreadStatus.IDLE, "deepseek-v4-flash",
                 0L, 0L, 0L, t0, t0, null, null,
-                ThreadFlow.BUILD, "ws-default", null, null);
-    }
-
-    private static Task task()
-    {
-        Instant t0 = Instant.ofEpochMilli(0);
-        return new Task(
-                "task-1", THREAD_ID, 1L, TaskStatus.RUNNING,
-                "feature/x", null, "main", null,
-                null, null, null, null, null, null, null, null,
-                0L, 0L, 0L, null, t0, null, null, null, null, null);
+                ThreadFlow.BUILD, "ws-default", null, null, 1, "task-1");
     }
 
     private ToolSpec pushSpec()

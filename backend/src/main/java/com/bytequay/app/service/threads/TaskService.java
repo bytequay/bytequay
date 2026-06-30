@@ -39,7 +39,6 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestMergedEvent;
-import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -62,7 +61,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
@@ -100,7 +98,6 @@ public class TaskService
     private final WorkspaceService workspaceService;
     private final NotificationService notificationService;
     private final ObjectMapper mapper;
-    private final RoleSkillService roleSkillService;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskPhaseMachine taskPhaseMachine;
 
@@ -117,7 +114,6 @@ public class TaskService
             WorkspaceService workspaceService,
             NotificationService notificationService,
             ObjectMapper mapper,
-            RoleSkillService roleSkillService,
             ApplicationEventPublisher eventPublisher,
             TaskPhaseMachine taskPhaseMachine)
     {
@@ -133,7 +129,6 @@ public class TaskService
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
         this.notificationService = requireNonNull(notificationService, "notificationService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
-        this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
     }
@@ -146,12 +141,40 @@ public class TaskService
         return taskStore.listTasksByThread(threadId);
     }
 
-    /** Latest non-terminal task for the thread, or empty if the
-     *  thread is in the 0-Task state (brainstorm / Q&A). */
+    /** Newest non-terminal task for the thread, or empty if the thread
+     *  is in the 0-Task state (brainstorm / Q&A). A thread may run several
+     *  at once; this returns the most recent for the single-task UI surface. */
     public Optional<Task> findActiveTask(String threadId)
     {
         requireThread(threadId);
-        return taskStore.findActiveTaskForThread(threadId);
+        return taskStore.activeTasksForThread(threadId).stream().findFirst();
+    }
+
+    /**
+     * Append to (or replace) a task's opening-prompt accumulator — the
+     * text the agent reads as its first-turn input when it starts. Editable
+     * only while the task is in {@link TaskPhase#QUEUED}; a write to a task
+     * in any other phase is rejected (422), since the plan seals once the
+     * task starts.
+     */
+    @Transactional
+    public Task updateOpeningPrompt(String taskId, String text, boolean append)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.phase() != TaskPhase.QUEUED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "opening prompt is editable only while the task is QUEUED (phase="
+                            + task.phase() + ")");
+        }
+        String incoming = text == null ? "" : text;
+        String existing = task.openingPrompt();
+        String next = append && existing != null && !existing.isBlank()
+                ? existing + "\n" + incoming
+                : incoming;
+        taskStore.setOpeningPrompt(taskId, next);
+        return taskStore.findTaskById(taskId).orElse(task);
     }
 
     /** Read the task's auto-approve mode. */
@@ -299,20 +322,13 @@ public class TaskService
                 throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                         "task " + taskId + " is no longer awaiting approval");
             }
-            if (taskStore.hasActiveTask(threadId)) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "thread " + threadId + " already has an active successor");
-            }
         }
-        else {
-            Task active = taskStore.findActiveTaskForThread(threadId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(409),
-                            "thread " + threadId + " has no active task"));
-            if (!active.id().equals(taskId)) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " is not the active task for thread " + threadId);
-            }
+        else if (!taskStore.activeTasksForThread(threadId).stream()
+                .anyMatch(t -> t.id().equals(taskId))) {
+            // Ship / Next act on a live task; the task must be among the
+            // thread's active set (a thread may have several at once).
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not active for thread " + threadId);
         }
         TaskPreconditions.requireShippable(current);
 
@@ -400,7 +416,6 @@ public class TaskService
             //    branch), and NEXT's jump-back doesn't have to re-cut a
             //    worktree from origin/<branch> on a wake. The reconciler
             //    reaps a shipped task's worktree only when its PR merges.
-            Instant now = Instant.now();
             TaskStatus parkedStatus = mode == ParkMode.SHIP
                     ? TaskStatus.IN_REVIEW
                     : TaskStatus.AWAITING_REVIEW;
@@ -436,45 +451,17 @@ public class TaskService
                         current.id(), TaskPhase.PUSHED_AWAITING_CI, "shipped_draft_pr_open");
             }
 
-            // 5-6. Optionally cut + persist the seq+1 successor. SHIP enters
-            //    the PR loop on the shipped task and does NOT cut a successor —
-            //    the trunk cuts the next task when the user wants it. NEXT is
-            //    the explicit "start the next task" action and always cuts one.
-            boolean startSuccessor = mode != ParkMode.SHIP;
-            Task successor = startSuccessor
-                    ? cutSuccessorTask(threadId, current, request, repoFullName, workingDir, now)
-                    : null;
-
-            // 7. Only NEXT drops the in-memory agent: it cut a successor, so
-            //    the next turn must spawn fresh in the successor's worktree
-            //    (--resume <thread-agent-id>). SHIP keeps the SAME task
-            //    IN_REVIEW with its worktree, and the CI-fixing / comment-
-            //    addressing stages reuse this very agent session — so we leave
-            //    it running. (Stopping it here also persisted a stage snapshot
-            //    inside this transaction; a write failure there would mark the
-            //    whole ship rollback-only and discard the already-done push +
-            //    PR. Not stopping avoids that entirely for the ship path.)
-            if (startSuccessor) {
-                // Drop only the shipped task's stage agent(s) so the
-                // successor spawns fresh in its own worktree; the thread's
-                // other concurrent tasks keep their agents.
-                List<String> stageKeys = stageKeysForTask(current.id());
-                for (ThreadAgent agent : registry.findStages(stageKeys)) {
-                    try {
-                        agent.stop();
-                    }
-                    catch (RuntimeException e) {
-                        log.warn("agent stop on ship-and-continue threw for {}: {}",
-                                threadId, e.getMessage());
-                    }
-                }
-                registry.evictStages(threadId, stageKeys);
-            }
+            // No successor is ever cut: ship / next finish the current task,
+            // and the trunk's create_task is the only way to start more work
+            // (a thread may run several tasks concurrently). The shipped /
+            // parked task keeps its worktree — SHIP runs the post-ship PR loop
+            // (CI fix / addressing comments push more commits), and the
+            // lifecycle reconciler reaps the worktree only when the PR merges.
 
             // Drop an informational notification so the bell / center
-            // shows "Task N shipped → PR #M" (and, when the chain continues,
-            // the next task) the next time the user looks. Best-effort: a
-            // failure here shouldn't roll back the (already-completed) ship.
+            // shows "Task N shipped → PR #M" the next time the user looks.
+            // Best-effort: a failure here shouldn't roll back the
+            // (already-completed) ship.
             try {
                 Map<String, Object> payloadMap = new LinkedHashMap<>();
                 payloadMap.put("shippedTaskId", current.id());
@@ -482,14 +469,6 @@ public class TaskService
                 payloadMap.put("prNumber", prNumber);
                 payloadMap.put("repoFullName", repoFullName);
                 payloadMap.put("branchName", current.branchName());
-                if (successor != null) {
-                    payloadMap.put("nextTaskId", successor.id());
-                    payloadMap.put("nextSeq", successor.seq());
-                    payloadMap.put("nextTitle",
-                            request.nextTitle() != null && !request.nextTitle().isBlank()
-                                    ? request.nextTitle().trim()
-                                    : "task " + successor.seq());
-                }
                 String payload = mapper.writeValueAsString(payloadMap);
                 notificationService.notifyAutoFixDone(threadId, current.id(), payload);
             }
@@ -497,11 +476,6 @@ public class TaskService
                 log.warn("notification emit on ship-and-continue threw for thread {}: {}",
                         threadId, e.getMessage());
             }
-
-            // 8. The worktree is kept for BOTH modes now. SHIP enters the PR
-            //    loop (CI fix / addressing comments push more commits to this
-            //    branch), and the lifecycle reconciler reaps the worktree only
-            //    when the PR actually merges. NEXT preserves it for jump-back.
 
             // Phase B: tell the memory subsystem a unit of work just
             // landed. ShipEventMemoryTrigger listens, dedups within
@@ -511,9 +485,7 @@ public class TaskService
             if (workspaceId != null && !workspaceId.isBlank()) {
                 eventPublisher.publishEvent(new WorkspaceShipEvent(workspaceId, threadId, taskId));
             }
-            // The successor when the chain continues; otherwise the parked
-            // (shipped) task, so the caller still gets a real row back.
-            return successor != null ? successor : parked;
+            return parked;
         }
         catch (IOException e) {
             throw new UncheckedGitException("Ship and continue failed for task " + taskId, e);
@@ -522,64 +494,6 @@ public class TaskService
             java.lang.Thread.currentThread().interrupt();
             throw new RuntimeException("Ship and continue interrupted for task " + taskId, e);
         }
-    }
-
-    /**
-     * Cut + persist the seq+1 successor: resolve its base (STACKED chains on
-     * the current branch, else the repo's merge-target), create its worktree,
-     * freeze a role skill, and store it PENDING. Extracted from the ship flow
-     * so a terminal ship (chain ran dry) can skip it entirely.
-     */
-    private Task cutSuccessorTask(
-            String threadId, Task current, ShipRequest request,
-            String repoFullName, Path workingDir, Instant now)
-            throws IOException, InterruptedException
-    {
-        String nextBase = request.baseMode() == BaseMode.STACKED
-                ? current.branchName()
-                : resolveMergeTarget(repoFullName, workingDir);
-        long nextSeq = current.seq() + 1;
-        String nextTaskId = UUID.randomUUID().toString();
-        String nextTitle = request.nextTitle() != null && !request.nextTitle().isBlank()
-                ? request.nextTitle().trim()
-                : "task " + nextSeq;
-        Optional<WorktreeService.WorktreeHandle> nextHandle =
-                worktreeService.create(workingDir, nextTaskId, nextTitle);
-        String nextBranchName = nextHandle
-                .map(WorktreeService.WorktreeHandle::branchName)
-                .orElse(null);
-        String nextRoleSkill = roleSkillService.generateForTask(
-                repoFullName, nextBranchName, nextTaskId, nextBase);
-        Task next = new Task(
-                nextTaskId,
-                threadId,
-                nextSeq,
-                TaskStatus.PENDING,
-                nextBranchName,
-                nextHandle.map(handle -> handle.worktreePath().toString()).orElse(null),
-                nextBase,
-                current.workingDir(),
-                /* processPid */ null,
-                /* logPath */ null,
-                /* prNumber */ null,
-                /* prState */ null,
-                /* ciState */ null,
-                current.taskType(),
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
-                /* costUsdMilli */ 0L,
-                /* tokensIn */ 0L,
-                /* tokensOut */ 0L,
-                /* agentSessionId — captured on the new task's first turn */ null,
-                now,
-                /* endedAt */ null,
-                /* errorMessage */ null,
-                /* name */ null,
-                nextRoleSkill,
-                /* workModel — inherited from the thread by default */ null);
-        taskStore.saveTask(next);
-        eventPublisher.publishEvent(new TaskCreatedEvent(next.id()));
-        return next;
     }
 
     /**
@@ -710,8 +624,7 @@ public class TaskService
                 taskStore.linkPullRequest(task.id(), prNumber, "merged");
                 // Drive the dev-lifecycle phase to its terminal COMPLETED
                 // through the machine (not just the runtime status) so the
-                // phase audit + transition event fire — the latter is what
-                // advances the thread's task queue (TaskQueueScheduler).
+                // phase audit + transition event fire.
                 if (task.phase() != TaskPhase.COMPLETED) {
                     try {
                         taskPhaseMachine.transition(

@@ -134,8 +134,7 @@ class TestSqliteThreadStore
                 /* endedAt */ null, /* errorMessage */ null,
                 initial.flow(),
                 "ws-default",
-                initial.workModel(),
-                initial.activeTask());
+                initial.workModel());
         store.saveThread(updated);
 
         Thread got = store.findThreadById(initial.id()).orElseThrow();
@@ -166,8 +165,7 @@ class TestSqliteThreadStore
                 original.endedAt(), original.errorMessage(),
                 ThreadFlow.REVIEW,
                 "ws-default",
-                original.workModel(),
-                original.activeTask());
+                original.workModel());
         assertThatThrownBy(() -> store.saveThread(flipped))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("set-once");
@@ -277,8 +275,7 @@ class TestSqliteThreadStore
                 thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
                 thread.createdAt(), thread.updatedAt(), thread.endedAt(), thread.errorMessage(),
                 thread.flow(), thread.workspaceId(),
-                new WorkModel(WorkModelKind.API, "anthropic", null, "team"),
-                thread.activeTask());
+                new WorkModel(WorkModelKind.API, "anthropic", null, "team"));
         store.saveThread(withPin);
 
         Thread got = store.findThreadById(thread.id()).orElseThrow();
@@ -294,7 +291,7 @@ class TestSqliteThreadStore
                 got.title(), got.status(), got.model(),
                 got.costUsdMilli(), got.tokensIn(), got.tokensOut(),
                 got.createdAt(), got.updatedAt(), got.endedAt(), got.errorMessage(),
-                got.flow(), got.workspaceId(), /* workModel */ null, got.activeTask());
+                got.flow(), got.workspaceId(), /* workModel */ null);
         store.saveThread(cleared);
         assertThat(store.findThreadById(thread.id()).orElseThrow().workModel()).isNull();
     }
@@ -344,7 +341,7 @@ class TestSqliteThreadStore
                 activeId, thread.id(), 1L, TaskStatus.IDLE, "main", null, "main", "/tmp",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, now, null, null, null, null, null));
-        assertThat(taskStore.findActiveTaskForThread(thread.id()).map(Task::id))
+        assertThat(taskStore.activeTasksForThread(thread.id()).stream().findFirst().map(Task::id))
                 .hasValue(activeId);
 
         // A done task whose runtime status lags: IDLE but phase COMPLETED,
@@ -357,13 +354,13 @@ class TestSqliteThreadStore
         taskStore.updatePhase(laggingId, TaskPhase.COMPLETED);
 
         // The lagging done task must not shadow the genuinely active one.
-        assertThat(taskStore.findActiveTaskForThread(thread.id()).map(Task::id))
+        assertThat(taskStore.activeTasksForThread(thread.id()).stream().findFirst().map(Task::id))
                 .hasValue(activeId);
 
         // Once the active task also completes (phase), the thread is idle —
         // no active task — even if its runtime status never flipped.
         taskStore.updatePhase(activeId, TaskPhase.COMPLETED);
-        assertThat(taskStore.findActiveTaskForThread(thread.id())).isEmpty();
+        assertThat(taskStore.activeTasksForThread(thread.id())).isEmpty();
     }
 
     @Test
@@ -390,7 +387,7 @@ class TestSqliteThreadStore
                 thread.title(), ThreadStatus.RUNNING, thread.model(),
                 /* cost */ 9_000L, /* tokensIn */ 26_000_000L, /* tokensOut */ 200_000L,
                 thread.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
-                null, null, thread.flow(), "ws-default", thread.workModel(), thread.activeTask());
+                null, null, thread.flow(), "ws-default", thread.workModel());
         store.saveThread(busy);
 
         Task got = taskStore.findTaskById(taskId).orElseThrow();
@@ -422,8 +419,7 @@ class TestSqliteThreadStore
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 "ws-default",
-                /* workModel */ null,
-                /* activeTask */ null);
+                /* workModel */ null);
     }
 
     private static Thread withTimestamps(Thread source, Instant created, Instant updated)
@@ -436,8 +432,7 @@ class TestSqliteThreadStore
                 source.endedAt(), source.errorMessage(),
                 source.flow(),
                 "ws-default",
-                source.workModel(),
-                source.activeTask());
+                source.workModel());
     }
 
     private static ThreadMessage message(String threadId, long seq, String role, String type, String contentJson)

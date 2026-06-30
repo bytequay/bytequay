@@ -14,11 +14,15 @@
 package com.bytequay.app.service.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
-import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.BacklogStore;
-import com.bytequay.app.service.threads.TaskQueueScheduler;
-import com.bytequay.app.service.threads.TaskQueueService;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -32,7 +36,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,17 +46,19 @@ class TestBacklogService
     private static final Instant NOW = Instant.parse("2026-06-24T09:00:00Z");
 
     private BacklogStore store;
-    private TaskQueueService taskQueue;
-    private TaskQueueScheduler scheduler;
+    private ThreadService threadService;
+    private ThreadStore threadStore;
+    private TaskStore taskStore;
     private BacklogServiceImpl service;
 
     @BeforeEach
     void setUp()
     {
         store = mock(BacklogStore.class);
-        taskQueue = mock(TaskQueueService.class);
-        scheduler = mock(TaskQueueScheduler.class);
-        service = new BacklogServiceImpl(store, taskQueue, scheduler);
+        threadService = mock(ThreadService.class);
+        threadStore = mock(ThreadStore.class);
+        taskStore = mock(TaskStore.class);
+        service = new BacklogServiceImpl(store, threadService, threadStore, taskStore);
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -106,32 +111,35 @@ class TestBacklogService
     }
 
     @Test
-    void startDevelopmentQueuesAndLinksWhenThreadIsIdle()
+    void startDevelopmentMaterialisesATaskAndLinksIt()
     {
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn("task-9");
-        when(scheduler.startNextIfIdle(eq("thread-1"), isNull())).thenReturn(Optional.of(task));
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread()));
+        Task latest = mock(Task.class);
+        when(latest.workingDir()).thenReturn("/tmp/clone");
+        when(taskStore.findLatestTaskForThread("thread-1")).thenReturn(Optional.of(latest));
+        Task cut = mock(Task.class);
+        when(cut.id()).thenReturn("task-9");
+        when(threadService.materialiseTask(eq("thread-1"), any())).thenReturn(cut);
 
         BacklogService.StartResult result = service.startDevelopment("b1");
 
-        verify(taskQueue).append(eq("thread-1"), eq("Title"), eq(BranchBase.MAIN), any());
+        verify(threadService).materialiseTask(eq("thread-1"), any());
         assertThat(result.taskId()).isEqualTo("task-9");
         assertThat(result.item().startedAt()).isNotNull();
         assertThat(result.item().linkedTaskId()).isEqualTo("task-9");
     }
 
     @Test
-    void startDevelopmentStampsStartedEvenWhenThreadIsBusy()
+    void startDevelopmentIs400WhenThreadHasNoWorkingDir()
     {
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
-        when(scheduler.startNextIfIdle(eq("thread-1"), isNull())).thenReturn(Optional.empty());
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread()));
+        when(taskStore.findLatestTaskForThread("thread-1")).thenReturn(Optional.empty());
 
-        BacklogService.StartResult result = service.startDevelopment("b1");
-
-        assertThat(result.taskId()).isNull();
-        assertThat(result.item().startedAt()).isNotNull();
-        assertThat(result.item().linkedTaskId()).isNull();
+        assertThatThrownBy(() -> service.startDevelopment("b1"))
+                .isInstanceOf(ResponseStatusException.class);
+        verify(threadService, never()).materialiseTask(any(), any());
     }
 
     @Test
@@ -140,7 +148,7 @@ class TestBacklogService
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", true, "task-1")));
         assertThatThrownBy(() -> service.startDevelopment("b1"))
                 .isInstanceOf(ResponseStatusException.class);
-        verify(taskQueue, never()).append(any(), any(), any(), any());
+        verify(threadService, never()).materialiseTask(any(), any());
     }
 
     @Test
@@ -155,5 +163,13 @@ class TestBacklogService
     {
         return new BacklogItem(id, "thread-1", "Title", "Body", List.of("ui"),
                 NOW, started ? NOW : null, linkedTaskId);
+    }
+
+    private static Thread thread()
+    {
+        return new Thread(
+                "thread-1", ThreadKind.CLI_AGENT, "claude-code", null, "Title",
+                ThreadStatus.IDLE, "claude-sonnet-4.6", 0L, 0L, 0L, NOW, NOW,
+                null, null, ThreadFlow.BUILD, "ws-default", null);
     }
 }

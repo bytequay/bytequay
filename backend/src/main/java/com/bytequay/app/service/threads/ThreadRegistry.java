@@ -424,7 +424,7 @@ public class ThreadRegistry
         // active stage, then route through the per-stage path. Kept so
         // callers that haven't yet threaded the running turn's stage id
         // keep working with the same behaviour.
-        Task task = taskStore.findActiveTaskForThread(thread.id())
+        Task task = taskStore.activeTasksForThread(thread.id()).stream().findFirst()
                 .or(() -> taskStore.findLatestTaskForThread(thread.id()))
                 .orElse(null);
         return getOrCreate(thread, task, null);
@@ -629,7 +629,7 @@ public class ThreadRegistry
                         ? boundTask.workingDir()
                         : trunkCwdResolver.apply(thread);
                 yield new LogicLoopThreadAgent(
-                        thread, store, taskStore, mapper, executor,
+                        thread, store, mapper, executor,
                         credentialService, resolved, workingDir,
                         resolveTaskRoleSkill(boundTask), toolRegistry,
                         ds4, ds4Instrumentation, gate);
@@ -667,7 +667,7 @@ public class ThreadRegistry
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
                 yield new LogicLoopThreadAgent(
-                        thread, store, taskStore, mapper, executor,
+                        thread, store, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
                         roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                         toolRegistry, ds4, ds4Instrumentation, gate);
@@ -706,7 +706,7 @@ public class ThreadRegistry
                     ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
         }
         return new LogicLoopThreadAgent(
-                thread, store, taskStore, mapper, executor,
+                thread, store, mapper, executor,
                 credentialService, resolved, workingDir,
                 brainSystemPrompt(thread), toolRegistry,
                 ds4, ds4Instrumentation, gate);

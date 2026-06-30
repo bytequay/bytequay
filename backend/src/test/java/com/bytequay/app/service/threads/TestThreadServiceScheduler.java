@@ -658,7 +658,7 @@ class TestThreadServiceScheduler
         // Use the recording task store + a store wrapper so the
         // active-task projection actually populates on read-back.
         InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
-        ProjectingThreadStore projecting = new ProjectingThreadStore(store, tasks);
+        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
         ThreadService service = new ThreadService(
                 projecting,
                 tasks,
@@ -706,11 +706,10 @@ class TestThreadServiceScheduler
                 /* linkedIssueNumber */ null,
                 /* flow */ null, "ws-default", /* workModel */ null));
 
-        Thread refreshed = projecting.findThreadById(thread.id()).orElseThrow();
-        assertThat(refreshed.activeTask()).isNotNull();
-        assertThat(refreshed.activeTask().worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
-        assertThat(refreshed.activeTask().branchName()).isEqualTo("dev/task-1");
-        assertThat(refreshed.agentCwd()).isEqualTo(refreshed.activeTask().worktreePath());
+        Task active = tasks.activeTasksForThread(thread.id()).stream().findFirst().orElseThrow();
+        assertThat(active.worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
+        assertThat(active.branchName()).isEqualTo("dev/task-1");
+        assertThat(active.agentCwd()).isEqualTo(active.worktreePath());
         // materialiseTask cuts the worktree but no longer enqueues a dev turn:
         // development is gated on plan approval, and planning is kicked off via
         // a PlanKickoffRequested event handled by the brain layer (covered by an
@@ -1453,8 +1452,8 @@ class TestThreadServiceScheduler
         @Override public Optional<Task> findTaskById(String id) { return Optional.empty(); }
         @Override public void deleteTask(String id) {}
         @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
-        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
-        @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
+        @Override public boolean hasActiveTask(String threadId) { return !activeTasksForThread(threadId).isEmpty(); }
+        @Override public List<Task> activeTasksForThread(String threadId) { return List.of(); }
         @Override public Optional<Task> findLatestTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
@@ -1485,9 +1484,9 @@ class TestThreadServiceScheduler
         @Override public List<Task> listTasksByThread(String threadId) {
             return task.threadId().equals(threadId) ? List.of(task) : List.of();
         }
-        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
-        @Override public Optional<Task> findActiveTaskForThread(String threadId) {
-            return Optional.empty();
+        @Override public boolean hasActiveTask(String threadId) { return !activeTasksForThread(threadId).isEmpty(); }
+        @Override public List<Task> activeTasksForThread(String threadId) {
+            return List.of();
         }
         @Override public Optional<Task> findLatestTaskForThread(String threadId) {
             return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();
@@ -1519,11 +1518,12 @@ class TestThreadServiceScheduler
         @Override public List<Task> listTasksByThread(String threadId) {
             return byId.values().stream().filter(t -> t.threadId().equals(threadId)).toList();
         }
-        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
-        @Override public Optional<Task> findActiveTaskForThread(String threadId) {
+        @Override public boolean hasActiveTask(String threadId) { return !activeTasksForThread(threadId).isEmpty(); }
+        @Override public List<Task> activeTasksForThread(String threadId) {
             return byId.values().stream()
                     .filter(t -> t.threadId().equals(threadId))
-                    .max(Comparator.comparingLong(Task::seq));
+                    .sorted(Comparator.comparingLong(Task::seq).reversed())
+                    .toList();
         }
         @Override public Optional<Task> findLatestTaskForThread(String threadId) {
             return byId.values().stream()
@@ -1531,7 +1531,7 @@ class TestThreadServiceScheduler
                     .max(Comparator.comparingLong(Task::seq));
         }
         @Override public Optional<Long> maxSeqForThread(String threadId) {
-            return findActiveTaskForThread(threadId).map(Task::seq);
+            return findLatestTaskForThread(threadId).map(Task::seq);
         }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
         @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
@@ -1540,33 +1540,31 @@ class TestThreadServiceScheduler
         @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }
 
-    /** ThreadStore wrapper that projects the active task onto each
-     *  read, mirroring what SqliteThreadStore does in production.
-     *  Lets the create-flow tests assert on thread.activeTask(). */
+    /** Plain ThreadStore delegate. Per-task fields no longer live on
+     *  Thread, so the create-flow tests look the active task up via the
+     *  TaskStore directly. */
     private static final class ProjectingThreadStore
             implements ThreadStore
     {
         private final ThreadStore inner;
-        private final TaskStore tasks;
 
-        ProjectingThreadStore(ThreadStore inner, TaskStore tasks)
+        ProjectingThreadStore(ThreadStore inner)
         {
             this.inner = inner;
-            this.tasks = tasks;
         }
 
         @Override public void saveThread(Thread thread) { inner.saveThread(thread); }
         @Override public Optional<Thread> findThreadById(String id) {
-            return inner.findThreadById(id).map(this::withActiveTask);
+            return inner.findThreadById(id);
         }
         @Override public List<Thread> listTasksByStatus(ThreadStatus status, int limit) {
-            return inner.listTasksByStatus(status, limit).stream().map(this::withActiveTask).toList();
+            return inner.listTasksByStatus(status, limit);
         }
         @Override public List<Thread> listTasksByIds(Collection<String> ids) {
-            return inner.listTasksByIds(ids).stream().map(this::withActiveTask).toList();
+            return inner.listTasksByIds(ids);
         }
         @Override public List<Thread> listThreadsUpdatedSince(Instant since) {
-            return inner.listThreadsUpdatedSince(since).stream().map(this::withActiveTask).toList();
+            return inner.listThreadsUpdatedSince(since);
         }
         @Override public void deleteThread(String threadId) { inner.deleteThread(threadId); }
         @Override public void appendMessage(ThreadMessage message) { inner.appendMessage(message); }
@@ -1575,20 +1573,6 @@ class TestThreadServiceScheduler
         }
         @Override public void recordFile(ThreadFile file) { inner.recordFile(file); }
         @Override public List<ThreadFile> listFiles(String threadId) { return inner.listFiles(threadId); }
-
-        private Thread withActiveTask(Thread t)
-        {
-            Task active = tasks.findActiveTaskForThread(t.id()).orElse(null);
-            if (active == t.activeTask()) {
-                return t;
-            }
-            return new Thread(
-                    t.id(), t.kind(), t.provider(), t.agentSessionId(),
-                    t.title(), t.status(), t.model(),
-                    t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
-                    t.createdAt(), t.updatedAt(), t.endedAt(), t.errorMessage(),
-                    t.flow(), t.workspaceId(), t.workModel(), active);
-        }
     }
 
     /** TaskStore that holds exactly one seeded task. The bridge
@@ -1609,9 +1593,9 @@ class TestThreadServiceScheduler
         @Override public List<Task> listTasksByThread(String threadId) {
             return task.threadId().equals(threadId) ? List.of(task) : List.of();
         }
-        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
-        @Override public Optional<Task> findActiveTaskForThread(String threadId) {
-            return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();
+        @Override public boolean hasActiveTask(String threadId) { return !activeTasksForThread(threadId).isEmpty(); }
+        @Override public List<Task> activeTasksForThread(String threadId) {
+            return task.threadId().equals(threadId) ? List.of(task) : List.of();
         }
         @Override public Optional<Task> findLatestTaskForThread(String threadId) {
             return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();

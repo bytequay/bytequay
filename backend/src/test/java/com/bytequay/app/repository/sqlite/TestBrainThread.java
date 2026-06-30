@@ -29,7 +29,6 @@ import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,8 +78,8 @@ class TestBrainThread
                 UUID.randomUUID().toString(), ThreadKind.BRAIN_AGENT, "anthropic",
                 null, "Brain", ThreadStatus.IDLE, "claude-haiku-4-5-20251001",
                 0L, 0L, 0L, now, now, null, null, ThreadFlow.BUILD, "ws-default",
-                null, /* activeTask */ null, /* parentReviewPassId */ null,
-                List.of(), 1, taskId);
+                null, /* parentReviewPassId */ null,
+                1, taskId);
     }
 
     private String seedTask()

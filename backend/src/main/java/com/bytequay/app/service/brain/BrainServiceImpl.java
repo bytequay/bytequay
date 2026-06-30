@@ -40,7 +40,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -179,9 +178,7 @@ public class BrainServiceImpl
                 ThreadFlow.BUILD,
                 workspaceId,
                 resolved,
-                /* activeTask */ null,
                 /* parentReviewPassId */ null,
-                List.of(),
                 /* parallelSlots */ 1,
                 /* parentTaskId */ task.id());
         threadStore.saveThread(brain);

@@ -13,14 +13,21 @@
  */
 package com.bytequay.app.service.workspaces;
 
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.WorkspaceStore.WorkspaceStats;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
+import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.time.Instant;
 import java.util.List;
@@ -31,6 +38,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,10 +48,14 @@ import static org.mockito.Mockito.when;
 class TestWorkspaceService
 {
     private final WorkspaceStore store = mock(WorkspaceStore.class);
+    private final ThreadStore threadStore = mock(ThreadStore.class);
+    private final ThreadService threadService = mock(ThreadService.class);
     private final WorkspaceService service = new WorkspaceService(
             store,
             new WorkspaceGlossaryParser(),
-            new ConceptRegistry());
+            new ConceptRegistry(),
+            threadStore,
+            threadService);
 
     @Test
     void summariseMemoryCountsDecisionAndBlockerBullets()
@@ -347,6 +360,67 @@ class TestWorkspaceService
                 "ByteQuay", "BadSlug_123", false, "", List.of()));
 
         assertThat(created.id()).isEqualTo("ws-badslug-123");
+    }
+
+    // ── cascade delete ──────────────────────────────────────────────
+
+    @Test
+    void deletePurgesEveryThreadThenDropsTheWorkspace()
+    {
+        when(store.findWorkspaceById("ws-bytequay"))
+                .thenReturn(Optional.of(workspace("ws-bytequay", "ByteQuay")));
+        when(threadStore.listThreadsByWorkspace("ws-bytequay"))
+                .thenReturn(List.of(threadWithId("th-1"), threadWithId("th-2")));
+
+        service.delete("ws-bytequay");
+
+        // Each thread is purged (its agents stopped, worktrees reaped, row +
+        // DB cascade) BEFORE the workspace row is dropped — required for
+        // correctness, since threads.workspace_id has no ON DELETE CASCADE.
+        InOrder order = inOrder(threadService, store);
+        order.verify(threadService).purge("th-1");
+        order.verify(threadService).purge("th-2");
+        order.verify(store).deleteWorkspace("ws-bytequay");
+    }
+
+    @Test
+    void deleteContinuesWhenOneThreadPurgeThrows()
+    {
+        when(store.findWorkspaceById("ws-bytequay"))
+                .thenReturn(Optional.of(workspace("ws-bytequay", "ByteQuay")));
+        when(threadStore.listThreadsByWorkspace("ws-bytequay"))
+                .thenReturn(List.of(threadWithId("th-1"), threadWithId("th-2")));
+        doThrow(new RuntimeException("wedged git worktree"))
+                .when(threadService).purge("th-1");
+
+        service.delete("ws-bytequay");
+
+        // One thread's teardown blowing up must not strand the rest of the
+        // cascade or the workspace drop.
+        verify(threadService).purge("th-2");
+        verify(store).deleteWorkspace("ws-bytequay");
+    }
+
+    @Test
+    void deleteDropsTheWorkspaceWhenItHasNoThreads()
+    {
+        when(store.findWorkspaceById("ws-empty"))
+                .thenReturn(Optional.of(workspace("ws-empty", "Empty")));
+        when(threadStore.listThreadsByWorkspace("ws-empty")).thenReturn(List.of());
+
+        service.delete("ws-empty");
+
+        verify(threadService, never()).purge(any());
+        verify(store).deleteWorkspace("ws-empty");
+    }
+
+    private static Thread threadWithId(String id)
+    {
+        Instant now = Instant.now();
+        return new Thread(
+                id, ThreadKind.CLI_AGENT, "claude-code", null, "Thread " + id,
+                ThreadStatus.IDLE, "claude-sonnet-4.6", 0L, 0L, 0L, now, now,
+                null, null, ThreadFlow.BUILD, "ws-1", null);
     }
 
     private static Workspace workspace(String id, String name)

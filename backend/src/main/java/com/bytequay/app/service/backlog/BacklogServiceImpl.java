@@ -14,18 +14,18 @@
 package com.bytequay.app.service.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
-import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
-import com.bytequay.app.service.threads.TaskQueueScheduler;
-import com.bytequay.app.service.threads.TaskQueueService;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.ThreadService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static com.google.common.base.Strings.nullToEmpty;
@@ -36,14 +36,20 @@ public class BacklogServiceImpl
         implements BacklogService
 {
     private final BacklogStore store;
-    private final TaskQueueService taskQueue;
-    private final TaskQueueScheduler scheduler;
+    private final ThreadService threadService;
+    private final ThreadStore threadStore;
+    private final TaskStore taskStore;
 
-    public BacklogServiceImpl(BacklogStore store, TaskQueueService taskQueue, TaskQueueScheduler scheduler)
+    public BacklogServiceImpl(
+            BacklogStore store,
+            ThreadService threadService,
+            ThreadStore threadStore,
+            TaskStore taskStore)
     {
         this.store = requireNonNull(store, "store is null");
-        this.taskQueue = requireNonNull(taskQueue, "taskQueue is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.threadService = requireNonNull(threadService, "threadService is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
     @Override
@@ -109,18 +115,39 @@ public class BacklogServiceImpl
             throw status(409, "backlog item already started");
         }
         String seedPrompt = item.body().isBlank() ? item.title() : item.title() + "\n\n" + item.body();
+        Thread thread = threadStore.findThreadById(item.threadId())
+                .orElseThrow(() -> status(404, "thread not found: " + item.threadId()));
+        // The task is cut from the clone the thread's latest task ran in.
+        String workingDir = taskStore.findLatestTaskForThread(item.threadId())
+                .map(Task::workingDir)
+                .filter(d -> d != null && !d.isBlank())
+                .orElse(null);
+        if (workingDir == null) {
+            throw status(400, "could not start task: thread has no working dir to cut from");
+        }
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                thread.kind(),
+                thread.provider(),
+                thread.model(),
+                item.title(),
+                workingDir,
+                /* branchName — worktree create derives it */ null,
+                seedPrompt,
+                /* initialGroupIds */ List.of(),
+                "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null,
+                thread.flow(),
+                thread.workspaceId(),
+                thread.workModel(),
+                /* trunkPlan */ null);
+        String linkedTaskId;
         try {
-            taskQueue.append(item.threadId(), item.title(), BranchBase.MAIN, seedPrompt);
+            linkedTaskId = threadService.materialiseTask(item.threadId(), request).id();
         }
         catch (IllegalArgumentException e) {
-            throw status(400, "could not queue task: " + e.getMessage());
+            throw status(400, "could not start task: " + e.getMessage());
         }
-        // Serial-execution rule: if the thread's slot is free, the entry
-        // we just appended materialises into a task immediately and we can
-        // link it. On a busy thread this returns empty and the link stays
-        // null until the queue drains.
-        Optional<Task> started = scheduler.startNextIfIdle(item.threadId(), null);
-        String linkedTaskId = started.map(Task::id).orElse(null);
         BacklogItem updated = new BacklogItem(
                 item.id(),
                 item.threadId(),

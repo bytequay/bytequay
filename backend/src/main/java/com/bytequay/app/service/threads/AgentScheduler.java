@@ -149,8 +149,11 @@ public class AgentScheduler
     @Override
     public String enqueueTurn(Thread thread, String input, TurnInitiator initiator)
     {
+        // Route to the thread's newest active task when one exists (a thread
+        // may run several at once); otherwise a trunk planning turn.
         return enqueueTurnInternal(thread, input,
-                thread.activeTask() == null ? null : thread.activeTask().id(),
+                tasks.activeTasksForThread(thread.id()).stream().findFirst()
+                        .map(Task::id).orElse(null),
                 initiator);
     }
 

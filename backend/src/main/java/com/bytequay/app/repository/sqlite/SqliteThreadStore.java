@@ -13,9 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.domain.BranchBase;
-import com.bytequay.app.domain.QueuedTask;
-import com.bytequay.app.domain.QueuedTaskStatus;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
@@ -29,10 +26,6 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageMessageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -40,7 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -158,10 +150,7 @@ class SqliteThreadStore
             ThreadFlow flow = thread.flow() == null ? ThreadFlow.BUILD : thread.flow();
             entity.setFlow(flow.dbValue());
             // parallel_slots is structural (v1 invariant 1) — write it on
-            // INSERT only. queue_json is deliberately NOT written here:
-            // it's entity-managed via updateThreadQueue so a full-row
-            // saveThread can't clobber a concurrent queue edit. The column
-            // default '[]' covers a brand-new row.
+            // INSERT only.
             entity.setParallelSlots(thread.parallelSlots() < 1 ? 1 : thread.parallelSlots());
             // parent_task_id is structural too — a brain thread's 1:1 link
             // to its task is set at creation and never changes.
@@ -188,7 +177,9 @@ class SqliteThreadStore
         // TaskStore — so here we preserve the task's existing values.
         // branchName / worktreePath / workingDir / linked PR/issue /
         // taskType also live on the task and aren't overridden via Thread.
-        taskStore.findActiveTaskForThread(thread.id()).ifPresent(task -> {
+        // A thread can run several active tasks; mirror lifecycle onto each
+        // so a reader of any of them sees a consistent picture.
+        taskStore.activeTasksForThread(thread.id()).forEach(task -> {
             Task next = new Task(
                     task.id(),
                     task.threadId(),
@@ -261,6 +252,15 @@ class SqliteThreadStore
         return threads.findByStatusAndWorkspaceIdOrderByUpdatedAtMsDesc(
                         status.name(), workspaceId, firstPage(limit))
                 .stream()
+                .map(this::merge)
+                .toList();
+    }
+
+    @Override
+    public List<Thread> listThreadsByWorkspace(String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        return threads.findByWorkspaceId(workspaceId).stream()
                 .map(this::merge)
                 .toList();
     }
@@ -403,12 +403,14 @@ class SqliteThreadStore
     @Transactional
     public void recordFile(ThreadFile file)
     {
-        // File rollups live on the task now. Resolve the active task and
-        // forward; if there's no active task we drop the event — a
-        // recordFile only fires while an agent is alive, which implies
-        // an active task. The compile-time signature stays as ThreadFile
-        // until the caller-side rename in a later commit.
-        Optional<Task> active = taskStore.findActiveTaskForThread(file.threadId());
+        // File rollups live on the task now. ThreadFile carries no task id,
+        // so attribute to the thread's latest active task (a recordFile only
+        // fires while an agent is alive, which implies one); drop the event
+        // when no active task exists.
+        // ponytail: thread-level rollups can't disambiguate among concurrent
+        // tasks — they attribute to the newest. Stamp a task id on the event
+        // if per-task accuracy ever matters.
+        Optional<Task> active = taskStore.activeTasksForThread(file.threadId()).stream().findFirst();
         if (active.isEmpty()) {
             return;
         }
@@ -425,7 +427,7 @@ class SqliteThreadStore
     @Override
     public List<ThreadFile> listFiles(String threadId)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        Optional<Task> active = taskStore.activeTasksForThread(threadId).stream().findFirst();
         if (active.isEmpty()) {
             return List.of();
         }
@@ -439,17 +441,6 @@ class SqliteThreadStore
 
     private Thread merge(ThreadEntity e)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(e.getId());
-        return toThread(e, active.orElse(null));
-    }
-
-    private Thread toThread(ThreadEntity e, Task active)
-    {
-        // Bridge teardown complete: the work-unit fields are reached
-        // exclusively via the activeTask projection now. Older
-        // readers that wanted thread.workingDir / thread.branchName /
-        // thread.worktreePath have been pivoted to
-        // thread.activeTask().X.
         return new Thread(
                 e.getId(),
                 ThreadKind.valueOf(e.getKind()),
@@ -468,108 +459,9 @@ class SqliteThreadStore
                 ThreadFlow.fromDbValue(e.getFlow()),
                 e.getWorkspaceId(),
                 WorkModelJson.deserialise(objectMapper, e.getWorkModelJson()),
-                active,
                 e.getParentReviewPassId(),
-                deserialiseQueue(e.getQueueJson()),
                 e.getParallelSlots(),
                 e.getParentTaskId());
-    }
-
-    @Override
-    @Transactional
-    public void updateThreadQueue(String threadId, List<QueuedTask> queue)
-    {
-        threads.findById(threadId).ifPresent(entity -> {
-            entity.setQueueJson(serialiseQueue(queue));
-            threads.save(entity);
-        });
-    }
-
-    @Override
-    public List<String> threadIdsWithPendingQueue()
-    {
-        return threads.findByQueueJsonContaining("\"status\":\"PENDING\"").stream()
-                .map(ThreadEntity::getId)
-                .toList();
-    }
-
-    /** Hand-rolled JSON for the queue so the wire shape (shared with the
-     *  frontend's {@code GET /threads/{id}} read) is pinned here and
-     *  Instant↔epoch-ms conversion is explicit — no reliance on a
-     *  jsr310 module being registered on the ambient ObjectMapper. */
-    private String serialiseQueue(List<QueuedTask> queue)
-    {
-        List<QueuedTaskRow> rows = (queue == null ? List.<QueuedTask>of() : queue).stream()
-                .map(QueuedTaskRow::from)
-                .toList();
-        try {
-            return objectMapper.writeValueAsString(rows);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialise task queue", e);
-        }
-    }
-
-    private List<QueuedTask> deserialiseQueue(String json)
-    {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            return Arrays.stream(objectMapper.readValue(json, QueuedTaskRow[].class))
-                    .map(QueuedTaskRow::toDomain)
-                    .toList();
-        }
-        catch (JsonProcessingException e) {
-            // A malformed queue row shouldn't break the whole thread
-            // load — treat as an empty queue.
-            return List.of();
-        }
-    }
-
-    /**
-     * The persisted wire shape of one queue entry — shared with the
-     * frontend's {@code GET /threads/{id}} read. Owning the snake_case
-     * field names plus the {@code Instant}↔epoch-ms and enum↔wire
-     * conversions here means the store binds through this record instead
-     * of poking at a raw JSON tree. {@code NON_NULL} keeps the optional
-     * fields omitted (matching the original output; {@code title} is
-     * always present in practice), and unknown keys are tolerated.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private record QueuedTaskRow(
-            @JsonProperty("position") int position,
-            @JsonProperty("title") String title,
-            @JsonProperty("branch_base") String branchBase,
-            @JsonProperty("initial_prompt") String initialPrompt,
-            @JsonProperty("status") String status,
-            @JsonProperty("materialized_task_id") String materializedTaskId,
-            @JsonProperty("created_at_ms") long createdAtMs)
-    {
-        static QueuedTaskRow from(QueuedTask q)
-        {
-            return new QueuedTaskRow(
-                    q.position(),
-                    q.title(),
-                    q.branchBase().wire(),
-                    q.initialPrompt(),
-                    q.status().name(),
-                    q.materializedTaskId(),
-                    q.createdAt() == null ? 0L : q.createdAt().toEpochMilli());
-        }
-
-        QueuedTask toDomain()
-        {
-            return new QueuedTask(
-                    position,
-                    title == null ? "" : title,
-                    BranchBase.fromWire(branchBase),
-                    initialPrompt,
-                    QueuedTaskStatus.fromWire(status),
-                    materializedTaskId,
-                    Instant.ofEpochMilli(createdAtMs));
-        }
     }
 
     private static ThreadMessage toMessage(ThreadMessageEntity e)

@@ -117,7 +117,7 @@ public class WorkspaceInsightsService
             }
             if (ACTIVE.contains(t.status())) {
                 activeThreads++;
-                if (t.activeTask() != null) {
+                if (taskStore.hasActiveTask(t.id())) {
                     tasksInFlight++;
                 }
             }

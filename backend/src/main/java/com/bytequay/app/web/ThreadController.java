@@ -14,10 +14,8 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
-import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.PermissionDecision;
-import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
@@ -36,7 +34,6 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.CheckpointTrigger;
 import com.bytequay.app.service.threads.ConvIndexService;
 import com.bytequay.app.service.threads.PrTaskLinkService;
-import com.bytequay.app.service.threads.TaskQueueService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -105,7 +102,6 @@ public class ThreadController
     private final WorkModelResolver workModelResolver;
     private final PrTaskLinkService prTaskLink;
     private final TaskStore taskStore;
-    private final TaskQueueService taskQueue;
 
     public ThreadController(
             ThreadService threads,
@@ -115,8 +111,7 @@ public class ThreadController
             ContextAssembler contextAssembler,
             WorkModelResolver workModelResolver,
             PrTaskLinkService prTaskLink,
-            TaskStore taskStore,
-            TaskQueueService taskQueue)
+            TaskStore taskStore)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.convIndex = requireNonNull(convIndex, "convIndex is null");
@@ -126,7 +121,6 @@ public class ThreadController
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
         this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.taskQueue = requireNonNull(taskQueue, "taskQueue is null");
     }
 
     /** GET /api/threads?status=RUNNING&limit=50&groupId=...&workspaceId=... */
@@ -632,63 +626,6 @@ public class ThreadController
     {
         threads.delete(id);
         return ImmutableMap.of("status", "deleted");
-    }
-
-    // ── trunk task queue (V110) ─────────────────────────────────────────
-    // UI mirror of the trunk-only queue tools — the queue lane's add /
-    // reorder / drop affordances. Same TaskQueueService the tools use, so
-    // the two paths can't drift. Bad input surfaces as 400 via the global
-    // handler. (GET of the queue rides on GET /api/threads/{id}, which
-    // serialises the thread's queue array.)
-
-    /** POST /api/threads/{id}/queue — append a planned task. */
-    @PostMapping("/{id}/queue")
-    public QueuedTask queueAdd(@PathVariable String id, @RequestBody QueueAddBody body)
-    {
-        String branchBase = body == null ? null : body.branchBase();
-        return taskQueue.append(
-                id,
-                body == null ? null : body.title(),
-                BranchBase.fromWire(branchBase),
-                body == null ? null : body.initialPrompt());
-    }
-
-    /** Body for {@link #queueAdd}. {@code branchBase} is 'main' (default)
-     *  or 'stacked-on-previous'. */
-    public record QueueAddBody(String title, String branchBase, String initialPrompt) {}
-
-    /** PUT /api/threads/{id}/queue/reorder — apply a new permutation of
-     *  the PENDING positions. */
-    @PutMapping("/{id}/queue/reorder")
-    public List<QueuedTask> queueReorder(@PathVariable String id, @RequestBody QueueReorderBody body)
-    {
-        return taskQueue.reorder(id, body == null ? List.of() : body.positions());
-    }
-
-    /** Body for {@link #queueReorder} — the desired order of PENDING
-     *  positions. */
-    public record QueueReorderBody(List<Integer> positions) {}
-
-    /** PUT /api/threads/{id}/queue/{position} — edit a PENDING entry's
-     *  plan (title / branch base / opening prompt). Distinct from
-     *  {@code /queue/reorder} — Spring routes the literal path first. */
-    @PutMapping("/{id}/queue/{position}")
-    public QueuedTask queueEdit(
-            @PathVariable String id, @PathVariable int position, @RequestBody QueueAddBody body)
-    {
-        String branchBase = body == null ? null : body.branchBase();
-        return taskQueue.editEntry(
-                id, position,
-                body == null ? null : body.title(),
-                BranchBase.fromWire(branchBase),
-                body == null ? null : body.initialPrompt());
-    }
-
-    /** DELETE /api/threads/{id}/queue/{position} — drop a PENDING entry. */
-    @DeleteMapping("/{id}/queue/{position}")
-    public QueuedTask queueDrop(@PathVariable String id, @PathVariable int position)
-    {
-        return taskQueue.drop(id, position);
     }
 
     /** Pre-flight eligibility — returns {@code deletable: true} when

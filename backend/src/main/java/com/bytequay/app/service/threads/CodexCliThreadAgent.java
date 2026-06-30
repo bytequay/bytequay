@@ -147,7 +147,7 @@ public class CodexCliThreadAgent
                 .add(binary)
                 // Point Codex at our per-thread MCP server so it gets the same
                 // bytequay tools as the Claude agent — create_task, read_task,
-                // queue_task, read_pr, … Without this a Codex trunk has no way
+                // read_pr, … Without this a Codex trunk has no way
                 // to cut a task in our system and improvises with its own
                 // internal sub-agent fork (invisible to the task UI). `-c` is a
                 // global override merged on top of the user's config.toml, so

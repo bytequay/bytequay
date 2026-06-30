@@ -128,18 +128,10 @@ public class ParkedProposalService
     /**
      * Finish an interrupted approval without invoking its remote action
      * again. Confirmation of an ordinary proposal closes its parked
-     * task. An interrupted {@code next_task} resumes local work unless
-     * the approved advance already produced its successor; terminal
-     * {@code ship_task} closes rather than reopening shipped work.
-     *
-     * <p>When an interrupted {@code next_task} has a live successor we
-     * intentionally do not touch the prior task here — its
-     * {@code AWAITING_REVIEW} state matches the happy-path approve
-     * outcome (see {@link #finishApproved} with
-     * {@code taskAlreadyAdvanced=true}) and is what
-     * {@code isThreadParked} ignores in favour of the active sibling.
-     * The prior task is audit-only at that point; the user resolves
-     * the thread by acting on the successor.
+     * task. An interrupted {@code next_task} resumes local work (no
+     * successor is ever cut, so the prior task is always the one to
+     * revive); terminal {@code ship_task} closes rather than reopening
+     * shipped work.
      */
     @Transactional
     public void finishInterruptedApproval(Notification proposal, String action)
@@ -147,26 +139,12 @@ public class ParkedProposalService
         requireNonNull(proposal, "proposal is null");
         requireNonNull(action, "action is null");
         if ("next_task".equals(action)) {
-            if (!successorExistsForParkedNext(proposal)) {
-                resumeTaskIfStillParked(proposal.taskId());
-            }
-            // Successor exists → leave prior task parked as audit row,
-            // mirroring the happy-path approve. No state change here.
+            resumeTaskIfStillParked(proposal.taskId());
         }
         else {
             completeTaskIfStillParked(proposal.taskId());
         }
         finishClaim(proposal.id());
-    }
-
-    private boolean successorExistsForParkedNext(Notification proposal)
-    {
-        if (proposal.threadId() == null) {
-            return false;
-        }
-        return taskStore.findActiveTaskForThread(proposal.threadId())
-                .filter(task -> !task.id().equals(proposal.taskId()))
-                .isPresent();
     }
 
     private void finishClaim(String notificationId)

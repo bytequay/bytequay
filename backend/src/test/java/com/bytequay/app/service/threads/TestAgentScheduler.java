@@ -529,8 +529,8 @@ class TestAgentScheduler
         @Override public Optional<Task> findTaskById(String id) { return Optional.empty(); }
         @Override public void deleteTask(String id) {}
         @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
-        @Override public boolean hasActiveTask(String threadId) { return findActiveTaskForThread(threadId).isPresent(); }
-        @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
+        @Override public boolean hasActiveTask(String threadId) { return !activeTasksForThread(threadId).isEmpty(); }
+        @Override public List<Task> activeTasksForThread(String threadId) { return List.of(); }
         @Override public Optional<Task> findLatestTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
@@ -799,13 +799,13 @@ class TestAgentScheduler
         @Override
         public String workingDir()
         {
-            return thread.activeTask() == null ? null : thread.activeTask().workingDir();
+            return null;
         }
 
         @Override
         public String branchName()
         {
-            return thread.activeTask() == null ? null : thread.activeTask().branchName();
+            return null;
         }
 
         @Override

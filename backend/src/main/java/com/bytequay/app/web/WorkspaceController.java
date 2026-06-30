@@ -129,10 +129,12 @@ public class WorkspaceController
         return workspaces.rename(id, body.name());
     }
 
-    /** DELETE /api/workspaces/{id} — drop the workspace row. The
-     *  store cascades workspace_repos via FK; threads pointing at
-     *  the workspace are left orphaned (the frontend's
-     *  Delete-workspace button warns the user). */
+    /** DELETE /api/workspaces/{id} — delete the workspace and everything
+     *  under it. Each thread is purged (agents stopped, queued turns
+     *  cancelled, worktrees reaped) and dropped, which cascades its tasks /
+     *  stages / messages / backlog; then the workspace row goes, taking its
+     *  repo pins + memory proposal via FK cascade. See
+     *  {@link WorkspaceService#delete}. */
     @DeleteMapping("/{id}")
     public void delete(@PathVariable String id)
     {

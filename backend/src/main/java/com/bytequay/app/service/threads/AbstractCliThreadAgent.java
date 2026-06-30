@@ -582,8 +582,7 @@ public abstract class AbstractCliThreadAgent
                     /* endedAt */ null, /* errorMessage */ null,
                     current.flow(),
                     current.workspaceId(),
-                    current.workModel(),
-                    current.activeTask()));
+                    current.workModel()));
         }
     }
 
@@ -1149,8 +1148,7 @@ public abstract class AbstractCliThreadAgent
                 current.errorMessage(),
                 current.flow(),
                 current.workspaceId(),
-                current.workModel(),
-                current.activeTask());
+                current.workModel());
         store.saveThread(next);
     }
 

@@ -18,6 +18,7 @@ import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.ReviewStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.slf4j.Logger;
@@ -54,12 +55,15 @@ public class ReviewPassResolver
     private static final int COMMIT_SCAN_LIMIT = 200;
 
     private final ThreadStore threadStore;
+    private final TaskStore taskStore;
     private final ReviewStore reviewStore;
     private final GitRunner git;
 
-    public ReviewPassResolver(ThreadStore threadStore, ReviewStore reviewStore, GitRunner git)
+    public ReviewPassResolver(
+            ThreadStore threadStore, TaskStore taskStore, ReviewStore reviewStore, GitRunner git)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.git = requireNonNull(git, "git is null");
     }
@@ -142,7 +146,11 @@ public class ReviewPassResolver
 
     private List<String> commitSubjects(Thread thread)
     {
-        Task task = thread.activeTask();
+        // The build thread's newest active task (else its latest) carries the
+        // worktree whose commit subjects we scan for #finding-<id> refs.
+        Task task = taskStore.activeTasksForThread(thread.id()).stream().findFirst()
+                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
+                .orElse(null);
         if (task == null || task.worktreePath() == null || task.branchName() == null) {
             return List.of();
         }

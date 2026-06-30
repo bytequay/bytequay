@@ -68,7 +68,7 @@ class TestThreadRegistryLease
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         Task active = task("task-1", "thread-1", WORKTREE);
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(active));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(active));
         ThreadRegistry registry = newRegistry();
 
         registry.getOrCreate(thread("thread-1"));
@@ -80,8 +80,7 @@ class TestThreadRegistryLease
     void evictReleasesTheWorktreeLease()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.findActiveTaskForThread("thread-1"))
-                .thenReturn(Optional.of(task("task-1", "thread-1", WORKTREE)));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
         ThreadRegistry registry = newRegistry();
         registry.getOrCreate(thread("thread-1"));
 
@@ -94,8 +93,7 @@ class TestThreadRegistryLease
     void getOrCreateRefusesWhenLeaseHeldByLiveHolder()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.findActiveTaskForThread("thread-1"))
-                .thenReturn(Optional.of(task("task-1", "thread-1", WORKTREE)));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
         // Seed a lease held by *this* JVM's pid so the liveness check
         // sees a live holder — that's the "another agent already
         // attached" case, which must surface a 409.
@@ -118,8 +116,7 @@ class TestThreadRegistryLease
     void getOrCreateReclaimsLeaseWhenPriorHolderProcessIsGone()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.findActiveTaskForThread("thread-1"))
-                .thenReturn(Optional.of(task("task-1", "thread-1", WORKTREE)));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
         // Seed a lease held by a pid that doesn't exist. The
         // registry should reclaim it (the prior JVM died and never
         // got to release) rather than refusing the attach.
@@ -143,7 +140,7 @@ class TestThreadRegistryLease
         registry.evict("thread-unknown");
 
         // No exception, no stray store interactions.
-        verify(taskStore, never()).findActiveTaskForThread("thread-unknown");
+        verify(taskStore, never()).activeTasksForThread("thread-unknown");
     }
 
     @Test
@@ -154,7 +151,7 @@ class TestThreadRegistryLease
         // never gets a chance to land, and the lease store stays
         // empty.
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.empty());
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of());
         ThreadRegistry registry = newRegistry();
 
         assertThatThrownBy(() -> registry.getOrCreate(thread("thread-1")))
@@ -193,7 +190,7 @@ class TestThreadRegistryLease
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         Task active = task("task-1", "thread-1", WORKTREE);
-        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(active));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(active));
         ThreadRegistry registry = newRegistry();
 
         registry.getOrCreate(thread("thread-1"));
@@ -204,7 +201,7 @@ class TestThreadRegistryLease
         // two calls hit the store twice. The second call still returns the
         // cached per-stage session — no second agent is built and the lease
         // is taken only once.
-        verify(taskStore, times(2)).findActiveTaskForThread("thread-1");
+        verify(taskStore, times(2)).activeTasksForThread("thread-1");
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
     }
 

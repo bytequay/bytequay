@@ -18,6 +18,7 @@ import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 
 import java.util.List;
@@ -69,6 +70,20 @@ public interface StageStore
      *  cross-cutting phase attaches to, and the one the phase-transition
      *  hook compares against. */
     Optional<StageInstance> findActiveStage(String taskId);
+
+    /** The task's most-recent non-{@code CLOSED} stage of the given type.
+     *  Unlike {@link #findActiveStage} (OPEN/ACTIVE only) this also matches a
+     *  {@code PAUSED} stage — a CI-fixing or review-monitor stage parked while
+     *  it waits on remote CI is PAUSED but is still the stage an automation
+     *  turn belongs to. Lets the shipped-CI-fix / comment-addressing turns pin
+     *  their stage id explicitly so their messages land in {@code
+     *  stage_messages} rather than leaking to the thread slice. */
+    default Optional<StageInstance> findLiveStageByType(String taskId, StageType type)
+    {
+        return findStagesByTask(taskId).stream()
+                .filter(s -> s.type() == type && s.state() != StageState.CLOSED)
+                .reduce((first, second) -> second);
+    }
 
     // ── stage events ───────────────────────────────────────────────────
 

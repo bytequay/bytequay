@@ -292,11 +292,13 @@ public class IterationService
                 + "with a one-line description (max " + SUMMARY_MAX_CHARS + " chars) of what you "
                 + "did this iteration. Do not do any other work in this turn.";
         try {
-            // Bind the task id so the summary request runs on the monitor
-            // stage's own (task) agent — a monitor-stage task is IN_REVIEW, so
-            // the no-id enqueue would misroute it to the read-only trunk.
+            // Bind the task id AND the iteration's own stage so the summary
+            // request runs on that stage's agent and its messages land in
+            // stage_messages, not the thread slice. (The stage is PAUSED while
+            // it waits, which findActiveStage misses — the iteration knows its
+            // stage id directly, so pin it.)
             String turnId = scheduler.enqueueTaskTurn(
-                    thread.get(), prompt, iteration.taskId(),
+                    thread.get(), prompt, iteration.taskId(), iteration.stageId().toString(),
                     TurnInitiator.unattended("iteration-summary-request"));
             iterationStore.save(iteration.withSummaryRequestTurnId(turnId));
         }

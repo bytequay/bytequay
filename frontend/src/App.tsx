@@ -594,7 +594,10 @@ function App() {
               setNav(lastTaskNav(navThreadId, taskId));
             }
           }}
-          onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
+          onSwitchWorkspace={() => setNav(nav.view !== 'workspace'
+            ? { view: 'workspace', section: 'threads' }  // from a thread/task → into the workspace
+            : { view: 'workspaces-landing' })}            // already on it → the overview, to switch
+
           onNewWorkspace={() => setNav({ view: 'workspaces-landing' })}
           onNewThread={() => setNav({ view: 'thread-create' })}
           onDeleteWorkspace={(id, name) => {

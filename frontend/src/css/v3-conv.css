@@ -1096,3 +1096,32 @@
 .shell .sp-answered { display: flex; align-items: center; gap: 8px; }
 .shell .sp-answered__chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 5px 10px; border-radius: 999px; background: var(--teal-soft); border: 1px solid var(--teal-border); color: var(--teal-deep); font-weight: 700; }
 .shell .sp-answered__by { font-size: 10.5px; color: var(--text-4); }
+
+/* ── Milestone nodes (Layer 4, trunk feed) ── */
+.shell .sp-ms { position: relative; margin: 8px 0 16px -30px; padding-left: 30px; }
+.shell .sp-ms__mark { position: absolute; left: -2px; top: 0; width: 24px; height: 24px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; z-index: 3; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
+.shell .sp-ms__kicker { font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 5px; }
+.shell .sp-ms--purple .sp-ms__mark { background: linear-gradient(135deg, #b794f4, #7c5cff); }
+.shell .sp-ms--purple .sp-ms__kicker { color: var(--accent-deep); }
+.shell .sp-ms--blue .sp-ms__mark { background: linear-gradient(135deg, #7aa7f5, #2563eb); }
+.shell .sp-ms--blue .sp-ms__kicker { color: var(--blue-deep); }
+.shell .sp-ms--orange .sp-ms__mark { background: linear-gradient(135deg, #f0a868, #c2632a); }
+.shell .sp-ms--orange .sp-ms__kicker { color: var(--orange); }
+.shell .sp-ms--amber .sp-ms__mark { background: linear-gradient(135deg, #f6c062, #d98a2b); }
+.shell .sp-ms--amber .sp-ms__kicker { color: var(--amber-deep); }
+
+/* ── Outline strip (Layer 4) ── */
+.shell .sp-outline { display: flex; align-items: center; gap: 8px; padding: 9px 0 2px; overflow-x: auto; }
+.shell .sp-outline__lbl { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-4); flex-shrink: 0; }
+.shell .sp-ochip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; border: 1px solid var(--border-mid); background: var(--bg-elev); color: var(--text-2); flex-shrink: 0; font-family: inherit; }
+.shell .sp-ochip:hover { border-color: var(--border-strong); }
+.shell .sp-ochip__di { font-size: 10px; }
+.shell .sp-ochip--task { border-color: var(--accent-border); color: var(--accent-deep); background: var(--accent-soft); }
+.shell .sp-ochip--task .sp-ochip__di { color: var(--accent); }
+.shell .sp-ochip--backlog { border-color: var(--amber-border); color: var(--amber-deep); background: var(--amber-soft); }
+.shell .sp-ochip__st { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 0 5px; border-radius: 999px; }
+.shell .sp-ochip__st--fg { background: var(--green-soft); color: var(--green); }
+.shell .sp-ochip__st--pend { background: rgba(0, 0, 0, 0.06); color: var(--text-3); }
+
+/* thinking sub-message (folded work) */
+.shell .sp-submsg--think .sp-submsg__tx { font-style: italic; color: var(--text-3); }

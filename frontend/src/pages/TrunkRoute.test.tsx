@@ -61,18 +61,29 @@ describe('TrunkRoute', () => {
     expect(screen.getAllByText('Closed').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('echoes the foreground task as a card in the conversation', async () => {
+  it('renders task cuts as milestone nodes carrying the task card', async () => {
     mockBridge();
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     await screen.findByText('plan the cleanup');
-    // The conversation column carries the running task's card with a
-    // "Running" pill — the completed task is not echoed here.
+    // Each cut is a milestone peak (purple ◆ + "Task cut" kicker) embedding
+    // the existing task card — the same card used in the Tasks tab.
     const conv = container.querySelector('.conv') as HTMLElement;
     expect(conv).toBeTruthy();
-    expect(conv.querySelector('.task-card')).toBeTruthy();
+    const cut = conv.querySelector('.sp-ms--purple');
+    expect(cut).toBeTruthy();
+    expect(cut?.textContent).toContain('Task cut');
+    expect(conv.querySelector('.sp-ms .task-card')).toBeTruthy();
     expect(conv.textContent).toContain('Add meter');
-    expect(conv.textContent).toContain('Running');
-    expect(conv.textContent).not.toContain('Later');
+  });
+
+  it('lists each task cut in the outline strip', async () => {
+    mockBridge();
+    const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    await screen.findByText('plan the cleanup');
+    const outline = container.querySelector('.sp-outline') as HTMLElement;
+    expect(outline).toBeTruthy();
+    // One chip per cut task.
+    expect(outline.querySelectorAll('.sp-ochip--task').length).toBe(2);
   });
 
   it('posts a trunk message from the composer', async () => {
@@ -85,26 +96,29 @@ describe('TrunkRoute', () => {
     await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'cut a task'));
   });
 
-  it('opening a task card fires onOpenTask', async () => {
+  it('opening a task-cut card fires onOpenTask', async () => {
     mockBridge();
     const onOpenTask = vi.fn();
-    render(<TrunkRoute threadId="t1" onOpenTask={onOpenTask} />);
-    fireEvent.click((await screen.findAllByText('Add meter'))[0]);
+    const { container } = render(<TrunkRoute threadId="t1" onOpenTask={onOpenTask} />);
+    await screen.findByText('plan the cleanup');
+    const card = container.querySelector('.sp-ms .task-card') as HTMLElement;
+    expect(card).toBeTruthy();
+    fireEvent.click(card);
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
   });
 
-  it('renders thinking as a collapsible Thought block', async () => {
+  it('folds the round work and surfaces the headline reply', async () => {
     mockBridge();
-    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    // 2s elapsed between the thinking row (:03) and the answer (:05).
-    const thought = await screen.findByRole('button', { name: /Thought for 2s/ });
-    expect(thought).toBeTruthy();
-    // Default-open: the reasoning shows without a click (Copilot pattern).
-    expect(screen.getByText('weighing the approach')).toBeTruthy();
-    fireEvent.click(thought);
+    const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    // The last assistant text is the headline — always visible.
+    expect(await screen.findByText('Here is the plan.')).toBeTruthy();
+    // The thinking row folds into the round's work disclosure (hidden in
+    // Focused density).
     expect(screen.queryByText('weighing the approach')).toBeNull();
-    // The plan text renders inline.
-    expect(screen.getByText('Here is the plan.')).toBeTruthy();
+    const work = container.querySelector('.sp-work__bar') as HTMLElement;
+    expect(work).toBeTruthy();
+    fireEvent.click(work);
+    expect(screen.getByText('weighing the approach')).toBeTruthy();
   });
 
   it('Cut task → creates a task seeded from the latest prompt in the thread repo', async () => {

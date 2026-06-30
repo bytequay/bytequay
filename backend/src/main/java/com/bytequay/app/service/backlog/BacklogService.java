@@ -57,8 +57,15 @@ public interface BacklogService
      *  unknown, 409 when the item isn't in {@code not-to-proceed}. */
     BacklogItem revive(String id);
 
-    /** Cut a task from the item: append it to the thread's queue (title +
-     *  body as the seed prompt) and stamp started_at. 404 when unknown,
-     *  409 when already started. */
+    /** Begin trunk exploration of the item: post its content into the
+     *  thread's trunk conversation as a fresh prompt and move it to
+     *  {@code in-progress}. No task is cut here — the trunk agent explores,
+     *  clarifies, plans, and only then cuts one. 404 when unknown, 409 when
+     *  the item isn't {@code created}. The returned {@code taskId} is always
+     *  null in this model. */
     StartResult startDevelopment(String id);
+
+    /** Abort an in-progress exploration, returning the item to
+     *  {@code created}. 404 when unknown, 409 when not in exploration. */
+    BacklogItem cancelExploration(String id);
 }

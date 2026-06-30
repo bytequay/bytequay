@@ -112,4 +112,10 @@ public class BacklogController
         BacklogService.StartResult result = backlog.startDevelopment(itemId);
         return new StartDevelopmentResponse(BacklogItemDto.from(result.item()), result.taskId());
     }
+
+    @PostMapping("/api/backlog/{itemId}/cancel-exploration")
+    public BacklogItemDto cancelExploration(@PathVariable String itemId)
+    {
+        return BacklogItemDto.from(backlog.cancelExploration(itemId));
+    }
 }

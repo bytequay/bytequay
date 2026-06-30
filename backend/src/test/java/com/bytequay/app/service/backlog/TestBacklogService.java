@@ -14,13 +14,7 @@
 package com.bytequay.app.service.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.Thread;
-import com.bytequay.app.domain.ThreadFlow;
-import com.bytequay.app.domain.ThreadKind;
-import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.BacklogStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.distillation.DistillationSignalService;
 import com.bytequay.app.service.threads.ThreadService;
@@ -49,7 +43,6 @@ class TestBacklogService
     private BacklogStore store;
     private ThreadService threadService;
     private ThreadStore threadStore;
-    private TaskStore taskStore;
     private DistillationSignalService distillation;
     private BacklogServiceImpl service;
 
@@ -59,9 +52,8 @@ class TestBacklogService
         store = mock(BacklogStore.class);
         threadService = mock(ThreadService.class);
         threadStore = mock(ThreadStore.class);
-        taskStore = mock(TaskStore.class);
         distillation = mock(DistillationSignalService.class);
-        service = new BacklogServiceImpl(store, threadService, threadStore, taskStore, distillation);
+        service = new BacklogServiceImpl(store, threadService, threadStore, distillation);
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -120,44 +112,52 @@ class TestBacklogService
     }
 
     @Test
-    void startDevelopmentMaterialisesATaskAndLinksIt()
+    void startDevelopmentPostsToTrunkAndMarksInProgress()
     {
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
-        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread()));
-        Task latest = mock(Task.class);
-        when(latest.workingDir()).thenReturn("/tmp/clone");
-        when(taskStore.findLatestTaskForThread("thread-1")).thenReturn(Optional.of(latest));
-        Task cut = mock(Task.class);
-        when(cut.id()).thenReturn("task-9");
-        when(threadService.materialiseTask(eq("thread-1"), any())).thenReturn(cut);
+        when(threadService.sendTrunk(eq("thread-1"), any())).thenReturn("turn-1");
 
         BacklogService.StartResult result = service.startDevelopment("b1");
 
-        verify(threadService).materialiseTask(eq("thread-1"), any());
-        assertThat(result.taskId()).isEqualTo("task-9");
-        assertThat(result.item().startedAt()).isNotNull();
-        assertThat(result.item().linkedTaskId()).isEqualTo("task-9");
-    }
-
-    @Test
-    void startDevelopmentIs400WhenThreadHasNoWorkingDir()
-    {
-        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
-        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread()));
-        when(taskStore.findLatestTaskForThread("thread-1")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.startDevelopment("b1"))
-                .isInstanceOf(ResponseStatusException.class);
+        // The item content is posted into the trunk as a planning prompt; no
+        // task is cut here.
+        verify(threadService).sendTrunk(eq("thread-1"), any());
         verify(threadService, never()).materialiseTask(any(), any());
+        assertThat(result.taskId()).isNull();
+        assertThat(result.item().status()).isEqualTo("in-progress");
+        assertThat(result.item().inProgressAt()).isNotNull();
+        verify(distillation).record(
+                eq("backlog-start"), eq("b1"), eq("started"), any(), any(), any(), any());
     }
 
     @Test
-    void startDevelopmentOnAStartedItemIs409()
+    void startDevelopmentOnANonCreatedItemIs409()
     {
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", true, "task-1")));
         assertThatThrownBy(() -> service.startDevelopment("b1"))
                 .isInstanceOf(ResponseStatusException.class);
-        verify(threadService, never()).materialiseTask(any(), any());
+        verify(threadService, never()).sendTrunk(any(), any());
+    }
+
+    @Test
+    void cancelExplorationRestoresAnInProgressItemToCreated()
+    {
+        when(store.findById("b1")).thenReturn(
+                Optional.of(item("b1", false, null).markInProgress(NOW)));
+
+        BacklogItem restored = service.cancelExploration("b1");
+
+        assertThat(restored.status()).isEqualTo("created");
+        verify(distillation).record(
+                eq("backlog-cancel-exploration"), eq("b1"), eq("cancelled"), any(), any(), any(), any());
+    }
+
+    @Test
+    void cancelExplorationOnANonInProgressItemIs409()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
+        assertThatThrownBy(() -> service.cancelExploration("b1"))
+                .isInstanceOf(ResponseStatusException.class);
     }
 
     @Test
@@ -235,13 +235,5 @@ class TestBacklogService
                 BacklogItem.PRIORITY_MEDIUM, BacklogItem.SOURCE_MANUAL,
                 BacklogItem.CREATED_BY_USER, NOW, List.of());
         return started ? base.markResolved(linkedTaskId, NOW) : base;
-    }
-
-    private static Thread thread()
-    {
-        return new Thread(
-                "thread-1", ThreadKind.CLI_AGENT, "claude-code", null, "Title",
-                ThreadStatus.IDLE, "claude-sonnet-4.6", 0L, 0L, 0L, NOW, NOW,
-                null, null, ThreadFlow.BUILD, "ws-default", null);
     }
 }

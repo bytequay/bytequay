@@ -177,6 +177,11 @@ function writeActiveWorkspaceId(id: string): void {
   catch { /* private browsing — skip silently */ }
 }
 
+function clearActiveWorkspaceId(): void {
+  try { window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY); }
+  catch { /* private browsing — skip silently */ }
+}
+
 function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
@@ -551,6 +556,28 @@ function App() {
           onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
           onNewWorkspace={() => setNav({ view: 'workspaces-landing' })}
           onNewThread={() => setNav({ view: 'thread-create' })}
+          onDeleteWorkspace={(id, name) => {
+            const ok = window.confirm(
+              `Delete workspace "${name}" and everything in it?\n\n`
+              + 'This permanently removes its threads, tasks, messages, '
+              + 'backlog, and worktrees, and stops any running agents. '
+              + 'This cannot be undone.');
+            if (!ok) return;
+            void window.bridge.deleteWorkspace(id)
+              .then(() => {
+                // Dropping the active workspace: clear the selection so the app
+                // falls back to the overview rather than a now-dead id. The
+                // polled rail removes the row on its own.
+                if (activeWorkspaceId === id) {
+                  setActiveWorkspaceId(null);
+                  clearActiveWorkspaceId();
+                  setNav({ view: 'workspaces-landing' });
+                }
+              })
+              .catch((e: unknown) => {
+                window.alert(`Couldn't delete workspace: ${e instanceof Error ? e.message : String(e)}`);
+              });
+          }}
         />
       )}
       <div className="app-content">

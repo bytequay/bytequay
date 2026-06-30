@@ -29,7 +29,7 @@ export function WorkspaceNavShell({
   activeNav, footer, notificationCount,
   collapsed = false, onToggleCollapse,
   onNavigate, onEnterWorkspace, onOpenThread, onOpenTask, onOpenStage, onSwitchWorkspace,
-  onNewWorkspace, onNewThread,
+  onNewWorkspace, onNewThread, onDeleteWorkspace,
 }: {
   activeWorkspaceId: string | null;
   selectedThreadId?: string;
@@ -54,6 +54,9 @@ export function WorkspaceNavShell({
   onSwitchWorkspace?: () => void;
   onNewWorkspace?: () => void;
   onNewThread?: () => void;
+  /** Delete a workspace from the overview list. The host confirms + calls
+   *  the backend; the polled rail drops the row once it's gone. */
+  onDeleteWorkspace?: (id: string, name: string) => void;
 }) {
   const data = useWorkspaceNav(activeWorkspaceId);
   const ws = data.activeWorkspace;
@@ -64,6 +67,7 @@ export function WorkspaceNavShell({
         workspaces={data.workspaces}
         activeId={activeWorkspaceId ?? undefined}
         onOpen={onEnterWorkspace}
+        onDelete={onDeleteWorkspace}
         onNewWorkspace={onNewWorkspace}
       />
     )

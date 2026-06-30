@@ -28,12 +28,16 @@ export type WorkspaceRow = {
 
 /**
  * The sidebar's workspace list, shown when no workspace is active. Each
- * row drills into its workspace. Nothing is pre-selected.
+ * row drills into its workspace; when {@code onDelete} is wired a row also
+ * exposes a delete affordance (revealed on row hover) so a workspace can be
+ * removed without a trip to the Workspaces grid. Nothing is pre-selected.
  */
-export function WorkspaceList({ workspaces, activeId, onOpen, onNewWorkspace }: {
+export function WorkspaceList({ workspaces, activeId, onOpen, onDelete, onNewWorkspace }: {
   workspaces: WorkspaceRow[];
   activeId?: string;
   onOpen?: (id: string) => void;
+  /** Delete a workspace from its row. The host confirms + calls the backend. */
+  onDelete?: (id: string, name: string) => void;
   onNewWorkspace?: () => void;
 }) {
   return (
@@ -47,19 +51,31 @@ export function WorkspaceList({ workspaces, activeId, onOpen, onNewWorkspace }: 
       </div>
       <div className="ws-list">
         {workspaces.map(w => (
-          <button
-            key={w.id}
-            type="button"
-            className={w.id === activeId ? 'ws-item active' : 'ws-item'}
-            onClick={() => onOpen?.(w.id)}
-          >
-            <Logo initials={w.initials} color={w.color} size="lg" />
-            <span className="ws-meta">
-              <span className="ws-name">{w.name}</span>
-              <span className="ws-sub">{w.sub}</span>
-            </span>
-            {w.count !== undefined && <span className="ws-count">{w.count}</span>}
-          </button>
+          <div key={w.id} className="ws-item-wrap">
+            <button
+              type="button"
+              className={w.id === activeId ? 'ws-item active' : 'ws-item'}
+              onClick={() => onOpen?.(w.id)}
+            >
+              <Logo initials={w.initials} color={w.color} size="lg" />
+              <span className="ws-meta">
+                <span className="ws-name">{w.name}</span>
+                <span className="ws-sub">{w.sub}</span>
+              </span>
+              {w.count !== undefined && <span className="ws-count">{w.count}</span>}
+            </button>
+            {onDelete !== undefined && (
+              <button
+                type="button"
+                className="ws-item__delete"
+                aria-label={`Delete workspace ${w.name}`}
+                title="Delete workspace"
+                onClick={e => { e.stopPropagation(); onDelete(w.id, w.name); }}
+              >
+                ⌫
+              </button>
+            )}
+          </div>
         ))}
       </div>
     </div>

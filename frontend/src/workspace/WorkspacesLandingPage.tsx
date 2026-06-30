@@ -60,9 +60,12 @@ function WorkspacesLandingPage({
     const name = card?.name ?? 'this workspace';
     const threads = card?.activeThreadCount ?? 0;
     const warn = threads > 0
-      ? ` Its ${threads} thread${threads === 1 ? '' : 's'} will be left without a workspace.`
+      ? ` Its ${threads} thread${threads === 1 ? '' : 's'} and all their tasks and history go with it.`
       : '';
-    if (!window.confirm(`Delete workspace "${name}"? This can't be undone.${warn}`)) {
+    if (!window.confirm(
+      `Delete workspace "${name}" and everything in it?${warn}`
+      + ' This permanently removes its threads, tasks, messages, backlog, and'
+      + ' worktrees, and stops any running agents. This cannot be undone.')) {
       return;
     }
     void window.bridge.deleteWorkspace(id)

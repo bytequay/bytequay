@@ -27,3 +27,6 @@ export { Card } from './Card';
 export type { CardProps, CardTag, TaskStatus } from './Card';
 export { TriageCard } from './TriageCard';
 export { QueuedMessages } from './QueuedMessages';
+
+/** V3 Layer 3b — timeline-spine primitives + conversation units. */
+export * from './spine';

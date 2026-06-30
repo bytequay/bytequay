@@ -14,10 +14,8 @@
 package com.bytequay.app.service.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
-import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.distillation.DistillationSignalService;
 import com.bytequay.app.service.threads.ThreadService;
@@ -42,20 +40,17 @@ public class BacklogServiceImpl
     private final BacklogStore store;
     private final ThreadService threadService;
     private final ThreadStore threadStore;
-    private final TaskStore taskStore;
     private final DistillationSignalService distillation;
 
     public BacklogServiceImpl(
             BacklogStore store,
             ThreadService threadService,
             ThreadStore threadStore,
-            TaskStore taskStore,
             DistillationSignalService distillation)
     {
         this.store = requireNonNull(store, "store is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.distillation = requireNonNull(distillation, "distillation is null");
     }
 
@@ -170,46 +165,37 @@ public class BacklogServiceImpl
     public StartResult startDevelopment(String id)
     {
         BacklogItem item = require(id);
-        if (item.isStarted()) {
-            throw status(409, "backlog item already started");
+        if (!BacklogItem.STATUS_CREATED.equals(item.status())) {
+            throw status(409, "backlog item is not in created (can't start exploration)");
         }
-        String seedPrompt = item.body().isBlank() ? item.title() : item.title() + "\n\n" + item.body();
-        Thread thread = threadStore.findThreadById(item.threadId())
-                .orElseThrow(() -> status(404, "thread not found: " + item.threadId()));
-        // The task is cut from the clone the thread's latest task ran in.
-        String workingDir = taskStore.findLatestTaskForThread(item.threadId())
-                .map(Task::workingDir)
-                .filter(d -> d != null && !d.isBlank())
-                .orElse(null);
-        if (workingDir == null) {
-            throw status(400, "could not start task: thread has no working dir to cut from");
+        // Hand the item to the trunk as a fresh planning prompt: the trunk
+        // agent reads the code, asks clarifying questions, drafts a plan, and
+        // eventually cuts a task — none of which happens here. We only post
+        // the prompt and flip the item to in-progress.
+        String prompt = item.body().isBlank()
+                ? item.title()
+                : item.title() + "\n\n" + item.body();
+        threadService.sendTrunk(item.threadId(), prompt);
+
+        BacklogItem updated = store.save(item.markInProgress(Instant.now()));
+        distillation.record(
+                "backlog-start", updated.id(), "started", null,
+                Map.of("title", updated.title()), updated.threadId(), updated.workspaceId());
+        return new StartResult(updated, /* taskId — none cut yet */ null);
+    }
+
+    @Override
+    public BacklogItem cancelExploration(String id)
+    {
+        BacklogItem item = require(id);
+        if (!BacklogItem.STATUS_IN_PROGRESS.equals(item.status())) {
+            throw status(409, "backlog item is not in exploration");
         }
-        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
-                thread.kind(),
-                thread.provider(),
-                thread.model(),
-                item.title(),
-                workingDir,
-                /* branchName — worktree create derives it */ null,
-                seedPrompt,
-                /* initialGroupIds */ List.of(),
-                "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
-                thread.flow(),
-                thread.workspaceId(),
-                thread.workModel(),
-                /* trunkPlan */ null);
-        String linkedTaskId;
-        try {
-            linkedTaskId = threadService.materialiseTask(item.threadId(), request).id();
-        }
-        catch (IllegalArgumentException e) {
-            throw status(400, "could not start task: " + e.getMessage());
-        }
-        BacklogItem updated = item.markResolved(linkedTaskId, Instant.now());
-        store.save(updated);
-        return new StartResult(updated, linkedTaskId);
+        BacklogItem restored = store.save(item.markCreated());
+        distillation.record(
+                "backlog-cancel-exploration", restored.id(), "cancelled", null,
+                Map.of("title", restored.title()), restored.threadId(), restored.workspaceId());
+        return restored;
     }
 
     private BacklogItem require(String id)

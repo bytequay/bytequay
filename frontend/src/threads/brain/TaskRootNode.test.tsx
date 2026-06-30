@@ -108,6 +108,26 @@ describe('TaskRootNode', () => {
     expect(container.querySelector('.actions-row')).toBeTruthy();
   });
 
+  it('renders typed steps: file chips, per-step risk, and out-of-scope', () => {
+    const { container } = render(
+      <TaskRootNode plan={plan({
+        steps: [
+          { ordinal: 1, action: 'Add parse() to PullRequestRef', detail: 'null-tolerant validation', files: ['domain/PullRequestRef.java'], risk: 'low' },
+          { ordinal: 2, action: 'Hoist the duplicated set', risk: 'opt' },
+        ],
+        outOfScope: ['stream/Optional rewrites', 'inline-helper hints'],
+      })} />,
+    );
+    // Step 1 (open by default) shows its detail + file chip.
+    expect(container.querySelector('.plan-step__files .fref')?.textContent).toBe('domain/PullRequestRef.java');
+    expect(container.textContent).toContain('null-tolerant validation');
+    // Per-step risk pills, including the optional pill.
+    const risks = [...container.querySelectorAll('.plan-step .risk')].map(r => r.textContent);
+    expect(risks).toEqual(['low', 'opt']);
+    // Out-of-scope mini-card.
+    expect(container.querySelector('.plan-mini__oos')?.textContent).toContain('stream/Optional rewrites');
+  });
+
   it('a locked plan is read-only (no review bar)', () => {
     const { container } = render(<TaskRootNode plan={plan({ state: 'locked' })} />);
     expect(container.querySelector('.review-bar')).toBeNull();

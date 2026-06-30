@@ -729,7 +729,15 @@ public class StageServiceImpl
                 // ("1. edit X"); the rendered <ol> already numbers each step,
                 // so strip a leading "N." / "N)" to avoid double numbering.
                 action = action.replaceFirst("^\\s*\\d+[.)]\\s+", "");
-                steps.add(new TaskBrainViewData.PlanStep(s.path("ordinal").asInt(index), action));
+                List<String> files = textList(s.path("files"));
+                String detail = firstNonBlank(s.path("rationale").asText(""), s.path("detail").asText(""));
+                String risk = s.path("risk").asText("");
+                steps.add(new TaskBrainViewData.PlanStep(
+                        s.path("ordinal").asInt(index),
+                        action,
+                        files,
+                        detail.isBlank() ? null : detail,
+                        risk.isBlank() ? null : risk));
             }
         }
         JsonNode signals = latest.path("signals");
@@ -783,7 +791,24 @@ public class StageServiceImpl
                 planSignals,
                 recorded.size(),
                 followups,
+                textList(latest.path("outOfScope")),
                 error);
+    }
+
+    /** A JSON array node read as a list of non-blank strings; empty otherwise. */
+    private static List<String> textList(JsonNode node)
+    {
+        if (!node.isArray()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (JsonNode n : node) {
+            String v = n.asText("").strip();
+            if (!v.isBlank()) {
+                out.add(v);
+            }
+        }
+        return out;
     }
 
     private JsonNode parseJson(String json)

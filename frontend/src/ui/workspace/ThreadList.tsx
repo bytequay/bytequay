@@ -97,9 +97,13 @@ export function ThreadList({
                 className={task.id === selectedTaskId ? 'task-subhead active' : 'task-subhead'}
                 onClick={() => onOpenTask?.(task.id)}
               >
-                {task.pr !== undefined && <PrStateIcon state={task.pr} />}
+                {/* One leading lifecycle mark before the name: the GitHub
+                    PR glyph once a PR exists (open / merged), else the
+                    pre-PR dot (green created → amber developing). */}
+                {task.pr !== undefined
+                  ? <PrStateIcon state={task.pr} />
+                  : task.dot !== undefined && <StatusDot variant={task.dot} />}
                 <span className="nm">{task.label}</span>
-                {task.dot !== undefined && <StatusDot variant={task.dot} />}
               </button>
             ))}
           </Fragment>

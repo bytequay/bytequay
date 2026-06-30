@@ -27,6 +27,15 @@
 .v3-dot--sleep {
   background: var(--text-4);
 }
+/* Pre-PR task-lifecycle marks: green when freshly created, amber + pulsing
+   while in development. Once a PR exists the row swaps to a PR-state glyph. */
+.v3-dot--created {
+  background: var(--green);
+}
+.v3-dot--developing {
+  background: #d4a017;
+  animation: v3-pulse 1.6s infinite;
+}
 .v3-dot--done {
   background: var(--green);
 }

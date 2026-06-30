@@ -187,21 +187,26 @@ describe('ThreadList', () => {
         selectedId="t1"
         tasks={[
           { id: 'k1', label: 'Add cost meter', dot: 'done', pr: 'merged' },
-          { id: 'k2', label: 'Drop dead config', dot: 'active', pr: 'open' },
+          { id: 'k2', label: 'Drop dead config', dot: 'developing', pr: 'open' },
+          { id: 'k3', label: 'Sketch the plan', dot: 'created' },
         ]}
         selectedTaskId="k2"
         onOpenTask={onOpenTask}
       />,
     );
-    // BOTH concurrent tasks render under the selected thread — not just one.
+    // ALL concurrent tasks render under the selected thread — not just one.
     const rows = container.querySelectorAll('.task-subhead');
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(3);
     expect(rows[0].textContent).toContain('Add cost meter');
     expect(rows[1].textContent).toContain('Drop dead config');
-    // The selected task is highlighted; each carries its dot + PR glyph.
+    // The selected task is highlighted. Each row leads with a single mark:
+    // the PR glyph once a PR exists, else the pre-PR lifecycle dot.
     expect(container.querySelector('.task-subhead.active')?.textContent).toContain('Drop dead config');
-    expect(container.querySelector('.task-subhead .v3-dot--done')).toBeTruthy();
     expect(container.querySelector('.task-subhead .pr-state-icon--merged')).toBeTruthy();
+    expect(container.querySelector('.task-subhead .pr-state-icon--open')).toBeTruthy();
+    // The PR'd rows show no dot; the pre-PR row leads with its created dot.
+    expect(container.querySelector('.task-subhead .v3-dot--done')).toBeNull();
+    expect(container.querySelector('.task-subhead .v3-dot--created')).toBeTruthy();
     fireEvent.click(screen.getByText('Add cost meter'));
     expect(onOpenTask).toHaveBeenCalledWith('k1');
   });

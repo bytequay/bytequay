@@ -30,6 +30,19 @@ public interface BacklogService
      *  running task instead of starting immediately). */
     record StartResult(BacklogItem item, String taskId) {}
 
+    /** A candidate item supplied to {@link #createBatch}. */
+    record NewBacklogItem(String title, String body, List<String> tags, String priority) {}
+
+    /** Result of a batch create: the new item ids (creation order) and the
+     *  shared group id linking them. */
+    record BatchResult(List<String> backlogItemIds, String relatedBacklogGroupId) {}
+
+    /** Create N items at once as a trunk-split group ({@code source =
+     *  trunk-split}, {@code createdBy = trunk-agent}), cross-linking each
+     *  item's {@code relatedBacklogIds} to its siblings. Backs the
+     *  {@code propose_backlog_items} tool and the batch endpoint. */
+    BatchResult createBatch(String threadId, List<NewBacklogItem> items);
+
     /** Items on a thread, oldest-first. */
     List<BacklogItem> list(String threadId);
 

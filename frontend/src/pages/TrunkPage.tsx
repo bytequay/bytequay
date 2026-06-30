@@ -119,10 +119,11 @@ export function TrunkPage({
   const tasksTabContent = (() => {
     switch (taskSub) {
       case 'all':
+        // "All" lists every task flat — active then closed — with no Closed
+        // folder; the dedicated Closed sub-tab is the place to fold them away.
         return (
           <TasksTabContent
-            active={tasks.active}
-            closed={tasks.closed}
+            active={[...tasks.active, ...tasks.closed]}
             onOpenTask={onOpenTask}
           />
         );

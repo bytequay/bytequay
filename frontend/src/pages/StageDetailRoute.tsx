@@ -36,7 +36,13 @@ import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
+import { makeIdCache } from '../threads/brain/idCache';
 import type { TaskPhase } from '../types/brainView';
+
+/** Last-known cumulative diff per thread, so switching stages within a task
+ *  paints the diff at once (the diff is task-wide, identical across the
+ *  task's stages) instead of flashing "Loading diff…" on every hop. */
+const diffCache = makeIdCache<DiffFileDto[]>();
 
 const KIND: Partial<Record<StageType, StageKind>> = {
   PLAN_STAGE: 'plan',
@@ -97,7 +103,9 @@ export function StageDetailRoute({
   const hasDiff = stageKind !== 'plan';
 
   // ── Right-pane data: the task's cumulative diff ─────────────────────────
-  const [files, setFiles] = useState<DiffFileDto[] | null>(null);
+  // Seed from the per-thread cache so a stage switch shows the diff instantly
+  // (stale-while-revalidate) rather than flashing the "Loading diff…" state.
+  const [files, setFiles] = useState<DiffFileDto[] | null>(() => diffCache.get(threadId) ?? null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
 
@@ -109,11 +117,12 @@ export function StageDetailRoute({
     void bridge.getTaskCumulativeDiff(threadId)
       .then(list => {
         if (cancelled) return;
+        diffCache.set(threadId, list);
         setFiles(list);
         setSelectedPath(prev => (prev !== null && list.some(f => f.filename === prev)
           ? prev : list[0]?.filename ?? null));
       })
-      .catch(() => { if (!cancelled) setFiles([]); });
+      .catch(() => { if (!cancelled) setFiles(prev => prev ?? []); });
     return () => { cancelled = true; };
   }, [threadId, hasDiff]);
 
@@ -356,29 +365,42 @@ export function StageDetailRoute({
   const totalDels = files?.reduce((n, f) => n + f.deletions, 0) ?? 0;
 
   // The task-scoped sidebar with the live-plan lifecycle diagram, replacing
-  // the global rail while inside a task. Nodes derive from the actual stages.
+  // the global rail while inside a task. The plan diagram is task-level — the
+  // same set of stages regardless of which one you're viewing — so it derives
+  // from the stage detail when present and otherwise from the brain view
+  // (which is keyed by taskId and stays loaded across stage switches). That
+  // keeps the rail on screen when hopping to a not-yet-loaded stage instead of
+  // collapsing the layout for a frame.
+  const planStages = data?.allStages ?? brain.stages;
+  const planSubStages = data?.subStages ?? brain.subStages;
+  const sidebarTitle = data?.task.title ?? brain.task.title;
+  const sidebarBranch = data?.task.branch ?? brain.task.branch;
+  const sidebarPhase = (data?.task.currentPhase ?? brain.task.currentPhase) as TaskPhase;
+  const sidebarFinished = taskCompleted || (data === null && brain.task.terminal);
   const livePlanNodes = useMemo(() => buildLivePlan({
-    stages: data?.allStages ?? [],
-    subStages: data?.subStages ?? [],
+    stages: planStages,
+    subStages: planSubStages,
     task: {
       prNumber,
-      currentPhase: (data?.task.currentPhase ?? 'IMPLEMENTING') as TaskPhase,
-      terminal: state === 'CLOSED',
+      currentPhase: sidebarPhase,
+      terminal: state === 'CLOSED' || (data === null && brain.task.terminal),
     },
     prStatus: pr?.status ?? null,
     mergeReady: proposalAction(shipProposal) === 'merge_pr',
     viewedStageId: stageId,
     // Pulse this stage's node while its agent is mid-turn.
     working,
-  }), [data, prNumber, pr, state, stageId, shipProposal, working]);
+  }), [planStages, planSubStages, sidebarPhase, prNumber, pr, state, stageId, shipProposal, working, data, brain.task.terminal]);
 
-  const sidebar = data === null ? undefined : (
+  // Render once we have any stage data — the stage detail, or the task-level
+  // brain stages — so the rail persists across stage switches.
+  const sidebar = planStages.length === 0 ? undefined : (
     <TaskSidebar
       task={{
-        title: data.task.title,
-        branch: data.task.branch,
-        metaLine: data.task.currentPhase.replace(/_/g, ' ').toLowerCase(),
-        finished: taskCompleted,
+        title: sidebarTitle,
+        branch: sidebarBranch,
+        metaLine: sidebarPhase.replace(/_/g, ' ').toLowerCase(),
+        finished: sidebarFinished,
       }}
       nodes={livePlanNodes}
       onBack={onBack}

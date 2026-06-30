@@ -14,6 +14,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TaskBrainViewData } from '../../types/brainView';
 import { buildEmptyBrainView } from './brainViewFixture';
+import { makeIdCache } from './idCache';
+
+/** Last-known brain view per task id, so returning to a task's brain (or a
+ *  stage page that mounts it) paints the prior snapshot at once while the
+ *  poll revalidates — see {@link makeIdCache}. */
+const cache = makeIdCache<TaskBrainViewData>();
 
 /** Steady poll cadence while the brain view is open. */
 const POLL_MS = 5000;
@@ -46,9 +52,18 @@ type BrainViewState = {
  * user sends a message.
  */
 export function useBrainViewData(taskId: string): BrainViewState {
-  const [data, setData] = useState<TaskBrainViewData>(() => buildEmptyBrainView(taskId));
+  const [data, setData] = useState<TaskBrainViewData>(() => cache.get(taskId) ?? buildEmptyBrainView(taskId));
   const [error, setError] = useState<string | null>(null);
   const fastUntilRef = useRef<number>(0);
+
+  // On a task switch (no remount), swap to that task's cached snapshot — or a
+  // neutral empty shell — rather than showing the previous task's brain.
+  const shownIdRef = useRef(taskId);
+  if (shownIdRef.current !== taskId) {
+    shownIdRef.current = taskId;
+    setData(cache.get(taskId) ?? buildEmptyBrainView(taskId));
+    setError(null);
+  }
 
   const fetchOnce = useCallback(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -56,7 +71,7 @@ export function useBrainViewData(taskId: string): BrainViewState {
       return;
     }
     bridge.getBrainView(taskId)
-      .then(d => { setData(d); setError(null); })
+      .then(d => { cache.set(taskId, d); setData(d); setError(null); })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load the brain view'));
   }, [taskId]);
 

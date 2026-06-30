@@ -203,6 +203,39 @@ describe('buildLivePlan', () => {
     expect(onBrain.some(n => n.key === 'plan')).toBe(false);
   });
 
+  it('pulses the Root node while the brain is thinking, even after the plan is approved', () => {
+    const idle = buildLivePlan({
+      stages: [stage('PLAN_STAGE', 'CLOSED')], subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      viewingBrain: true,
+    });
+    // Approved plan reads done when idle…
+    expect(node(idle, 'root').status).toBe('done');
+
+    const thinking = buildLivePlan({
+      stages: [stage('PLAN_STAGE', 'CLOSED')], subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      viewingBrain: true,
+      working: true,
+    });
+    // …but pulses (planning) the moment the brain starts working.
+    expect(node(thinking, 'root').status).toBe('planning');
+  });
+
+  it('pulses the viewed stage node while its agent works, not the others', () => {
+    const dev = stage('DEVELOPMENT_STAGE', 'CLOSED');
+    const nodes = buildLivePlan({
+      stages: [stage('PLAN_STAGE', 'CLOSED'), dev], subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      viewedStageId: dev.id,
+      working: true,
+    });
+    // The viewed Dev node pulses (running) even though its stage row is closed…
+    expect(node(nodes, 'dev').status).toBe('running');
+    // …while a node that isn't the active view is untouched by `working`.
+    expect(node(nodes, 'cleanup').status).toBe('future');
+  });
+
   it('places CI Fix / Comments on the parallel split', () => {
     const nodes = buildLivePlan({
       stages: [], subStages: [],

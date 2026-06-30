@@ -354,7 +354,9 @@ export function StageDetailRoute({
     prStatus: pr?.status ?? null,
     mergeReady: proposalAction(shipProposal) === 'merge_pr',
     viewedStageId: stageId,
-  }), [data, prNumber, pr, state, stageId, shipProposal]);
+    // Pulse this stage's node while its agent is mid-turn.
+    working,
+  }), [data, prNumber, pr, state, stageId, shipProposal, working]);
 
   const sidebar = data === null ? undefined : (
     <TaskSidebar

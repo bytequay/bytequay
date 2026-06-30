@@ -44,7 +44,7 @@ describe('TaskBrainRoute', () => {
     expect(await screen.findByText('Brain is thinking…')).toBeTruthy();
   });
 
-  it('shows the Plan tab with Approve when the plan awaits the user', async () => {
+  it('shows the root-node plan with the review bar when the plan awaits the user', async () => {
     const approvePlan = vi.fn().mockResolvedValue({ devStageId: 'dev-9', redirectUrl: '' });
     const base = buildMockBrainView(0);
     const plan: PlanCardDto = {
@@ -64,9 +64,10 @@ describe('TaskBrainRoute', () => {
     const onOpenStage = vi.fn();
     render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={onOpenStage} onOpenCode={() => {}} onClosed={() => {}} />);
 
-    // Plan is the default tab → its intent step + Approve action show.
+    // The plan renders inline as the root node → its step + the review bar's
+    // "Approve & start dev" action show.
     expect(await screen.findByText('Build the meter')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Approve plan' }));
+    fireEvent.click(screen.getByRole('button', { name: /Approve & start dev/ }));
     await waitFor(() => expect(approvePlan).toHaveBeenCalledWith('plan-1'));
     await waitFor(() => expect(onOpenStage).toHaveBeenCalledWith('dev-9'));
   });

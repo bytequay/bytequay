@@ -76,7 +76,7 @@ export function TrunkPage({
     modePill?: ReactNode;
     placeholder?: string;
   };
-  tasks: { active: TaskCardData[]; queued: TaskCardData[]; closed: TaskCardData[] };
+  tasks: { active: TaskCardData[]; closed: TaskCardData[] };
   onOpenTask?: (id: string) => void;
   /** User-confirmed "cut a task from the plan" — the trunk plans, the
    *  user cuts. Renders the bright Cut-task button when provided. */
@@ -91,12 +91,12 @@ export function TrunkPage({
   const { paneWidth, bodyRef, onResize } = usePaneWidth('bq.trunkPaneWidth');
 
   const unreadCount = pane.signals.filter(s => s.readAt === null).length;
-  // The Tasks tab's "All" sub-tab renders active cards + the Queued folder +
-  // the Closed folder, so the top badge counts every task.
-  const taskCount = tasks.active.length + tasks.queued.length + tasks.closed.length;
+  // The Tasks tab's "All" sub-tab renders active cards + the Closed folder,
+  // so the top badge counts every task.
+  const taskCount = tasks.active.length + tasks.closed.length;
   // Tasks whose PR is ready to merge (CI green, no unresolved comments,
   // mergeable) — surfaced in the "Ready to merge" sub-tab + tinted in All.
-  const mergeable = [...tasks.active, ...tasks.queued, ...tasks.closed].filter(t => t.mergeReady === true);
+  const mergeable = [...tasks.active, ...tasks.closed].filter(t => t.mergeReady === true);
 
   const openTab = (tab: TrunkTab) => { setActiveTab(tab); setPaneOpen(true); };
 
@@ -124,7 +124,6 @@ export function TrunkPage({
         return (
           <TasksTabContent
             active={tasks.active}
-            queued={tasks.queued}
             closed={tasks.closed}
             onOpenTask={onOpenTask}
           />
@@ -132,11 +131,11 @@ export function TrunkPage({
       case 'mergeable':
         return mergeable.length === 0
           ? <div className="pane-empty-note">No tasks are ready to merge right now.</div>
-          : <TasksTabContent active={mergeable} queued={[]} onOpenTask={onOpenTask} />;
+          : <TasksTabContent active={mergeable} onOpenTask={onOpenTask} />;
       case 'closed':
         return tasks.closed.length === 0
           ? <div className="pane-empty-note">No closed tasks yet.</div>
-          : <TasksTabContent active={tasks.closed} queued={[]} onOpenTask={onOpenTask} />;
+          : <TasksTabContent active={tasks.closed} onOpenTask={onOpenTask} />;
     }
   })();
 

@@ -96,21 +96,21 @@ describe('DetailsTabContent', () => {
 });
 
 describe('TasksTabContent', () => {
-  it('renders active cards on top and a collapsible Queued folder', () => {
+  it('renders active cards on top and a collapsible Closed folder', () => {
     const onOpenTask = vi.fn();
     const { container } = render(
       <TasksTabContent
         active={[{ id: 'a', title: 'Active task', status: 'foreground' }]}
-        queued={[{ id: 'q', title: 'Queued task', status: 'pending' }]}
+        closed={[{ id: 'c', title: 'Closed task', status: 'closed' }]}
         onOpenTask={onOpenTask}
       />,
     );
-    expect(container.querySelectorAll('.task-card').length).toBe(2);
-    expect(screen.getByText('Queued')).toBeTruthy();
-    expect(container.querySelector('.status-pill.pending')).toBeTruthy();
-    // Collapse the queued folder → only the active card remains.
-    fireEvent.click(container.querySelector('.folder-row') as HTMLElement);
+    // The Closed folder starts collapsed: only the active card shows.
     expect(container.querySelectorAll('.task-card').length).toBe(1);
+    expect(screen.getByText('Closed')).toBeTruthy();
+    // Expand the Closed folder → the closed card appears too.
+    fireEvent.click(container.querySelector('.folder-row') as HTMLElement);
+    expect(container.querySelectorAll('.task-card').length).toBe(2);
     fireEvent.click(screen.getByText('Active task'));
     expect(onOpenTask).toHaveBeenCalledWith('a');
   });

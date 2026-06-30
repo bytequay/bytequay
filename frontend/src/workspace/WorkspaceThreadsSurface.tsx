@@ -13,7 +13,6 @@
  */
 import { Logo } from '../ui/primitives';
 import { logoColorFor, monogram, threadRepo } from '../pages/useWorkspaceNav';
-import { taskStatusBadge } from '../threads/taskStatusBadge';
 import type { ThreadDto, WorkUnitTaskDto } from '../types';
 
 /**
@@ -59,28 +58,12 @@ function ThreadCard({ thread, onOpen }: { thread: ThreadDto; onOpen?: (id: strin
       <Logo initials={monogram(repo)} color={logoColorFor(repo)} size="md" />
       <div className="col">
         <div className="title-row"><span className="title">{thread.title}</span></div>
-        <div className="sub">{subText(repo, thread.activeTask)}</div>
+        <div className="sub">{subText(repo, null)}</div>
       </div>
       <div className="right">
         <span className="ts">{relativeTime(thread.updatedAt)}</span>
-        {thread.activeTask !== null && (
-          <TaskPill task={thread.activeTask} />
-        )}
       </div>
     </button>
-  );
-}
-
-/** The right-hand task pill: a colour-coded status dot + "N tasks · status",
- *  so running vs finished reads at a glance across the list. */
-function TaskPill({ task }: { task: WorkUnitTaskDto }) {
-  const { label, tone } = taskStatusBadge(task.status);
-  const count = `${task.seq} task${task.seq === 1 ? '' : 's'}`;
-  return (
-    <span className={`tasks-pill tasks-pill--${tone}`}>
-      <span className="dot" aria-hidden />
-      {`${count} · ${label.toLowerCase()}`}
-    </span>
   );
 }
 

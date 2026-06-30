@@ -68,7 +68,7 @@ export default function ThreadZoomModal({
     // foreground task so the user lands on the active surface.
     const stored = loadLastTaskId(thread.id);
     if (stored !== null) return stored;
-    return thread.activeTask?.id ?? null;
+    return null;
   });
 
   useEffect(() => {
@@ -105,7 +105,7 @@ export default function ThreadZoomModal({
             <span style={ctxTypeBadgeStyle('thread')}>◆ THREAD</span>
           ) : (
             <span style={ctxTypeBadgeStyle('task')}>
-              ● TASK {thread.activeTask?.id === taskId ? thread.activeTask?.seq ?? '' : ''}
+              ● TASK
             </span>
           )}
           {taskId !== null && (

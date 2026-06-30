@@ -11,26 +11,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ThreadDto } from '../types';
+import type { WorkUnitTaskDto } from '../types';
 
-type ThreadActiveTaskFields = Pick<ThreadDto, 'activeTask'>;
+/** The execution surface a thread's display delegates to. The thread DTO no
+ *  longer projects a single active task, so callers pass the task they have
+ *  (or null when the thread has none) and these helpers degrade gracefully. */
+type TaskFields = Pick<WorkUnitTaskDto, 'worktreePath' | 'workingDir' | 'branchName'> | null | undefined;
 
-/** Directory the agent process would be spawned in for this thread —
- *  delegates to the active task's worktree (or its workingDir if no
- *  worktree). Empty string when the thread has no active task; that's
- *  a 0-Task brainstorm thread that no agent can attach to. */
-export function threadAgentCwd(thread: ThreadActiveTaskFields): string {
-  const active = thread.activeTask;
-  if (active === null) return '';
-  return nonBlank(active.worktreePath) ?? active.workingDir ?? '';
+/** Directory the agent process would be spawned in for a thread — the
+ *  task's worktree (or its workingDir if no worktree). Empty string when
+ *  there's no task to attach to. */
+export function threadAgentCwd(task: TaskFields): string {
+  if (task === null || task === undefined) return '';
+  return nonBlank(task.worktreePath) ?? task.workingDir ?? '';
 }
 
-export function threadDisplayBranch(thread: ThreadActiveTaskFields): string | null {
-  return nonBlank(thread.activeTask?.branchName ?? null);
+export function threadDisplayBranch(task: TaskFields): string | null {
+  return nonBlank(task?.branchName ?? null);
 }
 
-export function isWorktreeBackedTask(thread: ThreadActiveTaskFields): boolean {
-  return nonBlank(thread.activeTask?.worktreePath ?? null) !== null;
+export function isWorktreeBackedTask(task: TaskFields): boolean {
+  return nonBlank(task?.worktreePath ?? null) !== null;
 }
 
 export function threadModelLabel(model: string | null | undefined): string {

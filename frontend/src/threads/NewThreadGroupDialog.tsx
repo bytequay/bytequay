@@ -55,9 +55,7 @@ export default function NewThreadGroupDialog({
     const q = search.trim().toLowerCase();
     if (q === '') return availableTasks;
     return availableTasks.filter(t =>
-      t.title.toLowerCase().includes(q)
-        || (t.activeTask?.branchName ?? '').toLowerCase().includes(q)
-        || `#${t.activeTask?.prNumber ?? ''}`.includes(q),
+      t.title.toLowerCase().includes(q),
     );
   }, [availableTasks, search]);
 
@@ -209,11 +207,6 @@ export default function NewThreadGroupDialog({
                           <span style={flowChipStyle(t.flow)}>
                             {t.flow === 'review' ? 'REVIEW' : 'BUILD'}
                           </span>
-                          {t.activeTask?.branchName != null && (
-                            <span style={metaItemStyle}>
-                              {t.activeTask.branchName}
-                            </span>
-                          )}
                           <span style={metaItemStyle}>
                             {humanStatus(t.status)}
                           </span>

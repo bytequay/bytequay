@@ -121,8 +121,7 @@ export default function ThreadsGroupSidebar({
                 onClick={() => onSelectThread?.(t.id)}
                 onDoubleClick={() => onZoomThread?.(t.id)}
                 style={threadNavRowStyle(t.id === selectedThreadId)}
-                title={`${t.title}${t.activeTask?.branchName != null
-                    ? ` · ${t.activeTask.branchName}` : ''}`}
+                title={t.title}
               >
                 <span
                   style={threadNavDotStyle(t.status)}

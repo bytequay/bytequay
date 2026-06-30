@@ -88,10 +88,7 @@ function computeCounts(
     else if (!isAuto) {
       mine++;
     }
-    const taskStatus = t.activeTask?.status;
-    if (t.status === 'AWAITING'
-        || taskStatus === 'AWAITING_REVIEW'
-        || taskStatus === 'NEEDS_ATTENTION') {
+    if (t.status === 'AWAITING') {
       awaiting++;
     }
   }

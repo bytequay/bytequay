@@ -316,7 +316,7 @@ export default function ThreadDetailPage({
    *  rooted under the watched repo resolve correctly. */
   const resolveTaskRepo = useCallback(
     (t: ThreadDto): { owner: string; repo: string } | null => {
-      const segments = (t.activeTask?.workingDir ?? '').split('/').filter(Boolean).map((s: string) => s.toLowerCase());
+      const segments = ''.split('/').filter(Boolean).map((s: string) => s.toLowerCase());
       if (segments.length === 0) return null;
       for (const wr of watchedRepos) {
         if (segments.includes(wr.repo.toLowerCase())) {
@@ -953,8 +953,8 @@ function StructuredView({
     : null;
   const liveTokenTotal = (liveUsage?.tokensIn ?? 0) + (liveUsage?.tokensOut ?? 0);
   const liveUsageLabel = formatLiveUsage(liveUsage);
-  const agentCwd = threadAgentCwd(thread);
-  const displayBranch = threadDisplayBranch(thread);
+  const agentCwd = threadAgentCwd(null);
+  const displayBranch = threadDisplayBranch(null);
 
   return (
     <div style={structuredWrapStyle}>
@@ -976,7 +976,7 @@ function StructuredView({
             />
           </div>
           <div style={twHeaderMetaStyle}>
-            <RepoAvatar workingDir={thread.activeTask?.workingDir ?? ''} size={14} />
+            <RepoAvatar workingDir={''} size={14} />
             {agentCwd && (
               <span style={twHeaderRepoStyle} title={agentCwd}>{shortenPath(agentCwd)}</span>
             )}
@@ -1230,8 +1230,8 @@ function ThreadWindowSidebar({
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, modelName), [messages, modelName]);
   const scheduler = useMemo(() => summarizeTurnState(turns, thread.status), [turns, thread.status]);
-  const agentCwd = threadAgentCwd(thread);
-  const displayBranch = threadDisplayBranch(thread);
+  const agentCwd = threadAgentCwd(null);
+  const displayBranch = threadDisplayBranch(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
   const openAgentCwd = useCallback(async (target: 'finder' | 'terminal' | 'ide') => {
     setSessionActionError(null);
@@ -1358,34 +1358,6 @@ function ThreadWindowSidebar({
               copyValue={displayBranch}
               mono
               wrap
-            />
-          )}
-          {thread.activeTask?.linkedPrNumber != null && (
-            <div style={metricRowStyle}>
-              <span style={metricLabelStyle}>PR</span>
-              <span style={{ ...metricValueStyle, textAlign: 'right' }}>
-                {onOpenPr ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenPr(thread.activeTask!.linkedPrNumber as number)}
-                    style={prChipBtnStyle}
-                    title={`Open PR #${thread.activeTask.linkedPrNumber}`}
-                  >
-                    #{thread.activeTask.linkedPrNumber}
-                  </button>
-                ) : (
-                  <span style={{ fontFamily: '"SF Mono", Menlo, monospace', fontSize: 12 }}>
-                    #{thread.activeTask.linkedPrNumber}
-                  </span>
-                )}
-              </span>
-            </div>
-          )}
-          {thread.activeTask?.linkedIssueNumber != null && (
-            <Metric
-              label="Issue"
-              value={`#${thread.activeTask.linkedIssueNumber}`}
-              mono
             />
           )}
         </div>
@@ -1777,8 +1749,8 @@ function TerminalWrap({
   // ConversationPane so the rail's "absolute" coordinates resolve
   // against the visible transcript zone, not the whole window.
   const termHistoryRef = useRef<HTMLDivElement | null>(null);
-  const agentCwd = threadAgentCwd(thread);
-  const displayBranch = threadDisplayBranch(thread);
+  const agentCwd = threadAgentCwd(null);
+  const displayBranch = threadDisplayBranch(null);
   return (
     <div style={terminalWrapStyle}>
       <div style={termToolbarStyle}>
@@ -2899,21 +2871,6 @@ const groupsRowStyle: React.CSSProperties = {
 };
 const groupsEmptyStyle: React.CSSProperties = {
   fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic',
-};
-// PR chip in the Session sidebar — pill with the accent colour so
-// it reads as a hyperlink without the underline noise.
-const prChipBtnStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center',
-  padding: '1px 8px',
-  background: 'rgba(124,92,255,0.10)',
-  color: 'var(--accent-dark, #5b21b6)',
-  border: '1px solid rgba(124,92,255,0.25)',
-  borderRadius: 999,
-  fontFamily: '"SF Mono", Menlo, monospace',
-  fontSize: 11,
-  fontWeight: 700,
-  cursor: 'pointer',
-  letterSpacing: '0.02em',
 };
 const groupChipStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4,

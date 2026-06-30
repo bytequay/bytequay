@@ -131,8 +131,8 @@ function ThreadRow({
     onOpenThread(thread.id);
   };
 
-  const branch = thread.activeTask?.branchName ?? null;
-  const prNumber = thread.activeTask?.prNumber ?? null;
+  const branch: string | null = null;
+  const prNumber: number | null = null;
   const description = descriptionFor(thread, status);
   const action = isAuto ? autoActionFor(status) : 'Open';
   const age = relativeTime(thread.updatedAt);
@@ -218,17 +218,11 @@ function emptyCopyFor(filter: StatusFilter): string {
  *  surface; non-AUTO filters use the thread's actual run state so the
  *  same row template works for every chip. */
 function classify(thread: ThreadDto, isAuto: boolean): RowStatus {
-  const taskStatus = thread.activeTask?.status;
   if (isAuto) {
-    if (taskStatus === 'NEEDS_ATTENTION') return 'NEEDS_ATTENTION';
-    if (taskStatus === 'AWAITING_REVIEW') return 'AWAITING_REVIEW';
     if (thread.status === 'RUNNING') return 'RUNNING';
     return 'COMPLETED';
   }
-  // Non-AUTO surfaces use the thread's own status; parked states still
-  // bubble up so "Awaiting me" lists those rows with the right chip.
-  if (taskStatus === 'NEEDS_ATTENTION') return 'NEEDS_ATTENTION';
-  if (taskStatus === 'AWAITING_REVIEW') return 'AWAITING_REVIEW';
+  // Non-AUTO surfaces use the thread's own status.
   switch (thread.status) {
     case 'RUNNING':   return 'RUNNING';
     case 'AWAITING':  return 'AWAITING';

@@ -48,7 +48,6 @@ function renderTrunk() {
       composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
       tasks={{
         active: [{ id: 'ta', title: 'Active task', status: 'foreground' }],
-        queued: [{ id: 'tq', title: 'Queued task', status: 'pending' }],
         closed: [{ id: 'tc', title: 'Closed task', status: 'closed' }],
       }}
     />,
@@ -65,9 +64,10 @@ describe('TrunkPage', () => {
     expect(screen.getByTestId('conv')).toBeTruthy();
     expect(screen.getByText('THREAD')).toBeTruthy();
     expect(screen.getByText('Backend cleanup')).toBeTruthy();
-    // Tasks tab active by default: active card + queued folder.
+    // Tasks tab active by default: active card + Closed folder.
     expect(await screen.findByText('Active task')).toBeTruthy();
-    expect(screen.getByText('Queued')).toBeTruthy();
+    // "Closed" shows as both the sub-tab label and the folder header.
+    expect(screen.getAllByText('Closed').length).toBeGreaterThanOrEqual(1);
   });
 
   it('loads backlog + signals from the bridge and shows them in their tabs', async () => {

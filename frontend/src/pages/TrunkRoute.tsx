@@ -249,17 +249,23 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       .finally(() => setBusy(false));
   };
 
-  // Manual cut: seed a task from the latest planning prompt and queue it.
-  // The trunk agent can now cut tasks itself via create_task; this button
-  // stays as the user's own way to cut from the plan.
+  // Manual cut: seed a task from the latest planning prompt and create it
+  // immediately (POST /api/threads/{id}/tasks). The trunk agent can also cut
+  // tasks itself via create_task; this button is the user's own way to cut
+  // from the plan. The backend requires a workingDir — reuse the repo an
+  // existing task on this thread was cut from. With no such task we can't
+  // resolve one, so the button is hidden (task creation falls to the agent).
   const lastUserPrompt = [...messages].reverse().find(
     m => m.taskId === null && m.role === 'user' && m.type === 'text');
-  const cutTask = () => {
+  const workingDir = [...tasks].reverse()
+    .map(t => t.workingDir)
+    .find((d): d is string => d !== null && d.trim().length > 0) ?? null;
+  const cutTask = workingDir === null ? undefined : () => {
     const seed = lastUserPrompt !== undefined ? extractText(lastUserPrompt.contentJson) : '';
     const title = (seed.split('\n')[0] || thread?.title || 'New task').slice(0, 80);
-    window.bridge.queueAdd(threadId, title, 'MAIN', seed.length > 0 ? seed : null)
+    window.bridge.cutTaskNow(threadId, 'CLI_AGENT', title, workingDir, seed.length > 0 ? seed : null)
       .then(() => load())
-      .catch(() => { /* leave state; the queue UI reconciles */ });
+      .catch(() => { /* leave state; the poll reconciles */ });
   };
 
   // The foreground task — the one actually running now — is echoed as a
@@ -317,9 +323,8 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   );
 
   const active = tasks
-    .filter(t => t.status !== 'PENDING' && !TERMINAL_TASK_STATUSES.has(t.status))
+    .filter(t => !TERMINAL_TASK_STATUSES.has(t.status))
     .map(t => toCard(t, mergeReadyIds.has(t.id)));
-  const queued = tasks.filter(t => t.status === 'PENDING').map(t => toCard(t, false));
   const closed = tasks.filter(t => TERMINAL_TASK_STATUSES.has(t.status)).map(t => toCard(t, false));
 
   return (
@@ -328,7 +333,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       thread={{ title: thread?.title ?? 'Thread' }}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
-      tasks={{ active, queued, closed }}
+      tasks={{ active, closed }}
       onOpenTask={onOpenTask}
       onCutTask={cutTask}
     />

@@ -83,8 +83,6 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     errorMessage: null,
     workspaceId: 'ws-default',
     workModel: null,
-    activeTask: null,
-    queue: [],
     parallelSlots: 1,
   };
 }

@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { Card } from '../../conv';
+// ponytail: queue removed; Queued folder + its controlled-open machinery gone.
 import type { TaskStatus } from '../../conv';
 import type { PrGlyphState } from '../../primitives';
 
@@ -33,27 +34,19 @@ export type TaskCardData = {
 
 /**
  * The Tasks tab (trunk only). Active + paused tasks render as cards at
- * the top with no folder; PENDING tasks sit in a collapsible "Queued"
- * folder below (the same folder pattern as the sidebar's Closed folder).
- * SHIPPED tasks are not shown here — they stay in the conversation
- * history. Renders the same {@link Card} used inline in the conversation.
+ * the top with no folder; terminal tasks sit in a collapsible "Closed"
+ * folder below. SHIPPED tasks are not shown here — they stay in the
+ * conversation history. Renders the same {@link Card} used inline in the
+ * conversation.
  */
-export function TasksTabContent({ active, queued, closed = [], queuedExpanded, onToggleQueued, onOpenTask }: {
+export function TasksTabContent({ active, closed = [], onOpenTask }: {
   active: TaskCardData[];
-  queued: TaskCardData[];
   /** Terminal tasks (merged / canceled), shown in a collapsed "Closed"
-   *  folder below the queue. Omit to hide the folder. */
+   *  folder below. Omit to hide the folder. */
   closed?: TaskCardData[];
-  /** Controlled queued-folder state; self-managed (open) when omitted. */
-  queuedExpanded?: boolean;
-  onToggleQueued?: () => void;
   onOpenTask?: (id: string) => void;
 }) {
-  const [selfOpen, setSelfOpen] = useState(true);
   const [closedOpen, setClosedOpen] = useState(false);
-  const isControlled = queuedExpanded !== undefined;
-  const open = isControlled ? queuedExpanded : selfOpen;
-  const toggle = () => { if (isControlled) onToggleQueued?.(); else setSelfOpen(o => !o); };
 
   return (
     <>
@@ -71,30 +64,6 @@ export function TasksTabContent({ active, queued, closed = [], queuedExpanded, o
           onClick={onOpenTask !== undefined ? () => onOpenTask(t.id) : undefined}
         />
       ))}
-
-      {queued.length > 0 && (
-        <div className="closed-folder">
-          <button type="button" className="folder-row" onClick={toggle} aria-expanded={open}>
-            <span className="chev" aria-hidden>{open ? '▾' : '▸'}</span>
-            <span className="ic" aria-hidden>📥</span>
-            <span>Queued</span>
-            <span className="count">{queued.length}</span>
-          </button>
-          {open && queued.map(t => (
-            <Card
-              key={t.id}
-              kind="task"
-              title={t.title}
-              body={t.body}
-              status={t.status}
-              branch={t.branch}
-              createdLabel={t.createdLabel}
-              pr={t.pr}
-              onClick={onOpenTask !== undefined ? () => onOpenTask(t.id) : undefined}
-            />
-          ))}
-        </div>
-      )}
 
       {closed.length > 0 && (
         <div className="closed-folder">

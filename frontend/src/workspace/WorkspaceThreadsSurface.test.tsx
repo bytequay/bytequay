@@ -25,25 +25,21 @@ function thread(over: Partial<ThreadDto> = {}): ThreadDto {
     model: 'opus', costUsdMilli: 0, tokensIn: 0, tokensOut: 0,
     createdAt: '2026-06-24T00:00:00Z', updatedAt: '2026-06-24T00:00:00Z',
     endedAt: null, errorMessage: null, workspaceId: 'bq',
-    activeTask: {
-      id: 'wt1', threadId: 't1', seq: 2, status: 'RUNNING',
-      branchName: 'cleanup', workingDir: '/x/web',
-    } as ThreadDto['activeTask'],
-    workModel: null, queue: [], parallelSlots: 1,
+    workModel: null, parallelSlots: 1,
     ...over,
   } as ThreadDto;
 }
 
 describe('WorkspaceThreadsSurface', () => {
-  it('renders a thread card with repo logo, title, meta and a task pill', () => {
+  it('renders a thread card with repo logo, title and meta', () => {
     const { container } = render(
       <WorkspaceThreadsSurface threads={[thread()]} loading={false} />,
     );
     expect(screen.getByText('Open threads')).toBeTruthy();
     expect(screen.getByText('Backend cleanup review')).toBeTruthy();
-    // repo derives from the working dir's last segment.
-    expect(screen.getByText('web · cleanup')).toBeTruthy();
-    expect(screen.getByText('2 tasks · running')).toBeTruthy();
+    // The thread DTO no longer projects a task, so the card shows the
+    // discussion meta line.
+    expect(screen.getByText('repo · discussion · no task yet')).toBeTruthy();
     expect(container.querySelector('.v3-logo')).toBeTruthy();
   });
 
@@ -73,7 +69,7 @@ describe('WorkspaceThreadsSurface', () => {
   it('labels a 0-task discussion thread without a pill', () => {
     render(
       <WorkspaceThreadsSurface
-        threads={[thread({ id: 't2', title: 'View prs', activeTask: null })]}
+        threads={[thread({ id: 't2', title: 'View prs' })]}
         loading={false}
       />,
     );

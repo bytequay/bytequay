@@ -382,11 +382,7 @@ function buildCounts(threads: ThreadDto[]): Partial<Record<ThreadStatusDto, numb
  *  the conversation itself is paused at a permission prompt, or the
  *  active task is parked at a publish gate / needs the human. */
 function isAwaitingMe(t: ThreadDto): boolean {
-  if (t.status === 'AWAITING') {
-    return true;
-  }
-  const taskStatus = t.activeTask?.status;
-  return taskStatus === 'AWAITING_REVIEW' || taskStatus === 'NEEDS_ATTENTION';
+  return t.status === 'AWAITING';
 }
 
 function countForFilter(
@@ -460,32 +456,11 @@ type RepoMeta = {
 /** Distinct repos across the thread list, sorted by descending count
  *  so the most-worked repo surfaces first. Empty / unknown working
  *  directories are skipped. */
-function buildRepoList(threads: ThreadDto[]): RepoMeta[] {
-  const acc = new Map<string, { label: string; fullPath: string; count: number }>();
-  for (const t of threads) {
-    const wd = t.activeTask?.workingDir ?? '';
-    const k = repoKey(wd);
-    if (!k) continue;
-    const trimmed = wd.replace(/\/+$/, '');
-    const idx = trimmed.lastIndexOf('/');
-    const display = idx < 0 ? trimmed : trimmed.slice(idx + 1);
-    const existing = acc.get(k);
-    if (existing) {
-      existing.count++;
-    }
-    else {
-      acc.set(k, { label: display, fullPath: trimmed, count: 1 });
-    }
-  }
-  return Array.from(acc.entries())
-    .sort((a, b) => b[1].count - a[1].count)
-    .map(([key, v]) => ({
-      key,
-      label: v.label,
-      glyph: (v.label.match(/[A-Za-z0-9]/)?.[0] ?? '?').toUpperCase(),
-      fullPath: v.fullPath,
-      count: v.count,
-    }));
+function buildRepoList(_threads: ThreadDto[]): RepoMeta[] {
+  // Per-thread working-dir came off the active task, which ThreadDto no
+  // longer carries — without a task list here the repo rail is empty.
+  // ponytail: empty until a working-dir source is wired into the rail.
+  return [];
 }
 
 /** Deterministic colour swatch for a repo glyph — picked from a

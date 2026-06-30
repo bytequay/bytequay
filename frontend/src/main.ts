@@ -597,58 +597,19 @@ function registerIpc(): void {
     return res.json();
   });
 
-  // Trunk task queue (V110) — add / reorder / drop planned future tasks.
-  // Mirrors the trunk-only queue tools so the queue lane UI drives the
-  // same TaskQueueService.
-  ipcMain.handle('backend:queueAdd', async (
-    _event, threadId: string, title: string, branchBase: string, initialPrompt: string | null) => {
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/queue`, {
+  // Cut a task under an existing thread now — materialises a dev branch +
+  // worktree. workingDir is required by the backend POST /tasks endpoint.
+  ipcMain.handle('backend:cutTaskNow', async (
+    _event, threadId: string, kind: string, title: string, workingDir: string,
+    initialPrompt: string | null) => {
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, branchBase, initialPrompt }),
+      body: JSON.stringify({ kind, title, workingDir, initialPrompt }),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend queue add returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-  ipcMain.handle('backend:queueReorder', async (_event, threadId: string, positions: number[]) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/queue/reorder`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positions }),
-      });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend queue reorder returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-  ipcMain.handle('backend:queueEdit', async (
-    _event, threadId: string, position: number, title: string, branchBase: string,
-    initialPrompt: string | null) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/queue/${position}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, branchBase, initialPrompt }),
-      });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend queue edit returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-  ipcMain.handle('backend:queueDrop', async (_event, threadId: string, position: number) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/queue/${position}`, {
-        method: 'DELETE',
-      });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend queue drop returned ${res.status}: ${text}`);
+      throw new Error(`backend cut task returned ${res.status}: ${text}`);
     }
     return res.json();
   });

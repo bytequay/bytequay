@@ -23,12 +23,14 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.stage.PlanFinalizedEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -62,14 +64,17 @@ public class PlanToolHandlers
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
     private final ObjectMapper mapper;
+    private final ApplicationEventPublisher events;
 
     public PlanToolHandlers(
-            StageStore stageStore, ThreadStore threadStore, TaskStore taskStore, ObjectMapper mapper)
+            StageStore stageStore, ThreadStore threadStore, TaskStore taskStore, ObjectMapper mapper,
+            ApplicationEventPublisher events)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.events = requireNonNull(events, "events is null");
     }
 
     public record RecordPlanArgs(
@@ -143,6 +148,13 @@ public class PlanToolHandlers
         // prompt's first line (which reads like a stray chat message). The
         // prompt-derived name set at creation stands until the brain plans.
         renameFromGoal(args.taskId(), args.plan());
+
+        // A finalized plan is one ready for the user to approve. Announce it so
+        // auto-approve tasks can clear the plan gate without a manual click
+        // (AutoApprovePlanListener); inert for tasks with auto-approve off.
+        if ("finalized".equals(args.plan().path("status").asText(null))) {
+            events.publishEvent(new PlanFinalizedEvent(args.taskId(), plan.id()));
+        }
         return serialise(event.payloadJson());
     }
 

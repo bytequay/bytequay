@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { MarkdownProse } from './MarkdownProse';
 
 /** A PR reference parsed from the parked `mark_ready` payload. */
 export type MarkReadyPrRef = { owner: string; repo: string; number: number };
@@ -44,6 +45,19 @@ export function MarkReadyPanel({ notificationId, pr, onMarked }: {
   const [reviewers, setReviewers] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // The draft PR is already open on GitHub, so its description lives there
+  // (the mark-ready payload doesn't carry the body). Pull it so the user can
+  // read the rendered description here instead of opening GitHub to check it.
+  const [body, setBody] = useState<string | null>(null);
+  useEffect(() => {
+    const fetchDetail = window.bridge?.fetchPullRequestDetail;
+    if (typeof fetchDetail !== 'function') return;
+    let cancelled = false;
+    fetchDetail(`${pr.owner}/${pr.repo}`, pr.number)
+      .then(detail => { if (!cancelled) setBody(detail.body); })
+      .catch(() => { /* leave the description hidden if the fetch fails */ });
+    return () => { cancelled = true; };
+  }, [pr.owner, pr.repo, pr.number]);
 
   const prUrl = `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}`;
   const requested = parseReviewers(reviewers);
@@ -82,6 +96,11 @@ export function MarkReadyPanel({ notificationId, pr, onMarked }: {
           {pr.owner}/{pr.repo}#{pr.number} ↗
         </button>
       </div>
+      {body !== null && body.trim().length > 0 && (
+        <div className="ship-description__pr-body">
+          <MarkdownProse text={body} />
+        </div>
+      )}
       <p className="diff-viewer__pr-blurb">
         Checks are green on the draft pull request. Marking it ready hands it
         off for review. Add reviewers below (comma or space separated GitHub

@@ -1250,6 +1250,17 @@
   line-height: 1.5;
   color: var(--text-2);
 }
+/* The rendered (read-only) PR description shown in the mark-ready pane, so the
+   user reviews the actual description without leaving for GitHub. Bounded +
+   scrollable so a long body doesn't push the reviewers field off-screen. */
+.ship-description__pr-body {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas, var(--bg-elevated));
+}
 
 .diff-viewer__repo { font-size: var(--font-size-md); color: var(--text-2); white-space: nowrap; }
 .diff-viewer__num { font-size: var(--font-size-md); color: var(--text-3); }

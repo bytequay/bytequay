@@ -60,6 +60,18 @@ describe('MarkReadyPanel', () => {
     await waitFor(() => expect(onMarked).toHaveBeenCalledWith(0));
   });
 
+  it('renders the fetched PR description as markdown', async () => {
+    const fetchPullRequestDetail = vi.fn().mockResolvedValue({ number: 7, body: '## Summary\n\n- did a thing' });
+    (window as unknown as { bridge: unknown }).bridge = {
+      approveNotification: vi.fn(), openExternal: vi.fn(), fetchPullRequestDetail,
+    };
+    render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={vi.fn()} />);
+
+    expect(await screen.findByText('Summary')).toBeTruthy();
+    expect(screen.getByText('did a thing')).toBeTruthy();
+    expect(fetchPullRequestDetail).toHaveBeenCalledWith('me/proj', 7);
+  });
+
   it('sends typed reviewers through approve and reflects the count', async () => {
     const approveNotification = vi.fn().mockResolvedValue({ ok: true, resolution: 'approved', message: '', action: 'mark_ready' });
     (window as unknown as { bridge: unknown }).bridge = { approveNotification, openExternal: vi.fn() };

@@ -4166,6 +4166,25 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('backlog:listWorkspace', async (_event, args: unknown) => {
+    const a = (args ?? {}) as { workspaceId?: unknown; status?: unknown; thread?: unknown; tag?: unknown; q?: unknown };
+    const workspaceId = requireString(a.workspaceId, 'workspaceId');
+    const params = new URLSearchParams();
+    for (const key of ['status', 'thread', 'tag', 'q'] as const) {
+      const value = a[key];
+      if (typeof value === 'string' && value.length > 0) {
+        params.set(key, value);
+      }
+    }
+    const query = params.toString();
+    const url = `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/backlog${query.length > 0 ? `?${query}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`backend GET workspace backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backlog:create', async (_event, args: unknown) => {
     const params = args as { threadId?: unknown; title?: unknown; body?: unknown; tags?: unknown; priority?: unknown };
     const id = requireString(params?.threadId, 'threadId');

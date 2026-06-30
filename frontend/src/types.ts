@@ -3614,6 +3614,14 @@ export type Bridge = {
   submitReview: (taskId: string) => Promise<{ submitted: number; turnId: string | null }>;
   /** Backlog items on a thread, oldest-first (trunk Backlog tab). */
   listBacklog: (threadId: string) => Promise<BacklogItemDto[]>;
+  /** Workspace-wide backlog list with optional filters (the workspace
+   *  Backlog page). {@code thread}/{@code tag} match an id/label; {@code q}
+   *  is a free-text title-or-body search; {@code status} is the lifecycle
+   *  state. Omit a filter to leave it unconstrained. */
+  listWorkspaceBacklog: (
+    workspaceId: string,
+    filters?: { status?: string; thread?: string; tag?: string; q?: string },
+  ) => Promise<BacklogItemDto[]>;
   /** Create a backlog item on the thread. */
   createBacklogItem: (
     threadId: string,

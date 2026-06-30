@@ -21,18 +21,19 @@ import type {
 import { WorkspaceTopBar } from '../ui/workspace';
 import type { WsTab } from '../ui/workspace';
 import { logoColorFor, monogram, useWorkspaceNav } from '../pages/useWorkspaceNav';
+import WorkspaceBacklogPage from './WorkspaceBacklogPage';
 import NewThreadDialog from './NewThreadDialog';
 import WorkspaceInsightsPage from './WorkspaceInsightsPage';
 import WorkspaceThreadsSurface from './WorkspaceThreadsSurface';
 
-export type WorkspaceSection = 'home' | 'threads' | 'memory' | 'insights' | 'settings';
+export type WorkspaceSection = 'home' | 'threads' | 'backlog' | 'memory' | 'insights' | 'settings';
 
-/** The workspace's three main surfaces are Threads / Memory / Insights.
+/** The workspace's main surfaces are Threads / Backlog / Memory / Insights.
  *  The older home + settings sections fold into Threads (the landing) —
  *  Home is now a top-level nav destination and Settings lives in the
  *  global rail's bottom group. */
 function sectionToTab(section: WorkspaceSection): WsTab {
-  return section === 'memory' || section === 'insights' ? section : 'threads';
+  return section === 'backlog' || section === 'memory' || section === 'insights' ? section : 'threads';
 }
 
 type Props = {
@@ -106,6 +107,9 @@ function WorkspaceShell({
   const loaded = activeWorkspace !== null;
   const name = activeWorkspace?.name ?? 'Workspace';
   const activeTab = sectionToTab(section);
+  // threadId → title, so the workspace backlog cards can show a "from <thread>"
+  // chip without each card re-fetching the thread.
+  const threadNames = new Map(rawThreads.map(t => [t.id, t.title]));
 
   return (
     <div className="shell full-width">
@@ -122,6 +126,13 @@ function WorkspaceShell({
           <WorkspaceThreadsSurface
             threads={rawThreads}
             loading={!loaded}
+            onOpenThread={onOpenThread}
+          />
+        )}
+        {activeTab === 'backlog' && (
+          <WorkspaceBacklogPage
+            workspaceId={workspaceId}
+            threadNames={threadNames}
             onOpenThread={onOpenThread}
           />
         )}

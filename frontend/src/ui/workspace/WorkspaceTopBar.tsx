@@ -14,20 +14,22 @@
 import { IconBtn, Logo } from '../primitives';
 import type { LogoColor } from '../primitives';
 
-/** The three workspace surfaces. */
-export type WsTab = 'threads' | 'memory' | 'insights';
+/** The workspace surfaces. */
+export type WsTab = 'threads' | 'backlog' | 'memory' | 'insights';
 
 const TABS: { key: WsTab; ic: string; label: string }[] = [
   { key: 'threads', ic: '💭', label: 'Threads' },
+  { key: 'backlog', ic: '📥', label: 'Backlog' },
   { key: 'memory', ic: '🧠', label: 'Memory' },
   { key: 'insights', ic: '📊', label: 'Insights' },
 ];
 
-/** The Threads · Memory · Insights tab bar, wired to the workspace tabs. */
-export function WorkspaceTabBar({ active, onSelect, threadCount }: {
+/** The Threads · Backlog · Memory · Insights tab bar, wired to the workspace tabs. */
+export function WorkspaceTabBar({ active, onSelect, threadCount, backlogCount }: {
   active: WsTab;
   onSelect: (tab: WsTab) => void;
   threadCount?: number;
+  backlogCount?: number;
 }) {
   return (
     <div className="ws-tabs">
@@ -41,6 +43,7 @@ export function WorkspaceTabBar({ active, onSelect, threadCount }: {
           <span className="ic" aria-hidden>{t.ic}</span>
           {t.label}
           {t.key === 'threads' && threadCount !== undefined && <span className="count">{threadCount}</span>}
+          {t.key === 'backlog' && backlogCount !== undefined && backlogCount > 0 && <span className="count">{backlogCount}</span>}
         </button>
       ))}
     </div>
@@ -55,11 +58,12 @@ export type RepoChip = { initials: string; color: LogoColor };
  * a New-thread action and pane toggle, and the workspace tab bar beneath.
  */
 export function WorkspaceTopBar({
-  workspace, repos, threadCount, activeTab, onSelectTab, onNewThread, onTogglePane,
+  workspace, repos, threadCount, backlogCount, activeTab, onSelectTab, onNewThread, onTogglePane,
 }: {
   workspace: { initials: string; color: LogoColor; name: string };
   repos?: RepoChip[];
   threadCount?: number;
+  backlogCount?: number;
   activeTab: WsTab;
   onSelectTab: (tab: WsTab) => void;
   onNewThread?: () => void;
@@ -85,7 +89,7 @@ export function WorkspaceTopBar({
           <IconBtn ariaLabel="Toggle right pane" onClick={onTogglePane}>◧</IconBtn>
         )}
       </div>
-      <WorkspaceTabBar active={activeTab} onSelect={onSelectTab} threadCount={threadCount} />
+      <WorkspaceTabBar active={activeTab} onSelect={onSelectTab} threadCount={threadCount} backlogCount={backlogCount} />
     </div>
   );
 }

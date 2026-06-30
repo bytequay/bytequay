@@ -80,9 +80,12 @@ public class TaskService
     private static final Logger log = LoggerFactory.getLogger(TaskService.class);
 
     /** Longest we block a cancel waiting for the interrupted subprocess to die
-     *  before reaping anyway. destroy() is graceful; a few hundred ms is the
-     *  norm, and reap is --force + best-effort so a timeout is no worse than
-     *  the pre-wait behaviour. */
+     *  before reaping anyway. This bounds the agent winding down: interrupt()
+     *  sends destroy() (SIGTERM) and the CLI exits at its next tool boundary,
+     *  so the wait covers an in-flight tool call finishing — not the start of a
+     *  fresh one. destroy() is graceful; a few hundred ms is the norm, and reap
+     *  is --force + best-effort so a timeout is no worse than the pre-wait
+     *  behaviour. */
     private static final Duration AGENT_STOP_TIMEOUT = Duration.ofSeconds(3);
 
     private final ThreadStore threadStore;

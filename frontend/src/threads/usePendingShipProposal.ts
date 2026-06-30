@@ -43,11 +43,11 @@ export function usePendingShipProposal(threadId: string, taskId: string): Notifi
     if (bridge?.listNotificationsForThread === undefined) return;
     try {
       const list = await bridge.listNotificationsForThread(threadId);
-      const next = list.find((n) => {
+      const matches = list.filter((n) => {
         if (n.kind !== 'AWAITING_REVIEW' || n.taskId !== taskId) return false;
         if (n.status !== 'UNREAD' && n.status !== 'RESOLVING') return false;
-        // Any parked publish proposal — ship_task, open_pr, push, … — is an
-        // approval gate the user must see; matching only ship_task left
+        // Any parked publish proposal — ship_task, open_pr, push, merge_pr … —
+        // is an approval gate the user must see; matching only ship_task left
         // open_pr/push parks invisible. A parked proposal always carries a
         // non-empty `action`, which distinguishes it from a bare notice.
         try {
@@ -55,7 +55,13 @@ export function usePendingShipProposal(threadId: string, taskId: string): Notifi
           return typeof action === 'string' && action.length > 0;
         }
         catch { return false; }
-      }) ?? null;
+      });
+      // The LATEST parked proposal is the live gate. An older un-superseded
+      // one — e.g. a stale `ship_task` left behind after the task already
+      // shipped — must never win over the current `merge_pr`, or the
+      // "approve the dev result" card re-appears on the CI-fixing stage.
+      const next = matches.reduce<NotificationDto | null>(
+        (latest, n) => (latest === null || n.createdAt > latest.createdAt ? n : latest), null);
       setProposal(next);
     }
     catch { /* non-fatal — the prompt simply stays hidden */ }

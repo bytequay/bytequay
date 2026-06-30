@@ -85,6 +85,21 @@ class TestPlanToolHandlers
     }
 
     @Test
+    void recordingAPlanRenamesTheTaskToItsGoal()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        ObjectNode plan = mapper.createObjectNode();
+        plan.put("status", "finalized");
+        plan.put("goal", "Summarize TaskService code smells");
+
+        tools.recordPlan(new RecordPlanArgs(taskId, plan), CALL);
+
+        assertThat(taskStore.findTaskById(taskId).map(Task::name))
+                .contains("Summarize TaskService code smells");
+    }
+
+    @Test
     void secondPlanOnTheSameStageIsARevision()
     {
         String taskId = seedTask();

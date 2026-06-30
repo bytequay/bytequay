@@ -14,6 +14,42 @@
 import type { TaskBrainViewData } from '../../types/brainView';
 
 /**
+ * A blank brain view used as the hook's initial state before the first real
+ * fetch lands. Returning to the Root node from a stage remounts the brain
+ * page, so without this the hook would seed the *mock* fixture and paint fake
+ * data ("Cost-meter widget", PR #5680) for one cycle. An empty seed keeps the
+ * page chrome but shows nothing fake until the real payload arrives.
+ */
+export function buildEmptyBrainView(taskId: string): TaskBrainViewData {
+  return {
+    task: {
+      id: taskId, title: '', taskNumber: 0, branch: '', repoFullName: '',
+      prNumber: null, prDraft: false, currentPhase: 'QUEUED',
+      statusLabel: '', agentRuntime: 'CLI', agentModel: '',
+      paused: false, terminal: false,
+    },
+    aggregate: {
+      pushes: 0, activeTimeSec: 0, waitingUserTimeSec: 0, toolCalls: 0,
+      turns: 0, messages: 0, panels: 0, costCents: 0, autoPushBudget: null,
+    },
+    stages: [],
+    subStages: [],
+    brainFeed: [],
+    rightRail: {
+      approval: null,
+      linkedPr: null,
+      context: { tokensUsed: 0, tokensLimit: 0, safeBand: 'safe' },
+      recentCommits: [],
+      panelSpawnable: false,
+      parentStageId: null,
+      costBreakdown: { totalCents: 0, perStage: [], perAgent: [], costPerPush: null },
+      plan: null,
+    },
+    scrubbers: { stageEvents: [], userMessages: [] },
+  };
+}
+
+/**
  * Static fixture backing the brain view while the backend brain
  * endpoint doesn't exist yet. Matches the locked mockup: the cost-meter
  * task with four lifecycle stages (Dev closed, CiFixing active,

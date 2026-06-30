@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TaskBrainViewData } from '../../types/brainView';
-import { buildMockBrainView } from './brainViewFixture';
+import { buildEmptyBrainView } from './brainViewFixture';
 
 /** Steady poll cadence while the brain view is open. */
 const POLL_MS = 5000;
@@ -24,10 +24,10 @@ const FAST_POLL_MS = 1000;
 const FAST_WINDOW_MS = 10_000;
 
 type BrainViewState = {
-  /** The latest brain-view payload. Seeded with the mock fixture so the
-   *  first paint (and component tests, where {@code window.bridge} is
-   *  absent) have content; replaced by real backend data once a fetch
-   *  resolves. */
+  /** The latest brain-view payload. Seeded with an EMPTY view (not the mock
+   *  fixture) so a remount — e.g. returning to the Root node from a stage —
+   *  paints a neutral empty shell for one cycle rather than flashing fake
+   *  data; replaced by real backend data once the first fetch resolves. */
   data: TaskBrainViewData;
   /** The last fetch error, or null when the latest fetch succeeded. The
    *  view keeps showing the last good data (or the seed) underneath. */
@@ -46,7 +46,7 @@ type BrainViewState = {
  * user sends a message.
  */
 export function useBrainViewData(taskId: string): BrainViewState {
-  const [data, setData] = useState<TaskBrainViewData>(() => buildMockBrainView(Date.now()));
+  const [data, setData] = useState<TaskBrainViewData>(() => buildEmptyBrainView(taskId));
   const [error, setError] = useState<string | null>(null);
   const fastUntilRef = useRef<number>(0);
 

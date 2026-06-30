@@ -97,9 +97,10 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
   }, [threads]);
 
   const activeThreads = threads.filter(isActiveThread);
-  const tasksInFlight = threads
-      .map(t => t.activeTask)
-      .filter((t): t is NonNullable<typeof t> => t !== null && isInFlightStatus(t.status));
+  // Per-thread active-task data is no longer carried on ThreadDto; without a
+  // task list in scope here we render the card empty rather than refetch.
+  // ponytail: empty until a task list is wired into this surface.
+  const tasksInFlight: WorkUnitTaskDto[] = [];
   const spentTodayMilli = threads
       .filter(t => isUpdatedToday(t.updatedAt))
       .reduce((sum, t) => sum + (t.costUsdMilli || 0), 0);
@@ -234,7 +235,7 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
                             </div>
                           );
                         }
-                        return <ThreadMetaLine task={t.activeTask} />;
+                        return <ThreadMetaLine task={null} />;
                       })()}
                     </div>
                     <div style={threadRightStyle}>
@@ -494,7 +495,7 @@ function taskStatusBoxStyle(status: string): React.CSSProperties {
  *  thread or its active task counts; the rail's unread dot uses the
  *  same predicate. */
 function needsAttention(t: ThreadDto): boolean {
-  return t.status === 'AWAITING' || t.activeTask?.status === 'AWAITING';
+  return t.status === 'AWAITING';
 }
 
 function isActiveThread(t: ThreadDto): boolean {
@@ -502,12 +503,6 @@ function isActiveThread(t: ThreadDto): boolean {
   // findActiveTaskForThread filter (PENDING/RUNNING/AWAITING/IDLE).
   return t.status === 'PENDING' || t.status === 'RUNNING'
       || t.status === 'AWAITING' || t.status === 'IDLE';
-}
-
-function isInFlightStatus(status: string | null | undefined): boolean {
-  if (status === null || status === undefined) return false;
-  return status === 'PENDING' || status === 'RUNNING'
-      || status === 'AWAITING' || status === 'IDLE';
 }
 
 function isUpdatedToday(iso: string): boolean {

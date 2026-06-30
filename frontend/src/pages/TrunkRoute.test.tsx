@@ -29,10 +29,10 @@ function mockBridge(over: Record<string, unknown> = {}) {
         { id: 'm3', threadId: 't1', taskId: null, seq: 3, role: 'assistant', type: 'text', contentJson: JSON.stringify({ text: 'Here is the plan.' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:05Z' },
       ],
     }),
-    queueAdd: vi.fn().mockResolvedValue({ position: 0, title: 'plan the cleanup', branchBase: 'MAIN', status: 'PENDING' }),
+    cutTaskNow: vi.fn().mockResolvedValue({ id: 'task-3', seq: 3, name: 'Cut now', status: 'RUNNING', branchName: null }),
     listTasksForThread: vi.fn().mockResolvedValue([
-      { id: 'task-1', seq: 1, name: 'Add meter', status: 'RUNNING', branchName: 'feat/x' },
-      { id: 'task-2', seq: 2, name: 'Later', status: 'PENDING', branchName: null },
+      { id: 'task-1', seq: 1, name: 'Add meter', status: 'RUNNING', branchName: 'feat/x', workingDir: '/repo/web' },
+      { id: 'task-2', seq: 2, name: 'Later', status: 'COMPLETED', branchName: null, workingDir: '/repo/web' },
     ]),
     sendTrunkMessage: vi.fn().mockResolvedValue(undefined),
     listBacklog: vi.fn().mockResolvedValue([]),
@@ -55,9 +55,10 @@ describe('TrunkRoute', () => {
     // Planning message rendered into the conversation.
     expect(await screen.findByText('plan the cleanup')).toBeTruthy();
     // Active task card shows in the conversation AND the Tasks tab;
-    // PENDING task in the Queued folder.
+    // the COMPLETED task lives in the Closed folder.
     expect((await screen.findAllByText('Task 1 · Add meter')).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('Queued')).toBeTruthy();
+    // "Closed" shows as both the sub-tab label and the folder header.
+    expect(screen.getAllByText('Closed').length).toBeGreaterThanOrEqual(1);
   });
 
   it('echoes the foreground task as a card in the conversation', async () => {
@@ -65,7 +66,7 @@ describe('TrunkRoute', () => {
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     await screen.findByText('plan the cleanup');
     // The conversation column carries the running task's card with a
-    // "Running" pill — the PENDING task is not echoed here.
+    // "Running" pill — the completed task is not echoed here.
     const conv = container.querySelector('.conv') as HTMLElement;
     expect(conv).toBeTruthy();
     expect(conv.querySelector('.task-card')).toBeTruthy();
@@ -106,10 +107,10 @@ describe('TrunkRoute', () => {
     expect(screen.getByText('Here is the plan.')).toBeTruthy();
   });
 
-  it('Cut task → queues a task seeded from the latest prompt', async () => {
+  it('Cut task → creates a task seeded from the latest prompt in the thread repo', async () => {
     const bridge = mockBridge();
     render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /Cut task/ }));
-    await waitFor(() => expect(bridge.queueAdd).toHaveBeenCalledWith('t1', 'plan the cleanup', 'MAIN', 'plan the cleanup'));
+    await waitFor(() => expect(bridge.cutTaskNow).toHaveBeenCalledWith('t1', 'CLI_AGENT', 'plan the cleanup', '/repo/web', 'plan the cleanup'));
   });
 });

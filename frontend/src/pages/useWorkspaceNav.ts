@@ -42,14 +42,11 @@ export function threadStatusDot(status: string): StatusDotVariant {
   }
 }
 
-/** The repo a thread targets — the last path segment of its working dir,
- *  else its repo field. */
-export function threadRepo(t: ThreadDto): string {
-  const wd = t.activeTask?.workingDir;
-  if (typeof wd === 'string' && wd.length > 0) {
-    const seg = wd.split('/').filter(Boolean).pop();
-    if (seg !== undefined && seg.length > 0) return seg.toLowerCase();
-  }
+/** The repo a thread targets. The thread DTO no longer projects an active
+ *  task's working dir, so we fall back to a generic label.
+ *  ponytail: drop per-thread repo derivation — no working-dir source on the
+ *  thread DTO now; resolve from the thread's task list if this label matters. */
+export function threadRepo(_t: ThreadDto): string {
   return 'repo';
 }
 

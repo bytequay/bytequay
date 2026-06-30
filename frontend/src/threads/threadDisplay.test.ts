@@ -39,42 +39,34 @@ function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
 
 describe('threadDisplay', () => {
   it('prefers the worktree path for the agent cwd', () => {
-    expect(threadAgentCwd({
-      activeTask: task({ workingDir: '/repo/main',
-        worktreePath: '/repo/main/.bytequay/worktrees/dev/thread-1' }),
-    })).toBe('/repo/main/.bytequay/worktrees/dev/thread-1');
+    expect(threadAgentCwd(task({ workingDir: '/repo/main',
+      worktreePath: '/repo/main/.bytequay/worktrees/dev/thread-1' })))
+      .toBe('/repo/main/.bytequay/worktrees/dev/thread-1');
   });
 
-  it('falls back to the active task working dir when no worktree', () => {
-    expect(threadAgentCwd({
-      activeTask: task({ workingDir: '/repo/main', worktreePath: null }),
-    })).toBe('/repo/main');
+  it('falls back to the task working dir when no worktree', () => {
+    expect(threadAgentCwd(task({ workingDir: '/repo/main', worktreePath: null })))
+      .toBe('/repo/main');
   });
 
-  it('returns empty string for a 0-Task brainstorm thread', () => {
-    expect(threadAgentCwd({ activeTask: null })).toBe('');
+  it('returns empty string when there is no task', () => {
+    expect(threadAgentCwd(null)).toBe('');
   });
 
-  it('returns the active task branch name as-is', () => {
-    expect(threadDisplayBranch({
-      activeTask: task({ branchName: 'dev/thread-1' }),
-    })).toBe('dev/thread-1');
+  it('returns the task branch name as-is', () => {
+    expect(threadDisplayBranch(task({ branchName: 'dev/thread-1' }))).toBe('dev/thread-1');
   });
 
-  it('returns null when the active task has no branch', () => {
-    expect(threadDisplayBranch({
-      activeTask: task({ branchName: null }),
-    })).toBeNull();
-    expect(threadDisplayBranch({ activeTask: null })).toBeNull();
+  it('returns null when the task has no branch', () => {
+    expect(threadDisplayBranch(task({ branchName: null }))).toBeNull();
+    expect(threadDisplayBranch(null)).toBeNull();
   });
 
-  it('detects worktree-backed threads', () => {
-    expect(isWorktreeBackedTask({
-      activeTask: task({ worktreePath: '/repo/.bytequay/worktrees/dev/thread-1' }),
-    })).toBe(true);
-    expect(isWorktreeBackedTask({ activeTask: task({ worktreePath: '' }) })).toBe(false);
-    expect(isWorktreeBackedTask({ activeTask: task({ worktreePath: null }) })).toBe(false);
-    expect(isWorktreeBackedTask({ activeTask: null })).toBe(false);
+  it('detects worktree-backed tasks', () => {
+    expect(isWorktreeBackedTask(task({ worktreePath: '/repo/.bytequay/worktrees/dev/thread-1' }))).toBe(true);
+    expect(isWorktreeBackedTask(task({ worktreePath: '' }))).toBe(false);
+    expect(isWorktreeBackedTask(task({ worktreePath: null }))).toBe(false);
+    expect(isWorktreeBackedTask(null)).toBe(false);
   });
 
   it('formats pending model labels', () => {

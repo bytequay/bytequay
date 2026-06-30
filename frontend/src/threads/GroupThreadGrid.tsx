@@ -499,31 +499,6 @@ function ThreadTile({
             {thread.title}
           </button>
         )}
-        {/* Linked PR / Issue chips. Click navigates into the
-            repo's PR / Issues view so the user can jump between
-            the thread domain and the PR domain in-app. Each
-            stopPropagation so the tile's click handler doesn't
-            also fire selection / focus side-effects. */}
-        {thread.activeTask?.linkedPrNumber != null && (
-          <button
-            type="button"
-            onClick={e => { e.stopPropagation(); onOpenPr(thread, thread.activeTask!.linkedPrNumber as number); }}
-            style={isTerm ? { ...slimChipStyle, ...slimChipPrTerminalStyle } : slimChipStyle}
-            title={`Open PR #${thread.activeTask.linkedPrNumber}`}
-          >
-            #{thread.activeTask.linkedPrNumber}
-          </button>
-        )}
-        {thread.activeTask?.linkedIssueNumber != null && (
-          <button
-            type="button"
-            onClick={e => { e.stopPropagation(); onOpenIssue(thread, thread.activeTask!.linkedIssueNumber as number); }}
-            style={isTerm ? { ...slimChipIssueStyle, ...slimChipIssueTerminalStyle } : slimChipIssueStyle}
-            title={`Open Issue #${thread.activeTask.linkedIssueNumber}`}
-          >
-            !{thread.activeTask.linkedIssueNumber}
-          </button>
-        )}
         {immersive ? (
           <span
             style={isTerm ? { ...slimShortcutStyle, color: '#6e7681' } : slimShortcutStyle}
@@ -885,42 +860,6 @@ const slimZoomBtnStyle: React.CSSProperties = {
 const tileSlimHeadTerminalStyle: React.CSSProperties = {
   background: '#0d1117',
   borderBottom: '1px solid #21262d',
-};
-// PR / Issue chip pills shown in the slim head. PR uses a quiet
-// purple, Issue uses an amber per the design's "amber pill #1234"
-// note in the create-thread page section.
-const slimChipStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  height: 16,
-  padding: '0 6px',
-  background: 'rgba(124,92,255,0.10)',
-  color: '#7c3aed',
-  border: '1px solid rgba(124,92,255,0.25)',
-  borderRadius: 4,
-  fontFamily: 'inherit',
-  fontSize: 9.5,
-  fontWeight: 700,
-  cursor: 'pointer',
-  letterSpacing: '0.02em',
-  lineHeight: 1,
-  flexShrink: 0,
-};
-const slimChipPrTerminalStyle: React.CSSProperties = {
-  background: 'rgba(167,139,250,0.10)',
-  color: '#c4b5fd',
-  borderColor: 'rgba(167,139,250,0.35)',
-};
-const slimChipIssueStyle: React.CSSProperties = {
-  ...slimChipStyle,
-  background: 'rgba(217,119,6,0.10)',
-  color: '#b45309',
-  border: '1px solid rgba(217,119,6,0.28)',
-};
-const slimChipIssueTerminalStyle: React.CSSProperties = {
-  background: 'rgba(251,191,36,0.10)',
-  color: '#fbbf24',
-  borderColor: 'rgba(251,191,36,0.35)',
 };
 const tileConversationStyle: React.CSSProperties = {
   flex: 1,

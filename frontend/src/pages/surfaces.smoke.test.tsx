@@ -49,7 +49,7 @@ describe('V3 surfaces smoke', () => {
         sidebar={<aside />}
         conversation={<div>conv</div>}
         composer={composer}
-        tasks={{ active: [], queued: [], closed: [] }}
+        tasks={{ active: [], closed: [] }}
       />,
     );
     expect(container.querySelector('.shell')).toBeTruthy();

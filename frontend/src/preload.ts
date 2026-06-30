@@ -45,9 +45,7 @@ import type {
   IssueDetailDto,
   IssueDto,
   PullRequestDetailDto,
-  BranchBaseDto,
   PrLinksDto,
-  QueuedTaskDto,
   PullRequestDto,
   AssembledContextDto,
   TaskTraceDto,
@@ -114,19 +112,11 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:lookupPr', repo, number),
   getPrLinks: (repo: string, number: number): Promise<PrLinksDto> =>
     ipcRenderer.invoke('backend:prLinks', repo, number),
-  queueAdd: (
-    threadId: string, title: string, branchBase: BranchBaseDto, initialPrompt: string | null,
-  ): Promise<QueuedTaskDto> =>
-    ipcRenderer.invoke('backend:queueAdd', threadId, title, branchBase, initialPrompt),
-  queueReorder: (threadId: string, positions: number[]): Promise<QueuedTaskDto[]> =>
-    ipcRenderer.invoke('backend:queueReorder', threadId, positions),
-  queueEdit: (
-    threadId: string, position: number, title: string, branchBase: BranchBaseDto,
+  cutTaskNow: (
+    threadId: string, kind: string, title: string, workingDir: string,
     initialPrompt: string | null,
-  ): Promise<QueuedTaskDto> =>
-    ipcRenderer.invoke('backend:queueEdit', threadId, position, title, branchBase, initialPrompt),
-  queueDrop: (threadId: string, position: number): Promise<QueuedTaskDto> =>
-    ipcRenderer.invoke('backend:queueDrop', threadId, position),
+  ): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('backend:cutTaskNow', threadId, kind, title, workingDir, initialPrompt),
   setOpeningPrompt: (
     threadId: string, taskId: string, text: string, mode: 'append' | 'replace',
   ): Promise<WorkUnitTaskDto> =>

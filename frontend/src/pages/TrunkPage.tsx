@@ -112,9 +112,6 @@ export function TrunkPage({
         </>
       )}
       <Grow />
-      {onCutTask !== undefined && (
-        <TopBarButton icon="◆" onClick={onCutTask}>Cut task →</TopBarButton>
-      )}
       <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
     </TopBar>
   );
@@ -180,6 +177,13 @@ export function TrunkPage({
                 { icon: '🔔', label: 'Notifications', count: unreadCount, countColor: 'red', onClick: () => openTab('notifications') },
               ]}
               />
+            )}
+            {/* Cut-task floats just above the composer — right where you finish
+                typing the plan — instead of hiding in the top bar. */}
+            {onCutTask !== undefined && (
+              <div className="cut-task-float">
+                <TopBarButton icon="◆" onClick={onCutTask}>Cut task →</TopBarButton>
+              </div>
             )}
             <Composer
               value={composer.value}

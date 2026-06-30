@@ -27,6 +27,7 @@ export type TrunkPaneState = {
   updateItem: (itemId: string, patch: { title?: string; body?: string; tags?: string[] }) => Promise<void>;
   deleteItem: (itemId: string) => Promise<void>;
   startDevelopment: (itemId: string) => Promise<string | null>;
+  skip: (itemId: string, reason?: string) => Promise<void>;
   markSignalRead: (signalId: string) => Promise<void>;
 };
 
@@ -90,6 +91,11 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
     return result.taskId;
   }, [load]);
 
+  const skip = useCallback(async (itemId: string, reason?: string) => {
+    await window.bridge.skipBacklogItem(itemId, reason);
+    await load();
+  }, [load]);
+
   const markSignalRead = useCallback(async (signalId: string) => {
     await window.bridge.markSignalRead(signalId);
     await load();
@@ -97,6 +103,6 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
 
   return {
     backlog, signals, loading, error, refresh,
-    createItem, updateItem, deleteItem, startDevelopment, markSignalRead,
+    createItem, updateItem, deleteItem, startDevelopment, skip, markSignalRead,
   };
 }

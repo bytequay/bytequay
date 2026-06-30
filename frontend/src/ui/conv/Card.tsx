@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import type { KeyboardEvent } from 'react';
-import { Tag } from '../primitives';
-import type { TagColor } from '../primitives';
+import { PrStateIcon, Tag } from '../primitives';
+import type { PrGlyphState, TagColor } from '../primitives';
 
 /** Task queue state — drives the uppercase status pill colour. */
-export type TaskStatus = 'foreground' | 'shipped' | 'pending' | 'paused' | 'errored';
+export type TaskStatus = 'foreground' | 'shipped' | 'pending' | 'paused' | 'errored' | 'closed';
 
 /** A backlog tag chip. */
 export type CardTag = { label: string; color?: TagColor };
@@ -39,6 +39,9 @@ type TaskProps = CommonProps & {
   /** The task's PR is ready to merge (CI green, no unresolved comments,
    *  mergeable) — tints the card + adds a "Ready to merge" badge. */
   mergeReady?: boolean;
+  /** PR-state glyph before the title (merged / open / draft); when set it
+   *  replaces the generic ◆ diamond. Omitted while the task has no PR. */
+  pr?: PrGlyphState;
 };
 
 type BacklogProps = CommonProps & {
@@ -85,7 +88,9 @@ export function Card(props: CardProps) {
       onKeyDown={onClick !== undefined ? onKeyDown : undefined}
     >
       <div className="header">
-        {kind === 'task' && <span className="diamond" aria-hidden>◆</span>}
+        {kind === 'task' && (props.pr !== undefined
+          ? <PrStateIcon state={props.pr} />
+          : <span className="diamond" aria-hidden>◆</span>)}
         <span className="title">{title}</span>
       </div>
       {body !== undefined && <div className="body">{body}</div>}

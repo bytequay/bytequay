@@ -230,14 +230,25 @@
 
 /* ── "Agent is working" live indicator ───────────────────────── */
 .shell .working {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   padding: 4px 0;
   font-size: 12.5px;
   color: var(--text-3);
   font-style: italic;
+  max-width: 100%;
 }
+/* The label can carry a full shell command — clamp it to one line so the
+   elapsed counter + Stop stay put; the full text is on hover (title). */
+.shell .working__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.shell .working__elapsed,
+.shell .working__stop { flex: none; }
 /* ── Live CI status panel (CI-fixing stage) ──────────────────── */
 .shell .ci-panel {
   border: 1px solid var(--code-border);
@@ -503,6 +514,23 @@
   line-height: 1;
   flex-shrink: 0;
 }
+
+/* PR-state glyph before a task name — replaces the ◆ on trunk task cards and
+   leads the left-nav task row. Purple = merged, green = open PR, grey = draft.
+   Scoped under `.shell` like the surfaces it appears on. */
+.shell .pr-state-icon {
+  flex-shrink: 0;
+  margin-right: 5px;
+}
+.shell .pr-state-icon--merged { color: #8b5cf6; }
+.shell .pr-state-icon--open { color: #1a7f37; }
+.shell .pr-state-icon--draft { color: #6e7781; }
+/* On the card the header's own 9px gap spaces the glyph; just center it
+   against the baseline-aligned title. */
+.shell .task-card .header .pr-state-icon {
+  align-self: center;
+  margin-right: 0;
+}
 .shell .task-card .header .title {
   font-size: 14px;
   font-weight: 700;
@@ -598,6 +626,11 @@
 }
 .shell .pane-empty-note { padding: 16px; color: var(--text-3); font-size: 12.5px; }
 .shell .task-card .status-pill.pending {
+  background: var(--bg-hover);
+  color: var(--text-3);
+  border: 1px solid var(--border-mid);
+}
+.shell .task-card .status-pill.closed {
   background: var(--bg-hover);
   color: var(--text-3);
   border: 1px solid var(--border-mid);

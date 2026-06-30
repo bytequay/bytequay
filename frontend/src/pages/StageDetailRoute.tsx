@@ -201,6 +201,17 @@ export function StageDetailRoute({
     setWorkingSince(prev => (working ? prev ?? Date.now() : null));
   }, [working]);
 
+  // Surface the CLI agent's current activity — the latest tool call and (for
+  // a shell command) the command itself — so a long stage turn shows what's
+  // running rather than a bare "Agent is working…". Full command on hover.
+  const lastTool = data?.conversation.filter(r => r.kind === 'tool_call').at(-1);
+  const toolName = lastTool !== undefined ? (lastTool.toolTag?.trim() || 'Tool') : null;
+  const toolArg = lastTool?.toolDetail?.trim() || null;
+  const workingLabel = toolName === null
+    ? 'Agent is working…'
+    : toolArg !== null ? `Running ${toolName}: ${toolArg}` : `Running ${toolName}…`;
+  const workingDetail = toolArg ?? undefined;
+
   // Answer a pending permission prompt that the agent raised on this stage
   // (e.g. a run_shell command), then refresh so the resolved card drops out.
   const onDecide = useCallback<PermissionDecideHandler>((callId, decision, preApprove) => {
@@ -230,7 +241,8 @@ export function StageDetailRoute({
         : <ShipReviewPrompt onReview={onOpenCode} />)}
       {working && liveText.length === 0 && (
         <Working
-          label="Agent is working…"
+          label={workingLabel}
+          detail={workingDetail}
           since={workingSince ?? undefined}
           onStop={() => {
             const bridge = typeof window !== 'undefined' ? window.bridge : undefined;

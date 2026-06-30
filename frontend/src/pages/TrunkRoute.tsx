@@ -14,11 +14,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import type { ReactNode } from 'react';
-import { Callout, Card, Conv, EventRow, Thought, ToolBlock, UserMsg, Working } from '../ui/conv';
+import { Callout, Card, Conv, EventRow, EventTimestamp, Thought, ToolBlock, UserMsg, Working } from '../ui/conv';
 import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
 import { isShellTool, shellCommand } from '../threads/toolDisplay';
 import type { TaskCardData } from '../ui/pane';
+import type { PrGlyphState } from '../ui/primitives';
 import { proposalAction } from '../threads/usePendingShipProposal';
 import { TrunkPage } from './TrunkPage';
 
@@ -108,8 +109,8 @@ function buildRows(messages: ThreadMessageDto[]): ReactNode[] {
       const txt = extractText(m.contentJson);
       if (txt.trim().length > 0) {
         rows.push(m.role === 'user'
-          ? <UserMsg key={m.id} text={txt} />
-          : <EventRow key={m.id} kind="brain" who="Agent" markdown={txt} />);
+          ? <UserMsg key={m.id} text={txt} timestamp={<EventTimestamp iso={m.ts} />} />
+          : <EventRow key={m.id} kind="brain" who="Agent" markdown={txt} timestamp={<EventTimestamp iso={m.ts} />} />);
       }
       i += 1;
     }
@@ -121,6 +122,7 @@ function buildRows(messages: ThreadMessageDto[]): ReactNode[] {
 function cardStatus(status: string): TaskStatus {
   switch (status) {
     case 'COMPLETED': case 'IN_REVIEW': return 'shipped';
+    case 'CANCELED': case 'ARCHIVED': return 'closed';
     case 'ERRORED': return 'errored';
     case 'PAUSED': return 'paused';
     case 'PENDING': return 'pending';
@@ -128,18 +130,25 @@ function cardStatus(status: string): TaskStatus {
   }
 }
 
-/** Statuses that don't belong in the Tasks tab's active list: COMPLETED work
- *  is done and lives in the conversation history, and terminal tasks
- *  (CANCELED / ARCHIVED) are closed/reaped — they linger as bogus "foreground"
- *  cards otherwise, since cardStatus maps them to the running pill. IN_REVIEW
- *  is NOT hidden: a shipped task is still in-flight (CI-fixing / addressing
- *  comments / awaiting merge), so it shows as a "shipped" card and counts.
- *  PENDING is handled separately (the Queued folder). */
-const HIDDEN_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
+/** Terminal statuses — the task has landed (COMPLETED/merged) or been
+ *  closed/reaped (CANCELED / ARCHIVED). These fill the Tasks tab's "Closed"
+ *  sub-tab rather than the live "All" list. IN_REVIEW is NOT terminal: a
+ *  shipped task is still in-flight (CI-fixing / addressing comments /
+ *  awaiting merge). PENDING is the Queued folder. */
+const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
 
 /** "Task 1 · Remove PersonaRequest bean", or just "Task 1" without a rename. */
 function cardTitle(t: WorkUnitTaskDto): string {
   return t.name !== null && t.name !== '' ? `Task ${t.seq} · ${t.name}` : `Task ${t.seq}`;
+}
+
+/** The PR-state glyph before a task's name: merged once the work landed, a
+ *  draft / open pull-request mark while it's in flight, nothing before a PR
+ *  exists. */
+function cardPr(t: WorkUnitTaskDto): PrGlyphState | undefined {
+  if (t.status === 'COMPLETED') return 'merged';
+  if (t.prNumber == null) return undefined;
+  return typeof t.prState === 'string' && t.prState.toUpperCase() === 'DRAFT' ? 'draft' : 'open';
 }
 
 function toCard(t: WorkUnitTaskDto, mergeReady: boolean): TaskCardData {
@@ -149,6 +158,7 @@ function toCard(t: WorkUnitTaskDto, mergeReady: boolean): TaskCardData {
     status: cardStatus(t.status),
     branch: t.branchName ?? undefined,
     mergeReady,
+    pr: cardPr(t),
   };
 }
 
@@ -257,16 +267,26 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   // not only in the Tasks tab, so the in-flight work is visible without
   // leaving the thread. Latest such task wins when more than one is live.
   const foreground = [...tasks].reverse().find(
-    t => !HIDDEN_TASK_STATUSES.has(t.status) && cardStatus(t.status) === 'foreground');
+    t => !TERMINAL_TASK_STATUSES.has(t.status) && cardStatus(t.status) === 'foreground');
 
   // Label the working indicator with the current activity — if the latest
-  // trunk message is a tool call, say which tool is running rather than the
-  // generic "thinking" that sits there for minutes during a long tool/turn.
+  // trunk message is a tool call, say which tool is running AND (for a shell
+  // command) the command itself, rather than a bare "Running Bash…" that
+  // hides what a 10-minute turn is actually doing. The full command shows on
+  // hover via the detail tooltip.
   const lastActivity = [...messages].reverse().find(
     m => m.taskId === null && (m.type === 'tool_call' || m.type === 'text' || m.type === 'thinking'));
-  const workingLabel = lastActivity?.type === 'tool_call'
-    ? `Running ${parseToolCall(lastActivity.contentJson).name}…`
-    : 'Trunk is working…';
+  const activity = lastActivity?.type === 'tool_call'
+    ? parseToolCall(lastActivity.contentJson)
+    : null;
+  const workingLabel = activity === null
+    ? 'Trunk is working…'
+    : activity.summary.length > 0
+      ? `Running ${activity.name}: ${activity.summary}`
+      : `Running ${activity.name}…`;
+  const workingDetail = activity !== null && activity.summary.length > 0
+    ? activity.summary
+    : undefined;
 
   const conversation = (
     <Conv>
@@ -288,6 +308,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       {working && liveText.length === 0 && (
         <Working
           label={workingLabel}
+          detail={workingDetail}
           since={workingSince ?? undefined}
           onStop={() => { void window.bridge?.interruptTask(threadId).then(load).catch(() => { /* poll reconciles */ }); }}
         />
@@ -296,9 +317,10 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   );
 
   const active = tasks
-    .filter(t => t.status !== 'PENDING' && !HIDDEN_TASK_STATUSES.has(t.status))
+    .filter(t => t.status !== 'PENDING' && !TERMINAL_TASK_STATUSES.has(t.status))
     .map(t => toCard(t, mergeReadyIds.has(t.id)));
   const queued = tasks.filter(t => t.status === 'PENDING').map(t => toCard(t, false));
+  const closed = tasks.filter(t => TERMINAL_TASK_STATUSES.has(t.status)).map(t => toCard(t, false));
 
   return (
     <TrunkPage
@@ -306,7 +328,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       thread={{ title: thread?.title ?? 'Thread' }}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
-      tasks={{ active, queued }}
+      tasks={{ active, queued, closed }}
       onOpenTask={onOpenTask}
       onCutTask={cutTask}
     />

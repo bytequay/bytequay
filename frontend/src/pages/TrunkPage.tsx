@@ -25,7 +25,9 @@ import type { NotifData, TaskCardData } from '../ui/pane';
 import type { BacklogItemDto, ThreadSignalDto } from '../types';
 import { useTrunkPane } from './useTrunkPane';
 
-type TrunkTab = 'tasks' | 'mergeable' | 'backlog' | 'notifications';
+type TrunkTab = 'tasks' | 'backlog' | 'notifications';
+/** Sub-tabs under Tasks: every task, the mergeable subset, the closed ones. */
+type TaskSubTab = 'all' | 'mergeable' | 'closed';
 
 function backlogToCard(item: BacklogItemDto, formatTime: (ms: number) => string) {
   return {
@@ -74,7 +76,7 @@ export function TrunkPage({
     modePill?: ReactNode;
     placeholder?: string;
   };
-  tasks: { active: TaskCardData[]; queued: TaskCardData[] };
+  tasks: { active: TaskCardData[]; queued: TaskCardData[]; closed: TaskCardData[] };
   onOpenTask?: (id: string) => void;
   /** User-confirmed "cut a task from the plan" — the trunk plans, the
    *  user cuts. Renders the bright Cut-task button when provided. */
@@ -83,17 +85,18 @@ export function TrunkPage({
 }) {
   const pane = useTrunkPane(threadId);
   const [activeTab, setActiveTab] = useState<TrunkTab>('tasks');
+  const [taskSub, setTaskSub] = useState<TaskSubTab>('all');
   const [paneOpen, setPaneOpen] = useState(true);
   // Trunk keeps its own pane width, independent of the brain/stage surfaces.
   const { paneWidth, bodyRef, onResize } = usePaneWidth('bq.trunkPaneWidth');
 
   const unreadCount = pane.signals.filter(s => s.readAt === null).length;
-  // The Tasks tab renders the active cards AND the Queued folder, so the
-  // badge counts both — otherwise it reads one short of the cards shown.
-  const taskCount = tasks.active.length + tasks.queued.length;
+  // The Tasks tab's "All" sub-tab renders active cards + the Queued folder +
+  // the Closed folder, so the top badge counts every task.
+  const taskCount = tasks.active.length + tasks.queued.length + tasks.closed.length;
   // Tasks whose PR is ready to merge (CI green, no unresolved comments,
-  // mergeable) — surfaced in their own tab + tinted in the Tasks tab.
-  const mergeable = [...tasks.active, ...tasks.queued].filter(t => t.mergeReady === true);
+  // mergeable) — surfaced in the "Ready to merge" sub-tab + tinted in All.
+  const mergeable = [...tasks.active, ...tasks.queued, ...tasks.closed].filter(t => t.mergeReady === true);
 
   const openTab = (tab: TrunkTab) => { setActiveTab(tab); setPaneOpen(true); };
 
@@ -115,14 +118,32 @@ export function TrunkPage({
     </TopBar>
   );
 
-  const tabContent = (() => {
-    switch (activeTab) {
-      case 'tasks':
-        return <TasksTabContent active={tasks.active} queued={tasks.queued} onOpenTask={onOpenTask} />;
+  const tasksTabContent = (() => {
+    switch (taskSub) {
+      case 'all':
+        return (
+          <TasksTabContent
+            active={tasks.active}
+            queued={tasks.queued}
+            closed={tasks.closed}
+            onOpenTask={onOpenTask}
+          />
+        );
       case 'mergeable':
         return mergeable.length === 0
           ? <div className="pane-empty-note">No tasks are ready to merge right now.</div>
           : <TasksTabContent active={mergeable} queued={[]} onOpenTask={onOpenTask} />;
+      case 'closed':
+        return tasks.closed.length === 0
+          ? <div className="pane-empty-note">No closed tasks yet.</div>
+          : <TasksTabContent active={tasks.closed} queued={[]} onOpenTask={onOpenTask} />;
+    }
+  })();
+
+  const tabContent = (() => {
+    switch (activeTab) {
+      case 'tasks':
+        return tasksTabContent;
       case 'backlog':
         return (
           <BacklogTabContent
@@ -155,7 +176,6 @@ export function TrunkPage({
             {!paneOpen && (
               <InlineChips chips={[
                 { icon: '◳', label: 'Tasks', count: taskCount, countColor: 'acc', onClick: () => openTab('tasks') },
-                { icon: '◆', label: 'Ready to merge', count: mergeable.length, countColor: 'acc', onClick: () => openTab('mergeable') },
                 { icon: '☷', label: 'Backlog', count: pane.backlog.length, onClick: () => openTab('backlog') },
                 { icon: '🔔', label: 'Notifications', count: unreadCount, countColor: 'red', onClick: () => openTab('notifications') },
               ]}
@@ -176,13 +196,25 @@ export function TrunkPage({
               <RightPane.Tabs<TrunkTab>
                 tabs={[
                   { key: 'tasks', label: 'Tasks', count: taskCount, countColor: 'acc' },
-                  { key: 'mergeable', label: 'Ready to merge', count: mergeable.length, countColor: 'acc' },
                   { key: 'backlog', label: 'Backlog', count: pane.backlog.length, countColor: 'muted' },
                   { key: 'notifications', label: 'Notifications', count: unreadCount },
                 ]}
                 active={activeTab}
                 onSelect={setActiveTab}
               />
+              {activeTab === 'tasks' && (
+                <div className="pane-subtabs">
+                  <RightPane.Tabs<TaskSubTab>
+                    tabs={[
+                      { key: 'all', label: 'All', count: taskCount, countColor: 'acc' },
+                      { key: 'mergeable', label: 'Ready to merge', count: mergeable.length, countColor: 'acc' },
+                      { key: 'closed', label: 'Closed', count: tasks.closed.length, countColor: 'muted' },
+                    ]}
+                    active={taskSub}
+                    onSelect={setTaskSub}
+                  />
+                </div>
+              )}
               <RightPane.Content>{tabContent}</RightPane.Content>
             </RightPane>
           )}

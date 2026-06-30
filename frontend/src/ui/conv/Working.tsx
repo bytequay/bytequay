@@ -22,8 +22,11 @@ import { useEffect, useState } from 'react';
  * that a long, quiet turn (e.g. extended thinking) is still alive, not
  * dead.
  */
-export function Working({ label = 'Working…', since, onStop }: {
+export function Working({ label = 'Working…', detail, since, onStop }: {
   label?: string;
+  /** Full text shown on hover — e.g. the complete shell command when the
+   *  label is truncated to one line. */
+  detail?: string;
   since?: number;
   /** When set, a Stop button appears that interrupts the running turn. */
   onStop?: () => void;
@@ -40,7 +43,7 @@ export function Working({ label = 'Working…', since, onStop }: {
   return (
     <div className="working" role="status" aria-live="polite">
       <span className="working__dot" aria-hidden />
-      <span className="working__label">{label}</span>
+      <span className="working__label" title={detail ?? label}>{label}</span>
       {since !== undefined && <span className="working__elapsed">{formatElapsed(elapsed)}</span>}
       {onStop !== undefined && (
         <button type="button" className="working__stop" onClick={onStop} title="Stop the agent">

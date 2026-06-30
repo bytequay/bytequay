@@ -49,6 +49,7 @@ function renderTrunk() {
       tasks={{
         active: [{ id: 'ta', title: 'Active task', status: 'foreground' }],
         queued: [{ id: 'tq', title: 'Queued task', status: 'pending' }],
+        closed: [{ id: 'tc', title: 'Closed task', status: 'closed' }],
       }}
     />,
   );

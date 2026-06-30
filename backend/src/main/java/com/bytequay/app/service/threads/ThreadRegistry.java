@@ -456,7 +456,16 @@ public class ThreadRegistry
         // Take the lease BEFORE inserting the agent into the session map.
         // If the lease is held by a live holder, sessions stays unchanged
         // and the caller sees the 409.
-        String leasedPath = task == null
+        //
+        // The lease is a WRITE lock. Read-only sessions (the brain's planning
+        // + conversational agent, on a BRAIN_AGENT thread) never write the
+        // worktree, so they must not take it — otherwise an idle brain session
+        // keeps the lock and the dev/CI-fix turn for the SAME task 409s on it
+        // (both share this JVM's pid, so reclaim-on-dead-pid can't free it).
+        // Only writing stages (dev / CI-fix / cleanup, on CLI_AGENT threads)
+        // lease the worktree.
+        boolean writesWorktree = thread.kind() != ThreadKind.BRAIN_AGENT;
+        String leasedPath = task == null || !writesWorktree
                 ? null
                 : Optional.ofNullable(task.worktreePath())
                         .filter(p -> !p.isBlank())

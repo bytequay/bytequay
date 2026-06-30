@@ -42,6 +42,24 @@ final class PullRequestDetailPatcher
                 detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
     }
 
+    static StoredPrDetail withTimelineCommentAppended(StoredPrDetail detail, PrTimelineEvent comment)
+    {
+        // Drop any existing row with the same id first so a concurrent
+        // background poll that already pulled this comment in doesn't
+        // leave a duplicate.
+        List<PrTimelineEvent> patched = ImmutableList.<PrTimelineEvent>builder()
+                .addAll(detail.timeline().stream()
+                        .filter(event -> !(event.githubId() != null && comment.githubId() != null
+                                && event.githubId().equals(comment.githubId())
+                                && "commented".equals(event.event())))
+                        .collect(toImmutableList()))
+                .add(comment)
+                .build();
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), patched,
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState(), detail.mergeQueueEnabled());
+    }
+
     static StoredPrDetail withTimelineCommentBody(StoredPrDetail detail, long commentId, String body)
     {
         List<PrTimelineEvent> patched = detail.timeline().stream()

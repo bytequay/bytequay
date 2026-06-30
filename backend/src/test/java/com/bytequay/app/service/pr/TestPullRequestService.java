@@ -585,6 +585,39 @@ class TestPullRequestService
     }
 
     @Test
+    void testCommentOnPullRequestAppendsCommentToCachedTimeline()
+    {
+        PrTimelineEvent posted = new PrTimelineEvent(
+                555L, "commented", "bob", null,
+                Instant.parse("2026-05-08T01:00:00Z"), "LGTM",
+                null, null, null, null, "MEMBER", Reactions.EMPTY);
+        when(gitHub.createIssueComment(eq("pat"), any(PullRequestRef.class), eq("LGTM")))
+                .thenReturn(posted);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(123L));
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of())));
+
+        pullRequestService.commentOnPullRequest("owner/repo", 7, 99L, "LGTM", false);
+
+        verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        assertThat(captor.getValue().timeline())
+                .singleElement()
+                .satisfies(e -> {
+                    assertThat(e.githubId()).isEqualTo(555L);
+                    assertThat(e.event()).isEqualTo("commented");
+                    assertThat(e.body()).isEqualTo("LGTM");
+                });
+    }
+
+    @Test
     void testCommentOnPullRequestNoOpWhenBlankBodyAndNoClose()
     {
         pullRequestService.commentOnPullRequest("owner/repo", 7, 99L, "", false);

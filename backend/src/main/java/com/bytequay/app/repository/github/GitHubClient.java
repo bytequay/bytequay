@@ -576,20 +576,25 @@ public class GitHubClient
                 since,
                 pr.owner(), pr.repo(), pr.number())
                 .stream()
-                .map(c -> new PrTimelineEvent(
-                        c.id(),
-                        "commented",
-                        Optional.ofNullable(c.user()).map(GitHubIssueComment.User::login).orElse(null),
-                        null,
-                        c.createdAt(),
-                        c.body(),
-                        null,
-                        null,
-                        null,
-                        null,
-                        c.authorAssociation(),
-                        toIssueCommentReactions(c.reactions())))
+                .map(GitHubClient::toCommentedTimelineEvent)
                 .collect(toImmutableList());
+    }
+
+    private static PrTimelineEvent toCommentedTimelineEvent(GitHubIssueComment c)
+    {
+        return new PrTimelineEvent(
+                c.id(),
+                "commented",
+                Optional.ofNullable(c.user()).map(GitHubIssueComment.User::login).orElse(null),
+                null,
+                c.createdAt(),
+                c.body(),
+                null,
+                null,
+                null,
+                null,
+                c.authorAssociation(),
+                toIssueCommentReactions(c.reactions()));
     }
 
     private static Reactions toIssueCommentReactions(GitHubIssueComment.Reactions r)
@@ -912,17 +917,23 @@ public class GitHubClient
     }
 
     @Override
-    public void createIssueComment(String pat, PullRequestRef pr, String body)
+    public PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body)
     {
         try {
-            gitHubRestClient.post()
+            GitHubIssueComment posted = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/issues/{number}/comments",
                             pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("body", body))
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(GitHubIssueComment.class);
+            if (posted == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "Empty response from GitHub when posting issue comment");
+            }
+            return toCommentedTimelineEvent(posted);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

@@ -346,8 +346,12 @@ public interface PullRequestRepository
      * Posts a new issue comment on a pull request (the same endpoint that
      * powers GitHub's "Add a comment" box at the bottom of a PR page).
      * Maps to: POST /repos/{owner}/{repo}/issues/{number}/comments
+     *
+     * <p>Returns the created comment as a {@code "commented"} timeline event
+     * (carrying GitHub's assigned id, author, and timestamp) so callers can
+     * append it to a cached PR detail without a full refetch.
      */
-    default void createIssueComment(String pat, PullRequestRef pr, String body)
+    default PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body)
     {
         throw new UnsupportedOperationException("createIssueComment not implemented");
     }

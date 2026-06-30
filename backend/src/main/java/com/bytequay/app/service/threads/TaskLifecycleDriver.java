@@ -19,6 +19,7 @@ import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -284,12 +285,17 @@ public class TaskLifecycleDriver
         String prompt = buildReviewAnalysisPrompt(
                 repo, number, detail, iterationService.latestCiFixingSummaries(task.id()));
         try {
-            // Bind the task id so this runs on the task's own agent. The task
-            // is IN_REVIEW (no active-task projection), so the no-id enqueue
-            // would route it to the read-only trunk agent — task/stage work
-            // must never use the trunk.
+            // Bind the task id AND the review-monitor stage so this runs on the
+            // task's own agent and its messages land in stage_messages, not the
+            // thread slice. The stage is PAUSED while it waits on remote review,
+            // which findActiveStage (OPEN/ACTIVE only) misses — so pin it
+            // explicitly via findLiveStageByType.
+            String stageId = stageStore.findLiveStageByType(task.id(), StageType.REVIEW_MONITOR_STAGE)
+                    .map(s -> s.id().toString())
+                    .orElse(null);
             String turnId = scheduler.enqueueTaskTurn(
-                    thread, prompt, task.id(), TurnInitiator.unattended("address-comments-analysis"));
+                    thread, prompt, task.id(), stageId,
+                    TurnInitiator.unattended("address-comments-analysis"));
             iterationService.begin(task.id(), turnId, IterationService.TRIGGER_NEW_COMMENTS);
             log.info("address-comments: analysis turn queued for task {} on {} #{}",
                     task.id(), repo, number);

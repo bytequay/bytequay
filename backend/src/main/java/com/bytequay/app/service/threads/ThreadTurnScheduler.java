@@ -64,6 +64,19 @@ public interface ThreadTurnScheduler
         return enqueueTaskTurn(thread, input, taskId);
     }
 
+    /** As {@link #enqueueTaskTurn(Thread, String, String, TurnInitiator)} but
+     *  with the stage pinned explicitly rather than derived from the active-
+     *  stage projection. Automation/iteration turns (shipped-CI fix, comment
+     *  addressing) use this so the turn is stage-scoped — its detail lands in
+     *  {@code stage_messages}, never the thread slice — even when the active-
+     *  stage lookup would momentarily miss. Defaulted to the no-stage overload
+     *  so test fakes need no change; the production scheduler overrides it. */
+    default String enqueueTaskTurn(
+            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator)
+    {
+        return enqueueTaskTurn(thread, input, taskId, initiator);
+    }
+
     /** Cancel queued turns for one thread and return the number cancelled. */
     int cancelQueuedTurns(String threadId);
 }

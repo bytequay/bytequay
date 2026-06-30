@@ -220,7 +220,7 @@ class TestTaskLifecycleDriver
         when(thread.id()).thenReturn("t1");
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any())).thenReturn("turn-id");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any())).thenReturn("turn-id");
 
         driver.reconcileTask(task);
 
@@ -233,7 +233,7 @@ class TestTaskLifecycleDriver
         verify(notifications).notifyNeedsAttention(eq("t1"), eq("t1.k2"), anyString());
         ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
         // Bound to the task id so it runs on the task's agent, not the trunk.
-        verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), initiator.capture());
+        verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), any(), initiator.capture());
         assertThat(initiator.getValue().attended()).isFalse();
         assertThat(initiator.getValue().source()).isEqualTo("address-comments-analysis");
         // It does not also plain-advance to remote review — it diverted.
@@ -259,7 +259,7 @@ class TestTaskLifecycleDriver
         verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "pr_state_observed");
         verify(phaseMachine, never())
                 .observe(anyString(), eq(TaskPhase.ADDRESSING_COMMENTS), anyString());
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }
 
     private static PullRequestDetail detail(CiStatus ci, boolean draft)

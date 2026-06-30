@@ -16,6 +16,9 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -32,6 +35,7 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -48,6 +52,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.bytequay.app.service.workspaces.WorkspaceService.DEFAULT_WORKSPACE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -95,6 +100,7 @@ class TestAutomationCoordinatorAutoFix
     private final ObjectMapper mapper = new ObjectMapper();
     private final IterationService iterationService = mock(IterationService.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
+    private final StageStore stageStore = mock(StageStore.class);
 
     @Test
     void enqueuesAnAutoFixTurnWhenOptedInAndThreadIdle()
@@ -102,6 +108,13 @@ class TestAutomationCoordinatorAutoFix
         Task task = newTask("task-1", "thread-1");
         Thread thread = newThread("thread-1", ThreadStatus.IDLE);
         wireFailingCi(task, thread, /* autoFixEnabled */ true, /* leaseHeld */ false);
+        // The CI-fixing stage is PAUSED while it waits on remote CI — findActive
+        // would miss it; findLiveStageByType pins it so the turn is stage-scoped.
+        UUID ciStageId = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+        when(stageStore.findLiveStageByType("task-1", StageType.CI_FIXING_STAGE))
+                .thenReturn(Optional.of(new StageInstance(
+                        ciStageId, "task-1", StageType.CI_FIXING_STAGE, StageState.PAUSED,
+                        Instant.parse("2026-05-15T12:00:00Z"), null, null)));
         AutomationCoordinator coordinator = newCoordinator();
 
         coordinator.scanForFailingCi();
@@ -109,12 +122,16 @@ class TestAutomationCoordinatorAutoFix
         ArgumentCaptor<Thread> threadArg = ArgumentCaptor.forClass(Thread.class);
         ArgumentCaptor<String> promptArg = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> taskIdArg = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> stageArg = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<TurnInitiator> initiatorArg = ArgumentCaptor.forClass(TurnInitiator.class);
-        // Bound to the task id so it lands on the task's agent, not the trunk.
+        // Bound to the task id AND its CI-fixing stage, so it lands on the
+        // task's agent and its messages go to stage_messages, not the thread.
         verify(scheduler).enqueueTaskTurn(
-                threadArg.capture(), promptArg.capture(), taskIdArg.capture(), initiatorArg.capture());
+                threadArg.capture(), promptArg.capture(), taskIdArg.capture(),
+                stageArg.capture(), initiatorArg.capture());
         assertThat(threadArg.getValue().id()).isEqualTo("thread-1");
         assertThat(taskIdArg.getValue()).isEqualTo("task-1");
+        assertThat(stageArg.getValue()).isEqualTo(ciStageId.toString());
         assertThat(promptArg.getValue())
                 .contains("CI is failing")
                 .contains(REPO)
@@ -136,7 +153,7 @@ class TestAutomationCoordinatorAutoFix
 
         coordinator.scanForFailingCi();
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -149,7 +166,7 @@ class TestAutomationCoordinatorAutoFix
 
         coordinator.scanForFailingCi();
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -164,7 +181,7 @@ class TestAutomationCoordinatorAutoFix
 
         coordinator.scanForFailingCi();
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -186,7 +203,7 @@ class TestAutomationCoordinatorAutoFix
         coordinator.scanForFailingCi();
 
         // Exactly one enqueue across the two sweeps.
-        verify(scheduler).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -203,7 +220,7 @@ class TestAutomationCoordinatorAutoFix
         // no agent turn, no NEEDS_ATTENTION yet — even though the repo never
         // opted into dashboard auto-fix (shipped tasks are always-on).
         verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
         verify(notificationService, never())
                 .notifyNeedsAttention(anyString(), anyString(), anyString());
     }
@@ -222,7 +239,7 @@ class TestAutomationCoordinatorAutoFix
         // The cooldown holds the loop while the re-run is in flight, so the
         // second sweep neither re-runs again nor jumps to an agent turn.
         verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -233,7 +250,7 @@ class TestAutomationCoordinatorAutoFix
         Thread thread = newThread("thread-3", ThreadStatus.IDLE);
         when(threadStore.findThreadById(eq("thread-3"))).thenReturn(Optional.of(thread));
         when(leaseService.isHeld(eq(WORKTREE_PATH))).thenReturn(false);
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any())).thenReturn("turn-id");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any())).thenReturn("turn-id");
         AutomationCoordinator coordinator = newCoordinator();
         // Pretend the cheap re-run already ran and didn't clear CI.
         coordinator.seedCiFixAttemptsForTest("ship-3", 1);
@@ -245,7 +262,7 @@ class TestAutomationCoordinatorAutoFix
         ArgumentCaptor<TurnInitiator> initiatorArg = ArgumentCaptor.forClass(TurnInitiator.class);
         // Bound to the task id → runs on the task's agent, never the trunk.
         verify(scheduler).enqueueTaskTurn(
-                any(), promptArg.capture(), taskIdArg.capture(), initiatorArg.capture());
+                any(), promptArg.capture(), taskIdArg.capture(), any(), initiatorArg.capture());
         assertThat(taskIdArg.getValue()).isEqualTo("ship-3");
         // Autonomous CI-fix prompt: pushes its own fix, no review wait.
         assertThat(promptArg.getValue())
@@ -269,7 +286,7 @@ class TestAutomationCoordinatorAutoFix
 
         // Budget spent → hand it to the user; no more re-runs or agent turns.
         verify(notificationService).notifyNeedsAttention(eq("thread-4"), eq("ship-4"), anyString());
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
         verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
     }
 
@@ -339,7 +356,7 @@ class TestAutomationCoordinatorAutoFix
         Thread thread = newThread("thread-seed", ThreadStatus.IDLE);
         when(threadStore.findThreadById(eq("thread-seed"))).thenReturn(Optional.of(thread));
         when(leaseService.isHeld(eq(WORKTREE_PATH))).thenReturn(false);
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any())).thenReturn("turn-id");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any())).thenReturn("turn-id");
         AutomationCoordinator coordinator = newCoordinator();
         // Re-run already spent → this sweep enqueues the agent fix turn.
         coordinator.seedCiFixAttemptsForTest("ship-seed", 1);
@@ -347,7 +364,7 @@ class TestAutomationCoordinatorAutoFix
         coordinator.scanForFailingCi();
 
         ArgumentCaptor<String> promptArg = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTaskTurn(any(), promptArg.capture(), eq("ship-seed"), any());
+        verify(scheduler).enqueueTaskTurn(any(), promptArg.capture(), eq("ship-seed"), any(), any());
         assertThat(promptArg.getValue())
                 .contains("Context from prior stages")
                 .contains("Built the widget and wired it up.");
@@ -414,7 +431,8 @@ class TestAutomationCoordinatorAutoFix
         return new AutomationCoordinator(
                 leaseService, taskStore, threadStore, watchedRepoStore,
                 pullRequestStore, prDetailStore, notificationService,
-                workspaceStore, scheduler, pullRequests, git, mapper, iterationService, turnStore);
+                workspaceStore, scheduler, pullRequests, git, mapper, iterationService, turnStore,
+                stageStore);
     }
 
     private void wireFailingCi(Task task, Thread thread, boolean autoFixEnabled, boolean leaseHeld)
@@ -433,7 +451,7 @@ class TestAutomationCoordinatorAutoFix
                         autoFixEnabled, Instant.parse("2026-05-15T12:00:00Z"))));
         when(leaseService.isHeld(eq(WORKTREE_PATH))).thenReturn(leaseHeld);
         when(threadStore.findThreadById(eq(thread.id()))).thenReturn(Optional.of(thread));
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any())).thenReturn("turn-mock-id");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any())).thenReturn("turn-mock-id");
     }
 
     private static StoredPrDetail detailWithFailingCi()

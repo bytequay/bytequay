@@ -150,8 +150,9 @@ public class AgentScheduler
     public String enqueueTurn(Thread thread, String input, TurnInitiator initiator)
     {
         // Route to the thread's newest active task when one exists (a thread
-        // may run several at once); otherwise a trunk planning turn.
-        return enqueueTurnInternal(thread, input,
+        // may run several at once); otherwise a trunk planning turn. The 4-arg
+        // overload resolves the task's active stage for the turn's scope.
+        return enqueueTaskTurn(thread, input,
                 tasks.activeTasksForThread(thread.id()).stream().findFirst()
                         .map(Task::id).orElse(null),
                 initiator);
@@ -166,7 +167,8 @@ public class AgentScheduler
     @Override
     public String enqueueTrunkTurn(Thread thread, String input)
     {
-        return enqueueTurnInternal(thread, input, /* taskId */ null, TurnInitiator.user());
+        // Trunk turn: no task, no stage — planning altitude.
+        return enqueueTurnInternal(thread, input, /* taskId */ null, /* stageId */ null, TurnInitiator.user());
     }
 
     /**
@@ -182,16 +184,34 @@ public class AgentScheduler
     @Override
     public String enqueueTaskTurn(Thread thread, String input, String taskId)
     {
-        return enqueueTurnInternal(thread, input, taskId, TurnInitiator.user());
+        return enqueueTaskTurn(thread, input, taskId, TurnInitiator.user());
     }
 
     @Override
     public String enqueueTaskTurn(Thread thread, String input, String taskId, TurnInitiator initiator)
     {
-        return enqueueTurnInternal(thread, input, taskId, initiator);
+        // No explicit stage: resolve the task's active stage so the turn (and
+        // its messages) carry a stage_id + scope rather than leaving stage
+        // attribution to a time window. A trunk turn (no task) stays stage-less.
+        String stageId = taskId == null || taskId.isBlank()
+                ? null
+                : stages.findActiveStage(taskId).map(s -> s.id().toString()).orElse(null);
+        return enqueueTurnInternal(thread, input, taskId, stageId, initiator);
     }
 
-    private String enqueueTurnInternal(Thread thread, String input, String taskId, TurnInitiator initiator)
+    @Override
+    public String enqueueTaskTurn(
+            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator)
+    {
+        // Caller pins the stage explicitly (automation/iteration turns whose
+        // stage is known) — bypass findActiveStage so the turn is stage-scoped
+        // even if the active-stage projection is momentarily empty. A turn that
+        // carries a stage_id writes to stage_messages, never the thread slice.
+        return enqueueTurnInternal(thread, input, taskId, stageId, initiator);
+    }
+
+    private String enqueueTurnInternal(
+            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator)
     {
         requireNonNull(thread, "thread is null");
         requireNonNull(input, "input is null");
@@ -200,12 +220,6 @@ public class AgentScheduler
             throw new IllegalArgumentException("input is blank");
         }
         Instant now = Instant.now();
-        // Resolve the task's active stage so the turn (and its messages) carry
-        // an explicit stage_id + scope rather than leaving stage attribution to
-        // a time window. A trunk turn (no task) stays stage-less.
-        String stageId = taskId == null || taskId.isBlank()
-                ? null
-                : stages.findActiveStage(taskId).map(s -> s.id().toString()).orElse(null);
         ThreadTurn turn = new ThreadTurn(
                 UUID.randomUUID().toString(),
                 thread.id(),

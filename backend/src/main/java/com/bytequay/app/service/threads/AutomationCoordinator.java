@@ -18,6 +18,7 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
@@ -29,6 +30,7 @@ import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -131,6 +133,7 @@ public class AutomationCoordinator
     private final ObjectMapper mapper;
     private final IterationService iterationService;
     private final ThreadTurnStore turnStore;
+    private final StageStore stageStore;
 
     /** Tracks tasks that already had an auto-fix turn queued during
      *  this process's lifetime. Without it the 60-second CI sweep
@@ -168,7 +171,8 @@ public class AutomationCoordinator
             GitRunner git,
             ObjectMapper mapper,
             IterationService iterationService,
-            ThreadTurnStore turnStore)
+            ThreadTurnStore turnStore,
+            StageStore stageStore)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -184,6 +188,19 @@ public class AutomationCoordinator
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.iterationService = requireNonNull(iterationService, "iterationService is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
+    }
+
+    /** The id of the task's live CI-fixing stage, or null when none is open.
+     *  A CI-fix turn is pinned to this so its messages land in stage_messages
+     *  rather than leaking to the thread slice (the stage is often PAUSED while
+     *  it waits on remote CI, which findActiveStage misses — see
+     *  {@link StageStore#findLiveStageByType}). */
+    private String ciFixingStageId(String taskId)
+    {
+        return stageStore.findLiveStageByType(taskId, StageType.CI_FIXING_STAGE)
+                .map(s -> s.id().toString())
+                .orElse(null);
     }
 
     /**
@@ -418,11 +435,12 @@ public class AutomationCoordinator
         }
         String prompt = buildAutoFixPrompt(task, repoFullName, failingChecks);
         try {
-            // Bind the task id so the turn runs on the task's (worktree-leased)
-            // agent, never the read-only trunk planner — task/stage work must
-            // never fall back to the trunk.
+            // Bind the task id + CI-fixing stage so the turn runs on the task's
+            // (worktree-leased) agent and its messages land in stage_messages —
+            // never the read-only trunk planner, never the thread slice.
             String turnId = scheduler.enqueueTaskTurn(
-                    thread, prompt, task.id(), TurnInitiator.unattended("auto-fix-ci-fail"));
+                    thread, prompt, task.id(), ciFixingStageId(task.id()),
+                    TurnInitiator.unattended("auto-fix-ci-fail"));
             iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI,
                     ciFixContext(failingRuns));
             log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
@@ -606,12 +624,13 @@ public class AutomationCoordinator
         String prompt = buildShippedCiFixPrompt(
                 task, repoFullName, failingChecks, priorStageContext(task, repoFullName));
         try {
-            // Bind the task id: a shipped task is IN_REVIEW, so the active-task
-            // projection is empty and the no-id enqueue would stamp task_id =
-            // null and route this autonomous fix to the read-only trunk agent.
-            // Task/stage work must always run on the task's own agent.
+            // Bind the task id + CI-fixing stage: a shipped task is IN_REVIEW
+            // (empty active-task projection) so the no-id enqueue would misroute
+            // to the read-only trunk; the explicit stage keeps the fix's
+            // messages in stage_messages instead of the thread slice.
             String turnId = scheduler.enqueueTaskTurn(
-                    thread, prompt, task.id(), TurnInitiator.unattended("ci-fix-shipped"));
+                    thread, prompt, task.id(), ciFixingStageId(task.id()),
+                    TurnInitiator.unattended("ci-fix-shipped"));
             iterationService.begin(task.id(), turnId, IterationService.TRIGGER_RED_CI,
                     ciFixContext(failingRuns));
             int attempt = ciFixAttempts.merge(task.id(), 1, Integer::sum);

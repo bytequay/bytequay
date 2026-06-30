@@ -125,13 +125,22 @@ public record TaskBrainViewData(
             PlanSignals signals,
             int revisionCount,
             List<PlanFollowup> followups,
+            /** Things the task deliberately does NOT do — rendered as the
+             *  out-of-scope mini-card. Empty for plans recorded before it. */
+            List<String> outOfScope,
             /** Set when the latest planning turn failed before recording a
              *  plan — surfaced on the card instead of a silent empty draft. */
             String error)
     {
     }
 
-    public record PlanStep(int ordinal, String action) {}
+    /**
+     * One plan step. {@code action} is the short imperative; {@code detail} is
+     * the longer rationale shown on expand; {@code files} render as file
+     * chips; {@code risk} is the per-step risk pill ({@code low} / {@code med}
+     * / {@code high} / {@code opt}), null when the plan predates per-step risk.
+     */
+    public record PlanStep(int ordinal, String action, List<String> files, String detail, String risk) {}
 
     public record PlanSignals(
             String riskLevel, String estimatedComplexity, int componentsCount, String expectedGain,

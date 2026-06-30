@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { PlanCardDto } from '../../types/brainView';
+import type { PlanCardDto, PlanStepDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
 
@@ -91,8 +91,6 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
   );
 }
 
-const RISK_TONE: Record<string, string> = { low: 'low', medium: 'med', high: 'high' };
-
 /** The typed plan card. */
 function PlanCard({
   plan, autoApprove, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
@@ -136,18 +134,28 @@ function PlanCard({
             <div className="plan-seclbl">Steps <span className="cnt">· {plan.steps.length}</span></div>
             <div className="plan-steps">
               {plan.steps.map(s => (
-                <PlanStep key={s.ordinal} ordinal={s.ordinal} action={s.action} risk={plan.signals.riskLevel} onComment={onCommentStep} />
+                <PlanStep key={s.ordinal} step={s} overallRisk={plan.signals.riskLevel} onComment={onCommentStep} />
               ))}
             </div>
           </>
         )}
 
-        {plan.validationStrategy.trim().length > 0 && (
-          <div className="plan-mini">
-            <div className="plan-mini__h">Validation</div>
-            <div className="plan-mini__tx"><MarkdownProse text={plan.validationStrategy} variant="card" /></div>
-          </div>
-        )}
+        <div className="plan-mini-grid">
+          {plan.validationStrategy.trim().length > 0 && (
+            <div className="plan-mini">
+              <div className="plan-mini__h">Validation</div>
+              <div className="plan-mini__tx"><MarkdownProse text={plan.validationStrategy} variant="card" /></div>
+            </div>
+          )}
+          {plan.outOfScope !== undefined && plan.outOfScope.length > 0 && (
+            <div className="plan-mini">
+              <div className="plan-mini__h">Out of scope</div>
+              <ul className="plan-mini__oos">
+                {plan.outOfScope.map((o, i) => <li key={i}>{o}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
 
         <div className="plan-signals">
           <Signal label="Risk" value={cap(plan.signals.riskLevel)} tone={plan.signals.riskLevel === 'low' ? 'g' : plan.signals.riskLevel === 'high' ? 'r' : 'a'} />
@@ -174,31 +182,42 @@ function PlanCard({
   );
 }
 
-function PlanStep({ ordinal, action, risk, onComment }: {
-  ordinal: number;
-  action: string;
-  risk: 'low' | 'medium' | 'high';
+function PlanStep({ step, overallRisk, onComment }: {
+  step: PlanStepDto;
+  overallRisk: 'low' | 'medium' | 'high';
   onComment?: (ordinal: number) => void;
 }) {
-  const [open, setOpen] = useState(ordinal === 1);
-  // Until the typed schema (P7), derive a short title from the action prose.
-  const title = firstClause(action);
-  const hasDetail = action.trim() !== title.trim();
+  const [open, setOpen] = useState(step.ordinal === 1);
+  // The typed schema (P7) carries a title (action), a detail (rationale), and
+  // file chips. Plans recorded before it have only `action` — derive a short
+  // title from it and use the full action as the detail.
+  const typed = step.detail !== undefined || (step.files !== undefined && step.files.length > 0);
+  const title = typed ? step.action : firstClause(step.action);
+  const detail = step.detail ?? (typed ? undefined : step.action);
+  const hasDetail = detail !== undefined && detail.trim() !== title.trim();
+  // Per-step risk, falling back to the overall level (the risk values
+  // low/med/high/opt double as the CSS pill class).
+  const riskRaw = step.risk ?? (overallRisk === 'medium' ? 'med' : overallRisk);
   return (
     <div className={`plan-step${open ? ' open' : ''}`}>
       <button type="button" className="plan-step__hd" onClick={() => setOpen(o => !o)} aria-expanded={open}>
-        <span className="plan-step__ord">{ordinal}</span>
+        <span className="plan-step__ord">{step.ordinal}</span>
         <span className="plan-step__title"><MarkdownProse text={title} variant="card" /></span>
         <span className="plan-step__right">
-          <span className={`risk ${RISK_TONE[risk] ?? 'med'}`}>{risk === 'medium' ? 'med' : risk}</span>
+          <span className={`risk ${riskRaw}`}>{riskRaw}</span>
           <span className="plan-step__chev" aria-hidden>›</span>
         </span>
       </button>
       {open && (
         <div className="plan-step__detail">
-          {hasDetail && <MarkdownProse text={action} variant="card" />}
+          {hasDetail && <MarkdownProse text={detail} variant="card" />}
+          {step.files !== undefined && step.files.length > 0 && (
+            <div className="plan-step__files">
+              {step.files.map((f, i) => <span className="fref" key={i}>{f}</span>)}
+            </div>
+          )}
           {onComment !== undefined && (
-            <button type="button" className="plan-step__cmt" onClick={() => onComment(ordinal)}>💬 Comment on this step</button>
+            <button type="button" className="plan-step__cmt" onClick={() => onComment(step.ordinal)}>💬 Comment on this step</button>
           )}
         </div>
       )}

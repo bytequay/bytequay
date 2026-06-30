@@ -1228,3 +1228,13 @@
 .shell .auto-banner__tx b { color: var(--green); }
 .shell .auto-banner__hold { padding: 6px 11px; border-radius: 7px; font-size: 11px; font-weight: 700; font-family: inherit; cursor: pointer; background: var(--bg-elev); color: var(--text-2); border: 1px solid var(--border-mid); }
 .shell .auto-banner__cd { font-family: var(--mono); font-weight: 700; color: var(--text-1); }
+
+/* typed plan-step file chips + optional-risk pill + mini grid (P7) */
+.shell .plan-step .risk.opt { background: var(--bg-code); color: var(--text-3); border: 1px solid var(--border-mid); }
+.shell .plan-step__files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.shell .plan-step__files .fref { font-family: var(--mono); font-size: 10.5px; background: var(--accent-soft); padding: 1px 5px; border-radius: 3px; color: var(--accent-deep); border: 1px solid var(--accent-border); white-space: nowrap; }
+.shell .plan-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.shell .plan-mini-grid:empty { display: none; }
+.shell .plan-mini-grid .plan-mini { margin-top: 0; }
+.shell .plan-mini__oos { margin: 0; padding-left: 15px; }
+.shell .plan-mini__oos li { font-size: 11px; line-height: 1.5; color: var(--text-3); margin: 2px 0; }

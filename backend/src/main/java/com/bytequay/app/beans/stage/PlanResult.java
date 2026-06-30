@@ -34,6 +34,7 @@ import java.util.List;
  * @param understanding  what the agent understands about the change
  * @param intent         what the agent intends to do
  * @param signals        risk / effort / value signals
+ * @param outOfScope     things this task deliberately does NOT do
  * @param uncertainAreas trunk-only: areas left for the brain to finalize
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -49,6 +50,7 @@ public record PlanResult(
         Understanding understanding,
         Intent intent,
         Signals signals,
+        List<String> outOfScope,
         List<String> uncertainAreas)
 {
     /** "Proven" — what the agent understands about the change. */
@@ -71,9 +73,16 @@ public record PlanResult(
             String validationStrategy,
             String pushStrategy) {}
 
-    /** One ordinal-numbered, optionally file-scoped step the dev agent walks. */
+    /**
+     * One ordinal-numbered, optionally file-scoped step the dev agent walks.
+     *
+     * @param risk per-step risk: {@code low} / {@code med} / {@code high}, or
+     *             {@code opt} for an optional step. Null on plans recorded
+     *             before per-step risk; the card falls back to the overall
+     *             risk level.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Step(int ordinal, String action, List<String> files, String rationale) {}
+    public record Step(int ordinal, String action, List<String> files, String rationale, String risk) {}
 
     /** Risk / effort / value signals shown as at-a-glance pills. */
     @JsonIgnoreProperties(ignoreUnknown = true)

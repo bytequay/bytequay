@@ -108,6 +108,18 @@ export type PlanCardSignals = {
   confidence?: 'low' | 'medium' | 'high';
 };
 
+/** One plan step. `action` is the short imperative title; `detail` is the
+ *  longer rationale shown on expand; `files` render as file chips; `risk` is
+ *  the per-step pill. `detail` / `files` / `risk` are absent on plans recorded
+ *  before the typed step schema — the card derives a fallback. */
+export type PlanStepDto = {
+  ordinal: number;
+  action: string;
+  detail?: string;
+  files?: string[];
+  risk?: 'low' | 'med' | 'high' | 'opt';
+};
+
 export type PlanFollowupDto = {
   eventId: string;
   note: string;
@@ -124,7 +136,10 @@ export type PlanCardDto = {
   goal?: string;                        // concise one-line objective (card headline)
   understandingSummary: string;
   intentSummary: string;
-  steps: { ordinal: number; action: string }[];
+  steps: PlanStepDto[];
+  /** Things the task deliberately does NOT do (typed plan; may be absent on
+   *  plans recorded before the field existed). */
+  outOfScope?: string[];
   validationStrategy: string;
   pushStrategy: 'autonomous' | 'await_approval';
   signals: PlanCardSignals;

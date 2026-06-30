@@ -53,19 +53,35 @@ export function TaskBrainRoute({
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  // Per-task auto-approve mode (default off); loaded once, toggled from the
-  // brain page's top bar.
+  // Auto-approve mode. The backend persists it per-task; a per-thread default
+  // (localStorage) lets new tasks inherit the user's latest choice, with the
+  // per-task toggle overriding (A4.3, defaulted). Toggling updates both.
   const [autoApprove, setAutoApprove] = useState(false);
+  const threadDefaultKey = `bq.autoApprove.thread.${threadId}`;
+  const readThreadDefault = () => {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem(threadDefaultKey) === 'true'; }
+    catch { return false; }
+  };
   useEffect(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const threadDefault = readThreadDefault();
     bridge?.getTaskAutoApprove?.(threadId, taskId)
-      .then(r => setAutoApprove(r.enabled))
-      .catch(() => { /* default off */ });
+      .then(r => {
+        const eff = r.enabled || threadDefault;
+        setAutoApprove(eff);
+        // A new task whose backend value is still off inherits the thread
+        // default — persist it so the backend matches what the UI shows.
+        if (eff && !r.enabled) bridge?.setTaskAutoApprove?.(threadId, taskId, true).catch(() => { /* poll reconciles */ });
+      })
+      .catch(() => setAutoApprove(threadDefault));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, taskId]);
   const toggleAutoApprove = () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     const next = !autoApprove;
     setAutoApprove(next);
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem(threadDefaultKey, String(next)); }
+    catch { /* storage unavailable */ }
     bridge?.setTaskAutoApprove?.(threadId, taskId, next)
       .then(r => setAutoApprove(r.enabled))
       .catch(() => setAutoApprove(!next));

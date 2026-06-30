@@ -20,9 +20,25 @@ import type { PlanCardDto } from '../types/brainView';
 
 // jsdom lacks scrollIntoView; the shared conversation may call it.
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); localStorage.clear(); });
 
 describe('TaskBrainRoute', () => {
+  it('inherits the per-thread auto-approve default for a task whose backend value is off', async () => {
+    localStorage.setItem('bq.autoApprove.thread.t1', 'true');
+    const getTaskAutoApprove = vi.fn().mockResolvedValue({ enabled: false });
+    const setTaskAutoApprove = vi.fn().mockResolvedValue({ enabled: true });
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn(() => new Promise(() => {})),
+      sendBrainMessage: vi.fn(),
+      getTaskAutoApprove,
+      setTaskAutoApprove,
+    };
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
+    // The new task inherits the thread default (on) and persists it to the backend.
+    await waitFor(() => expect(setTaskAutoApprove).toHaveBeenCalledWith('t1', 'task-1', true));
+    expect(await screen.findByText('Auto-approve on')).toBeTruthy();
+  });
+
   it('mounts the V3 brain page on the fixture data and steers the brain agent', async () => {
     const sendBrainMessage = vi.fn().mockResolvedValue({ messageId: 'm1' });
     // getBrainView never resolves → the hook keeps its initial fixture data.

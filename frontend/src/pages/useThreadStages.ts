@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { StatusDotVariant } from '../ui/primitives';
+import type { PrGlyphState, StatusDotVariant } from '../ui/primitives';
 import type { StageNavRow } from '../ui/workspace';
 import type { StageDto, StageState, StageType, TaskPhase } from '../types/brainView';
 
@@ -84,6 +84,15 @@ function taskDot(view: { terminal: boolean; paused: boolean }): StatusDotVariant
   return 'active';
 }
 
+/** PR-state glyph before the rail's task name: merged once the work landed,
+ *  a draft / open pull-request mark while it's in flight, nothing before a
+ *  PR exists. */
+function taskPr(view: { currentPhase: TaskPhase; prNumber: number | null; prDraft: boolean }): PrGlyphState | undefined {
+  if (view.currentPhase === 'COMPLETED') return 'merged';
+  if (view.prNumber === null) return undefined;
+  return view.prDraft ? 'draft' : 'open';
+}
+
 export type ThreadStages = {
   /** The task whose stages these are (the resolved active task), or null. */
   taskId: string | null;
@@ -91,6 +100,8 @@ export type ThreadStages = {
   taskLabel: string | null;
   /** That task's lifecycle dot (done when closed, active while running). */
   taskDot: StatusDotVariant | undefined;
+  /** That task's PR-state glyph (merged / open / draft), or undefined with no PR. */
+  taskPr: PrGlyphState | undefined;
   stages: StageNavRow[];
 };
 
@@ -104,11 +115,11 @@ export type ThreadStages = {
  * reload. Empty when no thread is open.
  */
 export function useThreadStages(threadId: string | null, taskId?: string): ThreadStages {
-  const [data, setData] = useState<ThreadStages>({ taskId: null, taskLabel: null, taskDot: undefined, stages: [] });
+  const [data, setData] = useState<ThreadStages>({ taskId: null, taskLabel: null, taskDot: undefined, taskPr: undefined, stages: [] });
 
   useEffect(() => {
     if (threadId === null) {
-      setData({ taskId: null, taskLabel: null, taskDot: undefined, stages: [] });
+      setData({ taskId: null, taskLabel: null, taskDot: undefined, taskPr: undefined, stages: [] });
       return;
     }
     let cancelled = false;
@@ -123,7 +134,7 @@ export function useThreadStages(threadId: string | null, taskId?: string): Threa
           tid = active?.id;
         }
         if (tid === undefined) {
-          if (!cancelled) setData({ taskId: null, taskLabel: null, taskDot: undefined, stages: [] });
+          if (!cancelled) setData({ taskId: null, taskLabel: null, taskDot: undefined, taskPr: undefined, stages: [] });
           return;
         }
         const view = await bridge.getBrainView(tid);
@@ -132,6 +143,7 @@ export function useThreadStages(threadId: string | null, taskId?: string): Threa
           taskId: tid,
           taskLabel: view.task.title,
           taskDot: taskDot(view.task),
+          taskPr: taskPr(view.task),
           stages: buildStageNav(view.stages, view.task.currentPhase, view.task.prNumber),
         });
       }

@@ -1458,6 +1458,7 @@ function PullRequestPreview({
   detailRef.current = detail;
   useEffect(() => {
     let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
     const poll = async () => {
       const current = detailRef.current;
       if (!current) return; // wait for the first full load
@@ -1470,10 +1471,33 @@ function PullRequestPreview({
         // Best-effort — the 10s full poll reconciles anything missed.
       }
     };
-    const interval = setInterval(() => { void poll(); }, COMMENT_POLL_INTERVAL_MS);
+    // Only poll while the window AND document are visible/focused, so a
+    // backgrounded PR page stops spending GitHub rate-limit on comment
+    // checks. Fire once on focus regain so a returning user sees fresh
+    // comments immediately.
+    const isVisible = () => document.visibilityState === 'visible' && document.hasFocus();
+    const start = () => {
+      if (interval != null) return;
+      void poll();
+      interval = setInterval(() => { void poll(); }, COMMENT_POLL_INTERVAL_MS);
+    };
+    const stop = () => {
+      if (interval != null) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+    const onVisibility = () => { isVisible() ? start() : stop(); };
+    if (isVisible()) start();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onVisibility);
+    window.addEventListener('blur', onVisibility);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onVisibility);
+      window.removeEventListener('blur', onVisibility);
     };
   }, [pr.id, pr.repo, pr.number]);
 

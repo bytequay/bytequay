@@ -62,9 +62,33 @@ public class NotificationService
      *  {@link GateParkedEvent} so auto-approve mode can resolve the gate. */
     public Notification notifyAwaitingReview(String threadId, String taskId, String payloadJson)
     {
+        // A task has at most ONE live publish gate. Re-parking (a fresh
+        // ship after a review round, then mark-ready, then merge) supersedes
+        // the task's prior pending proposal, so a stale "approve the dev
+        // result" card can't linger and re-appear on a later stage.
+        supersedePriorProposals(threadId, taskId);
         Notification notification = create(NotificationKind.AWAITING_REVIEW, threadId, taskId, payloadJson);
         events.publishEvent(new GateParkedEvent(notification.id(), taskId, payloadJson));
         return notification;
+    }
+
+    /** Resolve any still-UNREAD AWAITING_REVIEW proposal for the task, so the
+     *  newly-parked one is the only live gate. No-op for thread-level
+     *  (taskId == null) notices and across other tasks on the thread. */
+    private void supersedePriorProposals(String threadId, String taskId)
+    {
+        if (taskId == null) {
+            return;
+        }
+        for (Notification n : store.listForThread(threadId, DEFAULT_LIMIT)) {
+            if (n.kind() == NotificationKind.AWAITING_REVIEW
+                    && taskId.equals(n.taskId())
+                    && n.status() == NotificationStatus.UNREAD) {
+                store.save(new Notification(
+                        n.id(), n.kind(), n.threadId(), n.taskId(),
+                        NotificationStatus.RESOLVED, n.payloadJson(), n.createdAt(), n.readAt()));
+            }
+        }
     }
 
     /** Headless run hit a conflict / question / push rejection and

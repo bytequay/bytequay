@@ -1067,3 +1067,32 @@
 
 /* density toggle row above the spine */
 .shell .sp-controls { display: flex; align-items: center; }
+
+/* ── Gates (Layer 3): decision nodes shared by approvals + questions ── */
+.shell .sp-gate { min-width: 0; }
+.shell .sp-gate--ask { border: 1.5px solid var(--amber-border); border-radius: 10px; background: linear-gradient(135deg, var(--amber-soft), rgba(245, 158, 11, 0.02)); padding: 9px 12px; }
+.shell .sp-gate--approve { border: 1.5px solid var(--orange-border); border-radius: 10px; background: linear-gradient(135deg, var(--orange-soft), rgba(194, 99, 42, 0.02)); overflow: hidden; }
+
+/* approval card */
+.shell .sp-appr__head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; }
+.shell .sp-appr__lbl { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--orange); }
+.shell .sp-appr__tool { margin-left: auto; font-size: 9.5px; font-family: var(--mono); color: var(--orange); background: var(--bg-elev); border: 1px solid var(--orange-border); padding: 1px 7px; border-radius: 5px; }
+.shell .sp-appr__cmd { margin: 9px 12px; padding: 9px 11px; background: #1f1b16; border-radius: 7px; font-family: var(--mono); font-size: 11px; color: #e9e2d6; overflow: auto; }
+.shell .sp-appr__pfx { color: #8a8f98; }
+.shell .sp-appr__why { padding: 0 12px 10px; font-size: 11px; color: var(--text-3); line-height: 1.5; }
+.shell .sp-appr__actions { padding: 0 12px 12px; display: flex; gap: 7px; flex-wrap: wrap; }
+.shell .sp-ab { padding: 7px 12px; border-radius: 7px; font-size: 11.5px; font-weight: 700; font-family: inherit; cursor: pointer; border: 1px solid transparent; }
+.shell .sp-ab:hover { filter: brightness(1.04); }
+.shell .sp-ab--ok { background: var(--green); color: #fff; }
+.shell .sp-ab--deny { background: var(--bg-elev); color: var(--text-2); border-color: var(--border-mid); }
+.shell .sp-ab--always { background: var(--bg-elev); color: var(--orange); border-color: var(--orange-border); margin-left: auto; }
+/* resolved record */
+.shell .sp-appr--done { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
+.shell .sp-appr__rc { font-size: 11.5px; font-weight: 700; color: var(--green); }
+.shell .sp-appr--denied .sp-appr__rc { color: var(--red); }
+.shell .sp-appr__rcmd { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* answered question chip */
+.shell .sp-answered { display: flex; align-items: center; gap: 8px; }
+.shell .sp-answered__chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 5px 10px; border-radius: 999px; background: var(--teal-soft); border: 1px solid var(--teal-border); color: var(--teal-deep); font-weight: 700; }
+.shell .sp-answered__by { font-size: 10.5px; color: var(--text-4); }

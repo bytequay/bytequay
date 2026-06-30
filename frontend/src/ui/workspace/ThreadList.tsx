@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { Fragment } from 'react';
-import { Logo, StatusDot } from '../primitives';
-import type { LogoColor, StatusDotVariant } from '../primitives';
+import { Logo, PrStateIcon, StatusDot } from '../primitives';
+import type { LogoColor, PrGlyphState, StatusDotVariant } from '../primitives';
 
 /** One thread row in the sidebar: its repo logo + name + a status dot. */
 export type ThreadRow = {
@@ -94,6 +94,9 @@ export type TaskNavRow = {
   /** Status marker on the right — done once the task is closed/terminal,
    *  active while it runs, sleep when paused. */
   dot?: StatusDotVariant;
+  /** PR-state glyph before the name (merged / open / draft), or omitted
+   *  until the task has a PR. */
+  pr?: PrGlyphState;
 };
 
 /**
@@ -140,6 +143,7 @@ export function ThreadList({
                   ? 'task-subhead active' : 'task-subhead'}
                 onClick={() => onOpenTask?.(task.id)}
               >
+                {task.pr !== undefined && <PrStateIcon state={task.pr} />}
                 <span className="nm">{task.label}</span>
                 {task.dot !== undefined && <StatusDot variant={task.dot} />}
               </button>

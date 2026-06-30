@@ -132,6 +132,14 @@ describe('Card', () => {
     expect(pill?.querySelector('.arrow')).toBeTruthy();
   });
 
+  it('task variant with a PR shows the PR-state glyph instead of the diamond', () => {
+    const { container } = render(
+      <Card kind="task" title="Add cost meter" status="shipped" pr="open" />,
+    );
+    expect(container.querySelector('.pr-state-icon--open')).toBeTruthy();
+    expect(container.querySelector('.diamond')).toBeNull();
+  });
+
   it('backlog variant: tags + Start-development CTA, no diamond/spine', () => {
     const onStart = vi.fn();
     const { container } = render(

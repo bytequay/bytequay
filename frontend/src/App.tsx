@@ -500,7 +500,7 @@ function App() {
           activeWorkspaceId={sidebarWorkspaceId}
           selectedThreadId={selectedThreadId}
           task={inWorkspaceFlow && threadStages.taskId !== null
-            ? { id: threadStages.taskId, label: threadStages.taskLabel ?? 'Task', dot: threadStages.taskDot }
+            ? { id: threadStages.taskId, label: threadStages.taskLabel ?? 'Task', dot: threadStages.taskDot, pr: threadStages.taskPr }
             : undefined}
           /* Stage rows are intentionally omitted from the threads tree — the
              sidebar is a session tree (threads → tasks only); stage navigation

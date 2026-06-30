@@ -74,6 +74,12 @@ public final class ReadOnlyShellClassifier
         // Neutralise backslash-escaped chars (e.g. find's `\;`) so they
         // don't trip the operator scan, while real operators remain.
         String scan = trimmed.replaceAll("\\\\.", "  ");
+        // Benign output sinks write nothing real: redirecting stdout/stderr to
+        // /dev/null (e.g. `find … 2>/dev/null`) or merging stderr into stdout
+        // (`2>&1`). Strip these before the redirect/`&` scan so a read command
+        // that suppresses noise stays auto-approvable. A redirect to any other
+        // target keeps its `>`/`<` and still falls through to a prompt.
+        scan = scan.replaceAll("(?:\\d*|&)>\\s*/dev/null", "  ").replace("2>&1", "  ");
         if (scan.indexOf('>') >= 0 || scan.indexOf('<') >= 0 || scan.indexOf('`') >= 0
                 || scan.contains("$(") || scan.indexOf(';') >= 0 || scan.indexOf('&') >= 0
                 || scan.indexOf('\n') >= 0 || scan.indexOf('\r') >= 0) {

@@ -564,7 +564,17 @@ function App() {
           onNavigate={key => {
             switch (key) {
               case 'home': setNav({ view: 'home' }); break;
-              case 'workspaces': setNav({ view: 'workspaces-landing' }); break;
+              case 'workspaces':
+                // Up one level: from inside a thread/task, return to the active
+                // workspace's surface (its thread list / memory / insights) in
+                // one click, rather than bouncing out to the all-workspaces
+                // landing and forcing the user to re-enter. Only go to the
+                // landing when already on the workspace surface (or there's no
+                // active workspace).
+                setNav(activeWorkspaceId !== null && nav.view !== 'workspace'
+                  ? { view: 'workspace', section: 'threads' }
+                  : { view: 'workspaces-landing' });
+                break;
               case 'my-work': setNav({ view: 'my-prs' }); break;
               case 'automations': break; // no Automations surface yet
               case 'repos': setNav({ view: 'repos' }); break;

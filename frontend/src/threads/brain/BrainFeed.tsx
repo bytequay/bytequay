@@ -24,6 +24,20 @@ import {
   buildBrainTimeline, headlineOf, isQnA, workOf,
 } from './brainTimeline';
 import type { BrainRound } from './brainTimeline';
+import { formatDuration } from './format';
+
+/** The work-fold summary: step count plus the wall-clock the brain spent —
+ *  from its first work row to the round's headline (or last work row while a
+ *  round is still streaming). The duration is dropped when it rounds to under
+ *  a second or a timestamp is missing. */
+function workMeta(work: BrainFeedRow[], headline: BrainFeedRow | null): string {
+  const steps = `${work.length} ${work.length === 1 ? 'step' : 'steps'}`;
+  const firstTs = work[0]?.ts;
+  const lastTs = headline?.ts ?? work[work.length - 1]?.ts;
+  if (firstTs === undefined || lastTs === undefined) return steps;
+  const elapsedSec = (new Date(lastTs).getTime() - new Date(firstTs).getTime()) / 1000;
+  return elapsedSec >= 1 ? `${steps} · ${formatDuration(elapsedSec)}` : steps;
+}
 
 /**
  * The brain conversation feed rendered on the timeline spine (M10). Maps the
@@ -34,12 +48,14 @@ import type { BrainRound } from './brainTimeline';
  * carries no tool calls, so the work fold collects the round's intermediate
  * prose only.
  */
-export function BrainFeed({ feed, stages, density, trailer }: {
+export function BrainFeed({ feed, stages, density, trailer, onOpenStage }: {
   feed: BrainFeedRow[];
   stages: StageDto[];
   density: Density;
   /** Live tail appended after the spine (queued msgs, working indicator). */
   trailer?: ReactNode;
+  /** Jump into a stage's detail view when its boundary node is clicked. */
+  onOpenStage?: (stageId: string) => void;
 }) {
   const segments = buildBrainTimeline(feed, stages);
   const full = density === 'full';
@@ -74,6 +90,7 @@ export function BrainFeed({ feed, stages, density, trailer }: {
                 closed={seg.closed}
                 collapsed={foldable ? collapsed : undefined}
                 onToggle={foldable ? () => toggle(stage.id) : undefined}
+                onOpen={onOpenStage !== undefined ? () => onOpenStage(stage.id) : undefined}
               />
             )}
             {rounds}
@@ -107,7 +124,7 @@ function RoundView({ round, tag, full, collapsedStage }: {
       {!collapsedStage && !qna && (
         <>
           {work.length > 0 && (
-            <WorkFold meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`} forceOpen={full}>
+            <WorkFold meta={workMeta(work, headline)} forceOpen={full}>
               {work.map(w => (
                 <div className="sp-submsg" key={w.id}>
                   <div className="sp-submsg__who">Brain<span className="ago"><EventTimestamp iso={w.ts} /></span></div>

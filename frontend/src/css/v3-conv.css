@@ -1164,7 +1164,7 @@
 .shell .plan-step__hd { display: grid; grid-template-columns: 18px 1fr auto; gap: 9px; align-items: center; padding: 8px 10px; cursor: pointer; width: 100%; background: none; border: none; font-family: inherit; text-align: left; }
 .shell .plan-step__hd:hover { background: rgba(255, 255, 255, 0.5); }
 .shell .plan-step__ord { width: 17px; height: 17px; border-radius: 50%; background: linear-gradient(135deg, #b794f4, #7c5cff); color: #fff; font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
-.shell .plan-step__title { font-size: 12px; font-weight: 600; color: var(--text-1); line-height: 1.35; }
+.shell .plan-step__title { font-size: 12px; font-weight: 600; color: var(--text-1); line-height: 1.35; overflow-wrap: break-word; }
 .shell .plan-step__title p { margin: 0; display: inline; }
 .shell .plan-step__right { display: flex; align-items: center; gap: 7px; }
 .shell .plan-step .risk { font-size: 8.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: 1.5px 6px; border-radius: 999px; }

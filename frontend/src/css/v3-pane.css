@@ -256,12 +256,15 @@
   color: var(--text-1);
   line-height: 1.55;
 }
-.shell .plan-steps {
+/* Scoped under .plan-sec (the pane's plan-tab section wrapper) so these
+   pane-only rules don't leak onto the conversation's .plan-step card, which
+   reuses the same class names for a different, block-stacked structure. */
+.shell .plan-sec .plan-steps {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.shell .plan-step {
+.shell .plan-sec .plan-step {
   display: grid;
   grid-template-columns: 20px 1fr;
   gap: 9px;
@@ -271,7 +274,7 @@
   border-radius: 8px;
   align-items: baseline;
 }
-.shell .plan-step .ord {
+.shell .plan-sec .plan-step .ord {
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -283,12 +286,12 @@
   align-items: center;
   justify-content: center;
 }
-.shell .plan-step .stx {
+.shell .plan-sec .plan-step .stx {
   font-size: 12.5px;
   color: var(--text-1);
   line-height: 1.45;
 }
-.shell .plan-step .stx .f {
+.shell .plan-sec .plan-step .stx .f {
   font-family: var(--mono);
   font-size: 10.5px;
   background: var(--bg-code);

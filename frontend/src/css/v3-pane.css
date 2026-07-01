@@ -182,6 +182,11 @@
 .shell .inline-chip:hover {
   border-color: var(--accent);
 }
+.shell .inline-chip.active {
+  border-color: var(--accent);
+  color: var(--text-1);
+  background: var(--accent-soft);
+}
 .shell .inline-chip .ic {
   color: var(--text-3);
   font-size: 11px;

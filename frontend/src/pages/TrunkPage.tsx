@@ -109,7 +109,17 @@ export function TrunkPage({
   // mergeable) — surfaced in the "Ready to merge" sub-tab + tinted in All.
   const mergeable = [...tasks.active, ...tasks.closed].filter(t => t.mergeReady === true);
 
-  const openTab = (tab: TrunkTab) => { setActiveTab(tab); setPaneOpen(true); };
+  // Clicking a chip opens its tab; clicking the chip of the tab already shown
+  // collapses the pane. The chip row stays pinned above the composer either
+  // way, so it never disappears when the pane expands.
+  const onChipClick = (tab: TrunkTab) => {
+    if (paneOpen && activeTab === tab) {
+      setPaneOpen(false);
+      return;
+    }
+    setActiveTab(tab);
+    setPaneOpen(true);
+  };
 
   const topBar = (
     <TopBar>
@@ -215,14 +225,12 @@ export function TrunkPage({
                 ))}
               </div>
             )}
-            {!paneOpen && (
-              <InlineChips chips={[
-                { icon: '◳', label: 'Tasks', count: taskCount, countColor: 'acc', onClick: () => openTab('tasks') },
-                { icon: '☷', label: 'Backlog', count: pane.backlog.length, onClick: () => openTab('backlog') },
-                { icon: '🔔', label: 'Notifications', count: unreadCount, countColor: 'red', onClick: () => openTab('notifications') },
-              ]}
-              />
-            )}
+            <InlineChips chips={[
+              { icon: '◳', label: 'Tasks', count: taskCount, countColor: 'acc', active: paneOpen && activeTab === 'tasks', onClick: () => onChipClick('tasks') },
+              { icon: '☷', label: 'Backlog', count: pane.backlog.length, active: paneOpen && activeTab === 'backlog', onClick: () => onChipClick('backlog') },
+              { icon: '🔔', label: 'Notifications', count: unreadCount, countColor: 'red', active: paneOpen && activeTab === 'notifications', onClick: () => onChipClick('notifications') },
+            ]}
+            />
             <Composer
               value={composer.value}
               onChange={composer.onChange}
@@ -236,15 +244,9 @@ export function TrunkPage({
           {paneOpen && <ResizeHandle onResize={onResize} ariaLabel="Resize the side pane" />}
           {paneOpen && (
             <RightPane>
-              <RightPane.Tabs<TrunkTab>
-                tabs={[
-                  { key: 'tasks', label: 'Tasks', count: taskCount, countColor: 'acc' },
-                  { key: 'backlog', label: 'Backlog', count: pane.backlog.length, countColor: 'muted' },
-                  { key: 'notifications', label: 'Notifications', count: unreadCount },
-                ]}
-                active={activeTab}
-                onSelect={setActiveTab}
-              />
+              {/* The pinned chip row above the composer is the tab switcher, so
+                  the pane doesn't repeat a top-level tab strip — only the
+                  Tasks sub-tabs live here. */}
               {activeTab === 'tasks' && (
                 <div className="pane-subtabs">
                   <RightPane.Tabs<TaskSubTab>

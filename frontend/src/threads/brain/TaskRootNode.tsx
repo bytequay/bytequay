@@ -42,7 +42,7 @@ export function TaskRootNode({
 }) {
   return (
     <div className="root-node">
-      {seed !== undefined && seed.trim().length > 0 && <SeedBlock seed={seed} />}
+      {seed !== undefined && seed.trim().length > 0 && <PlanningSeed seed={seed} />}
       <PlanCard
         plan={plan}
         autoApprove={autoApprove}
@@ -57,9 +57,10 @@ export function TaskRootNode({
   );
 }
 
-/** The collapsed seed block: chips above the fold, full rendered markdown on
- *  expand. */
-function SeedBlock({ seed }: { seed: string }) {
+/** The collapsed planning seed: chips above the fold, full rendered markdown
+ *  on expand. Exported so the brain view can anchor it at the top of the
+ *  conversation while the plan card floats to the bottom. */
+export function PlanningSeed({ seed }: { seed: string }) {
   const [open, setOpen] = useState(false);
   const chips = extractSeedChips(seed);
   const facts = [chips.type, chips.validate, chips.push, chips.outOfScope].filter(Boolean).length;
@@ -91,8 +92,10 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
   );
 }
 
-/** The typed plan card. */
-function PlanCard({
+/** The typed plan card + review bar. Exported so the brain view can render it
+ *  at the bottom of the planning conversation (where the eye lands) rather
+ *  than pinned above the feed. */
+export function PlanCard({
   plan, autoApprove, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
 }: {
   plan: PlanCardDto;
@@ -202,7 +205,10 @@ function PlanStep({ step, overallRisk, onComment }: {
     <div className={`plan-step${open ? ' open' : ''}`}>
       <button type="button" className="plan-step__hd" onClick={() => setOpen(o => !o)} aria-expanded={open}>
         <span className="plan-step__ord">{step.ordinal}</span>
-        <span className="plan-step__title"><MarkdownProse text={title} variant="card" /></span>
+        {/* Plain text, not markdown: a step title is a one-line action; running
+            it through MarkdownProse drops generic-type tokens like
+            Consumer<ThreadTurn> (parsed as an unknown HTML tag). */}
+        <span className="plan-step__title">{title}</span>
         <span className="plan-step__right">
           <span className={`risk ${riskRaw}`}>{riskRaw}</span>
           <span className="plan-step__chev" aria-hidden>›</span>

@@ -669,6 +669,11 @@
 @media (prefers-reduced-motion: reduce) {
   .shell .plan-reminder--awaiting { animation: none; }
 }
+/* Stage page: the plan reminder pill and the quick-access tab chips share one
+   row — pill pinned left, chips aligned to the right (filling right-to-left). */
+.shell .chip-reminder-row { display: flex; align-items: center; }
+.shell .chip-reminder-row .plan-reminder { margin: 0 auto 0 32px; }
+.shell .chip-reminder-row .inline-chips { padding-left: 0; justify-content: flex-end; flex: 1 1 auto; }
 .shell .composer .input {
   font-size: 15px;
   color: var(--text-1);

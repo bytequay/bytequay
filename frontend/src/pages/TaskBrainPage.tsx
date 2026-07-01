@@ -22,8 +22,9 @@ import {
 import type { StageChip } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
+import { PlanReminderTab } from './PlanOverlay';
 
-type BrainTab = 'plan' | 'pr' | 'details';
+type BrainTab = 'pr' | 'details';
 
 /**
  * The task brain surface (frame 2): the 2-pane shell with the brain
@@ -36,7 +37,7 @@ type BrainTab = 'plan' | 'pr' | 'details';
  */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, priorityTab, planReminder, onOpenChanges, onOpenCi, autoApprove, onToggleAutoApprove,
+  tabs, planReminder, onRevealPlan, onOpenChanges, onOpenCi, autoApprove, onToggleAutoApprove,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
@@ -63,16 +64,17 @@ export function TaskBrainPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  /** Tab contents; Plan/PR are omitted when not applicable, Details is
-   *  always shown. */
-  tabs: { plan?: ReactNode; pr?: ReactNode; details: ReactNode };
-  /** When set, the pane snaps to this tab (e.g. 'plan' when a plan is
-   *  awaiting the user's approval) so it can't hide behind the default. */
-  priorityTab?: BrainTab;
+  /** Tab contents; PR is omitted when not applicable, Details is always
+   *  shown. */
+  tabs: { pr?: ReactNode; details: ReactNode };
   /** Shows a reminder tab above the composer while a plan needs attention:
    *  'awaiting' → the plan is unreviewed (orange, animated flowing border);
    *  'locked' → the plan is finalized (purple, static). Undefined hides it. */
   planReminder?: 'awaiting' | 'locked';
+  /** Click handler for the reminder pill — opens the original execution plan
+   *  card. When omitted, the pill falls back to scrolling to the inline card
+   *  or opening the right-pane Plan tab. */
+  onRevealPlan?: () => void;
   onOpenChanges?: () => void;
   onOpenCi?: () => void;
   /** Auto-approve mode: when on, the task's parked gates + tool prompts are
@@ -81,7 +83,6 @@ export function TaskBrainPage({
   onToggleAutoApprove?: () => void;
 }) {
   const available: { key: BrainTab; label: string; node: ReactNode }[] = [
-    ...(tabs.plan !== undefined ? [{ key: 'plan' as const, label: 'Plan', node: tabs.plan }] : []),
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
     { key: 'details' as const, label: 'Details', node: tabs.details },
   ];
@@ -89,32 +90,16 @@ export function TaskBrainPage({
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
 
-  // Snap to (and reveal) the priority tab when it appears — e.g. a plan
-  // that just finished and now awaits approval shouldn't sit hidden
-  // behind whatever tab was the default at mount.
-  useEffect(() => {
-    if (priorityTab !== undefined) {
-      setActiveTab(priorityTab);
-      setPaneOpen(true);
-    }
-  }, [priorityTab]);
-
   const active = available.find(t => t.key === activeTab) ?? available[available.length - 1];
   const paneTabs: PaneTab<BrainTab>[] = available.map(t => ({ key: t.key, label: t.label }));
 
   const openTab = (key: BrainTab) => { setActiveTab(key); setPaneOpen(true); };
 
   // Reveal the plan when the reminder tab is clicked: scroll to the inline
-  // plan card if it's shown in the conversation (planning live), otherwise
-  // open the right-pane Plan tab (once locked the plan lives there).
+  // plan card if it's shown in the conversation (planning live). The host
+  // supplies onRevealPlan to open the plan overlay in every other case.
   const revealPlan = () => {
-    const inline = document.querySelector('.conv-col .plan-card');
-    if (inline !== null) {
-      inline.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    else if (available.some(t => t.key === 'plan')) {
-      openTab('plan');
-    }
+    document.querySelector('.conv-col .plan-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const topBar = (
@@ -175,7 +160,7 @@ export function TaskBrainPage({
               />
             )}
             {planReminder !== undefined && (
-              <PlanReminderTab state={planReminder} onClick={revealPlan} />
+              <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
             )}
             <Composer
               value={composer.value}
@@ -197,28 +182,5 @@ export function TaskBrainPage({
         </div>
       </Main>
     </Shell>
-  );
-}
-
-/**
- * Reminder pill above the composer that keeps a plan needing attention in
- * the user's eyeline. While the plan is unreviewed it glows orange with a
- * light flowing around its border; once finalized it goes solid purple and
- * still. Clicking it jumps to the plan.
- */
-function PlanReminderTab({ state, onClick }: { state: 'awaiting' | 'locked'; onClick: () => void }) {
-  const awaiting = state === 'awaiting';
-  return (
-    <button
-      type="button"
-      className={`plan-reminder plan-reminder--${state}`}
-      onClick={onClick}
-      title={awaiting ? 'Plan awaiting your review — click to view' : 'Plan finalized — click to view'}
-    >
-      <span className="plan-reminder__ic" aria-hidden>{awaiting ? '✦' : '✓'}</span>
-      <span className="plan-reminder__t">
-        {awaiting ? 'Plan awaiting your review' : 'Plan finalized'}
-      </span>
-    </button>
   );
 }

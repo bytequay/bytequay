@@ -26,7 +26,6 @@ function renderStage(stageKind: StageKind, overrides: Partial<Parameters<typeof 
       conversation={<div data-testid="conv">feed</div>}
       composer={{ value: '', onChange: () => {}, onSubmit: () => {}, modePill: <span>Dev → claude-code · CLI</span> }}
       tabs={{
-        plan: <div data-testid="plan-tab">plan</div>,
         pr: <div data-testid="pr-tab">pr threads</div>,
         details: <div data-testid="details-tab">details</div>,
       }}
@@ -43,16 +42,19 @@ describe('StageDetailPage', () => {
     expect(screen.getByText('Dev → claude-code · CLI')).toBeTruthy();
   });
 
-  it('Dev leads with the Plan tab', () => {
-    renderStage('dev');
-    expect(screen.getByTestId('plan-tab')).toBeTruthy();
+  it('Dev leads with the Changes tab', () => {
+    renderStage('dev', { tabs: {
+      changes: <div data-testid="changes-tab">changes</div>,
+      details: <div data-testid="details-tab">details</div>,
+    } });
+    expect(screen.getByTestId('changes-tab')).toBeTruthy();
     expect(screen.queryByTestId('details-tab')).toBeNull();
   });
 
   it('Comments leads with the PR tab', () => {
     renderStage('comments');
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(screen.queryByTestId('plan-tab')).toBeNull();
+    expect(screen.queryByTestId('details-tab')).toBeNull();
   });
 
   it('CI Fix leads with Details and surfaces the CI Status entry', () => {
@@ -77,23 +79,22 @@ describe('StageDetailPage', () => {
   });
 
   const fullTabs = {
-    plan: <div data-testid="plan-tab">plan</div>,
     changes: <div data-testid="changes-tab">changes</div>,
     pr: <div data-testid="pr-tab">pr threads</div>,
     files: <div data-testid="files-tab">files</div>,
     details: <div data-testid="details-tab">details</div>,
   };
 
-  it('renders the full Plan · Changes · PR · Files · Details strip', () => {
+  it('renders the full Changes · PR · Files · Details strip', () => {
     renderStage('dev', { tabs: fullTabs });
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toEqual(['Plan', 'Changes', 'PR', 'Files', 'Details']);
+    expect(labels).toEqual(['Changes', 'PR', 'Files', 'Details']);
   });
 
   it('CI Fix leads with the Changes tab when one is provided', () => {
     renderStage('ci-fix', { tabs: fullTabs });
     expect(screen.getByTestId('changes-tab')).toBeTruthy();
-    expect(screen.queryByTestId('plan-tab')).toBeNull();
+    expect(screen.queryByTestId('details-tab')).toBeNull();
   });
 
   it('shows the pane meta-row only on the Changes tab', () => {

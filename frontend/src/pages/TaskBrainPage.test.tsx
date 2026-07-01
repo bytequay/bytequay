@@ -29,7 +29,7 @@ function renderBrain(overrides: Partial<Parameters<typeof TaskBrainPage>[0]> = {
       ]}
       composer={{ value: '', onChange: () => {}, onSubmit: () => {}, modePill: <span>Dev → claude</span> }}
       tabs={{
-        plan: <div data-testid="plan-tab">plan content</div>,
+        pr: <div data-testid="pr-tab">pr content</div>,
         details: <div data-testid="details-tab">details content</div>,
       }}
       {...overrides}
@@ -57,18 +57,18 @@ describe('TaskBrainPage', () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it('shows the first available tab (Plan) and switches to Details', () => {
+  it('shows the first available tab (PR) and switches to Details', () => {
     renderBrain();
-    expect(screen.getByTestId('plan-tab')).toBeTruthy();
+    expect(screen.getByTestId('pr-tab')).toBeTruthy();
     expect(screen.queryByTestId('details-tab')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Details' }));
     expect(screen.getByTestId('details-tab')).toBeTruthy();
   });
 
-  it('omits the Plan tab when no plan is provided', () => {
+  it('omits the PR tab when none is provided, leaving Details', () => {
     renderBrain({ tabs: { details: <div data-testid="details-tab">d</div> } });
     const paneTabLabels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(paneTabLabels).not.toContain('Plan');
+    expect(paneTabLabels).not.toContain('PR');
     expect(paneTabLabels).toContain('Details');
     expect(screen.getByTestId('details-tab')).toBeTruthy();
   });

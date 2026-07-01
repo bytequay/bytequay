@@ -93,7 +93,13 @@ export function TaskBrainPage({
   const active = available.find(t => t.key === activeTab) ?? available[available.length - 1];
   const paneTabs: PaneTab<BrainTab>[] = available.map(t => ({ key: t.key, label: t.label }));
 
-  const openTab = (key: BrainTab) => { setActiveTab(key); setPaneOpen(true); };
+  // The inline pill toggles the pane: closed → open and jump to the tab;
+  // open on another tab → jump; open on this tab → close the pane.
+  const openTab = (key: BrainTab) => {
+    if (paneOpen && active.key === key) { setPaneOpen(false); return; }
+    setActiveTab(key);
+    setPaneOpen(true);
+  };
 
   // Reveal the plan when the reminder tab is clicked: scroll to the inline
   // plan card if it's shown in the conversation (planning live). The host
@@ -152,14 +158,12 @@ export function TaskBrainPage({
         >
           <div className="conv-col">
             {conversation}
-            {!paneOpen && (
-              <InlineChips chips={[
-                ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
-                ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
-                ...(onOpenCi !== undefined ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
-              ]}
-              />
-            )}
+            <InlineChips chips={[
+              ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
+              ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
+              ...(onOpenCi !== undefined ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
+            ]}
+            />
             {planReminder !== undefined && (
               <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
             )}

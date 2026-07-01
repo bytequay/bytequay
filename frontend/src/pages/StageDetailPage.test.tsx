@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StageDetailPage, type StageKind } from './StageDetailPage';
 
@@ -117,5 +117,19 @@ describe('StageDetailPage', () => {
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
     expect(labels).toContain('CI');
     expect(labels).not.toContain('Changes');
+  });
+
+  it('inline pill closes the pane when clicked on the already-active tab', () => {
+    renderStage('ci-fix', { tabs: fullTabs });
+    const inlineCi = () => within(document.querySelector('.inline-chips') as HTMLElement)
+      .getByRole('button', { name: 'CI' });
+    // Pane starts open on the CI (changes) tab.
+    expect(document.querySelector('.body.with-pane')).toBeTruthy();
+    // Clicking the active tab's inline pill closes the pane…
+    fireEvent.click(inlineCi());
+    expect(document.querySelector('.body.with-pane')).toBeNull();
+    // …and clicking it again reopens on that tab.
+    fireEvent.click(inlineCi());
+    expect(document.querySelector('.body.with-pane')).toBeTruthy();
   });
 });

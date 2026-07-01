@@ -57,6 +57,39 @@ describe('buildLivePlan', () => {
     expect(node(nodes, 'cleanup').status).toBe('future');
   });
 
+  it('lights Development running from the phase even when its stage row is OPEN', () => {
+    // A CLI subprocess turn leaves the dev row OPEN, not ACTIVE — the node
+    // must still read "running" (orange) on the root page, not "sleep" (white).
+    const nodes = buildLivePlan({
+      stages: [stage('DEVELOPMENT_STAGE', 'OPEN')],
+      subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      viewingBrain: true,
+    });
+    expect(node(nodes, 'dev').status).toBe('running');
+  });
+
+  it('lights the stage parked for approval orange (awaiting) regardless of view', () => {
+    const nodes = buildLivePlan({
+      stages: [stage('DEVELOPMENT_STAGE', 'ACTIVE')],
+      subStages: [],
+      task: { prNumber: 145, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false },
+      viewingBrain: true,
+      awaitingApprovalStageId: 'DEVELOPMENT_STAGE-id',
+    });
+    expect(node(nodes, 'dev').status).toBe('awaiting');
+    expect(node(nodes, 'dev').meta).toBe('awaiting approval');
+  });
+
+  it('marks Development awaiting while parked for push approval (AWAITING_PUSH)', () => {
+    const nodes = buildLivePlan({
+      stages: [stage('DEVELOPMENT_STAGE', 'OPEN')],
+      subStages: [],
+      task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false },
+    });
+    expect(node(nodes, 'dev').status).toBe('awaiting');
+  });
+
   it('marks a monitor stage running while its phase is the current work', () => {
     // CI fixing loops, so the stage row sits OPEN between turns. While the
     // task is in CI_FIXING the node must still read "running", not "sleep".

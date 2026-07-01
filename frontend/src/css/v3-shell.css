@@ -633,7 +633,7 @@
 .shell .plan-reminder {
   align-self: flex-start;
   width: fit-content;
-  margin: 0 32px 8px;
+  margin: 0 32px 0 68px;
   display: inline-flex;
   align-items: center;
   gap: 7px;

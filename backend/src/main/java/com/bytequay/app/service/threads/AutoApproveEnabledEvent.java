@@ -11,24 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.stage;
-
-import java.util.UUID;
+package com.bytequay.app.service.threads;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Published when the brain records a {@code finalized} plan on an open
- * PlanStage — i.e. a plan ready for the user to approve. {@link
- * AutoApprovePlanListener} approves it on the user's behalf when the task's
- * auto-approve toggle is on; otherwise it's inert and the plan waits for the
- * manual "Approve plan" click.
+ * Published when a task's auto-approve toggle is switched on. {@link
+ * AutoApproveGateListener} sweeps the task's already-parked publish gates and
+ * approves the non-merge ones — so enabling auto-approve clears a gate that is
+ * already sitting there, not just gates that park afterwards.
  */
-public record PlanFinalizedEvent(String taskId, UUID planStageId)
+public record AutoApproveEnabledEvent(String threadId, String taskId)
 {
-    public PlanFinalizedEvent
+    public AutoApproveEnabledEvent
     {
+        requireNonNull(threadId, "threadId is null");
         requireNonNull(taskId, "taskId is null");
-        requireNonNull(planStageId, "planStageId is null");
     }
 }

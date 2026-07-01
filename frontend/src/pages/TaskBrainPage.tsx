@@ -36,7 +36,7 @@ type BrainTab = 'plan' | 'pr' | 'details';
  */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, priorityTab, onOpenChanges, onOpenCi, autoApprove, onToggleAutoApprove,
+  tabs, priorityTab, planReminder, onOpenChanges, onOpenCi, autoApprove, onToggleAutoApprove,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
@@ -69,6 +69,10 @@ export function TaskBrainPage({
   /** When set, the pane snaps to this tab (e.g. 'plan' when a plan is
    *  awaiting the user's approval) so it can't hide behind the default. */
   priorityTab?: BrainTab;
+  /** Shows a reminder tab above the composer while a plan needs attention:
+   *  'awaiting' → the plan is unreviewed (orange, animated flowing border);
+   *  'locked' → the plan is finalized (purple, static). Undefined hides it. */
+  planReminder?: 'awaiting' | 'locked';
   onOpenChanges?: () => void;
   onOpenCi?: () => void;
   /** Auto-approve mode: when on, the task's parked gates + tool prompts are
@@ -99,6 +103,19 @@ export function TaskBrainPage({
   const paneTabs: PaneTab<BrainTab>[] = available.map(t => ({ key: t.key, label: t.label }));
 
   const openTab = (key: BrainTab) => { setActiveTab(key); setPaneOpen(true); };
+
+  // Reveal the plan when the reminder tab is clicked: scroll to the inline
+  // plan card if it's shown in the conversation (planning live), otherwise
+  // open the right-pane Plan tab (once locked the plan lives there).
+  const revealPlan = () => {
+    const inline = document.querySelector('.conv-col .plan-card');
+    if (inline !== null) {
+      inline.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    else if (available.some(t => t.key === 'plan')) {
+      openTab('plan');
+    }
+  };
 
   const topBar = (
     <TopBar>
@@ -157,6 +174,9 @@ export function TaskBrainPage({
               ]}
               />
             )}
+            {planReminder !== undefined && (
+              <PlanReminderTab state={planReminder} onClick={revealPlan} />
+            )}
             <Composer
               value={composer.value}
               onChange={composer.onChange}
@@ -177,5 +197,28 @@ export function TaskBrainPage({
         </div>
       </Main>
     </Shell>
+  );
+}
+
+/**
+ * Reminder pill above the composer that keeps a plan needing attention in
+ * the user's eyeline. While the plan is unreviewed it glows orange with a
+ * light flowing around its border; once finalized it goes solid purple and
+ * still. Clicking it jumps to the plan.
+ */
+function PlanReminderTab({ state, onClick }: { state: 'awaiting' | 'locked'; onClick: () => void }) {
+  const awaiting = state === 'awaiting';
+  return (
+    <button
+      type="button"
+      className={`plan-reminder plan-reminder--${state}`}
+      onClick={onClick}
+      title={awaiting ? 'Plan awaiting your review — click to view' : 'Plan finalized — click to view'}
+    >
+      <span className="plan-reminder__ic" aria-hidden>{awaiting ? '✦' : '✓'}</span>
+      <span className="plan-reminder__t">
+        {awaiting ? 'Plan awaiting your review' : 'Plan finalized'}
+      </span>
+    </button>
   );
 }

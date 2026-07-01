@@ -628,8 +628,49 @@
   gap: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
+
+/* ── Plan reminder tab (floats just above the composer) ───────── */
+.shell .plan-reminder {
+  align-self: flex-start;
+  width: fit-content;
+  margin: 0 32px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.shell .plan-reminder__ic { font-size: 12px; }
+/* Awaiting: orange, light flowing around the border. Layer 1 (solid fill,
+   padding-box) covers the centre; layer 2 (a wide moving gradient, border-box)
+   shows only through the transparent 1.5px ring — sliding it flows the light. */
+.shell .plan-reminder--awaiting {
+  color: #9a4a00;
+  background:
+    linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
+    linear-gradient(90deg, #ffb547, #ff7a00, #fff0d6, #ff7a00, #ffb547) border-box;
+  background-size: auto, 300% 100%;
+  animation: plan-reminder-flow 2.4s linear infinite;
+}
+@keyframes plan-reminder-flow {
+  to { background-position: 0 0, -300% 0; }
+}
+/* Finalized: solid purple, static (matches the plan card's accent). */
+.shell .plan-reminder--locked {
+  color: #fff;
+  background: linear-gradient(135deg, #b794f4, #7c5cff);
+}
+.shell .plan-reminder:hover { filter: brightness(1.03); }
+@media (prefers-reduced-motion: reduce) {
+  .shell .plan-reminder--awaiting { animation: none; }
+}
 .shell .composer .input {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-1);
   min-height: 26px;
   max-height: 160px;

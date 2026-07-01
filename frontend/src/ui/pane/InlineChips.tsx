@@ -20,6 +20,7 @@ export type InlineChip = {
   label: string;
   count?: number;
   countColor?: 'red' | 'acc';
+  active?: boolean;
   onClick?: () => void;
 };
 
@@ -33,7 +34,13 @@ export function InlineChips({ chips }: { chips: InlineChip[] }) {
   return (
     <div className="inline-chips">
       {chips.map((c, i) => (
-        <button key={`${c.label}-${i}`} type="button" className="inline-chip" onClick={c.onClick}>
+        <button
+          key={`${c.label}-${i}`}
+          type="button"
+          className={c.active === true ? 'inline-chip active' : 'inline-chip'}
+          aria-current={c.active === true ? 'true' : undefined}
+          onClick={c.onClick}
+        >
           {c.icon !== undefined && <span className="ic" aria-hidden>{c.icon}</span>}
           {c.label}
           {c.count !== undefined && (

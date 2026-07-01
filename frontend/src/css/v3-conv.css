@@ -13,14 +13,6 @@
   min-width: 0;
   min-height: 0;
 }
-/* Cut-task action floating just above the composer, right-aligned over the
-   conversation. Matches the composer's horizontal inset; sits on the column
-   without its own background so it reads as floating, not a toolbar. */
-.shell .cut-task-float {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 32px 8px;
-}
 .shell .conv {
   padding: 22px 32px 14px;
   display: flex;

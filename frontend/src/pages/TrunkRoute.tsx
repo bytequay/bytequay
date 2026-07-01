@@ -19,7 +19,7 @@ import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
 import { usePersistentToggle } from '../ui/shell';
 import { TrunkFeed } from '../threads/TrunkFeed';
-import { extractText, parseToolCall } from '../threads/trunkTimeline';
+import { parseToolCall } from '../threads/trunkTimeline';
 import type { TaskCardData } from '../ui/pane';
 import type { PrGlyphState } from '../ui/primitives';
 import { proposalAction } from '../threads/usePendingShipProposal';
@@ -159,24 +159,9 @@ export function TrunkRoute({ threadId, onOpenTask }: {
     else sendNow(body);
   };
 
-  // Manual cut: seed a task from the latest planning prompt and create it
-  // immediately (POST /api/threads/{id}/tasks). The trunk agent can also cut
-  // tasks itself via create_task; this button is the user's own way to cut
-  // from the plan. The backend requires a workingDir — reuse the repo an
-  // existing task on this thread was cut from. With no such task we can't
-  // resolve one, so the button is hidden (task creation falls to the agent).
-  const lastUserPrompt = [...messages].reverse().find(
-    m => m.taskId === null && m.role === 'user' && m.type === 'text');
-  const workingDir = [...tasks].reverse()
-    .map(t => t.workingDir)
-    .find((d): d is string => d !== null && d.trim().length > 0) ?? null;
-  const cutTask = workingDir === null ? undefined : () => {
-    const seed = lastUserPrompt !== undefined ? extractText(lastUserPrompt.contentJson) : '';
-    const title = (seed.split('\n')[0] || thread?.title || 'New task').slice(0, 80);
-    window.bridge.cutTaskNow(threadId, 'CLI_AGENT', title, workingDir, seed.length > 0 ? seed : null)
-      .then(() => load())
-      .catch(() => { /* leave state; the poll reconciles */ });
-  };
+  // Tasks are cut by the trunk agent (create_task) — proposed to the user via
+  // an ask_user_question card and confirmed by selecting it — not by a manual
+  // button. So there's no user-driven cut path here.
 
   // The foreground task — the one actually running now — is echoed as a
   // Label the working indicator with the current activity — if the latest
@@ -251,7 +236,6 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
       tasks={{ active, closed }}
       onOpenTask={onOpenTask}
-      onCutTask={cutTask}
     />
   );
 }

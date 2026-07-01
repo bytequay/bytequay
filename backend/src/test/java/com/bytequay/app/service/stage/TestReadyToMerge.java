@@ -40,6 +40,7 @@ import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,6 +111,55 @@ class TestReadyToMerge
         readyToMerge.evaluate(task, conflicted);
         assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
         assertThat(readyToMergeNotifications(threadId)).isEqualTo(0);
+    }
+
+    @Test
+    void parksAReviewerNudgeWhenTheUserCannotMerge()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        stageStore.openStage(taskId, StageType.REVIEW_MONITOR_STAGE, null);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        // Merge-ready, but no push access to the upstream repo. Instead of the
+        // merge gate the user gets an approvable comment nudging the reviewers.
+        PullRequestDetail noAccess = detail(CiStatus.PASSING, 0, 0, false, "open");
+        when(noAccess.viewerCanWrite()).thenReturn(false);
+        when(noAccess.requestedReviewers()).thenReturn(List.of("octocat"));
+
+        readyToMerge.evaluate(task, noAccess);
+
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isPresent();
+        assertThat(readyToMergeNotifications(threadId)).isZero();       // not a merge_pr gate
+        long nudges = notifications.listForThread(threadId).stream()
+                .filter(n -> n.kind() == NotificationKind.AWAITING_REVIEW)
+                .filter(n -> n.payloadJson().contains("\"action\":\"post_comment\""))
+                .filter(n -> n.payloadJson().contains("@octocat"))
+                .count();
+        assertThat(nudges).isEqualTo(1);
+    }
+
+    @Test
+    void doesNotFireWhileThePrIsStillADraft()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        // CI green + mergeable, but the PR is shipped-as-draft. Firing here
+        // would arm the sentinel and suppress the real gate once it's marked
+        // ready for review, so the draft must not gate.
+        PullRequestDetail draft = detail(CiStatus.PASSING, 0, 0, false, "open");
+        when(draft.draft()).thenReturn(true);
+
+        readyToMerge.evaluate(task, draft);
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+        assertThat(readyToMergeNotifications(threadId)).isEqualTo(0);
+
+        // Once it's out for review (no longer draft), the gate fires.
+        readyToMerge.evaluate(task, readyDetail());
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isPresent();
+        assertThat(readyToMergeNotifications(threadId)).isEqualTo(1);
     }
 
     @Test
@@ -197,6 +247,13 @@ class TestReadyToMerge
         when(detail.pendingReviewerCount()).thenReturn(pending);
         when(detail.merged()).thenReturn(merged);
         when(detail.state()).thenReturn(state);
+        // Ready by default is a non-draft PR; the draft path stubs this true.
+        lenient().when(detail.draft()).thenReturn(false);
+        // Default to push access → the one-click merge gate; the no-privilege
+        // path stubs this false and supplies reviewers to nudge.
+        lenient().when(detail.viewerCanWrite()).thenReturn(true);
+        lenient().when(detail.requestedReviewers()).thenReturn(List.of());
+        lenient().when(detail.approvalCount()).thenReturn(0);
         // Mergeable by default; the CI-failing paths short-circuit before the
         // mergeable check, so keep it lenient.
         lenient().when(detail.mergeable()).thenReturn(true);

@@ -611,7 +611,7 @@ public class StageServiceImpl
             // A closed stage carries its rollup: "<label> finished · 3m ·
             // 30k tokens · 2 files".
             case CLOSED -> appendStageStats(stageLabel + " finished", stageStats.get(e.stageId()));
-            case NOTIFY_FIRED -> "Ready to merge";
+            case NOTIFY_FIRED -> mergeReadyBody(e.payloadJson());
             case BUDGET_EXHAUSTED -> stageLabel + " auto-push budget exhausted";
             default -> "";
         };
@@ -628,6 +628,24 @@ public class StageServiceImpl
     /** Human-readable line for a finished panel, read from the CLOSED event's
      *  {@code seatNames}/{@code findingCount}/{@code agreedCount} payload.
      *  Degrades to a bare label when the payload is missing or malformed. */
+    /** Body for the "ready to merge" feed row. The lifecycle service records
+     *  a human-readable {@code summary} in the NOTIFY_FIRED payload (CI /
+     *  comments / approvals checklist, and whether the user can merge or must
+     *  nudge reviewers); fall back to the bare label if it's absent. */
+    private String mergeReadyBody(String payloadJson)
+    {
+        if (payloadJson == null || payloadJson.isBlank()) {
+            return "Ready to merge";
+        }
+        try {
+            String summary = mapper.readTree(payloadJson).path("summary").asText("");
+            return summary.isBlank() ? "Ready to merge" : summary;
+        }
+        catch (JsonProcessingException ex) {
+            return "Ready to merge";
+        }
+    }
+
     private String panelReviewBody(String payloadJson)
     {
         if (payloadJson == null || payloadJson.isBlank()) {

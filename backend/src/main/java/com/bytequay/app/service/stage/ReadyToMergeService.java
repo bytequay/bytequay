@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -95,7 +96,12 @@ public class ReadyToMergeService
             return;
         }
 
-        boolean ready = detail.ciStatus() == CiStatus.PASSING
+        // A draft PR is never merge-ready: firing the gate here arms the
+        // sentinel while the PR is still shipping-as-draft, and once it's
+        // marked ready for review the armed sentinel suppresses the real gate
+        // forever. Gate only once the PR is actually out for review.
+        boolean ready = !detail.draft()
+                && detail.ciStatus() == CiStatus.PASSING
                 && !reviewersBlocking(detail)
                 && noUnresolvedRemoteComments(task.id())
                 && !Boolean.FALSE.equals(detail.mergeable());
@@ -111,7 +117,14 @@ public class ReadyToMergeService
         boolean armed = taskStore.mergeNotificationSentAt(task.id()).isPresent();
         if (ready && !armed) {
             if (taskStore.markMergeNotificationSentIfUnset(task.id(), Instant.now())) {
-                parkMergeGate(task, detail);
+                // With push access the user merges it themselves (one-click
+                // gate); without it, they can only nudge whoever can merge.
+                if (detail.viewerCanWrite()) {
+                    parkMergeGate(task, detail);
+                }
+                else {
+                    parkReviewerNudge(task, detail);
+                }
             }
             else {
                 recordOnActiveStage(task.id(), StageEventType.NOTIFY_SKIPPED,
@@ -207,8 +220,58 @@ public class ReadyToMergeService
         // strategy null → squash (PublishService default).
         ParkedProposal proposal = new ParkedProposal.MergePr(null, pr);
         notifications.notifyAwaitingReview(task.threadId(), task.id(), toJson(proposal));
-        recordOnActiveStage(task.id(), StageEventType.NOTIFY_FIRED,
-                Map.of("reason", "ready_to_merge", "action", "merge_pr", "number", detail.number()));
+        recordOnActiveStage(task.id(), StageEventType.NOTIFY_FIRED, Map.of(
+                "reason", "ready_to_merge", "action", "merge_pr",
+                "summary", mergeReadySummary(detail, true), "number", detail.number()));
+    }
+
+    /**
+     * The PR is merge-ready but the authenticated user lacks push access to
+     * the upstream repo, so they can't merge it themselves. Park an editable
+     * "ready to merge — please take a look" comment nudging whoever can, for
+     * the user to approve. Reuses the {@code post_comment} gate (its approval
+     * already posts the comment) rather than a bespoke variant. Same one-shot
+     * sentinel as the merge gate: fires once, resets when readiness breaks.
+     */
+    private void parkReviewerNudge(Task task, PullRequestDetail detail)
+    {
+        ParkedProposal.PrRef pr = prRefFor(task, detail);
+        if (pr == null) {
+            recordOnActiveStage(task.id(), StageEventType.NOTIFY_SKIPPED,
+                    Map.of("reason", "no_pr_ref"));
+            return;
+        }
+        ParkedProposal proposal = new ParkedProposal.PostComment(reviewerNudgeBody(detail), pr);
+        notifications.notifyAwaitingReview(task.threadId(), task.id(), toJson(proposal));
+        recordOnActiveStage(task.id(), StageEventType.NOTIFY_FIRED, Map.of(
+                "reason", "ready_to_merge", "action", "post_comment", "privilege", "none",
+                "summary", mergeReadySummary(detail, false), "number", detail.number()));
+    }
+
+    /** Pre-filled nudge body, @-mentioning the pending reviewers when there
+     *  are any; the user edits it (adds the right handle) before approving. */
+    private static String reviewerNudgeBody(PullRequestDetail detail)
+    {
+        String mentions = detail.requestedReviewers().stream()
+                .filter(r -> r != null && !r.isBlank())
+                .map(r -> "@" + r)
+                .collect(Collectors.joining(" "));
+        String lead = mentions.isBlank() ? "" : mentions + " ";
+        return lead + "this PR is ready to merge — CI is green and there are no unresolved "
+                + "comments. Could you take a look and merge it when you get a chance? 🙏";
+    }
+
+    /** One-line brain-feed summary for the "ready to merge" row: the checklist
+     *  plus whether the user can merge or must nudge reviewers. */
+    private static String mergeReadySummary(PullRequestDetail detail, boolean canMerge)
+    {
+        String checks = "CI green · no unresolved comments · "
+                + (detail.approvalCount() > 0 ? "approved" : "approvals met");
+        return canMerge
+                ? "Ready to merge — " + checks + ". Approve to merge #" + detail.number() + "."
+                : "Ready to merge — " + checks
+                        + ". You don't have merge access here — approve to ping the reviewers on #"
+                        + detail.number() + ".";
     }
 
     /** Build the merge target from the task's linked PR ref

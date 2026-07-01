@@ -99,12 +99,14 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
  *  at the bottom of the planning conversation (where the eye lands) rather
  *  than pinned above the feed. */
 export function PlanCard({
-  plan, autoApprove, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
+  plan, autoApprove, autoConfidenceHigh, approvedAt, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
   onToggleAutoApprove,
 }: {
   plan: PlanCardDto;
   autoApprove?: boolean;
   autoConfidenceHigh?: boolean;
+  /** ISO 8601 approval time — shown on the locked plan. */
+  approvedAt?: string;
   onApprove?: () => void;
   onEdit?: () => void;
   onRequestRevision?: () => void;
@@ -187,7 +189,7 @@ export function PlanCard({
         </div>
 
         {locked
-          ? <div className="review-locked">Plan approved — development under way.</div>
+          ? <div className="review-locked">Plan approved{approvedAt !== undefined ? ` at ${fmtApprovedAt(approvedAt)}` : ' — development under way.'}</div>
           : <ReviewBar
               plan={plan}
               auto={auto}
@@ -323,6 +325,14 @@ function confidenceFromRisk(risk: 'low' | 'medium' | 'high'): 'low' | 'medium' |
 
 function cap(s: string): string {
   return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
+}
+
+/** ISO 8601 → local "YYYY-MM-DD HH:mm:ss". */
+function fmtApprovedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 /** The first sentence / clause of a step action, as a short title. */

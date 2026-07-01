@@ -25,8 +25,8 @@ import { DetailsTabContent } from '../ui/pane';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { usePersistentToggle } from '../ui/shell';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
-import { planTab } from './planTab';
 import { TaskBrainPage } from './TaskBrainPage';
+import { PlanOverlay } from './PlanOverlay';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -145,6 +145,9 @@ export function TaskBrainRoute({
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     bridge?.replan?.(taskId).then(() => pollFast()).catch(() => { /* poll reconciles */ });
   };
+  // The reminder pill opens the original execution plan card in an overlay.
+  const [planOpen, setPlanOpen] = useState(false);
+  const closePlan = useCallback(() => setPlanOpen(false), []);
 
   // While planning is live (draft / awaiting), the planning seed anchors the
   // top of the conversation as opening context and the typed plan card + review
@@ -156,6 +159,24 @@ export function TaskBrainRoute({
   // brain view carries no dedicated seed field (DISCOVERY-FINDINGS #8).
   const seed = brainFeed.find(r => r.type === 'STAGE_OPENED' && r.stageType === 'PLAN_STAGE')?.body;
   const planConfidenceHigh = (plan?.signals.confidence ?? null) === 'high';
+  const approvedAt = brainFeed.find(r => r.type === 'PLAN_APPROVED')?.ts;
+
+  // The original execution plan card (steps + signals + review bar). Shown
+  // inline while planning is live, and re-openable from the reminder pill via
+  // the overlay below — so it stays reachable once locked and off the feed.
+  const planCard = plan !== null ? (
+    <PlanCard
+      plan={plan}
+      autoApprove={autoApprove}
+      autoConfidenceHigh={planConfidenceHigh}
+      approvedAt={approvedAt}
+      onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
+      onRequestRevision={requestRevision}
+      onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
+      onHoldAuto={toggleAutoApprove}
+      onToggleAutoApprove={toggleAutoApprove}
+    />
+  ) : null;
 
   // Conversation density (Focused default / Full), persisted per user.
   const { value: fullDensity, setValue: setFullDensity } = usePersistentToggle('bq.convDensityFull');
@@ -176,18 +197,7 @@ export function TaskBrainRoute({
         onOpenStage={onOpenStage}
         trailer={(
           <>
-            {showRoot && plan !== null && (
-              <PlanCard
-                plan={plan}
-                autoApprove={autoApprove}
-                autoConfidenceHigh={planConfidenceHigh}
-                onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
-                onRequestRevision={requestRevision}
-                onCommentStep={ord => setText(`Re: step ${ord} — `)}
-                onHoldAuto={toggleAutoApprove}
-                onToggleAutoApprove={toggleAutoApprove}
-              />
-            )}
+            {showRoot && planCard}
             {data.rightRail.approval !== null && (
               <DecisionNode tone="approve">
                 <div className="sp-appr">
@@ -217,6 +227,7 @@ export function TaskBrainRoute({
           </>
         )}
       />
+      <PlanOverlay open={planOpen} card={planCard} onClose={closePlan} />
     </Conv>
   );
 
@@ -288,15 +299,12 @@ export function TaskBrainRoute({
         onResume: runAction(bridge?.resumePausedTask),
         onClose: closeTask,
       }}
-      priorityTab={plan !== null && plan.state === 'awaiting' && !showRoot ? 'plan' : undefined}
       planReminder={plan === null ? undefined
         : plan.state === 'awaiting' ? 'awaiting'
         : plan.state === 'locked' ? 'locked'
         : undefined}
+      onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
       tabs={{
-        // While the root node shows the plan inline (planning live), drop the
-        // right-pane copy; once locked the reference tab takes over.
-        plan: plan !== null && !showRoot ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined) : undefined,
         details: (
           <DetailsTabContent sections={[{
             title: 'Task',

@@ -29,11 +29,12 @@ import type { StageType } from '../types/brainView';
 import { Conv, EventRow, QueuedMessages, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { DetailsTabContent } from '../ui/pane';
-import { planTab } from './planTab';
 import { stageRow } from './stageConversationRow';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
+import { PlanCard } from '../threads/brain/TaskRootNode';
+import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
@@ -80,9 +81,9 @@ export function StageDetailRoute({
 }) {
   const { data, refresh } = useStageDetailData(stageId);
   const shipProposal = usePendingShipProposal(threadId, taskId);
-  // The plan card lives on the brain view; surface it on the Plan stage so
-  // the plan (and its Approve action) shows here too, not only on the brain.
   const { data: brain, pollFast } = useBrainViewData(taskId);
+  // The plan is the task's; surface it on every stage via the reminder pill +
+  // zoomed overlay (the plan no longer sits in the stage's tab strip).
   const plan = brain.rightRail.plan;
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -150,6 +151,19 @@ export function StageDetailRoute({
       .then(result => { pollFast(); onOpenStage?.(result.devStageId); })
       .catch(() => { /* poll reconciles */ });
   };
+  // The plan reminder pill (above the composer) opens the zoomed plan card in
+  // an overlay — same affordance as the brain view, on every stage.
+  const [planOpen, setPlanOpen] = useState(false);
+  const closePlan = useCallback(() => setPlanOpen(false), []);
+  const approvedAt = brain.brainFeed.find(r => r.type === 'PLAN_APPROVED')?.ts;
+  const planCard = plan !== null ? (
+    <PlanCard
+      plan={plan}
+      approvedAt={approvedAt}
+      onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
+      onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
+    />
+  ) : null;
 
   const postPrComment = useCallback(() => {
     const body = prComment.trim();
@@ -273,6 +287,7 @@ export function StageDetailRoute({
           }}
         />
       )}
+      <PlanOverlay open={planOpen} card={planCard} onClose={closePlan} />
     </Conv>
   );
 
@@ -443,12 +458,6 @@ export function StageDetailRoute({
         ),
       } : undefined}
       tabs={{
-        // The plan is the task's, not the stage's — surface it on every
-        // stage (Dev / CI-fix / …) so the user can re-read it from anywhere,
-        // not only the Plan stage. Approve only while it's still awaiting.
-        plan: plan !== null
-          ? planTab(plan, plan.state === 'awaiting' ? approvePlan : undefined)
-          : undefined,
         changes: hasDiff ? changesNode : undefined,
         pr: prNode ?? undefined,
         files: hasDiff ? filesNode : undefined,
@@ -464,6 +473,11 @@ export function StageDetailRoute({
         ),
       }}
       onOpenChanges={onOpenCode}
+      planReminder={plan === null ? undefined
+        : plan.state === 'awaiting' ? 'awaiting'
+        : plan.state === 'locked' ? 'locked'
+        : undefined}
+      onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
     />
   );
 }

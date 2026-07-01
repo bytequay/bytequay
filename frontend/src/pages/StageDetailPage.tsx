@@ -22,10 +22,11 @@ import {
 import type { StageChip } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
+import { PlanReminderTab } from './PlanOverlay';
 
 /** The four work stages that share this page. */
 export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
-type StageTab = 'plan' | 'changes' | 'pr' | 'files' | 'details';
+type StageTab = 'changes' | 'pr' | 'files' | 'details';
 
 const PILL_LABEL: Record<StageKind, string> = {
   plan: 'PLAN',
@@ -35,12 +36,12 @@ const PILL_LABEL: Record<StageKind, string> = {
   cleanup: 'CLEANUP',
 };
 
-/** Which tab opens first for a given stage. CI Fix and Cleanup lead with
- *  Details; Comments leads with the PR comment threads; Dev leads with the
- *  Plan. Falls back to Details when the preferred tab is absent. */
+/** Which tab opens first for a given stage. Cleanup leads with Details;
+ *  Comments leads with the PR comment threads; the rest lead with Changes.
+ *  Falls back to Details when the preferred tab is absent. */
 const PREFERRED_TAB: Record<StageKind, StageTab> = {
-  plan: 'plan',
-  dev: 'plan',
+  plan: 'changes',
+  dev: 'changes',
   'ci-fix': 'changes',
   comments: 'pr',
   cleanup: 'details',
@@ -55,7 +56,7 @@ const PREFERRED_TAB: Record<StageKind, StageTab> = {
  */
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi,
+  tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi, planReminder, onRevealPlan,
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
@@ -80,16 +81,20 @@ export function StageDetailPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  tabs: { plan?: ReactNode; changes?: ReactNode; pr?: ReactNode; files?: ReactNode; details: ReactNode };
+  tabs: { changes?: ReactNode; pr?: ReactNode; files?: ReactNode; details: ReactNode };
   /** Optional per-tab count badge (e.g. changed-file count, PR number). */
   tabCounts?: Partial<Record<StageTab, { count?: number; countColor?: 'red' | 'acc' | 'muted' }>>;
   /** Sub-header under the tab strip, shown on the Changes tab (frame 6). */
   paneMeta?: { left?: ReactNode; right?: ReactNode };
   onOpenChanges?: () => void;
   onOpenCi?: () => void;
+  /** Shows the plan reminder pill above the composer (same as the brain view)
+   *  so the plan is one click away from any stage. Undefined hides it. */
+  planReminder?: 'awaiting' | 'locked';
+  /** Click handler for the reminder pill — opens the zoomed plan overlay. */
+  onRevealPlan?: () => void;
 }) {
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
-    ...(tabs.plan !== undefined ? [{ key: 'plan' as const, label: 'Plan', node: tabs.plan }] : []),
     ...(tabs.changes !== undefined ? [{ key: 'changes' as const, label: 'Changes', node: tabs.changes }] : []),
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
     ...(tabs.files !== undefined ? [{ key: 'files' as const, label: 'Files', node: tabs.files }] : []),
@@ -147,13 +152,19 @@ export function StageDetailPage({
             {conversation}
             {/* Quick-access chips float just above the composer at all times
                 (not only when the pane is closed) so Plan / Changes stay one
-                click away from where you're typing. */}
-            <InlineChips chips={[
-              ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
-              ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
-              ...(showCi ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
-            ]}
-            />
+                click away from where you're typing. The plan reminder pill sits
+                on the left of the same row; the tab chips align to the right. */}
+            <div className="chip-reminder-row">
+              {planReminder !== undefined && onRevealPlan !== undefined && (
+                <PlanReminderTab state={planReminder} onClick={onRevealPlan} />
+              )}
+              <InlineChips chips={[
+                ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
+                ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
+                ...(showCi ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
+              ]}
+              />
+            </div>
             <Composer
               value={composer.value}
               onChange={composer.onChange}

@@ -828,15 +828,6 @@
 }
 .shell button.sp-node__label { cursor: pointer; }
 .shell button.sp-node__label:hover { background: var(--bg-hover); border-color: var(--n, var(--border-strong)); }
-/* Fold toggle, split out as its own control when the label is a stage-open
-   link (so the two actions don't fight over one click target). */
-.shell .sp-node__fold {
-  display: inline-flex; align-items: center; justify-content: center;
-  margin-left: 4px; padding: 3px 7px; border-radius: 6px;
-  border: 1px solid var(--border-mid); background: var(--bg-elev);
-  color: var(--text-4); font-size: 9px; cursor: pointer;
-}
-.shell .sp-node__fold:hover { background: var(--bg-hover); color: var(--text-2); }
 .shell .sp-node__nm { font-size: 11.5px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; color: var(--n, var(--accent)); }
 .shell .sp-node__st { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-4); }
 .shell .sp-node__meta { font-size: 10.5px; color: var(--text-3); font-family: var(--mono); }
@@ -1255,3 +1246,46 @@
 .shell .plan-mini-grid .plan-mini { margin-top: 0; }
 .shell .plan-mini__oos { margin: 0; padding-left: 15px; }
 .shell .plan-mini__oos li { font-size: 11px; line-height: 1.5; color: var(--text-3); margin: 2px 0; }
+
+/* ── Plan overlay (opened from the reminder pill) ─────────────────
+   Full-viewport backdrop centring the original execution plan card.
+   Rendered inside `.shell`, so the .plan-card within keeps its styling. */
+.shell .plan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(20, 16, 30, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+.shell .plan-overlay__panel {
+  position: relative;
+  width: min(820px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+/* The plan card fills the panel edge-to-edge (drop its conversation margins). */
+.shell .plan-overlay__panel .plan-card { margin: 0; }
+/* Keep the header's auto-approve toggle clear of the overlay close button. */
+.shell .plan-overlay__panel .plan-card__hd { padding-right: 44px; }
+.shell .plan-overlay__close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-3);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.shell .plan-overlay__close:hover { color: var(--text-1); background: #fff; }

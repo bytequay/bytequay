@@ -53,6 +53,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static com.bytequay.app.domain.ThreadResourceLane.API;
@@ -372,44 +373,37 @@ public class AgentScheduler
 
     private void recoverInterruptedRunningTurns()
     {
-        List<ThreadTurn> runningTurns = turns.listTurnsByStatus(RUNNING, RECOVERY_PAGE_SIZE);
-        while (!runningTurns.isEmpty()) {
-            for (ThreadTurn turn : runningTurns) {
-                ThreadTurn queued = updateTurn(
-                        turn,
-                        QUEUED,
-                        /* startedAt */ null,
-                        /* finishedAt */ null,
-                        "interrupted by app restart");
-                turns.saveTurn(queued);
-                appendEvent(queued, TURN_QUEUED, "interrupted by app restart");
-                enqueuePersistedTurn(queued);
-            }
-            ThreadTurn cursor = runningTurns.get(runningTurns.size() - 1);
-            if (runningTurns.size() < RECOVERY_PAGE_SIZE) {
-                return;
-            }
-            runningTurns = turns.listTurnsByStatusAfter(
-                    RUNNING,
-                    cursor.createdAt(),
-                    cursor.id(),
-                    RECOVERY_PAGE_SIZE);
-        }
+        recoverTurns(RUNNING, turn -> {
+            ThreadTurn queued = updateTurn(
+                    turn,
+                    QUEUED,
+                    /* startedAt */ null,
+                    /* finishedAt */ null,
+                    "interrupted by app restart");
+            turns.saveTurn(queued);
+            appendEvent(queued, TURN_QUEUED, "interrupted by app restart");
+            enqueuePersistedTurn(queued);
+        });
     }
 
     private void recoverQueuedTurnsFromStore()
     {
-        List<ThreadTurn> queuedTurns = turns.listTurnsByStatus(QUEUED, RECOVERY_PAGE_SIZE);
-        while (!queuedTurns.isEmpty()) {
-            for (ThreadTurn turn : queuedTurns) {
-                enqueuePersistedTurn(turn);
+        recoverTurns(QUEUED, this::enqueuePersistedTurn);
+    }
+
+    private void recoverTurns(ThreadTurnStatus status, Consumer<ThreadTurn> action)
+    {
+        List<ThreadTurn> page = turns.listTurnsByStatus(status, RECOVERY_PAGE_SIZE);
+        while (!page.isEmpty()) {
+            for (ThreadTurn turn : page) {
+                action.accept(turn);
             }
-            ThreadTurn cursor = queuedTurns.get(queuedTurns.size() - 1);
-            if (queuedTurns.size() < RECOVERY_PAGE_SIZE) {
+            if (page.size() < RECOVERY_PAGE_SIZE) {
                 return;
             }
-            queuedTurns = turns.listTurnsByStatusAfter(
-                    QUEUED,
+            ThreadTurn cursor = page.get(page.size() - 1);
+            page = turns.listTurnsByStatusAfter(
+                    status,
                     cursor.createdAt(),
                     cursor.id(),
                     RECOVERY_PAGE_SIZE);

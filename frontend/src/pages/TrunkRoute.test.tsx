@@ -120,11 +120,4 @@ describe('TrunkRoute', () => {
     fireEvent.click(work);
     expect(screen.getByText('weighing the approach')).toBeTruthy();
   });
-
-  it('Cut task → creates a task seeded from the latest prompt in the thread repo', async () => {
-    const bridge = mockBridge();
-    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Cut task/ }));
-    await waitFor(() => expect(bridge.cutTaskNow).toHaveBeenCalledWith('t1', 'CLI_AGENT', 'plan the cleanup', '/repo/web', 'plan the cleanup'));
-  });
 });

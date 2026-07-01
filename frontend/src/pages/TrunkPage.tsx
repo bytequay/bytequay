@@ -17,7 +17,7 @@ import ResizeHandle from '../ResizeHandle';
 import { AskUserQuestionCard, TriageCard } from '../ui/conv';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
-  Composer, Main, Shell, TopBar, TopBarButton, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
+  Composer, Main, Shell, TopBar, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
 } from '../ui/shell';
 import {
   BacklogFormModal, BacklogTabContent, InlineChips, NotificationsTabContent, RightPane, TasksTabContent,
@@ -62,7 +62,7 @@ function signalToNotif(s: ThreadSignalDto, formatTime: (ms: number) => string): 
  */
 export function TrunkPage({
   threadId, thread, sidebar, conversation, collapsed = false, composer,
-  tasks, onOpenTask, onCutTask, formatTime = () => '',
+  tasks, onOpenTask, formatTime = () => '',
 }: {
   threadId: string;
   thread: { title: string; createdLabel?: string };
@@ -80,9 +80,6 @@ export function TrunkPage({
   };
   tasks: { active: TaskCardData[]; closed: TaskCardData[] };
   onOpenTask?: (id: string) => void;
-  /** User-confirmed "cut a task from the plan" — the trunk plans, the
-   *  user cuts. Renders the bright Cut-task button when provided. */
-  onCutTask?: () => void;
   formatTime?: (ms: number) => string;
 }) {
   const pane = useTrunkPane(threadId);
@@ -225,13 +222,6 @@ export function TrunkPage({
                 { icon: '🔔', label: 'Notifications', count: unreadCount, countColor: 'red', onClick: () => openTab('notifications') },
               ]}
               />
-            )}
-            {/* Cut-task floats just above the composer — right where you finish
-                typing the plan — instead of hiding in the top bar. */}
-            {onCutTask !== undefined && (
-              <div className="cut-task-float">
-                <TopBarButton icon="◆" onClick={onCutTask}>Cut task →</TopBarButton>
-              </div>
             )}
             <Composer
               value={composer.value}

@@ -107,8 +107,15 @@ describe('StageDetailPage', () => {
   });
 
   it('renders per-tab count badges', () => {
-    renderStage('ci-fix', { tabs: fullTabs, tabCounts: { changes: { count: 4, countColor: 'acc' }, pr: { count: 145, countColor: 'muted' } } });
+    renderStage('dev', { tabs: fullTabs, tabCounts: { changes: { count: 4, countColor: 'acc' }, pr: { count: 145, countColor: 'muted' } } });
     const changesTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith('Changes'));
     expect(changesTab?.querySelector('.count')?.textContent).toBe('4');
+  });
+
+  it('labels the changes tab "CI" on the CI-fix stage', () => {
+    renderStage('ci-fix', { tabs: fullTabs });
+    const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
+    expect(labels).toContain('CI');
+    expect(labels).not.toContain('Changes');
   });
 });

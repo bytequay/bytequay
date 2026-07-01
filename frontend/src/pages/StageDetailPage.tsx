@@ -95,7 +95,9 @@ export function StageDetailPage({
   onRevealPlan?: () => void;
 }) {
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
-    ...(tabs.changes !== undefined ? [{ key: 'changes' as const, label: 'Changes', node: tabs.changes }] : []),
+    ...(tabs.changes !== undefined
+      ? [{ key: 'changes' as const, label: stageKind === 'ci-fix' ? 'CI' : 'Changes', node: tabs.changes }]
+      : []),
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
     ...(tabs.files !== undefined ? [{ key: 'files' as const, label: 'Files', node: tabs.files }] : []),
     { key: 'details' as const, label: 'Details', node: tabs.details },

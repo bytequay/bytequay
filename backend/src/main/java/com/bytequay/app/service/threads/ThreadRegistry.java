@@ -20,6 +20,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -218,7 +219,7 @@ public class ThreadRegistry
         if (workspaceId != null && !workspaceId.isBlank()) {
             try {
                 Set<String> pinned = workspaces.listRepos(workspaceId).stream()
-                        .map(r -> r.repoFullName())
+                        .map(WorkspaceRepo::repoFullName)
                         .collect(Collectors.toSet());
                 if (!pinned.isEmpty()) {
                     Optional<String> match = watchedRepos.findAll().stream()

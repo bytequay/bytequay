@@ -17,6 +17,7 @@ import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
@@ -1044,7 +1045,7 @@ public class LogicLoopThreadAgent
     private String activeTaskId()
     {
         return taskStore.findActiveTaskForThread(threadId)
-                .map(t -> t.id())
+                .map(Task::id)
                 .orElse(null);
     }
 

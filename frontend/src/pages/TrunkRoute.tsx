@@ -15,28 +15,13 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { Callout, Conv, DensityToggle, EventRow, QueuedMessages, Thought, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
-import type { TaskStatus } from '../ui/conv';
 import { useThreadStream } from '../threads/useThreadStream';
 import { usePersistentToggle } from '../ui/shell';
 import { TrunkFeed } from '../threads/TrunkFeed';
 import { parseToolCall } from '../threads/trunkTimeline';
-import type { TaskCardData } from '../ui/pane';
-import type { PrGlyphState } from '../ui/primitives';
+import { toTaskCard } from '../threads/taskCardData';
 import { proposalAction } from '../threads/usePendingShipProposal';
-import { taskLabel } from '../threads/taskLabel';
 import { TrunkPage } from './TrunkPage';
-
-/** Map a work-unit status string to the card's status pill. */
-function cardStatus(status: string): TaskStatus {
-  switch (status) {
-    case 'COMPLETED': case 'IN_REVIEW': return 'shipped';
-    case 'CANCELED': case 'ARCHIVED': return 'closed';
-    case 'ERRORED': return 'errored';
-    case 'PAUSED': return 'paused';
-    case 'PENDING': return 'pending';
-    default: return 'foreground';
-  }
-}
 
 /** Terminal statuses — the task has landed (COMPLETED/merged) or been
  *  closed/reaped (CANCELED / ARCHIVED). These fill the Tasks tab's "Closed"
@@ -44,26 +29,6 @@ function cardStatus(status: string): TaskStatus {
  *  shipped task is still in-flight (CI-fixing / addressing comments /
  *  awaiting merge). PENDING is the Queued folder. */
 const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
-
-/** The PR-state glyph before a task's name: merged once the work landed, a
- *  draft / open pull-request mark while it's in flight, nothing before a PR
- *  exists. */
-function cardPr(t: WorkUnitTaskDto): PrGlyphState | undefined {
-  if (t.status === 'COMPLETED') return 'merged';
-  if (t.prNumber == null) return undefined;
-  return typeof t.prState === 'string' && t.prState.toUpperCase() === 'DRAFT' ? 'draft' : 'open';
-}
-
-function toCard(t: WorkUnitTaskDto, mergeReady: boolean): TaskCardData {
-  return {
-    id: t.id,
-    title: taskLabel(t),
-    status: cardStatus(t.status),
-    branch: t.branchName ?? undefined,
-    mergeReady,
-    pr: cardPr(t),
-  };
-}
 
 /**
  * Data adapter mounting the V3 {@link TrunkPage} on the live thread trunk
@@ -198,6 +163,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
         tasks={tasks}
         density={density}
         onOpenTask={onOpenTask}
+        mergeReadyIds={mergeReadyIds}
         trailer={(
           <>
             {liveThinking.length > 0 && (
@@ -225,8 +191,8 @@ export function TrunkRoute({ threadId, onOpenTask }: {
 
   const active = tasks
     .filter(t => !TERMINAL_TASK_STATUSES.has(t.status))
-    .map(t => toCard(t, mergeReadyIds.has(t.id)));
-  const closed = tasks.filter(t => TERMINAL_TASK_STATUSES.has(t.status)).map(t => toCard(t, false));
+    .map(t => toTaskCard(t, mergeReadyIds.has(t.id)));
+  const closed = tasks.filter(t => TERMINAL_TASK_STATUSES.has(t.status)).map(t => toTaskCard(t, false));
 
   return (
     <TrunkPage

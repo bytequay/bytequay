@@ -608,6 +608,18 @@
   color: var(--text-4);
   font-size: 9px;
 }
+.shell .task-card .pr-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.shell .task-card .pr-num .ic {
+  color: var(--text-4);
+  font-size: 9px;
+}
 .shell .task-card .created {
   font-size: 10.5px;
   color: var(--text-4);

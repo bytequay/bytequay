@@ -14,6 +14,7 @@
 import type { ReactNode } from 'react';
 import { Card } from '../Card';
 import type { TaskStatus } from '../Card';
+import type { PrGlyphState } from '../../primitives';
 import type { SpineColor } from './Spine';
 
 /**
@@ -45,11 +46,17 @@ export function MilestoneNode({ mark, color, kicker, children, id, flash }: {
  * existing `<Card kind="task">` unchanged (the same card used in the Tasks
  * tab), so there is exactly one task card.
  */
-export function TaskCutNode({ title, status, statusText, branch, body, onOpen, id, flash }: {
+export function TaskCutNode({
+  title, status, statusText, branch, createdLabel, prNumber, mergeReady, pr, body, onOpen, id, flash,
+}: {
   title: string;
   status?: TaskStatus;
   statusText?: string;
   branch?: string;
+  createdLabel?: string;
+  prNumber?: number;
+  mergeReady?: boolean;
+  pr?: PrGlyphState;
   body?: string;
   onOpen?: () => void;
   id?: string;
@@ -57,7 +64,19 @@ export function TaskCutNode({ title, status, statusText, branch, body, onOpen, i
 }) {
   return (
     <MilestoneNode color="purple" mark="◆" kicker="Task cut" id={id} flash={flash}>
-      <Card kind="task" title={title} status={status} statusText={statusText} branch={branch} body={body} onClick={onOpen} />
+      <Card
+        kind="task"
+        title={title}
+        status={status}
+        statusText={statusText}
+        branch={branch}
+        createdLabel={createdLabel}
+        prNumber={prNumber}
+        mergeReady={mergeReady}
+        pr={pr}
+        body={body}
+        onClick={onOpen}
+      />
     </MilestoneNode>
   );
 }

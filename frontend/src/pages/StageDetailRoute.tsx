@@ -294,20 +294,22 @@ export function StageDetailRoute({
   // ── Right-pane tab nodes ────────────────────────────────────────────────
   // Memoized on their own data so a keystroke (or a streaming token) can't
   // re-render the diff — PaneDiff over a large change set is expensive.
-  const changesNode = useMemo(() => (
-    <>
-      {stageKind === 'ci-fix' && realtimeCi !== null && (
-        <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
-      )}
-      {files === null ? (
-        <div className="pane-empty">Loading diff…</div>
-      ) : files.length === 0 ? (
-        <div className="pane-empty">No changes in this task yet.</div>
-      ) : (
-        <PaneDiff files={files} />
-      )}
-    </>
-  ), [stageKind, realtimeCi, files, openPr]);
+  const changesNode = useMemo(() => {
+    // The CI-fix stage's tab shows only the live CI run — the code diff lives
+    // on the Files tab, so this tab stays focused on the checks it's fixing.
+    if (stageKind === 'ci-fix') {
+      return realtimeCi !== null
+        ? <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
+        : <div className="pane-empty">No CI run yet.</div>;
+    }
+    return files === null ? (
+      <div className="pane-empty">Loading diff…</div>
+    ) : files.length === 0 ? (
+      <div className="pane-empty">No changes in this task yet.</div>
+    ) : (
+      <PaneDiff files={files} />
+    );
+  }, [stageKind, realtimeCi, files, openPr]);
 
   const filesNode = useMemo(() => (
     <DiffFileTreePane<DiffFileDto>
@@ -442,7 +444,9 @@ export function StageDetailRoute({
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
       tabCounts={{
-        changes: files !== null && files.length > 0 ? { count: files.length, countColor: 'acc' } : undefined,
+        // The CI-fix tab is checks-only, so the changed-file count doesn't belong on it.
+        changes: stageKind !== 'ci-fix' && files !== null && files.length > 0
+          ? { count: files.length, countColor: 'acc' } : undefined,
         pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
       }}
       paneMeta={stageKind === 'ci-fix' ? {

@@ -36,6 +36,8 @@ type TaskProps = CommonProps & {
   /** Monospace branch chip. */
   branch?: string;
   createdLabel?: string;
+  /** The task's PR number, shown as a `#123` chip when the task has a PR. */
+  prNumber?: number;
   /** The task's PR is ready to merge (CI green, no unresolved comments,
    *  mergeable) — tints the card + adds a "Ready to merge" badge. */
   mergeReady?: boolean;
@@ -101,11 +103,14 @@ export function Card(props: CardProps) {
   );
 }
 
-function TaskMeta({ branch, createdLabel, status, statusText, mergeReady }: TaskProps) {
+function TaskMeta({ branch, createdLabel, prNumber, status, statusText, mergeReady }: TaskProps) {
   return (
     <>
       {branch !== undefined && (
         <span className="branch-tag"><span className="ic" aria-hidden>⎇</span>{branch}</span>
+      )}
+      {prNumber !== undefined && (
+        <span className="pr-num"><span className="ic" aria-hidden>⌗</span>#{prNumber}</span>
       )}
       {createdLabel !== undefined && <span className="created">{createdLabel}</span>}
       {mergeReady === true && <span className="merge-ready-pill">Ready to merge</span>}

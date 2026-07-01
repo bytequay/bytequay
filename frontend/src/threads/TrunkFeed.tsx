@@ -17,25 +17,14 @@ import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import {
   ActivityStrip, Headline, OutlineStrip, Round, Spine, TaskCutNode, UserTurn, WorkFold,
 } from '../ui/conv';
-import type { Density, OutlineChip, TaskStatus, ToolGroup } from '../ui/conv';
+import type { Density, OutlineChip, ToolGroup } from '../ui/conv';
 import { MarkdownProse } from './MarkdownProse';
 import { EventTimestamp } from '../ui/conv';
 import { taskLabel } from './taskLabel';
+import { cardStatus, toTaskCard } from './taskCardData';
 import {
   buildTrunkTimeline, extractText, parseToolCall, trunkHeadline, trunkWork,
 } from './trunkTimeline';
-
-/** Map a work-unit status to the task card's status pill. */
-function cardStatus(status: string): TaskStatus {
-  switch (status) {
-    case 'COMPLETED': case 'IN_REVIEW': return 'shipped';
-    case 'CANCELED': case 'ARCHIVED': return 'closed';
-    case 'ERRORED': return 'errored';
-    case 'PAUSED': return 'paused';
-    case 'PENDING': return 'pending';
-    default: return 'foreground';
-  }
-}
 
 /** Batch a round's work rows into folded sub-messages + tool activity strips,
  *  preserving order (consecutive tool calls collapse into one strip). */
@@ -78,12 +67,15 @@ function renderWork(rows: ThreadMessageDto[], full: boolean): ReactNode[] {
  * nodes are its outputs. Architecture/risk stay prose in the rounds until a
  * later milestone emits them structured (DISCOVERY-FINDINGS deferral).
  */
-export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer }: {
+export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, mergeReadyIds }: {
   messages: ThreadMessageDto[];
   tasks: WorkUnitTaskDto[];
   density: Density;
   onOpenTask: (taskId: string) => void;
   trailer?: ReactNode;
+  /** Task ids with an open merge gate — drives the inline card's "Ready to
+   *  merge" badge so it matches the Tasks-tab card. */
+  mergeReadyIds?: ReadonlySet<string>;
 }) {
   const full = density === 'full';
   const items = buildTrunkTimeline(messages, tasks);
@@ -116,14 +108,19 @@ export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer }: {
         {items.map(item => {
           if (item.kind === 'cut') {
             const t = cut(item);
+            const card = toTaskCard(t, mergeReadyIds?.has(t.id) ?? false);
             return (
               <TaskCutNode
                 key={t.id}
                 id={`cut-${t.id}`}
                 flash={flashId === `cut-${t.id}`}
-                title={taskLabel(t)}
-                status={cardStatus(t.status)}
-                branch={t.branchName ?? undefined}
+                title={card.title}
+                status={card.status}
+                branch={card.branch}
+                createdLabel={card.createdLabel}
+                prNumber={card.prNumber}
+                mergeReady={card.mergeReady}
+                pr={card.pr}
                 onOpen={() => onOpenTask(t.id)}
               />
             );

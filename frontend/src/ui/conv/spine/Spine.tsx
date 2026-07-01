@@ -84,17 +84,6 @@ export function SpineNode({
             </button>
           )
           : <span className="sp-node__label">{labelInner}</span>}
-      {navigable && onToggle !== undefined && (
-        <button
-          type="button"
-          className="sp-node__fold"
-          onClick={onToggle}
-          aria-expanded={collapsed !== true}
-          title={collapsed === true ? 'Expand this stage' : 'Collapse this stage'}
-        >
-          {collapsed === true ? '▸' : '▾'}
-        </button>
-      )}
     </div>
   );
 }

@@ -191,6 +191,11 @@ public class TaskService
     {
         requireTask(threadId, taskId);
         taskStore.setAutoApprove(taskId, enabled);
+        // Turning it on clears any gate already parked, not just future ones —
+        // AutoApproveGateListener sweeps the task's parked non-merge gates.
+        if (enabled) {
+            eventPublisher.publishEvent(new AutoApproveEnabledEvent(threadId, taskId));
+        }
         return taskStore.isAutoApprove(taskId);
     }
 

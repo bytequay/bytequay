@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Notification;
+import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.repository.NotificationStore;
 import com.bytequay.app.repository.TaskStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -41,15 +45,22 @@ public class AutoApproveGateListener
 {
     private static final Logger log = LoggerFactory.getLogger(AutoApproveGateListener.class);
 
+    /** Upper bound on how many of a thread's notifications the enable-sweep
+     *  scans — far more than a live task's handful of parked gates. */
+    private static final int SWEEP_LIMIT = 200;
+
     private final TaskStore taskStore;
     private final PublishService publishService;
+    private final NotificationStore notificationStore;
     private final ObjectMapper mapper;
 
     public AutoApproveGateListener(
-            TaskStore taskStore, PublishService publishService, ObjectMapper mapper)
+            TaskStore taskStore, PublishService publishService,
+            NotificationStore notificationStore, ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.publishService = requireNonNull(publishService, "publishService is null");
+        this.notificationStore = requireNonNull(notificationStore, "notificationStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -59,19 +70,46 @@ public class AutoApproveGateListener
         if (event.taskId() == null || !taskStore.isAutoApprove(event.taskId())) {
             return;
         }
-        String action = parseAction(event.payloadJson());
-        // The final PR merge is the one gate auto-approve never resolves.
+        approveGate(event.taskId(), event.notificationId(), event.payloadJson());
+    }
+
+    /**
+     * The toggle was switched on: sweep the task's already-parked gates and
+     * approve the non-merge ones. {@link #onGateParked} only fires at park
+     * time, so without this a gate parked while auto-approve was off would sit
+     * unresolved forever after the user turns it on.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onAutoApproveEnabled(AutoApproveEnabledEvent event)
+    {
+        if (!taskStore.isAutoApprove(event.taskId())) {
+            return;
+        }
+        for (Notification n : notificationStore.listForThread(event.threadId(), SWEEP_LIMIT)) {
+            if (n.kind() == NotificationKind.AWAITING_REVIEW
+                    && event.taskId().equals(n.taskId())
+                    && n.status() == NotificationStatus.UNREAD) {
+                approveGate(n.taskId(), n.id(), n.payloadJson());
+            }
+        }
+    }
+
+    /** Approve one parked gate on the user's behalf — unless it's the final PR
+     *  merge, the one gate auto-approve never resolves. */
+    private void approveGate(String taskId, String notificationId, String payloadJson)
+    {
+        String action = parseAction(payloadJson);
         if (action == null || "merge_pr".equals(action)) {
             return;
         }
         try {
-            publishService.approve(event.notificationId(), null, action);
+            publishService.approve(notificationId, null, action);
             log.info("Auto-approved {} gate for task {} (notification {})",
-                    action, event.taskId(), event.notificationId());
+                    action, taskId, notificationId);
         }
         catch (RuntimeException e) {
             log.warn("Auto-approve of {} gate (notification {}) failed: {}",
-                    action, event.notificationId(), e.getMessage());
+                    action, notificationId, e.getMessage());
         }
     }
 

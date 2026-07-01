@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { PlanCardDto, PlanStepDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
@@ -121,8 +121,6 @@ export function PlanCard({
   const confidence = plan.signals.confidence ?? confidenceFromRisk(plan.signals.riskLevel);
   const locked = plan.state === 'locked';
   const awaiting = plan.state === 'awaiting';
-  // Auto-approve fires only on a high-confidence plan awaiting review (A4.2).
-  const auto = awaiting && autoApprove === true && autoConfidenceHigh === true;
 
   return (
     <div className="plan-card">
@@ -131,7 +129,7 @@ export function PlanCard({
         <span className="plan-card__t">Execution plan</span>
         {plan.revisionCount > 0 && <span className="plan-card__rev">rev {plan.revisionCount}</span>}
         {onToggleAutoApprove !== undefined && (
-          <label className="plan-auto" title="When on, a high-confidence plan starts development without waiting for your click">
+          <label className="plan-auto" title="When on, downstream push / PR gates approve automatically. The plan itself always waits for your explicit approval.">
             <span className="plan-auto__lbl">Auto-approve</span>
             <span className="plan-auto__sw">
               <input type="checkbox" checked={autoApprove === true} onChange={onToggleAutoApprove} />
@@ -192,12 +190,10 @@ export function PlanCard({
           ? <div className="review-locked">Plan approved{approvedAt !== undefined ? ` at ${fmtApprovedAt(approvedAt)}` : ' — development under way.'}</div>
           : <ReviewBar
               plan={plan}
-              auto={auto}
               awaiting={awaiting}
               onApprove={onApprove}
               onEdit={onEdit}
               onRequestRevision={onRequestRevision}
-              onHoldAuto={onHoldAuto}
             />}
       </div>
     </div>
@@ -250,62 +246,29 @@ function PlanStep({ step, overallRisk, onComment }: {
   );
 }
 
-function ReviewBar({ plan, auto, awaiting, onApprove, onEdit, onRequestRevision, onHoldAuto }: {
+function ReviewBar({ plan, awaiting, onApprove, onEdit, onRequestRevision }: {
   plan: PlanCardDto;
-  auto: boolean;
   awaiting: boolean;
   onApprove?: () => void;
   onEdit?: () => void;
   onRequestRevision?: () => void;
-  onHoldAuto?: () => void;
 }) {
   const pushLabel = plan.pushStrategy === 'autonomous' ? 'autonomous' : 'await approval';
+  // The plan is never auto-approved — it always waits for the user's explicit
+  // click before development starts, regardless of the auto-approve toggle
+  // (which only governs the downstream push / PR gates).
   return (
     <div className="review-bar">
       <div className="scope-guard">
         <span className="sg"><span className="dot g" />{plan.steps.length} steps in scope</span>
         <span className="sg"><span className="dot b" />push: {pushLabel}</span>
       </div>
-      {auto
-        ? <AutoBanner onApprove={onApprove} onHoldAuto={onHoldAuto} />
-        : (
-          <>
-            <div className="trigger-note">Approving freezes this plan and activates <span className="flow">Development → Review → Push (user-gated)</span>.</div>
-            <div className="actions-row">
-              <button type="button" className="rb-btn rb-btn--primary" onClick={onApprove} disabled={!awaiting || onApprove === undefined}>✓ Approve &amp; start dev</button>
-              {onEdit !== undefined && <button type="button" className="rb-btn rb-btn--ghost" onClick={onEdit}>Edit plan</button>}
-              {onRequestRevision !== undefined && <button type="button" className="rb-btn rb-btn--ghost rb-btn--amber" onClick={onRequestRevision}>Request revision</button>}
-            </div>
-          </>
-        )}
-    </div>
-  );
-}
-
-/** The confidence-gated auto-approve banner: a short countdown that calls
- *  `onApprove` automatically when it elapses, with a Hold escape. Only ever
- *  mounted on a high-confidence plan (A4.2), so reaching zero is safe. */
-function AutoBanner({ onApprove, onHoldAuto }: { onApprove?: () => void; onHoldAuto?: () => void }) {
-  const [secs, setSecs] = useState(5);
-  const fired = useRef(false);
-  useEffect(() => {
-    const id = setInterval(() => setSecs(s => (s > 0 ? s - 1 : 0)), 1000);
-    return () => clearInterval(id);
-  }, []);
-  useEffect(() => {
-    if (secs === 0 && !fired.current) {
-      fired.current = true;
-      onApprove?.();
-    }
-  }, [secs, onApprove]);
-  return (
-    <div className="auto-banner">
-      <span className="auto-banner__ic" aria-hidden>⚡</span>
-      <span className="auto-banner__tx">
-        <b>Auto-approve on.</b> High confidence — starting development in{' '}
-        <span className="auto-banner__cd">{secs > 0 ? `${secs}s` : 'now'}</span>. No action needed.
-      </span>
-      {onHoldAuto !== undefined && <button type="button" className="auto-banner__hold" onClick={onHoldAuto}>Hold &amp; review</button>}
+      <div className="trigger-note">Approving freezes this plan and activates <span className="flow">Development → Review → Push</span>.</div>
+      <div className="actions-row">
+        <button type="button" className="rb-btn rb-btn--primary" onClick={onApprove} disabled={!awaiting || onApprove === undefined}>✓ Approve &amp; start dev</button>
+        {onEdit !== undefined && <button type="button" className="rb-btn rb-btn--ghost" onClick={onEdit}>Edit plan</button>}
+        {onRequestRevision !== undefined && <button type="button" className="rb-btn rb-btn--ghost rb-btn--amber" onClick={onRequestRevision}>Request revision</button>}
+      </div>
     </div>
   );
 }

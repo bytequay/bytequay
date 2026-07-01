@@ -27,6 +27,7 @@ import { extractSeedChips } from './seedChips';
  */
 export function TaskRootNode({
   plan, seed, autoApprove, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
+  onToggleAutoApprove,
 }: {
   plan: PlanCardDto;
   /** The trunk-handoff prose, when available. Omit to hide the seed block. */
@@ -39,6 +40,7 @@ export function TaskRootNode({
   onRequestRevision?: () => void;
   onCommentStep?: (ordinal: number) => void;
   onHoldAuto?: () => void;
+  onToggleAutoApprove?: () => void;
 }) {
   return (
     <div className="root-node">
@@ -52,6 +54,7 @@ export function TaskRootNode({
         onRequestRevision={onRequestRevision}
         onCommentStep={onCommentStep}
         onHoldAuto={onHoldAuto}
+        onToggleAutoApprove={onToggleAutoApprove}
       />
     </div>
   );
@@ -97,6 +100,7 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
  *  than pinned above the feed. */
 export function PlanCard({
   plan, autoApprove, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
+  onToggleAutoApprove,
 }: {
   plan: PlanCardDto;
   autoApprove?: boolean;
@@ -106,6 +110,10 @@ export function PlanCard({
   onRequestRevision?: () => void;
   onCommentStep?: (ordinal: number) => void;
   onHoldAuto?: () => void;
+  /** Toggles auto-approve. When provided, an Auto-approve switch shows in the
+   *  card header — a high-confidence plan then starts development without a
+   *  click. Omit to hide the switch. */
+  onToggleAutoApprove?: () => void;
 }) {
   const goal = plan.goal !== undefined && plan.goal.trim() !== '' ? plan.goal : plan.understandingSummary;
   const confidence = plan.signals.confidence ?? confidenceFromRisk(plan.signals.riskLevel);
@@ -120,6 +128,15 @@ export function PlanCard({
         <span className="plan-card__ic" aria-hidden>✦</span>
         <span className="plan-card__t">Execution plan</span>
         {plan.revisionCount > 0 && <span className="plan-card__rev">rev {plan.revisionCount}</span>}
+        {onToggleAutoApprove !== undefined && (
+          <label className="plan-auto" title="When on, a high-confidence plan starts development without waiting for your click">
+            <span className="plan-auto__lbl">Auto-approve</span>
+            <span className="plan-auto__sw">
+              <input type="checkbox" checked={autoApprove === true} onChange={onToggleAutoApprove} />
+              <span className="plan-auto__track"><span className="plan-auto__knob" /></span>
+            </span>
+          </label>
+        )}
       </div>
       <div className="plan-card__body">
         <div className="plan-goal">

@@ -173,6 +173,7 @@ export function TaskBrainRoute({
         feed={brainFeed}
         stages={stages}
         density={density}
+        onOpenStage={onOpenStage}
         trailer={(
           <>
             {showRoot && plan !== null && (
@@ -184,6 +185,7 @@ export function TaskBrainRoute({
                 onRequestRevision={requestRevision}
                 onCommentStep={ord => setText(`Re: step ${ord} — `)}
                 onHoldAuto={toggleAutoApprove}
+                onToggleAutoApprove={toggleAutoApprove}
               />
             )}
             {data.rightRail.approval !== null && (

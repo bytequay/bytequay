@@ -44,11 +44,13 @@ function durationLabel(stage: StageDto): string | null {
  * user changed direction mid-stage (rendered as a normal turn, per the M10
  * default — no schema change).
  */
-export function StageBoundaryNode({ stage, closed, collapsed, onToggle, amended }: {
+export function StageBoundaryNode({ stage, closed, collapsed, onToggle, onOpen, amended }: {
   stage: StageDto;
   closed: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
+  /** Jump into this stage's detail view when its label is clicked. */
+  onOpen?: () => void;
   amended?: boolean;
 }) {
   const v = VISUAL[stage.type];
@@ -67,6 +69,7 @@ export function StageBoundaryNode({ stage, closed, collapsed, onToggle, amended 
       meta={outcome}
       collapsed={collapsed}
       onToggle={onToggle}
+      onOpen={onOpen}
       right={amended === true ? <span className="sp-node__tick">plan amended</span> : undefined}
     />
   );

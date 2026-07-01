@@ -166,6 +166,30 @@ class TestAgentToolHandlersCreateTask
     }
 
     @Test
+    void capsAVerboseAgentTitleAtAWordBoundary()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(mock(Task.class));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay",
+                        "De-duplicate the two identical keyset-pagination recovery loops in "
+                                + "AgentScheduler into one private recoverTurns(status, cursor)",
+                        null, null, null, null, null),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        ArgumentCaptor<ThreadService.NewTaskRequest> req =
+                ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
+        verify(threads).materialiseTask(eq(THREAD_ID), req.capture());
+        // 12 words at a boundary + ellipsis — not a mid-token cut at "recoverTurns(status,".
+        assertThat(req.getValue().title()).isEqualTo(
+                "De-duplicate the two identical keyset-pagination recovery loops in "
+                        + "AgentScheduler into one private…");
+    }
+
+    @Test
     void fallbackTitleCutsAtTheFirstSentenceNotMidThought()
     {
         when(watchedRepos.findAll()).thenReturn(List.of(

@@ -118,7 +118,13 @@ export function StageDetailPage({
   // CI Fix is the one stage that surfaces the CI Status full-page view.
   const showCi = stageKind === 'ci-fix' && onOpenCi !== undefined;
 
-  const openTab = (key: StageTab) => { setActiveTab(key); setPaneOpen(true); };
+  // The inline pill toggles the pane: closed → open and jump to the tab;
+  // open on another tab → jump; open on this tab → close the pane.
+  const openTab = (key: StageTab) => {
+    if (paneOpen && active.key === key) { setPaneOpen(false); return; }
+    setActiveTab(key);
+    setPaneOpen(true);
+  };
 
   const topBar = (
     <TopBar>

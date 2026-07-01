@@ -61,7 +61,9 @@ describe('TaskBrainPage', () => {
     renderBrain();
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
     expect(screen.queryByTestId('details-tab')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    // Details appears twice now (pane-tab strip + inline pill); click the tab.
+    const detailsTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent === 'Details');
+    fireEvent.click(detailsTab as Element);
     expect(screen.getByTestId('details-tab')).toBeTruthy();
   });
 
@@ -90,8 +92,9 @@ describe('TaskBrainPage', () => {
   it('the top-bar Changes button fires onOpenChanges', () => {
     const onOpenChanges = vi.fn();
     renderBrain({ onOpenChanges });
-    // Two "Changes": the top-bar button (pane open). Click it.
-    fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
+    // Two "Changes": the top-bar button and the always-visible inline chip.
+    // Either fires onOpenChanges — click the first (top-bar) one.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Changes' })[0]);
     expect(onOpenChanges).toHaveBeenCalledOnce();
   });
 });

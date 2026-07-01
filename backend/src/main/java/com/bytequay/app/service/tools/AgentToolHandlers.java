@@ -35,6 +35,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -639,9 +640,11 @@ public class AgentToolHandlers
                     required = true) String repo,
             @ToolParam(description = "A short, purpose-written task title — what this task "
                     + "accomplishes, phrased like a PR title (e.g. \"Clean up backend exception "
-                    + "handling\"). Imperative, under 60 chars, no trailing scope/justification "
-                    + "fragments. It names the task row and the dev branch. Omit only if you "
-                    + "have nothing better than the prompt's first line.") String title,
+                    + "handling\"). Imperative, at most 12 words, no code signatures / parens / "
+                    + "method names and no trailing scope or justification fragments. It names "
+                    + "the task row and the dev branch, so keep it a whole short clause that "
+                    + "won't read truncated. Omit only if you have nothing better than the "
+                    + "prompt's first line.") String title,
             @ToolParam(description = "Optional first user prompt to seed the new task's "
                     + "conversation. When set, the task starts running this turn immediately; "
                     + "when omitted, the task lands at PENDING and waits for the user.",
@@ -709,9 +712,12 @@ public class AgentToolHandlers
         String taskType = args.taskType() == null ? "" : args.taskType();
         // Prefer the agent's purpose-written title; fall back to the first
         // sentence of the prompt so the name never reads truncated mid-thought.
-        String title = args.title() != null && !args.title().isBlank()
+        // Cap either at a short word boundary so a verbose title (the model
+        // ignoring the "≤12 words" guidance) can't render clipped mid-token.
+        String rawTitle = args.title() != null && !args.title().isBlank()
                 ? args.title().strip()
                 : createTaskTitle(initialPrompt, thread.title());
+        String title = shortTitle(rawTitle);
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 thread.kind(),
                 thread.provider(),
@@ -744,6 +750,23 @@ public class AgentToolHandlers
         catch (IllegalArgumentException | IllegalStateException e) {
             return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
         }
+    }
+
+    /** Display cap for a task title, in words — a task row / branch name reads
+     *  as a whole short clause, not a mid-thought cut. */
+    private static final int MAX_TITLE_WORDS = 12;
+
+    /** Trim a title to {@link #MAX_TITLE_WORDS} words at a word boundary,
+     *  marking the cut with an ellipsis — never a mid-token slice like
+     *  "…recoverTurns(status,". Titles already within the cap pass through
+     *  unchanged, so this only bites a verbose agent title. */
+    static String shortTitle(String title)
+    {
+        String[] words = title.strip().split("\\s+");
+        if (words.length <= MAX_TITLE_WORDS) {
+            return title.strip();
+        }
+        return String.join(" ", Arrays.copyOfRange(words, 0, MAX_TITLE_WORDS)) + "…";
     }
 
     /** A task title from its opening prompt's first line (capped), so the

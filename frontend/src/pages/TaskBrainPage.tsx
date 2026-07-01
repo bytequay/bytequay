@@ -116,6 +116,7 @@ export function TaskBrainPage({
       {stageChips !== undefined && stageChips.length > 0 && <StageChips chips={stageChips} />}
       <Grow />
       <RunMenu
+        hideStatus
         statusLabel={run.statusLabel}
         paused={run.paused}
         terminal={run.terminal}

@@ -18,7 +18,9 @@ import type { StageDto, StageType, TaskPhase } from '../../types/brainView';
  *  local agent turn running) — distinct from {@code running} (agent working)
  *  and {@code sleep} (idle/open). */
 export type LivePlanStatus =
-  | 'done' | 'running' | 'monitoring' | 'planning' | 'sleep' | 'future' | 'errored';
+  | 'done' | 'running' | 'monitoring' | 'planning' | 'sleep' | 'future' | 'errored'
+  /** Parked for the user's approval (a gate) — rendered orange. */
+  | 'awaiting';
 
 /** Where a node sits in the lifecycle layout. `split-*` are the parallel
  *  CI-Fix / Comments branch; `sub` is the indented Review (callable) node. */
@@ -63,6 +65,9 @@ export type LivePlanInput = {
    *  see it's working immediately, ahead of the stage-state poll. Background
    *  stages still pulse from their own polled {@code ACTIVE} state. */
   working?: boolean;
+  /** Stage id currently parked for the user's approval (a NEEDS_ATTENTION
+   *  gate), lit orange as `awaiting`. Null when nothing is parked. */
+  awaitingApprovalStageId?: string | null;
 };
 
 /** Status for a stage-backed node: closed → done, active → running (or
@@ -79,9 +84,24 @@ function stageStatus(stage: StageDto | undefined, planning = false): LivePlanSta
 function glyphFor(status: LivePlanStatus, future = '○'): string {
   if (status === 'done') return '✓';
   if (status === 'monitoring') return '◎';
-  if (status === 'running' || status === 'planning' || status === 'errored') return '●';
+  if (status === 'running' || status === 'planning' || status === 'errored' || status === 'awaiting') return '●';
   if (status === 'sleep') return '○';
   return future;
+}
+
+/** Task phases during which the Development stage is the active work — the
+ *  node must read "running" then even if its stage row sits OPEN between
+ *  turns (a CLI subprocess turn leaves the row OPEN, not ACTIVE), which is
+ *  why the plain stage-state mapping under-lit it. AWAITING_PUSH is the
+ *  dev-finished, parked-for-push-approval state → "awaiting". */
+const DEV_RUNNING_PHASES = new Set<TaskPhase>(['IMPLEMENTING', 'VALIDATING', 'INTERNAL_REVIEW']);
+
+function devNodeStatus(dev: StageDto | undefined, phase: TaskPhase): LivePlanStatus {
+  if (dev === undefined) return 'future';
+  if (dev.state === 'CLOSED') return 'done';
+  if (DEV_RUNNING_PHASES.has(phase)) return 'running';
+  if (phase === 'AWAITING_PUSH') return 'awaiting';
+  return stageStatus(dev);
 }
 
 /** Status for a monitor (looping) stage. It loops while its phase is the
@@ -118,6 +138,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
     stages, subStages, task, prStatus = null, mergeReady = false,
     viewedStageId = null, viewingBrain = false, working = false,
+    awaitingApprovalStageId = null,
   } = input;
   const byType = (type: StageType): StageDto | undefined => stages.find(s => s.type === type);
   const isViewed = (stage: StageDto | undefined): boolean =>
@@ -137,7 +158,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   // progress (planning while the PlanStage is active, done once approved)
   // but navigates back to the brain page instead of a stage page.
   const rootStatus: LivePlanStatus = plan === undefined ? 'planning' : stageStatus(plan, true);
-  const devStatus = stageStatus(dev);
+  const devStatus = devNodeStatus(dev, task.currentPhase);
   const reviewStatus = stageStatus(review);
   // PUSHED_AWAITING_CI = pushed, polling remote CI (monitoring); CI_FIXING =
   // agent actively fixing. AWAITING_REMOTE_REVIEW = out for review (monitoring);
@@ -220,6 +241,18 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       if (node.activeView) {
         node.status = node.key === 'root' ? 'planning' : 'running';
         node.glyph = glyphFor(node.status);
+      }
+    }
+  }
+
+  // A stage parked for the user's approval wins over any working/state colour:
+  // it needs the user, so light it orange regardless of which node is viewed.
+  if (awaitingApprovalStageId !== null) {
+    for (const node of nodes) {
+      if (node.nav.kind === 'stage' && node.nav.stageId === awaitingApprovalStageId) {
+        node.status = 'awaiting';
+        node.glyph = glyphFor('awaiting');
+        node.meta = 'awaiting approval';
       }
     }
   }

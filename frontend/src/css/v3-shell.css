@@ -810,6 +810,10 @@
 .shell .plan-node.monitoring .pn-glyph { color: #2563eb; animation: working-pulse 1.4s infinite; }
 .shell .plan-node.monitoring .pn-name { color: var(--text-1); font-weight: 600; }
 .shell .plan-node.monitoring .pn-meta { color: #2563eb; opacity: 0.8; }
+.shell .plan-node.awaiting { background: rgba(194, 99, 42, 0.16); border-color: var(--orange); }
+.shell .plan-node.awaiting .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
+.shell .plan-node.awaiting .pn-name { color: var(--text-1); font-weight: 600; }
+.shell .plan-node.awaiting .pn-meta { color: var(--orange); opacity: 0.85; }
 .shell .plan-node.sleep .pn-glyph { color: var(--text-4); }
 .shell .plan-node.sleep .pn-name { color: var(--text-3); }
 .shell .plan-node.future { background: transparent; border-style: dashed; opacity: 0.6; }

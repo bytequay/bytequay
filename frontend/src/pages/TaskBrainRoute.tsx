@@ -254,6 +254,8 @@ export function TaskBrainRoute({
     viewingBrain: true,
     // Pulse the Root node while the brain is thinking.
     working,
+    // Light the parked stage orange when a gate is awaiting the user's approval.
+    awaitingApprovalStageId: data.rightRail.approval?.stageId ?? null,
   });
   const sidebar = (
     <TaskSidebar

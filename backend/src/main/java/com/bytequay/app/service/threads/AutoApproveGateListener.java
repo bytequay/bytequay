@@ -23,9 +23,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.util.Objects.requireNonNull;
 
@@ -49,19 +55,99 @@ public class AutoApproveGateListener
      *  scans — far more than a live task's handful of parked gates. */
     private static final int SWEEP_LIMIT = 200;
 
+    /** Backstop attempts per stranded gate before it's escalated to the user
+     *  instead of retried. */
+    private static final int MAX_BACKSTOP_ATTEMPTS = 3;
+
+    /** Give the in-process park/enable listeners this long to resolve a fresh
+     *  gate before the backstop sweep considers it stranded — avoids racing
+     *  the primary path and wasting an attempt on a gate about to resolve. */
+    private static final Duration STRANDED_AFTER = Duration.ofSeconds(90);
+
     private final TaskStore taskStore;
     private final PublishService publishService;
     private final NotificationStore notificationStore;
+    private final NotificationService notifications;
     private final ObjectMapper mapper;
+
+    /** Per-gate backstop attempt counter. In-memory only: bounded by the live
+     *  gate set, cleared when a gate resolves; a restart resets counts, which
+     *  just grants a stranded gate a fresh few attempts (harmless).
+     *  ponytail: in-memory cap — persist it only if restart-resets bite. */
+    private final Map<String, Integer> backstopAttempts = new ConcurrentHashMap<>();
 
     public AutoApproveGateListener(
             TaskStore taskStore, PublishService publishService,
-            NotificationStore notificationStore, ObjectMapper mapper)
+            NotificationStore notificationStore, NotificationService notifications,
+            ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.publishService = requireNonNull(publishService, "publishService is null");
         this.notificationStore = requireNonNull(notificationStore, "notificationStore is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+    }
+
+    /**
+     * Backstop for the two in-process listeners above. They fire only at park
+     * time ({@link #onGateParked}) and toggle-on time ({@link
+     * #onAutoApproveEnabled}), so a gate parked across a restart, lost to a
+     * race, or released back to UNREAD by a transient push failure would never
+     * retry — stranding the task despite auto-approve being on. This sweep
+     * re-approves such gates, capping attempts so a genuinely broken action
+     * escalates to the user rather than looping forever.
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 120_000)
+    public void reconcileStrandedGates()
+    {
+        Instant cutoff = Instant.now().minus(STRANDED_AFTER);
+        for (Notification n : notificationStore.listByStatus(NotificationStatus.UNREAD, SWEEP_LIMIT)) {
+            if (n.kind() != NotificationKind.AWAITING_REVIEW
+                    || n.taskId() == null
+                    || n.createdAt().isAfter(cutoff)
+                    || !taskStore.isAutoApprove(n.taskId())) {
+                continue;
+            }
+            String action = parseAction(n.payloadJson());
+            if (action == null || "merge_pr".equals(action)) {
+                continue;
+            }
+            int priorAttempts = backstopAttempts.getOrDefault(n.id(), 0);
+            if (priorAttempts >= MAX_BACKSTOP_ATTEMPTS) {
+                continue;   // already escalated — leave the gate for the user
+            }
+            int attempt = priorAttempts + 1;
+            backstopAttempts.put(n.id(), attempt);
+            try {
+                publishService.approve(n.id(), null, action);
+                backstopAttempts.remove(n.id());
+                log.info("Backstop auto-approved {} gate for task {} (notification {})",
+                        action, n.taskId(), n.id());
+            }
+            catch (RuntimeException e) {
+                log.warn("Backstop auto-approve of {} gate (notification {}) failed (attempt {}/{}): {}",
+                        action, n.id(), attempt, MAX_BACKSTOP_ATTEMPTS, e.getMessage());
+                if (attempt >= MAX_BACKSTOP_ATTEMPTS) {
+                    escalateStranded(n, action, e.getMessage());
+                }
+            }
+        }
+    }
+
+    /** After the attempt cap, alert the user once so a broken push doesn't
+     *  loop silently. The gate itself stays UNREAD for a manual approve. */
+    private void escalateStranded(Notification n, String action, String reason)
+    {
+        try {
+            notifications.notifyNeedsAttention(n.threadId(), n.taskId(), mapper.writeValueAsString(Map.of(
+                    "reason", "auto_approve_failed",
+                    "action", action,
+                    "originalNotificationId", n.id(),
+                    "message", reason == null ? "" : reason)));
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            log.warn("escalation notice for stranded gate {} failed: {}", n.id(), e.getMessage());
+        }
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)

@@ -67,45 +67,21 @@ describe('TaskRootNode', () => {
     expect(container.querySelector('.seed__full')?.textContent).toContain('collapse the parsers');
   });
 
-  it('swaps the review bar for an auto-state banner when auto-approve + high confidence', () => {
-    const { container } = render(<TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={() => {}} />);
-    expect(container.querySelector('.auto-banner')).toBeTruthy();
-    expect(container.querySelector('.auto-banner__cd')?.textContent).toBe('5s');
-    expect(container.querySelector('.actions-row')).toBeNull();
-  });
-
-  it('auto-approves when the countdown elapses; Hold cancels it', () => {
+  it('never auto-approves the plan: manual actions show even with auto-approve + high confidence', () => {
     vi.useFakeTimers();
     try {
       const onApprove = vi.fn();
-      const onHold = vi.fn();
-      const { container, rerender } = render(
-        <TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={onApprove} onHoldAuto={onHold} />,
-      );
-      // Hold cancels before the countdown elapses.
-      fireEvent.click(screen.getByText(/Hold & review/));
-      expect(onHold).toHaveBeenCalled();
-
-      // Left alone, the countdown fires onApprove exactly once at zero.
-      rerender(<TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={onApprove} onHoldAuto={onHold} />);
-      act(() => { vi.advanceTimersByTime(5000); });
-      expect(onApprove).toHaveBeenCalledTimes(1);
-      act(() => { vi.advanceTimersByTime(3000); });
-      expect(onApprove).toHaveBeenCalledTimes(1);
-      expect(container.querySelector('.auto-banner__cd')?.textContent).toBe('now');
+      const { container } = render(
+        <TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={onApprove} />);
+      // No countdown banner, and the plan is not approved for the user.
+      expect(container.querySelector('.auto-banner')).toBeNull();
+      expect(container.querySelector('.actions-row')).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(10000); });
+      expect(onApprove).not.toHaveBeenCalled();
     }
     finally {
       vi.useRealTimers();
     }
-  });
-
-  it('a low-confidence plan still shows the manual actions despite auto-approve', () => {
-    const { container } = render(
-      <TaskRootNode plan={plan({ signals: { riskLevel: 'high', estimatedComplexity: 'large', componentsCount: 9, expectedGain: 'High', confidence: 'low' } })}
-        autoApprove autoConfidenceHigh={false} onApprove={() => {}} />,
-    );
-    expect(container.querySelector('.auto-banner')).toBeNull();
-    expect(container.querySelector('.actions-row')).toBeTruthy();
   });
 
   it('renders typed steps: file chips, per-step risk, and out-of-scope', () => {

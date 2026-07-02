@@ -214,6 +214,11 @@ public class WorktreeService
         }
         try {
             remove(Path.of(task.workingDir()), task.worktreePath(), task.branchName());
+            // Symmetric with the create log — a completed task's cleanup is
+            // otherwise silent, so there's no signal it ran or what it freed
+            // (per-step failures still surface as warns inside remove()).
+            log.info("Reaped worktree {} + branch {} for task {}",
+                    task.worktreePath(), task.branchName(), task.id());
         }
         catch (RuntimeException e) {
             log.warn("worktree reap for completed task {} failed: {}", task.id(), e.getMessage());

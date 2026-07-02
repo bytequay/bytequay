@@ -94,12 +94,8 @@ public class OpenAiReviewer
     @Override
     public ReviewOutput review(ReviewRequest request)
     {
-        String apiKey = credentialService.getSecret(CredentialType.AI, OPENAI_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "OpenAI API key not configured. Add it in Settings → AI review."));
-        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
-                .filter(s -> !s.isBlank())
-                .orElse(DEFAULT_MODEL);
+        String apiKey = resolveApiKey();
+        String model = resolveModel();
 
         ChatRequest body = new ChatRequest(
                 model,
@@ -109,32 +105,16 @@ public class OpenAiReviewer
                 MAX_OUTPUT_TOKENS,
                 false);
 
-        try {
-            ChatResponse response = client.post()
-                    .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .body(body)
-                    .retrieve()
-                    .body(ChatResponse.class);
-            String text = extractText(response);
-            return parseReviewOutput(text, model);
-        }
-        catch (RestClientResponseException e) {
-            log.warn("OpenAI chat completions returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
-            throw new IllegalStateException(
-                    "OpenAI API error (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
-        }
+        ChatResponse response = postChat(body, apiKey, "chat completions", "OpenAI API error");
+        String text = extractText(response);
+        return parseReviewOutput(text, model);
     }
 
     @Override
     public LlmCompletion complete(String systemPrompt, String userPrompt)
     {
-        String apiKey = credentialService.getSecret(CredentialType.AI, OPENAI_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "OpenAI API key not configured. Add it in Settings → AI review."));
-        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
-                .filter(s -> !s.isBlank())
-                .orElse(DEFAULT_MODEL);
+        String apiKey = resolveApiKey();
+        String model = resolveModel();
 
         ChatRequest body = new ChatRequest(
                 model,
@@ -144,26 +124,14 @@ public class OpenAiReviewer
                 MAX_OUTPUT_TOKENS,
                 false);
 
-        try {
-            ChatResponse response = client.post()
-                    .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .body(body)
-                    .retrieve()
-                    .body(ChatResponse.class);
-            String text = extractText(response);
-            Map<String, Object> usage = response == null ? null : response.usage();
-            return new LlmCompletion(
-                    text,
-                    usageTokens(usage, "prompt_tokens"),
-                    usageTokens(usage, "completion_tokens"),
-                    model);
-        }
-        catch (RestClientResponseException e) {
-            log.warn("OpenAI complete call returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
-            throw new IllegalStateException(
-                    "OpenAI API error (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
-        }
+        ChatResponse response = postChat(body, apiKey, "complete call", "OpenAI API error");
+        String text = extractText(response);
+        Map<String, Object> usage = response == null ? null : response.usage();
+        return new LlmCompletion(
+                text,
+                usageTokens(usage, "prompt_tokens"),
+                usageTokens(usage, "completion_tokens"),
+                model);
     }
 
     private static long usageTokens(Map<String, Object> usage, String key)
@@ -180,12 +148,8 @@ public class OpenAiReviewer
         if (draft == null || draft.trim().isEmpty()) {
             return "";
         }
-        String apiKey = credentialService.getSecret(CredentialType.AI, OPENAI_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "OpenAI API key not configured. Add it in Settings → AI review."));
-        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
-                .filter(s -> !s.isBlank())
-                .orElse(DEFAULT_MODEL);
+        String apiKey = resolveApiKey();
+        String model = resolveModel();
 
         // Same prompt contract as the other providers' polish paths so a
         // user switching providers gets the same polish behaviour.
@@ -206,26 +170,14 @@ public class OpenAiReviewer
                 /* maxTokens */ 600,
                 false);
 
-        try {
-            ChatResponse response = client.post()
-                    .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .body(body)
-                    .retrieve()
-                    .body(ChatResponse.class);
-            String text = extractText(response).trim();
-            if (text.length() >= 2
-                    && ((text.startsWith("\"") && text.endsWith("\""))
-                        || (text.startsWith("`") && text.endsWith("`")))) {
-                text = text.substring(1, text.length() - 1).trim();
-            }
-            return text;
+        ChatResponse response = postChat(body, apiKey, "polish call", "OpenAI polish failed");
+        String text = extractText(response).trim();
+        if (text.length() >= 2
+                && ((text.startsWith("\"") && text.endsWith("\""))
+                    || (text.startsWith("`") && text.endsWith("`")))) {
+            text = text.substring(1, text.length() - 1).trim();
         }
-        catch (RestClientResponseException e) {
-            log.warn("OpenAI polish call returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
-            throw new IllegalStateException(
-                    "OpenAI polish failed (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
-        }
+        return text;
     }
 
     @Override
@@ -236,12 +188,8 @@ public class OpenAiReviewer
             throw new IllegalStateException(
                     "No diff between " + headBranch + " and " + baseBranch + " — nothing to summarize.");
         }
-        String apiKey = credentialService.getSecret(CredentialType.AI, OPENAI_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "OpenAI API key not configured. Add it in Settings → AI review."));
-        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
-                .filter(s -> !s.isBlank())
-                .orElse(DEFAULT_MODEL);
+        String apiKey = resolveApiKey();
+        String model = resolveModel();
 
         // Same prompt contract as ClaudeReviewer.draftPullRequest so the
         // user sees comparable output regardless of provider.
@@ -270,15 +218,10 @@ public class OpenAiReviewer
                 /* maxTokens */ 2_000,
                 false);
 
+        ChatResponse response = postChat(body, apiKey, "draftPullRequest", "OpenAI PR draft failed");
+        String text = extractText(response).trim();
+        String json = extractJsonObject(text);
         try {
-            ChatResponse response = client.post()
-                    .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .body(body)
-                    .retrieve()
-                    .body(ChatResponse.class);
-            String text = extractText(response).trim();
-            String json = extractJsonObject(text);
             JsonNode node = objectMapper.readTree(json);
             String title = node.path("title").asText("").trim();
             String description = node.path("description").asText("").trim();
@@ -287,13 +230,39 @@ public class OpenAiReviewer
             }
             return new PullRequestDraft(title, description);
         }
-        catch (RestClientResponseException e) {
-            log.warn("OpenAI draftPullRequest returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
-            throw new IllegalStateException(
-                    "OpenAI PR draft failed (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
-        }
         catch (IOException e) {
             throw new IllegalStateException("OpenAI returned malformed PR draft JSON: " + e.getMessage(), e);
+        }
+    }
+
+    private String resolveApiKey()
+    {
+        return credentialService.getSecret(CredentialType.AI, OPENAI_NAME)
+                .orElseThrow(() -> new IllegalStateException(
+                        "OpenAI API key not configured. Add it in Settings → AI review."));
+    }
+
+    private String resolveModel()
+    {
+        return appSettings.get(AppSettingsStore.Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElse(DEFAULT_MODEL);
+    }
+
+    private ChatResponse postChat(ChatRequest body, String apiKey, String opLabel, String userError)
+    {
+        try {
+            return client.post()
+                    .uri("/chat/completions")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .body(body)
+                    .retrieve()
+                    .body(ChatResponse.class);
+        }
+        catch (RestClientResponseException e) {
+            log.warn("OpenAI {} returned {}: {}", opLabel, e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new IllegalStateException(
+                    userError + " (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
         }
     }
 

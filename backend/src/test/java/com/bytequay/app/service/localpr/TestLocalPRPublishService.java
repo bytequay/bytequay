@@ -14,7 +14,9 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -60,6 +62,13 @@ class TestLocalPRPublishService
     private LocalPR localPr(String status)
     {
         return LocalPR.create("pr1", "task1", "feature/x", "main", "Add cache", "desc", NOW)
+                .withStatus(status, NOW);
+    }
+
+    private LocalPR pushedPr(String status)
+    {
+        return LocalPR.create("pr1", "task1", "feature/x", "main", "Add cache", "desc", NOW)
+                .withRemote(145, "https://github.com/acme/widget/pull/145", NOW)
                 .withStatus(status, NOW);
     }
 
@@ -143,5 +152,58 @@ class TestLocalPRPublishService
         assertThatThrownBy(() -> service.push("pr1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no local PR");
+    }
+
+    @Test
+    void mergeMergesTheRemotePrAndFlipsToMerged()
+            throws Exception
+    {
+        when(localPr.findById("pr1")).thenReturn(Optional.of(pushedPr(LocalPR.STATUS_REMOTE_OPEN)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(pullRequests.mergePullRequest(eq("ghp"), eq(new PullRequestRef("acme", "widget", 145)), any()))
+                .thenReturn(new MergeResult("sha123", true, "Merged"));
+        LocalPR merged = pushedPr(LocalPR.STATUS_MERGED);
+        when(localPr.recordMerged("pr1")).thenReturn(merged);
+
+        LocalPR result = service.merge("pr1", "squash");
+
+        verify(pullRequests).mergePullRequest(
+                eq("ghp"), eq(new PullRequestRef("acme", "widget", 145)), any());
+        verify(localPr).recordMerged("pr1");
+        assertThat(result).isSameAs(merged);
+    }
+
+    @Test
+    void mergeRejectsAPrThatWasNeverPushed()
+    {
+        when(localPr.findById("pr1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_OPEN)));
+
+        assertThatThrownBy(() -> service.merge("pr1", "squash"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("has not been pushed");
+    }
+
+    @Test
+    void mergeSurfacesGitHubRefusalWithoutFlipping()
+    {
+        when(localPr.findById("pr1")).thenReturn(Optional.of(pushedPr(LocalPR.STATUS_REMOTE_OPEN)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        try {
+            when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
+                    .thenReturn(Optional.of(new RepoRef("acme", "widget")));
+            when(pullRequests.mergePullRequest(any(), any(), any()))
+                    .thenReturn(new MergeResult(null, false, "not mergeable"));
+        }
+        catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        assertThatThrownBy(() -> service.merge("pr1", "squash"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("did not merge");
+        verify(localPr, never()).recordMerged(any());
     }
 }

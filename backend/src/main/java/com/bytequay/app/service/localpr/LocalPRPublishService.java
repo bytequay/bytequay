@@ -15,7 +15,10 @@ package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.MergePullRequestCommand;
+import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.PullRequestRepository;
@@ -97,6 +100,41 @@ public class LocalPRPublishService
         taskStore.linkPullRequest(task.id(), opened.number(), LINKED_STATUS_DRAFT);
         taskStore.linkTaskToPr(task.id(), opened.repo() + "#" + opened.number());
         return localPr.recordPush(prId, opened.number(), opened.htmlUrl());
+    }
+
+    /** User-gated merge of a pushed PR, then flip the local PR to {@code merged}.
+     *  {@code method} is merge / squash / rebase (defaults to squash). */
+    public LocalPR merge(String prId, String method)
+    {
+        LocalPR pr = localPr.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        if (pr.remotePrNumber() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " has not been pushed");
+        }
+        if (pr.isTerminal()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " is already " + pr.status());
+        }
+        Task task = taskStore.findTaskById(pr.taskId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "no task for local PR " + prId));
+        RepoRef repo = remoteSlug(task);
+        String pat = patResolver.resolve(repo.owner() + "/" + repo.repo());
+        MergeResult result = pullRequests.mergePullRequest(
+                pat, new PullRequestRef(repo.owner(), repo.repo(), pr.remotePrNumber()), mergeCommand(method));
+        if (!result.merged()) {
+            // Not merged: blocked, or joined the merge queue — surface GitHub's reason.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "GitHub did not merge PR #" + pr.remotePrNumber() + ": " + result.message());
+        }
+        return localPr.recordMerged(prId);
+    }
+
+    private static MergePullRequestCommand mergeCommand(String method)
+    {
+        return switch (method == null ? "squash" : method) {
+            case "merge" -> MergePullRequestCommand.mergeCommit();
+            case "rebase" -> MergePullRequestCommand.rebase();
+            default -> MergePullRequestCommand.squash();
+        };
     }
 
     private RepoRef remoteSlug(Task task)

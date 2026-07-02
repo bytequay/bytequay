@@ -226,6 +226,36 @@ public class WorktreeService
     }
 
     /**
+     * Delete a merged task's branch from the remote — the post-merge cleanup
+     * GitHub's own "automatically delete head branches" setting performs, done
+     * here for repos that don't have it on. Call only once the PR has merged:
+     * deleting the head branch of a still-open PR would close it. No-op when
+     * the branch never reached the remote ({@code pushedAt} null) or the clone
+     * root / branch is unknown. Best-effort — a branch GitHub already
+     * auto-deleted (push --delete → "remote ref does not exist") or a transient
+     * network error is logged, never propagated, so a merge never fails on
+     * cleanup.
+     */
+    public void deleteRemoteBranch(Task task)
+    {
+        if (task.pushedAt() == null || task.workingDir() == null
+                || task.branchName() == null || task.branchName().isBlank()) {
+            return;
+        }
+        try {
+            git.deleteRemoteBranch(Path.of(task.workingDir()), "origin", task.branchName());
+            log.info("Deleted remote branch {} for merged task {}", task.branchName(), task.id());
+        }
+        catch (IOException | RuntimeException e) {
+            log.info("Remote branch delete for task {} skipped: {}", task.id(), e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.info("Remote branch delete for task {} interrupted", task.id());
+        }
+    }
+
+    /**
      * A {@code dev/<base>} branch name, unsuffixed when free and suffixed
      * {@code -2 / -3 / …} only when an earlier task already took the bare
      * name. Keeps the common case short and readable

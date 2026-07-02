@@ -170,6 +170,8 @@ class TestTaskLifecycleDriver
         verify(taskStore).completeTask(eq("t1.k2"), any());
         verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_merged_observed");
         verify(worktrees).reap(task);
+        // The PR merged, so the remote head branch is deleted too.
+        verify(worktrees).deleteRemoteBranch(task);
     }
 
     @Test
@@ -190,6 +192,8 @@ class TestTaskLifecycleDriver
         verify(taskStore, never()).completeTask(any(), any());
         verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_closed_observed");
         verify(worktrees).reap(task);
+        // A close is not a merge — leave the remote branch (the PR may reopen).
+        verify(worktrees, never()).deleteRemoteBranch(any());
     }
 
     @Test

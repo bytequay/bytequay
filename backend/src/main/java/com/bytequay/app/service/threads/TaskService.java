@@ -663,6 +663,9 @@ public class TaskService
                 // (worktree nulled) is skipped.
                 notificationService.dismissOpenForTask(task.threadId(), task.id());
                 worktreeService.reap(task);
+                // The PR merged, so its head branch is dead — delete the remote
+                // copy too (what GitHub's auto-delete-head-branch setting does).
+                worktreeService.deleteRemoteBranch(task);
             }
         }
         catch (RuntimeException e) {

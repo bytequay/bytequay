@@ -442,6 +442,12 @@ public class TaskLifecycleDriver
             }
         }
         worktrees.reap(task);
+        // A merged PR's head branch is dead weight — delete the remote copy
+        // too (mirrors GitHub's auto-delete-head-branch). Skip on a plain
+        // close: the PR may be reopened, and closing already leaves the branch.
+        if (merged) {
+            worktrees.deleteRemoteBranch(task);
+        }
     }
 
     private static boolean isTerminal(TaskStatus status)

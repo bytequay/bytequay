@@ -947,6 +947,14 @@ const bridge: Bridge = {
   replan: (taskId: string) => ipcRenderer.invoke('plans:replan', taskId),
   updateFollowup: (planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed') =>
     ipcRenderer.invoke('plans:updateFollowup', planStageId, followupEventId, status),
+  getLocalPrBundle: (taskId: string) => ipcRenderer.invoke('localpr:bundle', taskId),
+  pushLocalPr: (prId: string) => ipcRenderer.invoke('localpr:push', prId),
+  mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('localpr:merge', prId, method),
+  addLocalPrComment: (
+    prId: string,
+    body: { scope: 'pr' | 'file-line'; filePath?: string | null; lineNumber?: number | null; body: string; parentCommentId?: string | null },
+  ) => ipcRenderer.invoke('localpr:addComment', prId, body),
+  resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('localpr:resolveComment', commentId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

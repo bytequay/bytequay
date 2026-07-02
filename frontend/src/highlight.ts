@@ -64,14 +64,32 @@ export function languageForPath(path: string): string | undefined {
  */
 export function highlightToHtml(code: string, language?: string): string {
   try {
-    if (language !== undefined && hljs.getLanguage(language)) {
-      return hljs.highlight(code, { language, ignoreIllegals: true }).value;
-    }
-    return hljs.highlightAuto(code).value;
+    const html = language !== undefined && hljs.getLanguage(language)
+      ? hljs.highlight(code, { language, ignoreIllegals: true }).value
+      : hljs.highlightAuto(code).value;
+    return colorizeTypes(html);
   }
   catch {
     return escapeHtml(code);
   }
+}
+
+/**
+ * Colour bare type references — highlight.js tags keywords, strings, and
+ * declaration titles, but leaves plain references to classes/collections
+ * (`List`, `Schema`, `ImmutableSet`) as uncoloured text. Wrap any remaining
+ * PascalCase / SCREAMING_CASE identifier in an {@code hljs-type} span so
+ * types and constants read distinctly from methods and locals.
+ *
+ * Operates only on the text between hljs's own tags (the odd-indexed split
+ * segments are tags), so it never touches an already-highlighted token,
+ * string body, or comment — those are inside spans.
+ */
+function colorizeTypes(html: string): string {
+  return html.replace(/(<[^>]*>)|([^<]+)/g, (_m, tag: string | undefined, text: string | undefined) =>
+    tag !== undefined
+      ? tag
+      : (text ?? '').replace(/\b[A-Z][A-Za-z0-9_]*\b/g, m => `<span class="hljs-type">${m}</span>`));
 }
 
 function escapeHtml(s: string): string {

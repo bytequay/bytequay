@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PaneDiff } from './PaneDiff';
 import type { DiffFileDto } from '../types';
+import type { LocalPRComment } from '../types/localPr';
 
 afterEach(cleanup);
 
@@ -25,6 +26,15 @@ const FILE: DiffFileDto = {
   deletions: 1,
   patch: '@@ -180,3 +180,4 @@\n context line\n-old filter\n+// half-open window\n+new filter\n',
 };
+
+function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
+  return {
+    id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
+    filePath: 'backend/src/Composer.java', lineNumber: 181, author: 'you',
+    body: 'Split this into a wrapper + memoized inner component.',
+    createdAt: Date.now(), resolvedAt: null, strippedOnPushAt: null, parentCommentId: null, ...over,
+  };
+}
 
 describe('PaneDiff', () => {
   it('renders the file header with ± counts and parsed add/del lines', () => {
@@ -47,5 +57,57 @@ describe('PaneDiff', () => {
     expect(container.querySelectorAll('.diff-line.hunk').length).toBe(1);
     expect(container.querySelectorAll('.diff-line.add').length).toBe(1);
     expect(container.querySelectorAll('.diff-line.del').length).toBe(1);
+  });
+
+  it('shows no comment anchors when local comments are disabled', () => {
+    const { container } = render(<PaneDiff files={[FILE]} />);
+    expect(container.querySelectorAll('.comment-anchor').length).toBe(0);
+  });
+
+  it('renders comment anchors on each new-side line when allowLocalComments is on', () => {
+    const { container } = render(<PaneDiff files={[FILE]} allowLocalComments />);
+    // one per new-side line (1 context + 2 adds); deletions aren't commentable.
+    expect(container.querySelectorAll('.comment-anchor').length).toBe(3);
+  });
+
+  it('renders an existing file-line comment inline with the 🔒 LOCAL origin badge', () => {
+    const { container } = render(<PaneDiff files={[FILE]} comments={[comment()]} />);
+    const thread = container.querySelector('.cd-inline-comment');
+    expect(thread).not.toBeNull();
+    expect(screen.getByText(/Split this into a wrapper/)).toBeTruthy();
+    expect(screen.getByText('🔒 LOCAL')).toBeTruthy();
+    // The line carrying the thread flags has-comment (orange ⚠ anchor).
+    expect(container.querySelector('.diff-line.has-comment')).not.toBeNull();
+  });
+
+  it('renders a remote-origin comment with the REMOTE badge', () => {
+    render(<PaneDiff files={[FILE]} comments={[comment({ origin: 'remote', author: '@octocat' })]} />);
+    expect(screen.getByText('REMOTE')).toBeTruthy();
+    expect(screen.queryByText('🔒 LOCAL')).toBeNull();
+  });
+
+  it('opens a composer on anchor click and submits a local comment on ⌘↵', () => {
+    const onAddComment = vi.fn();
+    const { container } = render(
+      <PaneDiff files={[FILE]} allowLocalComments onAddComment={onAddComment} />,
+    );
+    // The first add line is new-side line 181.
+    const addLine = Array.from(container.querySelectorAll('.diff-line.add'))
+      .find(l => l.querySelector('.ln')?.textContent === '181') as HTMLElement;
+    fireEvent.click(addLine.querySelector('.comment-anchor') as Element);
+    const composer = container.querySelector('.ic-composer') as HTMLTextAreaElement;
+    expect(composer).not.toBeNull();
+    fireEvent.change(composer, { target: { value: 'please memoize' } });
+    fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
+    expect(onAddComment).toHaveBeenCalledWith('backend/src/Composer.java', 181, 'please memoize');
+  });
+
+  it('fires onResolveComment from an open thread', () => {
+    const onResolveComment = vi.fn();
+    render(
+      <PaneDiff files={[FILE]} allowLocalComments comments={[comment()]} onResolveComment={onResolveComment} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Mark resolved' }));
+    expect(onResolveComment).toHaveBeenCalledWith('cm1');
   });
 });

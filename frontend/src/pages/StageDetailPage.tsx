@@ -36,12 +36,13 @@ const PILL_LABEL: Record<StageKind, string> = {
   cleanup: 'CLEANUP',
 };
 
-/** Which tab opens first for a given stage. Cleanup leads with Details;
- *  Comments leads with the PR comment threads; the rest lead with Changes.
- *  Falls back to Details when the preferred tab is absent. */
+/** Which tab opens first for a given stage. PR is the primary artifact, so
+ *  Dev / Comments lead with it (decision #48). CI Fix keeps its live-CI focus;
+ *  Plan has no PR so it leads with the diff; Cleanup leads with Details.
+ *  Falls back to the first present tab when the preferred one is absent. */
 const PREFERRED_TAB: Record<StageKind, StageTab> = {
   plan: 'changes',
-  dev: 'changes',
+  dev: 'pr',
   'ci-fix': 'changes',
   comments: 'pr',
   cleanup: 'details',
@@ -94,16 +95,19 @@ export function StageDetailPage({
   /** Click handler for the reminder pill — opens the zoomed plan overlay. */
   onRevealPlan?: () => void;
 }) {
+  // PR leads the strip (decision #48) — it's the primary artifact. The CI Fix
+  // stage keeps its "CI" label on the changes tab; every other stage shows the
+  // in-pane code diff as "Code Diff".
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
-    ...(tabs.changes !== undefined
-      ? [{ key: 'changes' as const, label: stageKind === 'ci-fix' ? 'CI' : 'Changes', node: tabs.changes }]
-      : []),
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
+    ...(tabs.changes !== undefined
+      ? [{ key: 'changes' as const, label: stageKind === 'ci-fix' ? 'CI' : 'Code Diff', node: tabs.changes }]
+      : []),
     ...(tabs.files !== undefined ? [{ key: 'files' as const, label: 'Files', node: tabs.files }] : []),
     { key: 'details' as const, label: 'Details', node: tabs.details },
   ];
   const preferred = PREFERRED_TAB[stageKind];
-  const initial = available.find(t => t.key === preferred)?.key ?? available[available.length - 1].key;
+  const initial = available.find(t => t.key === preferred)?.key ?? available[0].key;
   const [activeTab, setActiveTab] = useState<StageTab>(initial);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();

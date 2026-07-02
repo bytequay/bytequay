@@ -11,8 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import { truncatePathMiddle } from './DiffFileTreePane';
+import { DiffInlineComments } from './DiffInlineComments';
 import type { DiffFileDto } from '../types';
+import type { LocalPRComment } from '../types/localPr';
 
 type Row = { kind: 'add' | 'del' | 'ctx' | 'hunk'; ln: number | null; mark: string; content: string };
 
@@ -22,7 +25,9 @@ function parsePatch(patch: string): Row[] {
   const rows: Row[] = [];
   let newLn = 0;
   let oldLn = 0;
-  for (const raw of patch.split('\n')) {
+  // A patch is newline-terminated; drop the trailing empty split so it doesn't
+  // render a phantom blank row (or a spurious comment anchor).
+  for (const raw of patch.replace(/\n$/, '').split('\n')) {
     if (raw.startsWith('@@')) {
       const m = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
       if (m) { oldLn = Number(m[1]); newLn = Number(m[2]); }
@@ -50,13 +55,42 @@ function parsePatch(patch: string): Row[] {
   return rows;
 }
 
+/** Key a comment to a diff line — one filename + new-side line number. */
+function lineKey(filename: string, ln: number): string {
+  return `${filename}:${ln}`;
+}
+
 /**
- * A compact, read-only multi-file diff sized for the stage right pane —
- * each file as a header (path + ± counts) over line-numbered rows. Lighter
- * than the full {@code ContinuousDiff} (no fold state, syntax highlighting,
- * or scroll-sync), matching the in-pane Changes diff in the design.
+ * A compact multi-file diff sized for the stage right pane — each file as a
+ * header (path + ± counts) over line-numbered rows. Lighter than the full
+ * {@code ContinuousDiff} (no fold state, syntax highlighting, or scroll-sync).
+ *
+ * Inline commenting is a first-class prop (design #50): with
+ * `allowLocalComments`, each line offers a comment anchor that opens a local
+ * comment composer, and existing `file-line` comments render inline with an
+ * origin badge. The origin the anchor writes is always `local` — real GitHub
+ * comments arrive through their own path once the PR is pushed.
  */
-export function PaneDiff({ files }: { files: DiffFileDto[] }) {
+export function PaneDiff({
+  files, comments = [], allowLocalComments = false, onAddComment, onResolveComment,
+}: {
+  files: DiffFileDto[];
+  comments?: LocalPRComment[];
+  allowLocalComments?: boolean;
+  onAddComment?: (filePath: string, lineNumber: number, body: string) => void;
+  onResolveComment?: (commentId: string) => void;
+}) {
+  // Which (file:line) has its composer expanded. Existing threads always show;
+  // the composer only appears when the user clicks a line's anchor.
+  const [openLine, setOpenLine] = useState<string | null>(null);
+
+  const byLine = new Map<string, LocalPRComment[]>();
+  for (const c of comments) {
+    if (c.scope !== 'file-line' || c.filePath === null || c.lineNumber === null) continue;
+    const key = lineKey(c.filePath, c.lineNumber);
+    (byLine.get(key) ?? byLine.set(key, []).get(key)!).push(c);
+  }
+
   return (
     <>
       {files.map(file => {
@@ -76,13 +110,43 @@ export function PaneDiff({ files }: { files: DiffFileDto[] }) {
             </div>
             {file.patch !== null && file.patch.length > 0 && (
               <div className="diff-lines">
-                {parsePatch(file.patch).map((r, i) => (
-                  <div key={i} className={`diff-line${r.kind === 'del' ? ' del' : r.kind === 'add' ? ' add' : r.kind === 'hunk' ? ' hunk' : ''}`}>
-                    <span className="ln">{r.ln ?? ''}</span>
-                    <span className="mark">{r.mark}</span>
-                    <span className="content">{r.content.length > 0 ? r.content : ' '}</span>
-                  </div>
-                ))}
+                {parsePatch(file.patch).map((r, i) => {
+                  // Comments anchor to new-side lines only (added / context) —
+                  // a deletion's old-side number would otherwise collide with an
+                  // addition's new-side number on the same hunk.
+                  const newSide = (r.kind === 'add' || r.kind === 'ctx') && r.ln !== null;
+                  const key = newSide ? lineKey(file.filename, r.ln!) : null;
+                  const lineComments = key !== null ? byLine.get(key) ?? [] : [];
+                  const commentable = allowLocalComments && newSide;
+                  const hasThread = lineComments.length > 0 || (key !== null && openLine === key);
+                  return (
+                    <div key={i}>
+                      <div className={`diff-line${r.kind === 'del' ? ' del' : r.kind === 'add' ? ' add' : r.kind === 'hunk' ? ' hunk' : ''}${lineComments.length > 0 ? ' has-comment' : ''}`}>
+                        <span className="ln">{r.ln ?? ''}</span>
+                        <span className="mark">{r.mark}</span>
+                        <span className="content">{r.content.length > 0 ? r.content : ' '}</span>
+                        {commentable && (
+                          <span
+                            className="comment-anchor"
+                            role="button"
+                            aria-label={`Comment on line ${r.ln}`}
+                            onClick={() => setOpenLine(prev => (prev === key ? null : key))}
+                          >{lineComments.length > 0 ? '⚠' : '+'}</span>
+                        )}
+                      </div>
+                      {hasThread && key !== null && r.ln !== null && (
+                        <DiffInlineComments
+                          comments={lineComments}
+                          allowLocalComments={allowLocalComments}
+                          onAdd={onAddComment !== undefined
+                            ? body => { onAddComment(file.filename, r.ln!, body); setOpenLine(null); }
+                            : undefined}
+                          onResolve={onResolveComment}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

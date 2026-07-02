@@ -30,6 +30,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.LocalPRPublishService;
 import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.localpr.LocalPRSyncService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -60,14 +61,20 @@ public class LocalPRController
 
     private final LocalPRService localPr;
     private final LocalPRPublishService publish;
+    private final LocalPRSyncService sync;
     private final TaskStore taskStore;
     private final ObjectMapper mapper;
 
     public LocalPRController(
-            LocalPRService localPr, LocalPRPublishService publish, TaskStore taskStore, ObjectMapper mapper)
+            LocalPRService localPr,
+            LocalPRPublishService publish,
+            LocalPRSyncService sync,
+            TaskStore taskStore,
+            ObjectMapper mapper)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
         this.publish = requireNonNull(publish, "publish is null");
+        this.sync = requireNonNull(sync, "sync is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -84,7 +91,9 @@ public class LocalPRController
     @GetMapping("/api/tasks/{taskId}/local-pr/bundle")
     public LocalPRBundleDto bundle(@PathVariable String taskId)
     {
-        LocalPR pr = localPr.findByTask(taskId)
+        // Materialise/refresh the local PR from the task's branch on read, so
+        // the view shows the real commits even before an agent records them.
+        LocalPR pr = sync.syncFromTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR for task " + taskId));
         return new LocalPRBundleDto(
                 LocalPRDto.from(pr),

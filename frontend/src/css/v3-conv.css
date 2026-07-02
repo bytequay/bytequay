@@ -1405,3 +1405,32 @@
 .pr-checks-card .check-row .ic.run { background: var(--orange); }
 .pr-checks-card .check-row .nm { color: var(--text-1); font-family: var(--mono); font-size: 11px; }
 .pr-checks-card .check-row .dur { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+
+/* ── Push dialog (mockup frame 16) — namespaced to avoid the existing
+   .modal / .modal-overlay in modals.css. Confirms the one-way local→remote
+   push and warns which local comments get stripped (design #47, #53). */
+.push-dialog-overlay { position: fixed; inset: 0; background: rgba(20,20,20,0.32); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.push-dialog { width: 540px; max-width: 92%; background: var(--bg-elev); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 4px 12px rgba(0,0,0,0.10); display: flex; flex-direction: column; overflow: hidden; }
+.push-dialog .pd-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.push-dialog .pd-head .push-icon { width: 22px; height: 22px; border-radius: 5px; background: linear-gradient(135deg,#22c55e,#16a34a); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.push-dialog .pd-head .pd-title { font-size: 14px; font-weight: 700; color: var(--text-1); }
+.push-dialog .pd-head .pd-sub { font-size: 11px; color: var(--text-4); }
+.push-dialog .pd-head .pd-close { margin-left: auto; width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-3); cursor: pointer; font-size: 14px; border: 0; background: transparent; }
+.push-dialog .pd-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.push-dialog .push-summary { display: flex; flex-direction: column; gap: 10px; }
+.push-dialog .push-info-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; }
+.push-dialog .push-info-row .label { color: var(--text-3); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; min-width: 90px; }
+.push-dialog .push-info-row .value { color: var(--text-1); flex: 1; }
+.push-dialog .push-info-row .value code { font-family: var(--mono); font-size: 11.5px; }
+.push-dialog .push-info-row .value .add { color: var(--green); }
+.push-dialog .push-info-row .value .del { color: var(--red); }
+.push-dialog .push-desc { padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 7px; font-size: 12px; color: var(--text-1); line-height: 1.55; max-height: 100px; overflow-y: auto; }
+.push-dialog .push-warning { padding: 9px 12px; background: rgba(217,119,6,0.06); border: 1px solid rgba(217,119,6,0.30); border-left: 3px solid var(--orange); border-radius: 6px; display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; color: var(--text-1); line-height: 1.5; }
+.push-dialog .push-warning .ic { color: var(--orange); font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.push-dialog .push-warning .b { color: var(--orange); font-weight: 700; }
+.push-dialog .pd-foot { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--bg); }
+.push-dialog .pd-foot .left-hint { font-size: 11px; color: var(--text-4); }
+.push-dialog .pd-foot .cancel-btn { padding: 7px 14px; background: transparent; border: 1px solid var(--border-mid); color: var(--text-2); border-radius: 7px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.push-dialog .pd-foot .push-btn { padding: 7px 16px; background: linear-gradient(135deg,#22c55e,#16a34a); border: 1px solid #16a34a; color: #fff; border-radius: 7px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.push-dialog .pd-foot .push-btn:disabled { opacity: 0.6; cursor: default; }
+.push-dialog .pd-foot .push-btn .kbd { font-family: var(--mono); font-size: 10px; opacity: 0.8; margin-left: 4px; }

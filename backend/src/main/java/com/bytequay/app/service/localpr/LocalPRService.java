@@ -76,6 +76,22 @@ public interface LocalPRService
     /** Record the remote PR identity assigned on push (before the status flip). */
     LocalPR recordPushed(String prId, int remotePrNumber, String remotePrUrl);
 
+    /**
+     * Complete a push: strip every not-yet-stripped local-only timeline event
+     * and local-origin comment (they never migrate to GitHub — design #47),
+     * record the remote PR identity, and flip {@code local-open → remote-drafted}
+     * (writing the status timeline event). Called by the push orchestrator
+     * after the git push + draft-PR create succeed.
+     */
+    LocalPR recordPush(String prId, int remotePrNumber, String remotePrUrl);
+
+    /** Flip {@code remote-open → merged} after a user-gated GitHub merge. */
+    LocalPR recordMerged(String prId);
+
+    /** How many local-only events + local comments a push would strip — the
+     *  count the push dialog surfaces before the user confirms. */
+    int pendingStripCount(String prId);
+
     /** Add a comment (PR-level or inline; local or remote origin). */
     LocalPRComment addComment(
             String prId,

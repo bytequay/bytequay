@@ -54,4 +54,13 @@ public record LocalPRComment(
                 id, localPrId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, when, strippedOnPushAt, parentCommentId);
     }
+
+    /** Copy stamped stripped-on-push — a local comment never migrates to
+     *  GitHub, so the push transition marks it here (design #47). */
+    public LocalPRComment withStripped(Instant when)
+    {
+        return new LocalPRComment(
+                id, localPrId, origin, scope, filePath, lineNumber, author, body,
+                createdAt, resolvedAt, when, parentCommentId);
+    }
 }

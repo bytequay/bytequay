@@ -15,16 +15,19 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.localpr.AddLocalPRCommentRequest;
 import com.bytequay.app.beans.localpr.CreateLocalPRRequest;
+import com.bytequay.app.beans.localpr.LocalPRBundleDto;
 import com.bytequay.app.beans.localpr.LocalPRCheckDto;
 import com.bytequay.app.beans.localpr.LocalPRCommentDto;
 import com.bytequay.app.beans.localpr.LocalPRCommitDto;
 import com.bytequay.app.beans.localpr.LocalPRDto;
 import com.bytequay.app.beans.localpr.LocalPRTimelineEventDto;
 import com.bytequay.app.beans.localpr.UpdateLocalPRRequest;
+import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.localpr.LocalPRPublishService;
 import com.bytequay.app.service.localpr.LocalPRService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
@@ -55,12 +58,15 @@ public class LocalPRController
     private static final String DEFAULT_BASE_BRANCH = "main";
 
     private final LocalPRService localPr;
+    private final LocalPRPublishService publish;
     private final TaskStore taskStore;
     private final ObjectMapper mapper;
 
-    public LocalPRController(LocalPRService localPr, TaskStore taskStore, ObjectMapper mapper)
+    public LocalPRController(
+            LocalPRService localPr, LocalPRPublishService publish, TaskStore taskStore, ObjectMapper mapper)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
+        this.publish = requireNonNull(publish, "publish is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -70,6 +76,33 @@ public class LocalPRController
     {
         return LocalPRDto.from(localPr.findByTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR for task " + taskId)));
+    }
+
+    /** The whole local PR in one payload — the frontend PR view / push dialog
+     *  fetch this rather than five separate reads. */
+    @GetMapping("/api/tasks/{taskId}/local-pr/bundle")
+    public LocalPRBundleDto bundle(@PathVariable String taskId)
+    {
+        LocalPR pr = localPr.findByTask(taskId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR for task " + taskId));
+        return new LocalPRBundleDto(
+                LocalPRDto.from(pr),
+                localPr.commits(pr.id()).stream().map(LocalPRCommitDto::from).toList(),
+                localPr.timeline(pr.id()).stream().map(e -> LocalPRTimelineEventDto.from(e, mapper)).toList(),
+                localPr.checks(pr.id()).stream().map(LocalPRCheckDto::from).toList(),
+                localPr.comments(pr.id()).stream().map(LocalPRCommentDto::from).toList(),
+                localPr.pendingStripCount(pr.id()));
+    }
+
+    /**
+     * User-gated push: pushes the branch, opens a Draft PR on GitHub, strips
+     * the private local record, and flips the PR to {@code remote-drafted}.
+     * This is not an agent path — only the user's Approve &amp; push triggers it.
+     */
+    @PostMapping("/api/local-pr/{prId}/push")
+    public LocalPRDto push(@PathVariable String prId)
+    {
+        return LocalPRDto.from(publish.push(prId));
     }
 
     @PostMapping("/api/tasks/{taskId}/local-pr")

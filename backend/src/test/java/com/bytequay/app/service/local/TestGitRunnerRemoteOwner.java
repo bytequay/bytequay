@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.local;
 
+import com.bytequay.app.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -68,5 +69,25 @@ class TestGitRunnerRemoteOwner
         // the segment immediately preceding the repo.
         Optional<String> owner = GitRunner.parseRepoOwner("https://ghe.corp/myorg/svc.git");
         assertThat(owner).contains("myorg");
+    }
+
+    @Test
+    void parseRepoSlugYieldsOwnerAndRepoAcrossUrlForms()
+    {
+        // The local-PR push needs the full owner/repo to open the PR.
+        assertThat(GitRunner.parseRepoSlug("https://github.com/trinodb/trino.git"))
+                .contains(new RepoRef("trinodb", "trino"));
+        assertThat(GitRunner.parseRepoSlug("git@github.com:chenjian2664/bytequay.git"))
+                .contains(new RepoRef("chenjian2664", "bytequay"));
+        assertThat(GitRunner.parseRepoSlug("ssh://git@github.com/acme/widget"))
+                .contains(new RepoRef("acme", "widget"));
+    }
+
+    @Test
+    void parseRepoSlugReturnsEmptyForShapelessInput()
+    {
+        assertThat(GitRunner.parseRepoSlug(null)).isEmpty();
+        assertThat(GitRunner.parseRepoSlug("")).isEmpty();
+        assertThat(GitRunner.parseRepoSlug("https://example.com/repo")).isEmpty();
     }
 }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.local;
 
+import com.bytequay.app.domain.RepoRef;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
@@ -1552,6 +1553,57 @@ public class GitRunner
         if (parts.length >= 2) {
             String owner = parts[parts.length - 2].trim();
             return owner.isEmpty() ? Optional.empty() : Optional.of(owner);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * {@code owner/repo} slug of a remote's URL — the local-PR push needs the
+     * full {@link RepoRef} (owner AND name) to open the PR, whereas
+     * {@link #remoteOwner} yields only the owner for the cross-fork head.
+     * Empty when the remote is unknown or the URL isn't a recognised form.
+     */
+    public Optional<RepoRef> remoteSlug(Path workingDir, String remote)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
+        GitResult result = run(List.of("git", "remote", "get-url", remote), workingDir, 5);
+        if (result.exitCode() != 0) {
+            return Optional.empty();
+        }
+        return parseRepoSlug(result.stdout().strip());
+    }
+
+    /** Parses {@code owner/repo} from a git remote URL across the same forms
+     *  {@link #parseRepoOwner} handles. Package-private for unit tests. */
+    static Optional<RepoRef> parseRepoSlug(String url)
+    {
+        if (url == null || url.isBlank()) {
+            return Optional.empty();
+        }
+        String s = url.strip();
+        if (s.endsWith(".git")) {
+            s = s.substring(0, s.length() - 4);
+        }
+        String path;
+        if (s.contains("://")) {
+            String rest = s.substring(s.indexOf("://") + 3);
+            int slash = rest.indexOf('/');
+            path = slash < 0 ? "" : rest.substring(slash + 1);
+        }
+        else if (s.contains(":")) {
+            path = s.substring(s.indexOf(':') + 1);
+        }
+        else {
+            path = s;
+        }
+        String[] parts = path.split("/");
+        if (parts.length >= 2) {
+            String owner = parts[parts.length - 2].trim();
+            String repo = parts[parts.length - 1].trim();
+            if (!owner.isEmpty() && !repo.isEmpty()) {
+                return Optional.of(new RepoRef(owner, repo));
+            }
         }
         return Optional.empty();
     }

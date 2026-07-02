@@ -42,7 +42,17 @@ describe('StageDetailPage', () => {
     expect(screen.getByText('Dev → claude-code · CLI')).toBeTruthy();
   });
 
-  it('Dev leads with the Changes tab', () => {
+  it('Dev leads with the PR tab (PR is the primary artifact)', () => {
+    renderStage('dev', { tabs: {
+      changes: <div data-testid="changes-tab">changes</div>,
+      pr: <div data-testid="pr-tab">pr</div>,
+      details: <div data-testid="details-tab">details</div>,
+    } });
+    expect(screen.getByTestId('pr-tab')).toBeTruthy();
+    expect(screen.queryByTestId('changes-tab')).toBeNull();
+  });
+
+  it('Dev falls back to Code Diff when no PR tab is present', () => {
     renderStage('dev', { tabs: {
       changes: <div data-testid="changes-tab">changes</div>,
       details: <div data-testid="details-tab">details</div>,
@@ -57,10 +67,9 @@ describe('StageDetailPage', () => {
     expect(screen.queryByTestId('details-tab')).toBeNull();
   });
 
-  it('CI Fix leads with Details and surfaces the CI Status entry', () => {
+  it('CI Fix surfaces the CI Status entry', () => {
     const onOpenCi = vi.fn();
     renderStage('ci-fix', { onOpenCi });
-    expect(screen.getByTestId('details-tab')).toBeTruthy();
     // CI Status appears twice now: the top-bar button and the always-on
     // inline chip above the composer. Either fires onOpenCi.
     fireEvent.click(screen.getAllByRole('button', { name: 'CI Status' })[0]);
@@ -85,10 +94,10 @@ describe('StageDetailPage', () => {
     details: <div data-testid="details-tab">details</div>,
   };
 
-  it('renders the full Changes · PR · Files · Details strip', () => {
+  it('renders the PR · Code Diff · Files · Details strip (PR first)', () => {
     renderStage('dev', { tabs: fullTabs });
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toEqual(['Changes', 'PR', 'Files', 'Details']);
+    expect(labels).toEqual(['PR', 'Code Diff', 'Files', 'Details']);
   });
 
   it('CI Fix leads with the Changes tab when one is provided', () => {
@@ -108,7 +117,7 @@ describe('StageDetailPage', () => {
 
   it('renders per-tab count badges', () => {
     renderStage('dev', { tabs: fullTabs, tabCounts: { changes: { count: 4, countColor: 'acc' }, pr: { count: 145, countColor: 'muted' } } });
-    const changesTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith('Changes'));
+    const changesTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith('Code Diff'));
     expect(changesTab?.querySelector('.count')?.textContent).toBe('4');
   });
 

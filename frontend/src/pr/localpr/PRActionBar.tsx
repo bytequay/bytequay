@@ -1,0 +1,111 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import type { LocalPR } from '../../types/localPr';
+
+/**
+ * The GitHub merge-box-style action bar (decisions #54 + #57). In a local
+ * state it's the amber "Approve & push to GitHub" box; in `remote-open` it's
+ * the green "Merge pull request" box, disabled while open comments remain.
+ * Terminal states (merged / closed / drafting) render no bar.
+ */
+export function PRActionBar({
+  pr, openComments, localChecksPassed, onPush, onAskAgent, onMerge, onMergeAnyway,
+}: {
+  pr: LocalPR;
+  openComments: number;
+  localChecksPassed: boolean;
+  onPush?: () => void;
+  onAskAgent?: () => void;
+  onMerge?: () => void;
+  onMergeAnyway?: () => void;
+}) {
+  if (pr.status === 'local-open') {
+    return (
+      <div className="pr-action-bar">
+        <div className="ab-head">
+          <span className="ic">✓</span>
+          <span className="title">Ready to push to GitHub as a Draft PR</span>
+          <span className="subtitle">
+            {localChecksPassed ? 'local checks passed' : 'local checks pending'}
+            {openComments > 0 ? ` · ${openComments} open comment${openComments === 1 ? '' : 's'}` : ''}
+          </span>
+        </div>
+        <div className="ab-body">
+          {openComments > 0 ? (
+            <>You have <b>{openComments} open review comment{openComments === 1 ? '' : 's'}</b>. Push
+              anyway (comments stay local + get stripped) or cancel and ask the agent to address them
+              first.</>
+          ) : (
+            <>Pushing opens <code>{pr.baseBranch} ← {pr.branchName}</code> as a <b>Draft</b> — flip to
+              ready-for-review on GitHub after remote CI is green.</>
+          )}
+        </div>
+        <div className="ab-actions">
+          <button type="button" className="approve-btn" onClick={onPush}>
+            ↑ Approve &amp; push to GitHub<span className="kbd">⌘↵</span>
+          </button>
+          {onAskAgent !== undefined && (
+            <button type="button" className="secondary-btn" onClick={onAskAgent}>
+              Ask agent to address comments first
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (pr.status === 'remote-open') {
+    const gated = openComments > 0;
+    return (
+      <div
+        className="pr-action-bar"
+        style={{ background: 'rgba(34,197,94,0.06)', borderColor: 'rgba(34,197,94,0.28)' }}
+      >
+        <div className="ab-head">
+          <span className="ic" style={{ background: 'var(--orange)' }}>◐</span>
+          <span className="title">
+            {gated
+              ? `${openComments} open comment${openComments === 1 ? '' : 's'} · resolve before merge`
+              : 'Ready to merge'}
+          </span>
+          <span className="subtitle">remote CI</span>
+        </div>
+        <div className="ab-body">
+          {gated
+            ? 'Merge is gated until open comments are resolved. Override with Merge anyway if you are confident.'
+            : `Merging opens ${pr.baseBranch} ← ${pr.branchName}.`}
+        </div>
+        <div className="ab-actions">
+          <button
+            type="button"
+            className="approve-btn"
+            onClick={onMerge}
+            disabled={gated}
+            style={gated ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+          >
+            ⎇ Merge pull request<span className="kbd">⌘↵</span>
+          </button>
+          {gated && onMergeAnyway !== undefined && (
+            <button type="button" className="secondary-btn" onClick={onMergeAnyway}>
+              Merge anyway ▾
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // local-drafted (agent still working), remote-drafted, merged, closed: no bar.
+  return null;
+}

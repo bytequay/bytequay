@@ -235,6 +235,37 @@ public class TaskController
     {
     }
 
+    /** GET the task's minimum-approvals gate. */
+    @GetMapping("/{taskId}/min-approvals")
+    public MinApprovalsResponse getMinApprovals(
+            @PathVariable String threadId,
+            @PathVariable String taskId)
+    {
+        return new MinApprovalsResponse(taskService.getMinApprovals(threadId, taskId));
+    }
+
+    /** Set the task's minimum-approvals gate — the number of write-permission
+     *  approvals a shipped PR needs before it counts as merge-ready. */
+    @PutMapping("/{taskId}/min-approvals")
+    public MinApprovalsResponse setMinApprovals(
+            @PathVariable String threadId,
+            @PathVariable String taskId,
+            @RequestBody MinApprovalsBody body)
+    {
+        int value = body != null ? body.minApprovals() : 0;
+        return new MinApprovalsResponse(taskService.setMinApprovals(threadId, taskId, value));
+    }
+
+    /** Body for {@link #setMinApprovals}. */
+    public record MinApprovalsBody(int minApprovals)
+    {
+    }
+
+    /** Response for the min-approvals endpoints. */
+    public record MinApprovalsResponse(int minApprovals)
+    {
+    }
+
     /**
      * GET /api/threads/{threadId}/tasks/{taskId}/work-model — resolve the
      * effective work model for a task, returning both the scope's own

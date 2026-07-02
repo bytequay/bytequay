@@ -142,7 +142,7 @@ class TestPullRequestController
     private static PullRequestDetail stubDetail()
     {
         return new PullRequestDetail("owner/repo", 7, null, ImmutableList.of(), false,
-                null, null, 10, 2, 3, 1, 0, 0, ImmutableList.of(),
+                null, null, 10, 2, 3, 1, 1, 0, 0, ImmutableList.of(),
                 PullRequestDetail.CiStatus.PASSING, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(), false,
                 null, null, null, null, null, "open", false, false);

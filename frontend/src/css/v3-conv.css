@@ -1177,6 +1177,16 @@
 .shell .plan-auto__track { display: block; width: 30px; height: 17px; border-radius: 999px; background: var(--border-strong); transition: background .16s; }
 .shell .plan-auto__knob { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform .16s; }
 .shell .plan-auto__sw input:checked + .plan-auto__track { background: var(--green); }
+/* Minimum-approvals selector in the plan-card header. Sits at the right; when
+   the auto-approve switch follows it, they group with a fixed gap instead of
+   both grabbing the free space. */
+.shell .plan-approvals { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; user-select: none; }
+.shell .plan-approvals + .plan-auto { margin-left: 12px; }
+.shell .plan-approvals__lbl { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+.shell .plan-approvals__opts { display: inline-flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.shell .plan-approvals__opt { font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 1px 8px; background: transparent; border: none; border-left: 1px solid var(--border); color: var(--text-3); cursor: pointer; }
+.shell .plan-approvals__opt:first-child { border-left: none; }
+.shell .plan-approvals__opt.active { background: var(--accent); color: #fff; }
 .shell .plan-auto__sw input:checked + .plan-auto__track .plan-auto__knob { transform: translateX(13px); }
 .shell .plan-card__body { padding: 0 13px 13px; }
 .shell .plan-goal { display: flex; gap: 9px; padding: 10px 11px; background: rgba(255, 255, 255, 0.65); border: 1px solid var(--border); border-radius: 8px; }

@@ -81,7 +81,7 @@ class TestPullRequestDetailMapper
                 List.of(), List.of(), /* mergeQueueState */ null, /* mergeQueueEnabled */ false);
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(
-                "owner/repo", 7, stored, /* viewerCanWrite */ true);
+                "owner/repo", 7, stored, /* viewerCanWrite */ true, /* writeApprovalCount */ 0);
 
         assertThat(detail.state()).isEqualTo("closed");
         assertThat(detail.merged()).isTrue();

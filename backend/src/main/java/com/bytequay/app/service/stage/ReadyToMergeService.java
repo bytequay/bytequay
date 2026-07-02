@@ -100,9 +100,15 @@ public class ReadyToMergeService
         // sentinel while the PR is still shipping-as-draft, and once it's
         // marked ready for review the armed sentinel suppresses the real gate
         // forever. Gate only once the PR is actually out for review.
+        //
+        // Approvals: the task's minimum-approvals gate counts only reviewers
+        // with write permission (detail.writeApprovalCount() — GitHub's green
+        // marks). An outstanding changes-requested review always blocks.
+        int minApprovals = taskStore.minApprovals(task.id());
         boolean ready = !detail.draft()
                 && detail.ciStatus() == CiStatus.PASSING
-                && !reviewersBlocking(detail)
+                && detail.changesRequestedCount() == 0
+                && detail.writeApprovalCount() >= minApprovals
                 && noUnresolvedRemoteComments(task.id())
                 && !Boolean.FALSE.equals(detail.mergeable());
 
@@ -303,18 +309,6 @@ public class ReadyToMergeService
     {
         stageStore.findActiveStage(taskId).ifPresent(stage ->
                 stageStore.recordEvent(stage.id(), taskId, type, payload));
-    }
-
-    /** A reviewer is blocking the merge when someone requested changes or a
-     *  requested reviewer hasn't responded yet. A solo PR (no reviewers
-     *  requested → no approvals, none pending) is never blocked here: an
-     *  explicit approval isn't required, so readiness rests on CI + no
-     *  unresolved comments + GitHub reporting the branch mergeable — and
-     *  {@code mergeable} already encodes any required-approval branch
-     *  protection, so a repo that mandates review still gates correctly. */
-    private static boolean reviewersBlocking(PullRequestDetail detail)
-    {
-        return detail.changesRequestedCount() > 0 || detail.pendingReviewerCount() > 0;
     }
 
     private static boolean isClosed(PullRequestDetail detail)

@@ -269,6 +269,20 @@ public interface TaskStore
     {
     }
 
+    /** How many write-permission approvals a shipped PR needs before it counts
+     *  as merge-ready. 0 for an unknown id; default 0. No-op-ish default for
+     *  test stores; the SQLite store overrides with the column. */
+    default int minApprovals(String taskId)
+    {
+        return 0;
+    }
+
+    /** Set the task's minimum-approvals gate (persisted). No-op default for
+     *  test stores; the SQLite store overrides. */
+    default void setMinApprovals(String taskId, int minApprovals)
+    {
+    }
+
     /** Latest task on a thread by seq, regardless of status. Used by
      *  the resume-from-terminal path: a COMPLETED thread's most-recent
      *  task is also terminal, so {@link #activeTasksForThread} returns

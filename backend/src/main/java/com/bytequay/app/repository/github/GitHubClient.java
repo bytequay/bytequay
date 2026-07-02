@@ -2841,6 +2841,36 @@ public class GitHubClient
         }
     }
 
+    @Override
+    public boolean fetchCollaboratorCanWrite(String pat, RepoRef repo, String login)
+    {
+        // /repos/{owner}/{repo}/collaborators/{login}/permission returns the
+        // collaborator's permission ("admin" | "write" | "read" | "none";
+        // maintain→write, triage→read in this legacy field). admin/write means
+        // push access — the same test that lights GitHub's green approval mark.
+        // Errors (404 for a non-collaborator, rate-limit) fall through to
+        // false, so an unconfirmable reviewer simply doesn't count.
+        try {
+            GitHubCollaboratorPermissionResponse response = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/collaborators/{login}/permission")
+                            .build(repo.owner(), repo.repo(), login))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubCollaboratorPermissionResponse.class);
+            if (response == null || response.permission() == null) {
+                return false;
+            }
+            String permission = response.permission();
+            return "admin".equals(permission) || "write".equals(permission);
+        }
+        catch (Exception e) {
+            return false;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitHubCollaboratorPermissionResponse(String permission) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitHubRepoPermissionsResponse(GitHubRepoPermissions permissions) {}
 

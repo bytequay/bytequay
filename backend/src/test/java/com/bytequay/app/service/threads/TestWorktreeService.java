@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -24,12 +27,15 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class TestWorktreeService
 {
@@ -447,6 +453,40 @@ class TestWorktreeService
             throw new IOException("git log failed (" + p.exitValue() + "): " + out);
         }
         return out;
+    }
+
+    @Test
+    void deleteRemoteBranchPushesADeleteWhenTheBranchReachedTheRemote()
+            throws Exception
+    {
+        GitRunner git = Mockito.mock(GitRunner.class);
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
+
+        service.deleteRemoteBranch(task(Instant.ofEpochMilli(1_700_000_000_000L)));
+
+        verify(git).deleteRemoteBranch(Path.of("/clone"), "origin", "dev/x");
+    }
+
+    @Test
+    void deleteRemoteBranchIsANoOpWhenTheBranchNeverReachedTheRemote()
+            throws Exception
+    {
+        GitRunner git = Mockito.mock(GitRunner.class);
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
+
+        service.deleteRemoteBranch(task(/* pushedAt */ null));
+
+        verify(git, never()).deleteRemoteBranch(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    /** A minimal task with a pushed (or unpushed) {@code dev/x} branch cut
+     *  from the {@code /clone} root — enough to exercise the reap guards. */
+    private static Task task(Instant pushedAt)
+    {
+        Instant now = Instant.ofEpochMilli(1_700_000_000_000L);
+        return new Task("t1.k2", "t1", 2L, TaskStatus.IN_REVIEW, "dev/x", "/wt", "main", "/clone",
+                null, null, null, null, null, "DEVELOP", null, null, 0L, 0L, 0L, null,
+                now, null, null, null, null, null, pushedAt, TaskPhase.COMPLETED, null, 0, null);
     }
 
     private static void deleteRecursively(Path p)

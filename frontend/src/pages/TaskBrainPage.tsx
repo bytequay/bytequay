@@ -158,15 +158,19 @@ export function TaskBrainPage({
         >
           <div className="conv-col">
             {conversation}
-            <InlineChips chips={[
-              ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
-              ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
-              ...(onOpenCi !== undefined ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
-            ]}
-            />
-            {planReminder !== undefined && (
-              <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
-            )}
+            {/* Same row as the development stage: the plan reminder pill sits
+                on the left, the tab chips align to the right. */}
+            <div className="chip-reminder-row">
+              {planReminder !== undefined && (
+                <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
+              )}
+              <InlineChips chips={[
+                ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
+                ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
+                ...(onOpenCi !== undefined ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
+              ]}
+              />
+            </div>
             <Composer
               value={composer.value}
               onChange={composer.onChange}

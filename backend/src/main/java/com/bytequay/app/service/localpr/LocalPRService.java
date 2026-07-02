@@ -1,0 +1,92 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.localpr;
+
+import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.LocalPRCheck;
+import com.bytequay.app.domain.LocalPRComment;
+import com.bytequay.app.domain.LocalPRCommit;
+import com.bytequay.app.domain.LocalPRTimelineEvent;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * The local-PR state machine + child-row writers. Pure state — no git / GitHub
+ * I/O (the push and merge transitions are driven by their user-gated callers,
+ * which perform the I/O and then call {@link #transition} to record the flip).
+ * Every status flip goes through {@link #transition}, which validates the edge
+ * against {@link LocalPR#ALLOWED_TRANSITIONS} and writes a {@code status}
+ * timeline event so the timeline tells the whole story (design #45, non-negotiable
+ * "PR status flips are timeline events").
+ */
+public interface LocalPRService
+{
+    // ── reads ────────────────────────────────────────────────────────────
+    Optional<LocalPR> findByTask(String taskId);
+
+    Optional<LocalPR> findById(String prId);
+
+    List<LocalPRCommit> commits(String prId);
+
+    List<LocalPRTimelineEvent> timeline(String prId);
+
+    List<LocalPRCheck> checks(String prId);
+
+    List<LocalPRComment> comments(String prId);
+
+    // ── writes ───────────────────────────────────────────────────────────
+    /** Create the task's local PR at {@code local-drafted}, or return the
+     *  existing one — idempotent, so Dev can call it on every early commit. */
+    LocalPR createForTask(String taskId, String branchName, String baseBranch, String title, String description);
+
+    /** Edit title / description (a null argument leaves that field unchanged). */
+    LocalPR updateDetails(String prId, String title, String description);
+
+    /** Append a commit + a {@code commit} timeline event. */
+    LocalPRCommit recordCommit(
+            String prId, String sha, String message, int additions, int deletions, String actor);
+
+    /** Append a check; writes a {@code ci} timeline event once the check
+     *  reaches a terminal status (passed / failed / neutral). */
+    LocalPRCheck recordCheck(String prId, String kind, String name, String status, Long durationMs);
+
+    /** Flip {@code local-drafted → local-open} (dev auto-declares "ready"). */
+    LocalPR requestUserReview(String prId, String actor);
+
+    /**
+     * Validated status flip. Throws {@link IllegalArgumentException} on an
+     * unknown PR or an illegal edge. Writes the {@code status} timeline event.
+     * The push / merge callers pass the remote identity separately via
+     * {@link #recordPushed} before flipping.
+     */
+    LocalPR transition(String prId, String newStatus, String actor);
+
+    /** Record the remote PR identity assigned on push (before the status flip). */
+    LocalPR recordPushed(String prId, int remotePrNumber, String remotePrUrl);
+
+    /** Add a comment (PR-level or inline; local or remote origin). */
+    LocalPRComment addComment(
+            String prId,
+            String origin,
+            String scope,
+            String filePath,
+            Integer lineNumber,
+            String author,
+            String body,
+            String parentCommentId);
+
+    /** Resolve a comment (marks {@code resolvedAt}). */
+    LocalPRComment resolveComment(String commentId);
+}

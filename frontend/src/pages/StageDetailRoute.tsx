@@ -14,6 +14,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
+import { useLocalPr } from '../threads/brain/useLocalPr';
+import { PRView } from '../pr/localpr/PRView';
+import { PushDialog } from '../pr/localpr/PushDialog';
+import { MergeDialog } from '../pr/localpr/MergeDialog';
+import type { MergeMethod } from '../pr/localpr/MergeDialog';
+import { isLocalStatus } from '../types/localPr';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
@@ -91,6 +97,14 @@ export function StageDetailRoute({
   // comment is handed to the dev agent to post — it parks the publish for the
   // user's approval through the normal gate rather than posting directly.
   const [prComment, setPrComment] = useState('');
+  // The task's local PR — the primary artifact this milestone renders. Null
+  // until Dev records its first commit; then the PR tab shows <PRView>
+  // instead of the remote-GitHub PRTabContent.
+  const { bundle: localPrBundle, refresh: refreshLocalPr } = useLocalPr(taskId);
+  const [localComment, setLocalComment] = useState('');
+  const [pushOpen, setPushOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [prBusy, setPrBusy] = useState(false);
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
@@ -184,6 +198,59 @@ export function StageDetailRoute({
       .catch(() => { /* poll reconciles */ })
       .finally(() => setBusy(false));
   }, [stageId, refresh]);
+
+  // ── Local PR actions (user-gated; never auto-posted) ────────────────────
+  const localPr = localPrBundle?.pr ?? null;
+  const prMode = localPr !== null && !isLocalStatus(localPr.status) ? 'remote' as const : 'local' as const;
+  const repoLabel = data?.task.repoFullName ?? undefined;
+
+  const submitLocalComment = useCallback(() => {
+    const body = localComment.trim();
+    if (body.length === 0 || localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.addLocalPrComment(localPr.id, { scope: 'pr', body })
+      .then(() => { setLocalComment(''); refreshLocalPr(); })
+      .catch(() => { /* poll reconciles */ });
+  }, [localComment, localPr, refreshLocalPr]);
+
+  const confirmPush = useCallback(() => {
+    if (localPr === null) return;
+    setPrBusy(true);
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.pushLocalPr(localPr.id)
+      .then(() => { setPushOpen(false); refreshLocalPr(); pollFast(); })
+      .catch(() => { /* poll reconciles; dialog stays open on failure */ })
+      .finally(() => setPrBusy(false));
+  }, [localPr, refreshLocalPr, pollFast]);
+
+  const confirmMerge = useCallback((method: MergeMethod) => {
+    if (localPr === null) return;
+    setPrBusy(true);
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.mergeLocalPr(localPr.id, method)
+      .then(() => { setMergeOpen(false); refreshLocalPr(); pollFast(); })
+      .catch(() => { /* poll reconciles */ })
+      .finally(() => setPrBusy(false));
+  }, [localPr, refreshLocalPr, pollFast]);
+
+  const askAgentToAddress = useCallback(() => {
+    setText('Please address my review comments on the PR, then I\'ll push. ');
+  }, []);
+
+  const addLocalLineComment = useCallback((filePath: string, lineNumber: number, body: string) => {
+    if (localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.addLocalPrComment(localPr.id, { scope: 'file-line', filePath, lineNumber, body })
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ });
+  }, [localPr, refreshLocalPr]);
+
+  const resolveLocalComment = useCallback((commentId: string) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.resolveLocalPrComment(commentId)
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ });
+  }, [refreshLocalPr]);
 
   // Live stream of the agent working this stage: its text appears
   // token-by-token (and a non-delta event refreshes the canonical
@@ -288,6 +355,24 @@ export function StageDetailRoute({
         />
       )}
       <PlanOverlay open={planOpen} card={planCard} onClose={closePlan} />
+      {pushOpen && localPrBundle != null && (
+        <PushDialog
+          bundle={localPrBundle}
+          repoLabel={repoLabel}
+          busy={prBusy}
+          onPush={confirmPush}
+          onCancel={() => setPushOpen(false)}
+        />
+      )}
+      {mergeOpen && localPr !== null && (
+        <MergeDialog
+          pr={localPr}
+          repoLabel={repoLabel}
+          busy={prBusy}
+          onMerge={confirmMerge}
+          onCancel={() => setMergeOpen(false)}
+        />
+      )}
     </Conv>
   );
 
@@ -307,9 +392,16 @@ export function StageDetailRoute({
     ) : files.length === 0 ? (
       <div className="pane-empty">No changes in this task yet.</div>
     ) : (
-      <PaneDiff files={files} />
+      <PaneDiff
+        files={files}
+        comments={localPrBundle?.comments}
+        allowLocalComments={localPr !== null && prMode === 'local' && state !== 'CLOSED'}
+        onAddComment={addLocalLineComment}
+        onResolveComment={resolveLocalComment}
+      />
     );
-  }, [stageKind, realtimeCi, files, openPr]);
+  }, [stageKind, realtimeCi, files, openPr, localPrBundle, localPr, prMode, state,
+    addLocalLineComment, resolveLocalComment]);
 
   const filesNode = useMemo(() => (
     <DiffFileTreePane<DiffFileDto>
@@ -375,6 +467,24 @@ export function StageDetailRoute({
       commentValue={prComment}
       onCommentChange={setPrComment}
       onAddComment={state !== 'CLOSED' ? postPrComment : undefined}
+    />
+  ) : null;
+
+  // Prefer the unified <PRView> once the task has a local PR; fall back to the
+  // remote PRTabContent until then. Push/merge open their user-gated dialogs;
+  // the action bar's secondary focuses the composer with an address-comments
+  // starter (never auto-posts).
+  const localPrNode = localPrBundle !== null && localPrBundle !== undefined ? (
+    <PRView
+      mode={prMode}
+      bundle={localPrBundle}
+      commentValue={localComment}
+      onCommentChange={setLocalComment}
+      onAddComment={state !== 'CLOSED' ? submitLocalComment : undefined}
+      onPush={() => setPushOpen(true)}
+      onAskAgent={state !== 'CLOSED' ? askAgentToAddress : undefined}
+      onMerge={() => setMergeOpen(true)}
+      onMergeAnyway={() => setMergeOpen(true)}
     />
   ) : null;
 
@@ -463,7 +573,7 @@ export function StageDetailRoute({
       } : undefined}
       tabs={{
         changes: hasDiff ? changesNode : undefined,
-        pr: prNode ?? undefined,
+        pr: localPrNode ?? prNode ?? undefined,
         files: hasDiff ? filesNode : undefined,
         details: (
           <DetailsTabContent sections={[{

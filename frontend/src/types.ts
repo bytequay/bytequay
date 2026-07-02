@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { BrainMessageResult, SpawnReviewResult, StageDetailData, TaskBrainViewData } from './types/brainView';
+import type { LocalPR, LocalPRBundle, LocalPRComment } from './types/localPr';
 
 export type HandledAction =
   | 'APPROVED'
@@ -3920,6 +3921,23 @@ export type Bridge = {
   sendBrainMessage: (taskId: string, text: string) => Promise<BrainMessageResult>;
   /** Drill-in detail for one stage: iteration log, metrics, realtime CI. */
   getStageDetail: (stageId: string) => Promise<StageDetailData>;
+
+  // ── Local PR (the PR artifact living in ByteQuay before GitHub) ──────
+  /** The task's whole local PR (row + commits + timeline + checks +
+   *  comments + strip count) in one call, or null if none exists yet. */
+  getLocalPrBundle: (taskId: string) => Promise<LocalPRBundle | null>;
+  /** User-gated push: push the branch, open a Draft PR, strip local-only
+   *  history, and flip local-open → remote-drafted. */
+  pushLocalPr: (prId: string) => Promise<LocalPR>;
+  /** User-gated merge of a pushed PR with the chosen method. */
+  mergeLocalPr: (prId: string, method: string) => Promise<LocalPR>;
+  /** Add a user comment to the local PR (PR-level or inline file-line). */
+  addLocalPrComment: (
+    prId: string,
+    body: { scope: 'pr' | 'file-line'; filePath?: string | null; lineNumber?: number | null; body: string; parentCommentId?: string | null },
+  ) => Promise<LocalPRComment>;
+  /** Mark a local PR comment resolved. */
+  resolveLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
   /** Spawn a panel review as a callable sub-stage of {@code parentStageId}.
    *  Returns the opened review stage, the seated pass, and the review
    *  thread the panel page navigates to. */

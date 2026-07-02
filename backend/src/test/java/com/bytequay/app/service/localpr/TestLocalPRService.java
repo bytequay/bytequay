@@ -25,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -119,5 +121,67 @@ class TestLocalPRService
                 /* filePath */ null, /* lineNumber */ null, "you", "body", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("filePath");
+    }
+
+    @Test
+    void recordPushStripsLocalsRecordsRemoteAndFlipsStatus()
+    {
+        pr(LocalPR.STATUS_LOCAL_OPEN);
+        LocalPRTimelineEvent localEvent = new LocalPRTimelineEvent(
+                "ev1", "pr1", LocalPRTimelineEvent.TYPE_COMMIT, "claude-code",
+                /* localOnly */ true, /* strippedOnPushAt */ null, NOW, null);
+        LocalPRComment localComment = new LocalPRComment(
+                "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, null, /* strippedOnPushAt */ null, null);
+        when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(localEvent));
+        when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(localComment));
+
+        LocalPR pushed = service.recordPush("pr1", 145, "https://github.com/o/r/pull/145");
+
+        // The local event is stamped stripped (never migrates to GitHub).
+        ArgumentCaptor<LocalPRTimelineEvent> events = ArgumentCaptor.forClass(LocalPRTimelineEvent.class);
+        verify(store, times(2)).addEvent(events.capture()); // stripped event + status event
+        assertThat(events.getAllValues().get(0).id()).isEqualTo("ev1");
+        assertThat(events.getAllValues().get(0).strippedOnPushAt()).isEqualTo(NOW);
+        // The local comment is stamped stripped too.
+        ArgumentCaptor<LocalPRComment> comments = ArgumentCaptor.forClass(LocalPRComment.class);
+        verify(store).saveComment(comments.capture());
+        assertThat(comments.getValue().strippedOnPushAt()).isEqualTo(NOW);
+        // The final status flip lands at remote-drafted, and a status event was written.
+        assertThat(pushed.status()).isEqualTo(LocalPR.STATUS_REMOTE_DRAFTED);
+        assertThat(events.getAllValues().get(1).eventType()).isEqualTo(LocalPRTimelineEvent.TYPE_STATUS);
+    }
+
+    @Test
+    void recordMergedFlipsToMergedFromRemoteOpen()
+    {
+        pr(LocalPR.STATUS_REMOTE_OPEN);
+
+        LocalPR merged = service.recordMerged("pr1");
+
+        assertThat(merged.status()).isEqualTo(LocalPR.STATUS_MERGED);
+    }
+
+    @Test
+    void recordMergedRejectsANonRemoteOpenPr()
+    {
+        pr(LocalPR.STATUS_LOCAL_OPEN);
+
+        assertThatThrownBy(() -> service.recordMerged("pr1"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void pendingStripCountSumsLocalEventsAndComments()
+    {
+        LocalPRTimelineEvent e = new LocalPRTimelineEvent(
+                "ev1", "pr1", LocalPRTimelineEvent.TYPE_COMMIT, "claude-code", true, null, NOW, null);
+        LocalPRComment c = new LocalPRComment(
+                "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
+                "you", "n", NOW, null, null, null);
+        when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(e, e));
+        when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(c));
+
+        assertThat(service.pendingStripCount("pr1")).isEqualTo(3);
     }
 }

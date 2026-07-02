@@ -118,6 +118,10 @@ export interface LocalPRBundle {
   timeline: LocalPRTimelineEvent[];
   checks: LocalPRCheck[];
   comments: LocalPRComment[];
+  /** Authoritative count of local-only events + local comments a push would
+   *  strip (design #47) — the push dialog shows this verbatim. Optional so
+   *  presentational fixtures can omit it. */
+  pendingStripCount?: number;
 }
 
 /** `mode="local"` renders the local phase, `mode="remote"` the pushed phase. */

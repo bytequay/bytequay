@@ -192,6 +192,36 @@ class LocalPRServiceImpl
     }
 
     @Override
+    public LocalPR recordPush(String prId, int remotePrNumber, String remotePrUrl)
+    {
+        require(prId);
+        Instant when = now();
+        // Strip the private local record before it can be confused with what
+        // migrated — local-only events + local-origin comments never leave
+        // ByteQuay (design #47, non-negotiable).
+        for (LocalPRTimelineEvent event : store.unstrippedLocalOnlyEvents(prId)) {
+            store.addEvent(event.withStripped(when));
+        }
+        for (LocalPRComment comment : store.unstrippedLocalComments(prId)) {
+            store.saveComment(comment.withStripped(when));
+        }
+        recordPushed(prId, remotePrNumber, remotePrUrl);
+        return transition(prId, LocalPR.STATUS_REMOTE_DRAFTED, LocalPRTimelineEvent.ACTOR_USER);
+    }
+
+    @Override
+    public LocalPR recordMerged(String prId)
+    {
+        return transition(prId, LocalPR.STATUS_MERGED, LocalPRTimelineEvent.ACTOR_USER);
+    }
+
+    @Override
+    public int pendingStripCount(String prId)
+    {
+        return store.unstrippedLocalOnlyEvents(prId).size() + store.unstrippedLocalComments(prId).size();
+    }
+
+    @Override
     public LocalPRComment addComment(
             String prId,
             String origin,

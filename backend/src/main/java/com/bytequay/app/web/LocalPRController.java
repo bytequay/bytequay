@@ -21,6 +21,7 @@ import com.bytequay.app.beans.localpr.LocalPRCommentDto;
 import com.bytequay.app.beans.localpr.LocalPRCommitDto;
 import com.bytequay.app.beans.localpr.LocalPRDto;
 import com.bytequay.app.beans.localpr.LocalPRTimelineEventDto;
+import com.bytequay.app.beans.localpr.MergeLocalPRRequest;
 import com.bytequay.app.beans.localpr.UpdateLocalPRRequest;
 import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRComment;
@@ -103,6 +104,13 @@ public class LocalPRController
     public LocalPRDto push(@PathVariable String prId)
     {
         return LocalPRDto.from(publish.push(prId));
+    }
+
+    /** User-gated merge of a pushed PR, then flip the local PR to {@code merged}. */
+    @PostMapping("/api/local-pr/{prId}/merge")
+    public LocalPRDto merge(@PathVariable String prId, @RequestBody(required = false) MergeLocalPRRequest body)
+    {
+        return LocalPRDto.from(publish.merge(prId, body == null ? null : body.method()));
     }
 
     @PostMapping("/api/tasks/{taskId}/local-pr")

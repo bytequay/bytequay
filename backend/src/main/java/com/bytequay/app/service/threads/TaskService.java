@@ -184,6 +184,24 @@ public class TaskService
         return taskStore.isAutoApprove(taskId);
     }
 
+    /** Read the task's minimum-approvals gate (write-permission approvals a
+     *  shipped PR needs before it counts as merge-ready). */
+    public int getMinApprovals(String threadId, String taskId)
+    {
+        requireTask(threadId, taskId);
+        return taskStore.minApprovals(taskId);
+    }
+
+    /** Set the task's minimum-approvals gate. Clamped to the 0..2 range the
+     *  plan-card selector offers. */
+    public int setMinApprovals(String threadId, String taskId, int minApprovals)
+    {
+        requireTask(threadId, taskId);
+        int clamped = Math.max(0, Math.min(2, minApprovals));
+        taskStore.setMinApprovals(taskId, clamped);
+        return taskStore.minApprovals(taskId);
+    }
+
     /** Flip the task's auto-approve mode, returning the stored value. While
      *  on, the task's parked publish gates + tool prompts auto-approve — the
      *  final PR merge stays manually gated. */

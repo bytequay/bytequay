@@ -47,6 +47,7 @@ public record PullRequestDetail(
         int deletions,
         int changedFiles,
         int approvalCount,
+        int writeApprovalCount,
         int changesRequestedCount,
         int pendingReviewerCount,
         List<String> requestedReviewers,

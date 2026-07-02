@@ -3758,6 +3758,18 @@ export type Bridge = {
     taskId: string,
     enabled: boolean,
   ) => Promise<{ enabled: boolean }>;
+  /** Read the task's minimum-approvals gate — write-permission approvals a
+   *  shipped PR needs before it counts as merge-ready (0/1/2). */
+  getTaskMinApprovals: (
+    threadId: string,
+    taskId: string,
+  ) => Promise<{ minApprovals: number }>;
+  /** Set the task's minimum-approvals gate; returns the persisted (clamped) value. */
+  setTaskMinApprovals: (
+    threadId: string,
+    taskId: string,
+    minApprovals: number,
+  ) => Promise<{ minApprovals: number }>;
   /** Trunk-scope counterpart of {@link sendTaskMessage} — drives the
    *  trunk planning agent for cross-task talk. The persisted row lands
    *  with {@code task_id = null} so it filters into the trunk slice

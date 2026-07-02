@@ -813,6 +813,17 @@ const bridge: Bridge = {
     enabled: boolean,
   ): Promise<{ enabled: boolean }> =>
     ipcRenderer.invoke('threads:tasks:autoApprove:set', { threadId, taskId, enabled }),
+  getTaskMinApprovals: (
+    threadId: string,
+    taskId: string,
+  ): Promise<{ minApprovals: number }> =>
+    ipcRenderer.invoke('threads:tasks:minApprovals:get', { threadId, taskId }),
+  setTaskMinApprovals: (
+    threadId: string,
+    taskId: string,
+    minApprovals: number,
+  ): Promise<{ minApprovals: number }> =>
+    ipcRenderer.invoke('threads:tasks:minApprovals:set', { threadId, taskId, minApprovals }),
   sendTrunkMessage: (
     threadId: string,
     input: string,

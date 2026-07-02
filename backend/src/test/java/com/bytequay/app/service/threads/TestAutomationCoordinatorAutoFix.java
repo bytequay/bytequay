@@ -396,7 +396,7 @@ class TestAutomationCoordinatorAutoFix
     {
         return new PullRequestDetail(
                 REPO, PR_NUMBER, body, List.of(), false,
-                null, null, 0, 0, 0, 0, 0, 0, List.of(),
+                null, null, 0, 0, 0, 0, 0, 0, 0, List.of(),
                 PullRequestDetail.CiStatus.FAILING, List.of(), List.of(),
                 List.of(new PullRequestDetail.CheckRun(
                         null, "backend-tests", "completed", "failure", null, null, null)),

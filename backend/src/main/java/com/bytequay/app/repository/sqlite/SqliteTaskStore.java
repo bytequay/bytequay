@@ -366,6 +366,19 @@ class SqliteTaskStore
         mutate(taskId, entity -> entity.setAutoApprove(enabled));
     }
 
+    @Override
+    public int minApprovals(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::getMinApprovals).orElse(0);
+    }
+
+    @Override
+    @Transactional
+    public void setMinApprovals(String taskId, int minApprovals)
+    {
+        mutate(taskId, entity -> entity.setMinApprovals(minApprovals));
+    }
+
     /** Non-terminal tasks for a thread (runtime status not COMPLETED/ERRORED
      *  <em>and</em> dev-lifecycle phase not COMPLETED), latest seq first.
      *  The phase guard matters because a remote merge advances phase to

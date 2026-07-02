@@ -140,6 +140,30 @@ class TestReadyToMerge
     }
 
     @Test
+    void holdsTheGateUntilTheMinimumWritePermissionApprovalsLand()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        stageStore.openStage(taskId, StageType.REVIEW_MONITOR_STAGE, null);
+        taskStore.setMinApprovals(taskId, 2);        // needs 2 write-permission approvals
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        // Only one write-permission approval so far — not merge-ready.
+        PullRequestDetail oneApproval = detail(CiStatus.PASSING, 0, 0, false, "open");
+        when(oneApproval.writeApprovalCount()).thenReturn(1);
+        readyToMerge.evaluate(task, oneApproval);
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+        assertThat(readyToMergeNotifications(threadId)).isZero();
+
+        // The second write-permission approval lands — the merge gate fires.
+        PullRequestDetail twoApprovals = detail(CiStatus.PASSING, 0, 0, false, "open");
+        when(twoApprovals.writeApprovalCount()).thenReturn(2);
+        readyToMerge.evaluate(task, twoApprovals);
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isPresent();
+        assertThat(readyToMergeNotifications(threadId)).isEqualTo(1);
+    }
+
+    @Test
     void doesNotFireWhileThePrIsStillADraft()
     {
         String threadId = seedThread();

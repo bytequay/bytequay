@@ -107,6 +107,9 @@ class TaskEntity
     @Column(name = "auto_approve", nullable = false)
     private boolean autoApprove;
 
+    @Column(name = "min_approvals", nullable = false)
+    private int minApprovals;
+
     @Column(name = "pushed_at_ms")
     private Long pushedAtMs;
 
@@ -232,6 +235,9 @@ class TaskEntity
 
     boolean isAutoApprove() { return autoApprove; }
     void setAutoApprove(boolean autoApprove) { this.autoApprove = autoApprove; }
+
+    int getMinApprovals() { return minApprovals; }
+    void setMinApprovals(int minApprovals) { this.minApprovals = minApprovals; }
 
     Long getPushedAtMs() { return pushedAtMs; }
     void setPushedAtMs(Long pushedAtMs) { this.pushedAtMs = pushedAtMs; }

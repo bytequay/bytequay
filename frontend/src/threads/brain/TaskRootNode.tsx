@@ -100,7 +100,7 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
  *  than pinned above the feed. */
 export function PlanCard({
   plan, autoApprove, autoConfidenceHigh, approvedAt, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
-  onToggleAutoApprove,
+  onToggleAutoApprove, minApprovals, onSetMinApprovals,
 }: {
   plan: PlanCardDto;
   autoApprove?: boolean;
@@ -116,6 +116,11 @@ export function PlanCard({
    *  card header — a high-confidence plan then starts development without a
    *  click. Omit to hide the switch. */
   onToggleAutoApprove?: () => void;
+  /** Minimum write-permission approvals a shipped PR needs before it's treated
+   *  as merge-ready (0/1/2). When onSetMinApprovals is provided, a selector
+   *  shows in the card header. */
+  minApprovals?: number;
+  onSetMinApprovals?: (n: number) => void;
 }) {
   const goal = plan.goal !== undefined && plan.goal.trim() !== '' ? plan.goal : plan.understandingSummary;
   const confidence = plan.signals.confidence ?? confidenceFromRisk(plan.signals.riskLevel);
@@ -128,6 +133,25 @@ export function PlanCard({
         <span className="plan-card__ic" aria-hidden>✦</span>
         <span className="plan-card__t">Execution plan</span>
         {plan.revisionCount > 0 && <span className="plan-card__rev">rev {plan.revisionCount}</span>}
+        {onSetMinApprovals !== undefined && (
+          <div
+            className="plan-approvals"
+            title="Minimum approvals from reviewers with write permission before the PR is treated as merge-ready. 0 = no approval required."
+          >
+            <span className="plan-approvals__lbl">Min approvals</span>
+            <div className="plan-approvals__opts" role="group" aria-label="Minimum approvals">
+              {[0, 1, 2].map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  className={(minApprovals ?? 0) === n ? 'plan-approvals__opt active' : 'plan-approvals__opt'}
+                  aria-pressed={(minApprovals ?? 0) === n}
+                  onClick={() => onSetMinApprovals(n)}
+                >{n}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {onToggleAutoApprove !== undefined && (
           <label className="plan-auto" title="When on, downstream push / PR gates approve automatically. The plan itself always waits for your explicit approval.">
             <span className="plan-auto__lbl">Auto-approve</span>

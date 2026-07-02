@@ -130,6 +130,11 @@ class TestPullRequestService
     @Mock
     private TaskStore taskStore;
 
+    // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
+    @SuppressWarnings("UnusedVariable")
+    @Mock
+    private CollaboratorPermissionService collaboratorPermissions;
+
     @InjectMocks
     private PullRequestService pullRequestService;
 

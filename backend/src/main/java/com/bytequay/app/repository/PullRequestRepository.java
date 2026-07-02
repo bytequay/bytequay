@@ -887,6 +887,18 @@ public interface PullRequestRepository
     }
 
     /**
+     * Whether {@code login} has write (push) permission on the repo, from
+     * {@code GET /repos/{owner}/{repo}/collaborators/{login}/permission}.
+     * Used to decide which approvals count toward a task's minimum-approvals
+     * gate (GitHub's green vs. grey approval marks). Returns {@code false} on
+     * any error — a reviewer we can't confirm simply doesn't count.
+     */
+    default boolean fetchCollaboratorCanWrite(String pat, RepoRef repo, String login)
+    {
+        return false;
+    }
+
+    /**
      * Fetches the raw log text for an Actions check-run job. Maps to
      * {@code GET /repos/{owner}/{repo}/actions/jobs/{checkRunId}/logs},
      * which returns a 302 to a presigned blob URL with the plain-text

@@ -86,6 +86,23 @@ export function TaskBrainRoute({
       .then(r => setAutoApprove(r.enabled))
       .catch(() => setAutoApprove(!next));
   };
+  // Minimum write-permission approvals a shipped PR needs before it counts as
+  // merge-ready (0/1/2). Per-task, persisted; chosen on the plan card.
+  const [minApprovals, setMinApprovalsState] = useState(0);
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.getTaskMinApprovals?.(threadId, taskId)
+      .then(r => setMinApprovalsState(r.minApprovals))
+      .catch(() => { /* poll reconciles */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, taskId]);
+  const setMinApprovals = (n: number) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    setMinApprovalsState(n);
+    bridge?.setTaskMinApprovals?.(threadId, taskId, n)
+      .then(r => setMinApprovalsState(r.minApprovals))
+      .catch(() => { /* leave the optimistic value; a reload reconciles */ });
+  };
   // Track the brain's answer count so the "working" indicator clears only
   // when a new response actually lands (not when the user's own message
   // persists into the feed).
@@ -175,6 +192,8 @@ export function TaskBrainRoute({
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
       onHoldAuto={toggleAutoApprove}
       onToggleAutoApprove={toggleAutoApprove}
+      minApprovals={minApprovals}
+      onSetMinApprovals={setMinApprovals}
     />
   ) : null;
 

@@ -4531,6 +4531,45 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:tasks:minApprovals:get', async (_event, args: unknown) => {
+    const { threadId, taskId } = (args ?? {}) as { threadId?: unknown; taskId?: unknown };
+    if (typeof threadId !== 'string' || threadId.trim().length === 0
+        || typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('threadId and taskId must be non-empty strings');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
+        + `/tasks/${encodeURIComponent(taskId)}/min-approvals`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /tasks/${taskId}/min-approvals returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:tasks:minApprovals:set', async (_event, args: unknown) => {
+    const { threadId, taskId, minApprovals } =
+      (args ?? {}) as { threadId?: unknown; taskId?: unknown; minApprovals?: unknown };
+    if (typeof threadId !== 'string' || threadId.trim().length === 0
+        || typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('threadId and taskId must be non-empty strings');
+    }
+    const value = typeof minApprovals === 'number' ? minApprovals : 0;
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
+        + `/tasks/${encodeURIComponent(taskId)}/min-approvals`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minApprovals: value }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT /tasks/${taskId}/min-approvals returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
 
   ipcMain.handle('threads:tasks:next', async (_event, args: unknown) => {
     const params = args as {

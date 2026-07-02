@@ -45,7 +45,8 @@ final class PullRequestDetailMapper
 
     private PullRequestDetailMapper() {}
 
-    static PullRequestDetail toPullRequestDetail(String repo, int number, StoredPrDetail stored, boolean viewerCanWrite)
+    static PullRequestDetail toPullRequestDetail(
+            String repo, int number, StoredPrDetail stored, boolean viewerCanWrite, int writeApprovalCount)
     {
         PrRawDetail raw = stored.raw();
         return new PullRequestDetail(
@@ -60,6 +61,7 @@ final class PullRequestDetailMapper
                 raw.deletions(),
                 raw.changedFiles(),
                 countApprovals(stored.reviews()),
+                writeApprovalCount,
                 countChangesRequested(stored.reviews()),
                 raw.requestedReviewerCount(),
                 raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of(),

@@ -127,6 +127,7 @@ public class PullRequestService
     private final PatResolver patResolver;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskStore taskStore;
+    private final CollaboratorPermissionService collaboratorPermissions;
     /** prId → last ETag + the timestamp it was returned by GitHub.
      *  Populated by {@link #refreshPullRequestDetail}'s probe path
      *  and consulted on the next probe to short-circuit unchanged
@@ -161,6 +162,7 @@ public class PullRequestService
             PatResolver patResolver,
             ApplicationEventPublisher eventPublisher,
             TaskStore taskStore,
+            CollaboratorPermissionService collaboratorPermissions,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -176,6 +178,7 @@ public class PullRequestService
         this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.collaboratorPermissions = requireNonNull(collaboratorPermissions, "collaboratorPermissions is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.detailFetcher = new PullRequestDetailFetcher(gitHub, detailStore, requireNonNull(ioExecutor, "ioExecutor is null"));
     }
@@ -388,7 +391,9 @@ public class PullRequestService
             if (stored.isPresent()) {
                 log.info("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body",
                         repo, number);
-                return PullRequestDetailMapper.toPullRequestDetail(repo, number, stored.get(), viewerCanWrite);
+                int writeApprovals = collaboratorPermissions.countWriteApprovals(pat, repoRef, stored.get().reviews());
+                return PullRequestDetailMapper.toPullRequestDetail(
+                        repo, number, stored.get(), viewerCanWrite, writeApprovals);
             }
             log.info("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub",
                     repo, number);
@@ -408,7 +413,8 @@ public class PullRequestService
             // The detail blob has it; the row didn't until this line.
             store.updateCiStatus(id, PrAttention.aggregateCiStatus(fetched));
         });
-        return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite);
+        int writeApprovals = collaboratorPermissions.countWriteApprovals(pat, repoRef, fetched.reviews());
+        return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite, writeApprovals);
     }
 
     /**

@@ -260,11 +260,6 @@
   color: var(--text-3);
   line-height: 1.2;
 }
-.shell .ws-switcher .chev {
-  color: var(--text-4);
-  font-size: 10px;
-}
-
 /* ── Thread list (sidebar, workspace active) ─────────────────── */
 .shell .thread-list {
   display: flex;

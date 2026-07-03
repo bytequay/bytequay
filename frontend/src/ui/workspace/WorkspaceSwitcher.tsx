@@ -15,9 +15,9 @@ import { Logo } from '../primitives';
 import type { LogoColor } from '../primitives';
 
 /**
- * The drill-in context chip shown once a workspace is open: its logo +
- * name + "N repos · M threads", with a ▾ for lateral quick-switching to
- * another workspace.
+ * The context chip shown once a workspace is open: its logo + name +
+ * "N repos · M threads". Clicking it returns to the workspace's own
+ * surface; switching workspaces happens on the Workspaces landing page.
  */
 export function WorkspaceSwitcher({ initials, color, name, sub, onSwitch }: {
   initials: string;
@@ -27,13 +27,12 @@ export function WorkspaceSwitcher({ initials, color, name, sub, onSwitch }: {
   onSwitch?: () => void;
 }) {
   return (
-    <button type="button" className="ws-switcher" title="Switch workspace" onClick={onSwitch}>
+    <button type="button" className="ws-switcher" title={`Open ${name}`} onClick={onSwitch}>
       <Logo initials={initials} color={color} />
       <span className="ws-meta">
         <span className="ws-name">{name}</span>
         <span className="ws-sub">{sub}</span>
       </span>
-      <span className="chev" aria-hidden>▾</span>
     </button>
   );
 }

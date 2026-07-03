@@ -128,7 +128,7 @@ export function PlanCard({
   const awaiting = plan.state === 'awaiting';
 
   return (
-    <div className="plan-card">
+    <div className={awaiting ? 'plan-card plan-card--awaiting' : 'plan-card'}>
       <div className="plan-card__hd">
         <span className="plan-card__ic" aria-hidden>✦</span>
         <span className="plan-card__t">Execution plan</span>

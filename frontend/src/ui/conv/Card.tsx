@@ -56,6 +56,9 @@ type BacklogProps = CommonProps & {
   started?: boolean;
   linkedTaskLabel?: string;
   onOpenLinked?: () => void;
+  /** Marks the item not-to-proceed ("handled, don't work on it"). Shown as a
+   *  quiet Drop button on unstarted items. */
+  onDrop?: () => void;
 };
 
 export type CardProps = TaskProps | BacklogProps;
@@ -124,7 +127,7 @@ function TaskMeta({ branch, createdLabel, prNumber, status, statusText, mergeRea
   );
 }
 
-function BacklogMeta({ tags, createdLabel, onStartDevelopment, started, linkedTaskLabel, onOpenLinked }: BacklogProps) {
+function BacklogMeta({ tags, createdLabel, onStartDevelopment, started, linkedTaskLabel, onOpenLinked, onDrop }: BacklogProps) {
   const stop = (fn?: () => void) => (e: { stopPropagation: () => void }) => { e.stopPropagation(); fn?.(); };
   return (
     <>
@@ -132,6 +135,9 @@ function BacklogMeta({ tags, createdLabel, onStartDevelopment, started, linkedTa
       {createdLabel !== undefined && <span className="created">{createdLabel}</span>}
       {started === true && linkedTaskLabel !== undefined && (
         <span className="linked" role="link" tabIndex={0} onClick={stop(onOpenLinked)}>{linkedTaskLabel}</span>
+      )}
+      {started !== true && onDrop !== undefined && (
+        <button type="button" className="backlog-drop-btn" onClick={stop(onDrop)}>Drop</button>
       )}
       {started === true
         ? <span className="start-dev-btn started">Started <span className="arrow" aria-hidden>→</span></span>

@@ -12,17 +12,22 @@ exports[`Shell > matches snapshot in default and collapsed states > collapsed 1`
         class="sb-traffic"
       >
         <div
-          aria-hidden="true"
           class="dots"
         >
           <span
+            aria-label="Close window"
             class="r"
+            role="button"
           />
           <span
+            aria-label="Minimize window"
             class="y"
+            role="button"
           />
           <span
+            aria-label="Toggle full screen"
             class="g"
+            role="button"
           />
         </div>
         <span
@@ -422,17 +427,22 @@ exports[`Shell > matches snapshot in default and collapsed states > default 1`] 
         class="sb-traffic"
       >
         <div
-          aria-hidden="true"
           class="dots"
         >
           <span
+            aria-label="Close window"
             class="r"
+            role="button"
           />
           <span
+            aria-label="Minimize window"
             class="y"
+            role="button"
           />
           <span
+            aria-label="Toggle full screen"
             class="g"
+            role="button"
           />
         </div>
         <span

@@ -31,6 +31,9 @@ export type InboxHandlers = {
   approve: (pr: PullRequestDto) => Promise<void>;
   /** A parked approval was resolved via the embedded publish gate. */
   resolved: () => void;
+  /** The row was expanded — the section marks informational
+   *  notifications read on engagement (same rule as the thread strip). */
+  opened?: (item: InboxItem) => void;
 };
 
 /** Icon glyph per row flavour — the type-colored tile's content. */
@@ -195,10 +198,14 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
         className="home-inbox-card__row"
         role="button"
         tabIndex={0}
-        onClick={() => setOpen(v => !v)}
+        onClick={() => {
+          if (!open) handlers.opened?.(item);
+          setOpen(v => !v);
+        }}
         onKeyDown={e => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
+            if (!open) handlers.opened?.(item);
             setOpen(v => !v);
           }
         }}

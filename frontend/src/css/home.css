@@ -29,9 +29,9 @@
   flex-shrink: 0;
 }
 
-/* Right panel: fixed 240px, elevated bg, own scroll (design H4). */
+/* Right panel: fixed width, elevated bg, own scroll. */
 .home-side {
-  width: 240px;
+  width: 300px;
   flex-shrink: 0;
   overflow-y: auto;
   border-left: 1px solid var(--border);

@@ -26,6 +26,7 @@ export type { SpineColor } from './Spine';
 // Layer 2 — conversation units.
 export { Round, UserTurn, Headline, BrainDot } from './Round';
 export { WorkFold } from './WorkFold';
+export { TaskFold } from './TaskFold';
 export { ActivityStrip } from './ActivityStrip';
 export type { ToolRow, ToolGroup } from './ActivityStrip';
 

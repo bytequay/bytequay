@@ -181,7 +181,7 @@ export function TaskBrainPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {paneOpen && <ResizeHandle onResize={onResize} ariaLabel="Resize the side pane" />}
+          {paneOpen && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
           {paneOpen && (
             <RightPane>
               <RightPane.Tabs<BrainTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />

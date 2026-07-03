@@ -16,6 +16,14 @@
   min-width: 0;
   min-height: 0;
 }
+/* The pane resize handle sits in a 5px gutter right beside the pane's own
+   border-left — both drew a 1px line, so the boundary read as a double
+   divider. Suppress the handle's line and let the pane border be the single
+   boundary; the handle stays a transparent grab zone that lights up on the
+   border on hover. (All columns share --bg, so the gutter is invisible.) */
+.shell .resize-handle.pane-resize::before { left: auto; right: 0; background: transparent; }
+.shell .resize-handle.pane-resize:hover::before,
+.shell .resize-handle.pane-resize:active::before { background: var(--accent); width: 2px; }
 .shell .pane-tabs {
   display: flex;
   align-items: center;

@@ -249,7 +249,7 @@ export function TrunkPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {paneOpen && <ResizeHandle onResize={onResize} ariaLabel="Resize the side pane" />}
+          {paneOpen && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
           {paneOpen && (
             <RightPane>
               {/* Top-level switcher inside the pane: the pinned composer chips

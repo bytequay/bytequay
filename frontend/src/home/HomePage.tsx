@@ -12,11 +12,9 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { FootprintStopDto, PullRequestDto, RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } from '../types';
+import type { PullRequestDto, RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
-import TodaysFootprints from '../footprints/TodaysFootprints';
-import { resumeStop } from '../footprints/resume';
 import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
@@ -44,10 +42,8 @@ type Props = {
   onOpenTeam?: (teamId: number) => void;
   /** Set by App.tsx — jumps to Settings → Teams (to create a new team). */
   onGoToTeams?: () => void;
-  /** Resume a task from a footprint pin — opens the task detail page. */
+  /** Inbox "View task" — opens the task detail page. */
   onOpenTask?: (threadId: string, taskId: string) => void;
-  /** Resume a thread from a footprint pin — opens the thread. */
-  onOpenThread?: (threadId: string) => void;
   /** Inbox "See all" — opens the notification center. */
   onOpenNotifications?: () => void;
 };
@@ -93,14 +89,7 @@ function formatRelativeTime(iso: string): string {
   return `${Math.round(hrs / 24)} days ago`;
 }
 
-function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenThread, onOpenNotifications }: Props) {
-  // Resume a footprint pin via the app's existing navigation handlers.
-  const handleResumeFootprint = (stop: FootprintStopDto) => resumeStop(stop, {
-    openPrKanban: onGoToMyPrs,
-    openPr: onSelectRepo,
-    openTask: (threadId, taskId) => onOpenTask?.(threadId, taskId),
-    openThread: (threadId) => onOpenThread?.(threadId),
-  });
+function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenNotifications }: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
    *  initialPrNumber), and only fall out to the system browser for
@@ -246,12 +235,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
         onOpenTask={onOpenTask}
         onSeeAll={() => onOpenNotifications?.()}
         onPrsChanged={v => { setPrs(v); setCached(KEY_PRS, v); }}
-      />
-
-      {/* ── Today's footprints: the day's visited surfaces as a trail ── */}
-      <TodaysFootprints
-        onResume={handleResumeFootprint}
-        onSeeFullDay={() => console.log('[footprints] full-day view — decision pending')}
       />
 
       {/* ── Repos you watch ── */}

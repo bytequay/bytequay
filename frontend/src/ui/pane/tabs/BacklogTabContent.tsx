@@ -32,10 +32,12 @@ export type BacklogItemData = {
  * "Start development →" CTA); started items stay listed, faded, with a
  * link to the task they cut. A dashed "add item" dropzone sits on top.
  */
-export function BacklogTabContent({ items, onAddItem, onStartDevelopment, onOpenItem, onOpenLinked }: {
+export function BacklogTabContent({ items, onAddItem, onStartDevelopment, onDrop, onOpenItem, onOpenLinked }: {
   items: BacklogItemData[];
   onAddItem?: () => void;
   onStartDevelopment?: (id: string) => void;
+  /** Marks an item not-to-proceed — the per-item Drop button. */
+  onDrop?: (id: string) => void;
   onOpenItem?: (id: string) => void;
   onOpenLinked?: (id: string) => void;
 }) {
@@ -58,6 +60,7 @@ export function BacklogTabContent({ items, onAddItem, onStartDevelopment, onOpen
           linkedTaskLabel={item.linkedTaskLabel}
           onClick={onOpenItem !== undefined ? () => onOpenItem(item.id) : undefined}
           onStartDevelopment={onStartDevelopment !== undefined ? () => onStartDevelopment(item.id) : undefined}
+          onDrop={onDrop !== undefined ? () => onDrop(item.id) : undefined}
           onOpenLinked={onOpenLinked !== undefined ? () => onOpenLinked(item.id) : undefined}
         />
       ))}

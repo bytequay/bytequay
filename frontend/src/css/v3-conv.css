@@ -726,6 +726,24 @@
 .shell .start-dev-btn.started:hover {
   background: var(--bg-input);
 }
+/* Quiet "Drop" (mark not-to-proceed) button, grouped to the right next to
+   Start development. margin-left:auto claims the free space so the pair sits
+   together even though start-dev also right-aligns. */
+.shell .backlog-drop-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: inherit;
+}
+.shell .backlog-drop-btn:hover { color: var(--text-1); border-color: var(--text-3); }
 
 /* ── Triage cards (trunk-proposed backlog candidates) ─────────── */
 .shell .trunk-triage {
@@ -796,6 +814,50 @@
   font-weight: 600;
 }
 .shell .triage-card__btn--start:hover { filter: brightness(1.05); }
+
+/* Idle-trunk "run the next backlog?" prompt — a foldable card above the
+   composer. Reuses the triage-card button/tag styles for its body. */
+.shell .trunk-prompt { display: flex; flex-direction: column; gap: 8px; padding: 0 32px 8px; }
+.shell .trunk-prompt__head {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-deep);
+}
+.shell .backlog-prompt {
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.shell .backlog-prompt__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.shell .backlog-prompt__ic { font-size: 11px; color: var(--accent-deep); }
+.shell .backlog-prompt__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell .backlog-prompt__chev { color: var(--text-3); transition: transform .15s; }
+.shell .backlog-prompt.open .backlog-prompt__chev { transform: rotate(90deg); }
+.shell .backlog-prompt__body { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 11px; }
+.shell .backlog-prompt__actions { display: flex; gap: 6px; }
 
 /* ════════════════════════════════════════════════════════════════════
    TIMELINE SPINE (M10) — the shared spine system for the brain feed, the
@@ -1163,6 +1225,7 @@
 
 /* plan card */
 .shell .plan-card { border: 1.5px solid var(--accent-border); border-radius: 12px; background: linear-gradient(135deg, var(--accent-a7), var(--accent-a4)); box-shadow: 0 3px 14px rgba(124, 92, 255, 0.1); overflow: hidden; }
+.shell .plan-card--awaiting { border-color: var(--orange); background: linear-gradient(135deg, rgba(217, 119, 6, 0.14), rgba(217, 119, 6, 0.06)); box-shadow: 0 3px 14px rgba(217, 119, 6, 0.12); }
 .shell .plan-card__hd { display: flex; align-items: center; gap: 8px; padding: 11px 13px 9px; }
 .shell .plan-card__ic { font-size: 13px; }
 .shell .plan-card__t { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-deep); }

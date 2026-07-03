@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
-import { AskUserQuestionCard, TriageCard } from '../ui/conv';
+import { AskUserQuestionCard, BacklogPrompt, pickTopBacklog, TriageCard } from '../ui/conv';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
   Composer, Main, Shell, TopBar, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
@@ -96,6 +96,21 @@ export function TrunkPage({
   // cards in the conversation; answering one posts the reply as the next
   // message and the card drops out on the next poll.
   const openQuestions = pane.questions.filter(q => q.status === 'open');
+  // Idle-trunk prompt: when nothing is running and the backlog still holds
+  // unstarted items, offer to run the top one (highest priority, then oldest).
+  // "Ignore" is a per-thread dismissal (localStorage) — once set, the backlog
+  // waits for a manual Start and this prompt stays hidden.
+  const ignoreKey = `bq.backlogPrompt.ignore.${threadId}`;
+  const [promptIgnored, setPromptIgnored] = useState(() => {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem(ignoreKey) === 'true'; }
+    catch { return false; }
+  });
+  const ignorePrompt = () => {
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem(ignoreKey, 'true'); }
+    catch { /* storage unavailable */ }
+    setPromptIgnored(true);
+  };
+  const topBacklog = pickTopBacklog(pane.backlog, tasks.active.length > 0, promptIgnored);
   const [taskSub, setTaskSub] = useState<TaskSubTab>('all');
   const [paneOpen, setPaneOpen] = useState(true);
   // Trunk keeps its own pane width, independent of the brain/stage surfaces.
@@ -168,6 +183,7 @@ export function TrunkPage({
             items={pane.backlog.map(i => backlogToCard(i, formatTime))}
             onAddItem={() => setAddBacklogOpen(true)}
             onStartDevelopment={id => { void pane.startDevelopment(id); }}
+            onDrop={id => { void pane.skip(id); }}
           />
         );
       case 'notifications':
@@ -225,6 +241,16 @@ export function TrunkPage({
                 ))}
               </div>
             )}
+            {topBacklog !== undefined && (
+              <BacklogPrompt
+                title={topBacklog.title}
+                body={topBacklog.body}
+                tags={topBacklog.tags}
+                onApprove={() => { void pane.startDevelopment(topBacklog.id); }}
+                onIgnore={ignorePrompt}
+                onDrop={() => { void pane.skip(topBacklog.id); }}
+              />
+            )}
             <InlineChips chips={[
               { icon: '◳', label: 'Tasks', count: taskCount, countColor: 'acc', active: paneOpen && activeTab === 'tasks', onClick: () => onChipClick('tasks') },
               { icon: '☷', label: 'Backlog', count: pane.backlog.length, active: paneOpen && activeTab === 'backlog', onClick: () => onChipClick('backlog') },
@@ -244,9 +270,19 @@ export function TrunkPage({
           {paneOpen && <ResizeHandle onResize={onResize} ariaLabel="Resize the side pane" />}
           {paneOpen && (
             <RightPane>
-              {/* The pinned chip row above the composer is the tab switcher, so
-                  the pane doesn't repeat a top-level tab strip — only the
-                  Tasks sub-tabs live here. */}
+              {/* Top-level switcher inside the pane: the pinned composer chips
+                  double as a collapsed-pane entry, but when the pane is open the
+                  user needs to reach Backlog / Notifications from the pane itself
+                  rather than reaching back up to the composer. */}
+              <RightPane.Tabs<TrunkTab>
+                tabs={[
+                  { key: 'tasks', label: 'Tasks', count: taskCount, countColor: 'acc' },
+                  { key: 'backlog', label: 'Backlog', count: pane.backlog.length },
+                  { key: 'notifications', label: 'Notifications', count: unreadCount, countColor: 'red' },
+                ]}
+                active={activeTab}
+                onSelect={setActiveTab}
+              />
               {activeTab === 'tasks' && (
                 <div className="pane-subtabs">
                   <RightPane.Tabs<TaskSubTab>

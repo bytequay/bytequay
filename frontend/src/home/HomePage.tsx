@@ -271,10 +271,8 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
 
       {/* ── Right panel: Your recent activity + Following activity ── */}
       <aside className="home-side">
-        <div className="home-card home-mine-card">
-          <div className="home-card__header">
-            <span className="home-card__title">Your recent activity</span>
-          </div>
+        <section className="home-side-section">
+          <h3 className="home-side-section__title">Recent activity</h3>
           {events.length === 0 ? (
             <div className="hp-empty">No recent activity yet.</div>
           ) : (
@@ -291,12 +289,10 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
               ))}
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="home-card home-following-card">
-          <div className="home-card__header">
-            <span className="home-card__title">From people you follow</span>
-          </div>
+        <section className="home-side-section">
+          <h3 className="home-side-section__title">From people you follow</h3>
           {followingEvents.length === 0 ? (
             <div className="hp-empty">No recent activity from people you follow.</div>
           ) : (
@@ -315,7 +311,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
               ))}
             </div>
           )}
-        </div>
+        </section>
       </aside>
 
       {showModal && (

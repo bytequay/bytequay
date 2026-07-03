@@ -25,5 +25,6 @@ export { BacklogTabContent } from './BacklogTabContent';
 export type { BacklogItemData } from './BacklogTabContent';
 export { BacklogFormModal } from './BacklogFormModal';
 export type { NewBacklogItem } from './BacklogFormModal';
+export { StartDevelopmentDialog } from './StartDevelopmentDialog';
 export { NotificationsTabContent, NotificationRow } from './NotificationsTabContent';
 export type { NotifData, NotifIconKind } from './NotificationsTabContent';

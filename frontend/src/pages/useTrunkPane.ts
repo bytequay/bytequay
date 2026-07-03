@@ -33,6 +33,7 @@ export type TrunkPaneState = {
   deleteItem: (itemId: string) => Promise<void>;
   startDevelopment: (itemId: string) => Promise<string | null>;
   skip: (itemId: string, reason?: string) => Promise<void>;
+  revive: (itemId: string) => Promise<void>;
   answerQuestion: (questionId: string, answerOptionId?: string, answerFreeForm?: string) => Promise<void>;
   markSignalRead: (signalId: string) => Promise<void>;
 };
@@ -98,13 +99,28 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
   }, [load]);
 
   const startDevelopment = useCallback(async (itemId: string): Promise<string | null> => {
-    const result = await window.bridge.startBacklogDevelopment(itemId);
-    await load();
-    return result.taskId;
+    try {
+      const result = await window.bridge.startBacklogDevelopment(itemId);
+      await load();
+      return result.taskId;
+    }
+    catch (e) {
+      // A 409 means the item already left `created` (started elsewhere, or a
+      // double-click beat the poll) — benign, just resync the stale list. Any
+      // other failure is real and should surface.
+      if (!(e instanceof Error) || !e.message.includes('409')) throw e;
+      await load();
+      return null;
+    }
   }, [load]);
 
   const skip = useCallback(async (itemId: string, reason?: string) => {
     await window.bridge.skipBacklogItem(itemId, reason);
+    await load();
+  }, [load]);
+
+  const revive = useCallback(async (itemId: string) => {
+    await window.bridge.reviveBacklogItem(itemId);
     await load();
   }, [load]);
 
@@ -121,6 +137,6 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
 
   return {
     backlog, signals, questions, loading, error, refresh,
-    createItem, updateItem, deleteItem, startDevelopment, skip, answerQuestion, markSignalRead,
+    createItem, updateItem, deleteItem, startDevelopment, skip, revive, answerQuestion, markSignalRead,
   };
 }

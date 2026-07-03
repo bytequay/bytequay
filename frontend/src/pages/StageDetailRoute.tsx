@@ -16,6 +16,7 @@ import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { useLocalPr } from '../threads/brain/useLocalPr';
 import { PRView } from '../pr/localpr/PRView';
+import { LocalPrReviewScreen } from '../pr/localpr/LocalPrReviewScreen';
 import { PushDialog } from '../pr/localpr/PushDialog';
 import { MergeDialog } from '../pr/localpr/MergeDialog';
 import type { MergeMethod } from '../pr/localpr/MergeDialog';
@@ -104,6 +105,7 @@ export function StageDetailRoute({
   const [localComment, setLocalComment] = useState('');
   const [pushOpen, setPushOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
@@ -485,6 +487,7 @@ export function StageDetailRoute({
       onAskAgent={state !== 'CLOSED' ? askAgentToAddress : undefined}
       onMerge={() => setMergeOpen(true)}
       onMergeAnyway={() => setMergeOpen(true)}
+      onReviewChanges={() => setReviewOpen(true)}
     />
   ) : null;
 
@@ -537,6 +540,23 @@ export function StageDetailRoute({
       onOpenBrain={onOpenBrain}
     />
   );
+
+  // Full-page changed-files + diff review for the local PR, reached from the
+  // PR tab's "Review changed files" button. A takeover (like the remote PR's
+  // DiffViewerScreen), reusing the exact same file-tree + diff panels.
+  if (reviewOpen && localPr !== null) {
+    return (
+      <LocalPrReviewScreen
+        title={`Review · ${localPr.title}`}
+        files={files}
+        comments={localPrBundle?.comments ?? []}
+        allowLocalComments={prMode === 'local' && state !== 'CLOSED'}
+        onAddComment={addLocalLineComment}
+        onResolveComment={resolveLocalComment}
+        onBack={() => setReviewOpen(false)}
+      />
+    );
+  }
 
   return (
     <StageDetailPage

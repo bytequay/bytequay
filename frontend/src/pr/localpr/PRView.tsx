@@ -34,7 +34,7 @@ import { PRCommentComposer } from './PRCommentComposer';
  */
 export function PRView({
   mode, bundle, commentValue, onCommentChange, username,
-  onAddComment, onPush, onAskAgent, onMerge, onMergeAnyway,
+  onAddComment, onPush, onAskAgent, onMerge, onMergeAnyway, onReviewChanges,
 }: {
   mode: PRViewMode;
   bundle: LocalPRBundle;
@@ -46,6 +46,9 @@ export function PRView({
   onAskAgent?: () => void;
   onMerge?: () => void;
   onMergeAnyway?: () => void;
+  /** Opens the full-page changed-files + diff review. Omitted when there's
+   *  nothing to review yet. */
+  onReviewChanges?: () => void;
 }) {
   const { pr, timeline, checks, comments } = bundle;
   const badge = statusBadgeMeta(pr.status);
@@ -79,6 +82,13 @@ export function PRView({
       </div>
 
       <div className="pr-body-scroll">
+        {onReviewChanges !== undefined && (
+          <button type="button" className="pr-review-btn" onClick={onReviewChanges}>
+            <span className="ic" aria-hidden>◧</span>
+            Review changed files &amp; diff
+            <span className="arrow" aria-hidden>→</span>
+          </button>
+        )}
         <div className="pr-section-h">Description</div>
         <div className={pr.status === 'local-drafted' ? 'pr-description drafting' : 'pr-description'}>
           {pr.description.trim().length > 0

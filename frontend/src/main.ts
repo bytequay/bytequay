@@ -503,6 +503,16 @@ function registerIpc(): void {
     return mainWindow ? mainWindow.isFullScreen() : false;
   });
 
+  // Window controls for the renderer's fake traffic-light dots — they
+  // stand in for the native macOS buttons in fullscreen (where the OS
+  // hides its own), so they must actually close / minimize / restore.
+  ipcMain.handle('window:control', (_event, action: string) => {
+    if (!mainWindow) return;
+    if (action === 'close') mainWindow.close();
+    else if (action === 'minimize') mainWindow.minimize();
+    else if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  });
+
   // SSE broker for per-thread live event streams. Renderer subscribes via
   // window.bridge.subscribeTaskStream(); main opens the upstream SSE
   // connection and forwards parsed events. Replaces the 1s poll while

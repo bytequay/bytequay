@@ -32,8 +32,27 @@ export function TrafficLights({ onBack, onForward, backEnabled = true, forwardEn
 }) {
   return (
     <div className="sb-traffic">
-      <div className="dots" aria-hidden>
-        <span className="r" /><span className="y" /><span className="g" />
+      {/* The dots stand in for the native macOS buttons in fullscreen
+          (where the OS hides its own), so they must actually work. */}
+      <div className="dots">
+        <span
+          className="r"
+          role="button"
+          aria-label="Close window"
+          onClick={() => { void window.bridge.windowControl('close'); }}
+        />
+        <span
+          className="y"
+          role="button"
+          aria-label="Minimize window"
+          onClick={() => { void window.bridge.windowControl('minimize'); }}
+        />
+        <span
+          className="g"
+          role="button"
+          aria-label="Toggle full screen"
+          onClick={() => { void window.bridge.windowControl('zoom'); }}
+        />
       </div>
       <span
         className="sb-toggle"

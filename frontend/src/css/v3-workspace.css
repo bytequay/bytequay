@@ -55,7 +55,9 @@
    buttons read as sitting on the window background, but it KEEPS its
    right-hand divider so the content edge stays a clean line, not a cut. */
 .shell.shell-rail.sidebar-collapsed {
-  width: auto;
+  /* Wide enough to contain the native traffic lights (they end at
+     x≈66) so they don't spill over the divider onto the content. */
+  width: 78px;
   flex-shrink: 0;
 }
 .shell.shell-rail.sidebar-collapsed > .sidebar {
@@ -64,18 +66,54 @@
 .shell.shell-rail.sidebar-collapsed .sb-traffic .nav-arrows {
   display: none;
 }
+/* Folded chrome column: while windowed the native buttons own the top
+   ~40px, so the expand toggle drops below them instead of underneath. */
+.shell.shell-rail.sidebar-collapsed .sb-traffic {
+  flex-direction: column;
+  align-items: flex-start;
+  height: auto;
+  padding: 40px 14px 8px;
+  gap: 8px;
+}
+.shell.shell-rail.sidebar-collapsed .sb-traffic .sb-toggle {
+  margin-left: 0;
+}
+/* Fullscreen has no native buttons: our (working) dots take the top
+   row and the toggle sits beneath them. */
+.shell.shell-rail.is-fullscreen.sidebar-collapsed .sb-traffic {
+  padding-top: 14px;
+}
+.shell.shell-rail.is-fullscreen.sidebar-collapsed .sb-traffic .dots {
+  display: flex;
+}
 
 /* The window-chrome row is a drag handle; its buttons opt out. The fake
    red/yellow/green dots stand in for the native macOS traffic lights:
    the window is `hiddenInset`, so while windowed the OS draws the real
    buttons over this spot and ours stay hidden (but keep their width so
    nothing shifts). In fullscreen the OS hides its buttons, so ours
-   become visible — the user keeps the three dots in the same place. */
+   become visible — the user keeps the three dots in the same place and
+   they really close / minimize / restore (wired via window:control). */
 .shell.shell-rail .sb-traffic {
   -webkit-app-region: drag;
+  /* Fixed row height centring the buttons on the native traffic lights
+     (trafficLightPosition {14,14} + 12px buttons → centre line y=20). */
+  height: 40px;
+  padding: 0 14px;
+}
+.shell.shell-rail .sb-traffic .sb-toggle {
+  /* Breathing room after the (real or fake) green button. */
+  margin-left: 12px;
 }
 .shell.shell-rail .sb-traffic .dots {
   visibility: hidden;
+}
+/* Unconditional no-drag: while windowed the dots are invisible and
+   inert anyway, and keeping the rule off the fullscreen class combo
+   means a missed class can't turn the buttons into drag handles. */
+.shell.shell-rail .sb-traffic .dots span {
+  -webkit-app-region: no-drag;
+  cursor: pointer;
 }
 .shell.shell-rail.is-fullscreen .sb-traffic .dots {
   visibility: visible;

@@ -87,6 +87,15 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
           });
         return;
       }
+      if (item.source.kind === 'pr') {
+        // Same concept as the kanban: dismissing moves the PR to its
+        // Handled bucket, which also removes it from this inbox.
+        window.bridge.markPrHandled(item.source.pr.id, 'DISMISSED')
+          .then(() => window.bridge.fetchPrs())
+          .then(onPrsChanged)
+          .catch(() => setNote("Couldn't dismiss — try again."));
+        return;
+      }
       // Provider-backed rows have no backend record — hide locally.
       setHiddenIds(ids => [...ids, item.id]);
     },

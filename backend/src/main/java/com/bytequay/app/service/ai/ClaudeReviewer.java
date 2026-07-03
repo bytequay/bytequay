@@ -50,6 +50,7 @@ import java.util.function.Consumer;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 /**
  * LlmReviewer implementation against the Anthropic Messages API.
@@ -160,8 +161,8 @@ public class ClaudeReviewer
         MessagesRequest body = new MessagesRequest(
                 model,
                 MAX_OUTPUT_TOKENS,
-                systemPrompt == null ? "" : systemPrompt,
-                ImmutableList.of(new MessagesRequest.Message("user", userPrompt == null ? "" : userPrompt)),
+                requireNonNullElse(systemPrompt, ""),
+                ImmutableList.of(new MessagesRequest.Message("user", requireNonNullElse(userPrompt, ""))),
                 false);
 
         try {
@@ -319,7 +320,7 @@ public class ClaudeReviewer
                 follow, with code snippets where relevant), and **If that doesn't work** \
                 (one short fallback). Be specific — quote the exact failing line / file \
                 from the log. Do not pad. Output only the markdown.""";
-        String user = "CI check **" + (checkName == null ? "(unnamed)" : checkName) + "** failed.\n\n"
+        String user = "CI check **" + requireNonNullElse(checkName, "(unnamed)") + "** failed.\n\n"
                 + "Log:\n```\n" + trimmedLog + "\n```";
 
         MessagesRequest body = new MessagesRequest(
@@ -432,8 +433,8 @@ public class ClaudeReviewer
                 Do not invent files or behaviors not present in the diff. \
                 Output ONLY the JSON object — no preamble, no markdown fences.""";
         StringBuilder user = new StringBuilder();
-        user.append("Head branch: `").append(headBranch == null ? "(unknown)" : headBranch).append("`\n");
-        user.append("Base branch: `").append(baseBranch == null ? "(unknown)" : baseBranch).append("`\n\n");
+        user.append("Head branch: `").append(requireNonNullElse(headBranch, "(unknown)")).append("`\n");
+        user.append("Base branch: `").append(requireNonNullElse(baseBranch, "(unknown)")).append("`\n\n");
         if (prTemplate != null && !prTemplate.isBlank()) {
             user.append("Repo PR template:\n```markdown\n").append(prTemplate).append("\n```\n\n");
         }
@@ -564,7 +565,7 @@ public class ClaudeReviewer
                     .map(comment -> new ReviewOutput.LineComment(comment.file(), comment.line(), comment.body(), normalizeSeverity(comment.severity())))
                     .collect(toImmutableList());
             return new ReviewOutput(
-                    parsed.summary() == null ? "" : parsed.summary(),
+                    requireNonNullElse(parsed.summary(), ""),
                     comments,
                     PROVIDER_ID,
                     model);

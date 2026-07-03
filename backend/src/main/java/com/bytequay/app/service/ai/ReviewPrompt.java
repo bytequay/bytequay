@@ -15,6 +15,8 @@ package com.bytequay.app.service.ai;
 
 import com.bytequay.app.domain.ReviewRequest;
 
+import static java.util.Objects.requireNonNullElse;
+
 /**
  * Shared prompt fragments for AI PR review. Kept here so that all provider
  * implementations (Claude, OpenAI, local) see the same instructions and
@@ -78,11 +80,11 @@ final class ReviewPrompt
 
     static String userMessage(ReviewRequest req)
     {
-        String diff = req.diff() == null ? "" : req.diff();
+        String diff = requireNonNullElse(req.diff(), "");
         if (diff.length() > MAX_DIFF_CHARS) {
             diff = diff.substring(0, MAX_DIFF_CHARS) + "\n... [truncated: diff too large]";
         }
-        String body = req.body() == null ? "" : req.body();
+        String body = requireNonNullElse(req.body(), "");
         return """
                 Review this pull request.
 
@@ -101,8 +103,8 @@ final class ReviewPrompt
                 """.formatted(
                         req.repo(),
                         req.number(),
-                        req.title() == null ? "" : req.title(),
-                        req.headSha() == null ? "" : req.headSha(),
+                        requireNonNullElse(req.title(), ""),
+                        requireNonNullElse(req.headSha(), ""),
                         body.isBlank() ? "(no description)" : body,
                         diff);
     }

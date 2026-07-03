@@ -40,6 +40,7 @@ import java.util.function.Consumer;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 /**
  * Orchestrates a single AI review run: fetches the PR's raw detail and
@@ -84,7 +85,7 @@ public class AiReviewService
      */
     public AiReviewDraft runReview(long prId, String repo, int number)
     {
-        Skill skill = skillService.forRepo(repo).orElse(null);
+        Optional<Skill> skill = skillService.forRepo(repo);
         LlmReviewer reviewer = registry.active();
         if (!reviewer.isConfigured()) {
             throw new ResponseStatusException(
@@ -108,7 +109,7 @@ public class AiReviewService
                 raw.body(),
                 raw.headSha(),
                 diff,
-                skill != null ? skill.body() : null);
+                skill.map(Skill::body).orElse(null));
         ReviewOutput output = reviewer.review(request);
         return draftStore.save(prId, repo, number, raw.headSha(), output);
     }
@@ -127,7 +128,7 @@ public class AiReviewService
             Consumer<String> onDelta)
     {
         requireNonNull(onDelta, "onDelta is null");
-        Skill skill = skillService.forRepo(repo).orElse(null);
+        Optional<Skill> skill = skillService.forRepo(repo);
         LlmReviewer reviewer = registry.active();
         if (!reviewer.isConfigured()) {
             throw new ResponseStatusException(
@@ -151,7 +152,7 @@ public class AiReviewService
                 raw.body(),
                 raw.headSha(),
                 diff,
-                skill != null ? skill.body() : null);
+                skill.map(Skill::body).orElse(null));
         ReviewOutput output = reviewer.reviewStream(request, onDelta);
         return draftStore.save(prId, repo, number, raw.headSha(), output);
     }
@@ -326,10 +327,10 @@ public class AiReviewService
                         c.filePath(),
                         Optional.empty(),
                         Optional.of(c.lineNumber()),
-                        c.side() != null ? c.side() : "RIGHT",
+                        requireNonNullElse(c.side(), "RIGHT"),
                         formatCommentBody(c),
-                        c.startLine() == null ? Optional.empty() : Optional.of(c.startLine()),
-                        c.startSide() == null ? Optional.empty() : Optional.of(c.startSide())))
+                        Optional.ofNullable(c.startLine()),
+                        Optional.ofNullable(c.startSide())))
                 .collect(toImmutableList());
 
         String reviewEvent = normaliseEvent(event);
@@ -356,7 +357,7 @@ public class AiReviewService
             body = bodyOverride.strip();
         }
         CreateReviewCommand command = new CreateReviewCommand(
-                draft.headSha() == null ? Optional.empty() : Optional.of(draft.headSha()),
+                Optional.ofNullable(draft.headSha()),
                 Optional.ofNullable(body),
                 reviewEvent,
                 inline);

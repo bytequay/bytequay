@@ -38,6 +38,29 @@ verbatim**. Nothing rewrites or squashes them. So own them:
   collapses any leftover changes into a single generic commit, throwing
   away your messages and authorship.
 
+## Record the PR artifact as you build it
+
+ByteQuay keeps a **local PR** for this task — the pull request as it exists
+on this machine before anything reaches GitHub. Keep it current so the user
+can review your work in the PR view while you go. None of these touch GitHub;
+they write the local record only:
+
+- **`record_pr_description`** — write the PR title + a markdown description
+  (what the change does and why) once you know the shape of the change, and
+  update it as the work lands. This is the PR body the user reads.
+- **`record_pr_check`** — after you run the repo's validation (e.g. `mvn
+  verify`, `npx tsc --noEmit`, `npm test`), record each with its
+  `kind: "local"`, name, `status` (passed / failed), and duration. This
+  fills the local checks card every iteration.
+- **`record_pr_comment` / `resolve_pr_comment`** — leave or resolve a note on
+  the local PR when useful.
+- **`record_local_review`** — when the code is done and validation is green,
+  set `request_user_review: true` to hand the PR to the user for review.
+
+Commits are captured automatically from your branch — you don't record those.
+Recording the description + checks is what makes the PR view show more than a
+bare commit list.
+
 ## Publishing goes through ByteQuay
 
 Anything that leaves this machine for GitHub goes through a ByteQuay

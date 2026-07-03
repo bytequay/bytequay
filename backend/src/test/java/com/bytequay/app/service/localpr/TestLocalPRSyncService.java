@@ -70,6 +70,14 @@ class TestLocalPRSyncService
                 shortSha + "full", shortSha, "you", "you@example.com", "2026-07-01T00:00:00Z", subject);
     }
 
+    /** Stub every commit's numstat to a fixed +10 −2 delta. */
+    private void stubDelta()
+            throws Exception
+    {
+        when(git.commitFiles(any(), any()))
+                .thenReturn(List.of(new GitRunner.CommitFileChange("f.java", "M", 10, 2)));
+    }
+
     @Test
     void createsThePrAndRecordsBranchCommitsOldestFirst()
             throws Exception
@@ -81,14 +89,15 @@ class TestLocalPRSyncService
         // git log is newest-first.
         when(git.listCommitsAhead(any(), eq("main"), eq(200)))
                 .thenReturn(List.of(commit("ccc", "third"), commit("bbb", "second"), commit("aaa", "first")));
+        stubDelta();
 
         service.syncFromTask("task1");
 
-        // Recorded oldest-first: aaa, bbb, ccc.
+        // Recorded oldest-first: aaa, bbb, ccc — each with its summed numstat delta.
         var order = inOrder(localPr);
-        order.verify(localPr).recordCommit(eq("pr1"), eq("aaa"), eq("first"), eq(0), eq(0), any());
-        order.verify(localPr).recordCommit(eq("pr1"), eq("bbb"), eq("second"), eq(0), eq(0), any());
-        order.verify(localPr).recordCommit(eq("pr1"), eq("ccc"), eq("third"), eq(0), eq(0), any());
+        order.verify(localPr).recordCommit(eq("pr1"), eq("aaa"), eq("first"), eq(10), eq(2), any());
+        order.verify(localPr).recordCommit(eq("pr1"), eq("bbb"), eq("second"), eq(10), eq(2), any());
+        order.verify(localPr).recordCommit(eq("pr1"), eq("ccc"), eq("third"), eq(10), eq(2), any());
     }
 
     @Test
@@ -102,10 +111,11 @@ class TestLocalPRSyncService
                 "id-aaa", "pr1", "aaa", "first", 0, 0, NOW, null)));
         when(git.listCommitsAhead(any(), eq("main"), eq(200)))
                 .thenReturn(List.of(commit("bbb", "second"), commit("aaa", "first")));
+        stubDelta();
 
         service.syncFromTask("task1");
 
-        verify(localPr).recordCommit(eq("pr1"), eq("bbb"), eq("second"), eq(0), eq(0), any());
+        verify(localPr).recordCommit(eq("pr1"), eq("bbb"), eq("second"), eq(10), eq(2), any());
         verify(localPr, never()).recordCommit(eq("pr1"), eq("aaa"), any(), anyInt(), anyInt(), any());
     }
 

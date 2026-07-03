@@ -12,20 +12,19 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { FootprintStopDto, PullRequestDto, RecentEventDto, StatPeriods, TeamSummaryDto, UserOrgDto, UserProfileDto, UserStatsDto, WatchedRepoDto } from './types';
-import Avatar from './Avatar';
-import AddRepoModal from './AddRepoModal';
-import ActivityRow from './ActivityRow';
-import DailyCardSection from './DailyCardSection';
-import YearInCodeHeatmap from './YearInCodeHeatmap';
-import TodaysFootprints from './footprints/TodaysFootprints';
-import { resumeStop } from './footprints/resume';
-import { bucketize } from './prBuckets';
-import { getCached, setCached } from './dataCache';
+import type { FootprintStopDto, PullRequestDto, RecentEventDto, TeamSummaryDto, UserOrgDto, UserProfileDto, WatchedRepoDto } from '../types';
+import Avatar from '../Avatar';
+import AddRepoModal from '../AddRepoModal';
+import ActivityRow from '../ActivityRow';
+import YearInCodeHeatmap from '../YearInCodeHeatmap';
+import TodaysFootprints from '../footprints/TodaysFootprints';
+import { resumeStop } from '../footprints/resume';
+import { bucketize } from '../prBuckets';
+import { getCached, setCached } from '../dataCache';
 
-// The five GitHub-sourced flows (profile, recent/following events, stats,
-// orgs) used to be cached client-side via getCached/setCached for
-// instant-paint on tab return. The backend now persists those in SQLite via
+// The GitHub-sourced flows (profile, recent/following events, orgs) used
+// to be cached client-side via getCached/setCached for instant-paint on
+// tab return. The backend now persists those in SQLite via
 // GithubHomeCacheRefreshJob, so the frontend reads straight from the
 // already-cached backend on every mount and the localStorage layer is gone
 // for those keys. The remaining keys back DB-sourced flows that didn't
@@ -48,8 +47,6 @@ type Props = {
   /** Resume a thread from a footprint pin — opens the thread. */
   onOpenThread?: (threadId: string) => void;
 };
-
-type StatPeriod = 'today' | 'week' | 'month';
 
 function openUrl(url: string) {
   void window.bridge.openExternal(url);
@@ -92,12 +89,6 @@ function formatRelativeTime(iso: string): string {
   return `${Math.round(hrs / 24)} days ago`;
 }
 
-function statValue(periods: StatPeriods, period: StatPeriod): number {
-  if (period === 'today') return periods.today;
-  if (period === 'week') return periods.thisWeek;
-  return periods.thisMonth;
-}
-
 function repoStatus(events: RecentEventDto[], owner: string, repo: string): { text: string; variant: 'active' | 'commits' | 'none' } {
   const fullName = `${owner}/${repo}`;
   const todayStart = new Date();
@@ -117,19 +108,6 @@ function repoStatus(events: RecentEventDto[], owner: string, repo: string): { te
   return { text: 'No recent activity', variant: 'none' };
 }
 
-
-const STAT_CARDS: {
-  key: keyof Omit<UserStatsDto, 'updatedAt'>;
-  icon: string;
-  iconBg: string;
-  iconColor: string;
-  label: string;
-}[] = [
-  { key: 'pushes', icon: '↑', iconBg: 'rgba(251,191,36,0.18)', iconColor: '#d97706', label: 'Pushes' },
-  { key: 'prsCreated', icon: '✓', iconBg: 'rgba(34,197,94,0.18)', iconColor: '#16a34a', label: 'PR opened' },
-  { key: 'prsReviewed', icon: '◎', iconBg: 'rgba(250,204,21,0.18)', iconColor: '#ca8a04', label: 'PRs reviewed' },
-  { key: 'comments', icon: '✉', iconBg: 'rgba(236,72,153,0.18)', iconColor: '#be185d', label: 'Comments left' },
-];
 
 function EditProfileModal({
   profile,
@@ -206,9 +184,9 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
   };
 
   // Seed the still-client-cached state (watched repos, teams, PR list) from
-  // the module cache so a return to this tab renders instantly. The five
-  // GitHub-sourced flows below (profile, events, following, stats, orgs)
-  // start empty and populate from the backend's DB cache on the load() call.
+  // the module cache so a return to this tab renders instantly. The
+  // GitHub-sourced flows below (profile, events, following, orgs) start
+  // empty and populate from the backend's DB cache on the load() call.
   const cachedWatched = getCached<WatchedRepoDto[]>(KEY_WATCHED);
   const cachedPrs = getCached<PullRequestDto[]>(KEY_PRS);
   const cachedTeams = getCached<TeamSummaryDto[]>(KEY_TEAMS);
@@ -217,16 +195,13 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
   const [repos, setRepos] = useState<WatchedRepoDto[]>(cachedWatched ?? []);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
-  const [stats, setStats] = useState<UserStatsDto | null>(null);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
   const [teams, setTeams] = useState<TeamSummaryDto[]>(cachedTeams ?? []);
   const [orgs, setOrgs] = useState<UserOrgDto[]>([]);
   // Only show the first-load spinner when we have nothing to paint yet.
   const [loading, setLoading] = useState(cachedWatched === undefined);
-  const [period, setPeriod] = useState<StatPeriod>('week');
   const [showModal, setShowModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [refreshingStats, setRefreshingStats] = useState(false);
 
   useEffect(() => {
     void load();
@@ -255,9 +230,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
       window.bridge.getFollowingActivity(loadedProfile.login)
         .then(setFollowingEvents)
         .catch(() => {});
-      window.bridge.getUserStats(loadedProfile.login)
-        .then(setStats)
-        .catch(() => {});
     }
     // Orgs read from the backend's DB cache regardless of profile — the
     // backend keys orgs by the stored GITHUB_LOGIN, so the call works even
@@ -272,31 +244,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
       .catch(() => {});
     window.bridge.fetchPrs()
       .then(v => { setPrs(v); setCached(KEY_PRS, v); })
-      .catch(() => {});
-  }
-
-  // Force-refresh the stats — pulls fresh GitHub events past the 5-min
-  // backend cache. Wired to the "↻" button next to the period toggle so
-  // users who just pushed don't have to wait for the cache to age out.
-  async function refreshStats() {
-    if (refreshingStats || !profile) return;
-    setRefreshingStats(true);
-    try {
-      const v = await window.bridge.getUserStats(profile.login, true);
-      setStats(v);
-    } catch {
-      // Best-effort: leave the existing stats showing, no error toast yet.
-    } finally {
-      setRefreshingStats(false);
-    }
-    window.bridge.fetchPrs()
-      .then(v => { setPrs(v); setCached(KEY_PRS, v); })
-      .catch(() => {});
-    window.bridge.listTeams()
-      .then(v => { setTeams(v); setCached(KEY_TEAMS, v); })
-      .catch(() => {});
-    window.bridge.getUserOrgs()
-      .then(setOrgs)
       .catch(() => {});
   }
 
@@ -336,8 +283,8 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
   }
 
   return (
-    <div className="home-page calm-page">
-      <div className="home-main">
+    <div className="home-page">
+      <main className="home-main">
 
       {/* ── Top row: profile card + year-in-code chart ── */}
       <div className="home-top-row">
@@ -440,23 +387,43 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
           ) : null}
         </div>
 
-        {/* Right column of the top row: year-in-code on top, daily card
-            beneath it. Stacking them inside a flex column lets the two
-            cards together match the profile card's height — without
-            either one having to grow with awkward whitespace. */}
-        <div className="home-top-right">
-          <div className="home-card home-year-card">
-            <div className="home-year-card__header">
-              <div>
-                <div className="home-year-card__title">Your year in code</div>
-              </div>
-              <span className="home-year-card__badge">Last 12 months</span>
+        <div className="home-card home-year-card">
+          <div className="home-year-card__header">
+            <div>
+              <div className="home-year-card__title">Your year in code</div>
             </div>
-            {profile && <YearInCodeHeatmap login={profile.login} />}
+            <span className="home-year-card__badge">Last 12 months</span>
           </div>
-          <DailyCardSection />
+          {profile && <YearInCodeHeatmap login={profile.login} />}
         </div>
       </div>
+
+      {/* ── Review CTA banner ── */}
+      <button
+        className="home-cta-card"
+        onClick={onGoToMyPrs}
+        type="button"
+      >
+        <div className="home-cta-card__icon" aria-hidden="true">▶</div>
+        <div className="home-cta-card__body">
+          <div className="home-cta-card__title">Start reviewing all my PRs</div>
+          <div className="home-cta-card__subtitle">Open the Inbox — your authored PRs and review requests in one place.</div>
+          {prInboxCounts && (
+            <div className="home-cta-card__counts">
+              <span className="home-cta-card__count">
+                <span className="home-cta-card__count-num">{prInboxCounts.awaiting}</span>
+                awaiting my review
+              </span>
+              <span className="home-cta-card__count-sep">·</span>
+              <span className="home-cta-card__count">
+                <span className="home-cta-card__count-num">{prInboxCounts.mine}</span>
+                of my PRs
+              </span>
+            </div>
+          )}
+        </div>
+        <span className="home-cta-card__chevron" aria-hidden="true">→</span>
+      </button>
 
       {/* ── Today's footprints: the day's visited surfaces as a trail ── */}
       <TodaysFootprints
@@ -464,35 +431,8 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
         onSeeFullDay={() => console.log('[footprints] full-day view — decision pending')}
       />
 
-      {/* ── Middle (primary): Start reviewing + Watched repos ── */}
-      <div className="home-middle-row">
-        <button
-          className="home-cta-card"
-          onClick={onGoToMyPrs}
-          type="button"
-        >
-          <div className="home-cta-card__icon" aria-hidden="true">▶</div>
-          <div className="home-cta-card__body">
-            <div className="home-cta-card__title">Start reviewing all my PRs</div>
-            <div className="home-cta-card__subtitle">Open the Inbox — your authored PRs and review requests in one place.</div>
-            {prInboxCounts && (
-              <div className="home-cta-card__counts">
-                <span className="home-cta-card__count">
-                  <span className="home-cta-card__count-num">{prInboxCounts.awaiting}</span>
-                  awaiting my review
-                </span>
-                <span className="home-cta-card__count-sep">·</span>
-                <span className="home-cta-card__count">
-                  <span className="home-cta-card__count-num">{prInboxCounts.mine}</span>
-                  of my PRs
-                </span>
-              </div>
-            )}
-          </div>
-          <span className="home-cta-card__chevron" aria-hidden="true">→</span>
-        </button>
-
-        <div className="home-card home-repos-card home-repos-card--primary">
+      {/* ── Repos you watch ── */}
+      <div className="home-card home-repos-card home-repos-card--primary">
           <div className="home-card__header">
             <span className="home-card__title">Repos you watch</span>
             <button className="home-watch-btn" onClick={() => setShowModal(true)} type="button">
@@ -552,7 +492,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
             </div>
           )}
         </div>
-      </div>
 
       {/* ── Teams you track ── */}
       <div className="home-teams-row">
@@ -619,72 +558,9 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
         </div>
       </div>
 
-      {/* ── At a glance (title reflects the selected period) ── */}
-      {stats && (() => {
-        const glanceTitle = period === 'today'
-          ? 'Today at a glance'
-          : period === 'week'
-            ? 'This week at a glance'
-            : 'This month at a glance';
-        // Sub-value pairs complementary context next to the main number.
-        const subContext = (periods: StatPeriods) => {
-          if (period === 'today') return { val: periods.thisWeek, label: 'this week' };
-          if (period === 'week') return { val: periods.thisMonth, label: 'this month' };
-          return { val: periods.thisWeek, label: 'this week' };
-        };
-        return (
-          <div className="home-glance-section">
-            <div className="home-glance-header">
-              <span className="home-glance-title">{glanceTitle}</span>
-              <div className="home-period-toggle">
-                {(['today', 'week', 'month'] as StatPeriod[]).map(p => (
-                  <button
-                    key={p}
-                    className={`home-period-btn${period === p ? ' home-period-btn--active' : ''}`}
-                    onClick={() => setPeriod(p)}
-                    type="button"
-                  >
-                    {p === 'today' ? 'Today' : p === 'week' ? 'Week' : 'Month'}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="home-period-btn home-period-btn--refresh"
-                  onClick={() => void refreshStats()}
-                  disabled={refreshingStats}
-                  title="Refresh stats from GitHub now (bypasses the cache)"
-                  aria-label="Refresh stats"
-                >
-                  {refreshingStats ? '…' : '↻'}
-                </button>
-              </div>
-            </div>
-            <div className="home-stat-cards">
-              {STAT_CARDS.map(card => {
-                const periods = stats[card.key] as StatPeriods;
-                const value = statValue(periods, period);
-                const sub = subContext(periods);
-                return (
-                  <div key={card.key} className="home-stat-card">
-                    <div className="home-stat-card__icon" style={{ background: card.iconBg, color: card.iconColor }}>
-                      {card.icon}
-                    </div>
-                    <div className="home-stat-card__value">{value}</div>
-                    <div className="home-stat-card__label">{card.label}</div>
-                    <div className="home-stat-card__sub">
-                      {sub.val > 0 ? `${sub.val} ${sub.label}` : `0 ${sub.label}`}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
+      </main>
 
-      </div>
-
-      {/* ── Right sidebar: Your recent activity + Following activity ── */}
+      {/* ── Right panel: Your recent activity + Following activity ── */}
       <aside className="home-side">
         <div className="home-card home-mine-card">
           <div className="home-card__header">

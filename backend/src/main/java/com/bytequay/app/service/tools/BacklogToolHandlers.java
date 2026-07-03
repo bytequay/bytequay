@@ -59,11 +59,13 @@ public class BacklogToolHandlers
 
     @AgentTool(
             name = "propose_backlog_items",
-            description = "Capture several distinct candidate sub-tasks as backlog items in one batch, "
+            description = "Record several distinct candidate sub-tasks as backlog items in one batch, "
                     + "instead of cutting tasks. Use when a broad request surfaces multiple separate "
-                    + "opportunities and you want the user to triage which to pursue. All items are parked "
-                    + "on the current thread's backlog, cross-linked as a group; the user starts, keeps, or "
-                    + "skips each.",
+                    + "opportunities and you want the user to triage which to pursue. The items are saved "
+                    + "immediately to the current thread's backlog — there is NO approval step — and appear "
+                    + "in the Backlog tab and as 'Proposed by the trunk' triage cards, cross-linked as a "
+                    + "group; the user then starts, keeps, or skips each. Tell the user the items are "
+                    + "recorded (and visible in the Backlog tab), never that they are parked awaiting approval.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)

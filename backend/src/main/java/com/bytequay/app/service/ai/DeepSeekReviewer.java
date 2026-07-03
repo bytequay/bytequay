@@ -43,6 +43,7 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 /**
  * LlmReviewer implementation against DeepSeek's chat completions API. The
@@ -221,8 +222,8 @@ public class DeepSeekReviewer
         ChatRequest body = new ChatRequest(
                 model,
                 ImmutableList.of(
-                        new ChatRequest.Message("system", systemPrompt == null ? "" : systemPrompt),
-                        new ChatRequest.Message("user", userPrompt == null ? "" : userPrompt)),
+                        new ChatRequest.Message("system", requireNonNullElse(systemPrompt, "")),
+                        new ChatRequest.Message("user", requireNonNullElse(userPrompt, ""))),
                 MAX_OUTPUT_TOKENS,
                 false);
 
@@ -330,8 +331,8 @@ public class DeepSeekReviewer
                 Do not invent files or behaviors not present in the diff. \
                 Output ONLY the JSON object — no preamble, no markdown fences.""";
         StringBuilder user = new StringBuilder();
-        user.append("Head branch: `").append(headBranch == null ? "(unknown)" : headBranch).append("`\n");
-        user.append("Base branch: `").append(baseBranch == null ? "(unknown)" : baseBranch).append("`\n\n");
+        user.append("Head branch: `").append(requireNonNullElse(headBranch, "(unknown)")).append("`\n");
+        user.append("Base branch: `").append(requireNonNullElse(baseBranch, "(unknown)")).append("`\n\n");
         if (prTemplate != null && !prTemplate.isBlank()) {
             user.append("Repo PR template:\n```markdown\n").append(prTemplate).append("\n```\n\n");
         }
@@ -471,7 +472,7 @@ public class DeepSeekReviewer
                             normalizeSeverity(comment.severity())))
                     .collect(toImmutableList());
             return new ReviewOutput(
-                    parsed.summary() == null ? "" : parsed.summary(),
+                    requireNonNullElse(parsed.summary(), ""),
                     comments,
                     PROVIDER_ID,
                     model);

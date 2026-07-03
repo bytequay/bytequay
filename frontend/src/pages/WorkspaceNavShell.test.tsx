@@ -28,6 +28,16 @@ function mockBridge(over: Record<string, unknown> = {}) {
       { id: 't1', title: 'Backend cleanup review', status: 'RUNNING', workspaceId: 'bq', activeTask: { workingDir: '/x/web' } },
       { id: 't2', title: 'Fix Delta Lake timestamp', status: 'AWAITING_REVIEW', workspaceId: 'bq', activeTask: { workingDir: '/x/trino' } },
     ]),
+    // The no-workspace rail body is the recently-visited list.
+    getFootprints: vi.fn().mockResolvedValue({
+      date: '2026-07-03',
+      stops: [{
+        surfaceType: 'PR', surfaceId: 'org/web#42', title: 'org/web #42',
+        context: 'org/web', latestVisitAt: '2026-07-03T10:00:00Z', visitCount: 2,
+      }],
+      totalStops: 1,
+    }),
+    fetchPrs: vi.fn().mockResolvedValue([]),
     ...over,
   };
   (window as unknown as { bridge: unknown }).bridge = bridge;
@@ -53,14 +63,15 @@ describe('useWorkspaceNav helpers', () => {
 });
 
 describe('WorkspaceNavShell', () => {
-  it('shows the workspace list when no workspace is active', async () => {
+  it('shows the recently-visited list when no workspace is active', async () => {
     mockBridge();
-    const onEnterWorkspace = vi.fn();
-    render(<WorkspaceNavShell activeWorkspaceId={null} footer={footer} onEnterWorkspace={onEnterWorkspace} />);
-    expect(await screen.findByText('ByteQuay')).toBeTruthy();
-    expect(screen.getByText('3 repos · 5 open threads')).toBeTruthy();
-    fireEvent.click(screen.getByText('Trino'));
-    expect(onEnterWorkspace).toHaveBeenCalledWith('tr');
+    const onResumeVisit = vi.fn();
+    render(<WorkspaceNavShell activeWorkspaceId={null} footer={footer} onResumeVisit={onResumeVisit} />);
+    // The stop shows twice: a Recent row + the Today "Working on" line.
+    const rows = await screen.findAllByText('org/web #42');
+    expect(rows.length).toBe(2);
+    fireEvent.click(rows[0]);
+    expect(onResumeVisit).toHaveBeenCalledWith(expect.objectContaining({ surfaceId: 'org/web#42' }));
   });
 
   it('shows the switcher + thread list (with repo logos) when a workspace is active', async () => {

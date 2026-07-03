@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { LogoColor, StatusDotVariant } from '../ui/primitives';
-import type { RepoChip, ThreadRow, WorkspaceRow } from '../ui/workspace';
+import type { RepoChip, ThreadRow } from '../ui/workspace';
 import type { ThreadDto, WorkspaceCardDto } from '../types';
 
 const PALETTE: LogoColor[] = ['purple', 'teal', 'orange', 'blue', 'pink', 'slate'];
@@ -50,19 +50,6 @@ export function threadRepo(_t: ThreadDto): string {
   return 'repo';
 }
 
-function toWorkspaceRow(w: WorkspaceCardDto): WorkspaceRow {
-  const repoWord = w.repos.length === 1 ? 'repo' : 'repos';
-  const threadWord = w.activeThreadCount === 1 ? 'open thread' : 'open threads';
-  return {
-    id: w.id,
-    initials: monogram(w.name).toUpperCase(),
-    color: logoColorFor(w.name),
-    name: w.name,
-    sub: `${w.repos.length} ${repoWord} · ${w.activeThreadCount} ${threadWord}`,
-    count: w.activeThreadCount,
-  };
-}
-
 function toThreadRow(t: ThreadDto): ThreadRow {
   const repo = threadRepo(t);
   return {
@@ -75,7 +62,6 @@ function toThreadRow(t: ThreadDto): ThreadRow {
 }
 
 export type WorkspaceNavData = {
-  workspaces: WorkspaceRow[];
   /** The active workspace's card (for the switcher + header), or null. */
   activeWorkspace: WorkspaceCardDto | null;
   /** The active workspace's threads as sidebar rows. */
@@ -129,7 +115,6 @@ export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavD
   }));
 
   return {
-    workspaces: workspaces.map(toWorkspaceRow),
     activeWorkspace,
     threads: threads.map(toThreadRow),
     rawThreads: threads,

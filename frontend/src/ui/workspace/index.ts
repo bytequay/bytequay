@@ -15,8 +15,6 @@
 /** Workspace-model navigation shell. */
 export { WorkspaceNavSidebar } from './WorkspaceNavSidebar';
 export type { WsNavKey } from './WorkspaceNavSidebar';
-export { WorkspaceList } from './WorkspaceList';
-export type { WorkspaceRow } from './WorkspaceList';
 export { RecentList } from './RecentList';
 export { WorkspaceSwitcher } from './WorkspaceSwitcher';
 export { ThreadList, ThreadListItem } from './ThreadList';

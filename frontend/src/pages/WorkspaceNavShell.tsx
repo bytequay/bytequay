@@ -30,6 +30,7 @@ export function WorkspaceNavShell({
   activeNav, footer, notificationCount,
   collapsed = false, onToggleCollapse,
   showRecent = false, onResumeVisit, onOpenPr,
+  onBack, onForward, backEnabled, forwardEnabled,
   onNavigate, onEnterWorkspace, onOpenThread, onOpenTask, onSwitchWorkspace,
   onNewWorkspace, onNewThread, onDeleteWorkspace,
 }: {
@@ -52,6 +53,11 @@ export function WorkspaceNavShell({
   onResumeVisit?: (stop: FootprintStopDto) => void;
   /** Open a PR from the Today summary's "Reviewed" line. */
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
+  /** Browser-style history navigation for the chrome-row arrows. */
+  onBack?: () => void;
+  onForward?: () => void;
+  backEnabled?: boolean;
+  forwardEnabled?: boolean;
   onNavigate?: (key: WsNavKey) => void;
   onEnterWorkspace?: (id: string) => void;
   onOpenThread?: (id: string) => void;
@@ -109,6 +115,10 @@ export function WorkspaceNavShell({
       notificationCount={notificationCount}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
+      onBack={onBack}
+      onForward={onForward}
+      backEnabled={backEnabled}
+      forwardEnabled={forwardEnabled}
     >
       {body}
     </WorkspaceNavSidebar>

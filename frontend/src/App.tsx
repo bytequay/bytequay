@@ -53,6 +53,10 @@ import OnboardingScreen from './OnboardingScreen';
 import { applyTheme, loadTheme } from './themes';
 import { useSurfaceVisitCapture } from './footprints/useSurfaceVisitCapture';
 import { resumeStop } from './footprints/resume';
+import {
+  back as navBack, canGoBack, canGoForward, createHistory, current as navCurrent,
+  forward as navForward, push as navPush, type NavHistory,
+} from './navHistory';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
 export type Nav =
@@ -227,7 +231,26 @@ function lastTaskNav(threadId: string, taskId: string): Nav {
 
 function App() {
   const [status, setStatus] = useState<Status>('checking');
-  const [nav, setNav] = useState<Nav>({ view: 'home' });
+  const [nav, setNavRaw] = useState<Nav>({ view: 'home' });
+  // Browser-style back/forward over the Nav state. Every setNav pushes
+  // onto the stack (truncating any forward branch, like Chrome); the
+  // sidebar arrows + ⌘[ / ⌘] walk it. The ref mutates only alongside a
+  // setNavRaw call, so render-time reads of can-go flags stay fresh.
+  const navHistoryRef = useRef<NavHistory<Nav>>(createHistory<Nav>({ view: 'home' }));
+  const setNav = useCallback((next: Nav | ((prev: Nav) => Nav)) => {
+    const h = navHistoryRef.current;
+    const resolved = typeof next === 'function' ? next(navCurrent(h)) : next;
+    navHistoryRef.current = navPush(h, resolved);
+    setNavRaw(resolved);
+  }, []);
+  const goBack = useCallback(() => {
+    navHistoryRef.current = navBack(navHistoryRef.current);
+    setNavRaw(navCurrent(navHistoryRef.current));
+  }, []);
+  const goForward = useCallback(() => {
+    navHistoryRef.current = navForward(navHistoryRef.current);
+    setNavRaw(navCurrent(navHistoryRef.current));
+  }, []);
   // Left rail fold — the chrome-row panel toggle collapses it to a strip.
   const [railCollapsed, setRailCollapsed] = useState(false);
   // The code-diff page is wide; fold the rail when it opens so the diff gets
@@ -347,11 +370,18 @@ function App() {
         // consistent across surfaces.
         e.preventDefault();
         setNav({ view: 'thread-create' });
+        return;
+      }
+      if (e.key === '[' || e.key === ']') {
+        // ⌘[ / ⌘] = history back / forward, matching the browser.
+        e.preventDefault();
+        if (e.key === '[') goBack();
+        else goForward();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [setNav, goBack, goForward]);
 
   /** Tags the current page registers with the control bar, displayed
    *  as "on #tag-1 #tag-2…" above the input. Tags are derived from
@@ -571,6 +601,10 @@ function App() {
           notificationCount={unreadNotificationCount}
           collapsed={railCollapsed}
           onToggleCollapse={() => setRailCollapsed(c => !c)}
+          onBack={goBack}
+          onForward={goForward}
+          backEnabled={canGoBack(navHistoryRef.current)}
+          forwardEnabled={canGoForward(navHistoryRef.current)}
           showRecent={nav.view === 'home'}
           onResumeVisit={stop => resumeStop(stop, {
             openPrKanban: () => setNav({ view: 'my-prs' }),

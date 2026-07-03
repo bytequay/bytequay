@@ -61,7 +61,7 @@ const BOTTOM_NAV: { key: WsNavKey; ic: string; label: string }[] = [
  */
 export function WorkspaceNavSidebar({
   activeNav, onNavigate, backHint = false, children, footer, notificationCount,
-  collapsed = false, onBack, onForward, onToggleCollapse,
+  collapsed = false, onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
 }: {
   activeNav?: WsNavKey;
   onNavigate?: (key: WsNavKey) => void;
@@ -77,6 +77,9 @@ export function WorkspaceNavSidebar({
   collapsed?: boolean;
   onBack?: () => void;
   onForward?: () => void;
+  /** Dim the corresponding arrow when the history edge is reached. */
+  backEnabled?: boolean;
+  forwardEnabled?: boolean;
   onToggleCollapse?: () => void;
 }) {
   const fullScreen = useFullScreen();
@@ -131,7 +134,13 @@ export function WorkspaceNavSidebar({
       style={collapsed ? undefined : { width }}
     >
       <aside className="sidebar">
-        <TrafficLights onBack={onBack} onForward={onForward} onToggleCollapse={onToggleCollapse} />
+        <TrafficLights
+          onBack={onBack}
+          onForward={onForward}
+          backEnabled={backEnabled}
+          forwardEnabled={forwardEnabled}
+          onToggleCollapse={onToggleCollapse}
+        />
         {!collapsed && (
           <>
             <div className="sb-nav">{TOP_NAV.map(navItem)}</div>

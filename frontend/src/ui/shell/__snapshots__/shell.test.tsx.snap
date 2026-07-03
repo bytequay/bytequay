@@ -61,6 +61,7 @@ exports[`Shell > matches snapshot in default and collapsed states > collapsed 1`
           class="nav-arrows"
         >
           <span
+            aria-disabled="false"
             aria-label="Back"
             role="button"
             tabindex="0"
@@ -82,6 +83,7 @@ exports[`Shell > matches snapshot in default and collapsed states > collapsed 1`
             </svg>
           </span>
           <span
+            aria-disabled="false"
             aria-label="Forward"
             role="button"
             tabindex="0"
@@ -469,6 +471,7 @@ exports[`Shell > matches snapshot in default and collapsed states > default 1`] 
           class="nav-arrows"
         >
           <span
+            aria-disabled="false"
             aria-label="Back"
             role="button"
             tabindex="0"
@@ -490,6 +493,7 @@ exports[`Shell > matches snapshot in default and collapsed states > default 1`] 
             </svg>
           </span>
           <span
+            aria-disabled="false"
             aria-label="Forward"
             role="button"
             tabindex="0"

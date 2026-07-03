@@ -83,6 +83,13 @@
 .shell .sb-traffic .nav-arrows span:hover {
   color: var(--text-1);
 }
+.shell .sb-traffic .nav-arrows span[aria-disabled='true'] {
+  opacity: 0.35;
+  cursor: default;
+}
+.shell .sb-traffic .nav-arrows span[aria-disabled='true']:hover {
+  color: var(--text-3);
+}
 .shell .sb-traffic .nav-arrows svg {
   display: block;
 }

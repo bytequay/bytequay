@@ -23,6 +23,8 @@ export type BacklogItemData = {
   createdLabel?: string;
   /** Set once "Start development" has cut a task from this item. */
   started?: boolean;
+  /** Item is not-to-proceed (Dropped): shows a Reopen action, not Start. */
+  dropped?: boolean;
   linkedTaskLabel?: string;
 };
 
@@ -32,12 +34,15 @@ export type BacklogItemData = {
  * "Start development →" CTA); started items stay listed, faded, with a
  * link to the task they cut. A dashed "add item" dropzone sits on top.
  */
-export function BacklogTabContent({ items, onAddItem, onStartDevelopment, onDrop, onOpenItem, onOpenLinked }: {
+export function BacklogTabContent(
+  { items, onAddItem, onStartDevelopment, onDrop, onReopen, onOpenItem, onOpenLinked }: {
   items: BacklogItemData[];
   onAddItem?: () => void;
   onStartDevelopment?: (id: string) => void;
   /** Marks an item not-to-proceed — the per-item Drop button. */
   onDrop?: (id: string) => void;
+  /** Restores a dropped item to created — the per-item Reopen button. */
+  onReopen?: (id: string) => void;
   onOpenItem?: (id: string) => void;
   onOpenLinked?: (id: string) => void;
 }) {
@@ -57,10 +62,12 @@ export function BacklogTabContent({ items, onAddItem, onStartDevelopment, onDrop
           tags={item.tags}
           createdLabel={item.createdLabel}
           started={item.started}
+          dropped={item.dropped}
           linkedTaskLabel={item.linkedTaskLabel}
           onClick={onOpenItem !== undefined ? () => onOpenItem(item.id) : undefined}
           onStartDevelopment={onStartDevelopment !== undefined ? () => onStartDevelopment(item.id) : undefined}
           onDrop={onDrop !== undefined ? () => onDrop(item.id) : undefined}
+          onReopen={onReopen !== undefined ? () => onReopen(item.id) : undefined}
           onOpenLinked={onOpenLinked !== undefined ? () => onOpenLinked(item.id) : undefined}
         />
       ))}

@@ -59,6 +59,11 @@ type BacklogProps = CommonProps & {
   /** Marks the item not-to-proceed ("handled, don't work on it"). Shown as a
    *  quiet Drop button on unstarted items. */
   onDrop?: () => void;
+  /** Item is not-to-proceed (Dropped). Replaces the Start/Drop buttons with a
+   *  muted "Dropped" label + a Reopen action instead of a dead Start button. */
+  dropped?: boolean;
+  /** Restores a dropped item to created. */
+  onReopen?: () => void;
 };
 
 export type CardProps = TaskProps | BacklogProps;
@@ -127,8 +132,24 @@ function TaskMeta({ branch, createdLabel, prNumber, status, statusText, mergeRea
   );
 }
 
-function BacklogMeta({ tags, createdLabel, onStartDevelopment, started, linkedTaskLabel, onOpenLinked, onDrop }: BacklogProps) {
+function BacklogMeta(
+  { tags, createdLabel, onStartDevelopment, started, dropped, onReopen,
+    linkedTaskLabel, onOpenLinked, onDrop }: BacklogProps) {
   const stop = (fn?: () => void) => (e: { stopPropagation: () => void }) => { e.stopPropagation(); fn?.(); };
+  // A dropped (not-to-proceed) item can't be started — offer Reopen, not a
+  // dead Start button.
+  if (dropped === true) {
+    return (
+      <>
+        {tags?.map((t, i) => <Tag key={`${t.label}-${i}`} color={t.color}>{t.label}</Tag>)}
+        {createdLabel !== undefined && <span className="created">{createdLabel}</span>}
+        <span className="backlog-dropped-tag">Dropped</span>
+        {onReopen !== undefined && (
+          <button type="button" className="backlog-drop-btn" onClick={stop(onReopen)}>Reopen</button>
+        )}
+      </>
+    );
+  }
   return (
     <>
       {tags?.map((t, i) => <Tag key={`${t.label}-${i}`} color={t.color}>{t.label}</Tag>)}

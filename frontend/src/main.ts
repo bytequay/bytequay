@@ -4342,6 +4342,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const res = await fetch(
       `${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/start-development`,
       { method: 'POST' });
+    // 409 = the item already left `created` (started elsewhere, or a click that
+    // beat the poll). Benign — return no task so the renderer just resyncs the
+    // stale list instead of surfacing an error.
+    if (res.status === 409) {
+      return { taskId: null };
+    }
     if (!res.ok) {
       throw new Error(`backend POST start-development returned ${res.status}: ${await res.text().catch(() => '')}`);
     }

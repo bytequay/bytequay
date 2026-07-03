@@ -79,24 +79,28 @@ describe('TrunkPage', () => {
     const bridge = mockBridge();
     renderTrunk();
     await waitFor(() => expect(bridge.listBacklog).toHaveBeenCalledWith('t1'));
-    fireEvent.click(screen.getByRole('button', { name: /Backlog/ }));
+    // "Backlog"/"Notifications" name both the pinned composer chip and the
+    // in-pane tab; either switches the tab, so click the first match.
+    fireEvent.click(screen.getAllByRole('button', { name: /Backlog/ })[0]);
     expect(await screen.findByText('Parked idea')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Notifications/ })[0]);
     expect(await screen.findByText('Pushed branch')).toBeTruthy();
   });
 
   it('Start development on a backlog item calls the bridge', async () => {
     const bridge = mockBridge();
     renderTrunk();
-    fireEvent.click(screen.getByRole('button', { name: /Backlog/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Backlog/ })[0]);
     fireEvent.click(await screen.findByRole('button', { name: /Start development/ }));
+    // Start development now opens a confirmation dialog; confirm to dispatch.
+    fireEvent.click(await screen.findByRole('button', { name: /Send to trunk/ }));
     await waitFor(() => expect(bridge.startBacklogDevelopment).toHaveBeenCalledWith('b1'));
   });
 
   it('opening a notification marks it read', async () => {
     const bridge = mockBridge();
     renderTrunk();
-    fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Notifications/ })[0]);
     fireEvent.click(await screen.findByText('Pushed branch'));
     await waitFor(() => expect(bridge.markSignalRead).toHaveBeenCalledWith('s1'));
   });

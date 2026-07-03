@@ -14,13 +14,14 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
-import { AskUserQuestionCard, BacklogPrompt, pickTopBacklog, TriageCard } from '../ui/conv';
+import { AskUserQuestionCard, BacklogPrompt, pickTopBacklog } from '../ui/conv';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
   Composer, Main, Shell, TopBar, TopBarTitle, CrumbSep, CreatedChip, Grow, usePaneWidth,
 } from '../ui/shell';
 import {
-  BacklogFormModal, BacklogTabContent, InlineChips, NotificationsTabContent, RightPane, TasksTabContent,
+  BacklogFormModal, BacklogTabContent, InlineChips, NotificationsTabContent, RightPane,
+  StartDevelopmentDialog, TasksTabContent,
 } from '../ui/pane';
 import type { NotifData, TaskCardData } from '../ui/pane';
 import type { BacklogItemDto, ThreadSignalDto } from '../types';
@@ -38,6 +39,7 @@ function backlogToCard(item: BacklogItemDto, formatTime: (ms: number) => string)
     tags: item.tags.map(label => ({ label })),
     createdLabel: formatTime(item.createdAt),
     started: item.startedAt !== null,
+    dropped: item.status === 'not-to-proceed',
     linkedTaskLabel: item.linkedTaskId !== null ? '→ Task' : undefined,
   };
 }
@@ -85,13 +87,8 @@ export function TrunkPage({
   const pane = useTrunkPane(threadId);
   const [activeTab, setActiveTab] = useState<TrunkTab>('tasks');
   const [addBacklogOpen, setAddBacklogOpen] = useState(false);
-  // Triage-card candidates: the trunk's freshly-proposed (trunk-split, still
-  // `created`) items, minus any the user has "kept" this session. Starting or
-  // skipping one flips its status, so it falls out of this list on the next
-  // poll; "Keep" just dismisses the card without a status change.
-  const [keptTriage, setKeptTriage] = useState<Set<string>>(() => new Set());
-  const triageItems = pane.backlog.filter(
-    i => i.source === 'trunk-split' && i.status === 'created' && !keptTriage.has(i.id));
+  // The backlog item pending a Start-development confirmation, if any.
+  const [startCandidate, setStartCandidate] = useState<BacklogItemDto | null>(null);
   // Open agent questions for this thread, oldest first, rendered as amber
   // cards in the conversation; answering one posts the reply as the next
   // message and the card drops out on the next poll.
@@ -182,8 +179,9 @@ export function TrunkPage({
           <BacklogTabContent
             items={pane.backlog.map(i => backlogToCard(i, formatTime))}
             onAddItem={() => setAddBacklogOpen(true)}
-            onStartDevelopment={id => { void pane.startDevelopment(id); }}
+            onStartDevelopment={id => setStartCandidate(pane.backlog.find(i => i.id === id) ?? null)}
             onDrop={id => { void pane.skip(id); }}
+            onReopen={id => { void pane.revive(id); }}
           />
         );
       case 'notifications':
@@ -221,22 +219,6 @@ export function TrunkPage({
                     onAnswer={(optionId, freeForm) => {
                       void pane.answerQuestion(q.id, optionId, freeForm);
                     }}
-                  />
-                ))}
-              </div>
-            )}
-            {triageItems.length > 0 && (
-              <div className="trunk-triage">
-                <div className="trunk-triage__head">Proposed by the trunk — triage these</div>
-                {triageItems.map(item => (
-                  <TriageCard
-                    key={item.id}
-                    title={item.title}
-                    body={item.body}
-                    tags={item.tags}
-                    onStartDev={() => { void pane.startDevelopment(item.id); }}
-                    onKeep={() => setKeptTriage(prev => new Set(prev).add(item.id))}
-                    onSkip={() => { void pane.skip(item.id); }}
                   />
                 ))}
               </div>
@@ -308,6 +290,18 @@ export function TrunkPage({
             setAddBacklogOpen(false);
           }}
           onClose={() => setAddBacklogOpen(false)}
+        />
+      )}
+      {startCandidate !== null && (
+        <StartDevelopmentDialog
+          title={startCandidate.title}
+          body={startCandidate.body}
+          tags={startCandidate.tags}
+          onConfirm={() => {
+            void pane.startDevelopment(startCandidate.id);
+            setStartCandidate(null);
+          }}
+          onClose={() => setStartCandidate(null)}
         />
       )}
     </Shell>

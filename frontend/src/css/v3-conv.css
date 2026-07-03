@@ -744,6 +744,16 @@
   font-family: inherit;
 }
 .shell .backlog-drop-btn:hover { color: var(--text-1); border-color: var(--text-3); }
+/* Muted "Dropped" marker on a not-to-proceed item, sitting left of Reopen. */
+.shell .backlog-dropped-tag {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+.shell .backlog-dropped-tag + .backlog-drop-btn { margin-left: 6px; }
 
 /* ── Triage cards (trunk-proposed backlog candidates) ─────────── */
 .shell .trunk-triage {

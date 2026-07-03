@@ -66,12 +66,34 @@ export type TrunkRound = {
 /** A task-cut milestone — a task seeded from this thread. */
 export type TrunkCut = { id: string; task: WorkUnitTaskDto; ts: number };
 
-/** The trunk timeline: rounds + task-cut milestones merged in time order. */
+/** A task-completion marker written to the trunk when a task finishes — the
+ *  delimiter that closes a task's foldable block in the feed. */
+export type TrunkSummary = { id: string; taskId: string | null; taskSeq: number | null; text: string; ts: number };
+
+/** The trunk timeline: rounds + task-cut milestones + completion summaries
+ *  merged in time order. */
 export type TrunkItem =
   | { kind: 'round'; round: TrunkRound }
-  | { kind: 'cut'; cut: TrunkCut };
+  | { kind: 'cut'; cut: TrunkCut }
+  | { kind: 'summary'; summary: TrunkSummary };
+
+/** The message type the backend writes to the trunk on task completion. */
+export const TASK_SUMMARY_TYPE = 'task_summary';
 
 const PLANNING_TYPES = new Set(['text', 'thinking', 'tool_call']);
+
+/** Read a task-completion marker's envelope: {text, taskId, taskSeq}. */
+function parseSummary(m: ThreadMessageDto): TrunkSummary {
+  let taskId: string | null = null;
+  let taskSeq: number | null = null;
+  try {
+    const o = JSON.parse(m.contentJson) as Record<string, unknown>;
+    if (typeof o.taskId === 'string') taskId = o.taskId;
+    if (typeof o.taskSeq === 'number') taskSeq = o.taskSeq;
+  }
+  catch { /* fall back to text-only */ }
+  return { id: m.id, taskId, taskSeq, text: extractText(m.contentJson), ts: Date.parse(m.ts) };
+}
 
 /**
  * Pure transform of the trunk's raw planning messages + its cut tasks into
@@ -82,9 +104,16 @@ const PLANNING_TYPES = new Set(['text', 'thinking', 'tool_call']);
  * later milestone emits them structured (see DISCOVERY-FINDINGS deferral).
  */
 export function buildTrunkTimeline(messages: ThreadMessageDto[], tasks: WorkUnitTaskDto[]): TrunkItem[] {
-  const planning = messages.filter(m => m.taskId === null && PLANNING_TYPES.has(m.type));
+  const trunk = messages.filter(m => m.taskId === null
+    && (PLANNING_TYPES.has(m.type) || m.type === TASK_SUMMARY_TYPE));
   const rounds: TrunkRound[] = [];
-  for (const m of planning) {
+  const summaries: TrunkSummary[] = [];
+  for (const m of trunk) {
+    if (m.type === TASK_SUMMARY_TYPE) {
+      // A completion marker isn't conversation — it closes a task's block.
+      summaries.push(parseSummary(m));
+      continue;
+    }
     const isUser = m.role === 'user' && m.type === 'text';
     if (isUser) {
       rounds.push({ id: m.id, userTurn: m, rows: [], ts: Date.parse(m.ts) });
@@ -103,6 +132,9 @@ export function buildTrunkTimeline(messages: ThreadMessageDto[], tasks: WorkUnit
   for (const task of tasks) {
     items.push({ kind: 'cut', cut: { id: task.id, task, ts: Date.parse(task.createdAt) } });
   }
+  for (const summary of summaries) {
+    items.push({ kind: 'summary', summary });
+  }
   // Stable sort by timestamp keeps rounds and cuts in chronological order; a
   // cut lands right after the round that produced it.
   items.sort((a, b) => tsOf(a) - tsOf(b));
@@ -110,7 +142,9 @@ export function buildTrunkTimeline(messages: ThreadMessageDto[], tasks: WorkUnit
 }
 
 function tsOf(item: TrunkItem): number {
-  const t = item.kind === 'round' ? item.round.ts : item.cut.ts;
+  const t = item.kind === 'round' ? item.round.ts
+    : item.kind === 'cut' ? item.cut.ts
+    : item.summary.ts;
   return Number.isFinite(t) ? t : 0;
 }
 

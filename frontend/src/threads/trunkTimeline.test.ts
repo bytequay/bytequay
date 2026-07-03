@@ -56,6 +56,20 @@ describe('buildTrunkTimeline', () => {
     expect(round1?.rows.map(r => r.id)).toEqual(['t1', 'a1']);
   });
 
+  it('emits a completion marker as a summary item (not a round row)', () => {
+    const items = buildTrunkTimeline([
+      msg('u1', 'user', 'text', { text: 'cut a task' }, '2026-01-01T00:00:00Z'),
+      msg('sum', 'assistant', 'task_summary', { text: 'Hoisted message() calls', taskId: 'task-9', taskSeq: 3 }, '2026-01-01T00:05:00Z'),
+    ], [task('task-9', '2026-01-01T00:01:00Z')]);
+
+    // round, cut, then the completion summary closes the block.
+    expect(items.map(i => i.kind)).toEqual(['round', 'cut', 'summary']);
+    const summary = items[2].kind === 'summary' ? items[2].summary : null;
+    expect(summary?.taskId).toBe('task-9');
+    expect(summary?.taskSeq).toBe(3);
+    expect(summary?.text).toBe('Hoisted message() calls');
+  });
+
   it('derives headline (last text) and folds the rest as work', () => {
     const items = buildTrunkTimeline([
       msg('u', 'user', 'text', { text: 'go' }, '2026-01-01T00:00:00Z'),

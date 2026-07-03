@@ -65,9 +65,16 @@ export function RecentList({ onResume, onOpenPr }: {
       void window.bridge.fetchPrs()
         .then(prs => {
           if (cancelled) return;
+          // "Reviewed" = engaged with the PR today (opened or reviewed /
+          // approved it). Dismissing also stamps reviewedAt on the
+          // backend (handled ⇒ reviewed in the kanban's model) but isn't
+          // review work — exclude it.
+          const engagedAt = (p: PullRequestDto): number => Math.max(
+            p.reviewedAt !== null && isToday(p.reviewedAt) ? Date.parse(p.reviewedAt) : 0,
+            p.viewedAt !== null && isToday(p.viewedAt) ? Date.parse(p.viewedAt) : 0);
           const reviewed = prs
-            .filter(p => p.reviewedAt !== null && isToday(p.reviewedAt))
-            .sort((a, b) => Date.parse(b.reviewedAt as string) - Date.parse(a.reviewedAt as string));
+            .filter(p => p.handledAction !== 'DISMISSED' && engagedAt(p) > 0)
+            .sort((a, b) => engagedAt(b) - engagedAt(a));
           setReviewedToday(reviewed[0] ?? null);
         })
         .catch(() => { /* summary line just stays hidden */ });

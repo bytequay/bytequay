@@ -1158,7 +1158,338 @@
   margin-top: 4px;
 }
 
+/* ── Inbox ──────────────────────────────────────────────────────────
+   App notifications merged with attention-worthy PR rows. Expandable
+   cards; icon tile color keys the row flavour (V3 semantic hues). */
+.home-inbox__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
 
+.home-inbox__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.home-inbox__title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.home-inbox__badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.home-inbox__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.home-inbox__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.home-inbox__filter:hover {
+  color: var(--text-1);
+}
+
+.home-inbox__filter--on {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.home-inbox__filter-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-4);
+}
+
+.home-inbox__filter--on .home-inbox__filter-dot {
+  background: var(--accent);
+}
+
+.home-inbox__seeall {
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.home-inbox__seeall:hover {
+  color: var(--accent-deep);
+}
+
+.home-inbox__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.home-inbox__empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  text-align: center;
+  padding: var(--space-4) 0;
+  margin: 0;
+}
+
+.home-inbox__note {
+  font-size: var(--font-size-xs);
+  color: var(--orange);
+  margin: var(--space-1) 0 0;
+}
+
+.home-inbox-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.home-inbox-card:hover {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.home-inbox-card--read {
+  opacity: 0.6;
+}
+
+.home-inbox-card--open {
+  border-color: var(--accent-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.home-inbox-card__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.home-inbox-tile {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.home-inbox-tile--approval { background: var(--accent-soft); color: var(--accent); }
+.home-inbox-tile--done     { background: var(--green-soft);  color: var(--green); }
+.home-inbox-tile--review   { background: var(--orange-soft); color: var(--orange); }
+.home-inbox-tile--mention  { background: var(--teal-soft);   color: var(--teal); }
+.home-inbox-tile--blocked  { background: var(--red-soft);    color: var(--red); }
+.home-inbox-tile--info     { background: var(--bg-hover);    color: var(--text-3); }
+
+.home-inbox-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.home-inbox-card__title {
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-inbox-card--read .home-inbox-card__title {
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.home-inbox-card__sub {
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-inbox-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.home-inbox-card__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.home-inbox-card__time {
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+}
+
+.home-inbox-card__chev {
+  color: var(--text-3);
+  font-size: 14px;
+  transition: transform 120ms ease;
+}
+
+.home-inbox-card__chev--open {
+  transform: rotate(90deg);
+}
+
+.home-inbox-detail {
+  border-top: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.home-inbox-detail__byline {
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  margin: 0;
+}
+
+.home-inbox-detail__byline b {
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.home-inbox-detail__ref {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.home-inbox-detail__stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.home-inbox-checks {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-weight: 500;
+  font-size: var(--font-size-xs);
+}
+
+.home-inbox-checks--ok {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green-border);
+}
+
+.home-inbox-checks--bad {
+  background: var(--red-soft);
+  color: var(--red);
+  border-color: var(--red-border);
+}
+
+.home-inbox-delta {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: var(--font-size-xs);
+}
+
+.home-inbox-delta--add { color: var(--green); }
+.home-inbox-delta--del { color: var(--red); }
+
+.home-inbox-detail__muted {
+  color: var(--text-3);
+}
+
+.home-inbox-detail__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  font-size: var(--font-size-sm);
+}
+
+.home-inbox-detail__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.home-inbox-btn {
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-2);
+  border-radius: var(--radius-md);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.home-inbox-btn:hover {
+  color: var(--text-1);
+  border-color: var(--border-mid);
+}
+
+.home-inbox-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+.home-inbox-btn--primary:hover {
+  background: var(--accent-deep);
+  color: #fff;
+}
+
+.home-inbox-btn--primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.home-inbox-btn--quiet {
+  border: none;
+  background: none;
+  color: var(--text-3);
+  margin-left: auto;
+}
+
+.home-inbox-btn--quiet:hover {
+  color: var(--text-1);
+}
 
 /* ── Today's footprints ─────────────────────────────────────────────
    A winding map-style trail of the surfaces visited on a day. The SVG

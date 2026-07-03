@@ -21,6 +21,7 @@ import TodaysFootprints from '../footprints/TodaysFootprints';
 import { resumeStop } from '../footprints/resume';
 import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
+import InboxSection from './InboxSection';
 
 // The GitHub-sourced flows (profile, recent/following events, orgs) used
 // to be cached client-side via getCached/setCached for instant-paint on
@@ -46,6 +47,8 @@ type Props = {
   onOpenTask?: (threadId: string, taskId: string) => void;
   /** Resume a thread from a footprint pin — opens the thread. */
   onOpenThread?: (threadId: string) => void;
+  /** Inbox "See all" — opens the notification center. */
+  onOpenNotifications?: () => void;
 };
 
 function openUrl(url: string) {
@@ -162,7 +165,7 @@ function EditProfileModal({
   );
 }
 
-function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenThread }: Props) {
+function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenThread, onOpenNotifications }: Props) {
   // Resume a footprint pin via the app's existing navigation handlers.
   const handleResumeFootprint = (stop: FootprintStopDto) => resumeStop(stop, {
     openPrKanban: onGoToMyPrs,
@@ -424,6 +427,15 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
         </div>
         <span className="home-cta-card__chevron" aria-hidden="true">→</span>
       </button>
+
+      {/* ── Inbox: app notifications + PRs that need the user ── */}
+      <InboxSection
+        prs={prs}
+        onOpenPr={(owner, repo, prNumber) => onSelectRepo(owner, repo, prNumber)}
+        onOpenTask={onOpenTask}
+        onSeeAll={() => onOpenNotifications?.()}
+        onPrsChanged={v => { setPrs(v); setCached(KEY_PRS, v); }}
+      />
 
       {/* ── Today's footprints: the day's visited surfaces as a trail ── */}
       <TodaysFootprints

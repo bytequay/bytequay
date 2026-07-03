@@ -40,7 +40,7 @@ import type {
 } from './threads/ThreadsLeftRail';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
-import HomePage from './HomePage';
+import HomePage from './home/HomePage';
 import RepoDetailPage from './RepoDetailPage';
 import ReposPage from './repos/ReposPage';
 import RepositoryPage from './repos/RepositoryPage';

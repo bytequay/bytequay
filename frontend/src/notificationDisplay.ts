@@ -65,13 +65,28 @@ export function titleFor(n: NotificationDto): string {
   return 'Done';
 }
 
-/** Sub-line copy under the title. AUTO_FIX_DONE rows that carry a
- *  publish-audit shape surface the backend's pre-baked `message`
- *  directly (the side-effect summary or the failure reason); other
- *  shapes fall through to the legacy renderer. */
+/** Sub-line copy under the title. AWAITING_REVIEW spells out why the
+ *  task isn't progressing (paused on the user's approval, naming the
+ *  parked action); NEEDS_ATTENTION names the PR + reason;
+ *  AUTO_FIX_DONE rows that carry a publish-audit shape surface the
+ *  backend's pre-baked `message` directly (the side-effect summary or
+ *  the failure reason); other shapes fall through to the legacy
+ *  renderer. */
 export function previewFor(n: NotificationDto): string {
   const payload = payloadOf(n);
   if (!payload) return '';
+  if (n.kind === 'AWAITING_REVIEW') {
+    const action = typeof payload.action === 'string' ? payload.action : null;
+    return `Paused — needs your approval to ${actionLabel(action)}`;
+  }
+  if (n.kind === 'NEEDS_ATTENTION') {
+    const repo = typeof payload.repoFullName === 'string' ? payload.repoFullName : null;
+    const pr = typeof payload.prNumber === 'number' ? `#${payload.prNumber}` : null;
+    const reason = typeof payload.reason === 'string' ? payload.reason : null;
+    const left = [repo, pr].filter(Boolean).join(' ');
+    if (left && reason) return `${left} · ${reason}`;
+    return left || reason || '';
+  }
   if (n.kind === 'AUTO_FIX_DONE') {
     if (typeof payload.publishResolution === 'string'
         && typeof payload.message === 'string') {
@@ -91,6 +106,29 @@ export function previewFor(n: NotificationDto): string {
       .slice(0, 3)
       .map(([k, v]) => `${k}: ${String(v)}`)
       .join(' · ');
+}
+
+/** Human verb for a parked publish-gate action, used in the paused-task
+ *  reminder. Unknown / null actions fall back to a generic phrase. */
+function actionLabel(action: string | null): string {
+  switch (action) {
+    case 'push':                  return 'push the branch';
+    case 'open_pr':               return 'open the PR';
+    case 'ship_task':             return 'ship the task';
+    case 'next_task':             return 'start the next task';
+    case 'post_comment':          return 'post the comment';
+    case 'create_review_comment': return 'post the review comment';
+    case 'reply_review_thread':   return 'reply on the review thread';
+    case 'request_review':        return 'request review';
+    case 'request_reviewer':      return 'request a reviewer';
+    case 'approve_pr':            return 'approve the PR';
+    case 'merge_pr':              return 'merge the PR';
+    case 'update_pr_body':        return 'update the PR description';
+    case 'comment_on_issue':      return 'comment on the issue';
+    case 'set_issue_state':       return 'change the issue state';
+    case 'publish_review':        return 'publish the review';
+    default:                      return 'continue';
+  }
 }
 
 /** Relative-time string for the row's right-side meta column.

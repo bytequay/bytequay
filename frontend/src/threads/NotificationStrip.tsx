@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { isPublishGateNotification } from '../notificationDisplay';
+import { isPublishGateNotification, previewFor } from '../notificationDisplay';
 import { prRefFromNotification } from './notificationNav';
 import PublishGatePane from '../PublishGatePane';
 import type { NotificationDto, NotificationKindDto } from '../types';
@@ -242,65 +242,6 @@ function titleFor(kind: NotificationKindDto): string {
     case 'AWAITING_REVIEW':  return 'Awaiting review';
     case 'NEEDS_ATTENTION':  return 'Needs attention';
     case 'AUTO_FIX_DONE':    return 'Done';
-  }
-}
-
-function previewFor(n: NotificationDto): string {
-  if (!n.payloadJson) return '';
-  let payload: Record<string, unknown> | null = null;
-  try {
-    payload = JSON.parse(n.payloadJson);
-  }
-  catch {
-    return '';
-  }
-  if (!payload) return '';
-  if (n.kind === 'AWAITING_REVIEW') {
-    // Spell out *why the task isn't progressing*: it's paused on the
-    // user's approval. Name the parked action so the reminder is
-    // concrete ("approve the push", not just "awaiting review").
-    const action = typeof payload.action === 'string' ? payload.action : null;
-    return `Paused — needs your approval to ${actionLabel(action)}`;
-  }
-  if (n.kind === 'NEEDS_ATTENTION') {
-    const repo = typeof payload.repoFullName === 'string' ? payload.repoFullName : null;
-    const pr = typeof payload.prNumber === 'number' ? `#${payload.prNumber}` : null;
-    const reason = typeof payload.reason === 'string' ? payload.reason : null;
-    const left = [repo, pr].filter(Boolean).join(' ');
-    if (left && reason) return `${left} · ${reason}`;
-    return left || reason || '';
-  }
-  if (n.kind === 'AUTO_FIX_DONE') {
-    const repo = typeof payload.repoFullName === 'string' ? payload.repoFullName : null;
-    const pr = typeof payload.prNumber === 'number' ? `#${payload.prNumber}` : null;
-    const nextTitle = typeof payload.nextTitle === 'string' ? payload.nextTitle : null;
-    const left = [repo, pr].filter(Boolean).join(' ');
-    if (left && nextTitle) return `${left} · next: ${nextTitle}`;
-    return left || (nextTitle ? `next: ${nextTitle}` : '');
-  }
-  return '';
-}
-
-/** Human verb for a parked publish-gate action, used in the paused-task
- *  reminder. Unknown / null actions fall back to a generic phrase. */
-function actionLabel(action: string | null): string {
-  switch (action) {
-    case 'push':                  return 'push the branch';
-    case 'open_pr':               return 'open the PR';
-    case 'ship_task':             return 'ship the task';
-    case 'next_task':             return 'start the next task';
-    case 'post_comment':          return 'post the comment';
-    case 'create_review_comment': return 'post the review comment';
-    case 'reply_review_thread':   return 'reply on the review thread';
-    case 'request_review':        return 'request review';
-    case 'request_reviewer':      return 'request a reviewer';
-    case 'approve_pr':            return 'approve the PR';
-    case 'merge_pr':              return 'merge the PR';
-    case 'update_pr_body':        return 'update the PR description';
-    case 'comment_on_issue':      return 'comment on the issue';
-    case 'set_issue_state':       return 'change the issue state';
-    case 'publish_review':        return 'publish the review';
-    default:                      return 'continue';
   }
 }
 

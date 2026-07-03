@@ -18,7 +18,7 @@ import { fetchDeployNotices, type DeployNoticeDto } from './homeData';
 import InboxCard, { type InboxHandlers } from './InboxCard';
 
 /** Rows shown before "See all" takes over. */
-const MAX_ROWS = 8;
+const MAX_ROWS = 5;
 
 type Props = {
   /** Cached PR list from the page's own fetch — review requests and

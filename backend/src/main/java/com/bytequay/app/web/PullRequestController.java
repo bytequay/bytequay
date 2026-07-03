@@ -43,6 +43,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
@@ -326,6 +327,21 @@ public class PullRequestController
             @RequestParam(value = "perPage", defaultValue = "30") int perPage)
     {
         return pullRequestService.searchAuthoredHistory(page, perPage);
+    }
+
+    /**
+     * Live GitHub search for the user's PR activity in a time window —
+     * PRs reviewed or contributed (authored) since a date.
+     * GET /prs/activity?kind=reviewed|contributed&since=YYYY-MM-DD&page=N&perPage=30
+     */
+    @GetMapping("/prs/activity")
+    public PullRequestHistoryPage activity(
+            @RequestParam("kind") String kind,
+            @RequestParam("since") String since,
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "perPage", defaultValue = "30") int perPage)
+    {
+        return pullRequestService.searchMyPrActivity(kind, LocalDate.parse(since), page, perPage);
     }
 
     /**

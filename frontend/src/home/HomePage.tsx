@@ -46,6 +46,8 @@ type Props = {
   onOpenTask?: (threadId: string, taskId: string) => void;
   /** Inbox "See all" — opens the notification center. */
   onOpenNotifications?: () => void;
+  /** Contribution-strip "See all" — opens the PR-activity view. */
+  onSeeAllActivity?: (kind: 'reviewed' | 'contributed') => void;
 };
 
 function openUrl(url: string) {
@@ -89,7 +91,7 @@ function formatRelativeTime(iso: string): string {
   return `${Math.round(hrs / 24)} days ago`;
 }
 
-function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenNotifications }: Props) {
+function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenNotifications, onSeeAllActivity }: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
    *  initialPrNumber), and only fall out to the system browser for
@@ -200,6 +202,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
         profile={profile}
         prs={prs}
         onOpenPr={(owner, repo, prNumber) => onSelectRepo(owner, repo, prNumber)}
+        onSeeAllActivity={onSeeAllActivity}
       />
 
       {/* ── Review CTA banner ── */}

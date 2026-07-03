@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import type { PullRequestDto } from '../types';
+import Avatar from '../Avatar';
 import { isPublishGateNotification, relativeTime } from '../notificationDisplay';
 import { prRefFromNotification } from '../threads/notificationNav';
 import PublishGatePane from '../PublishGatePane';
@@ -48,6 +49,20 @@ function splitRepo(full: string): { owner: string; repo: string } | null {
   return { owner: full.slice(0, slash), repo: full.slice(slash + 1) };
 }
 
+/** Who + where badges for the row: the acting user's avatar (PR rows
+ *  only — agent notifications have no human actor) and the repo logo. */
+function rowBadges(item: InboxItem): { author: string | null; repoOwner: string | null } {
+  if (item.source.kind === 'pr') {
+    const pr = item.source.pr;
+    return { author: pr.author, repoOwner: splitRepo(pr.repo)?.owner ?? null };
+  }
+  if (item.source.kind === 'notification') {
+    const ref = prRefFromNotification(item.source.notification);
+    return { author: null, repoOwner: ref?.owner ?? null };
+  }
+  return { author: null, repoOwner: splitRepo(item.source.deploy.repoFullName)?.owner ?? null };
+}
+
 function checksLabel(pr: PullRequestDto): { text: string; ok: boolean } | null {
   switch (pr.ciStatus) {
     case 'PASSING': return { text: 'Checks passing', ok: true };
@@ -62,6 +77,7 @@ function checksLabel(pr: PullRequestDto): { text: string; ok: boolean } | null {
 function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandlers }) {
   const [open, setOpen] = useState(false);
   const [approving, setApproving] = useState(false);
+  const badges = rowBadges(item);
 
   const openPrRow = (pr: PullRequestDto) => {
     const ref = splitRepo(pr.repo);
@@ -195,6 +211,8 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
           <span className="home-inbox-card__sub">{item.sub}</span>
         </span>
         <span className="home-inbox-card__meta">
+          {badges.author && <Avatar login={badges.author} size={16} className="home-inbox-card__author" />}
+          {badges.repoOwner && <Avatar login={badges.repoOwner} size={16} className="home-inbox-card__repo" />}
           {!item.read && <span className="home-inbox-card__dot" aria-label="unread" />}
           <span className="home-inbox-card__time">{relativeTime(item.time)}</span>
           <span className={`home-inbox-card__chev${open ? ' home-inbox-card__chev--open' : ''}`} aria-hidden="true">›</span>

@@ -47,6 +47,7 @@ import ReposPage from './repos/ReposPage';
 import RepositoryPage from './repos/RepositoryPage';
 import LocalRepoPage from './repos/LocalRepoPage';
 import InAppBrowser from './InAppBrowser';
+import FindBar from './FindBar';
 import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
 import { applyTheme, loadTheme } from './themes';
@@ -307,6 +308,8 @@ function App() {
    *  routes a typed payload back here into setNav. Keeps the bar
    *  free of nav state knowledge. */
   const [controlBarOpen, setControlBarOpen] = useState(false);
+  // ⌘F / Ctrl+F opens the in-page find bar (Electron ships no browser find).
+  const [findOpen, setFindOpen] = useState(false);
   // URL of the in-app browser overlay, or null when closed. Set by the
   // main process whenever a link is clicked in the React UI; cleared by
   // the × button on the InAppBrowser toolbar.
@@ -327,6 +330,14 @@ function App() {
       if (e.key === 'k' || e.key === 'K') {
         e.preventDefault();
         setControlBarOpen(open => !open);
+        return;
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        // ⌘F = find in page. Always opens (even from a text field) so it
+        // matches the browser shortcut it stands in for; the bar's own
+        // input takes focus on open.
+        e.preventDefault();
+        setFindOpen(true);
         return;
       }
       if (e.key === 'n' || e.key === 'N') {
@@ -975,6 +986,7 @@ function App() {
         onDispatch={handleControlDispatch}
         contextTags={contextTags}
       />
+      <FindBar open={findOpen} onClose={() => setFindOpen(false)} />
       <Ds4StatusWidget
         hidden={fullScreen}
         onOpenManagement={() => setNav({ view: 'settings', section: 'local-ai' })}

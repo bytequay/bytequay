@@ -762,6 +762,17 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:markPrViewedByRef', async (_event, repo: string, number: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/viewed`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/viewed returned ${res.status}: ${body}`);
+    }
+  });
+
   ipcMain.handle('backend:markPrViewed', async (_event, prId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/viewed`);
     url.searchParams.set('id', String(prId));

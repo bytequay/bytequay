@@ -96,15 +96,18 @@ public class LocalPRSyncService
             known.add(c.sha());
         }
         try {
-            List<GitRunner.CommitEntry> ahead = git.listCommitsAhead(Path.of(cwd), base, COMMIT_LIMIT);
+            Path dir = Path.of(cwd);
+            List<GitRunner.CommitEntry> ahead = git.listCommitsAhead(dir, base, COMMIT_LIMIT);
             // git log is newest-first; record oldest-first so the timeline reads
             // in the order the commits were authored.
             for (int i = ahead.size() - 1; i >= 0; i--) {
                 GitRunner.CommitEntry c = ahead.get(i);
-                if (!known.contains(c.shortSha())) {
-                    localPr.recordCommit(
-                            pr.id(), c.shortSha(), c.subject(), 0, 0, LocalPRTimelineEvent.ACTOR_AGENT);
+                if (known.contains(c.shortSha())) {
+                    continue;
                 }
+                int[] delta = commitDelta(dir, c.sha());
+                localPr.recordCommit(
+                        pr.id(), c.shortSha(), c.subject(), delta[0], delta[1], LocalPRTimelineEvent.ACTOR_AGENT);
             }
         }
         catch (IOException e) {
@@ -113,6 +116,28 @@ public class LocalPRSyncService
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.info("syncing commits for local PR {} interrupted", pr.id());
+        }
+    }
+
+    /** Summed additions/deletions for one commit ({@code [add, del]}); zeros on
+     *  any git failure so a stat hiccup never blocks recording the commit. */
+    private int[] commitDelta(Path dir, String sha)
+    {
+        try {
+            int add = 0;
+            int del = 0;
+            for (GitRunner.CommitFileChange f : git.commitFiles(dir, sha)) {
+                add += f.additions();
+                del += f.deletions();
+            }
+            return new int[] {add, del};
+        }
+        catch (IOException e) {
+            return new int[] {0, 0};
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new int[] {0, 0};
         }
     }
 

@@ -93,32 +93,19 @@ public class LocalPRToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome recordPrCommit(RecordPrCommitArgs args, ToolCall call)
     {
-        String taskId = call.taskId();
-        if (taskId == null) {
-            return ToolOutcome.Completed.error("record_pr_commit needs a task-scoped turn");
-        }
         if (args.sha() == null || args.sha().isBlank()) {
             return ToolOutcome.Completed.error("sha is required");
         }
-        Optional<Task> task = taskStore.findTaskById(taskId);
-        if (task.isEmpty()) {
-            return ToolOutcome.Completed.error("unknown task: " + taskId);
-        }
-        Task t = task.get();
-        if (t.branchName() == null || t.branchName().isBlank()) {
-            return ToolOutcome.Completed.error("task has no branch yet");
-        }
-        String base = t.baseBranch() == null || t.baseBranch().isBlank() ? "main" : t.baseBranch();
-        String title = t.name() != null && !t.name().isBlank() ? t.name() : t.branchName();
-        LocalPR pr = localPr.createForTask(taskId, t.branchName(), base, title, "");
-        localPr.recordCommit(
-                pr.id(),
-                shortSha(args.sha()),
-                args.message(),
-                args.additions() == null ? 0 : args.additions(),
-                args.deletions() == null ? 0 : args.deletions(),
-                LocalPRTimelineEvent.ACTOR_AGENT);
-        return ToolOutcome.Completed.ok("recorded commit " + shortSha(args.sha()));
+        return withPr(call, pr -> {
+            localPr.recordCommit(
+                    pr.id(),
+                    shortSha(args.sha()),
+                    args.message(),
+                    args.additions() == null ? 0 : args.additions(),
+                    args.deletions() == null ? 0 : args.deletions(),
+                    LocalPRTimelineEvent.ACTOR_AGENT);
+            return ToolOutcome.Completed.ok("recorded commit " + shortSha(args.sha()));
+        });
     }
 
     /** Args for {@code record_pr_check}. */
@@ -231,19 +218,28 @@ public class LocalPRToolHandlers
         }
     }
 
-    /** Resolve the running turn's task-scoped local PR and apply {@code action}. */
+    /** Resolve the running turn's task-scoped local PR — creating the row from
+     *  the task's branch if the agent hasn't recorded anything yet (idempotent)
+     *  — and apply {@code action}. */
     private ToolOutcome withPr(ToolCall call, PrAction action)
     {
         String taskId = call.taskId();
         if (taskId == null) {
             return ToolOutcome.Completed.error("this tool needs a task-scoped turn");
         }
-        Optional<LocalPR> pr = localPr.findByTask(taskId);
-        if (pr.isEmpty()) {
-            return ToolOutcome.Completed.error("no local PR for this task yet — record a commit first");
+        Optional<Task> task = taskStore.findTaskById(taskId);
+        if (task.isEmpty()) {
+            return ToolOutcome.Completed.error("unknown task: " + taskId);
         }
+        Task t = task.get();
+        if (t.branchName() == null || t.branchName().isBlank()) {
+            return ToolOutcome.Completed.error("task has no branch yet");
+        }
+        String base = t.baseBranch() == null || t.baseBranch().isBlank() ? "main" : t.baseBranch();
+        String title = t.name() != null && !t.name().isBlank() ? t.name() : t.branchName();
         try {
-            return action.apply(pr.get());
+            LocalPR pr = localPr.createForTask(taskId, t.branchName(), base, title, "");
+            return action.apply(pr);
         }
         catch (IllegalArgumentException e) {
             return ToolOutcome.Completed.error(e.getMessage());

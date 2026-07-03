@@ -29,7 +29,7 @@ export function WorkspaceNavShell({
   activeWorkspaceId, selectedThreadId, tasks, selectedTaskId,
   activeNav, footer, notificationCount,
   collapsed = false, onToggleCollapse,
-  showRecent = false, onResumeVisit,
+  showRecent = false, onResumeVisit, onOpenPr,
   onNavigate, onEnterWorkspace, onOpenThread, onOpenTask, onSwitchWorkspace,
   onNewWorkspace, onNewThread, onDeleteWorkspace,
 }: {
@@ -50,6 +50,8 @@ export function WorkspaceNavShell({
   showRecent?: boolean;
   /** Resume a recently-visited surface (routes via footprint resume). */
   onResumeVisit?: (stop: FootprintStopDto) => void;
+  /** Open a PR from the Today summary's "Reviewed" line. */
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
   onNavigate?: (key: WsNavKey) => void;
   onEnterWorkspace?: (id: string) => void;
   onOpenThread?: (id: string) => void;
@@ -67,7 +69,7 @@ export function WorkspaceNavShell({
 
   const body = ws === null
     ? (showRecent
-      ? <RecentList onResume={onResumeVisit} />
+      ? <RecentList onResume={onResumeVisit} onOpenPr={onOpenPr} />
       : (
         <WorkspaceList
           workspaces={data.workspaces}

@@ -50,24 +50,34 @@ export function RecentList({ onResume, onOpenPr }: {
   const [stops, setStops] = useState<FootprintStopDto[]>([]);
   const [reviewedToday, setReviewedToday] = useState<PullRequestDto | null>(null);
 
+  // The list is mounted for as long as the rail shows (i.e. across every
+  // non-workspace surface), so refresh on a slow poll — visits recorded
+  // while the user moves around should show up without a remount.
   useEffect(() => {
     let cancelled = false;
-    void window.bridge.getFootprints()
-      .then(trail => {
-        // The trail arrives oldest-first; the sidebar wants newest on top.
-        if (!cancelled) setStops(trail.stops.slice().reverse().slice(0, MAX_ROWS));
-      })
-      .catch(() => { /* non-fatal — section renders empty */ });
-    void window.bridge.fetchPrs()
-      .then(prs => {
-        if (cancelled) return;
-        const reviewed = prs
-          .filter(p => p.reviewedAt !== null && isToday(p.reviewedAt))
-          .sort((a, b) => Date.parse(b.reviewedAt as string) - Date.parse(a.reviewedAt as string));
-        setReviewedToday(reviewed[0] ?? null);
-      })
-      .catch(() => { /* summary line just stays hidden */ });
-    return () => { cancelled = true; };
+    const refresh = () => {
+      void window.bridge.getFootprints()
+        .then(trail => {
+          // The trail arrives oldest-first; the sidebar wants newest on top.
+          if (!cancelled) setStops(trail.stops.slice().reverse().slice(0, MAX_ROWS));
+        })
+        .catch(() => { /* non-fatal — section renders empty */ });
+      void window.bridge.fetchPrs()
+        .then(prs => {
+          if (cancelled) return;
+          const reviewed = prs
+            .filter(p => p.reviewedAt !== null && isToday(p.reviewedAt))
+            .sort((a, b) => Date.parse(b.reviewedAt as string) - Date.parse(a.reviewedAt as string));
+          setReviewedToday(reviewed[0] ?? null);
+        })
+        .catch(() => { /* summary line just stays hidden */ });
+    };
+    refresh();
+    const id = window.setInterval(refresh, 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   const workingOn = stops[0] ?? null;

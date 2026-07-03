@@ -605,7 +605,6 @@ function App() {
           onForward={goForward}
           backEnabled={canGoBack(navHistoryRef.current)}
           forwardEnabled={canGoForward(navHistoryRef.current)}
-          showRecent={nav.view === 'home'}
           onResumeVisit={stop => resumeStop(stop, {
             openPrKanban: () => setNav({ view: 'my-prs' }),
             openPr: (owner, repo, prNumber) =>
@@ -643,11 +642,6 @@ function App() {
               case 'settings': setNav({ view: 'settings' }); break;
             }
           }}
-          onEnterWorkspace={id => {
-            setActiveWorkspaceId(id);
-            writeActiveWorkspaceId(id);
-            setNav({ view: 'workspace', section: 'threads' });
-          }}
           onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
           onOpenTask={taskId => {
             if (navThreadId !== null) {
@@ -657,31 +651,7 @@ function App() {
           onSwitchWorkspace={() => setNav(nav.view !== 'workspace'
             ? { view: 'workspace', section: 'threads' }  // from a thread/task → into the workspace
             : { view: 'workspaces-landing' })}            // already on it → the overview, to switch
-
-          onNewWorkspace={() => setNav({ view: 'workspaces-landing' })}
           onNewThread={() => setNav({ view: 'thread-create' })}
-          onDeleteWorkspace={(id, name) => {
-            const ok = window.confirm(
-              `Delete workspace "${name}" and everything in it?\n\n`
-              + 'This permanently removes its threads, tasks, messages, '
-              + 'backlog, and worktrees, and stops any running agents. '
-              + 'This cannot be undone.');
-            if (!ok) return;
-            void window.bridge.deleteWorkspace(id)
-              .then(() => {
-                // Dropping the active workspace: clear the selection so the app
-                // falls back to the overview rather than a now-dead id. The
-                // polled rail removes the row on its own.
-                if (activeWorkspaceId === id) {
-                  setActiveWorkspaceId(null);
-                  clearActiveWorkspaceId();
-                  setNav({ view: 'workspaces-landing' });
-                }
-              })
-              .catch((e: unknown) => {
-                window.alert(`Couldn't delete workspace: ${e instanceof Error ? e.message : String(e)}`);
-              });
-          }}
         />
       )}
       <div className="app-content">

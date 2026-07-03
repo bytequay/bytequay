@@ -15,7 +15,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Logo } from '../primitives';
 import {
-  ThreadList, WorkspaceList, WorkspaceNavSidebar, WorkspaceSwitcher, WorkspaceTopBar,
+  ThreadList, WorkspaceNavSidebar, WorkspaceSwitcher, WorkspaceTopBar,
 } from './index';
 
 afterEach(() => { cleanup(); Reflect.deleteProperty(window, 'bridge'); });
@@ -106,41 +106,6 @@ describe('WorkspaceNavSidebar', () => {
     expect(screen.queryByTestId('body')).toBeNull();
     fireEvent.click(container.querySelector('.sb-traffic .sb-toggle') as HTMLElement);
     expect(onToggleCollapse).toHaveBeenCalledOnce();
-  });
-});
-
-describe('WorkspaceList', () => {
-  it('renders workspace rows and opens one', () => {
-    const onOpen = vi.fn();
-    render(
-      <WorkspaceList
-        workspaces={[
-          { id: 'bq', initials: 'BQ', color: 'purple', name: 'ByteQuay', sub: '3 repos · 5 open threads', count: 5 },
-          { id: 'tr', initials: 'TR', color: 'teal', name: 'Trino', sub: '2 repos · 3 open threads', count: 3 },
-        ]}
-        onOpen={onOpen}
-      />,
-    );
-    expect(screen.getByText('ByteQuay')).toBeTruthy();
-    expect(screen.getByText('3 repos · 5 open threads')).toBeTruthy();
-    fireEvent.click(screen.getByText('Trino'));
-    expect(onOpen).toHaveBeenCalledWith('tr');
-  });
-
-  it('shows a per-row delete only when onDelete is wired, and fires it without drilling in', () => {
-    const onOpen = vi.fn();
-    const onDelete = vi.fn();
-    const rows = [
-      { id: 'bq', initials: 'BQ', color: 'purple' as const, name: 'ByteQuay', sub: '3 repos', count: 5 },
-    ];
-    const { rerender } = render(<WorkspaceList workspaces={rows} onOpen={onOpen} />);
-    expect(screen.queryByLabelText('Delete workspace ByteQuay')).toBeNull();
-
-    rerender(<WorkspaceList workspaces={rows} onOpen={onOpen} onDelete={onDelete} />);
-    fireEvent.click(screen.getByLabelText('Delete workspace ByteQuay'));
-    expect(onDelete).toHaveBeenCalledWith('bq', 'ByteQuay');
-    // Deleting must not also drill into the workspace.
-    expect(onOpen).not.toHaveBeenCalled();
   });
 });
 

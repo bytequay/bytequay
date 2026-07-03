@@ -146,10 +146,6 @@
   color: var(--accent-deep);
 }
 
-.home-repos-card--primary {
-  min-height: 220px;
-}
-
 .hp-avatar-btn {
   background: none;
   border: none;
@@ -330,82 +326,6 @@
   color: var(--text-3);
 }
 
-/* ── Teams home card ── */
-.home-teams-row {
-  margin-top: 16px;
-}
-
-.home-teams-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.home-team-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-2);
-}
-
-.home-team-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: var(--space-2);
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  cursor: pointer;
-  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
-}
-.home-team-item:hover {
-  border-color: var(--accent-a40);
-  transform: translateY(-1px);
-  box-shadow: 0 1px 3px rgba(16, 22, 26, 0.08);
-}
-.home-team-item .team-avatar {
-  width: 30px;
-  height: 30px;
-  font-size: var(--font-size-sm);
-  border-radius: var(--radius-md);
-}
-.home-team-item__info {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.home-team-item__name {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.home-team-item__meta {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-}
-.home-team-item__inbox {
-  min-width: 28px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 11px;
-  background: var(--bg-card);
-  color: var(--text-3);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.home-team-item__inbox--active {
-  background: var(--accent-a15, var(--accent-a7));
-  color: var(--accent);
-}
-
-/* Year in code card */
 .home-year-card {
   display: flex;
   flex-direction: column;
@@ -659,142 +579,6 @@
   border-radius: 2px;
 }
 
-.home-watch-btn {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  font-weight: 500;
-  font-family: inherit;
-}
-
-.home-watch-btn:hover {
-  background: var(--accent-dark);
-}
-
-/* Column-major grid: fills the first 3 cells top-to-bottom, then wraps
-   into a second column on the right rather than growing the card's
-   height. Cap the column width so long repo names don't push later
-   columns off-screen. */
-.home-repo-list {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(3, auto);
-  grid-auto-columns: minmax(0, 1fr);
-  column-gap: var(--space-3);
-  row-gap: 1px;
-}
-
-.home-repo-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-1);
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  transition: background 0.1s;
-}
-
-.home-repo-item:hover {
-  background: var(--accent-a7);
-}
-
-.home-repo-item__unwatch {
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: var(--text-3);
-  font-size: var(--font-size-sm);
-  line-height: 1;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.1s, background 0.1s, color 0.1s;
-}
-
-.home-repo-item:hover .home-repo-item__unwatch,
-.home-repo-item:focus-within .home-repo-item__unwatch {
-  opacity: 1;
-}
-
-.home-repo-item__unwatch:hover {
-  background: var(--danger-bg, rgba(220, 53, 69, 0.15));
-  color: var(--danger, #c0392b);
-}
-
-.home-repo-item__info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.home-repo-item__name {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-repo-item__owner {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-repo-status {
-  font-size: var(--font-size-xs);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.home-repo-status--active {
-  color: #16a34a;
-}
-
-.home-repo-status--commits {
-  color: #d97706;
-}
-
-.home-repo-status--none {
-  color: var(--text-4);
-}
-
-.home-repo-status__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #16a34a;
-  flex-shrink: 0;
-}
-
-.home-repo-status__plus {
-  font-size: var(--font-size-md);
-  line-height: 1;
-}
-
-/* Following list */
 .home-following-list {
   display: flex;
   flex-direction: column;
@@ -887,6 +671,185 @@
 }
 
 /* Edit profile modal */
+/* ── Section header + 2-col card grids (repos / teams) ───────────── */
+.home-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.home-section__title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.home-section__action {
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.home-section__action:hover {
+  color: var(--accent-deep);
+}
+
+.home-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.home-repo-tile,
+.home-team-tile {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.home-repo-tile:hover,
+.home-team-tile:hover {
+  border-color: var(--accent-a40);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.home-repo-tile__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.home-repo-tile__avatar {
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.home-repo-tile__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-repo-tile:hover .home-repo-tile__name {
+  color: var(--accent);
+}
+
+.home-repo-tile__unwatch {
+  background: none;
+  border: none;
+  color: var(--text-4);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: 2px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.home-repo-tile:hover .home-repo-tile__unwatch,
+.home-repo-tile:focus-within .home-repo-tile__unwatch {
+  opacity: 1;
+}
+
+.home-repo-tile__unwatch:hover {
+  color: var(--red);
+}
+
+.home-repo-tile__desc {
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  margin: var(--space-1) 0;
+  min-height: 1.4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-repo-tile__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-1);
+}
+
+.home-repo-tile__chip {
+  margin-left: auto;
+  color: var(--green);
+  font-weight: 500;
+}
+
+.home-team-tile__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.home-team-tile__names {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-team-tile__name {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-team-tile:hover .home-team-tile__name {
+  color: var(--accent);
+}
+
+.home-team-tile__meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+}
+
+.home-team-tile__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-1);
+}
+
+.home-team-tile__foot b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.home-team-tile__view {
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.home-team-tile:hover .home-team-tile__view {
+  opacity: 1;
+}
+
 /* ── Contribution card ──────────────────────────────────────────────
    Lead card: graph left, compact bio right, reviewed / contributed
    PR strip along the bottom. */

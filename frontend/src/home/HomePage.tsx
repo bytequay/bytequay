@@ -13,7 +13,6 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { FootprintStopDto, PullRequestDto, RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } from '../types';
-import Avatar from '../Avatar';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import TodaysFootprints from '../footprints/TodaysFootprints';
@@ -22,6 +21,8 @@ import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
 import InboxSection from './InboxSection';
+import TeamsGrid from './TeamsGrid';
+import WatchedReposGrid from './WatchedReposGrid';
 
 // The GitHub-sourced flows (profile, recent/following events, orgs) used
 // to be cached client-side via getCached/setCached for instant-paint on
@@ -91,26 +92,6 @@ function formatRelativeTime(iso: string): string {
   if (hrs < 48) return 'Yesterday';
   return `${Math.round(hrs / 24)} days ago`;
 }
-
-function repoStatus(events: RecentEventDto[], owner: string, repo: string): { text: string; variant: 'active' | 'commits' | 'none' } {
-  const fullName = `${owner}/${repo}`;
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayStartMs = todayStart.getTime();
-  let commitCount = 0;
-  let hasActivity = false;
-  for (const e of events) {
-    if (e.repo !== fullName) continue;
-    if (new Date(e.createdAt).getTime() >= todayStartMs) {
-      hasActivity = true;
-      if (e.type === 'PushEvent') commitCount += e.commitCount || 1;
-    }
-  }
-  if (commitCount > 0) return { text: `${commitCount} new commit${commitCount !== 1 ? 's' : ''} today`, variant: 'commits' };
-  if (hasActivity) return { text: 'Active today', variant: 'active' };
-  return { text: 'No recent activity', variant: 'none' };
-}
-
 
 function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenThread, onOpenNotifications }: Props) {
   // Resume a footprint pin via the app's existing navigation handlers.
@@ -274,131 +255,17 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
       />
 
       {/* ── Repos you watch ── */}
-      <div className="home-card home-repos-card home-repos-card--primary">
-          <div className="home-card__header">
-            <span className="home-card__title">Repos you watch</span>
-            <button className="home-watch-btn" onClick={() => setShowModal(true)} type="button">
-              + Watch a repo
-            </button>
-          </div>
-          {loading ? (
-            <div className="hp-loading">Loading…</div>
-          ) : repos.length === 0 ? (
-            <div className="hp-empty">No repos yet.</div>
-          ) : (
-            <div className="home-repo-list">
-              {repos.map(r => {
-                const status = repoStatus(events, r.owner, r.repo);
-                const open = () => onSelectRepo(r.owner, r.repo);
-                return (
-                  <div
-                    key={r.id}
-                    className="home-repo-item"
-                    role="button"
-                    tabIndex={0}
-                    onClick={open}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        open();
-                      }
-                    }}
-                  >
-                    <Avatar login={r.owner} size={24} className="home-repo-item__avatar" />
-                    <div className="home-repo-item__info">
-                      <span className="home-repo-item__name">{r.repo}</span>
-                      <span className="home-repo-item__owner">{r.owner}</span>
-                    </div>
-                    {status.variant !== 'none' && (
-                      <span className={`home-repo-status home-repo-status--${status.variant}`}>
-                        {status.variant === 'active' && <span className="home-repo-status__dot" />}
-                        {status.variant === 'commits' && <span className="home-repo-status__plus">⊕</span>}
-                        {status.text}
-                      </span>
-                    )}
-                    <button
-                      className="home-repo-item__unwatch"
-                      type="button"
-                      aria-label={`Unwatch ${r.owner}/${r.repo}`}
-                      title="Unwatch this repo"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleRemove(r.owner, r.repo);
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      <WatchedReposGrid
+        repos={repos}
+        loading={loading}
+        events={events}
+        onSelectRepo={(owner, repo) => onSelectRepo(owner, repo)}
+        onWatch={() => setShowModal(true)}
+        onRemove={(owner, repo) => { void handleRemove(owner, repo); }}
+      />
 
       {/* ── Teams you track ── */}
-      <div className="home-teams-row">
-        <div className="home-card home-teams-card">
-          <div className="home-card__header">
-            <span className="home-card__title">Teams you track</span>
-            {onGoToTeams && (
-              <button className="home-watch-btn" onClick={onGoToTeams} type="button">
-                + Manage teams
-              </button>
-            )}
-          </div>
-          {teams.length === 0 ? (
-            <div className="hp-empty">
-              No teams yet.{' '}
-              {onGoToTeams && (
-                <button
-                  type="button"
-                  className="hp-empty__link"
-                  onClick={onGoToTeams}
-                >
-                  Create one
-                </button>
-              )}{' '}to filter the Kanban by author.
-            </div>
-          ) : (
-            <div className="home-team-list">
-              {teams.map(t => (
-                <div
-                  key={t.id}
-                  className="home-team-item"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpenTeam?.(t.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onOpenTeam?.(t.id);
-                    }
-                  }}
-                >
-                  <span
-                    className={`team-avatar team-avatar--${t.color}`}
-                    aria-hidden="true"
-                  >
-                    {t.avatar}
-                  </span>
-                  <div className="home-team-item__info">
-                    <span className="home-team-item__name">{t.name}</span>
-                    <span className="home-team-item__meta">
-                      {t.memberCount} member{t.memberCount === 1 ? '' : 's'}
-                    </span>
-                  </div>
-                  <span
-                    className={`home-team-item__inbox${t.inboxCount > 0 ? ' home-team-item__inbox--active' : ''}`}
-                    title={`${t.inboxCount} open PR${t.inboxCount === 1 ? '' : 's'} in inbox`}
-                  >
-                    {t.inboxCount}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      <TeamsGrid teams={teams} onOpenTeam={onOpenTeam} onGoToTeams={onGoToTeams} />
 
       </main>
 

@@ -14,6 +14,7 @@
 import { useMemo, useState } from 'react';
 import NewWorkspaceDialog from './NewWorkspaceDialog';
 import WorkspaceCard from './WorkspaceCard';
+import { ConfirmDialog } from './ConfirmDialog';
 import useWorkspaces from './useWorkspaces';
 
 type Props = {
@@ -36,6 +37,11 @@ function WorkspacesLandingPage({
   const { cards, loading, error, reload } = useWorkspaces();
   const [filter, setFilter] = useState('');
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  // Id of the workspace the delete-confirm dialog is asking about, or
+  // null when closed; `deleting` disables the button while the request
+  // is in flight so a double-click can't fire two deletes.
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   // decision pending — the ambient "auto-enter the only non-scratch
   // workspace" redirect lives elsewhere once multi-workspace creation
   // ships. While we're single-workspace the landing always renders so
@@ -53,26 +59,32 @@ function WorkspacesLandingPage({
     return cards.filter(c => c.name.toLowerCase().includes(needle));
   }, [cards, filter]);
 
-  // Delete a workspace from its card. The backend leaves any threads in
-  // it orphaned (no cascade), so warn when the workspace still has some.
-  const handleDelete = (id: string) => {
-    const card = cards?.find(c => c.id === id);
-    const name = card?.name ?? 'this workspace';
-    const threads = card?.activeThreadCount ?? 0;
-    const warn = threads > 0
-      ? ` Its ${threads} thread${threads === 1 ? '' : 's'} and all their tasks and history go with it.`
-      : '';
-    if (!window.confirm(
-      `Delete workspace "${name}" and everything in it?${warn}`
-      + ' This permanently removes its threads, tasks, messages, backlog, and'
-      + ' worktrees, and stops any running agents. This cannot be undone.')) {
+  // Delete a workspace from its card — opens the in-app confirm dialog.
+  // The backend cascades (purges every thread and its tasks, history,
+  // worktrees), so the dialog warns loudly when the workspace has some.
+  const deleteCard = deleteId === null ? null : cards?.find(c => c.id === deleteId) ?? null;
+  const deleteThreads = deleteCard?.activeThreadCount ?? 0;
+  const deleteBody =
+    (deleteThreads > 0
+      ? `Its ${deleteThreads} thread${deleteThreads === 1 ? '' : 's'} and all their tasks and history go with it. `
+      : '')
+    + 'This permanently removes its threads, tasks, messages, backlog, and '
+    + 'worktrees, and stops any running agents.\n\nThis cannot be undone.';
+
+  const confirmDelete = () => {
+    if (deleteId === null) {
       return;
     }
-    void window.bridge.deleteWorkspace(id)
-      .then(() => reload())
+    setDeleting(true);
+    void window.bridge.deleteWorkspace(deleteId)
+      .then(() => {
+        setDeleteId(null);
+        reload();
+      })
       .catch((e: unknown) => {
         window.alert(`Couldn't delete workspace: ${e instanceof Error ? e.message : String(e)}`);
-      });
+      })
+      .finally(() => setDeleting(false));
   };
 
   return (
@@ -118,7 +130,7 @@ function WorkspacesLandingPage({
             card={card}
             isCurrent={card.id === currentWorkspaceId}
             onEnter={onEnterWorkspace}
-            onDelete={handleDelete}
+            onDelete={setDeleteId}
           />
         ))}
         {!loading && !error && (
@@ -152,6 +164,17 @@ function WorkspacesLandingPage({
             // path; we just trust the close hook fired post-success.
             void reload();
           }}
+        />
+      )}
+      {deleteCard !== null && (
+        <ConfirmDialog
+          title={`Delete workspace "${deleteCard.name}"?`}
+          body={deleteBody}
+          confirmLabel={deleting ? 'Deleting…' : 'Delete workspace'}
+          destructive
+          busy={deleting}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteId(null)}
         />
       )}
     </section>

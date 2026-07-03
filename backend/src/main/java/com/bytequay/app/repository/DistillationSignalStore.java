@@ -26,4 +26,10 @@ public interface DistillationSignalStore
     /** Signals of one event type, oldest-first. Exists for the (future)
      *  memory read path + tests; v1 has no production reader. */
     List<DistillationSignal> findByEventType(String eventType);
+
+    /** Delete signals attached to a thread. Returns the count removed. */
+    int deleteByThread(String threadId);
+
+    /** Delete signals attached to a workspace. Returns the count removed. */
+    int deleteByWorkspace(String workspaceId);
 }

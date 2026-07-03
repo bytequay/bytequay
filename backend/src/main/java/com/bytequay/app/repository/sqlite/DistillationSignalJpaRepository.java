@@ -21,4 +21,8 @@ interface DistillationSignalJpaRepository
         extends JpaRepository<DistillationSignalEntity, String>
 {
     List<DistillationSignalEntity> findByEventTypeOrderByCreatedAtMsAsc(String eventType);
+
+    long deleteByThreadId(String threadId);
+
+    long deleteByWorkspaceId(String workspaceId);
 }

@@ -50,12 +50,14 @@ class TestWorkspaceService
     private final WorkspaceStore store = mock(WorkspaceStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final ThreadService threadService = mock(ThreadService.class);
+    private final WorkspaceDataPurger dataPurger = mock(WorkspaceDataPurger.class);
     private final WorkspaceService service = new WorkspaceService(
             store,
             new WorkspaceGlossaryParser(),
             new ConceptRegistry(),
             threadStore,
-            threadService);
+            threadService,
+            dataPurger);
 
     @Test
     void summariseMemoryCountsDecisionAndBlockerBullets()
@@ -377,9 +379,10 @@ class TestWorkspaceService
         // Each thread is purged (its agents stopped, worktrees reaped, row +
         // DB cascade) BEFORE the workspace row is dropped — required for
         // correctness, since threads.workspace_id has no ON DELETE CASCADE.
-        InOrder order = inOrder(threadService, store);
+        InOrder order = inOrder(threadService, dataPurger, store);
         order.verify(threadService).purge("th-1");
         order.verify(threadService).purge("th-2");
+        order.verify(dataPurger).purgeWorkspaceScoped("ws-bytequay");
         order.verify(store).deleteWorkspace("ws-bytequay");
     }
 

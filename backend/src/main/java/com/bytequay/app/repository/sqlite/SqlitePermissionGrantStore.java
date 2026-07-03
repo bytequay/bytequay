@@ -78,6 +78,16 @@ public class SqlitePermissionGrantStore
         repo.deleteById(id);
     }
 
+    @Override
+    @Transactional
+    public int deleteForScope(String scopeKind, String scopeId)
+    {
+        if (scopeKind == null || scopeId == null || scopeId.isBlank()) {
+            return 0;
+        }
+        return (int) repo.deleteByScopeKindAndScopeId(scopeKind, scopeId);
+    }
+
     private static PermissionGrant toDomain(PermissionGrantEntity e)
     {
         return new PermissionGrant(

@@ -92,4 +92,11 @@ public class SqliteIdSequenceStore
         }
         return issued;
     }
+
+    @Override
+    public int deleteByWorkspace(String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        return jdbc.update("DELETE FROM workspace_thread_day_seq WHERE workspace_id = ?", workspaceId);
+    }
 }

@@ -14,6 +14,9 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
@@ -22,4 +25,8 @@ interface SurfaceVisitJpaRepository
 {
     List<SurfaceVisitEntity> findByVisitedAtMsGreaterThanEqualAndVisitedAtMsLessThanOrderByVisitedAtMsAsc(
             long startInclusive, long endExclusive);
+
+    @Modifying
+    @Query("DELETE FROM SurfaceVisitEntity v WHERE v.surfaceId = :threadId OR v.surfaceId LIKE :prefix")
+    int deleteForThread(@Param("threadId") String threadId, @Param("prefix") String prefix);
 }

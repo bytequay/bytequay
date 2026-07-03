@@ -17,6 +17,7 @@ import com.bytequay.app.domain.SurfaceType;
 import com.bytequay.app.domain.SurfaceVisit;
 import com.bytequay.app.repository.SurfaceVisitStore;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -60,6 +61,14 @@ public class SqliteSurfaceVisitStore
                 .stream()
                 .map(SqliteSurfaceVisitStore::toDomain)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional
+    public int deleteByThread(String threadId)
+    {
+        requireNonNull(threadId, "threadId is null");
+        return jpaRepository.deleteForThread(threadId, threadId + "/%");
     }
 
     private static SurfaceVisit toDomain(SurfaceVisitEntity e)

@@ -26,4 +26,9 @@ public interface SurfaceVisitStore
     /** Visits in the half-open window {@code [startInclusive, endExclusive)},
      *  ordered oldest-first. Used to build a calendar-day trail. */
     List<SurfaceVisit> findVisitedBetween(Instant startInclusive, Instant endExclusive);
+
+    /** Delete every visit to a thread's own surface or any of its task surfaces.
+     *  Task surfaces use a "{threadId}/{taskId}" surface id, so a prefix match
+     *  on "{threadId}/" plus the exact thread id covers both. Returns the count. */
+    int deleteByThread(String threadId);
 }

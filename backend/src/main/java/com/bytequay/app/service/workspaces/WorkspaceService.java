@@ -101,6 +101,7 @@ public class WorkspaceService
     private final ConceptRegistry concepts;
     private final ThreadStore threadStore;
     private final ThreadService threadService;
+    private final WorkspaceDataPurger dataPurger;
 
     public WorkspaceService(
             WorkspaceStore store,
@@ -110,13 +111,15 @@ public class WorkspaceService
             // @Lazy breaks the cycle WorkspaceService → ThreadService →
             // ThreadRegistry → WorkspaceService (the registry reads workspace
             // context). The teardown only needs ThreadService at delete time.
-            @Lazy ThreadService threadService)
+            @Lazy ThreadService threadService,
+            WorkspaceDataPurger dataPurger)
     {
         this.store = requireNonNull(store, "store is null");
         this.glossaryParser = requireNonNull(glossaryParser, "glossaryParser is null");
         this.concepts = requireNonNull(concepts, "concepts is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
+        this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
     }
 
     public List<Workspace> list()
@@ -301,6 +304,7 @@ public class WorkspaceService
                         thread.id(), workspaceId, e.getMessage());
             }
         }
+        dataPurger.purgeWorkspaceScoped(workspaceId);
         store.deleteWorkspace(workspaceId);
         log.info("deleted workspace {} and purged {} thread(s)", workspaceId, threads.size());
     }

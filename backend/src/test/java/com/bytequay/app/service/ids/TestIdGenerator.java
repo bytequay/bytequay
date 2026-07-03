@@ -156,8 +156,18 @@ class TestIdGenerator
         // Task ids reuse tasks.seq from the caller — no allocation
         // through IdSequenceStore. A stub that throws on call proves
         // the generator doesn't reach into the store on this path.
-        IdSequenceStore exploding = (ws, ymd) -> {
-            throw new AssertionError("newTaskId must not touch IdSequenceStore");
+        IdSequenceStore exploding = new IdSequenceStore() {
+            @Override
+            public int nextThreadSeq(String ws, String ymd)
+            {
+                throw new AssertionError("newTaskId must not touch IdSequenceStore");
+            }
+
+            @Override
+            public int deleteByWorkspace(String workspaceId)
+            {
+                return 0;
+            }
         };
         IdGenerator gen = new IdGenerator(exploding, seeded(1L));
 
@@ -230,7 +240,19 @@ class TestIdGenerator
     /** Store stub that returns a fixed seq value on every call. */
     private static IdSequenceStore constantSeq(int value)
     {
-        return (workspaceId, ymd) -> value;
+        return new IdSequenceStore() {
+            @Override
+            public int nextThreadSeq(String workspaceId, String ymd)
+            {
+                return value;
+            }
+
+            @Override
+            public int deleteByWorkspace(String workspaceId)
+            {
+                return 0;
+            }
+        };
     }
 
     /** Store stub that records its last call's arguments. */
@@ -246,6 +268,12 @@ class TestIdGenerator
             this.workspaceId = workspaceId;
             this.ymd = ymd;
             return 1;
+        }
+
+        @Override
+        public int deleteByWorkspace(String workspaceId)
+        {
+            return 0;
         }
     }
 
@@ -264,6 +292,12 @@ class TestIdGenerator
             int next = seqByKey.getOrDefault(key, 1);
             seqByKey.put(key, next + 1);
             return next;
+        }
+
+        @Override
+        public int deleteByWorkspace(String workspaceId)
+        {
+            return 0;
         }
     }
 }

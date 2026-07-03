@@ -42,6 +42,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.skills.RoleSkillService;
+import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -117,6 +118,7 @@ public class ThreadService
     private final WorktreeService worktreeService;
     private final RoleSkillService roleSkillService;
     private final IdGenerator idGenerator;
+    private final WorkspaceDataPurger dataPurger;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
      *  task-creation side effects (stage init) aren't under test. */
@@ -136,7 +138,8 @@ public class ThreadService
             WorktreeService worktreeService,
             RoleSkillService roleSkillService,
             IdGenerator idGenerator,
-            @Lazy PullRequestService pullRequests)
+            @Lazy PullRequestService pullRequests,
+            WorkspaceDataPurger dataPurger)
     {
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -152,6 +155,7 @@ public class ThreadService
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
+        this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
     }
 
     @Override
@@ -885,6 +889,7 @@ public class ThreadService
                         task.worktreePath(), task.branchName());
             }
         }
+        dataPurger.purgeThreadScoped(threadId, allTasks.stream().map(Task::id).toList());
         store.deleteThread(threadId);
     }
 

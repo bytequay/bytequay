@@ -25,4 +25,6 @@ interface PermissionGrantJpaRepository
 
     /** Grants at a narrower scope, keyed by scope id. */
     List<PermissionGrantEntity> findByScopeKindAndScopeId(String scopeKind, String scopeId);
+
+    long deleteByScopeKindAndScopeId(String scopeKind, String scopeId);
 }

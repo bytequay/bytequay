@@ -165,6 +165,13 @@ public class SqliteMemoryItemStore
                 nowMs, id) > 0;
     }
 
+    @Override
+    public int deleteByScope(MemoryItemScopeKind scopeKind, String scopeId)
+    {
+        return jdbc.update("DELETE FROM memory_item WHERE scope_kind = ? AND scope_id = ?",
+                scopeKind.name(), scopeId);
+    }
+
     private RowMapper<MemoryItem> rowMapper()
     {
         return (rs, n) -> new MemoryItem(

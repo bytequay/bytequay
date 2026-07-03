@@ -19,6 +19,7 @@ import type {
   WorkspaceCardDto,
 } from '../types';
 import { WorkModelPicker } from './WorkModelPicker';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const ARCHIVE_OPTIONS: { value: string; label: string }[] = [
   { value: '1h', label: 'After 1h' },
@@ -55,18 +56,14 @@ function WorkspaceSettingsPage() {
   const [renameNotice, setRenameNotice] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workModel, setWorkModel] = useState<WorkModelDto | null>(null);
   const [workModelError, setWorkModelError] = useState<string | null>(null);
 
-  const onDelete = async () => {
+  const runDelete = async () => {
     if (workspace === null || deleting) return;
-    const ok = window.confirm(
-      `Permanently delete workspace "${workspace.name}"?\n\n`
-      + 'This drops the workspace row and its repo pins. Threads '
-      + 'still pointing at it are left orphaned. This cannot be undone.');
-    if (!ok) return;
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -79,6 +76,7 @@ function WorkspaceSettingsPage() {
     catch (err) {
       setDeleteError(err instanceof Error ? err.message : String(err));
       setDeleting(false);
+      setConfirmOpen(false);
     }
   };
 
@@ -437,9 +435,9 @@ function WorkspaceSettingsPage() {
             <div>
               <div style={dangerLabelStyle}>Delete workspace</div>
               <div style={mutedHintStyle}>
-                permanently remove the workspace and its repo pins.
-                Threads pointing at it are left orphaned; worktrees
-                + PRs on GitHub are untouched.
+                permanently remove the workspace and everything in it —
+                threads, tasks, history, worktrees, and repo pins — and
+                stop any running agents. PRs already on GitHub are untouched.
               </div>
               {deleteError !== null && (
                 <div style={{ ...errorStyle, marginTop: 8 }} role="alert">{deleteError}</div>
@@ -448,7 +446,7 @@ function WorkspaceSettingsPage() {
             <button
               type="button"
               style={deleting ? { ...dangerButtonStyle, opacity: 0.6, cursor: 'not-allowed' } : dangerButtonStyle}
-              onClick={onDelete}
+              onClick={() => setConfirmOpen(true)}
               disabled={workspace === null || deleting}
             >
               {deleting ? 'Deleting…' : 'Delete…'}
@@ -456,6 +454,19 @@ function WorkspaceSettingsPage() {
           </li>
         </ul>
       </section>
+      {confirmOpen && workspace !== null && (
+        <ConfirmDialog
+          title={`Delete workspace "${workspace.name}"?`}
+          body={'This removes the workspace and everything in it — every thread, '
+            + 'its tasks, messages, history, worktrees, and repo pins — and stops '
+            + 'any running agents.\n\nThis cannot be undone.'}
+          confirmLabel={deleting ? 'Deleting…' : 'Delete workspace'}
+          destructive
+          busy={deleting}
+          onConfirm={() => { void runDelete(); }}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
     </>
   );
 }

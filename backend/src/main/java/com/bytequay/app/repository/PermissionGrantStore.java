@@ -41,4 +41,7 @@ public interface PermissionGrantStore
 
     /** Hard-delete by id. No-op when the id doesn't exist. */
     void delete(long id);
+
+    /** Delete every grant at a narrower scope (workspace/thread/task). Returns the count removed. */
+    int deleteForScope(String scopeKind, String scopeId);
 }

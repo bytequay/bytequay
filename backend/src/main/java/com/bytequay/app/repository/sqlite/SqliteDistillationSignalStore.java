@@ -58,6 +58,26 @@ class SqliteDistillationSignalStore
                 .toList();
     }
 
+    @Override
+    @Transactional
+    public int deleteByThread(String threadId)
+    {
+        if (threadId == null || threadId.isBlank()) {
+            return 0;
+        }
+        return (int) repository.deleteByThreadId(threadId);
+    }
+
+    @Override
+    @Transactional
+    public int deleteByWorkspace(String workspaceId)
+    {
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return 0;
+        }
+        return (int) repository.deleteByWorkspaceId(workspaceId);
+    }
+
     private static DistillationSignal toDomain(DistillationSignalEntity e)
     {
         return new DistillationSignal(

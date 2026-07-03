@@ -58,4 +58,7 @@ public interface IdSequenceStore
      * a value already handed out.
      */
     int nextThreadSeq(String workspaceId, String ymd);
+
+    /** Remove every per-day thread-seq counter row for a workspace. */
+    int deleteByWorkspace(String workspaceId);
 }

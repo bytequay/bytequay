@@ -77,4 +77,7 @@ public interface MemoryItemStore
     /** Set {@code resolved_at_ms}; used when an OPEN_QUESTION gets
      *  answered or a BLOCKER gets cleared. */
     boolean markResolved(long id, long nowMs);
+
+    /** Hard-delete every memory item at a scope (used by workspace/thread teardown). */
+    int deleteByScope(MemoryItemScopeKind scopeKind, String scopeId);
 }

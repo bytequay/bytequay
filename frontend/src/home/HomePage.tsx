@@ -12,15 +12,15 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { FootprintStopDto, PullRequestDto, RecentEventDto, TeamSummaryDto, UserOrgDto, UserProfileDto, WatchedRepoDto } from '../types';
+import type { FootprintStopDto, PullRequestDto, RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } from '../types';
 import Avatar from '../Avatar';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
-import YearInCodeHeatmap from '../YearInCodeHeatmap';
 import TodaysFootprints from '../footprints/TodaysFootprints';
 import { resumeStop } from '../footprints/resume';
 import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
+import ContributionCard from './ContributionCard';
 import InboxSection from './InboxSection';
 
 // The GitHub-sourced flows (profile, recent/following events, orgs) used
@@ -112,59 +112,6 @@ function repoStatus(events: RecentEventDto[], owner: string, repo: string): { te
 }
 
 
-function EditProfileModal({
-  profile,
-  onSave,
-  onClose,
-}: {
-  profile: UserProfileDto;
-  onSave: (name: string, bio: string, location: string) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [name, setName] = useState(profile.name ?? '');
-  const [bio, setBio] = useState(profile.bio ?? '');
-  const [location, setLocation] = useState(profile.location ?? '');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(name, bio, location);
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal__header">
-          <h2 className="modal__title">Edit profile</h2>
-          <button className="modal__close" onClick={onClose}>✕</button>
-        </div>
-        <div className="edit-profile-form">
-          <label className="edit-profile-label">Name</label>
-          <input className="edit-profile-input" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
-          <label className="edit-profile-label">Bio</label>
-          <textarea className="edit-profile-textarea" value={bio} onChange={e => setBio(e.target.value)} rows={3} placeholder="A short bio" />
-          <label className="edit-profile-label">Location</label>
-          <input className="edit-profile-input" value={location} onChange={e => setLocation(e.target.value)} placeholder="City, Country" />
-          {error && <p className="edit-profile-error">{error}</p>}
-          <div className="edit-profile-actions">
-            <button className="button button--primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-            <button className="button button--secondary" onClick={onClose}>Cancel</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenThread, onOpenNotifications }: Props) {
   // Resume a footprint pin via the app's existing navigation handlers.
   const handleResumeFootprint = (stop: FootprintStopDto) => resumeStop(stop, {
@@ -188,8 +135,8 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
 
   // Seed the still-client-cached state (watched repos, teams, PR list) from
   // the module cache so a return to this tab renders instantly. The
-  // GitHub-sourced flows below (profile, events, following, orgs) start
-  // empty and populate from the backend's DB cache on the load() call.
+  // GitHub-sourced flows below (profile, events, following) start empty
+  // and populate from the backend's DB cache on the load() call.
   const cachedWatched = getCached<WatchedRepoDto[]>(KEY_WATCHED);
   const cachedPrs = getCached<PullRequestDto[]>(KEY_PRS);
   const cachedTeams = getCached<TeamSummaryDto[]>(KEY_TEAMS);
@@ -200,11 +147,9 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
   const [teams, setTeams] = useState<TeamSummaryDto[]>(cachedTeams ?? []);
-  const [orgs, setOrgs] = useState<UserOrgDto[]>([]);
   // Only show the first-load spinner when we have nothing to paint yet.
   const [loading, setLoading] = useState(cachedWatched === undefined);
   const [showModal, setShowModal] = useState(false);
-  const [showEditProfile, setShowEditProfile] = useState(false);
 
   useEffect(() => {
     void load();
@@ -234,12 +179,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
         .then(setFollowingEvents)
         .catch(() => {});
     }
-    // Orgs read from the backend's DB cache regardless of profile — the
-    // backend keys orgs by the stored GITHUB_LOGIN, so the call works even
-    // before profile lands on screen.
-    window.bridge.getUserOrgs()
-      .then(setOrgs)
-      .catch(() => {});
     // Teams + PR list still live in localStorage (DB-backed on the backend
     // already, but reads aren't free; the cache makes tab return instant).
     window.bridge.listTeams()
@@ -254,12 +193,14 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
     if (!prs) return null;
     let mine = 0;
     let awaiting = 0;
+    let flagged = 0;
     for (const pr of prs) {
       if (bucketize(pr) !== 'inbox') continue;
       if (pr.origin === 'AUTHORED') mine++;
       else if (pr.origin === 'REVIEW_REQUESTED') awaiting++;
+      if (pr.attentionReason !== null && pr.attentionReason !== 'MINE') flagged++;
     }
-    return { mine, awaiting };
+    return { mine, awaiting, flagged };
   }, [prs]);
 
 
@@ -280,126 +221,16 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
     });
   }
 
-  async function handleSaveProfile(name: string, bio: string, location: string) {
-    const updated = await window.bridge.updateProfile(name, bio, location);
-    setProfile(updated);
-  }
-
   return (
     <div className="home-page">
       <main className="home-main">
 
-      {/* ── Top row: profile card + year-in-code chart ── */}
-      <div className="home-top-row">
-        <div className="home-card home-profile-card">
-          {profile ? (
-            <>
-              <div className="hp-profile-header">
-                <button className="hp-avatar-btn" onClick={() => openUrl(profile.htmlUrl)}>
-                  <Avatar login={profile.login} size={52} className="avatar--profile" />
-                </button>
-                <div className="hp-profile-meta">
-                  <div className="hp-name-row">
-                    <span className="hp-name">{profile.name ?? profile.login}</span>
-                    <button className="hp-edit-btn" onClick={() => setShowEditProfile(true)} title="Edit profile">✎</button>
-                  </div>
-                  <div className="hp-login">@{profile.login}</div>
-                </div>
-              </div>
-              {profile.bio && (
-                <div className="hp-bio">{profile.bio}</div>
-              )}
-              {profile.location && (
-                <div className="hp-location">
-                  <span className="hp-location-dot">📍</span>
-                  {profile.location}
-                </div>
-              )}
-              <div className="hp-stats-row">
-                <div className="hp-stat">
-                  <span className="hp-stat-val">{profile.publicRepos}</span>
-                  <span className="hp-stat-label">REPOS</span>
-                </div>
-                <div className="hp-stat">
-                  <span className="hp-stat-val">{profile.followers}</span>
-                  <span className="hp-stat-label">FOLLOWERS</span>
-                </div>
-                <div className="hp-stat">
-                  <span className="hp-stat-val">{profile.following}</span>
-                  <span className="hp-stat-label">FOLLOWING</span>
-                </div>
-              </div>
-              {(profile.company || profile.email || orgs.length > 0 || profile.hasSponsors) && (
-                <div className="hp-contact">
-                  {profile.company && (
-                    <div className="hp-contact-row">
-                      <span className="hp-contact-icon" aria-hidden="true">🏢</span>
-                      <span className="hp-contact-value">{profile.company}</span>
-                    </div>
-                  )}
-                  {profile.email && (
-                    <div className="hp-contact-row">
-                      <span className="hp-contact-icon" aria-hidden="true">✉</span>
-                      <a className="hp-contact-value hp-contact-email" href={`mailto:${profile.email}`}>
-                        {profile.email}
-                      </a>
-                    </div>
-                  )}
-                  {orgs.length > 0 && (
-                    <div className="hp-contact-row hp-contact-row--orgs">
-                      <span className="hp-contact-icon" aria-hidden="true">👥</span>
-                      <div className="hp-org-chips">
-                        {orgs.map(o => (
-                          <a
-                            key={o.login}
-                            className="hp-org-chip"
-                            href={o.htmlUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={o.description || o.login}
-                          >
-                            <img
-                              src={o.avatarUrl}
-                              alt={o.login}
-                              className="hp-org-chip__avatar"
-                              loading="lazy"
-                            />
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {profile.hasSponsors && (
-                    <div className="hp-contact-row">
-                      <span className="hp-contact-icon" aria-hidden="true">💖</span>
-                      <a
-                        className="hp-contact-value hp-contact-email"
-                        href={`https://github.com/sponsors/${profile.login}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Sponsors page
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          ) : loading ? (
-            <div className="hp-loading">Loading profile…</div>
-          ) : null}
-        </div>
-
-        <div className="home-card home-year-card">
-          <div className="home-year-card__header">
-            <div>
-              <div className="home-year-card__title">Your year in code</div>
-            </div>
-            <span className="home-year-card__badge">Last 12 months</span>
-          </div>
-          {profile && <YearInCodeHeatmap login={profile.login} />}
-        </div>
-      </div>
+      {/* ── Contribution card: graph + bio + reviewed/contributed strip ── */}
+      <ContributionCard
+        profile={profile}
+        prs={prs}
+        onOpenPr={(owner, repo, prNumber) => onSelectRepo(owner, repo, prNumber)}
+      />
 
       {/* ── Review CTA banner ── */}
       <button
@@ -407,25 +238,24 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
         onClick={onGoToMyPrs}
         type="button"
       >
-        <div className="home-cta-card__icon" aria-hidden="true">▶</div>
+        <div className="home-cta-card__icon" aria-hidden="true">✦</div>
         <div className="home-cta-card__body">
           <div className="home-cta-card__title">Start reviewing all my PRs</div>
-          <div className="home-cta-card__subtitle">Open the Inbox — your authored PRs and review requests in one place.</div>
           {prInboxCounts && (
             <div className="home-cta-card__counts">
               <span className="home-cta-card__count">
-                <span className="home-cta-card__count-num">{prInboxCounts.awaiting}</span>
-                awaiting my review
+                <b>{prInboxCounts.awaiting}</b> awaiting my review
               </span>
-              <span className="home-cta-card__count-sep">·</span>
               <span className="home-cta-card__count">
-                <span className="home-cta-card__count-num">{prInboxCounts.mine}</span>
-                of my PRs
+                <b>{prInboxCounts.mine}</b> of my PRs
+              </span>
+              <span className="home-cta-card__count">
+                <b>{prInboxCounts.flagged}</b> flagged
               </span>
             </div>
           )}
         </div>
-        <span className="home-cta-card__chevron" aria-hidden="true">→</span>
+        <span className="home-cta-card__open">Open <span aria-hidden="true">›</span></span>
       </button>
 
       {/* ── Inbox: app notifications + PRs that need the user ── */}
@@ -626,13 +456,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
           watchedRepos={repos}
           onAdded={() => { void handleAdded(); }}
           onClose={() => setShowModal(false)}
-        />
-      )}
-      {showEditProfile && profile && (
-        <EditProfileModal
-          profile={profile}
-          onSave={handleSaveProfile}
-          onClose={() => setShowEditProfile(false)}
         />
       )}
     </div>

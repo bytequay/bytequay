@@ -20,6 +20,9 @@ import InboxCard, { type InboxHandlers } from './InboxCard';
 /** Rows shown before "See all" takes over. */
 const MAX_ROWS = 5;
 
+/** Persisted "Unread only" filter — survives navigating away and back. */
+const UNREAD_ONLY_KEY = 'home:inbox:unreadOnly';
+
 type Props = {
   /** Cached PR list from the page's own fetch — review requests and
    *  attention-flagged PRs derive inbox rows from it. */
@@ -38,7 +41,7 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
   const [notifications, setNotifications] = useState<NotificationDto[]>([]);
   const [deploys, setDeploys] = useState<DeployNoticeDto[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(() => localStorage.getItem(UNREAD_ONLY_KEY) === '1');
   /** Transient hint when the backend refuses a dismiss. */
   const [note, setNote] = useState<string | null>(null);
 
@@ -99,6 +102,18 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
       window.bridge.fetchPrs().then(onPrsChanged).catch(() => {});
     },
     resolved: () => { void refresh(); },
+    opened: (item: InboxItem) => {
+      if (item.source.kind !== 'notification') return;
+      const n = item.source.notification;
+      // Informational rows clear on engagement; parked approvals and
+      // stuck tasks keep their unread state until actually resolved
+      // (same rule as the thread strip).
+      if (n.kind === 'AUTO_FIX_DONE' && n.status === 'UNREAD') {
+        window.bridge.markNotificationRead(n.id)
+          .then(() => refresh())
+          .catch(() => { /* best-effort */ });
+      }
+    },
   };
 
   return (
@@ -112,7 +127,10 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
           <button
             type="button"
             className={`home-inbox__filter${unreadOnly ? ' home-inbox__filter--on' : ''}`}
-            onClick={() => setUnreadOnly(v => !v)}
+            onClick={() => setUnreadOnly(v => {
+              localStorage.setItem(UNREAD_ONLY_KEY, v ? '0' : '1');
+              return !v;
+            })}
           >
             <span className="home-inbox__filter-dot" aria-hidden="true" />
             Unread only

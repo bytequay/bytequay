@@ -158,6 +158,16 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
   );
   const [error, setError] = useState<string | null>(null);
   const [selectedPr, setSelectedPr] = useState<PullRequestDto | null>(null);
+  // Opening a PR here counts as viewing it — clears its unread state in
+  // the home inbox + kanban, matching the kanban's own select behaviour.
+  // Covers every path into this page (inbox View PR, activity links,
+  // recents), which previously never recorded a view.
+  const selectedPrId = selectedPr?.id ?? null;
+  useEffect(() => {
+    if (selectedPrId !== null) {
+      void window.bridge.markPrViewed(selectedPrId).catch(() => { /* best-effort */ });
+    }
+  }, [selectedPrId]);
   /** Whether a deep-link selection is still resolving — used to render
    *  a "Loading PR #N…" placeholder in the right pane instead of the
    *  HelpPanel, so the user knows the click is being honoured. Cleared

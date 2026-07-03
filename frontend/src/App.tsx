@@ -50,6 +50,7 @@ import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
 import { applyTheme, loadTheme } from './themes';
 import { useSurfaceVisitCapture } from './footprints/useSurfaceVisitCapture';
+import { resumeStop } from './footprints/resume';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
 export type Nav =
@@ -555,6 +556,14 @@ function App() {
           notificationCount={unreadNotificationCount}
           collapsed={railCollapsed}
           onToggleCollapse={() => setRailCollapsed(c => !c)}
+          showRecent={nav.view === 'home'}
+          onResumeVisit={stop => resumeStop(stop, {
+            openPrKanban: () => setNav({ view: 'my-prs' }),
+            openPr: (owner, repo, prNumber) =>
+              setNav({ view: 'repo', owner, repo, prNumber, back: { view: 'home' } }),
+            openTask: (threadId, taskId) => setNav(lastTaskNav(threadId, taskId)),
+            openThread,
+          })}
           footer={{
             initials: 'CJ',
             name: 'You',
@@ -642,7 +651,6 @@ function App() {
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onGoToTeams={() => setNav({ view: 'teams' })}
             onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
-            onOpenThread={openThread}
             onOpenNotifications={() => setNav({ view: 'notifications' })}
           />
         )}

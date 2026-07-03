@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { IconKind } from './trailLayout';
+/** Inline-SVG icon keys (we don't depend on an icon font). */
+export type IconKind = 'kanban' | 'pull-request' | 'robot' | 'message' | 'flag' | 'map-pin';
 
 /**
  * Minimal inline-SVG outline icons for the footprint pins. Inline (not an

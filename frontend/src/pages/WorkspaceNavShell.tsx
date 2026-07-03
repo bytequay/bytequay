@@ -12,9 +12,10 @@
  * limitations under the License.
  */
 import {
-  ThreadList, WorkspaceList, WorkspaceNavSidebar, WorkspaceSwitcher,
+  RecentList, ThreadList, WorkspaceList, WorkspaceNavSidebar, WorkspaceSwitcher,
 } from '../ui/workspace';
 import type { TaskNavRow, WsNavKey } from '../ui/workspace';
+import type { FootprintStopDto } from '../types';
 import { logoColorFor, monogram, useWorkspaceNav } from './useWorkspaceNav';
 
 /**
@@ -28,6 +29,7 @@ export function WorkspaceNavShell({
   activeWorkspaceId, selectedThreadId, tasks, selectedTaskId,
   activeNav, footer, notificationCount,
   collapsed = false, onToggleCollapse,
+  showRecent = false, onResumeVisit,
   onNavigate, onEnterWorkspace, onOpenThread, onOpenTask, onSwitchWorkspace,
   onNewWorkspace, onNewThread, onDeleteWorkspace,
 }: {
@@ -42,6 +44,12 @@ export function WorkspaceNavShell({
   /** Fold the rail to a narrow strip. */
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Show the recently-visited list in place of the workspace list —
+   *  set on the Home surface, where "what was I just doing?" beats a
+   *  second copy of the workspace grid. */
+  showRecent?: boolean;
+  /** Resume a recently-visited surface (routes via footprint resume). */
+  onResumeVisit?: (stop: FootprintStopDto) => void;
   onNavigate?: (key: WsNavKey) => void;
   onEnterWorkspace?: (id: string) => void;
   onOpenThread?: (id: string) => void;
@@ -58,15 +66,17 @@ export function WorkspaceNavShell({
   const ws = data.activeWorkspace;
 
   const body = ws === null
-    ? (
-      <WorkspaceList
-        workspaces={data.workspaces}
-        activeId={activeWorkspaceId ?? undefined}
-        onOpen={onEnterWorkspace}
-        onDelete={onDeleteWorkspace}
-        onNewWorkspace={onNewWorkspace}
-      />
-    )
+    ? (showRecent
+      ? <RecentList onResume={onResumeVisit} />
+      : (
+        <WorkspaceList
+          workspaces={data.workspaces}
+          activeId={activeWorkspaceId ?? undefined}
+          onOpen={onEnterWorkspace}
+          onDelete={onDeleteWorkspace}
+          onNewWorkspace={onNewWorkspace}
+        />
+      ))
     : (
       <>
         <WorkspaceSwitcher

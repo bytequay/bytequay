@@ -35,6 +35,17 @@
   gap: var(--space-4);
 }
 
+/* Right-panel sections: flat lists under small uppercase headers —
+   the 240px panel reads as one surface, not stacked cards. */
+.home-side-section__title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 var(--space-1);
+}
+
 /* Shared card base — tuned to match the workspace-card visual
  * primitive so the cards read as part of the same family when the
  * page sits on the calm-page mesh backdrop. */
@@ -51,25 +62,6 @@
 .home-card:hover {
   box-shadow: 0 2px 4px rgba(67, 56, 202, 0.06), 0 8px 26px rgba(124, 58, 237, 0.08);
   transform: translateY(-1px);
-}
-
-.home-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.home-card__title {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-.home-card__meta {
-  font-size: var(--font-size-sm);
-  color: var(--accent);
-  cursor: pointer;
 }
 
 .home-cta-card {

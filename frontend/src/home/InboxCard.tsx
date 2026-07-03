@@ -22,10 +22,9 @@ import type { InboxItem, InboxItemType } from './inboxItems';
 export type InboxHandlers = {
   openPr: (owner: string, repo: string, prNumber: number) => void;
   openTask?: (threadId: string, taskId: string) => void;
-  /** Dismiss the row — the section routes by source (backend dismiss
-   *  for app notifications, local hide for provider rows). Absent on
-   *  PR-derived rows: they have no backing dismiss action, they leave
-   *  the inbox when the PR itself is viewed/handled. */
+  /** Dismiss the row — the section routes by source: backend dismiss
+   *  for app notifications, mark-handled for PR rows (same concept as
+   *  the kanban's Handled tab), local hide for provider rows. */
   dismiss: (item: InboxItem) => void;
   /** Approve the PR on GitHub. The section refreshes the list after. */
   approve: (pr: PullRequestDto) => Promise<void>;
@@ -124,6 +123,13 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
             )}
             <button type="button" className="home-inbox-btn" onClick={() => openPrRow(pr)}>
               View PR
+            </button>
+            <button
+              type="button"
+              className="home-inbox-btn home-inbox-btn--quiet"
+              onClick={() => handlers.dismiss(item)}
+            >
+              Dismiss
             </button>
           </div>
         </div>

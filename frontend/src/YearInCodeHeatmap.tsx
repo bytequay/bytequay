@@ -24,8 +24,27 @@ const COL_PAD = 28;
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** GitHub light-theme palette, used for the Less→More legend swatches. */
-const LEGEND_COLORS = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+/** Warm-tinted five-step ramp ending in the app's system green — the
+ *  graph and the Less→More legend both draw from it. */
+const LEVEL_COLORS = ['#efece6', '#d3ead6', '#9fd8ae', '#57bd79', '#16a34a'];
+
+/** GitHub's GraphQL palette hex → intensity level. GitHub buckets each
+ *  day for us; we keep its bucketing but repaint with the warm ramp. */
+const GITHUB_LEVEL: Record<string, number> = {
+  '#ebedf0': 0,
+  '#9be9a8': 1,
+  '#40c463': 2,
+  '#30a14e': 3,
+  '#216e39': 4,
+};
+
+function levelFor(day: ContributionDayDto): number {
+  const mapped = GITHUB_LEVEL[day.color.toLowerCase()];
+  if (mapped !== undefined) return mapped;
+  // Unknown palette (theme change on GitHub's side): bucket by count.
+  const c = day.contributionCount;
+  return c === 0 ? 0 : c < 3 ? 1 : c < 6 ? 2 : c < 10 ? 3 : 4;
+}
 
 function cacheKey(login: string) {
   return `home:contribution-graph:${login}`;
@@ -50,9 +69,9 @@ function formatTipDate(iso: string): string {
  * raster proxy, no fixed-bitmap intermediate. Hovering a cell shows a
  * native browser tooltip with the date and contribution count.
  *
- * <p>The colour for each cell is taken straight from GitHub's GraphQL
- * response, which means we inherit GitHub's palette without server-side
- * bucketing.
+ * <p>Each cell's intensity level comes from GitHub's GraphQL response
+ * (its palette hex encodes the bucket), repainted with the app's warm
+ * ramp so the graph matches the rest of the visual system.
  */
 export default function YearInCodeHeatmap({ login }: { login: string }) {
   const [data, setData] = useState<ContributionCalendarDto | null>(
@@ -217,7 +236,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
                 height={CELL}
                 rx={2}
                 ry={2}
-                fill={day.color || '#ebedf0'}
+                fill={LEVEL_COLORS[levelFor(day)]}
                 className={day.contributionCount > 0
                   ? 'home-heatmap__cell home-heatmap__cell--has-commits'
                   : 'home-heatmap__cell'}
@@ -288,7 +307,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
         <span className="home-heatmap__total">{totalLabel}</span>
         <span className="home-heatmap__legend" aria-hidden="true">
           <span className="home-heatmap__legend-label">Less</span>
-          {LEGEND_COLORS.map((c) => (
+          {LEVEL_COLORS.map((c) => (
             <span
               key={c}
               className="home-heatmap__legend-swatch"

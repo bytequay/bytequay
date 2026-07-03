@@ -72,134 +72,82 @@
   cursor: pointer;
 }
 
-/* ── Top row: profile + year in code ── */
-.home-top-row {
-  display: grid;
-  /* minmax(0, 1fr) so the year card can't overflow its cell when the SVG
-     chart inside is wider than the column — otherwise it escapes and slides
-     under the right sidebar. */
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: stretch;
-}
-
 .home-cta-card {
   appearance: none;
-  /* "Go" signal — green. Match docs/mockups/v2/home/review-button.png:
-     solid green (no gradient), darker rounded play-icon block on the
-     left, white arrow on the right, thin divider above the stats. The
-     shade itself stays theme-driven via the --cta-* variables. */
-  border: 1px solid var(--cta-border);
-  background: var(--cta-from);
-  color: #fff;
-  border-radius: 12px;
-  padding: 22px 22px 18px;
+  /* Accent-tinted banner: soft purple wash fading into the card bg,
+     horizontal layout — icon tile, copy + live counts, Open link. */
+  border: 1px solid var(--accent-border);
+  background: linear-gradient(90deg, var(--accent-soft), var(--bg-elev));
+  color: var(--text-1);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
   font: inherit;
   text-align: left;
   cursor: pointer;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--space-3);
-  position: relative;
-  transition: transform 120ms ease, box-shadow 120ms ease;
-  box-shadow: 0 1px 4px var(--cta-shadow);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .home-cta-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 10px var(--cta-shadow-hover);
+  border-color: var(--accent-a40);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
 
 .home-cta-card__icon {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-lg);
-  /* Darker overlay so the icon block reads as a stamp on top of the
-     solid green, matching the mockup's two-tone treatment. */
-  background: rgba(0, 0, 0, 0.22);
-  color: #fff;
-  font-size: var(--font-size-lg);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--font-size-md);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .home-cta-card__body {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
 }
 
 .home-cta-card__title {
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.005em;
-}
-
-.home-cta-card__subtitle {
   font-size: var(--font-size-md);
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.45;
+  font-weight: 600;
+  color: var(--text-1);
 }
 
 .home-cta-card__counts {
   display: flex;
   align-items: baseline;
-  gap: var(--space-2);
-  margin-top: 4px;
-  padding-top: 12px;
-  /* Hairline divider matches the mockup — separates the value-prop
-     copy above from the live counts below. */
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  gap: var(--space-3);
   font-size: var(--font-size-sm);
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-3);
 }
 
-.home-cta-card__count {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-1);
+.home-cta-card__count b {
+  color: var(--text-1);
+  font-weight: 600;
 }
 
-.home-cta-card__count-num {
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  color: #fff;
+.home-cta-card__open {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--accent);
 }
 
-.home-cta-card__count-sep {
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.home-cta-card__chevron {
-  position: absolute;
-  top: 22px;
-  right: 22px;
-  font-size: var(--font-size-xl);
-  color: #fff;
-  transition: transform 120ms ease;
-}
-
-.home-cta-card:hover .home-cta-card__chevron {
-  transform: translateX(3px);
+.home-cta-card:hover .home-cta-card__open {
+  color: var(--accent-deep);
 }
 
 .home-repos-card--primary {
   min-height: 220px;
-}
-
-/* Profile card */
-.home-profile-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.hp-profile-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
 }
 
 .hp-avatar-btn {
@@ -217,177 +165,6 @@
 
 .avatar--profile {
   border-radius: 50%;
-  display: block;
-}
-
-.hp-profile-meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.hp-name-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.hp-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hp-edit-btn {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 1px 5px;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  cursor: pointer;
-  line-height: 1.4;
-  flex-shrink: 0;
-}
-
-.hp-edit-btn:hover {
-  background: var(--accent-a7);
-  color: var(--accent);
-  border-color: var(--accent-a40);
-}
-
-.hp-login {
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  margin-top: 2px;
-}
-
-.hp-bio {
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  border: 1px solid var(--border-input);
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-2);
-  line-height: 1.5;
-  background: var(--bg-input);
-}
-
-.hp-location {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-}
-
-.hp-stats-row {
-  display: flex;
-  gap: 0;
-  margin-top: 4px;
-  border-top: 1px solid var(--border-hairline);
-  padding-top: 10px;
-}
-
-.hp-stat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-}
-
-.hp-stat + .hp-stat {
-  border-left: 1px solid var(--border-hairline);
-}
-
-.hp-stat-val {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-1);
-}
-
-.hp-stat-label {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--text-3);
-  letter-spacing: 0.05em;
-}
-
-/* Org / email block under the REPOS·FOLLOWERS·FOLLOWING strip. Only renders
-   when the GitHub profile actually has these fields set. */
-.hp-contact {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-hairline);
-}
-
-.hp-contact-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  min-width: 0;
-}
-
-.hp-contact-icon {
-  flex: 0 0 auto;
-  font-size: var(--font-size-xs);
-  opacity: 0.7;
-}
-
-.hp-contact-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hp-contact-email {
-  color: var(--accent);
-  text-decoration: none;
-}
-.hp-contact-email:hover {
-  text-decoration: underline;
-}
-
-/* Orgs row — chips wrap below the icon if there are several. */
-.hp-contact-row--orgs {
-  align-items: flex-start;
-}
-
-.hp-org-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.hp-org-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  text-decoration: none;
-  transition: border-color 100ms ease, transform 100ms ease;
-}
-.hp-org-chip:hover {
-  border-color: var(--accent-a40);
-  transform: translateY(-1px);
-  text-decoration: none;
-}
-
-.hp-org-chip__avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
   display: block;
 }
 
@@ -1110,52 +887,179 @@
 }
 
 /* Edit profile modal */
-.edit-profile-form {
+/* ── Contribution card ──────────────────────────────────────────────
+   Lead card: graph left, compact bio right, reviewed / contributed
+   PR strip along the bottom. */
+.home-contrib {
+  padding: 0;
+  overflow: hidden;
+}
+
+.home-contrib__top {
+  display: flex;
+  align-items: stretch;
+}
+
+.home-contrib__graph {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.home-contrib__graph-title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: var(--space-2);
+}
+
+.home-contrib__bio {
+  width: 190px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: 0 16px 16px;
 }
 
-.edit-profile-label {
-  font-size: var(--font-size-sm);
+.home-contrib__bio-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.home-contrib__bio-names {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-contrib__bio-name {
+  font-size: var(--font-size-md);
   font-weight: 600;
-  color: var(--text-2);
-  margin-top: 4px;
-}
-
-.edit-profile-input {
-  border: 1px solid var(--border-input);
-  border-radius: var(--radius-md);
-  padding: 7px 10px;
-  font-size: var(--font-size-md);
-  background: var(--bg-input);
   color: var(--text-1);
-  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.edit-profile-textarea {
-  border: 1px solid var(--border-input);
-  border-radius: var(--radius-md);
-  padding: 7px 10px;
-  font-size: var(--font-size-md);
-  background: var(--bg-input);
-  color: var(--text-1);
-  resize: vertical;
-  width: 100%;
-  font-family: inherit;
-}
-
-.edit-profile-error {
+.home-contrib__bio-login {
   font-size: var(--font-size-sm);
-  color: #c0392b;
+  color: var(--text-3);
+}
+
+.home-contrib__bio-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+  line-height: 1.45;
   margin: 0;
 }
 
-.edit-profile-actions {
+.home-contrib__bio-stats,
+.home-contrib__bio-meta {
   display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+}
+
+.home-contrib__bio-stats b,
+.home-contrib__bio-meta b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.home-contrib__bio-meta {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+  margin-top: auto;
+}
+
+.home-contrib__strip {
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.home-contrib__strip-col {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  min-width: 0;
+}
+
+.home-contrib__strip-col + .home-contrib__strip-col {
+  border-left: 1px solid var(--border);
+}
+
+.home-contrib__strip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-1);
+}
+
+.home-contrib__strip-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.home-contrib__strip-mark--green  { background: var(--green); }
+.home-contrib__strip-mark--accent { background: var(--accent); }
+
+.home-contrib__strip-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.home-contrib__strip-count {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+}
+
+.home-contrib__strip-empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-4);
+  margin: 0;
+}
+
+.home-contrib__strip-row {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
   gap: var(--space-2);
-  margin-top: 4px;
+  width: 100%;
+  padding: 2px 0;
+  min-width: 0;
+}
+
+.home-contrib__strip-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-contrib__strip-row:hover .home-contrib__strip-title {
+  color: var(--accent);
+}
+
+.home-contrib__strip-ref {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
 }
 
 /* ── Inbox ──────────────────────────────────────────────────────────

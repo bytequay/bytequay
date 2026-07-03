@@ -18,6 +18,7 @@ import {
   ActivityStrip, Headline, OutlineStrip, Round, Spine, TaskCutNode, TaskFold, UserTurn, WorkFold,
 } from '../ui/conv';
 import type { Density, OutlineChip, ToolGroup } from '../ui/conv';
+import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
 import { EventTimestamp } from '../ui/conv';
 import { taskLabel } from './taskLabel';
@@ -27,9 +28,29 @@ import {
 } from './trunkTimeline';
 import type { TrunkRound } from './trunkTimeline';
 
+/** The raw tool-call input, for tools whose input the feed renders
+ *  directly (AskUserQuestion's question/options payload). */
+function toolCallInput(contentJson: string): unknown {
+  try {
+    return (JSON.parse(contentJson) as { input?: unknown }).input;
+  }
+  catch {
+    return undefined;
+  }
+}
+
+type AskHandling = {
+  /** The one AskUserQuestion still awaiting an answer, or null. */
+  pendingId: string | null;
+  /** Sends the composed answer as the next user turn. */
+  onAnswer?: (text: string) => void;
+};
+
 /** Batch a round's work rows into folded sub-messages + tool activity strips,
- *  preserving order (consecutive tool calls collapse into one strip). */
-function renderWork(rows: ThreadMessageDto[], full: boolean): ReactNode[] {
+ *  preserving order (consecutive tool calls collapse into one strip).
+ *  AskUserQuestion tool calls surface as a question card instead of a strip
+ *  row — the CLI runs headless, so this card IS the tool's UI. */
+function renderWork(rows: ThreadMessageDto[], full: boolean, ask: AskHandling): ReactNode[] {
   const out: ReactNode[] = [];
   let toolBatch: ThreadMessageDto[] = [];
   const flush = () => {
@@ -46,7 +67,21 @@ function renderWork(rows: ThreadMessageDto[], full: boolean): ReactNode[] {
     toolBatch = [];
   };
   for (const m of rows) {
-    if (m.type === 'tool_call') { toolBatch.push(m); continue; }
+    if (m.type === 'tool_call') {
+      if (parseToolCall(m.contentJson).name === 'AskUserQuestion') {
+        flush();
+        out.push(
+          <AskQuestionCard
+            key={m.id}
+            input={toolCallInput(m.contentJson)}
+            onAnswer={m.id === ask.pendingId ? ask.onAnswer : undefined}
+          />,
+        );
+        continue;
+      }
+      toolBatch.push(m);
+      continue;
+    }
     flush();
     const text = extractText(m.contentJson);
     if (text.trim().length === 0) continue;
@@ -68,7 +103,7 @@ function renderWork(rows: ThreadMessageDto[], full: boolean): ReactNode[] {
  * nodes are its outputs. Architecture/risk stay prose in the rounds until a
  * later milestone emits them structured (DISCOVERY-FINDINGS deferral).
  */
-export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, mergeReadyIds }: {
+export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, mergeReadyIds, onAnswerQuestion }: {
   messages: ThreadMessageDto[];
   tasks: WorkUnitTaskDto[];
   density: Density;
@@ -77,10 +112,26 @@ export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, merge
   /** Task ids with an open merge gate — drives the inline card's "Ready to
    *  merge" badge so it matches the Tasks-tab card. */
   mergeReadyIds?: ReadonlySet<string>;
+  /** Sends an AskUserQuestion answer as the next user turn — makes the
+   *  latest unanswered question card interactive. */
+  onAnswerQuestion?: (text: string) => void;
 }) {
   const full = density === 'full';
   const items = useMemo(() => buildTrunkTimeline(messages, tasks), [messages, tasks]);
   const [flashId, setFlashId] = useState<string | null>(null);
+
+  // The last AskUserQuestion with no user turn after it is still waiting
+  // on the user — that one renders interactive; answered ones stay static.
+  let pendingAskId: string | null = null;
+  for (const m of messages) {
+    if (m.type === 'tool_call' && parseToolCall(m.contentJson).name === 'AskUserQuestion') {
+      pendingAskId = m.id;
+    }
+    else if (m.role === 'user' && m.type === 'text') {
+      pendingAskId = null;
+    }
+  }
+  const ask: AskHandling = { pendingId: pendingAskId, onAnswer: onAnswerQuestion };
 
   const jump = (id: string) => {
     const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
@@ -112,14 +163,16 @@ export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, merge
       const tag = round.userTurn === null ? `R${(autonomous += 1)}` : undefined;
       const work = trunkWork(round);
       const headline = trunkHeadline(round);
+      // A question awaiting the user must be visible without un-folding.
+      const holdsPendingAsk = ask.pendingId !== null && work.some(m => m.id === ask.pendingId);
       return (
         <Round key={round.id} tag={tag}>
           {round.userTurn !== null && (
             <UserTurn text={extractText(round.userTurn.contentJson)} timestamp={<EventTimestamp iso={round.userTurn.ts} />} />
           )}
           {work.length > 0 && (
-            <WorkFold meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`} forceOpen={full}>
-              {renderWork(work, full)}
+            <WorkFold meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`} forceOpen={full || holdsPendingAsk}>
+              {renderWork(work, full, ask)}
             </WorkFold>
           )}
           {headline !== null && (
@@ -168,7 +221,7 @@ export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, merge
     }
     out.push(...block);
     return out;
-  }, [items, full, flashId, onOpenTask, mergeReadyIds]);
+  }, [items, full, flashId, onOpenTask, mergeReadyIds, ask]);
 
   return (
     <>

@@ -164,6 +164,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
         density={density}
         onOpenTask={onOpenTask}
         mergeReadyIds={mergeReadyIds}
+        onAnswerQuestion={sendNow}
         trailer={(
           <>
             {liveThinking.length > 0 && (

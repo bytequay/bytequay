@@ -20,6 +20,8 @@ type Props = {
   /** Cached PR list — the reviewed / contributed strips derive from it. */
   prs: PullRequestDto[] | null;
   onOpenPr: (owner: string, repo: string, prNumber: number) => void;
+  /** "See all" on a strip — opens the PR-activity view on that tab. */
+  onSeeAllActivity?: (kind: 'reviewed' | 'contributed') => void;
 };
 
 const STRIP_ROWS = 3;
@@ -30,18 +32,23 @@ function openPrRow(pr: PullRequestDto, onOpenPr: Props['onOpenPr']) {
   onOpenPr(pr.repo.slice(0, slash), pr.repo.slice(slash + 1), pr.number);
 }
 
-function PrStripColumn({ label, accentClass, rows, onOpenPr }: {
+function PrStripColumn({ label, accentClass, rows, onOpenPr, onSeeAll }: {
   label: string;
   accentClass: string;
   rows: PullRequestDto[];
   onOpenPr: Props['onOpenPr'];
+  onSeeAll?: () => void;
 }) {
   return (
     <div className="home-contrib__strip-col">
       <div className="home-contrib__strip-head">
         <span className={`home-contrib__strip-mark ${accentClass}`} aria-hidden="true" />
         <span className="home-contrib__strip-label">{label}</span>
-        <span className="home-contrib__strip-count">{rows.length}</span>
+        {onSeeAll && (
+          <button type="button" className="home-contrib__strip-seeall" onClick={onSeeAll}>
+            See all
+          </button>
+        )}
       </div>
       {rows.length === 0 ? (
         <p className="home-contrib__strip-empty">Nothing recent.</p>
@@ -54,7 +61,8 @@ function PrStripColumn({ label, accentClass, rows, onOpenPr }: {
           title={`${pr.repo} #${pr.number}`}
         >
           <span className="home-contrib__strip-title">{pr.title}</span>
-          <span className="home-contrib__strip-ref">{pr.repo} #{pr.number}</span>
+          <Avatar login={pr.repo.split('/')[0]} size={16} className="home-contrib__strip-logo" />
+          <span className="home-contrib__strip-ref">#{pr.number}</span>
         </button>
       ))}
     </div>
@@ -64,7 +72,7 @@ function PrStripColumn({ label, accentClass, rows, onOpenPr }: {
 /** The home page's lead card: contribution graph on the left, a
  *  compact profile bio on the right, and a reviewed / contributed PR
  *  strip along the bottom. */
-function ContributionCard({ profile, prs, onOpenPr }: Props) {
+function ContributionCard({ profile, prs, onOpenPr, onSeeAllActivity }: Props) {
   const reviewed = (prs ?? [])
     .filter(p => p.reviewedAt !== null)
     .sort((a, b) => Date.parse(b.reviewedAt as string) - Date.parse(a.reviewedAt as string))
@@ -116,12 +124,14 @@ function ContributionCard({ profile, prs, onOpenPr }: Props) {
           accentClass="home-contrib__strip-mark--green"
           rows={reviewed}
           onOpenPr={onOpenPr}
+          onSeeAll={onSeeAllActivity && (() => onSeeAllActivity('reviewed'))}
         />
         <PrStripColumn
           label="PRs contributed"
           accentClass="home-contrib__strip-mark--accent"
           rows={contributed}
           onOpenPr={onOpenPr}
+          onSeeAll={onSeeAllActivity && (() => onSeeAllActivity('contributed'))}
         />
       </div>
     </div>

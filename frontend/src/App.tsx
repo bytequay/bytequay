@@ -41,6 +41,7 @@ import type {
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './home/HomePage';
+import PrActivityPage from './home/PrActivityPage';
 import RepoDetailPage from './RepoDetailPage';
 import ReposPage from './repos/ReposPage';
 import RepositoryPage from './repos/RepositoryPage';
@@ -55,6 +56,9 @@ import { resumeStop } from './footprints/resume';
 type Status = 'checking' | 'needs-pat' | 'ready';
 export type Nav =
   | { view: 'home' }
+  /** Full list of the PRs the user reviewed / contributed, with a
+   *  time filter. Reached from the home contribution card's strips. */
+  | { view: 'pr-activity'; kind: 'reviewed' | 'contributed' }
   | { view: 'my-prs' }
   /** `back` carries the parent screen so the PR-detail breadcrumb
    *  returns the user where they came from — Repository home, Local
@@ -522,7 +526,7 @@ function App() {
   const selectedThreadId = 'threadId' in nav ? nav.threadId : undefined;
   const sidebarActiveNav: WsNavKey | undefined = (() => {
     switch (nav.view) {
-      case 'home': return 'home';
+      case 'home': case 'pr-activity': return 'home';
       case 'workspaces-landing': case 'workspace': return 'workspaces';
       case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'workspaces';
       case 'my-prs': return 'my-work';
@@ -652,6 +656,15 @@ function App() {
             onGoToTeams={() => setNav({ view: 'teams' })}
             onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
             onOpenNotifications={() => setNav({ view: 'notifications' })}
+            onSeeAllActivity={kind => setNav({ view: 'pr-activity', kind })}
+          />
+        )}
+        {nav.view === 'pr-activity' && (
+          <PrActivityPage
+            initialKind={nav.kind}
+            onBack={() => setNav({ view: 'home' })}
+            onOpenPr={(owner, repo, prNumber) =>
+              setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
           />
         )}
         {nav.view === 'my-prs' && (

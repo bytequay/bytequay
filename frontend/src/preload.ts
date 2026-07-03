@@ -171,6 +171,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('settings:setSyncSettings', settings),
   triggerSync: (): Promise<void> => ipcRenderer.invoke('settings:triggerSync'),
   markPrViewed: (prId: number): Promise<void> => ipcRenderer.invoke('backend:markPrViewed', prId),
+  markPrViewedByRef: (repo: string, number: number): Promise<void> =>
+    ipcRenderer.invoke('backend:markPrViewedByRef', repo, number),
   markPrHandled: (prId: number, action: HandledAction): Promise<void> =>
     ipcRenderer.invoke('backend:markPrHandled', prId, action),
   reopenPr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:reopenPr', prId),

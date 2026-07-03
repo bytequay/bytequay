@@ -2771,6 +2771,10 @@ export type Bridge = {
   setSyncSettings: (settings: SyncSettingsDto) => Promise<SyncSettingsDto>;
   triggerSync: () => Promise<void>;
   markPrViewed: (prId: number) => Promise<void>;
+  /** Id-namespace-safe viewed marker: rows from the REST pulls endpoints
+   *  carry pull-request ids, but the local PR store keys by the
+   *  search-issue ids — resolve by repo ("owner/name") + number instead. */
+  markPrViewedByRef: (repo: string, number: number) => Promise<void>;
   markPrHandled: (prId: number, action: HandledAction) => Promise<void>;
   reopenPr: (prId: number) => Promise<void>;
   /** Park the PR until the given ISO-8601 instant. Replaces any

@@ -704,6 +704,21 @@ public class PullRequestService
     }
 
     /**
+     * Id-namespace-safe variant of {@link #markViewed(long)}: the local
+     * store keys by GitHub's search-issue ids, while rows fetched via the
+     * REST pulls endpoints carry pull-request ids — the same PR under two
+     * different numbers. Resolving by repo + number sidesteps the mismatch.
+     * No-op when the PR isn't in the local store (nothing tracks it).
+     */
+    public void markViewed(String repo, int number)
+    {
+        store.findAll().stream()
+                .filter(pr -> pr.repo().equals(repo) && pr.number() == number)
+                .findFirst()
+                .ifPresent(pr -> viewStateStore.markViewed(pr.id()));
+    }
+
+    /**
      * Fetches the list of files changed in a pull request along with their
      * unified-diff patches. Always served fresh from GitHub — patches are not
      * cached (too large + rarely re-read).

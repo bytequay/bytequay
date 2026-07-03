@@ -306,13 +306,28 @@ public class PullRequestController
     }
 
     /**
-     * Records that the user viewed this PR. No PAT required — purely local state.
-     * POST /prs/viewed
+     * Records that the user viewed this PR. No PAT required — purely local
+     * state. Identified by {@code id} (the search-derived id the local store
+     * keys by) or by {@code repo}+{@code number} for callers whose rows come
+     * from the REST pulls endpoints, whose ids live in a different GitHub id
+     * namespace. POST /prs/viewed
      */
     @PostMapping("/prs/viewed")
-    public Map<String, String> markViewed(@RequestParam("id") long prId)
+    public Map<String, String> markViewed(
+            @RequestParam(value = "id", required = false) Long prId,
+            @RequestParam(value = "repo", required = false) String repo,
+            @RequestParam(value = "number", required = false) Integer number)
     {
-        pullRequestService.markViewed(prId);
+        if (prId != null) {
+            pullRequestService.markViewed(prId);
+        }
+        else if (repo != null && number != null) {
+            pullRequestService.markViewed(repo, number);
+        }
+        else {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "id or repo+number is required");
+        }
         return ImmutableMap.of("result", "ok");
     }
 

@@ -568,6 +568,8 @@ function App() {
             openTask: (threadId, taskId) => setNav(lastTaskNav(threadId, taskId)),
             openThread,
           })}
+          onOpenPr={(owner, repo, prNumber) =>
+            setNav({ view: 'repo', owner, repo, prNumber, back: { view: 'home' } })}
           footer={{
             initials: 'CJ',
             name: 'You',

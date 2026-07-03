@@ -644,9 +644,10 @@ function App() {
               setNav(lastTaskNav(navThreadId, taskId));
             }
           }}
-          onSwitchWorkspace={() => setNav(nav.view !== 'workspace'
-            ? { view: 'workspace', section: 'threads' }  // from a thread/task → into the workspace
-            : { view: 'workspaces-landing' })}            // already on it → the overview, to switch
+          // Clicking the workspace card stays in the workspace (from a
+          // thread/task it returns to its surface; on it, a no-op).
+          // Switching workspaces happens on the Workspaces landing page.
+          onSwitchWorkspace={() => setNav({ view: 'workspace', section: 'threads' })}
           onNewThread={() => setNav({ view: 'thread-create' })}
         />
       )}

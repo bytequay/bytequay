@@ -15,7 +15,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
 const MIN = 360;
-const MAX = 760;
+const MAX = 1040;
 const DEFAULT = 520;
 
 /**

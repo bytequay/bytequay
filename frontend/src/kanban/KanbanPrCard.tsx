@@ -11,11 +11,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { PullRequestDto } from '../types';
 import Avatar from '../Avatar';
 import { formatRelative } from '../prBuckets';
+import { Tag, type TagColor } from '../ui/primitives';
 import type { KanbanColumnKind } from './KanbanColumn';
+
+/** Always-on labels (present on nearly every PR) that carry no decision
+ *  signal on a kanban card — suppressed from the tag row.
+ *  TODO(config): make this per-repo configurable. */
+const SUPPRESSED_LABELS = new Set(['cla-signed', 'docs']);
+
+/** Max soft-tint label tags on a card before the neutral "+N" overflow. */
+const MAX_VISIBLE_TAGS = 2;
+
+/** Days without activity before an open PR earns the neutral STALE pill.
+ *  Same threshold as the stale banner. TODO(config): make configurable. */
+const STALE_DAYS = 6;
 
 type Props = {
   pr: PullRequestDto;
@@ -63,11 +76,12 @@ export type PrDragPayload = {
 };
 
 /**
- * Rich PR card matching docs/mockups/v2/kanban/bytequay-pr-kanban-redesign.html.
- * Reads exclusively from the v26-enriched PullRequestDto — no detail fetch
- * required. Each card carries: status pill, optional info banner, two-line
- * title, opened/age meta, reviewer-avatar row with per-verdict status dot,
- * label chips, CI dot, comment count.
+ * Rich PR card matching docs/mockups/v3/design/pr-kanban.html (unified
+ * V3 card chrome, design.md #30). Reads exclusively from the
+ * v26-enriched PullRequestDto — no detail fetch required. Anatomy:
+ * optional info banner → ref-row (#num + repo + exceptional-state pill)
+ * → two-line title → soft-tint label tags (+N overflow) → dashed
+ * meta-row (author · BUILD · reviewer stack · timestamp).
  *
  * Note: card-action buttons (Ping reviewers / Address feedback / Merge)
  * from the mockup are intentionally not rendered yet — they need new
@@ -81,7 +95,11 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
   const repoShort = pr.repo.includes('/') ? pr.repo.split('/').slice(-1)[0] : pr.repo;
   const repoOwner = pr.repo.includes('/') ? pr.repo.split('/')[0] : '';
   const banner = bannerFor(pr, safeColumn);
-  const statusPill = statusPillFor(pr);
+  const statusPill = statusPillFor(pr, safeColumn);
+  // Label tags after the suppression list, capped with a "+N" overflow.
+  const visibleLabels = pr.labels.filter(l => !SUPPRESSED_LABELS.has(l.toLowerCase()));
+  const shownLabels = visibleLabels.slice(0, MAX_VISIBLE_TAGS);
+  const overflowLabels = visibleLabels.length - shownLabels.length;
   const isUrgent = safeColumn === 'needs_attention' && pr.attentionReason !== null;
   const showAuthor = mode === 'team' && !!pr.author;
   // Repo avatar (owner's GitHub avatar) sits next to the repo-short name
@@ -155,6 +173,11 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
           <span className="kpr-card__repo-name">{repoShort}</span>
         </div>
         <div className="kpr-card__head-right">
+          {statusPill && (
+            <span className={`kpr-card__pill kpr-card__pill--${statusPill.kind}`}>
+              {statusPill.label}
+            </span>
+          )}
           {/* Quick-dismiss "✓": drops the PR into the Handled column
               without opening it. Suppressed on already-done columns. */}
           {onHandle
@@ -195,64 +218,14 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
         </div>
       </div>
       <div className="kpr-card__title">{pr.title}</div>
-      {pr.labels.length > 0 && (
+      {(shownLabels.length > 0 || overflowLabels > 0) && (
         <div className="kpr-card__labels">
-          {pr.labels.slice(0, 3).map(label => (
-            <span
-              key={label}
-              className="kpr-card__tag"
-              style={tagStyle(pr.labelColors?.[label])}
-              title={label}
-            >
-              {label}
-            </span>
+          {shownLabels.map(label => (
+            <Tag key={label} color={tagColor(label)}>{label}</Tag>
           ))}
-          {pr.labels.length > 3 && (
-            <span className="kpr-card__tag kpr-card__tag--more">+{pr.labels.length - 3}</span>
-          )}
+          {overflowLabels > 0 && <Tag color="plain">+{overflowLabels}</Tag>}
         </div>
       )}
-      <div className="kpr-card__status-row">
-        <div className="kpr-card__status-left">
-          {statusPill && (
-            <span className={`kpr-card__pill kpr-card__pill--${statusPill.kind}`}>
-              {statusPill.label}
-            </span>
-          )}
-          {pr.ciStatus && pr.ciStatus !== 'NONE' && (
-            <span
-              className={`kpr-card__build kpr-card__build--${pr.ciStatus.toLowerCase()}`}
-              title={`CI: ${pr.ciStatus.toLowerCase()}`}
-            >
-              <span
-                className={`kpr-card__build-badge kpr-card__build-badge--${pr.ciStatus.toLowerCase()}`}
-                aria-hidden="true"
-              >
-                {pr.ciStatus === 'PASSING' ? '✓' : pr.ciStatus === 'FAILING' ? '✕' : '·'}
-              </span>
-              BUILD
-            </span>
-          )}
-        </div>
-        {visibleReviewers.length > 0 && (
-          <span className="kpr-card__reviewers">
-            {visibleReviewers.map(({ login, verdict }) => (
-              <span
-                key={login}
-                className={`kpr-card__reviewer kpr-card__reviewer--${verdictClass(verdict)}`}
-                title={`${login}${verdict ? ` · ${verdict.toLowerCase().replace(/_/g, ' ')}` : ' · pending'}`}
-              >
-                <Avatar login={login} size={20} className="kpr-card__reviewer-avatar" />
-              </span>
-            ))}
-            {overflow > 0 && (
-              <span className="kpr-card__reviewer-overflow" title={`${overflow} more`}>
-                +{overflow}
-              </span>
-            )}
-          </span>
-        )}
-      </div>
       <div className="kpr-card__foot">
         <div className="kpr-card__author">
           {showAuthor && pr.author ? (
@@ -266,10 +239,46 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
             </span>
           )}
         </div>
-        <span className="kpr-card__time" title={timeTooltip}>
-          <span className="kpr-card__time-icon" aria-hidden="true">🕐</span>
-          {compactRelative(pr.updatedAt ?? pr.createdAt)}
-        </span>
+        {pr.ciStatus && pr.ciStatus !== 'NONE' && (
+          <span
+            className={`kpr-card__build kpr-card__build--${pr.ciStatus.toLowerCase()}`}
+            title={`CI: ${pr.ciStatus.toLowerCase()}`}
+          >
+            <span
+              className={`kpr-card__build-badge kpr-card__build-badge--${pr.ciStatus.toLowerCase()}`}
+              aria-hidden="true"
+            >
+              {pr.ciStatus === 'PASSING' ? '✓' : pr.ciStatus === 'FAILING' ? '✕' : '·'}
+            </span>
+            BUILD
+          </span>
+        )}
+        <div className="kpr-card__foot-right">
+          {visibleReviewers.length > 0 && (
+            <span className="kpr-card__reviewers">
+              {visibleReviewers.map(({ login, verdict }) => (
+                <span
+                  key={login}
+                  className={`kpr-card__reviewer kpr-card__reviewer--${verdictClass(verdict)}`}
+                  title={`${login}${verdict ? ` · ${verdict.toLowerCase().replace(/_/g, ' ')}` : ' · pending'}`}
+                >
+                  <Avatar login={login} size={16} className="kpr-card__reviewer-avatar" />
+                </span>
+              ))}
+              {overflow > 0 && (
+                <span className="kpr-card__reviewer-overflow" title={`${overflow} more`}>
+                  +{overflow}
+                </span>
+              )}
+            </span>
+          )}
+          <span
+            className={`kpr-card__time${compactRelative(pr.updatedAt ?? pr.createdAt) === 'just now' ? ' kpr-card__time--hot' : ''}`}
+            title={timeTooltip}
+          >
+            {compactRelative(pr.updatedAt ?? pr.createdAt)}
+          </span>
+        </div>
       </div>
     </button>
   );
@@ -356,16 +365,32 @@ function bannerFor(pr: PullRequestDto, column: KanbanColumnKind): Banner | null 
   return null;
 }
 
-type StatusPill = { kind: 'draft' | 'opened' | 'changes' | 'approved' | 'merged' | 'closed'; label: string };
+type StatusPill = { kind: 'draft' | 'changes' | 'approved' | 'stale'; label: string };
 
-function statusPillFor(pr: PullRequestDto): StatusPill | null {
+/** Only exceptional states earn a pill — the board position already
+ *  carries "opened", and done columns carry "merged"/"cleared". */
+const DONE_COLUMNS = new Set<KanbanColumnKind>(['recently_merged', 'cleared_today', 'handled']);
+
+function statusPillFor(pr: PullRequestDto, column: KanbanColumnKind): StatusPill | null {
+  if (DONE_COLUMNS.has(column)) return null;
+  if (pr.state === 'merged' || pr.mergedAt || pr.state === 'closed') return null;
   if (pr.draft) return { kind: 'draft', label: 'Draft' };
-  if (pr.state === 'merged' || pr.mergedAt) return { kind: 'merged', label: 'Merged' };
-  if (pr.state === 'closed') return { kind: 'closed', label: 'Closed' };
   const verdicts = Object.values(pr.reviewerVerdicts ?? {});
   if (verdicts.includes('CHANGES_REQUESTED')) return { kind: 'changes', label: 'Changes' };
   if (verdicts.includes('APPROVED')) return { kind: 'approved', label: 'Approved' };
-  return { kind: 'opened', label: 'Opened' };
+  if (daysSince(pr.updatedAt) >= STALE_DAYS) return { kind: 'stale', label: 'Stale' };
+  return null;
+}
+
+/** Stable label → tint mapping so a label keeps its colour across
+ *  renders and cards. GitHub's own label hexes are ignored — V3 tags
+ *  are always soft-tint (K4). */
+const TAG_COLORS: TagColor[] = ['accent', 'teal', 'orange', 'green'];
+
+function tagColor(label: string): TagColor {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) | 0;
+  return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
 }
 
 function mergedReviewers(
@@ -403,19 +428,6 @@ function daysSince(iso: string | null): number {
   if (!iso) return 0;
   const ms = Date.now() - new Date(iso).getTime();
   return Math.floor(ms / (24 * 60 * 60 * 1000));
-}
-
-/** Inline style for a label chip, mirroring the same hex-→ readable-text
- *  treatment we use elsewhere on PR labels. Returns undefined to fall
- *  back to the neutral chip styling when GitHub didn't give us a colour. */
-function tagStyle(color: string | null | undefined): CSSProperties | undefined {
-  if (!color || !/^[0-9a-fA-F]{6}$/.test(color)) return undefined;
-  const r = parseInt(color.slice(0, 2), 16);
-  const g = parseInt(color.slice(2, 4), 16);
-  const b = parseInt(color.slice(4, 6), 16);
-  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const text = luma > 0.6 ? '#1f2937' : '#ffffff';
-  return { background: `#${color}`, color: text, borderColor: 'transparent' };
 }
 
 // ── Snooze menu ────────────────────────────────────────────────────────────

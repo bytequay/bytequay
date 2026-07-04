@@ -104,6 +104,11 @@
   color: var(--teal);
   border-color: var(--teal-border);
 }
+.v3-tag--plain {
+  background: var(--bg-input);
+  color: var(--text-3);
+  border-color: var(--border);
+}
 
 /* ── Avatar — round initials avatar (size set inline: 18/22/26) ─ */
 .v3-avatar {

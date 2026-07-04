@@ -22,6 +22,7 @@ import { parseToolCall } from '../threads/trunkTimeline';
 import { toTaskCard } from '../threads/taskCardData';
 import { proposalAction } from '../threads/usePendingShipProposal';
 import { TrunkPage } from './TrunkPage';
+import type { PermissionDecideHandler } from '../threads/PermissionCard';
 
 /** Terminal statuses — the task has landed (COMPLETED/merged) or been
  *  closed/reaped (CANCELED / ARCHIVED). These fill the Tasks tab's "Closed"
@@ -118,6 +119,20 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
   }, [threadId, load, replyCount]);
+
+  // Answer a permission prompt the trunk agent raised (e.g. a Bash tool call
+  // that isn't provably read-only) — previously answerable only by waiting
+  // out the backend's own approval timeout, since this screen had no card
+  // for it at all.
+  const onDecidePermission = useCallback<PermissionDecideHandler>((callId, decision, preApprove) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (!bridge) {
+      return;
+    }
+    void bridge.decideTaskPermission(threadId, callId, decision, preApprove)
+      .then(() => load())
+      .catch(() => { /* the next poll re-reflects the gate state */ });
+  }, [threadId, load]);
   // Messages typed while the trunk is working queue up and auto-send when it
   // goes idle; the user can pull one back into the composer to edit it.
   const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
@@ -174,6 +189,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
         onOpenTask={onOpenTask}
         mergeReadyIds={mergeReadyIds}
         onAnswerQuestion={sendNow}
+        onDecidePermission={onDecidePermission}
         trailer={(
           <>
             {liveThinking.length > 0 && (

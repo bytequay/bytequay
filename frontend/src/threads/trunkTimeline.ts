@@ -31,6 +31,39 @@ export function extractText(contentJson: string): string {
   return '';
 }
 
+/** Read a `permission_request` message's envelope: `{callId, toolName,
+ *  summary}` — see `AbstractCliThreadAgent`'s `StreamEvent.PermissionRequested`
+ *  mapping on the backend. */
+export function parsePermissionRequest(
+  contentJson: string): { callId: string; toolName: string; summary: string } {
+  try {
+    const o = JSON.parse(contentJson) as Record<string, unknown>;
+    return {
+      callId: typeof o.callId === 'string' ? o.callId : '',
+      toolName: typeof o.toolName === 'string' ? o.toolName : 'tool',
+      summary: typeof o.summary === 'string' ? o.summary : '',
+    };
+  }
+  catch {
+    return { callId: '', toolName: 'tool', summary: '' };
+  }
+}
+
+/** callIds already resolved (decided or auto-allowed) — a `permission_request`
+ *  with no entry here is still pending and renders as a clickable card. */
+function decidedCallIds(messages: ThreadMessageDto[]): Set<string> {
+  const ids = new Set<string>();
+  for (const m of messages) {
+    if (m.type !== 'permission_decision' && m.type !== 'permission_auto_allowed') continue;
+    try {
+      const o = JSON.parse(m.contentJson) as Record<string, unknown>;
+      if (typeof o.callId === 'string') ids.add(o.callId);
+    }
+    catch { /* skip */ }
+  }
+  return ids;
+}
+
 /** Read a tool-call message into a tool name + a one-line summary. */
 export function parseToolCall(contentJson: string): { name: string; summary: string } {
   try {
@@ -80,7 +113,7 @@ export type TrunkItem =
 /** The message type the backend writes to the trunk on task completion. */
 export const TASK_SUMMARY_TYPE = 'task_summary';
 
-const PLANNING_TYPES = new Set(['text', 'thinking', 'tool_call']);
+const PLANNING_TYPES = new Set(['text', 'thinking', 'tool_call', 'permission_request']);
 
 /** Read a task-completion marker's envelope: {text, taskId, taskSeq}. */
 function parseSummary(m: ThreadMessageDto): TrunkSummary {
@@ -104,8 +137,12 @@ function parseSummary(m: ThreadMessageDto): TrunkSummary {
  * later milestone emits them structured (see DISCOVERY-FINDINGS deferral).
  */
 export function buildTrunkTimeline(messages: ThreadMessageDto[], tasks: WorkUnitTaskDto[]): TrunkItem[] {
+  const decided = decidedCallIds(messages);
   const trunk = messages.filter(m => m.taskId === null
-    && (PLANNING_TYPES.has(m.type) || m.type === TASK_SUMMARY_TYPE));
+    && (PLANNING_TYPES.has(m.type) || m.type === TASK_SUMMARY_TYPE)
+    // An already-decided prompt is history, not a live card — drop it rather
+    // than re-render a stale "approval needed" for something already resolved.
+    && !(m.type === 'permission_request' && decided.has(parsePermissionRequest(m.contentJson).callId)));
   const rounds: TrunkRound[] = [];
   const summaries: TrunkSummary[] = [];
   for (const m of trunk) {
@@ -150,10 +187,12 @@ function tsOf(item: TrunkItem): number {
 
 /** The round's headline row (its last assistant text), or null. */
 export function trunkHeadline(round: TrunkRound): ThreadMessageDto | null {
-  for (let i = round.rows.length - 1; i >= 0; i--) {
-    if (round.rows[i].type === 'text') return round.rows[i];
-  }
-  return null;
+  // Only the round's LAST row counts — a `text` row with something after it
+  // (e.g. a still-pending permission_request the agent raised after replying)
+  // isn't a conclusion yet, and `trunkWork`'s slice-before-the-headline logic
+  // would otherwise silently drop everything after it from rendering.
+  const last = round.rows[round.rows.length - 1];
+  return last !== undefined && last.type === 'text' ? last : null;
 }
 
 /** The round's work rows (everything before the headline). */

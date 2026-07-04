@@ -34,6 +34,8 @@ class TestReadOnlyShellClassifier
         "git log --oneline -20",
         "git diff HEAD~1",
         "git show abc123",
+        "git rev-list --left-right --count origin/main...main",
+        "git fetch origin main",
         // Benign output sinks: stderr/stdout to /dev/null or merged — write
         // nothing, so a read command that suppresses noise stays read-only.
         "find . -name \"*.java\" 2>/dev/null",

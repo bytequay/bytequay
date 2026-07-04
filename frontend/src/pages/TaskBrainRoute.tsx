@@ -63,7 +63,7 @@ export function TaskBrainRoute({
   const {
     bundle: localPrBundle, localPr, prMode,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment,
+    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
     reviewOpen, setReviewOpen, prBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
@@ -365,6 +365,7 @@ export function TaskBrainRoute({
         allowLocalComments={prMode === 'local' && !task.terminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
+        onDismissComment={dismissLocalComment}
         onBack={() => setReviewOpen(false)}
       />
     );

@@ -961,6 +961,7 @@ const bridge: Bridge = {
     body: { scope: 'pr' | 'file-line'; filePath?: string | null; lineNumber?: number | null; body: string; parentCommentId?: string | null },
   ) => ipcRenderer.invoke('localpr:addComment', prId, body),
   resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('localpr:resolveComment', commentId),
+  dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('localpr:dismissComment', commentId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

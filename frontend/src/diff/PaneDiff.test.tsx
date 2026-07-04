@@ -32,7 +32,7 @@ function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
     id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
     filePath: 'backend/src/Composer.java', lineNumber: 181, author: 'you',
     body: 'Split this into a wrapper + memoized inner component.',
-    createdAt: Date.now(), resolvedAt: null, strippedOnPushAt: null, parentCommentId: null, ...over,
+    createdAt: Date.now(), resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, ...over,
   };
 }
 
@@ -109,5 +109,20 @@ describe('PaneDiff', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Mark resolved' }));
     expect(onResolveComment).toHaveBeenCalledWith('cm1');
+  });
+
+  it('fires onDismissComment from an open thread', () => {
+    const onDismissComment = vi.fn();
+    render(
+      <PaneDiff files={[FILE]} allowLocalComments comments={[comment()]} onDismissComment={onDismissComment} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onDismissComment).toHaveBeenCalledWith('cm1');
+  });
+
+  it('hides actions and shows the dismissed badge once dismissed', () => {
+    render(<PaneDiff files={[FILE]} allowLocalComments comments={[comment({ dismissedAt: Date.now() })]} />);
+    expect(screen.getByText('dismissed')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Mark resolved' })).toBeNull();
   });
 });

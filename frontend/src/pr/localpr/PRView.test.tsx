@@ -52,7 +52,7 @@ function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
   return {
     id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'pr', filePath: null,
     lineNumber: null, author: 'you', body: 'hi', createdAt: Date.now(),
-    resolvedAt: null, strippedOnPushAt: null, parentCommentId: null, ...over,
+    resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, ...over,
   };
 }
 

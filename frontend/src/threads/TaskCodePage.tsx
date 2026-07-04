@@ -295,6 +295,11 @@ export default function TaskCodePage({
       .then(() => refreshLocalPr())
       .catch(() => { /* poll reconciles */ });
   }, [refreshLocalPr]);
+  const dismissLocalComment = useCallback((commentId: string) => {
+    void window.bridge.dismissLocalPrComment(commentId)
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ });
+  }, [refreshLocalPr]);
   // Only the PR-opening gates carry a title/body to review + edit. A bare
   // `push` gate pushes the branch; the agent opens the PR (with its
   // description) as the next gate — so show that instead of an empty editor.
@@ -851,6 +856,7 @@ export default function TaskCodePage({
                             ? body => { addLocalComment(file.filename, anchorLine, body); closeComposer(); }
                             : undefined}
                           onResolve={resolveLocalComment}
+                          onDismiss={dismissLocalComment}
                           onCancel={composerHere ? closeComposer : undefined}
                         />
                       );

@@ -111,7 +111,7 @@ export function StageDetailRoute({
   const {
     bundle: localPrBundle, refresh: refreshLocalPr, localPr, prMode,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment,
+    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
     reviewOpen, setReviewOpen, prBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
@@ -351,9 +351,10 @@ export function StageDetailRoute({
         allowLocalComments={localPr !== null && prMode === 'local' && !taskTerminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
+        onDismissComment={dismissLocalComment}
       />
     )
-  ), [files, localPrBundle, localPr, prMode, state, addLocalLineComment, resolveLocalComment]);
+  ), [files, localPrBundle, localPr, prMode, state, addLocalLineComment, resolveLocalComment, dismissLocalComment]);
 
   // The CI-fix stage's own tab for the live CI run — separate from the Code
   // Diff tab so the stage keeps its checks focus without displacing the diff.
@@ -497,6 +498,7 @@ export function StageDetailRoute({
         allowLocalComments={prMode === 'local' && !taskTerminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
+        onDismissComment={dismissLocalComment}
         onBack={() => setReviewOpen(false)}
       />
     );

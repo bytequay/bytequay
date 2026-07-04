@@ -21,6 +21,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.tools.LocalPRToolHandlers.RecordPrCheckArgs;
 import com.bytequay.app.service.tools.LocalPRToolHandlers.RecordPrDescriptionArgs;
+import com.bytequay.app.service.tools.LocalPRToolHandlers.ResolvePrCommentArgs;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -89,6 +90,39 @@ class TestLocalPRToolHandlers
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         verify(localPr).recordCheck("pr1", "local", "mvn verify", "passed", 1200L);
+    }
+
+    @Test
+    void resolvePrCommentDefaultsToResolve()
+    {
+        ToolOutcome outcome = handlers.resolvePrComment(
+                new ResolvePrCommentArgs("cm1", "addressed"), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        verify(localPr).resolveComment("cm1");
+        verify(localPr, never()).dismissComment(any());
+    }
+
+    @Test
+    void resolvePrCommentRoutesToDismissWhenResolutionIsDismissed()
+    {
+        ToolOutcome outcome = handlers.resolvePrComment(
+                new ResolvePrCommentArgs("cm1", "dismissed"), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        verify(localPr).dismissComment("cm1");
+        verify(localPr, never()).resolveComment(any());
+    }
+
+    @Test
+    void resolvePrCommentRequiresCommentId()
+    {
+        ToolOutcome outcome = handlers.resolvePrComment(
+                new ResolvePrCommentArgs(null, null), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        verify(localPr, never()).resolveComment(any());
+        verify(localPr, never()).dismissComment(any());
     }
 
     @Test

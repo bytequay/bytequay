@@ -3949,6 +3949,8 @@ export type Bridge = {
   ) => Promise<LocalPRComment>;
   /** Mark a local PR comment resolved. */
   resolveLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
+  /** Dismiss a local PR comment (closed without action). */
+  dismissLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
   /** Spawn a panel review as a callable sub-stage of {@code parentStageId}.
    *  Returns the opened review stage, the seated pass, and the review
    *  thread the panel page navigates to. */

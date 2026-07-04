@@ -38,6 +38,7 @@ public record LocalPRComment(
         String body,
         Instant createdAt,
         Instant resolvedAt,
+        Instant dismissedAt,
         Instant strippedOnPushAt,
         String parentCommentId)
 {
@@ -52,7 +53,16 @@ public record LocalPRComment(
     {
         return new LocalPRComment(
                 id, localPrId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, when, strippedOnPushAt, parentCommentId);
+                createdAt, when, dismissedAt, strippedOnPushAt, parentCommentId);
+    }
+
+    /** Copy marked dismissed at {@code when} — closed without the agent
+     *  addressing it, the other terminal state alongside {@code resolvedAt}. */
+    public LocalPRComment withDismissed(Instant when)
+    {
+        return new LocalPRComment(
+                id, localPrId, origin, scope, filePath, lineNumber, author, body,
+                createdAt, resolvedAt, when, strippedOnPushAt, parentCommentId);
     }
 
     /** Copy stamped stripped-on-push — a local comment never migrates to
@@ -61,6 +71,6 @@ public record LocalPRComment(
     {
         return new LocalPRComment(
                 id, localPrId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, resolvedAt, when, parentCommentId);
+                createdAt, resolvedAt, dismissedAt, when, parentCommentId);
     }
 }

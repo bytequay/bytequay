@@ -129,4 +129,10 @@ public class LocalPRController
     {
         return LocalPRCommentDto.from(localPr.resolveComment(commentId));
     }
+
+    @PatchMapping("/api/local-pr/comments/{commentId}/dismiss")
+    public LocalPRCommentDto dismissComment(@PathVariable String commentId)
+    {
+        return LocalPRCommentDto.from(localPr.dismissComment(commentId));
+    }
 }

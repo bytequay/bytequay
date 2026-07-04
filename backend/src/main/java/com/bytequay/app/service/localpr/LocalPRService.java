@@ -103,6 +103,10 @@ public interface LocalPRService
             String body,
             String parentCommentId);
 
-    /** Resolve a comment (marks {@code resolvedAt}). */
+    /** Resolve a comment (marks {@code resolvedAt}) — the agent addressed it. */
     LocalPRComment resolveComment(String commentId);
+
+    /** Dismiss a comment (marks {@code dismissedAt}) — closed without action,
+     *  the other terminal state alongside {@code resolveComment}. */
+    LocalPRComment dismissComment(String commentId);
 }

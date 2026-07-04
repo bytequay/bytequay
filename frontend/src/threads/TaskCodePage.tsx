@@ -823,9 +823,13 @@ export default function TaskCodePage({
                       // stage pane's diff and the gate-review flow above.
                       if (anchorSide !== 'RIGHT') return null;
                       const hasComment = localByAnchor.has(`${file.filename}:${anchorLine}`);
+                      const composerHere = composer !== null
+                        && composer.file === file.filename
+                        && composer.line === anchorLine;
                       return {
                         addCommentAffordance: true,
-                        onClick: () => openComposer(file.filename, anchorLine),
+                        // Clicking the line again discards its open composer.
+                        onClick: () => (composerHere ? closeComposer() : openComposer(file.filename, anchorLine)),
                         role: 'button',
                         tabIndex: 0,
                         title: 'Click to leave a local review comment on this line',
@@ -847,6 +851,7 @@ export default function TaskCodePage({
                             ? body => { addLocalComment(file.filename, anchorLine, body); closeComposer(); }
                             : undefined}
                           onResolve={resolveLocalComment}
+                          onCancel={composerHere ? closeComposer : undefined}
                         />
                       );
                     }}

@@ -142,6 +142,7 @@ export function PaneDiff({
                             ? body => { onAddComment(file.filename, r.ln!, body); setOpenLine(null); }
                             : undefined}
                           onResolve={onResolveComment}
+                          onCancel={openLine === key ? () => setOpenLine(null) : undefined}
                         />
                       )}
                     </div>

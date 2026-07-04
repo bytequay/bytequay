@@ -30,12 +30,14 @@ function initials(author: string): string {
  * offers Reply / Mark resolved.
  */
 export function DiffInlineComments({
-  comments, allowLocalComments, onAdd, onResolve,
+  comments, allowLocalComments, onAdd, onResolve, onCancel,
 }: {
   comments: LocalPRComment[];
   allowLocalComments: boolean;
   onAdd?: (body: string) => void;
   onResolve?: (commentId: string) => void;
+  /** Discard the open composer (Esc or the Cancel button). */
+  onCancel?: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const draftRef = useAutoGrow(draft);
@@ -73,13 +75,25 @@ export function DiffInlineComments({
           <textarea
             ref={draftRef}
             className="ic-composer"
-            placeholder="Leave a local comment… (⌘↵ to save)"
+            placeholder="Leave a local comment… (⌘↵ to save, Esc to discard)"
             value={draft}
+            autoFocus
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
+              else if (e.key === 'Escape') { e.preventDefault(); setDraft(''); onCancel?.(); }
             }}
           />
+          <div className="ic-actions">
+            <button type="button" className="resolve" onClick={submit} disabled={draft.trim().length === 0}>
+              Save
+            </button>
+            {onCancel !== undefined && (
+              <button type="button" onClick={() => { setDraft(''); onCancel(); }}>
+                Cancel
+              </button>
+            )}
+          </div>
         </div>
       )}
     </>

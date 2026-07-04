@@ -18,6 +18,7 @@ import com.bytequay.app.domain.LocalPRCheck;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.repository.LocalPRStore;
+import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,8 +49,9 @@ class TestLocalPRService
     private static final Instant NOW = Instant.parse("2026-07-01T00:00:00Z");
 
     private final LocalPRStore store = mock(LocalPRStore.class);
+    private final DevReportService devReports = mock(DevReportService.class);
     private final LocalPRService service =
-            new LocalPRServiceImpl(store, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
+            new LocalPRServiceImpl(store, devReports, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
 
     private LocalPR pr(String status)
     {

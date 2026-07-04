@@ -24,7 +24,20 @@ type Props = {
   onSeeAllActivity?: (kind: 'reviewed' | 'contributed') => void;
 };
 
-const STRIP_ROWS = 3;
+const STRIP_ROWS = 5;
+
+/** True when the ISO timestamp falls on the current (UTC) calendar day —
+ *  mirrors the workspace home's isUpdatedToday so "today" means the same
+ *  thing across the app. */
+function isToday(iso: string | null): boolean {
+  if (iso === null) return false;
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return false;
+  const now = new Date();
+  return then.getUTCFullYear() === now.getUTCFullYear()
+      && then.getUTCMonth() === now.getUTCMonth()
+      && then.getUTCDate() === now.getUTCDate();
+}
 
 function openPrRow(pr: PullRequestDto, onOpenPr: Props['onOpenPr']) {
   const slash = pr.repo.indexOf('/');
@@ -69,18 +82,41 @@ function PrStripColumn({ label, accentClass, rows, onOpenPr, onSeeAll }: {
   );
 }
 
+/**
+ * Split the PR list into the home strip's three TODAY buckets. Each is scoped
+ * to its own relevant timestamp being today and capped at {@link STRIP_ROWS}:
+ *  - reviewed:    PRs you reviewed today (any origin).
+ *  - inProgress:  your authored PRs still open — not merged, not closed.
+ *  - merged:      your authored PRs that merged today.
+ * A PR authored-and-closed-without-merging lands in none, by design.
+ */
+export function todayPrStrips(prs: PullRequestDto[] | null): {
+  reviewed: PullRequestDto[];
+  inProgress: PullRequestDto[];
+  merged: PullRequestDto[];
+} {
+  const list = prs ?? [];
+  return {
+    reviewed: list
+      .filter(p => isToday(p.reviewedAt))
+      .sort((a, b) => Date.parse(b.reviewedAt as string) - Date.parse(a.reviewedAt as string))
+      .slice(0, STRIP_ROWS),
+    inProgress: list
+      .filter(p => p.origin === 'AUTHORED' && p.mergedAt === null && p.state !== 'closed' && isToday(p.updatedAt))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, STRIP_ROWS),
+    merged: list
+      .filter(p => p.origin === 'AUTHORED' && p.mergedAt !== null && isToday(p.mergedAt))
+      .sort((a, b) => Date.parse(b.mergedAt as string) - Date.parse(a.mergedAt as string))
+      .slice(0, STRIP_ROWS),
+  };
+}
+
 /** The home page's lead card: contribution graph on the left, a
- *  compact profile bio on the right, and a reviewed / contributed PR
- *  strip along the bottom. */
+ *  compact profile bio on the right, and a reviewed / in-progress /
+ *  merged PR strip along the bottom. */
 function ContributionCard({ profile, prs, onOpenPr, onSeeAllActivity }: Props) {
-  const reviewed = (prs ?? [])
-    .filter(p => p.reviewedAt !== null)
-    .sort((a, b) => Date.parse(b.reviewedAt as string) - Date.parse(a.reviewedAt as string))
-    .slice(0, STRIP_ROWS);
-  const contributed = (prs ?? [])
-    .filter(p => p.origin === 'AUTHORED')
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-    .slice(0, STRIP_ROWS);
+  const { reviewed, inProgress, merged } = todayPrStrips(prs);
 
   return (
     <div className="home-card home-contrib">
@@ -120,16 +156,23 @@ function ContributionCard({ profile, prs, onOpenPr, onSeeAllActivity }: Props) {
       </div>
       <div className="home-contrib__strip">
         <PrStripColumn
-          label="PRs reviewed"
+          label="Reviewed today"
           accentClass="home-contrib__strip-mark--green"
           rows={reviewed}
           onOpenPr={onOpenPr}
           onSeeAll={onSeeAllActivity && (() => onSeeAllActivity('reviewed'))}
         />
         <PrStripColumn
-          label="PRs contributed"
+          label="Work in progress"
           accentClass="home-contrib__strip-mark--accent"
-          rows={contributed}
+          rows={inProgress}
+          onOpenPr={onOpenPr}
+          onSeeAll={onSeeAllActivity && (() => onSeeAllActivity('contributed'))}
+        />
+        <PrStripColumn
+          label="Merged today"
+          accentClass="home-contrib__strip-mark--merged"
+          rows={merged}
           onOpenPr={onOpenPr}
           onSeeAll={onSeeAllActivity && (() => onSeeAllActivity('contributed'))}
         />

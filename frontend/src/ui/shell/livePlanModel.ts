@@ -144,7 +144,9 @@ function devNodeStatus(dev: StageDto | undefined, phase: TaskPhase): LivePlanSta
  *  review, if any, is a separate `Review (callable)` sub-row under
  *  Development either way). */
 function localReviewStatus(phase: TaskPhase): LivePlanStatus {
-  if (phase === 'QUEUED' || phase === 'IMPLEMENTING' || phase === 'VALIDATING') return 'future';
+  if (phase === 'PLANNING' || phase === 'QUEUED' || phase === 'IMPLEMENTING' || phase === 'VALIDATING') {
+    return 'future';
+  }
   if (phase === 'INTERNAL_REVIEW') return 'running';
   return 'done';
 }

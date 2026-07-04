@@ -183,6 +183,16 @@ describe('buildLivePlan', () => {
   });
 
   it('drives Local Review from the phase: future before, running during, done after', () => {
+    // A task still being planned — before the brain's plan is even approved,
+    // let alone Development having reached internal review — must not read
+    // as "approved" (regression: PLANNING was missing from the TaskPhase
+    // union, so it fell through to the function's done-by-default case).
+    const planning = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: null, currentPhase: 'PLANNING' as TaskPhase, terminal: false },
+    });
+    expect(node(planning, 'local-review').status).toBe('future');
+
     const before = buildLivePlan({
       stages: [], subStages: [],
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },

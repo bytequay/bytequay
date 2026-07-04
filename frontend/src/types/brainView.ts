@@ -34,6 +34,7 @@
  *  distinct from the live column — are display-only prose, not re-typed);
  *  treat an unrecognized value defensively rather than crashing. */
 export type TaskPhase =
+  | 'PLANNING'
   | 'IMPLEMENTING' | 'VALIDATING' | 'INTERNAL_REVIEW' | 'AWAITING_PUSH'
   | 'ADDRESSING_LOCAL_COMMENTS'
   | 'PUSHED_AWAITING_CI' | 'AWAITING_READY'

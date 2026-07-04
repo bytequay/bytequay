@@ -39,6 +39,20 @@ export type KanbanColumnKind =
 
 const DONE_KINDS = new Set<KanbanColumnKind>(['recently_merged', 'cleared_today', 'handled']);
 
+/** Sentence-case empty-state line per column (K9). */
+const EMPTY_COPY: Record<KanbanColumnKind, string> = {
+  drafting: 'No drafts in progress',
+  waiting_on_review: 'Nothing waiting on review',
+  needs_changes: 'No changes requested',
+  ready_to_merge: 'Nothing ready to merge',
+  needs_attention: 'Nothing needs your attention',
+  in_progress: 'Nothing in progress',
+  awaiting_author: 'Nothing waiting on authors',
+  recently_merged: 'Nothing merged recently',
+  cleared_today: 'Nothing cleared yet today',
+  handled: 'Nothing handled yet',
+};
+
 type Props = {
   kind: KanbanColumnKind;
   label: string;
@@ -240,8 +254,8 @@ function KanbanColumn({
       <div className="kanban-col__body">
         {prs.length === 0 ? (
           <div className="kanban-col__empty">
-            <span className="kanban-col__empty-text">NOTHING HERE</span>
-            <span className="kanban-col__empty-rule" aria-hidden="true" />
+            <span className="kanban-col__empty-ic" aria-hidden="true">◌</span>
+            <span className="kanban-col__empty-text">{EMPTY_COPY[kind]}</span>
           </div>
         ) : (
           <>
@@ -267,9 +281,9 @@ function KanbanColumn({
                 disabled={loadingMore}
                 title={`${hiddenCount} more in this column`}
               >
-                {loadingMore ? 'Loading…' : `+ ${nextStep} more`}
-                {hiddenCount > nextStep && !loadingMore && (
-                  <span className="kanban-col__more-rest"> ({hiddenCount} left)</span>
+                {loadingMore ? 'Loading…' : `Show ${nextStep} more`}
+                {!loadingMore && (
+                  <span className="kanban-col__more-rest">· {hiddenCount} hidden</span>
                 )}
               </button>
             )}

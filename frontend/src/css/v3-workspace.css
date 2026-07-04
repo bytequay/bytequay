@@ -123,11 +123,9 @@
   -webkit-app-region: no-drag;
 }
 
-/* Single continuous surface — the sidebar matches the main window, with
-   only the divider border. */
-.shell .sidebar {
-  background: var(--bg);
-}
+/* The app sidebar keeps the V3 --bg-sidebar tint from v3-shell.css —
+   the earlier "single continuous surface" override was dropped for the
+   V3 kanban restyle (mockup: docs/mockups/v3/design/pr-kanban.html). */
 .shell .sb-spacer {
   flex: 1;
 }

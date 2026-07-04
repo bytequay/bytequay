@@ -208,7 +208,7 @@ function KanbanBoard(props: Props) {
           competing strip above. */}
       {repoOptions.length > 1 && (
         <div className="kanban-v2__filters">
-          <span className="kanban-v2__filters-label">Repo:</span>
+          <span className="kanban-v2__filters-label">Repo</span>
           <button
             type="button"
             className={`kanban-v2__chip${!repoFilter ? ' kanban-v2__chip--active' : ''}`}
@@ -489,23 +489,26 @@ function columnSize(kind: MyPrColumn | ToReviewColumn, collapsed: boolean, count
   // Empty wide-purpose columns shrink to half a column so they don't
   // hog space, but still leave a visible header. The hot columns
   // (in_progress, needs_changes, ready_to_merge, needs_attention) get
-  // extra weight when populated.
+  // extra weight when populated. Tracks are minmax(0, ·fr) so the
+  // per-column scroll chain (design.md #58–60) isn't defeated by the
+  // grid's default min-content track floor.
   const empty = count === 0;
+  const fr = (weight: string) => `minmax(0, ${weight})`;
   switch (kind) {
     case 'drafting':
     case 'recently_merged':
     case 'cleared_today':
     case 'handled':
-      return empty ? '0.6fr' : '0.9fr';
+      return fr(empty ? '0.6fr' : '0.9fr');
     case 'in_progress':
     case 'needs_changes':
-      return '1.4fr';
+      return fr('1.4fr');
     case 'needs_attention':
-      return '1.3fr';
+      return fr('1.3fr');
     case 'ready_to_merge':
-      return '1.2fr';
+      return fr('1.2fr');
     default:
-      return '1fr';
+      return fr('1fr');
   }
 }
 

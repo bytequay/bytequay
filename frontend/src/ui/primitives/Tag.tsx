@@ -13,8 +13,9 @@
  */
 import type { ReactNode } from 'react';
 
-/** Tag colour. `accent` (purple) is the default; others tint per use. */
-export type TagColor = 'accent' | 'green' | 'orange' | 'teal';
+/** Tag colour. `accent` (purple) is the default; others tint per use.
+ *  `plain` is the neutral variant for overflow ("+N") and low-signal tags. */
+export type TagColor = 'accent' | 'green' | 'orange' | 'teal' | 'plain';
 
 /**
  * Small chip for a label or tag — backlog tags, branch names, etc. The

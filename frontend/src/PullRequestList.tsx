@@ -116,6 +116,19 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     () => getCached<UserProfileDto>('home:profile')?.login ?? null,
   );
   const pageRef = useRef<HTMLDivElement>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // ⌘F focuses the filter input — pairs with the kbd hint in the field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        filterInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const persistSidebarWidth = (width: number) => {
     setSidebarWidth(width);
@@ -605,15 +618,19 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
         <span className="pr-list-header__subtitle">{today}</span>
       </div>
       {withTabs && tabsStrip}
-      <input
-        className="pr-list-header__filter"
-        type="text"
-        placeholder="Filter PRs…"
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-      />
+      <div className="pr-list-header__search">
+        <input
+          ref={filterInputRef}
+          className="pr-list-header__filter"
+          type="text"
+          placeholder="Filter PRs…"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+        />
+        <kbd className="pr-list-header__kbd">⌘F</kbd>
+      </div>
       <button className="pr-list-header__btn" onClick={() => void reload(true)} type="button">
-        Refresh
+        ⟳ Refresh
       </button>
     </div>
   );
@@ -887,31 +904,33 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
               so the left nav stays a flat list of destinations. Always
               shown on the Inbox tab so an empty lane can still be switched. */}
           <div className="kanban-lane-filter" role="tablist" aria-label="PR scope">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={lane === 'mine'}
-              className={`pr-list-scope-tab${lane === 'mine' ? ' pr-list-scope-tab--active' : ''}`}
-              onClick={() => setLane('mine')}
-            >
-              <span aria-hidden="true">🚀</span> My PRs
-              {briefing.mineNeedsAction > 0 && (
-                <span
-                  className="pr-list-scope-tab__alert"
-                  title={`${briefing.mineNeedsAction} need you`}
-                  aria-label={`${briefing.mineNeedsAction} need you`}
-                />
-              )}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={lane === 'to_review'}
-              className={`pr-list-scope-tab${lane === 'to_review' ? ' pr-list-scope-tab--active' : ''}`}
-              onClick={() => setLane('to_review')}
-            >
-              <span aria-hidden="true">📥</span> To review
-            </button>
+            <div className="kanban-scope-toggle">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={lane === 'mine'}
+                className={`kanban-scope-toggle__btn${lane === 'mine' ? ' kanban-scope-toggle__btn--selected' : ''}`}
+                onClick={() => setLane('mine')}
+              >
+                <span aria-hidden="true">🚀</span> My PRs
+                {briefing.mineNeedsAction > 0 && (
+                  <span
+                    className="pr-list-scope-tab__alert"
+                    title={`${briefing.mineNeedsAction} need you`}
+                    aria-label={`${briefing.mineNeedsAction} need you`}
+                  />
+                )}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={lane === 'to_review'}
+                className={`kanban-scope-toggle__btn${lane === 'to_review' ? ' kanban-scope-toggle__btn--selected' : ''}`}
+                onClick={() => setLane('to_review')}
+              >
+                <span aria-hidden="true">📥</span> To review
+              </button>
+            </div>
           </div>
           {/* The "My open PRs" summary panel that used to live above the
               kanban is now redundant — the kanban's "My PRs" lane shows

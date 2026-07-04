@@ -74,6 +74,7 @@ function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onRes
           : undefined}
         onResolve={onResolveComment}
         onDismiss={onDismissComment}
+        onCancel={() => setOpenLine(null)}
       />
     );
   };

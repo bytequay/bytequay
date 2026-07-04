@@ -163,19 +163,19 @@
 .shell .diff-line:hover .comment-anchor { opacity: 0.5; }
 .shell .diff-line:hover .comment-anchor:hover { opacity: 1; }
 .shell .diff-line.has-comment .comment-anchor { color: var(--orange); opacity: 1; }
-.shell .cd-inline-comment { margin: 4px 8px 4px 20px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--orange); border-left: 3px solid var(--orange); border-radius: 6px; font-family: var(--font); font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
-.shell .cd-inline-comment .ic-head { display: flex; align-items: center; gap: 7px; font-size: 11px; }
-.shell .cd-inline-comment .ic-head .avatar { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #14b8a6, #0d9488); color: #fff; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-.shell .cd-inline-comment .ic-head .author { color: var(--text-1); font-weight: 600; }
-.shell .cd-inline-comment .ic-head .local-badge { padding: 1px 6px; background: var(--accent-soft); color: var(--accent); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; }
-.shell .cd-inline-comment .ic-head .remote-badge { padding: 1px 6px; background: var(--bg-input); color: var(--text-3); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; border: 1px solid var(--border-mid); }
-.shell .cd-inline-comment .ic-head .resolved-badge { padding: 1px 6px; background: var(--green-soft); color: var(--green); font-size: 9.5px; font-weight: 700; border-radius: 3px; border: 1px solid var(--green-border); }
-.shell .cd-inline-comment .ic-body { color: var(--text-1); line-height: 1.55; white-space: pre-wrap; }
-.shell .cd-inline-comment .ic-actions { display: flex; gap: 6px; font-size: 11px; }
-.shell .cd-inline-comment .ic-actions button { padding: 3px 9px; background: var(--bg-input); border: 1px solid var(--border-mid); border-radius: 5px; color: var(--text-2); font-size: 11px; cursor: pointer; }
-.shell .cd-inline-comment .ic-actions button.resolve { background: var(--green-soft); color: var(--green); border-color: var(--green-border); }
-.shell .cd-inline-comment .ic-composer { background: var(--bg-input); border: 1px dashed var(--border-mid); border-radius: 5px; padding: 7px 10px; font-size: 11.5px; color: var(--text-1); font-family: inherit; min-height: 44px; resize: vertical; width: 100%; box-sizing: border-box; }
-.shell .cd-inline-comment .ic-composer::placeholder { color: var(--text-4); font-style: italic; }
+.cd-inline-comment { margin: 4px 8px 4px 20px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--orange); border-left: 3px solid var(--orange); border-radius: 6px; font-family: var(--font); font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
+.cd-inline-comment .ic-head { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.cd-inline-comment .ic-head .avatar { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #14b8a6, #0d9488); color: #fff; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.cd-inline-comment .ic-head .author { color: var(--text-1); font-weight: 600; }
+.cd-inline-comment .ic-head .local-badge { padding: 1px 6px; background: var(--accent-soft); color: var(--accent); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; }
+.cd-inline-comment .ic-head .remote-badge { padding: 1px 6px; background: var(--bg-input); color: var(--text-3); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; border: 1px solid var(--border-mid); }
+.cd-inline-comment .ic-head .resolved-badge { padding: 1px 6px; background: var(--green-soft); color: var(--green); font-size: 9.5px; font-weight: 700; border-radius: 3px; border: 1px solid var(--green-border); }
+.cd-inline-comment .ic-body { color: var(--text-1); line-height: 1.55; white-space: pre-wrap; }
+.cd-inline-comment .ic-actions { display: flex; gap: 6px; font-size: 11px; }
+.cd-inline-comment .ic-actions button { padding: 3px 9px; background: var(--bg-input); border: 1px solid var(--border-mid); border-radius: 5px; color: var(--text-2); font-size: 11px; cursor: pointer; }
+.cd-inline-comment .ic-actions button.resolve { background: var(--green-soft); color: var(--green); border-color: var(--green-border); }
+.cd-inline-comment .ic-composer { background: var(--bg-input); border: 1px dashed var(--border-mid); border-radius: 5px; padding: 7px 10px; font-size: 11.5px; color: var(--text-1); font-family: inherit; min-height: 44px; resize: vertical; width: 100%; box-sizing: border-box; }
+.cd-inline-comment .ic-composer::placeholder { color: var(--text-4); font-style: italic; }
 .shell .diff-line.add { background: rgba(34, 197, 94, 0.08); }
 .shell .diff-line.add .ln, .shell .diff-line.add .mark { color: rgba(22, 163, 74, 0.55); }
 .shell .diff-line.add .mark { color: #16a34a; }

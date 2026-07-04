@@ -941,7 +941,7 @@
 .home-contrib__strip {
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
 }
 
 .home-contrib__strip-col {
@@ -968,7 +968,6 @@
 
 .home-contrib__strip-mark--green  { background: var(--green); }
 .home-contrib__strip-mark--accent { background: var(--accent); }
-.home-contrib__strip-mark--merged { background: #8957e5; }
 
 .home-contrib__strip-label {
   font-size: var(--font-size-sm);

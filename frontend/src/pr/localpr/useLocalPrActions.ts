@@ -41,6 +41,7 @@ export function useLocalPrActions(taskId: string, opts: {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
+  const [testsBusy, setTestsBusy] = useState(false);
 
   const submitLocalComment = useCallback(() => {
     const body = localComment.trim();
@@ -93,11 +94,22 @@ export function useLocalPrActions(taskId: string, opts: {
       .catch(() => { /* poll reconciles */ });
   }, [refresh]);
 
+  const runLocalTests = useCallback(() => {
+    if (localPr === null) return;
+    setTestsBusy(true);
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.runLocalPrTests(localPr.id)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ })
+      .finally(() => setTestsBusy(false));
+  }, [localPr, refresh]);
+
   return {
     bundle, refresh, localPr, prMode,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
     reviewOpen, setReviewOpen, prBusy,
+    runLocalTests, testsBusy,
   };
 }

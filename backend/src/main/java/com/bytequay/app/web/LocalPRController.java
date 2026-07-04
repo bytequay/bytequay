@@ -24,6 +24,9 @@ import com.bytequay.app.beans.localpr.MergeLocalPRRequest;
 import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.localpr.LocalPRPublishService;
 import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.localpr.LocalPRSyncService;
@@ -36,6 +39,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.nio.file.Path;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -54,18 +60,24 @@ public class LocalPRController
     private final LocalPRService localPr;
     private final LocalPRPublishService publish;
     private final LocalPRSyncService sync;
+    private final TaskStore taskStore;
     private final ObjectMapper mapper;
+    private final RepoTestValidationCheck testRunner;
 
     public LocalPRController(
             LocalPRService localPr,
             LocalPRPublishService publish,
             LocalPRSyncService sync,
-            ObjectMapper mapper)
+            TaskStore taskStore,
+            ObjectMapper mapper,
+            RepoTestValidationCheck testRunner)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
         this.publish = requireNonNull(publish, "publish is null");
         this.sync = requireNonNull(sync, "sync is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.testRunner = requireNonNull(testRunner, "testRunner is null");
     }
 
     /** The whole local PR in one payload — the frontend PR view / push dialog
@@ -84,6 +96,28 @@ public class LocalPRController
                 localPr.checks(pr.id()).stream().map(LocalPRCheckDto::from).toList(),
                 localPr.comments(pr.id()).stream().map(LocalPRCommentDto::from).toList(),
                 localPr.pendingStripCount(pr.id()));
+    }
+
+    /**
+     * On-demand local test run (design doc slice 4 — "runs at VALIDATING and
+     * on demand"): the same {@link RepoTestValidationCheck} the VALIDATING
+     * phase runs automatically, triggered manually from the Tests card.
+     * Synchronous — a local desktop sidecar with one user, so a "run tests,
+     * wait for it" click is the same shape as running it in a terminal; the
+     * frontend shows a busy state for the call's duration.
+     */
+    @PostMapping("/api/local-pr/{prId}/run-tests")
+    public List<LocalPRCheckDto> runTests(@PathVariable String prId)
+    {
+        LocalPR pr = localPr.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        Task task = taskStore.findTaskById(pr.taskId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + pr.taskId()));
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "task " + pr.taskId() + " has no worktree");
+        }
+        testRunner.run(task.id(), Path.of(task.worktreePath()));
+        return localPr.checks(prId).stream().map(LocalPRCheckDto::from).toList();
     }
 
     /**

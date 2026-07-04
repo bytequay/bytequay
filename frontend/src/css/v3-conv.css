@@ -1489,6 +1489,8 @@
 .pr-checks-card .checks-head .kind-badge.local { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-border); }
 .pr-checks-card .checks-head .kind-badge.remote { background: var(--bg-input); color: var(--text-3); border: 1px solid var(--border-mid); }
 .pr-checks-card .checks-head .status-line { margin-left: auto; font-size: 11px; color: var(--text-3); }
+.pr-checks-card .checks-head .run-tests-btn { padding: 2px 8px; background: var(--bg-input); border: 1px solid var(--border-mid); border-radius: 5px; color: var(--text-2); font-size: 10.5px; font-weight: 500; cursor: pointer; }
+.pr-checks-card .checks-head .run-tests-btn:disabled { opacity: 0.6; cursor: default; }
 .pr-checks-card .check-row { display: grid; grid-template-columns: 16px 1fr auto; gap: 7px; align-items: center; padding: 3px 0; font-size: 11.5px; }
 .pr-checks-card .check-row .ic { width: 14px; height: 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: #fff; font-weight: 700; }
 .pr-checks-card .check-row .ic.pass { background: var(--green); }

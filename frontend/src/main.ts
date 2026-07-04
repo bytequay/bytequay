@@ -938,6 +938,18 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('localpr:runTests', async (_event, prId: string) => {
+    // A full test suite can run for minutes — no client-side timeout here;
+    // the backend's own runner is what bounds the wall-clock (5 min).
+    const res = await fetch(`${BACKEND_BASE}/api/local-pr/${encodeURIComponent(prId)}/run-tests`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend local-pr run-tests returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
 
   ipcMain.handle('stages:steer', async (_event, stageId: string, text: string) => {
     const res = await fetch(

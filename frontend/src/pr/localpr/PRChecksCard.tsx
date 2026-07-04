@@ -46,12 +46,16 @@ function statusLine(checks: LocalPRCheck[], kind: LocalPRCheckKind): string {
  * push) and the remote-mode LOCAL history both render dim.
  */
 export function PRChecksCard({
-  kind, title, checks, dim = false,
+  kind, title, checks, dim = false, onRunTests, runTestsBusy = false,
 }: {
   kind: LocalPRCheckKind;
   title: string;
   checks: LocalPRCheck[];
   dim?: boolean;
+  /** "Run tests" trigger — local checks only (design doc slice 4: "runs at
+   *  VALIDATING and on demand"). Omitted on the remote card. */
+  onRunTests?: () => void;
+  runTestsBusy?: boolean;
 }) {
   return (
     <div className="pr-checks-card" style={dim ? { opacity: 0.5 } : undefined}>
@@ -59,6 +63,11 @@ export function PRChecksCard({
         <span className={`kind-badge ${kind}`}>{kind}</span>
         {title}
         <span className="status-line">{statusLine(checks, kind)}</span>
+        {onRunTests !== undefined && (
+          <button type="button" className="run-tests-btn" onClick={onRunTests} disabled={runTestsBusy}>
+            {runTestsBusy ? 'Running…' : 'Run tests'}
+          </button>
+        )}
       </div>
       {checks.map(c => (
         <div className="check-row" key={c.id}>

@@ -35,6 +35,7 @@ import { PRCommentComposer } from './PRCommentComposer';
 export function PRView({
   mode, bundle, commentValue, onCommentChange, username,
   onAddComment, onPush, onAskAgent, onMerge, onMergeAnyway, onReviewChanges,
+  onRunTests, runTestsBusy = false,
 }: {
   mode: PRViewMode;
   bundle: LocalPRBundle;
@@ -49,6 +50,10 @@ export function PRView({
   /** Opens the full-page changed-files + diff review. Omitted when there's
    *  nothing to review yet. */
   onReviewChanges?: () => void;
+  /** Manually re-run the local test suite (design doc slice 4). Omitted
+   *  when there's no local PR to run tests against yet. */
+  onRunTests?: () => void;
+  runTestsBusy?: boolean;
 }) {
   const { pr, timeline, checks, comments } = bundle;
   const badge = statusBadgeMeta(pr.status);
@@ -115,6 +120,8 @@ export function PRView({
           title="Validation scripts"
           checks={localChecks}
           dim={mode === 'remote'}
+          onRunTests={mode === 'local' ? onRunTests : undefined}
+          runTestsBusy={runTestsBusy}
         />
         <PRChecksCard
           kind="remote"

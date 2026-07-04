@@ -14,21 +14,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
-import { useLocalPr } from '../threads/brain/useLocalPr';
+import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { PRView } from '../pr/localpr/PRView';
 import { LocalPrReviewScreen } from '../pr/localpr/LocalPrReviewScreen';
 import { PushDialog } from '../pr/localpr/PushDialog';
 import { MergeDialog } from '../pr/localpr/MergeDialog';
-import type { MergeMethod } from '../pr/localpr/MergeDialog';
-import { isLocalStatus } from '../types/localPr';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import { CiStatusPanel } from './CiStatusPanel';
 import { PaneDiff } from '../diff/PaneDiff';
-import { DiffFileTreePane } from '../diff/DiffFileTreePane';
-import { statusBadge } from '../diffStatusBadge';
 import { PRTabContent } from '../ui/pane/tabs';
 import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
 import type { DiffFileDto } from '../types';
@@ -52,6 +48,17 @@ import type { TaskPhase } from '../types/brainView';
  *  task's stages) instead of flashing "Loading diff…" on every hop. */
 const diffCache = makeIdCache<DiffFileDto[]>();
 
+/** Parse a server ISO timestamp to epoch-ms, or null when absent/invalid.
+ *  Used to anchor the "working" elapsed counter to server time so it keeps
+ *  ticking across a tab switch instead of restarting from a local mount time. */
+function epochOrNull(ts: string | undefined): number | null {
+  if (ts === undefined) {
+    return null;
+  }
+  const ms = Date.parse(ts);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 const KIND: Partial<Record<StageType, StageKind>> = {
   PLAN_STAGE: 'plan',
   DEVELOPMENT_STAGE: 'dev',
@@ -65,10 +72,10 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * detail data. Maps the stage transcript → conversation (agent turns,
  * tool blocks, your steering, iteration markers) and wires the composer to
  * the stage's agent via {@code steerStage}. The right pane carries the full
- * Plan · Changes · PR · Files · Details strip: Changes/Files render the
- * task's cumulative diff, the CI-fix stage shows the live CI check card
- * above the diff, and the PR tab surfaces the pull request + its review
- * comment threads.
+ * PR · Code Diff · CI · Details strip: PR renders the unified local/remote
+ * PR view (falling back to the remote panel until the task has a local
+ * PR), Code Diff renders the task's cumulative diff with local inline
+ * comments, and the CI tab (CI-fix stage only) shows the live check run.
  */
 export function StageDetailRoute({
   threadId, taskId, stageId, onOpenCode, onOpenStage, onBack, onOpenBrain,
@@ -100,13 +107,15 @@ export function StageDetailRoute({
   const [prComment, setPrComment] = useState('');
   // The task's local PR — the primary artifact this milestone renders. Null
   // until Dev records its first commit; then the PR tab shows <PRView>
-  // instead of the remote-GitHub PRTabContent.
-  const { bundle: localPrBundle, refresh: refreshLocalPr } = useLocalPr(taskId);
-  const [localComment, setLocalComment] = useState('');
-  const [pushOpen, setPushOpen] = useState(false);
-  const [mergeOpen, setMergeOpen] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [prBusy, setPrBusy] = useState(false);
+  // instead of the remote-GitHub PRTabContent. The bundle poll + the
+  // user-gated push/merge/comment actions are shared with the brain page.
+  const {
+    bundle: localPrBundle, refresh: refreshLocalPr, localPr, prMode,
+    localComment, setLocalComment, submitLocalComment,
+    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment,
+    pushOpen, setPushOpen, mergeOpen, setMergeOpen,
+    reviewOpen, setReviewOpen, prBusy,
+  } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
@@ -115,16 +124,14 @@ export function StageDetailRoute({
   const branch = data?.task.branch;
   const repoFullName = data?.task.repoFullName;
 
-  // Changes / Files / PR tabs only apply to the work stages — the Plan stage
-  // is a read-only conversation artifact with no diff of its own.
+  // Code Diff / PR tabs only apply to the work stages — the Plan stage is a
+  // read-only conversation artifact with no diff of its own.
   const hasDiff = stageKind !== 'plan';
 
   // ── Right-pane data: the task's cumulative diff ─────────────────────────
   // Seed from the per-thread cache so a stage switch shows the diff instantly
   // (stale-while-revalidate) rather than flashing the "Loading diff…" state.
   const [files, setFiles] = useState<DiffFileDto[] | null>(() => diffCache.get(threadId) ?? null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (!hasDiff) return;
@@ -136,21 +143,10 @@ export function StageDetailRoute({
         if (cancelled) return;
         diffCache.set(threadId, list);
         setFiles(list);
-        setSelectedPath(prev => (prev !== null && list.some(f => f.filename === prev)
-          ? prev : list[0]?.filename ?? null));
       })
       .catch(() => { if (!cancelled) setFiles(prev => prev ?? []); });
     return () => { cancelled = true; };
   }, [threadId, hasDiff]);
-
-  const toggleDir = useCallback((path: string) => {
-    setCollapsedDirs(prev => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
 
   const openPr = useCallback(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -202,57 +198,15 @@ export function StageDetailRoute({
   }, [stageId, refresh]);
 
   // ── Local PR actions (user-gated; never auto-posted) ────────────────────
-  const localPr = localPrBundle?.pr ?? null;
-  const prMode = localPr !== null && !isLocalStatus(localPr.status) ? 'remote' as const : 'local' as const;
   const repoLabel = data?.task.repoFullName ?? undefined;
-
-  const submitLocalComment = useCallback(() => {
-    const body = localComment.trim();
-    if (body.length === 0 || localPr === null) return;
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.addLocalPrComment(localPr.id, { scope: 'pr', body })
-      .then(() => { setLocalComment(''); refreshLocalPr(); })
-      .catch(() => { /* poll reconciles */ });
-  }, [localComment, localPr, refreshLocalPr]);
-
-  const confirmPush = useCallback(() => {
-    if (localPr === null) return;
-    setPrBusy(true);
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.pushLocalPr(localPr.id)
-      .then(() => { setPushOpen(false); refreshLocalPr(); pollFast(); })
-      .catch(() => { /* poll reconciles; dialog stays open on failure */ })
-      .finally(() => setPrBusy(false));
-  }, [localPr, refreshLocalPr, pollFast]);
-
-  const confirmMerge = useCallback((method: MergeMethod) => {
-    if (localPr === null) return;
-    setPrBusy(true);
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.mergeLocalPr(localPr.id, method)
-      .then(() => { setMergeOpen(false); refreshLocalPr(); pollFast(); })
-      .catch(() => { /* poll reconciles */ })
-      .finally(() => setPrBusy(false));
-  }, [localPr, refreshLocalPr, pollFast]);
 
   const askAgentToAddress = useCallback(() => {
     setText('Please address my review comments on the PR, then I\'ll push. ');
+    // Land the cursor in the composer so the user can elaborate and send.
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
+    });
   }, []);
-
-  const addLocalLineComment = useCallback((filePath: string, lineNumber: number, body: string) => {
-    if (localPr === null) return;
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.addLocalPrComment(localPr.id, { scope: 'file-line', filePath, lineNumber, body })
-      .then(() => refreshLocalPr())
-      .catch(() => { /* poll reconciles */ });
-  }, [localPr, refreshLocalPr]);
-
-  const resolveLocalComment = useCallback((commentId: string) => {
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.resolveLocalPrComment(commentId)
-      .then(() => refreshLocalPr())
-      .catch(() => { /* poll reconciles */ });
-  }, [refreshLocalPr]);
 
   // Live stream of the agent working this stage: its text appears
   // token-by-token (and a non-delta event refreshes the canonical
@@ -286,10 +240,6 @@ export function StageDetailRoute({
   // in. Track when the working period began so the indicator can tick an
   // elapsed counter (a long, quiet turn shouldn't read as dead).
   const working = busy || threadRunning || state === 'ACTIVE' || liveText.length > 0;
-  const [workingSince, setWorkingSince] = useState<number | null>(null);
-  useEffect(() => {
-    setWorkingSince(prev => (working ? prev ?? Date.now() : null));
-  }, [working]);
 
   // Messages typed while the stage agent is working queue up and auto-send
   // when it goes idle; click one to pull it back into the composer to edit.
@@ -308,6 +258,11 @@ export function StageDetailRoute({
   const lastTool = data?.conversation.filter(r => r.kind === 'tool_call').at(-1);
   const toolName = lastTool !== undefined ? (lastTool.toolTag?.trim() || 'Tool') : null;
   const toolArg = lastTool?.toolDetail?.trim() || null;
+  // Elapsed ticks from the current activity's SERVER timestamp — the running
+  // tool call, or the last transcript row — not a local mount time. Deriving
+  // it from `data` (which is cached + polled) means leaving the tab and
+  // coming back keeps counting instead of restarting at 0s.
+  const workingSince = epochOrNull((lastTool ?? data?.conversation.at(-1))?.ts);
   const workingLabel = toolName === null
     ? 'Agent is working…'
     : toolArg !== null ? `Running ${toolName}: ${toolArg}` : `Running ${toolName}…`;
@@ -381,15 +336,8 @@ export function StageDetailRoute({
   // ── Right-pane tab nodes ────────────────────────────────────────────────
   // Memoized on their own data so a keystroke (or a streaming token) can't
   // re-render the diff — PaneDiff over a large change set is expensive.
-  const changesNode = useMemo(() => {
-    // The CI-fix stage's tab shows only the live CI run — the code diff lives
-    // on the Files tab, so this tab stays focused on the checks it's fixing.
-    if (stageKind === 'ci-fix') {
-      return realtimeCi !== null
-        ? <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
-        : <div className="pane-empty">No CI run yet.</div>;
-    }
-    return files === null ? (
+  const changesNode = useMemo(() => (
+    files === null ? (
       <div className="pane-empty">Loading diff…</div>
     ) : files.length === 0 ? (
       <div className="pane-empty">No changes in this task yet.</div>
@@ -401,23 +349,16 @@ export function StageDetailRoute({
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
       />
-    );
-  }, [stageKind, realtimeCi, files, openPr, localPrBundle, localPr, prMode, state,
-    addLocalLineComment, resolveLocalComment]);
+    )
+  ), [files, localPrBundle, localPr, prMode, state, addLocalLineComment, resolveLocalComment]);
 
-  const filesNode = useMemo(() => (
-    <DiffFileTreePane<DiffFileDto>
-      files={files}
-      error={null}
-      mode="tree"
-      pathOf={(f) => f.filename}
-      statusBadgeOf={(f) => statusBadge(f.status)}
-      selectedPath={selectedPath}
-      onSelectPath={setSelectedPath}
-      collapsedDirs={collapsedDirs}
-      onToggleDir={toggleDir}
-    />
-  ), [files, selectedPath, collapsedDirs, toggleDir]);
+  // The CI-fix stage's own tab for the live CI run — separate from the Code
+  // Diff tab so the stage keeps its checks focus without displacing the diff.
+  const ciNode = useMemo(() => (
+    realtimeCi !== null
+      ? <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
+      : <div className="pane-empty">No CI run yet.</div>
+  ), [realtimeCi, openPr]);
 
   // PR tab content — built from the stage-detail `pr` block (status, branch
   // flow, reviewers, labels, CI check summary, and the per-line review
@@ -574,8 +515,7 @@ export function StageDetailRoute({
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
       tabCounts={{
-        // The CI-fix tab is checks-only, so the changed-file count doesn't belong on it.
-        changes: stageKind !== 'ci-fix' && files !== null && files.length > 0
+        changes: files !== null && files.length > 0
           ? { count: files.length, countColor: 'acc' } : undefined,
         pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
       }}
@@ -592,9 +532,9 @@ export function StageDetailRoute({
         ),
       } : undefined}
       tabs={{
-        changes: hasDiff ? changesNode : undefined,
         pr: localPrNode ?? prNode ?? undefined,
-        files: hasDiff ? filesNode : undefined,
+        changes: hasDiff ? changesNode : undefined,
+        ci: stageKind === 'ci-fix' ? ciNode : undefined,
         details: (
           <DetailsTabContent sections={[{
             title: 'Stage',

@@ -13,6 +13,8 @@
  */
 import { useState } from 'react';
 import { marked } from 'marked';
+import { useAutoGrow } from './useAutoGrow';
+import { useMentions } from './useMentions';
 
 type Props = {
   value: string;
@@ -26,6 +28,8 @@ type Props = {
   textareaClassName?: string;
   /** Which tab to open on first render (default 'write'). */
   initialTab?: 'write' | 'preview';
+  /** Logins offered as @mention autocomplete. Omit/empty to disable. */
+  mentionCandidates?: string[];
 };
 
 /**
@@ -48,8 +52,11 @@ function MarkdownComposer({
   autoFocus,
   textareaClassName,
   initialTab = 'write',
+  mentionCandidates,
 }: Props) {
   const [tab, setTab] = useState<'write' | 'preview'>(initialTab);
+  const taRef = useAutoGrow(value);
+  const mentions = useMentions({ value, onChange, candidates: mentionCandidates, textareaRef: taRef });
   const previewHtml = tab === 'preview'
     ? (marked(value.trim() || '_Nothing to preview._', { gfm: true, breaks: true }) as string)
     : '';
@@ -77,15 +84,21 @@ function MarkdownComposer({
         </button>
       </div>
       {tab === 'write' ? (
-        <textarea
-          className={textareaClassName ?? 'md-composer__textarea'}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          rows={rows}
-          disabled={disabled}
-          autoFocus={autoFocus}
-        />
+        <div style={{ position: 'relative' }}>
+          <textarea
+            ref={taRef}
+            className={textareaClassName ?? 'md-composer__textarea'}
+            value={value}
+            onChange={mentions.onChange}
+            onKeyDown={mentions.onKeyDown}
+            onClick={mentions.onClick}
+            placeholder={placeholder}
+            rows={rows}
+            disabled={disabled}
+            autoFocus={autoFocus}
+          />
+          {mentions.dropdown}
+        </div>
       ) : (
         <div
           className="md-body md-composer__preview"

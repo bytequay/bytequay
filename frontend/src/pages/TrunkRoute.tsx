@@ -30,6 +30,17 @@ import { TrunkPage } from './TrunkPage';
  *  awaiting merge). PENDING is the Queued folder. */
 const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
 
+/** Parse a server ISO timestamp to epoch-ms, or null when absent/invalid.
+ *  Anchors the "working" elapsed counter to server time so it keeps ticking
+ *  across a tab switch instead of restarting from a local mount time. */
+function epochOrNull(ts: string | undefined): number | null {
+  if (ts === undefined) {
+    return null;
+  }
+  const ms = Date.parse(ts);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 /**
  * Data adapter mounting the V3 {@link TrunkPage} on the live thread trunk
  * data. Loads the thread, its planning messages → conversation, and its
@@ -61,12 +72,6 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   // task, run tools, reply, run more) keeps the indicator up the whole time,
   // even across intermediate messages, so a quiet gap never reads as dead.
   const working = busy || awaitedAt !== null || thread?.status === 'RUNNING';
-  // Start time of the current working period, so the indicator can show a
-  // ticking elapsed counter — a long, quiet think shouldn't read as dead.
-  const [workingSince, setWorkingSince] = useState<number | null>(null);
-  useEffect(() => {
-    setWorkingSince(prev => (working ? prev ?? Date.now() : null));
-  }, [working]);
 
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -139,6 +144,10 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   const activity = lastActivity?.type === 'tool_call'
     ? parseToolCall(lastActivity.contentJson)
     : null;
+  // Elapsed ticks from the last activity's SERVER timestamp (from the polled
+  // `messages`), not a local mount time — so leaving the tab and coming back
+  // keeps counting instead of restarting at 0s.
+  const workingSince = epochOrNull(lastActivity?.ts);
   const workingLabel = activity === null
     ? 'Trunk is working…'
     : activity.summary.length > 0

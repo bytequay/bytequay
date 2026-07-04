@@ -13,12 +13,10 @@
  */
 package com.bytequay.app.service.stage;
 
-import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -28,7 +26,6 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.TaskAutoPushEvent;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -54,10 +51,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestStageBudget
 {
-    @Autowired
-    private TaskPhaseMachine machine;
-    @Autowired
-    private PlanStageService planStageService;
     @Autowired
     private StageBudgetService budgetService;
     @Autowired
@@ -147,24 +140,14 @@ class TestStageBudget
         assertThat(metrics.internalReviewEnabled()).isTrue();
     }
 
-    /** Drive a fresh task to its first push so the ci-fixing stage opens
-     *  with a budget. The push is human, so it doesn't spend the budget. */
+    /** Open a ci-fixing stage with its budget seeded — a {@code ci_fix}
+     *  {@link com.bytequay.app.domain.AgentRun} opens one directly (it no
+     *  longer rides a phase transition), so the test does the same. */
     private StageInstance openCiFixing(String taskId)
     {
-        approvePlan(taskId);
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
-        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
-        return stageStore.findActiveStage(taskId).orElseThrow();
-    }
-
-    /** Approve a plan so the DevelopmentStage opens and the task is at
-     *  IMPLEMENTING — the precondition for the dev-phase walk. */
-    private void approvePlan(String taskId)
-    {
-        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        planStageService.approve(taskId, "rev-1");
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        budgetService.onStageOpened(stage);
+        return stage;
     }
 
     private void drain(String taskId, int pushes)

@@ -52,11 +52,10 @@ final class TaskLifecyclePhases
             return Optional.of(TaskPhase.COMPLETED);
         }
         CiStatus ci = pr.ciStatus();
-        if (ci == CiStatus.FAILING) {
-            return Optional.of(TaskPhase.CI_FIXING);
-        }
-        // CI still running (or not yet synced) — the branch is up, waiting.
-        if (ci == CiStatus.PENDING || ci == null) {
+        // Red, still running, or not yet synced — the branch is up, waiting
+        // either way; a red check is handled by a ci_fix AgentRun beside
+        // this phase, not by moving it.
+        if (ci == CiStatus.FAILING || ci == CiStatus.PENDING || ci == null) {
             return Optional.of(TaskPhase.PUSHED_AWAITING_CI);
         }
         // CI green, or no CI gate (NONE): the PR's draft / review state
@@ -91,11 +90,10 @@ final class TaskLifecyclePhases
             return Optional.of(TaskPhase.COMPLETED);
         }
         CiStatus ci = detail.ciStatus();
-        if (ci == CiStatus.FAILING) {
-            return Optional.of(TaskPhase.CI_FIXING);
-        }
-        // A check is actively running (or not yet reported) — keep waiting.
-        if (ci == CiStatus.PENDING || ci == null) {
+        // Red, actively running, or not yet reported — keep waiting either
+        // way; a red check is handled by a ci_fix AgentRun beside this
+        // phase, not by moving it.
+        if (ci == CiStatus.FAILING || ci == CiStatus.PENDING || ci == null) {
             return Optional.of(TaskPhase.PUSHED_AWAITING_CI);
         }
         // CI green / no CI gate: draft holds for "mark ready", a ready PR

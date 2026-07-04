@@ -25,10 +25,13 @@ import java.util.Set;
  * ({@link #forPhase}).
  *
  * <p>{@code PLAN_STAGE} is the mandatory planning stage every Task opens
- * with; {@code DEVELOPMENT_STAGE} / {@code CI_FIXING_STAGE} /
- * {@code REVIEW_MONITOR_STAGE} are looping work stages, {@code CLEANUP_STAGE}
- * is the terminal stage, and {@code REVIEW_STAGE} is a callable sub-stage
- * (the multi-agent panel) that carries a {@code callerStageId}.
+ * with; {@code DEVELOPMENT_STAGE} / {@code REVIEW_MONITOR_STAGE} are
+ * looping work stages driven by phase transitions, {@code CLEANUP_STAGE}
+ * is the terminal stage, and {@code REVIEW_STAGE} / {@code CI_FIXING_STAGE}
+ * are pure containers with no phases of their own — opened directly by an
+ * {@code AgentRun} (or, for {@code REVIEW_STAGE}, the review panel) purely
+ * so its turns land in {@code stage_messages} via the same stage-id FK every
+ * other turn uses; both carry a {@code callerStageId}.
  */
 public enum StageType
 {
@@ -46,11 +49,11 @@ public enum StageType
             TaskPhase.AWAITING_PUSH,
             TaskPhase.ADDRESSING_LOCAL_COMMENTS)),
 
-    /** Polling loop on remote CI. */
-    CI_FIXING_STAGE(Set.of(
-            TaskPhase.CI_FIXING,
-            TaskPhase.AWAITING_UPDATE_PUSH,
-            TaskPhase.PUSHED_AWAITING_CI)),
+    /** Pure container for {@code ci_fix} {@link AgentRun}s — never opened via
+     *  a phase transition; {@link AgentRun} opens one directly as a run's
+     *  backing stage. Empty {@code allowedPhases} mirrors {@code
+     *  REVIEW_STAGE}. */
+    CI_FIXING_STAGE(Set.of()),
 
     /** Polling loop on remote review comments. Arms as soon as the PR is
      *  out for review ({@code AWAITING_REMOTE_REVIEW}), then stays active
@@ -78,9 +81,7 @@ public enum StageType
     /**
      * Phases that may legally appear inside an instance of this stage. The
      * phase machine uses this to validate transitions and to route a phase
-     * to its stage. Note {@link TaskPhase#AWAITING_UPDATE_PUSH} legally
-     * belongs to both {@code CI_FIXING_STAGE} and {@code REVIEW_MONITOR_STAGE};
-     * {@link #forPhase} resolves the overlap by declaration order.
+     * to its stage.
      */
     public Set<TaskPhase> allowedPhases()
     {
@@ -110,20 +111,14 @@ public enum StageType
      * isn't bound to any single stage. {@link TaskPhase#QUEUED} and
      * {@link TaskPhase#NEEDS_ATTENTION} are cross-cutting by design — they
      * attach to whatever stage is already active. {@link TaskPhase#AWAITING_READY}
-     * is the post-push CI-green idle wait that stays unmapped; it keeps the
-     * current stage.
+     * and {@link TaskPhase#PUSHED_AWAITING_CI} are post-push idle waits that
+     * stay unmapped; they keep the current stage (a live {@code ci_fix} run
+     * works beside it via its own directly-opened backing stage instead).
      *
      * <p>Returning empty (rather than throwing) is deliberate: the lifecycle
      * hook runs inside the phase-transition's transaction, so a throw here
      * would roll back a legitimate phase move. An unmapped phase is treated
      * as "stay in the current stage".
-     *
-     * <p>{@code AWAITING_UPDATE_PUSH} belongs to both {@code CI_FIXING_STAGE}
-     * and {@code REVIEW_MONITOR_STAGE}; this method resolves the overlap by
-     * declaration order (CI-fixing wins), but the lifecycle prefers to keep
-     * whichever monitor stage is already active when the phase is legal there
-     * (see {@code StageLifecycle}), so the resolver precedence only decides
-     * the cold-start case.
      */
     public static Optional<StageType> forPhase(TaskPhase phase)
     {

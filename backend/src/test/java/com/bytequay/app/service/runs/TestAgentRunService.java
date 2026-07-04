@@ -1,0 +1,190 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.runs;
+
+import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
+import com.bytequay.app.repository.AgentRunStore;
+import com.bytequay.app.repository.StageStore;
+import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class TestAgentRunService
+{
+    private static final Instant NOW = Instant.parse("2026-07-05T00:00:00Z");
+    private static final UUID BACKING_STAGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+
+    private final AgentRunStore store = mock(AgentRunStore.class);
+    private final StageStore stageStore = mock(StageStore.class);
+    private final AgentRunService service =
+            new AgentRunServiceImpl(store, stageStore, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    @Test
+    void openStartsAFreshRunWithItsOwnBackingStage()
+    {
+        when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
+        when(stageStore.openStage(eq("t1"), eq(StageType.CI_FIXING_STAGE), any()))
+                .thenReturn(new StageInstance(
+                        BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun run = service.open(
+                "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
+
+        assertThat(run.taskId()).isEqualTo("t1");
+        assertThat(run.kind()).isEqualTo(AgentRun.KIND_CI_FIX);
+        assertThat(run.source()).isEqualTo(AgentRun.SOURCE_REMOTE);
+        assertThat(run.stageId()).isEqualTo(BACKING_STAGE_ID.toString());
+        assertThat(run.status()).isEqualTo(AgentRun.STATUS_RUNNING);
+        assertThat(run.iterations()).isZero();
+        assertThat(run.budget()).isEqualTo(5);
+        assertThat(run.startedAt()).isEqualTo(NOW);
+        assertThat(run.finishedAt()).isNull();
+    }
+
+    @Test
+    void openIsIdempotentWhenALiveRunOfTheSameKindExists()
+    {
+        AgentRun existing = new AgentRun(
+                "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, 5, null, null, NOW, null);
+        when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.of(existing));
+
+        AgentRun run = service.open(
+                "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
+
+        assertThat(run).isSameAs(existing);
+        verify(stageStore, never()).openStage(any(), any(), any());
+    }
+
+    @Test
+    void openPassesParentStageIdAsTheBackingStageCallerId()
+    {
+        UUID devStageId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
+        when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
+        when(stageStore.openStage(eq("t1"), eq(StageType.CI_FIXING_STAGE), eq(devStageId)))
+                .thenReturn(new StageInstance(
+                        BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, devStageId));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun run = service.open(
+                "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_LOCAL, devStageId.toString(),
+                StageType.CI_FIXING_STAGE, null);
+
+        assertThat(run.parentStageId()).isEqualTo(devStageId.toString());
+        verify(stageStore).openStage("t1", StageType.CI_FIXING_STAGE, devStageId);
+    }
+
+    @Test
+    void recordIterationIncrementsAndOptionallyUpdatesTheHeadline()
+    {
+        AgentRun run = new AgentRun(
+                "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, 5, "old", null, NOW, null);
+        when(store.findById("run1")).thenReturn(Optional.of(run));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun updated = service.recordIteration("run1", "iter 2: retrying");
+
+        assertThat(updated.iterations()).isEqualTo(2);
+        assertThat(updated.headline()).isEqualTo("iter 2: retrying");
+    }
+
+    @Test
+    void recordIterationKeepsTheExistingHeadlineWhenNoneIsSupplied()
+    {
+        AgentRun run = new AgentRun(
+                "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, 5, "old", null, NOW, null);
+        when(store.findById("run1")).thenReturn(Optional.of(run));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun updated = service.recordIteration("run1", null);
+
+        assertThat(updated.iterations()).isEqualTo(2);
+        assertThat(updated.headline()).isEqualTo("old");
+    }
+
+    @Test
+    void spendBudgetDecrementsAndFloorsAtZero()
+    {
+        AgentRun run = new AgentRun(
+                "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, 0, null, null, NOW, null);
+        when(store.findById("run1")).thenReturn(Optional.of(run));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun updated = service.spendBudget("run1");
+
+        assertThat(updated.budget()).isZero();
+    }
+
+    @Test
+    void transitionToATerminalStatusClosesTheBackingStage()
+    {
+        AgentRun run = new AgentRun(
+                "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 3, 2, null, null, NOW, null);
+        when(store.findById("run1")).thenReturn(Optional.of(run));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun updated = service.transition("run1", AgentRun.STATUS_SUCCEEDED, "checks_green");
+
+        assertThat(updated.status()).isEqualTo(AgentRun.STATUS_SUCCEEDED);
+        assertThat(updated.finishedAt()).isEqualTo(NOW);
+        verify(stageStore).closeStage(BACKING_STAGE_ID, "checks_green");
+    }
+
+    @Test
+    void transitionToAwaitingGateDoesNotCloseTheBackingStage()
+    {
+        AgentRun run = new AgentRun(
+                "run1", "t1", AgentRun.KIND_REVIEW_ROUND, null, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(store.findById("run1")).thenReturn(Optional.of(run));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun updated = service.transition("run1", AgentRun.STATUS_AWAITING_GATE, "drafts_ready");
+
+        assertThat(updated.finishedAt()).isNull();
+        verify(stageStore, never()).closeStage(any(), any());
+    }
+
+    @Test
+    void liveRunsByTaskDelegatesToTheStore()
+    {
+        AgentRun run = new AgentRun(
+                "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(store.findLiveByTask("t1")).thenReturn(List.of(run));
+
+        assertThat(service.liveRunsByTask("t1")).containsExactly(run);
+    }
+}

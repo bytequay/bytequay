@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.service.mcp.approval;
 
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -24,6 +26,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -38,14 +41,25 @@ class TestWorktreeEditStep
     private final ObjectMapper mapper = new ObjectMapper();
     private final McpResponses responses = new McpResponses(mapper);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final WorktreeEditStep step = new WorktreeEditStep(taskStore, responses);
+    private final AgentRunStore agentRuns = mock(AgentRunStore.class);
+    private final WorktreeEditStep step = new WorktreeEditStep(taskStore, agentRuns, responses);
 
     @Test
     void allowsEditInWorktreeDuringAWorkStage()
     {
-        // A CI-fixing (autonomous work) stage edits its own worktree without
-        // a prompt — editing the worktree is the whole job of the stage.
-        arm(TaskPhase.CI_FIXING);
+        arm(TaskPhase.IMPLEMENTING);
+        assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
+                .isInstanceOf(ApprovalStepResult.Resolve.class);
+    }
+
+    @Test
+    void allowsEditInWorktreeWithALiveAgentRun()
+    {
+        // CI-fixing doesn't move the task's phase anymore — a live ci_fix
+        // run's edits to the same worktree are auto-approved via the run
+        // check instead of the stage check.
+        arm(TaskPhase.PUSHED_AWAITING_CI);
+        when(agentRuns.findLiveByTask("task-1")).thenReturn(List.of(mock(AgentRun.class)));
         assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
                 .isInstanceOf(ApprovalStepResult.Resolve.class);
     }

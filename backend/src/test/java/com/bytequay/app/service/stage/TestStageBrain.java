@@ -71,6 +71,8 @@ class TestStageBrain
     @Autowired
     private PlanStageService planStageService;
     @Autowired
+    private StageBudgetService budgetService;
+    @Autowired
     private StageStore stageStore;
     @Autowired
     private TaskStore taskStore;
@@ -404,16 +406,14 @@ class TestStageBrain
         assertThat(stageService.getBrain(taskId).task().paused()).isTrue();
     }
 
+    /** Open a ci-fixing stage with its budget seeded — a {@code ci_fix}
+     *  {@link com.bytequay.app.domain.AgentRun} opens one directly (it no
+     *  longer rides a phase transition), so the test does the same. */
     private StageInstance openCiFixing(String taskId)
     {
-        approvePlan(taskId);
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
-        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
-        StageInstance active = stageStore.findActiveStage(taskId).orElseThrow();
-        assertThat(active.type()).isEqualTo(StageType.CI_FIXING_STAGE);
-        return active;
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        budgetService.onStageOpened(stage);
+        return stage;
     }
 
     /** Approve a plan so the DevelopmentStage opens and the task is at

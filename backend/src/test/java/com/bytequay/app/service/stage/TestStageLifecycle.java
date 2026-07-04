@@ -165,25 +165,26 @@ class TestStageLifecycle
         assertActive(taskId, StageType.DEVELOPMENT_STAGE);
         assertThat(stagesOfType(taskId, StageType.DEVELOPMENT_STAGE)).hasSize(1);
 
-        // First push crosses into the CiFixing era: dev closes, CiFixing opens.
+        // First push is an unmapped idle wait — DevelopmentStage stays
+        // active. A red check no longer opens a CiFixing stage via the
+        // phase transition; a ci_fix AgentRun opens its own backing stage
+        // directly instead (see AgentRunService), bypassing this lifecycle.
         machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
-        assertActive(taskId, StageType.CI_FIXING_STAGE);
-        assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
+        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
 
-        // PR merges: CiFixing closes, and the terminal Cleanup stage opens
-        // then immediately closes (it's a marker, not live work) — so a
+        // PR merges: DevelopmentStage closes, and the terminal Cleanup stage
+        // opens then immediately closes (it's a marker, not live work) — so a
         // finished task leaves nothing "running".
         machine.transition(taskId, TaskPhase.COMPLETED, "merged", Actor.HUMAN);
         assertThat(stageStore.findActiveStage(taskId)).isEmpty();
-        assertThat(only(taskId, StageType.CI_FIXING_STAGE).state()).isEqualTo(StageState.CLOSED);
+        assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
         assertThat(only(taskId, StageType.CLEANUP_STAGE).state()).isEqualTo(StageState.CLOSED);
 
         List<StageInstance> stages = stageStore.findStagesByTask(taskId);
         assertThat(stages).extracting(StageInstance::type).containsExactlyInAnyOrder(
-                StageType.PLAN_STAGE, StageType.DEVELOPMENT_STAGE,
-                StageType.CI_FIXING_STAGE, StageType.CLEANUP_STAGE);
+                StageType.PLAN_STAGE, StageType.DEVELOPMENT_STAGE, StageType.CLEANUP_STAGE);
         // Every stage closed — a finished task has nothing running.
-        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(4);
+        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(3);
     }
 
     @Test
@@ -196,16 +197,15 @@ class TestStageLifecycle
         machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
         machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
         machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "push", Actor.HUMAN);
-        assertActive(taskId, StageType.CI_FIXING_STAGE);
+        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
 
-        // PR out for remote review → review-monitor arms, ci-fixing closes.
+        // PR out for remote review → review-monitor arms, development closes.
         machine.transition(taskId, TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green", Actor.WEBHOOK);
         assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
-        assertThat(only(taskId, StageType.CI_FIXING_STAGE).state()).isEqualTo(StageState.CLOSED);
+        assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
 
         // Addressing comments and the awaiting_update_push gate both stay in
-        // the review-monitor stage despite AWAITING_UPDATE_PUSH overlapping
-        // ci-fixing in the phase-to-stage map.
+        // the review-monitor stage.
         machine.transition(taskId, TaskPhase.ADDRESSING_COMMENTS, "new_comment", Actor.WEBHOOK);
         assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
         machine.transition(taskId, TaskPhase.AGENT_RE_REVIEW, "re_review", Actor.AGENT);

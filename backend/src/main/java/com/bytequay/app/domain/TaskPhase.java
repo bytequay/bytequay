@@ -26,9 +26,12 @@ package com.bytequay.app.domain;
  * to be folded. {@link #NEEDS_ATTENTION} is a parked escape reachable
  * from any phase, not a forward step.
  *
- * <p>Pushes to the remote only ever originate from {@link #AWAITING_PUSH},
- * {@link #CI_FIXING} (via AWAITING_PUSH), and {@link #AWAITING_UPDATE_PUSH}
- * — every one human-approved (or auto, within the consecutive-auto cap).
+ * <p>Pushes to the remote only ever originate from {@link #AWAITING_PUSH}
+ * and {@link #AWAITING_UPDATE_PUSH} — every one human-approved (or auto,
+ * within the consecutive-auto cap). A red CI check on {@link
+ * #PUSHED_AWAITING_CI} no longer moves the phase at all — it opens a
+ * {@code ci_fix} {@code AgentRun} that fixes and re-pushes beside whatever
+ * phase the task is already on (see {@code CiFixRunExecutor}).
  */
 public enum TaskPhase
 {
@@ -68,12 +71,10 @@ public enum TaskPhase
      *  twin of {@link #ADDRESSING_COMMENTS}. */
     ADDRESSING_LOCAL_COMMENTS,
 
-    /** Branch pushed; waiting on remote CI to report. */
+    /** Branch pushed; waiting on remote CI to report. Also the phase a task
+     *  holds at while a {@code ci_fix} {@code AgentRun} fixes a red check —
+     *  the run works beside this phase rather than moving it. */
     PUSHED_AWAITING_CI,
-
-    /** CI came back red (non-flaky); agent is fixing, then loops back to
-     *  AWAITING_PUSH. */
-    CI_FIXING,
 
     /** CI green on a draft PR; holding for the human to mark the PR ready
      *  for remote review. */

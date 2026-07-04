@@ -47,18 +47,11 @@ public interface WorkspaceStore
     /** Pin a repo into a workspace. Idempotent on the composite key. */
     void addRepo(WorkspaceRepo repo);
 
-    /** Remove a repo from a workspace. No-op when the row doesn't exist. */
-    void removeRepo(String workspaceId, String repoFullName);
-
     /** All repos attached to a workspace. */
     List<WorkspaceRepo> listRepos(String workspaceId);
 
     /** Single-row lookup for a (workspace, repo) pair. */
     Optional<WorkspaceRepo> findRepo(String workspaceId, String repoFullName);
-
-    /** Update only the default_base_branch on an existing row.
-     *  No-op when the row doesn't exist. */
-    void setDefaultBaseBranch(String workspaceId, String repoFullName, String defaultBaseBranch);
 
     // ── aggregates ─────────────────────────────────────────────────────
 

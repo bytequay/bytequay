@@ -301,6 +301,11 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
   // kanban renders its own copy too — we recompute here so the page
   // header doesn't have to reach into the child for state.
   const briefing = useMemo(() => buildBriefing(prs ?? []), [prs]);
+  // Per-lane inbox counts for the side nav's My PRs / To review items.
+  const laneCounts = useMemo(() => ({
+    mine: inbox.filter(pr => pr.origin === 'AUTHORED').length,
+    toReview: inbox.filter(pr => pr.origin === 'REVIEW_REQUESTED').length,
+  }), [inbox]);
 
   // Keyboard j/k style nav over the currently-visible tab's PRs.
   useEffect(() => {
@@ -609,7 +614,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
               old "Today's review" brand. The brand identity now lives
               in the side nav itself, so the page header is free to
               reflect what the user is actually looking at. */}
-          {activeTab === 'inbox' ? 'Inbox'
+          {activeTab === 'inbox' ? (lane === 'mine' ? 'My PRs' : 'To review')
             : activeTab === 'urgent' ? 'Urgent'
               : activeTab === 'snoozed' ? 'Snoozed'
                 : activeTab === 'handled' ? 'Handled'
@@ -649,20 +654,40 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
           onClick={() => switchTab('urgent')}
           title="PRs that need your attention right now — blocked, failing CI, stale, or just-woke."
         >
-          <span className="kanban-sidenav__item-icon" aria-hidden="true">🔥</span>
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">◈</span>
           <span className="kanban-sidenav__item-label">Urgent</span>
           {urgentCards.length > 0 && (
             <span className="kanban-sidenav__count kanban-sidenav__count--urgent">{urgentCards.length}</span>
           )}
         </button>
+        {/* The Inbox's two lanes are first-class nav items — replaces
+            the old segmented lane toggle above the board. */}
         <button
           type="button"
-          className={`kanban-sidenav__item${activeTab === 'inbox' ? ' kanban-sidenav__item--active' : ''}`}
-          onClick={() => switchTab('inbox')}
+          className={`kanban-sidenav__item${activeTab === 'inbox' && lane === 'mine' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => { switchTab('inbox'); setLane('mine'); }}
         >
-          <span className="kanban-sidenav__item-icon" aria-hidden="true">▦</span>
-          <span className="kanban-sidenav__item-label">Inbox</span>
-          {inbox.length > 0 && <span className="kanban-sidenav__count">{inbox.length}</span>}
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">▤</span>
+          <span className="kanban-sidenav__item-label">
+            My PRs
+            {briefing.mineNeedsAction > 0 && (
+              <span
+                className="pr-list-scope-tab__alert"
+                title={`${briefing.mineNeedsAction} need you`}
+                aria-label={`${briefing.mineNeedsAction} need you`}
+              />
+            )}
+          </span>
+          {laneCounts.mine > 0 && <span className="kanban-sidenav__count">{laneCounts.mine}</span>}
+        </button>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'inbox' && lane === 'to_review' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => { switchTab('inbox'); setLane('to_review'); }}
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">⇄</span>
+          <span className="kanban-sidenav__item-label">To review</span>
+          {laneCounts.toReview > 0 && <span className="kanban-sidenav__count">{laneCounts.toReview}</span>}
         </button>
         {onGoToTeams && (
           <button
@@ -671,7 +696,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
             onClick={onGoToTeams}
             title="Open the Teams page."
           >
-            <span className="kanban-sidenav__item-icon" aria-hidden="true">⌬</span>
+            <span className="kanban-sidenav__item-icon" aria-hidden="true">◫</span>
             <span className="kanban-sidenav__item-label">Teams</span>
           </button>
         )}
@@ -681,7 +706,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
           onClick={() => switchTab('snoozed')}
           title="PRs you've parked until a later time."
         >
-          <span className="kanban-sidenav__item-icon" aria-hidden="true">◐</span>
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">◔</span>
           <span className="kanban-sidenav__item-label">Snoozed</span>
           {snoozedSorted.length > 0 && <span className="kanban-sidenav__count">{snoozedSorted.length}</span>}
         </button>
@@ -700,7 +725,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
           onClick={() => switchTab('analytics')}
           title="Personal review stats. Local data only."
         >
-          <span className="kanban-sidenav__item-icon" aria-hidden="true">▥</span>
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">◧</span>
           <span className="kanban-sidenav__item-label">Analytics</span>
         </button>
       </nav>
@@ -899,39 +924,8 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
       {error && <div className="repo-error">{error}</div>}
       {!loading && !error && activeTab === 'inbox' && (
         <>
-          {/* Lane filter — the My PRs / To review scope toggle that used to
-              live as separate side-nav items. Sits in the board's top bar
-              so the left nav stays a flat list of destinations. Always
-              shown on the Inbox tab so an empty lane can still be switched. */}
-          <div className="kanban-lane-filter" role="tablist" aria-label="PR scope">
-            <div className="kanban-scope-toggle">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={lane === 'mine'}
-                className={`kanban-scope-toggle__btn${lane === 'mine' ? ' kanban-scope-toggle__btn--selected' : ''}`}
-                onClick={() => setLane('mine')}
-              >
-                <span aria-hidden="true">🚀</span> My PRs
-                {briefing.mineNeedsAction > 0 && (
-                  <span
-                    className="pr-list-scope-tab__alert"
-                    title={`${briefing.mineNeedsAction} need you`}
-                    aria-label={`${briefing.mineNeedsAction} need you`}
-                  />
-                )}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={lane === 'to_review'}
-                className={`kanban-scope-toggle__btn${lane === 'to_review' ? ' kanban-scope-toggle__btn--selected' : ''}`}
-                onClick={() => setLane('to_review')}
-              >
-                <span aria-hidden="true">📥</span> To review
-              </button>
-            </div>
-          </div>
+          {/* The My PRs / To review lane switch lives in the side nav
+              now — no toggle row above the board. */}
           {/* The "My open PRs" summary panel that used to live above the
               kanban is now redundant — the kanban's "My PRs" lane shows
               authored PRs in proper columns with richer signals. */}

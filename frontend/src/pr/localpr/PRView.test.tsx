@@ -198,10 +198,19 @@ describe('PRView', () => {
       <PRView mode="remote" bundle={bundle({ pr: pr('remote-open', { remotePrNumber: 1 }), timeline: events })}
         commentValue="" onCommentChange={noop} />,
     );
+    // Promoted: the local-only history folds away — only the GitHub event
+    // shows inline, the local segment hides under "Local development".
+    expect(document.querySelectorAll('.pr-timeline-event').length).toBe(1);
+    expect(screen.queryByText('4b2a1f0')).toBeNull();
+    const fold = screen.getByRole('button', { name: /Local development/ });
+    expect(fold.textContent).toContain('1 event');
+    fireEvent.click(fold);
     const remoteRows = document.querySelectorAll('.pr-timeline-event');
-    // Remote mode dims the local-only row, leaves the remote row full opacity.
+    expect(remoteRows.length).toBe(2);
+    // Expanded, the local-only row is dimmed; the remote row is full opacity.
     expect((remoteRows[0] as HTMLElement).style.opacity).toBe('0.55');
     expect((remoteRows[1] as HTMLElement).style.opacity).toBe('');
+    expect(screen.getByText('4b2a1f0')).toBeTruthy();
   });
 
   it('shows a failed CI icon in red', () => {

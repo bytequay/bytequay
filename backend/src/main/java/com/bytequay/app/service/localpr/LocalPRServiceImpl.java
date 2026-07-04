@@ -278,6 +278,13 @@ class LocalPRServiceImpl
         return store.saveComment(comment.withDismissed(now()));
     }
 
+    @Override
+    public LocalPR markLocalAddressed(String prId, Instant through)
+    {
+        LocalPR pr = require(prId);
+        return store.save(pr.withLocalAddressedThrough(through));
+    }
+
     private LocalPR require(String prId)
     {
         return store.findById(prId)

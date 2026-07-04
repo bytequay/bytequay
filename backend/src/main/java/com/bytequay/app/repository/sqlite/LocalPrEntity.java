@@ -63,6 +63,9 @@ class LocalPrEntity
     @Column(name = "closed_at_ms")
     private Long closedAtMs;
 
+    @Column(name = "local_addressed_through_ms")
+    private Long localAddressedThroughMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -101,4 +104,7 @@ class LocalPrEntity
 
     Long getClosedAtMs() { return closedAtMs; }
     void setClosedAtMs(Long closedAtMs) { this.closedAtMs = closedAtMs; }
+
+    Long getLocalAddressedThroughMs() { return localAddressedThroughMs; }
+    void setLocalAddressedThroughMs(Long localAddressedThroughMs) { this.localAddressedThroughMs = localAddressedThroughMs; }
 }

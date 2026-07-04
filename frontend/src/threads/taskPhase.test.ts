@@ -24,6 +24,7 @@ describe('phaseGroupOf', () => {
     ['CI_FIXING', 'IN_PROGRESS'],
     ['ADDRESSING_COMMENTS', 'IN_PROGRESS'],
     ['AGENT_RE_REVIEW', 'IN_PROGRESS'],
+    ['ADDRESSING_LOCAL_COMMENTS', 'IN_PROGRESS'],
     ['AWAITING_PUSH', 'AWAITING_YOU'],
     ['AWAITING_READY', 'AWAITING_YOU'],
     ['AWAITING_UPDATE_PUSH', 'AWAITING_YOU'],
@@ -71,14 +72,16 @@ describe('stepperNodeOf', () => {
     expect(stepperNodeOf('ADDRESSING_COMMENTS')).toBe(6);  // stays at Remote review
     expect(stepperNodeOf('AGENT_RE_REVIEW')).toBe(6);
     expect(stepperNodeOf('AWAITING_UPDATE_PUSH')).toBe(6);
+    expect(stepperNodeOf('ADDRESSING_LOCAL_COMMENTS')).toBe(3); // stays at Push
   });
 });
 
 describe('isLoopPhase', () => {
-  it('is true only for the three loop phases', () => {
+  it('is true only for the four loop phases', () => {
     expect(isLoopPhase('CI_FIXING')).toBe(true);
     expect(isLoopPhase('ADDRESSING_COMMENTS')).toBe(true);
     expect(isLoopPhase('AGENT_RE_REVIEW')).toBe(true);
+    expect(isLoopPhase('ADDRESSING_LOCAL_COMMENTS')).toBe(true);
     expect(isLoopPhase('IMPLEMENTING')).toBe(false);
     expect(isLoopPhase('COMPLETED')).toBe(false);
   });

@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.LocalPRComment;
+import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
 import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
@@ -27,6 +30,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
@@ -69,10 +73,11 @@ class TestTaskLifecycleDriver
     private final IterationService iterationService = mock(IterationService.class);
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final StageStore stageStore = mock(StageStore.class);
+    private final LocalPRService localPr = mock(LocalPRService.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     reviewMarkers, threadStore, scheduler, notifications, mapper,
-                    commentIngestor, readyToMerge, iterationService, registry, stageStore);
+                    commentIngestor, readyToMerge, iterationService, registry, stageStore, localPr);
 
     @TempDir
     private Path tempDir;
@@ -264,6 +269,138 @@ class TestTaskLifecycleDriver
         verify(phaseMachine, never())
                 .observe(anyString(), eq(TaskPhase.ADDRESSING_COMMENTS), anyString());
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void scansOnlyTheLocalSpine()
+    {
+        when(taskStore.listByPhases(any(), anyInt())).thenReturn(List.of());
+
+        driver.reconcileLocalComments();
+
+        verify(taskStore).listByPhases(eq(TaskLifecycleDriver.LOCAL_SPINE), anyInt());
+    }
+
+    @Test
+    void newLocalCommentAtAwaitingPushStartsTheLocalAddressLoop()
+    {
+        Task task = task(null, TaskPhase.AWAITING_PUSH);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, null);
+        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(localPr.comments("pr1")).thenReturn(
+                List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
+        Thread thread = mock(Thread.class);
+        when(thread.id()).thenReturn("t1");
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+
+        driver.reconcileLocalTask(task);
+
+        verify(phaseMachine).observe("t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments");
+        verify(localPr).markLocalAddressed("pr1", commentAt);
+        ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
+        verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), any(), initiator.capture());
+        assertThat(initiator.getValue().attended()).isFalse();
+        assertThat(initiator.getValue().source()).isEqualTo("address-local-comments");
+    }
+
+    @Test
+    void alreadyMarkedLocalCommentsDoNotReTriggerFromAwaitingPush()
+    {
+        Task task = task(null, TaskPhase.AWAITING_PUSH);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        // The marker already covers this comment — surfaced (and presumably
+        // enqueued) on a prior sweep.
+        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, commentAt);
+        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(localPr.comments("pr1")).thenReturn(
+                List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
+
+        driver.reconcileLocalTask(task);
+
+        verify(phaseMachine, never())
+                .observe(anyString(), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void addressingLocalCommentsReturnsToAwaitingPushOnceEverythingIsResolved()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, commentAt);
+        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        // Resolved — nothing left to address.
+        when(localPr.comments("pr1")).thenReturn(
+                List.of(localComment("cm1", "you", "please fix this", commentAt, commentAt, null)));
+
+        driver.reconcileLocalTask(task);
+
+        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_PUSH, "local_comments_addressed");
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void addressingLocalCommentsRetriesWhenStillOpen()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, commentAt);
+        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(localPr.comments("pr1")).thenReturn(
+                List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
+        Thread thread = mock(Thread.class);
+        when(thread.id()).thenReturn("t1");
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+
+        driver.reconcileLocalTask(task);
+
+        // Retries the turn rather than declaring the round done.
+        verify(phaseMachine, never()).observe("t1.k2", TaskPhase.AWAITING_PUSH, "local_comments_addressed");
+        verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), any(), any());
+    }
+
+    @Test
+    void agentsOwnCommentDoesNotTriggerTheLocalAddressLoop()
+    {
+        Task task = task(null, TaskPhase.AWAITING_PUSH);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, null);
+        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(localPr.comments("pr1")).thenReturn(List.of(
+                localComment("cm1", LocalPRTimelineEvent.ACTOR_AGENT, "reply", commentAt, null, null)));
+
+        driver.reconcileLocalTask(task);
+
+        verify(phaseMachine, never())
+                .observe(anyString(), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString());
+    }
+
+    @Test
+    void localReconcileSkipsATaskWithNoLocalPr()
+    {
+        Task task = task(null, TaskPhase.AWAITING_PUSH);
+        when(localPr.findByTask("t1.k2")).thenReturn(Optional.empty());
+
+        driver.reconcileLocalTask(task);
+
+        verify(phaseMachine, never()).observe(anyString(), any(), anyString());
+    }
+
+    private static LocalPR localPr(String id, String status, Instant localAddressedThroughAt)
+    {
+        Instant now = Instant.parse("2026-06-01T00:00:00Z");
+        return new LocalPR(id, "t1.k2", "dev/x", "main", "T", "", status, now,
+                null, null, null, null, null, localAddressedThroughAt);
+    }
+
+    private static LocalPRComment localComment(
+            String id, String author, String body, Instant createdAt, Instant resolvedAt, Instant dismissedAt)
+    {
+        return new LocalPRComment(id, "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR,
+                null, null, author, body, createdAt, resolvedAt, dismissedAt, null, null);
     }
 
     private static PullRequestDetail detail(CiStatus ci, boolean draft)

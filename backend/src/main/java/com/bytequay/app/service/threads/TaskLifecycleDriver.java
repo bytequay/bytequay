@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.LocalPRComment;
+import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
 import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
@@ -30,6 +33,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
@@ -93,6 +97,13 @@ public class TaskLifecycleDriver
             TaskPhase.AWAITING_REMOTE_REVIEW,
             TaskPhase.AWAITING_UPDATE_PUSH);
 
+    /** Phases the local-comments loop watches: the wait state itself, plus
+     *  the addressing state (so a finished or still-in-progress round is
+     *  re-checked every sweep). */
+    static final Set<TaskPhase> LOCAL_SPINE = EnumSet.of(
+            TaskPhase.AWAITING_PUSH,
+            TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+
     private final TaskStore taskStore;
     private final PullRequestService pullRequests;
     private final TaskPhaseMachine phaseMachine;
@@ -107,6 +118,7 @@ public class TaskLifecycleDriver
     private final IterationService iterationService;
     private final ThreadRegistry registry;
     private final StageStore stageStore;
+    private final LocalPRService localPr;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -122,7 +134,8 @@ public class TaskLifecycleDriver
             ReadyToMergeService readyToMerge,
             IterationService iterationService,
             ThreadRegistry registry,
-            StageStore stageStore)
+            StageStore stageStore,
+            LocalPRService localPr)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -138,6 +151,7 @@ public class TaskLifecycleDriver
         this.iterationService = requireNonNull(iterationService, "iterationService is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.localPr = requireNonNull(localPr, "localPr is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -153,6 +167,25 @@ public class TaskLifecycleDriver
             catch (RuntimeException e) {
                 log.warn("lifecycle reconcile for task {} (PR {}) failed: {}",
                         task.id(), task.linkedPrRef(), e.getMessage());
+            }
+        }
+    }
+
+    /** Local twin of {@link #reconcile()}: watches a task's local PR for new
+     *  review comments while it holds at {@link TaskPhase#AWAITING_PUSH},
+     *  addresses them autonomously (no gate — the unpushed branch is the
+     *  safety buffer), and returns it to the wait state. A local-only
+     *  concern, so — unlike the remote spine — this never touches the PR /
+     *  GitHub at all. */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 100_000)
+    public void reconcileLocalComments()
+    {
+        for (Task task : taskStore.listByPhases(LOCAL_SPINE, SCAN_LIMIT)) {
+            try {
+                reconcileLocalTask(task);
+            }
+            catch (RuntimeException e) {
+                log.warn("local-comments reconcile for task {} failed: {}", task.id(), e.getMessage());
             }
         }
     }
@@ -304,6 +337,144 @@ public class TaskLifecycleDriver
             log.warn("address-comments analysis enqueue failed for task {}: {}",
                     task.id(), e.getMessage());
         }
+    }
+
+    /** Visible for the unit test: check one task's local PR for unaddressed
+     *  comments and drive the {@code AWAITING_PUSH ⇄ ADDRESSING_LOCAL_COMMENTS}
+     *  loop. */
+    void reconcileLocalTask(Task task)
+    {
+        Optional<LocalPR> prOpt = localPr.findByTask(task.id());
+        if (prOpt.isEmpty()) {
+            return;
+        }
+        LocalPR pr = prOpt.get();
+        if (!LocalPR.STATUS_LOCAL_OPEN.equals(pr.status())) {
+            return; // nothing to review yet, or already promoted/terminal.
+        }
+        List<LocalPRComment> comments = localPr.comments(pr.id());
+        boolean anyUnaddressed = comments.stream().anyMatch(TaskLifecycleDriver::isUnaddressedLocalComment);
+        if (task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
+            if (anyUnaddressed) {
+                // Still (or newly) has open threads — keep the loop going once
+                // the current turn (if any) goes idle.
+                startAddressLocalComments(task, pr, comments);
+            }
+            else {
+                phaseMachine.observe(task.id(), TaskPhase.AWAITING_PUSH, "local_comments_addressed");
+            }
+            return;
+        }
+        // task.phase() == AWAITING_PUSH: only a genuinely new comment (past
+        // the marker) re-triggers the loop — an already-known open thread
+        // means the last round's turn never got to it (thread was busy) and
+        // is retried from the ADDRESSING_LOCAL_COMMENTS branch above instead,
+        // not re-entered here every sweep.
+        Instant marker = pr.localAddressedThroughAt();
+        boolean hasNew = comments.stream()
+                .filter(TaskLifecycleDriver::isUnaddressedLocalComment)
+                .anyMatch(c -> marker == null || c.createdAt().isAfter(marker));
+        if (hasNew) {
+            startAddressLocalComments(task, pr, comments);
+        }
+    }
+
+    /** A comment that still needs the agent's attention: not yet resolved or
+     *  dismissed, and not the agent's own comment/reply. */
+    private static boolean isUnaddressedLocalComment(LocalPRComment comment)
+    {
+        return comment.resolvedAt() == null && comment.dismissedAt() == null
+                && !LocalPRTimelineEvent.ACTOR_AGENT.equals(comment.author());
+    }
+
+    /**
+     * Move the task onto (or keep it on) the local-addressing phase and, if
+     * its thread is idle, enqueue a turn that fixes/replies to every open
+     * local PR comment directly — no analysis-then-wait step like the remote
+     * loop: the branch hasn't been pushed yet, so there's nothing to gate.
+     */
+    private void startAddressLocalComments(Task task, LocalPR pr, List<LocalPRComment> comments)
+    {
+        Instant newest = comments.stream()
+                .filter(TaskLifecycleDriver::isUnaddressedLocalComment)
+                .map(LocalPRComment::createdAt)
+                .max(Instant::compareTo)
+                .orElse(null);
+        if (newest == null) {
+            return; // resolved between the caller's check and here.
+        }
+        phaseMachine.observe(task.id(), TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments");
+        // Advance the marker up front, same reasoning as the remote loop: a
+        // later sweep shouldn't treat this same batch as newly arrived.
+        localPr.markLocalAddressed(pr.id(), newest);
+        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
+        if (threadOpt.isEmpty()) {
+            log.warn("address-local-comments: thread {} not found (task {})", task.threadId(), task.id());
+            return;
+        }
+        Thread thread = threadOpt.get();
+        if (thread.status() != ThreadStatus.IDLE) {
+            // Busy thread — retried next sweep from the ADDRESSING_LOCAL_COMMENTS
+            // branch of reconcileLocalTask; don't stack a turn on a running one.
+            log.info("address-local-comments: thread {} is {} (task {}); retrying next sweep",
+                    thread.id(), thread.status(), task.id());
+            return;
+        }
+        String prompt = buildLocalAddressingPrompt(pr, comments);
+        try {
+            String stageId = stageStore.findLiveStageByType(task.id(), StageType.DEVELOPMENT_STAGE)
+                    .map(s -> s.id().toString())
+                    .orElse(null);
+            scheduler.enqueueTaskTurn(
+                    thread, prompt, task.id(), stageId,
+                    TurnInitiator.unattended("address-local-comments"));
+            log.info("address-local-comments: turn queued for task {}", task.id());
+        }
+        catch (RuntimeException e) {
+            log.warn("address-local-comments enqueue failed for task {}: {}", task.id(), e.getMessage());
+        }
+    }
+
+    /** The local-addressing turn's prompt: every still-open comment, and a
+     *  direct instruction to fix/reply/dismiss each one now — the local twin
+     *  of {@link #buildReviewAnalysisPrompt}, minus the "stop and wait" step
+     *  (decision: local addressing is autonomous; the unpushed branch is the
+     *  safety net, not a human gate). */
+    private static String buildLocalAddressingPrompt(LocalPR pr, List<LocalPRComment> comments)
+    {
+        StringBuilder out = new StringBuilder();
+        out.append("New comments arrived on your local PR \"").append(pr.title()).append("\". ")
+                .append("Unlike remote review comments, address these directly now — the branch "
+                        + "hasn't been pushed yet, so there's nothing to gate on.\n\n")
+                .append("For EACH open comment below:\n")
+                .append("  1. If it asks for a code change: make the fix, commit it, call "
+                        + "record_pr_commit, then resolve_pr_comment(comment_id, "
+                        + "resolution='addressed').\n")
+                .append("  2. If it's a question or needs no code change: reply with "
+                        + "record_pr_comment (parent_comment_id set to the comment's id), then "
+                        + "resolve_pr_comment(comment_id, resolution='addressed').\n")
+                .append("  3. If you disagree and no action is needed: reply explaining why via "
+                        + "record_pr_comment, then resolve_pr_comment(comment_id, "
+                        + "resolution='dismissed').\n\n")
+                .append("Open comments:\n");
+        int i = 1;
+        for (LocalPRComment comment : comments) {
+            if (!isUnaddressedLocalComment(comment)) {
+                continue;
+            }
+            out.append('\n').append(i++).append(". [id: ").append(comment.id()).append("] ");
+            if (comment.filePath() != null) {
+                out.append(comment.filePath());
+                if (comment.lineNumber() != null) {
+                    out.append(':').append(comment.lineNumber());
+                }
+            }
+            out.append('\n')
+                    .append("   @").append(comment.author()).append(": ")
+                    .append(comment.body() == null ? "" : comment.body().strip())
+                    .append('\n');
+        }
+        return out.toString();
     }
 
     /**

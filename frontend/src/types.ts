@@ -1828,6 +1828,7 @@ export type TaskPhaseDto =
   | 'VALIDATING'
   | 'INTERNAL_REVIEW'
   | 'AWAITING_PUSH'
+  | 'ADDRESSING_LOCAL_COMMENTS'
   | 'PUSHED_AWAITING_CI'
   | 'CI_FIXING'
   | 'AWAITING_READY'
@@ -1956,10 +1957,10 @@ export type WorkUnitTaskDto = {
   pushedAt: string | null;
   /** Dev PR-collaboration lifecycle phase (V106) — one of TaskPhase:
    *  IMPLEMENTING | VALIDATING | INTERNAL_REVIEW | AWAITING_PUSH |
-   *  PUSHED_AWAITING_CI | CI_FIXING | AWAITING_READY |
-   *  AWAITING_REMOTE_REVIEW | ADDRESSING_COMMENTS | AGENT_RE_REVIEW |
-   *  AWAITING_UPDATE_PUSH | COMPLETED | NEEDS_ATTENTION. Orthogonal to
-   *  {@link status} (the agent runtime axis). */
+   *  ADDRESSING_LOCAL_COMMENTS | PUSHED_AWAITING_CI | CI_FIXING |
+   *  AWAITING_READY | AWAITING_REMOTE_REVIEW | ADDRESSING_COMMENTS |
+   *  AGENT_RE_REVIEW | AWAITING_UPDATE_PUSH | COMPLETED | NEEDS_ATTENTION.
+   *  Orthogonal to {@link status} (the agent runtime axis). */
   phase: TaskPhaseDto;
   /** Dev-agenda checklist JSON (same shape as a review pass's agenda),
    *  or null until the agent sets it. */

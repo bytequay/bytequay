@@ -16,7 +16,7 @@ import type { TaskPhaseDto, TaskPhaseGroupDto } from '../types';
 
 /**
  * Frontend mirror of the backend {@code TaskPhaseGroup.of} — the coarse
- * trunk-card grouping over the 12 dev-lifecycle phases. Kept in lockstep
+ * trunk-card grouping over the 13 dev-lifecycle phases. Kept in lockstep
  * with the Java mapping; a phase added on one side must be added here.
  */
 export function phaseGroupOf(phase: TaskPhaseDto): TaskPhaseGroupDto {
@@ -32,6 +32,7 @@ export function phaseGroupOf(phase: TaskPhaseDto): TaskPhaseGroupDto {
     case 'CI_FIXING':
     case 'ADDRESSING_COMMENTS':
     case 'AGENT_RE_REVIEW':
+    case 'ADDRESSING_LOCAL_COMMENTS':
       return 'IN_PROGRESS';
     case 'AWAITING_PUSH':
     case 'AWAITING_READY':
@@ -107,7 +108,8 @@ export function stepperNodeOf(phase: TaskPhaseDto): number {
     case 'IMPLEMENTING':            return 0;
     case 'VALIDATING':              return 1;
     case 'INTERNAL_REVIEW':         return 2;
-    case 'AWAITING_PUSH':           return 3;
+    case 'AWAITING_PUSH':
+    case 'ADDRESSING_LOCAL_COMMENTS': return 3;
     case 'PUSHED_AWAITING_CI':
     case 'CI_FIXING':               return 4;
     case 'AWAITING_READY':          return 5;
@@ -134,6 +136,7 @@ export function isSlotOccupying(phase: TaskPhaseDto): boolean {
     case 'CI_FIXING':
     case 'ADDRESSING_COMMENTS':
     case 'AGENT_RE_REVIEW':
+    case 'ADDRESSING_LOCAL_COMMENTS':
       return true;
     default:
       return false;
@@ -144,7 +147,8 @@ export function isSlotOccupying(phase: TaskPhaseDto): boolean {
 export function isLoopPhase(phase: TaskPhaseDto): boolean {
   return phase === 'CI_FIXING'
       || phase === 'ADDRESSING_COMMENTS'
-      || phase === 'AGENT_RE_REVIEW';
+      || phase === 'AGENT_RE_REVIEW'
+      || phase === 'ADDRESSING_LOCAL_COMMENTS';
 }
 
 /**

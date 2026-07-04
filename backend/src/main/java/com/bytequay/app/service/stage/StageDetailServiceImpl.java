@@ -324,7 +324,8 @@ public class StageDetailServiceImpl
                     Map.entry(TaskPhase.AWAITING_READY, TaskPhase.CI_FIXING),
                     Map.entry(TaskPhase.AWAITING_UPDATE_PUSH, TaskPhase.CI_FIXING),
                     Map.entry(TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.ADDRESSING_COMMENTS),
-                    Map.entry(TaskPhase.AGENT_RE_REVIEW, TaskPhase.ADDRESSING_COMMENTS));
+                    Map.entry(TaskPhase.AGENT_RE_REVIEW, TaskPhase.ADDRESSING_COMMENTS),
+                    Map.entry(TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS));
 
     private static boolean isBackflow(TaskPhaseEvent e)
     {

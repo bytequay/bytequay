@@ -19,6 +19,7 @@ import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRCommit;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -109,4 +110,9 @@ public interface LocalPRService
     /** Dismiss a comment (marks {@code dismissedAt}) — closed without action,
      *  the other terminal state alongside {@code resolveComment}. */
     LocalPRComment dismissComment(String commentId);
+
+    /** Advance the local-addressing marker to {@code through} — comments
+     *  created at or before this instant are considered already accounted
+     *  for by the addressing loop (see {@link LocalPR#withLocalAddressedThrough}). */
+    LocalPR markLocalAddressed(String prId, Instant through);
 }

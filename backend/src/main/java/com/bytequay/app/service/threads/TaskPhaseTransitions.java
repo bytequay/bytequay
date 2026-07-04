@@ -59,7 +59,12 @@ final class TaskPhaseTransitions
         // and the task holds for the first push.
         m.put(TaskPhase.INTERNAL_REVIEW,
                 EnumSet.of(TaskPhase.ADDRESSING_COMMENTS, TaskPhase.AWAITING_PUSH));
-        m.put(TaskPhase.AWAITING_PUSH, EnumSet.of(TaskPhase.PUSHED_AWAITING_CI));
+        // A new local PR comment can arrive at any point while the task holds
+        // here (the local addressing loop's reactive detour); addressing
+        // returns straight back to AWAITING_PUSH.
+        m.put(TaskPhase.AWAITING_PUSH,
+                EnumSet.of(TaskPhase.PUSHED_AWAITING_CI, TaskPhase.ADDRESSING_LOCAL_COMMENTS));
+        m.put(TaskPhase.ADDRESSING_LOCAL_COMMENTS, EnumSet.of(TaskPhase.AWAITING_PUSH));
         // CI green on a draft holds for "mark ready"; CI green on a ready
         // PR goes straight to remote review; CI red kicks off a fix loop.
         m.put(TaskPhase.PUSHED_AWAITING_CI,

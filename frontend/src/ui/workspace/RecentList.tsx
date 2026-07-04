@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FootprintStopDto, PullRequestDto, SurfaceType } from '../../types';
 import { FootprintIcon, type IconKind } from '../../footprints/FootprintIcon';
 import { relativeTime } from '../../notificationDisplay';
@@ -35,6 +35,48 @@ function isToday(iso: string): boolean {
     && d.getDate() === now.getDate();
 }
 
+/** How recently (today) the user engaged with a PR — reviewed/approved or
+ *  just opened it. 0 means not engaged today. */
+function engagedAt(p: PullRequestDto): number {
+  return Math.max(
+    p.reviewedAt !== null && isToday(p.reviewedAt) ? Date.parse(p.reviewedAt) : 0,
+    p.viewedAt !== null && isToday(p.viewedAt) ? Date.parse(p.viewedAt) : 0);
+}
+
+type TodayBuckets = { workingOn: PullRequestDto[]; reviewed: PullRequestDto[]; merged: PullRequestDto[] };
+
+/** The three "Today" PR buckets behind the summary: your authored PRs still
+ *  in progress (open, not merged), PRs you engaged with today, and your
+ *  authored PRs merged today. Each newest-activity first. */
+export function todayBuckets(prs: PullRequestDto[]): TodayBuckets {
+  return {
+    workingOn: prs
+      .filter(p => p.origin === 'AUTHORED' && p.mergedAt === null && p.state !== 'closed' && isToday(p.updatedAt))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    reviewed: prs
+      .filter(p => p.handledAction !== 'DISMISSED' && engagedAt(p) > 0)
+      .sort((a, b) => engagedAt(b) - engagedAt(a)),
+    merged: prs
+      .filter(p => p.origin === 'AUTHORED' && p.mergedAt !== null && isToday(p.mergedAt))
+      .sort((a, b) => Date.parse(b.mergedAt as string) - Date.parse(a.mergedAt as string)),
+  };
+}
+
+function bullets(list: PullRequestDto[]): string {
+  if (list.length === 0) return '_None_';
+  return list.map(p => `* ${p.title} [#${p.number}](${p.htmlUrl})`).join('\n');
+}
+
+/** A standup-style Markdown summary: three sections, each a bullet list of
+ *  `pr_title #pr_number` with the number linking to the PR. */
+export function todayMarkdown(b: TodayBuckets): string {
+  return [
+    '## Working on', bullets(b.workingOn), '',
+    '## Reviewed', bullets(b.reviewed), '',
+    '## Merged', bullets(b.merged),
+  ].join('\n');
+}
+
 /**
  * The sidebar's "Recent" section, shown on the Home surface in place
  * of the workspace list: the most recently visited surfaces (PRs,
@@ -48,7 +90,8 @@ export function RecentList({ onResume, onOpenPr }: {
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
 }) {
   const [stops, setStops] = useState<FootprintStopDto[]>([]);
-  const [reviewedToday, setReviewedToday] = useState<PullRequestDto | null>(null);
+  const [prs, setPrs] = useState<PullRequestDto[]>([]);
+  const [copied, setCopied] = useState(false);
 
   // The list is mounted for as long as the rail shows (i.e. across every
   // non-workspace surface), so refresh on a slow poll — visits recorded
@@ -63,20 +106,7 @@ export function RecentList({ onResume, onOpenPr }: {
         })
         .catch(() => { /* non-fatal — section renders empty */ });
       void window.bridge.fetchPrs()
-        .then(prs => {
-          if (cancelled) return;
-          // "Reviewed" = engaged with the PR today (opened or reviewed /
-          // approved it). Dismissing also stamps reviewedAt on the
-          // backend (handled ⇒ reviewed in the kanban's model) but isn't
-          // review work — exclude it.
-          const engagedAt = (p: PullRequestDto): number => Math.max(
-            p.reviewedAt !== null && isToday(p.reviewedAt) ? Date.parse(p.reviewedAt) : 0,
-            p.viewedAt !== null && isToday(p.viewedAt) ? Date.parse(p.viewedAt) : 0);
-          const reviewed = prs
-            .filter(p => p.handledAction !== 'DISMISSED' && engagedAt(p) > 0)
-            .sort((a, b) => engagedAt(b) - engagedAt(a));
-          setReviewedToday(reviewed[0] ?? null);
-        })
+        .then(list => { if (!cancelled) setPrs(list); })
         .catch(() => { /* summary line just stays hidden */ });
     };
     refresh();
@@ -88,6 +118,25 @@ export function RecentList({ onResume, onOpenPr }: {
   }, []);
 
   const workingOn = stops[0] ?? null;
+  const buckets = useMemo(() => todayBuckets(prs), [prs]);
+  const reviewedToday = buckets.reviewed[0] ?? null;
+  const hasToday = workingOn !== null || reviewedToday !== null
+    || buckets.workingOn.length > 0 || buckets.merged.length > 0;
+
+  const handleCopy = () => {
+    const md = todayMarkdown(buckets);
+    const done = () => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); };
+    navigator.clipboard.writeText(md).then(done).catch(() => {
+      // Clipboard can fail on a sandbox / permissions issue — fall back.
+      const ta = document.createElement('textarea');
+      ta.value = md;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      done();
+    });
+  };
 
   return (
     <>
@@ -122,10 +171,20 @@ export function RecentList({ onResume, onOpenPr }: {
         )}
       </div>
 
-      {(workingOn !== null || reviewedToday !== null) && (
+      {hasToday && (
         <div className="sb-section">
           <div className="sb-section-h">
             <span className="nm">Today</span>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={handleCopy}
+                title="Copy today's summary as Markdown"
+                aria-label="Copy today's summary as Markdown"
+              >
+                {copied ? '✓' : '⧉'}
+              </button>
+            </div>
           </div>
           <div className="sb-recent">
             {workingOn !== null && (

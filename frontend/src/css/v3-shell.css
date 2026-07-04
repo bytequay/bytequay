@@ -186,6 +186,20 @@
   cursor: pointer;
   padding: 2px 4px;
 }
+.shell .sb-section-h .actions button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 4px;
+}
+.shell .sb-section-h .actions button:hover {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
 
 .shell .session-list {
   display: flex;

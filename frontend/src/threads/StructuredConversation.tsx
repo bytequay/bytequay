@@ -129,6 +129,18 @@ export function StructuredConversation({
   // boundary marker renders ABOVE that card, between the previous
   // task's last message and the new task's first prompt.
   const boundariesBySeq = useMemo(() => taskBoundaries(tasks), [tasks]);
+  // Memoized so a streaming liveText token doesn't rebuild the card
+  // elements — identical element references let React skip
+  // reconciling the whole persisted transcript on every chunk.
+  const renderedCards = useMemo(() => cards.flatMap(c => {
+    const seq = cardFirstSeq(c);
+    const boundary = seq === null ? null : boundariesBySeq.get(seq) ?? null;
+    const out = boundary === null
+      ? []
+      : [<TaskBoundaryDivider key={`boundary-${seq}`} boundary={boundary} />];
+    out.push(renderCard(c, onDecide));
+    return out;
+  }), [cards, boundariesBySeq, onDecide]);
 
   return (
     <div style={scrollStyle} ref={scrollRef}>
@@ -147,15 +159,7 @@ export function StructuredConversation({
           Waiting for the first turn — send a prompt below to kick off.
         </div>
       )}
-      {cards.flatMap(c => {
-        const seq = cardFirstSeq(c);
-        const boundary = seq === null ? null : boundariesBySeq.get(seq) ?? null;
-        const out = boundary === null
-          ? []
-          : [<TaskBoundaryDivider key={`boundary-${seq}`} boundary={boundary} />];
-        out.push(renderCard(c, onDecide));
-        return out;
-      })}
+      {renderedCards}
       {liveText.length > 0 && <StreamingCard text={liveText} modelName={modelName} />}
       {pendingPermission && (
         <PermissionCard permission={pendingPermission} onDecide={onDecide} />

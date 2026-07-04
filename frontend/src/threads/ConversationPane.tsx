@@ -145,6 +145,13 @@ export function ConversationPane({
   // just before the first message of each task ≥ 2. Empty when the
   // thread has 0 or 1 tasks (no rollover seam to mark).
   const boundaries = useMemo(() => computeTaskBoundaries(tasks ?? []), [tasks]);
+  // Memoized so a streaming liveText token doesn't rebuild the block
+  // elements — identical element references let React skip
+  // reconciling the whole persisted scrollback on every chunk.
+  const renderedBlocks = useMemo(
+    () => rendered.flatMap(item => renderItemWithBoundary(item, boundaries)),
+    [rendered, boundaries],
+  );
 
   return (
     <div style={scrollStyle} ref={scrollRef} onScroll={onScroll}>
@@ -164,7 +171,7 @@ export function ConversationPane({
           ⏵ waiting for the first turn — send a prompt below to kick off
         </div>
       )}
-      {rendered.flatMap(item => renderItemWithBoundary(item, boundaries))}
+      {renderedBlocks}
       {liveText.length > 0 && <StreamingBlock text={liveText} />}
       {pendingPermission && (
         <PermissionCard permission={pendingPermission} onDecide={onDecide} />

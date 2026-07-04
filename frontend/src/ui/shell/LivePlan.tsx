@@ -60,7 +60,7 @@ function GuardChip({ guard }: { guard: GuardChipData }) {
  * Clicking a node navigates to its stage (or the changes / PR surface for
  * the Push / Merge milestones).
  */
-export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenBrain }: {
+export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun }: {
   nodes: LivePlanNode[];
   guard?: GuardChipData;
   onOpenStage?: (stageId: string) => void;
@@ -68,6 +68,8 @@ export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOp
   onOpenPr?: () => void;
   /** Navigate to the task's brain page — the Root node uses this. */
   onOpenBrain?: () => void;
+  /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
+  onOpenRun?: (runId: string) => void;
 }) {
   const click = (node: LivePlanNode) => () => {
     switch (node.nav.kind) {
@@ -75,6 +77,7 @@ export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOp
       case 'code': onOpenCode?.(); break;
       case 'pr': onOpenPr?.(); break;
       case 'brain': onOpenBrain?.(); break;
+      case 'run': onOpenRun?.(node.nav.runId); break;
       default: break;
     }
   };

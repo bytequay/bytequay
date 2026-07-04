@@ -51,6 +51,7 @@ export function buildEmptyBrainView(taskId: string): TaskBrainViewData {
       taskId, enabled: false, schedule: 'nightly', state: 'in_sync',
       lastRunId: null, lastCheckedAt: null,
     },
+    liveRound: null,
   };
 }
 
@@ -258,7 +259,7 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
   liveRuns: [
     {
       id: CIFIX, taskId: '...', kind: 'ci_fix', source: 'remote', parentStageId: null,
-      reviewRoundId: null, status: 'running', iterations: 3, budget: 5,
+      reviewRoundId: null, stageId: CIFIX, status: 'running', iterations: 3, budget: 5,
       headline: 'iter #3 — fixing linter warning', startedAt: ago(10), finishedAt: null,
     },
   ],
@@ -266,5 +267,6 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     taskId: '...', enabled: true, schedule: 'nightly', state: 'in_sync',
     lastRunId: null, lastCheckedAt: ago(20 * 60),
   },
+  liveRound: null,
   };
 }

@@ -322,6 +322,16 @@ function App() {
         : { view: 'thread-detail', threadId }))
       .catch(() => setNav({ view: 'thread-detail', threadId }));
   };
+
+  /** Open a live/finished agent run's own log — `RunLogPage` is the plain
+   *  `StageDetailRoute` repurposed via the run's own backing stage id
+   *  (every run gets one, purely so its turns land in `stage_messages`
+   *  through the existing FK-scoped mechanism; see `AgentRun.stageId`). */
+  const openRun = (threadId: string, taskId: string) => (runId: string) => {
+    void window.bridge.getAgentRun(runId)
+      .then(run => setNav({ view: 'stage-detail', threadId, taskId, stageId: run.stageId }))
+      .catch(() => { /* transient; the click is a no-op on failure */ });
+  };
   /** Which workspace the user last entered. Drives the CURRENT chip
    *  on the landing grid. Set when the user picks a card. */
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
@@ -771,6 +781,7 @@ function App() {
             onOpenCode={() => setNav({
               view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
             })}
+            onOpenRun={openRun(nav.threadId, nav.taskId)}
             onClosed={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
           />
@@ -796,6 +807,7 @@ function App() {
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
+            onOpenRun={openRun(nav.threadId, nav.taskId)}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onOpenBrain={() => setNav({
               view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,

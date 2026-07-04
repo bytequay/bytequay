@@ -508,6 +508,51 @@
   padding-top: 22px;
 }
 
+/* ── Run / round episodes (Comments + Dev feed, plan-rail-runs.md Phase 5) */
+.shell .round-episode {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shell .round-episode__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 22px;
+}
+.shell .round-gate-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  font-size: 11.5px;
+}
+.shell .round-gate-bar .rgb-glyph {
+  color: var(--accent);
+}
+.shell .round-gate-bar .rgb-text {
+  flex: 1;
+  color: var(--text-2);
+}
+.shell .round-gate-bar .rgb-approve {
+  padding: 5px 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.shell .round-gate-bar .rgb-approve:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ── Unified card (task + backlog variants) ──────────────────── */
 .shell .task-card {
   display: flex;

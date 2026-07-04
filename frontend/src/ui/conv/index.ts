@@ -30,6 +30,9 @@ export { BacklogPrompt, pickTopBacklog } from './BacklogPrompt';
 export { AskUserQuestionCard } from './AskUserQuestionCard';
 export type { AskQuestionOption } from './AskUserQuestionCard';
 export { QueuedMessages } from './QueuedMessages';
+export { RunEpisode } from './RunEpisode';
+export { RoundEpisode } from './RoundEpisode';
+export { RoundGateBar } from './RoundGateBar';
 
 /** V3 Layer 3b — timeline-spine primitives + conversation units. */
 export * from './spine';

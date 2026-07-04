@@ -15,6 +15,7 @@ package com.bytequay.app.beans.stage;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BranchGuard;
+import com.bytequay.app.domain.ReviewRound;
 
 import java.util.List;
 
@@ -31,6 +32,10 @@ import java.util.List;
  *                 else consumes the rail standalone)
  * @param guard the task's branch guard state, always present (a disabled
  *              row is created lazily)
+ * @param liveRound the task's currently-open {@link ReviewRound} (not yet
+ *                  posted/closed), or null — drives the Comments node's
+ *                  "round N · M open" rail meta, same folded-in-payload
+ *                  rationale as {@code liveRuns}/{@code guard}
  */
 public record TaskBrainViewData(
         BrainTask task,
@@ -41,7 +46,8 @@ public record TaskBrainViewData(
         RightRail rightRail,
         Scrubbers scrubbers,
         List<AgentRun> liveRuns,
-        BranchGuard guard)
+        BranchGuard guard,
+        ReviewRound liveRound)
 {
     /**
      * The Task header shown above the brain feed.

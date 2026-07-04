@@ -946,6 +946,10 @@ const bridge: Bridge = {
   sendBrainMessage: (taskId: string, text: string) =>
     ipcRenderer.invoke('brain:sendMessage', taskId, text),
   getStageDetail: (stageId: string) => ipcRenderer.invoke('stages:getDetail', stageId),
+  getTaskRuns: (taskId: string) => ipcRenderer.invoke('runs:forTask', taskId),
+  getAgentRun: (runId: string) => ipcRenderer.invoke('runs:get', runId),
+  getTaskRounds: (taskId: string) => ipcRenderer.invoke('rounds:forTask', taskId),
+  approveRound: (roundId: string) => ipcRenderer.invoke('rounds:approve', roundId),
   spawnReview: (parentStageId: string) => ipcRenderer.invoke('stages:spawnReview', parentStageId),
   steerStage: (stageId: string, text: string): Promise<{ turnId: string }> =>
     ipcRenderer.invoke('stages:steer', stageId, text),

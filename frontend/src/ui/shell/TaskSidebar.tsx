@@ -24,7 +24,7 @@ import type { GuardChipData, LivePlanNode } from './livePlanModel';
  * actions render at the bottom.
  */
 export function TaskSidebar({
-  task, threadLabel, nodes, guard, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, actions,
+  task, threadLabel, nodes, guard, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun, actions,
 }: {
   task: {
     title: string; branch: string;
@@ -39,6 +39,8 @@ export function TaskSidebar({
   onOpenPr?: () => void;
   /** Navigate to the task's brain page — the Root node in the live plan. */
   onOpenBrain?: () => void;
+  /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
+  onOpenRun?: (runId: string) => void;
   actions?: ReactNode;
 }) {
   return (
@@ -69,6 +71,7 @@ export function TaskSidebar({
         onOpenCode={onOpenCode}
         onOpenPr={onOpenPr}
         onOpenBrain={onOpenBrain}
+        onOpenRun={onOpenRun}
       />
       {actions !== undefined && <div className="panel-actions">{actions}</div>}
     </aside>

@@ -15,8 +15,6 @@
 /** V3 right-pane tab contents — one component per tab type. */
 export { PlanTabContent } from './PlanTabContent';
 export type { PlanSource, PlanStep, PlanSignal, PlanConfidence } from './PlanTabContent';
-export { DetailsTabContent } from './DetailsTabContent';
-export type { DetailRow, DetailSection } from './DetailsTabContent';
 export { PRTabContent, CommentThread } from './PRTabContent';
 export type { PRStatus, PRMetaChip, PRChecks, CommentThreadData } from './PRTabContent';
 export { TasksTabContent } from './TasksTabContent';

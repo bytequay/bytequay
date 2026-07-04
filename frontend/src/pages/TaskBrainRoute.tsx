@@ -13,6 +13,12 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
+import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
+import { PRView } from '../pr/localpr/PRView';
+import { LocalPrReviewScreen } from '../pr/localpr/LocalPrReviewScreen';
+import { PushDialog } from '../pr/localpr/PushDialog';
+import { MergeDialog } from '../pr/localpr/MergeDialog';
+import type { DiffFileDto } from '../types';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
@@ -21,7 +27,6 @@ import type { TaskPhase } from '../types/brainView';
 import { Conv, DecisionNode, DensityToggle, QueuedMessages, Working } from '../ui/conv';
 import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
-import { DetailsTabContent } from '../ui/pane';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { usePersistentToggle } from '../ui/shell';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
@@ -33,7 +38,7 @@ import { PlanOverlay } from './PlanOverlay';
  * data. Wires the brain feed → conversation, the composer → the brain
  * agent, the lifecycle Run menu, and the task-scoped sidebar's live-plan
  * diagram (which replaces the old stage-chip strip as the stage-navigation
- * surface). Details shows the task's status for now.
+ * surface).
  */
 export function TaskBrainRoute({
   threadId, taskId, onOpenStage, onOpenCode, onClosed, onBack,
@@ -53,6 +58,37 @@ export function TaskBrainRoute({
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // The task's local PR — rendered in the right pane's PR tab through the
+  // same unified <PRView> + user-gated actions the stage pages use.
+  const {
+    bundle: localPrBundle, localPr, prMode,
+    localComment, setLocalComment, submitLocalComment,
+    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment,
+    pushOpen, setPushOpen, mergeOpen, setMergeOpen,
+    reviewOpen, setReviewOpen, prBusy,
+  } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
+
+  const askAgentToAddress = useCallback(() => {
+    setText('Please address my review comments on the PR, then I\'ll push. ');
+    // Land the cursor in the composer so the user can elaborate and send.
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
+    });
+  }, []);
+
+  // The cumulative diff backing the full-page review takeover — fetched
+  // lazily, only once the user opens the review.
+  const [reviewFiles, setReviewFiles] = useState<DiffFileDto[] | null>(null);
+  useEffect(() => {
+    if (!reviewOpen) return;
+    const b = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (b?.getTaskCumulativeDiff === undefined) return;
+    let cancelled = false;
+    void b.getTaskCumulativeDiff(threadId)
+      .then(list => { if (!cancelled) setReviewFiles(list); })
+      .catch(() => { if (!cancelled) setReviewFiles([]); });
+    return () => { cancelled = true; };
+  }, [reviewOpen, threadId]);
   // Auto-approve mode. The backend persists it per-task; a per-thread default
   // (localStorage) lets new tasks inherit the user's latest choice, with the
   // per-task toggle overriding (A4.3, defaulted). Toggling updates both.
@@ -247,10 +283,27 @@ export function TaskBrainRoute({
         )}
       />
       <PlanOverlay open={planOpen} card={planCard} onClose={closePlan} />
+      {pushOpen && localPrBundle != null && (
+        <PushDialog
+          bundle={localPrBundle}
+          repoLabel={task.repoFullName}
+          busy={prBusy}
+          onPush={confirmPush}
+          onCancel={() => setPushOpen(false)}
+        />
+      )}
+      {mergeOpen && localPr !== null && (
+        <MergeDialog
+          pr={localPr}
+          repoLabel={task.repoFullName}
+          busy={prBusy}
+          onMerge={confirmMerge}
+          onCancel={() => setMergeOpen(false)}
+        />
+      )}
     </Conv>
   );
 
-  const allStages = [...stages, ...subStages];
   const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
 
   // Once shipped, the linked PR shows as a clickable chip that opens it on
@@ -301,6 +354,22 @@ export function TaskBrainRoute({
     />
   );
 
+  // Full-page changed-files + diff review for the local PR, reached from the
+  // PR tab's "Review changed files" button — same takeover the stages use.
+  if (reviewOpen && localPr !== null) {
+    return (
+      <LocalPrReviewScreen
+        title={`Review · ${localPr.title}`}
+        files={reviewFiles}
+        comments={localPrBundle?.comments ?? []}
+        allowLocalComments={prMode === 'local' && !task.terminal}
+        onAddComment={addLocalLineComment}
+        onResolveComment={resolveLocalComment}
+        onBack={() => setReviewOpen(false)}
+      />
+    );
+  }
+
   return (
     <TaskBrainPage
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
@@ -324,17 +393,20 @@ export function TaskBrainRoute({
         : undefined}
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
       tabs={{
-        details: (
-          <DetailsTabContent sections={[{
-            title: 'Task',
-            rows: [
-              { label: 'Status', value: task.statusLabel },
-              { label: 'Branch', value: task.branch },
-              { label: 'Stages', value: String(allStages.length) },
-            ],
-          }]}
+        pr: localPrBundle != null ? (
+          <PRView
+            mode={prMode}
+            bundle={localPrBundle}
+            commentValue={localComment}
+            onCommentChange={setLocalComment}
+            onAddComment={task.terminal ? undefined : submitLocalComment}
+            onPush={() => setPushOpen(true)}
+            onAskAgent={task.terminal ? undefined : askAgentToAddress}
+            onMerge={() => setMergeOpen(true)}
+            onMergeAnyway={() => setMergeOpen(true)}
+            onReviewChanges={() => setReviewOpen(true)}
           />
-        ),
+        ) : undefined,
       }}
       onOpenChanges={onOpenCode}
     />

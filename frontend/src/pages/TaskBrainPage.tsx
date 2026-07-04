@@ -24,16 +24,16 @@ import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
 import { PlanReminderTab } from './PlanOverlay';
 
-type BrainTab = 'pr' | 'details';
+type BrainTab = 'pr';
 
 /**
  * The task brain surface (frame 2): the 2-pane shell with the brain
  * conversation in the centre, a stage-chip strip + lifecycle Run menu in
- * the top bar, and a right pane of Plan / PR / Details. The sidebar and
+ * the top bar, and a right pane of Plan / PR. The sidebar and
  * conversation are slots; the tab contents are composed by the host from
  * the Phase-4 tab components. The model selector lives in the composer's
- * mode pill (the relocated WORK MODEL card); task metrics live in the
- * Details tab; lifecycle controls live in the Run menu.
+ * mode pill (the relocated WORK MODEL card); lifecycle controls live in
+ * the Run menu.
  */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
@@ -64,9 +64,8 @@ export function TaskBrainPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  /** Tab contents; PR is omitted when not applicable, Details is always
-   *  shown. */
-  tabs: { pr?: ReactNode; details: ReactNode };
+  /** Tab contents; PR is omitted when not applicable. */
+  tabs: { pr?: ReactNode };
   /** Shows a reminder tab above the composer while a plan needs attention:
    *  'awaiting' → the plan is unreviewed (orange, animated flowing border);
    *  'locked' → the plan is finalized (purple, static). Undefined hides it. */
@@ -84,9 +83,10 @@ export function TaskBrainPage({
 }) {
   const available: { key: BrainTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
-    { key: 'details' as const, label: 'Details', node: tabs.details },
   ];
-  const [activeTab, setActiveTab] = useState<BrainTab>(available[0].key);
+  // No PR yet (task hasn't opened one) means nothing to show in the pane.
+  const hasTabs = available.length > 0;
+  const [activeTab, setActiveTab] = useState<BrainTab | undefined>(available[0]?.key);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
 
@@ -96,7 +96,7 @@ export function TaskBrainPage({
   // The inline pill toggles the pane: closed → open and jump to the tab;
   // open on another tab → jump; open on this tab → close the pane.
   const openTab = (key: BrainTab) => {
-    if (paneOpen && active.key === key) { setPaneOpen(false); return; }
+    if (paneOpen && active?.key === key) { setPaneOpen(false); return; }
     setActiveTab(key);
     setPaneOpen(true);
   };
@@ -143,9 +143,13 @@ export function TaskBrainPage({
       {onOpenChanges !== undefined && (
         <TopBarButton icon="▢" onClick={onOpenChanges}>Changes</TopBarButton>
       )}
-      <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
+      {hasTabs && (
+        <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
+      )}
     </TopBar>
   );
+
+  const showPane = paneOpen && hasTabs && active !== undefined;
 
   return (
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
@@ -153,8 +157,8 @@ export function TaskBrainPage({
       <Main topBar={topBar}>
         <div
           ref={bodyRef}
-          className={paneOpen ? 'body with-pane' : 'body'}
-          style={paneOpen ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+          className={showPane ? 'body with-pane' : 'body'}
+          style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
         >
           <div className="conv-col">
             {conversation}
@@ -181,8 +185,8 @@ export function TaskBrainPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {paneOpen && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
-          {paneOpen && (
+          {showPane && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
+          {showPane && (
             <RightPane>
               <RightPane.Tabs<BrainTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />
               <RightPane.Content>{active.node}</RightPane.Content>

@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  BacklogTabContent, DetailsTabContent, InlineChips, NotificationsTabContent, PRTabContent,
+  BacklogTabContent, InlineChips, NotificationsTabContent, PRTabContent,
   PlanTabContent, RightPane, TasksTabContent,
 } from './index';
 
@@ -78,20 +78,6 @@ describe('PlanTabContent', () => {
     rerender(<PlanTabContent goal="Add a cost meter" approved />);
     expect(screen.getByText(/Approved/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Approve plan' })).toBeNull();
-  });
-});
-
-describe('DetailsTabContent', () => {
-  it('renders grouped key/value rows and tints cost', () => {
-    const { container } = render(
-      <DetailsTabContent sections={[
-        { title: 'Task metrics', rows: [{ label: 'Cost', value: '$0.42', cost: true }, { label: 'Tokens', value: '12k' }] },
-      ]}
-      />,
-    );
-    expect(container.querySelector('.details-sec-h')?.textContent).toBe('Task metrics');
-    expect(container.querySelector('.v.cost')?.textContent).toBe('$0.42');
-    expect(container.querySelectorAll('.details-row').length).toBe(2);
   });
 });
 

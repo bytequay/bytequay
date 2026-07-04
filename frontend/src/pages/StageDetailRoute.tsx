@@ -31,7 +31,6 @@ import type { DiffFileDto } from '../types';
 import type { StageType } from '../types/brainView';
 import { Conv, EventRow, QueuedMessages, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
-import { DetailsTabContent } from '../ui/pane';
 import { stageRow } from './stageConversationRow';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
 import { StageDetailPage } from './StageDetailPage';
@@ -72,7 +71,7 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * detail data. Maps the stage transcript → conversation (agent turns,
  * tool blocks, your steering, iteration markers) and wires the composer to
  * the stage's agent via {@code steerStage}. The right pane carries the full
- * PR · Code Diff · CI · Details strip: PR renders the unified local/remote
+ * PR · Code Diff · CI strip: PR renders the unified local/remote
  * PR view (falling back to the remote panel until the task has a local
  * PR), Code Diff renders the task's cumulative diff with local inline
  * comments, and the CI tab (CI-fix stage only) shows the live check run.
@@ -119,6 +118,10 @@ export function StageDetailRoute({
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
+  // Local-PR interactivity is gated on the TASK lifecycle, not the viewed
+  // stage: the local-review moment arrives exactly when Dev closes, so a
+  // closed stage must not disable commenting on a still-local PR.
+  const taskTerminal = brain.task.terminal;
   const realtimeCi = data?.realtimeCi ?? null;
   const prNumber = data?.task.prNumber ?? null;
   const branch = data?.task.branch;
@@ -345,7 +348,7 @@ export function StageDetailRoute({
       <PaneDiff
         files={files}
         comments={localPrBundle?.comments}
-        allowLocalComments={localPr !== null && prMode === 'local' && state !== 'CLOSED'}
+        allowLocalComments={localPr !== null && prMode === 'local' && !taskTerminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
       />
@@ -423,9 +426,9 @@ export function StageDetailRoute({
       bundle={localPrBundle}
       commentValue={localComment}
       onCommentChange={setLocalComment}
-      onAddComment={state !== 'CLOSED' ? submitLocalComment : undefined}
+      onAddComment={taskTerminal ? undefined : submitLocalComment}
       onPush={() => setPushOpen(true)}
-      onAskAgent={state !== 'CLOSED' ? askAgentToAddress : undefined}
+      onAskAgent={taskTerminal ? undefined : askAgentToAddress}
       onMerge={() => setMergeOpen(true)}
       onMergeAnyway={() => setMergeOpen(true)}
       onReviewChanges={() => setReviewOpen(true)}
@@ -491,7 +494,7 @@ export function StageDetailRoute({
         title={`Review · ${localPr.title}`}
         files={files}
         comments={localPrBundle?.comments ?? []}
-        allowLocalComments={prMode === 'local' && state !== 'CLOSED'}
+        allowLocalComments={prMode === 'local' && !taskTerminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
         onBack={() => setReviewOpen(false)}
@@ -535,16 +538,6 @@ export function StageDetailRoute({
         pr: localPrNode ?? prNode ?? undefined,
         changes: hasDiff ? changesNode : undefined,
         ci: stageKind === 'ci-fix' ? ciNode : undefined,
-        details: (
-          <DetailsTabContent sections={[{
-            title: 'Stage',
-            rows: [
-              { label: 'State', value: state ?? '—' },
-              { label: 'Iterations', value: String(data?.stage.iterationCount ?? 0) },
-            ],
-          }]}
-          />
-        ),
       }}
       onOpenChanges={onOpenCode}
       planReminder={plan === null ? undefined

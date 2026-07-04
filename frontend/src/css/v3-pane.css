@@ -432,39 +432,6 @@
   border-color: var(--border-mid);
 }
 
-/* ── Details tab ─────────────────────────────────────────────── */
-.shell .details-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 6px 0;
-  font-size: 12.5px;
-  border-bottom: 1px dashed var(--border);
-}
-.shell .details-row:last-child {
-  border-bottom: 0;
-}
-.shell .details-row .k {
-  color: var(--text-3);
-}
-.shell .details-row .v {
-  margin-left: auto;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-1);
-}
-.shell .details-row .v.cost {
-  color: var(--green);
-}
-.shell .details-sec-h {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding-top: 4px;
-}
-
 /* ── PR tab ──────────────────────────────────────────────────── */
 .shell .pr-status-row {
   display: flex;

@@ -314,13 +314,30 @@ function App() {
   // null, so they fall through to the regular thread-detail view. Keeps
   // the assign-review dialog, PR-row jumps, and the rail all landing on
   // the right surface without each caller needing to know the flow.
+  //
+  // This is every "open a thread" click's single entry point — the PR
+  // page's linked-task chip, the sidebar's thread rows, footprint resume —
+  // and it's async (getReviewPassByThread is a network round-trip). If an
+  // earlier click's lookup is still in flight when a newer one fires (e.g.
+  // clicking a PR's linked task, then quickly clicking a different thread
+  // in the sidebar before the first lookup returns), the earlier call must
+  // not win the race and land the user on the wrong thread once it finally
+  // resolves — only the MOST RECENT request may navigate.
+  const openThreadRequestRef = useRef<string | null>(null);
   const openThread = (threadId: string) => {
     const back = nav;
+    openThreadRequestRef.current = threadId;
     void window.bridge.getReviewPassByThread(threadId)
-      .then(pass => setNav(pass !== null
-        ? { view: 'review-thread', threadId, back }
-        : { view: 'thread-detail', threadId }))
-      .catch(() => setNav({ view: 'thread-detail', threadId }));
+      .then(pass => {
+        if (openThreadRequestRef.current !== threadId) return;
+        setNav(pass !== null
+          ? { view: 'review-thread', threadId, back }
+          : { view: 'thread-detail', threadId });
+      })
+      .catch(() => {
+        if (openThreadRequestRef.current !== threadId) return;
+        setNav({ view: 'thread-detail', threadId });
+      });
   };
 
   /** Open a live/finished agent run's own log — `RunLogPage` is the plain
@@ -336,6 +353,23 @@ function App() {
    *  on the landing grid. Set when the user picks a card. */
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
     () => readActiveWorkspaceId());
+  /** The CURRENTLY-VIEWED thread's own workspace, once resolved by whatever
+   *  page loaded it (e.g. TrunkRoute's own `getTask`). Distinct from
+   *  {@code activeWorkspaceId}: opening a thread from outside the workspace
+   *  flow (a PR's linked-task chip, footprint resume) must show ITS
+   *  workspace in the sidebar without silently reassigning which workspace
+   *  the landing grid's CURRENT chip points to — that only changes when the
+   *  user explicitly picks a card. Reset on every thread change so a
+   *  still-loading thread never shows the PREVIOUS thread's workspace. */
+  const [viewedThreadWorkspaceId, setViewedThreadWorkspaceId] = useState<string | null>(null);
+  // Placed before any early return so the reset runs on every render
+  // regardless of `status` — hooks can't follow a conditional return.
+  const viewedThreadIdRef = useRef<string | undefined>(undefined);
+  const currentThreadId = 'threadId' in nav ? nav.threadId : undefined;
+  if (viewedThreadIdRef.current !== currentThreadId) {
+    viewedThreadIdRef.current = currentThreadId;
+    setViewedThreadWorkspaceId(null);
+  }
   const [fatal, setFatal] = useState<string | null>(null);
   /** Phase-9 control bar. ⌘K opens it; ControlBar's onDispatch
    *  routes a typed payload back here into setNav. Keeps the bar
@@ -573,8 +607,12 @@ function App() {
   const inWorkspaceFlow = nav.view === 'workspace'
     || nav.view === 'thread-detail' || nav.view === 'task-brain'
     || nav.view === 'stage-detail' || nav.view === 'task-code';
-  const sidebarWorkspaceId = inWorkspaceFlow ? activeWorkspaceId : null;
-  const selectedThreadId = 'threadId' in nav ? nav.threadId : undefined;
+  // The viewed thread's own workspace wins once resolved (e.g. by
+  // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
+  // linked-task chip, footprint resume) shows ITS workspace's rail instead
+  // of whatever workspace the landing grid was last pointed at.
+  const sidebarWorkspaceId = inWorkspaceFlow ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
+  const selectedThreadId = currentThreadId;
   const sidebarActiveNav: WsNavKey | undefined = (() => {
     switch (nav.view) {
       case 'home': case 'pr-activity': return 'home';
@@ -769,6 +807,7 @@ function App() {
           <TrunkRoute
             threadId={nav.threadId}
             onOpenTask={taskId => setNav(lastTaskNav(nav.threadId, taskId))}
+            onWorkspaceResolved={setViewedThreadWorkspaceId}
           />
         )}
         {nav.view === 'task-brain' && (

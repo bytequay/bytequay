@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { Callout, Conv, DensityToggle, EventRow, QueuedMessages, Thought, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
@@ -49,9 +49,14 @@ function epochOrNull(ts: string | undefined): number | null {
  * and notifications tabs load themselves via the trunk pane hook. Inline
  * task-launch cards and the full sidebar tree are backfilled later.
  */
-export function TrunkRoute({ threadId, onOpenTask }: {
+export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   threadId: string;
   onOpenTask: (taskId: string) => void;
+  /** Reports the loaded thread's own workspace id — lets the caller's
+   *  sidebar follow whichever workspace this thread actually belongs to
+   *  (it may differ from whatever workspace the user last manually
+   *  entered, e.g. when arriving here from a PR's linked-task chip). */
+  onWorkspaceResolved?: (workspaceId: string) => void;
 }) {
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[]>([]);
@@ -60,6 +65,19 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   const [mergeReadyIds, setMergeReadyIds] = useState<ReadonlySet<string>>(new Set());
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // The caller switches threads by passing a new id (no remount, since
+  // <TrunkRoute> isn't keyed). Reset synchronously so a stale-while-
+  // revalidate flash never shows the PREVIOUS thread's content under the
+  // new one's header, and stamp the id `load()` checks against below.
+  const shownIdRef = useRef(threadId);
+  if (shownIdRef.current !== threadId) {
+    shownIdRef.current = threadId;
+    setThread(null);
+    setMessages([]);
+    setTasks([]);
+    setMergeReadyIds(new Set());
+  }
   // Clear the "working" indicator only when a new assistant reply lands,
   // not when the user's own message persists into the planning slice.
   const replyCount = messages.filter(
@@ -77,6 +95,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (bridge?.getTask === undefined) return;
+    const requestedId = threadId;
     try {
       const [t, page, taskList, notifs] = await Promise.all([
         bridge.getTask(threadId),
@@ -84,7 +103,12 @@ export function TrunkRoute({ threadId, onOpenTask }: {
         bridge.listTasksForThread(threadId),
         bridge.listNotificationsForThread(threadId),
       ]);
+      // The user may have navigated to a different thread while this fetch
+      // was in flight — a slow response for a thread they've since left
+      // must never overwrite what's now on screen for the current one.
+      if (shownIdRef.current !== requestedId) return;
       setThread(t);
+      onWorkspaceResolved?.(t.workspaceId);
       setMessages(page.messages);
       setTasks(taskList);
       // A task is "ready to merge" when it has an open merge_pr gate.
@@ -96,7 +120,7 @@ export function TrunkRoute({ threadId, onOpenTask }: {
       ));
     }
     catch { /* leave the last loaded state */ }
-  }, [threadId]);
+  }, [threadId, onWorkspaceResolved]);
 
   // Poll so the agent's reply (and any task it cuts) lands without a manual
   // reload — also a fallback if the live stream can't connect.

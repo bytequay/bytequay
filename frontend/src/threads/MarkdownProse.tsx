@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { isValidElement } from 'react';
+import { isValidElement, memo } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -41,9 +41,23 @@ type Props = {
 
 const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
 
-export function MarkdownProse({ text, variant = 'card' }: Props) {
+// Memoized (and the components map built once per variant at module
+// scope) so a streaming card's per-token updates don't force every
+// other prose block in the transcript to re-parse its markdown.
+export const MarkdownProse = memo(function MarkdownProse({ text, variant = 'card' }: Props) {
   const styles = variant === 'terminal' ? terminalStyles : cardStyles;
-  const components: Components = {
+  const components = variant === 'terminal' ? terminalComponents : cardComponents;
+  return (
+    <div style={styles.root}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {normalizeForMarkdown(text)}
+      </ReactMarkdown>
+    </div>
+  );
+});
+
+function buildComponents(styles: StyleBundle): Components {
+  return {
     p: ({ children }) => {
       // Tooling / process asides ("Note on tooling: …") are noise for the
       // user reading a task result — collapse them behind a disclosure so
@@ -138,13 +152,6 @@ export function MarkdownProse({ text, variant = 'card' }: Props) {
     strong: ({ children }) => <strong style={styles.strong}>{children}</strong>,
     em: ({ children }) => <em style={styles.em}>{children}</em>,
   };
-  return (
-    <div style={styles.root}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {normalizeForMarkdown(text)}
-      </ReactMarkdown>
-    </div>
-  );
 }
 
 /**
@@ -462,3 +469,6 @@ const terminalStyles: StyleBundle = {
     fontSize: 12.5, fontWeight: 600, padding: '2px 0',
   },
 };
+
+const cardComponents = buildComponents(cardStyles);
+const terminalComponents = buildComponents(terminalStyles);

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NotificationDto, PullRequestDto } from '../types';
 import { buildInboxItems, type InboxItem } from './inboxItems';
 import { fetchDeployNotices, type DeployNoticeDto } from './homeData';
+import { isPublishGateNotification } from '../notificationDisplay';
 import InboxCard, { type InboxHandlers } from './InboxCard';
 
 /** Rows shown before "See all" takes over. */
@@ -118,10 +119,18 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
     opened: (item: InboxItem) => {
       if (item.source.kind !== 'notification') return;
       const n = item.source.notification;
-      // Informational rows clear on engagement; parked approvals and
-      // stuck tasks keep their unread state until actually resolved
-      // (same rule as the thread strip).
-      if (n.kind === 'AUTO_FIX_DONE' && n.status === 'UNREAD') {
+      // Informational rows clear on engagement. A publish-gate
+      // AWAITING_REVIEW (rendered as the embedded PublishGatePane) keeps its
+      // unread state until its own dedicated action actually resolves it
+      // (same rule as the thread strip) — but a plain AWAITING_REVIEW (just
+      // "View PR" / "View task" / "Dismiss", same as NEEDS_ATTENTION's
+      // "stuck task" framing suggests) has no OTHER resolution path, so
+      // engaging with it here is the only signal it'll ever get; leaving it
+      // unread forever until a manual Dismiss isn't "waiting for
+      // resolution", it's a dead end.
+      const clearsOnEngagement = n.kind === 'AUTO_FIX_DONE'
+        || (n.kind === 'AWAITING_REVIEW' && !isPublishGateNotification(n));
+      if (clearsOnEngagement && n.status === 'UNREAD') {
         window.bridge.markNotificationRead(n.id)
           .then(() => refresh())
           .catch(() => { /* best-effort */ });

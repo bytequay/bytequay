@@ -87,6 +87,50 @@ describe('LocalPrReviewScreen', () => {
     expect(onAddComment).toHaveBeenCalledWith('backend/src/Composer.java', 182, 'please memoize');
   });
 
+  it('closes the open composer on Esc without adding a comment', () => {
+    const onAddComment = vi.fn();
+    const { container } = render(
+      <LocalPrReviewScreen
+        title="Review" files={[FILE]} comments={[]} allowLocalComments
+        onAddComment={onAddComment} onBack={() => {}}
+      />,
+    );
+    const row = Array.from(container.querySelectorAll('.diff-row--add')).find(
+      r => (r.querySelectorAll('.diff-row__gutter')[1]?.textContent ?? '').startsWith('182')) as HTMLElement;
+    fireEvent.click(row);
+    const composer = container.querySelector('.ic-composer') as HTMLTextAreaElement;
+    expect(composer).not.toBeNull();
+    fireEvent.keyDown(composer, { key: 'Escape' });
+    expect(container.querySelector('.ic-composer')).toBeNull();
+    expect(onAddComment).not.toHaveBeenCalled();
+  });
+
+  it('offers no add affordance and opens no composer when comments are read-only', () => {
+    const { container } = render(
+      <LocalPrReviewScreen title="Review" files={[FILE]} comments={[]} onBack={() => {}} />,
+    );
+    // allowLocalComments defaults to false — rows carry no comment affordance.
+    expect(container.querySelector('.diff-row.has-comment')).toBeNull();
+    const row = container.querySelector('.diff-row--add') as HTMLElement;
+    fireEvent.click(row);
+    expect(container.querySelector('.ic-composer')).toBeNull();
+  });
+
+  it('fires onResolve and onDismiss from an existing comment thread', () => {
+    const onResolveComment = vi.fn();
+    const onDismissComment = vi.fn();
+    render(
+      <LocalPrReviewScreen
+        title="Review" files={[FILE]} comments={[comment()]} allowLocalComments
+        onResolveComment={onResolveComment} onDismissComment={onDismissComment} onBack={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Mark resolved' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onResolveComment).toHaveBeenCalledWith('cm1');
+    expect(onDismissComment).toHaveBeenCalledWith('cm1');
+  });
+
   it('fires onBack from the Back button', () => {
     const onBack = vi.fn();
     render(<LocalPrReviewScreen title="Review" files={[FILE]} comments={[]} onBack={onBack} />);

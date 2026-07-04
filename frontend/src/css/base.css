@@ -128,6 +128,10 @@
   --accent-a4: rgba(9, 105, 218, 0.04);
   --accent-a10: rgba(9, 105, 218, 0.1);
   --accent-a40: rgba(9, 105, 218, 0.4);
+  /* Keep the V3 soft/border accent tints in the same hue as the theme
+     accent — the :root defaults are violet and clash with blue text. */
+  --accent-soft: rgba(9, 105, 218, 0.1);
+  --accent-border: rgba(9, 105, 218, 0.22);
 
   --border: #d0d7de;
   --border-mid: #d8dee4;
@@ -183,6 +187,9 @@
   --accent-a4: rgba(97, 175, 239, 0.05);
   --accent-a10: rgba(97, 175, 239, 0.15);
   --accent-a40: rgba(97, 175, 239, 0.5);
+  /* Theme-hued V3 soft/border accent tints (see github-light note). */
+  --accent-soft: rgba(97, 175, 239, 0.13);
+  --accent-border: rgba(97, 175, 239, 0.3);
 
   /* Borders dimmed from #3e4451 to #3a4150 so they sit a touch quieter
      against the lifted #30363f card background — the previous value
@@ -234,6 +241,9 @@
   --accent-a4: rgba(124, 58, 237, 0.04);
   --accent-a10: rgba(124, 58, 237, 0.10);
   --accent-a40: rgba(124, 58, 237, 0.40);
+  /* Theme-hued V3 soft/border accent tints (see github-light note). */
+  --accent-soft: rgba(124, 58, 237, 0.10);
+  --accent-border: rgba(124, 58, 237, 0.22);
 
   --border: #e5e1ee;
   --border-mid: #ddd8ea;

@@ -180,6 +180,24 @@ describe('PRView', () => {
     expect((cards[1] as HTMLElement).style.opacity).toBe('');
   });
 
+  it('fires onRunTests from the local checks card only, and shows a busy label', () => {
+    const onRunTests = vi.fn();
+    const { rerender } = render(
+      <PRView mode="local" bundle={bundle({ pr: pr('local-open') })}
+        commentValue="" onCommentChange={noop} onRunTests={onRunTests} />,
+    );
+    const buttons = screen.getAllByRole('button', { name: 'Run tests' });
+    expect(buttons).toHaveLength(1); // only the local card gets the button.
+    fireEvent.click(buttons[0]);
+    expect(onRunTests).toHaveBeenCalledOnce();
+
+    rerender(
+      <PRView mode="local" bundle={bundle({ pr: pr('local-open') })}
+        commentValue="" onCommentChange={noop} onRunTests={onRunTests} runTestsBusy />,
+    );
+    expect(screen.getByRole('button', { name: 'Running…' })).toBeTruthy();
+  });
+
   it('drives the comment composer via props and fires submit on ⌘↵', () => {
     const onSubmit = vi.fn();
     const onChange = vi.fn();

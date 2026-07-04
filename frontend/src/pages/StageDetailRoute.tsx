@@ -114,6 +114,7 @@ export function StageDetailRoute({
     confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
     reviewOpen, setReviewOpen, prBusy,
+    runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
@@ -433,6 +434,8 @@ export function StageDetailRoute({
       onMerge={() => setMergeOpen(true)}
       onMergeAnyway={() => setMergeOpen(true)}
       onReviewChanges={() => setReviewOpen(true)}
+      onRunTests={runLocalTests}
+      runTestsBusy={testsBusy}
     />
   ) : null;
 

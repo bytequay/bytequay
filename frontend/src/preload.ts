@@ -962,6 +962,7 @@ const bridge: Bridge = {
   ) => ipcRenderer.invoke('localpr:addComment', prId, body),
   resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('localpr:resolveComment', commentId),
   dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('localpr:dismissComment', commentId),
+  runLocalPrTests: (prId: string) => ipcRenderer.invoke('localpr:runTests', prId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { BrainMessageResult, SpawnReviewResult, StageDetailData, TaskBrainViewData } from './types/brainView';
-import type { LocalPR, LocalPRBundle, LocalPRComment } from './types/localPr';
+import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
 
 export type HandledAction =
   | 'APPROVED'
@@ -3952,6 +3952,9 @@ export type Bridge = {
   resolveLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
   /** Dismiss a local PR comment (closed without action). */
   dismissLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
+  /** On-demand local test run (design doc slice 4); returns the local PR's
+   *  updated check list. */
+  runLocalPrTests: (prId: string) => Promise<LocalPRCheck[]>;
   /** Spawn a panel review as a callable sub-stage of {@code parentStageId}.
    *  Returns the opened review stage, the seated pass, and the review
    *  thread the panel page navigates to. */

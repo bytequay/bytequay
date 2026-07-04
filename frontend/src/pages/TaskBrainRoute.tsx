@@ -66,6 +66,7 @@ export function TaskBrainRoute({
     confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
     reviewOpen, setReviewOpen, prBusy,
+    runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   const askAgentToAddress = useCallback(() => {
@@ -406,6 +407,8 @@ export function TaskBrainRoute({
             onMerge={() => setMergeOpen(true)}
             onMergeAnyway={() => setMergeOpen(true)}
             onReviewChanges={() => setReviewOpen(true)}
+            onRunTests={runLocalTests}
+            runTestsBusy={testsBusy}
           />
         ) : undefined,
       }}

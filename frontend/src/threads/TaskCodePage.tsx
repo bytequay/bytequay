@@ -22,6 +22,10 @@ import { contiguousRange } from '../diff/commitRange';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
 import type { DiffFileDto, NotificationDto, ReviewCommentDto, ThreadCommitDto } from '../types';
+import type { LocalPRComment } from '../types/localPr';
+import { isLocalStatus } from '../types/localPr';
+import { useLocalPr } from './brain/useLocalPr';
+import { DiffInlineComments } from '../diff/DiffInlineComments';
 import { useThreadTasks } from './useThreadTasks';
 import { MarkReadyPanel, type MarkReadyPrRef } from './MarkReadyPanel';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
@@ -260,6 +264,37 @@ export default function TaskCodePage({
   // ready), so keep the diff read-only and the ship toolbar hidden for it.
   const markReadyMode = proposal !== null && proposalAction === 'mark_ready';
   const reviewMode = proposal !== null && !markReadyMode;
+
+  // The task's local PR. While it's in its local phase, this page allows
+  // inline local review comments on any line — commenting must not depend
+  // on a parked publish gate: the local-review moment (task IN_REVIEW,
+  // dev stage closed, PR local-open) has no proposal parked.
+  const { bundle: localPrBundle, refresh: refreshLocalPr } = useLocalPr(taskId);
+  const localPhasePr = localPrBundle?.pr != null && isLocalStatus(localPrBundle.pr.status)
+    ? localPrBundle.pr : null;
+  const localCommentMode = !reviewMode && !markReadyMode && localPhasePr !== null;
+  const localByAnchor = useMemo(() => {
+    const map = new Map<string, LocalPRComment[]>();
+    for (const c of localPrBundle?.comments ?? []) {
+      if (c.scope !== 'file-line' || c.filePath === null || c.lineNumber === null) continue;
+      const key = `${c.filePath}:${c.lineNumber}`;
+      const list = map.get(key) ?? [];
+      list.push(c);
+      map.set(key, list);
+    }
+    return map;
+  }, [localPrBundle]);
+  const addLocalComment = useCallback((filePath: string, lineNumber: number, body: string) => {
+    if (localPhasePr === null) return;
+    void window.bridge.addLocalPrComment(localPhasePr.id, { scope: 'file-line', filePath, lineNumber, body })
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ });
+  }, [localPhasePr, refreshLocalPr]);
+  const resolveLocalComment = useCallback((commentId: string) => {
+    void window.bridge.resolveLocalPrComment(commentId)
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ });
+  }, [refreshLocalPr]);
   // Only the PR-opening gates carry a title/body to review + edit. A bare
   // `push` gate pushes the branch; the agent opens the PR (with its
   // description) as the next gate — so show that instead of an empty editor.
@@ -777,6 +812,42 @@ export default function TaskCodePage({
                             </div>
                           )}
                         </>
+                      );
+                    }}
+                  />
+                ) : localCommentMode ? (
+                  <FileDiffBody
+                    file={file}
+                    rowDecoration={(anchorSide, anchorLine) => {
+                      // Local comments anchor to new-side lines, like the
+                      // stage pane's diff and the gate-review flow above.
+                      if (anchorSide !== 'RIGHT') return null;
+                      const hasComment = localByAnchor.has(`${file.filename}:${anchorLine}`);
+                      return {
+                        addCommentAffordance: true,
+                        onClick: () => openComposer(file.filename, anchorLine),
+                        role: 'button',
+                        tabIndex: 0,
+                        title: 'Click to leave a local review comment on this line',
+                        className: (hasComment ? ' diff-row--has-finding' : '') + ' diff-row--commentable',
+                      };
+                    }}
+                    renderAfterRow={(anchorSide, anchorLine) => {
+                      if (anchorSide !== 'RIGHT') return null;
+                      const here = localByAnchor.get(`${file.filename}:${anchorLine}`) ?? [];
+                      const composerHere = composer !== null
+                        && composer.file === file.filename
+                        && composer.line === anchorLine;
+                      if (here.length === 0 && !composerHere) return null;
+                      return (
+                        <DiffInlineComments
+                          comments={here}
+                          allowLocalComments
+                          onAdd={composerHere
+                            ? body => { addLocalComment(file.filename, anchorLine, body); closeComposer(); }
+                            : undefined}
+                          onResolve={resolveLocalComment}
+                        />
                       );
                     }}
                   />

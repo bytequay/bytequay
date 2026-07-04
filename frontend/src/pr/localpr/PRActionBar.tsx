@@ -20,17 +20,22 @@ import type { LocalPR } from '../../types/localPr';
  * Terminal states (merged / closed / drafting) render no bar.
  */
 export function PRActionBar({
-  pr, openComments, localChecksPassed, onPush, onAskAgent, onMerge, onMergeAnyway,
+  pr, openComments, localChecksPassed, localTestsFailing = false, onPush, onAskAgent, onMerge, onMergeAnyway,
 }: {
   pr: LocalPR;
   openComments: number;
   localChecksPassed: boolean;
+  /** The most recently recorded local check run failed — hard-blocks Push
+   *  (design doc slice 5's promotion gate). No checks recorded at all does
+   *  NOT count as failing (nothing to gate on). */
+  localTestsFailing?: boolean;
   onPush?: () => void;
   onAskAgent?: () => void;
   onMerge?: () => void;
   onMergeAnyway?: () => void;
 }) {
   if (pr.status === 'local-open') {
+    const gated = openComments > 0 || localTestsFailing;
     return (
       <div className="pr-action-bar">
         <div className="ab-head">
@@ -42,20 +47,28 @@ export function PRActionBar({
           </span>
         </div>
         <div className="ab-body">
-          {openComments > 0 ? (
-            <>You have <b>{openComments} open review comment{openComments === 1 ? '' : 's'}</b>. Push
-              anyway (comments stay local + get stripped) or cancel and ask the agent to address them
-              first.</>
+          {localTestsFailing ? (
+            <>Local tests are currently <b>failing</b>. Fix them (or ask the agent to) before
+              promoting.</>
+          ) : openComments > 0 ? (
+            <>You have <b>{openComments} open review comment{openComments === 1 ? '' : 's'}</b>. Resolve
+              or dismiss them, or ask the agent to address them, before promoting.</>
           ) : (
             <>Pushing opens <code>{pr.baseBranch} ← {pr.branchName}</code> as a <b>Draft</b> — flip to
               ready-for-review on GitHub after remote CI is green.</>
           )}
         </div>
         <div className="ab-actions">
-          <button type="button" className="approve-btn" onClick={onPush}>
+          <button
+            type="button"
+            className="approve-btn"
+            onClick={onPush}
+            disabled={gated}
+            style={gated ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+          >
             ↑ Approve &amp; push to GitHub<span className="kbd">⌘↵</span>
           </button>
-          {onAskAgent !== undefined && (
+          {gated && onAskAgent !== undefined && (
             <button type="button" className="secondary-btn" onClick={onAskAgent}>
               Ask agent to address comments first
             </button>

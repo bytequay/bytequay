@@ -14,6 +14,8 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.LocalPRCheck;
+import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -152,6 +154,100 @@ class TestLocalPRPublishService
         assertThatThrownBy(() -> service.push("pr1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no local PR");
+    }
+
+    @Test
+    void pushRejectsAnOpenCommentThread()
+    {
+        when(localPr.findById("pr1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_OPEN)));
+        when(localPr.comments("pr1")).thenReturn(List.of(comment(null, null)));
+
+        assertThatThrownBy(() -> service.push("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("open comment thread");
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void pushAllowsResolvedAndDismissedThreads()
+            throws Exception
+    {
+        when(localPr.findById("pr1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_OPEN)));
+        when(localPr.comments("pr1")).thenReturn(List.of(comment(NOW, null), comment(null, NOW)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(git.refExists(any(), any())).thenReturn(true);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
+        when(localPr.recordPush(any(), eq(7), any())).thenReturn(localPr(LocalPR.STATUS_REMOTE_DRAFTED));
+
+        service.push("pr1");
+
+        verify(pullRequests).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void pushRejectsAFailingLocalTestRun()
+    {
+        when(localPr.findById("pr1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_OPEN)));
+        when(localPr.checks("pr1")).thenReturn(List.of(
+                check(Instant.parse("2026-07-01T00:00:00Z"), LocalPRCheck.STATUS_PASSED),
+                check(Instant.parse("2026-07-01T00:05:00Z"), LocalPRCheck.STATUS_FAILED)));
+
+        assertThatThrownBy(() -> service.push("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("failing local test run");
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void pushAllowsAFixedRunEvenAfterAnEarlierFailure()
+            throws Exception
+    {
+        when(localPr.findById("pr1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_OPEN)));
+        when(localPr.checks("pr1")).thenReturn(List.of(
+                check(Instant.parse("2026-07-01T00:00:00Z"), LocalPRCheck.STATUS_FAILED),
+                check(Instant.parse("2026-07-01T00:05:00Z"), LocalPRCheck.STATUS_PASSED)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(git.refExists(any(), any())).thenReturn(true);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
+        when(localPr.recordPush(any(), eq(7), any())).thenReturn(localPr(LocalPR.STATUS_REMOTE_DRAFTED));
+
+        service.push("pr1");
+
+        verify(pullRequests).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void pushAllowsAPrWithNoLocalChecksRecordedAtAll()
+            throws Exception
+    {
+        // No recognised test runner for this repo — nothing to gate on.
+        when(localPr.findById("pr1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_OPEN)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(git.refExists(any(), any())).thenReturn(true);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
+        when(localPr.recordPush(any(), eq(7), any())).thenReturn(localPr(LocalPR.STATUS_REMOTE_DRAFTED));
+
+        service.push("pr1");
+
+        verify(pullRequests).createPullRequest(any(), any(), any());
+    }
+
+    private static LocalPRComment comment(Instant resolvedAt, Instant dismissedAt)
+    {
+        return new LocalPRComment("cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR,
+                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, null);
+    }
+
+    private static LocalPRCheck check(Instant startedAt, String status)
+    {
+        return new LocalPRCheck("c1", "pr1", LocalPRCheck.KIND_LOCAL, "maven test", status,
+                1000L, startedAt, startedAt, null);
     }
 
     @Test

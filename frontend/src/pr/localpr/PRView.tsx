@@ -63,6 +63,11 @@ export function PRView({
   const localChecks = checks.filter(c => c.kind === 'local');
   const remoteChecks = checks.filter(c => c.kind === 'remote');
   const localChecksPassed = localChecks.length > 0 && localChecks.every(c => c.status === 'passed' || c.status === 'neutral');
+  // The promotion gate (design doc slice 5) only cares about the MOST RECENT
+  // local run — an earlier failure that's since been fixed doesn't block.
+  const latestLocalCheck = localChecks.reduce<typeof localChecks[number] | undefined>(
+    (latest, c) => latest === undefined || c.startedAt > latest.startedAt ? c : latest, undefined);
+  const localTestsFailing = latestLocalCheck?.status === 'failed';
   const prNumLabel = pr.remotePrNumber !== null ? `#${pr.remotePrNumber}` : '#local';
 
   return (
@@ -108,6 +113,7 @@ export function PRView({
           pr={pr}
           openComments={openComments}
           localChecksPassed={localChecksPassed}
+          localTestsFailing={localTestsFailing}
           onPush={onPush}
           onAskAgent={onAskAgent}
           onMerge={onMerge}

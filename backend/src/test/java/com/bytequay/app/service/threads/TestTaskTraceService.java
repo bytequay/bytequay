@@ -53,14 +53,16 @@ class TestTaskTraceService
     @Test
     void countsLoopRevisitsAndFlagsTheActiveBucket()
     {
-        // Implement → Validate → Review → (loop) Address → Re-review → Push → Wait CI.
+        // Implement → Validate → Review → (rework loop) Implement → Validate
+        // → Review → Push → Wait CI.
         List<TaskPhaseEvent> log = events(
                 null, TaskPhase.IMPLEMENTING,
                 TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING,
                 TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW,
-                TaskPhase.INTERNAL_REVIEW, TaskPhase.ADDRESSING_COMMENTS,
-                TaskPhase.ADDRESSING_COMMENTS, TaskPhase.AGENT_RE_REVIEW,
-                TaskPhase.AGENT_RE_REVIEW, TaskPhase.AWAITING_PUSH,
+                TaskPhase.INTERNAL_REVIEW, TaskPhase.IMPLEMENTING,
+                TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING,
+                TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW,
+                TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH,
                 TaskPhase.AWAITING_PUSH, TaskPhase.PUSHED_AWAITING_CI);
         stub(TaskPhase.PUSHED_AWAITING_CI, log);
 
@@ -68,13 +70,14 @@ class TestTaskTraceService
 
         assertThat(trace.currentPhase()).isEqualTo("PUSHED_AWAITING_CI");
         assertThat(trace.currentMilestone()).isEqualTo("WAIT_ON_PR");
-        assertThat(trace.events()).hasSize(7);
+        assertThat(trace.events()).hasSize(8);
 
-        // IMPLEMENT entered twice (initial + the Address loop); REVIEW twice
-        // (Review + Re-review). Consecutive same-bucket phases don't recount.
+        // IMPLEMENT, VALIDATE and REVIEW each entered twice (the rework
+        // loop redoes all three). Consecutive same-bucket phases don't
+        // recount.
         assertThat(visits(trace, "IMPLEMENT")).isEqualTo(2);
         assertThat(visits(trace, "REVIEW")).isEqualTo(2);
-        assertThat(visits(trace, "VALIDATE")).isEqualTo(1);
+        assertThat(visits(trace, "VALIDATE")).isEqualTo(2);
         assertThat(visits(trace, "WAIT_ON_PR")).isEqualTo(1);
         assertThat(visits(trace, "MERGE")).isEqualTo(0);
 
@@ -111,15 +114,14 @@ class TestTaskTraceService
                 null, TaskPhase.IMPLEMENTING,
                 TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING,
                 TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW,
-                TaskPhase.INTERNAL_REVIEW, TaskPhase.ADDRESSING_COMMENTS,
-                TaskPhase.ADDRESSING_COMMENTS, TaskPhase.IMPLEMENTING);
+                TaskPhase.INTERNAL_REVIEW, TaskPhase.IMPLEMENTING);
         stub(TaskPhase.IMPLEMENTING, log);
 
         TaskTraceResponse trace = service.trace("t1.k1").orElseThrow();
 
-        // First Implement reads "Implement"; the looped one reads "Address".
+        // First Implement reads "Implement"; the reworked one reads "Address".
         assertThat(trace.events().get(0).label()).isEqualTo("Implement");
-        assertThat(trace.events().get(4).label()).isEqualTo("Address");
+        assertThat(trace.events().get(3).label()).isEqualTo("Address");
 
         // nextPossible from IMPLEMENTING = its forward edge (Validate) plus
         // the universal external-merge escape (Merged), never NEEDS_ATTENTION.

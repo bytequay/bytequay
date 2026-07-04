@@ -18,14 +18,24 @@ import java.util.UUID;
 
 /**
  * A unified inline review comment on a Task's diff, across all sources.
- * {@code remoteLink} is populated iff {@code source} is
- * {@link ReviewCommentSource#REMOTE_REVIEWER} — a DB check constraint
- * enforces that invariant. Only {@code LOCAL_USER} rows exist today; the
- * agent and remote sources arrive with their write sites later.
+ * {@code remoteLink} and {@code remoteCommentId} are populated iff
+ * {@code source} is {@link ReviewCommentSource#REMOTE_REVIEWER} — a DB
+ * check constraint enforces the {@code remoteLink} half of that invariant.
+ *
+ * <p>{@code roundId} groups a remote comment into a {@code ReviewRound}
+ * batch (null until {@code ReviewRoundService} assigns it).
+ * {@code draftReplyBody} is the round agent's locally-drafted reply —
+ * nothing posts to GitHub until the round's gate approval reads it and
+ * calls {@code PullRequestService.replyToReviewThread} with
+ * {@code remoteCommentId} as the thread root.
  *
  * @param file relative path
  * @param body markdown
  * @param remoteLink github.com discussion link, non-null iff remote-sourced
+ * @param remoteCommentId the raw GitHub comment id, non-null iff remote-sourced
+ * @param roundId the {@code ReviewRound} this comment is grouped into, if any
+ * @param draftReplyBody the round agent's drafted (unposted) reply, if any
+ * @param draftReplyCreatedAt when the draft reply was recorded, if any
  */
 public record ReviewComment(
         UUID id,
@@ -36,6 +46,10 @@ public record ReviewComment(
         Instant createdAt,
         ReviewCommentSource source,
         String remoteLink,
-        boolean resolved)
+        boolean resolved,
+        Long remoteCommentId,
+        UUID roundId,
+        String draftReplyBody,
+        Instant draftReplyCreatedAt)
 {
 }

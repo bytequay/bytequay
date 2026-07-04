@@ -17,9 +17,8 @@ package com.bytequay.app.domain;
  * What a {@link ReviewPass} is hosted by. {@link #THREAD} is the
  * standalone "Assign review" flow (carries the spawn-build affordance);
  * {@link #TASK_PHASE} is a pass the dev-task lifecycle runs at
- * INTERNAL_REVIEW / AGENT_RE_REVIEW (no spawn-build — the dev task IS
- * the build). {@code host_id} points at the review thread or the task
- * respectively.
+ * INTERNAL_REVIEW (no spawn-build — the dev task IS the build).
+ * {@code host_id} points at the review thread or the task respectively.
  */
 public enum ReviewPassHostKind
 {

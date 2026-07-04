@@ -200,8 +200,42 @@ class SqliteStageStore
         entity.setSource(comment.source().name());
         entity.setRemoteLink(comment.remoteLink());
         entity.setResolved(comment.resolved());
+        entity.setRemoteCommentId(comment.remoteCommentId());
+        entity.setRoundId(comment.roundId() == null ? null : comment.roundId().toString());
+        entity.setDraftReplyBody(comment.draftReplyBody());
+        entity.setDraftReplyCreatedAtMs(comment.draftReplyCreatedAt() == null
+                ? null : comment.draftReplyCreatedAt().toEpochMilli());
         comments.save(entity);
         return toComment(entity);
+    }
+
+    @Override
+    public List<ReviewComment> findUnroundedRemoteComments(String taskId)
+    {
+        return comments.findByTaskIdAndSourceAndRoundIdIsNull(taskId, ReviewCommentSource.REMOTE_REVIEWER.name())
+                .stream()
+                .map(SqliteStageStore::toComment)
+                .toList();
+    }
+
+    @Override
+    public List<ReviewComment> findCommentsByRound(UUID roundId)
+    {
+        return comments.findByRoundIdOrderByCreatedAtMsAsc(roundId.toString()).stream()
+                .map(SqliteStageStore::toComment)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void assignCommentsToRound(List<UUID> commentIds, UUID roundId)
+    {
+        for (UUID commentId : commentIds) {
+            comments.findById(commentId.toString()).ifPresent(entity -> {
+                entity.setRoundId(roundId.toString());
+                comments.save(entity);
+            });
+        }
     }
 
     @Override
@@ -334,6 +368,10 @@ class SqliteStageStore
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 ReviewCommentSource.valueOf(e.getSource()),
                 e.getRemoteLink(),
-                e.isResolved());
+                e.isResolved(),
+                e.getRemoteCommentId(),
+                e.getRoundId() == null ? null : UUID.fromString(e.getRoundId()),
+                e.getDraftReplyBody(),
+                Timestamps.instant(e.getDraftReplyCreatedAtMs()));
     }
 }

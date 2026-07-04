@@ -16,8 +16,6 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
-import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
-import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.TaskPhase;
 import org.junit.jupiter.api.Test;
 
@@ -74,11 +72,13 @@ class TestTaskLifecyclePhases
     }
 
     @Test
-    void greenReadyWithChangesRequestedAddressesComments()
+    void greenReadyWithChangesRequestedStillAwaitsRemoteReview()
     {
+        // Changes requested no longer diverts the phase — a review_round
+        // AgentRun addresses it beside AWAITING_REMOTE_REVIEW instead.
         assertThat(TaskLifecyclePhases.observedPhaseFor(
                 pr(CiStatus.PASSING, false, "open", null, Map.of("bob", "CHANGES_REQUESTED"))))
-                .contains(TaskPhase.ADDRESSING_COMMENTS);
+                .contains(TaskPhase.AWAITING_REMOTE_REVIEW);
     }
 
     @Test
@@ -132,60 +132,6 @@ class TestTaskLifecyclePhases
         PullRequestDetail closed = mock(PullRequestDetail.class);
         when(closed.state()).thenReturn("closed");
         assertThat(TaskLifecyclePhases.observedPhaseFromDetail(closed)).contains(TaskPhase.COMPLETED);
-    }
-
-    @Test
-    void unresolvedReviewCommentsNewerThanTheMarkerAreUnaddressed()
-    {
-        Instant older = Instant.parse("2026-06-01T09:00:00Z");
-        Instant newer = Instant.parse("2026-06-10T09:00:00Z");
-        PullRequestDetail d = detailWithThreads(List.of(
-                unresolvedThread(older), unresolvedThread(newer)));
-
-        // Marker between the two: only the newer comment counts, and the
-        // returned instant is that newest unaddressed comment.
-        assertThat(TaskLifecyclePhases.newestUnaddressedReviewComment(d, older))
-                .contains(newer);
-        // No marker yet → everything is new; newest wins.
-        assertThat(TaskLifecyclePhases.newestUnaddressedReviewComment(d, null))
-                .contains(newer);
-        // Marker at/after the newest → nothing new to address.
-        assertThat(TaskLifecyclePhases.newestUnaddressedReviewComment(d, newer))
-                .isEmpty();
-    }
-
-    @Test
-    void resolvedReviewThreadsAreNeverUnaddressed()
-    {
-        Instant at = Instant.parse("2026-06-10T09:00:00Z");
-        ReviewThread resolved = new ReviewThread(1L, "Foo.java", 10, "RIGHT", null,
-                List.of(new ReviewMessage(1L, "reviewer", "fixed?", at, null, null, "COLLABORATOR")),
-                /* resolved */ true, false, null, null, null, null);
-        PullRequestDetail d = detailWithThreads(List.of(resolved));
-
-        assertThat(TaskLifecyclePhases.newestUnaddressedReviewComment(d, null)).isEmpty();
-    }
-
-    @Test
-    void noReviewThreadsMeansNothingToAddress()
-    {
-        assertThat(TaskLifecyclePhases.newestUnaddressedReviewComment(
-                detailWithThreads(List.of()), null)).isEmpty();
-        assertThat(TaskLifecyclePhases.newestUnaddressedReviewComment(null, null)).isEmpty();
-    }
-
-    private static PullRequestDetail detailWithThreads(List<ReviewThread> threads)
-    {
-        PullRequestDetail d = mock(PullRequestDetail.class);
-        when(d.reviewThreads()).thenReturn(threads);
-        return d;
-    }
-
-    private static ReviewThread unresolvedThread(Instant at)
-    {
-        return new ReviewThread(1L, "Foo.java", 10, "RIGHT", null,
-                List.of(new ReviewMessage(1L, "reviewer", "please fix", at, null, null, "COLLABORATOR")),
-                /* resolved */ false, /* outdated */ false, null, null, null, null);
     }
 
     private static PullRequestDetail detail(CiStatus ci, boolean draft)

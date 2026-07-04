@@ -29,4 +29,10 @@ interface ReviewCommentJpaRepository
     /** Dedup guard for remote-comment ingestion — remote_link is unique
      *  per github.com discussion comment. */
     boolean existsByRemoteLink(String remoteLink);
+
+    /** Remote comments not yet grouped into a round — what ReviewRoundService
+     *  batches on each reconcile sweep. */
+    List<ReviewCommentEntity> findByTaskIdAndSourceAndRoundIdIsNull(String taskId, String source);
+
+    List<ReviewCommentEntity> findByRoundIdOrderByCreatedAtMsAsc(String roundId);
 }

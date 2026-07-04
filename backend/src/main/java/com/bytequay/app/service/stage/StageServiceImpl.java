@@ -852,8 +852,7 @@ public class StageServiceImpl
 
     /** The phases in which a callable panel review can be spawned — kept in
      *  step with {@code ReviewStageServiceImpl}'s server-side guard. */
-    private static final Set<TaskPhase> PANEL_SPAWNABLE_PHASES =
-            EnumSet.of(TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_UPDATE_PUSH);
+    private static final Set<TaskPhase> PANEL_SPAWNABLE_PHASES = EnumSet.of(TaskPhase.INTERNAL_REVIEW);
 
     /** The open/active top-level stage a panel review would be called from —
      *  the callable sub-stage itself never qualifies as a parent. */
@@ -1088,6 +1087,7 @@ public class StageServiceImpl
             case REVIEW_MONITOR_STAGE -> "Review monitor";
             case CLEANUP_STAGE -> "Cleanup";
             case REVIEW_STAGE -> "Review panel";
+            case REVIEW_ROUND_STAGE -> "Review round";
         };
     }
 

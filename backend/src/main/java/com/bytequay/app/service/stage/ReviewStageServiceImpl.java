@@ -53,9 +53,8 @@ public class ReviewStageServiceImpl
     private static final Logger log = LoggerFactory.getLogger(ReviewStageServiceImpl.class);
 
     /** A panel review is only callable while the task is reviewing its own
-     *  work before (or between) pushing — the internal-review contexts. */
-    private static final Set<TaskPhase> REVIEWABLE_PHASES =
-            EnumSet.of(TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_UPDATE_PUSH);
+     *  work before pushing — the internal-review context. */
+    private static final Set<TaskPhase> REVIEWABLE_PHASES = EnumSet.of(TaskPhase.INTERNAL_REVIEW);
 
     private final StageStore stageStore;
     private final TaskStore taskStore;

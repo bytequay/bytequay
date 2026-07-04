@@ -17,8 +17,6 @@ import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
-import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
@@ -30,12 +28,11 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.repository.TaskReviewMarkerStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.stage.IterationService;
+import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.bytequay.app.service.tools.ParkedProposal;
@@ -51,9 +48,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -93,8 +88,7 @@ public class TaskLifecycleDriver
     static final Set<TaskPhase> REMOTE_SPINE = EnumSet.of(
             TaskPhase.PUSHED_AWAITING_CI,
             TaskPhase.AWAITING_READY,
-            TaskPhase.AWAITING_REMOTE_REVIEW,
-            TaskPhase.AWAITING_UPDATE_PUSH);
+            TaskPhase.AWAITING_REMOTE_REVIEW);
 
     /** Phases the local-comments loop watches: the wait state itself, plus
      *  the addressing state (so a finished or still-in-progress round is
@@ -107,14 +101,13 @@ public class TaskLifecycleDriver
     private final PullRequestService pullRequests;
     private final TaskPhaseMachine phaseMachine;
     private final WorktreeService worktrees;
-    private final TaskReviewMarkerStore reviewMarkers;
     private final ThreadStore threadStore;
     private final ThreadTurnScheduler scheduler;
     private final NotificationService notifications;
     private final ObjectMapper mapper;
     private final RemoteCommentIngestor commentIngestor;
     private final ReadyToMergeService readyToMerge;
-    private final IterationService iterationService;
+    private final ReviewRoundService reviewRounds;
     private final ThreadRegistry registry;
     private final StageStore stageStore;
     private final LocalPRService localPr;
@@ -124,14 +117,13 @@ public class TaskLifecycleDriver
             PullRequestService pullRequests,
             TaskPhaseMachine phaseMachine,
             WorktreeService worktrees,
-            TaskReviewMarkerStore reviewMarkers,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             NotificationService notifications,
             ObjectMapper mapper,
             RemoteCommentIngestor commentIngestor,
             ReadyToMergeService readyToMerge,
-            IterationService iterationService,
+            ReviewRoundService reviewRounds,
             ThreadRegistry registry,
             StageStore stageStore,
             LocalPRService localPr)
@@ -140,14 +132,13 @@ public class TaskLifecycleDriver
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
-        this.reviewMarkers = requireNonNull(reviewMarkers, "reviewMarkers is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.commentIngestor = requireNonNull(commentIngestor, "commentIngestor is null");
         this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
-        this.iterationService = requireNonNull(iterationService, "iterationService is null");
+        this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.localPr = requireNonNull(localPr, "localPr is null");
@@ -270,71 +261,13 @@ public class TaskLifecycleDriver
             }
             return;
         }
-        if (phase == TaskPhase.AWAITING_REMOTE_REVIEW) {
-            Optional<Instant> newest = TaskLifecyclePhases.newestUnaddressedReviewComment(
-                    detail, reviewMarkers.find(task.id()).orElse(null));
-            if (newest.isPresent()) {
-                startAddressComments(task, repo, number, detail, newest.get());
-                return;
-            }
-        }
         phaseMachine.observe(task.id(), phase, "pr_state_observed");
-    }
-
-    /**
-     * A ready PR has a fresh round of unresolved reviewer comments. Move
-     * the task onto the address-comments spine, tell the user, and kick off
-     * an <em>analysis</em> turn that presents a per-comment plan and then
-     * stops — the user reviews / discusses / edits it in the task chat and
-     * tells the agent to proceed before anything is addressed (decision:
-     * ask first; addressing is never autonomous). The user's "go ahead" is
-     * just their next chat turn, which addresses the comments one by one
-     * with the existing reply / push gate tools.
-     */
-    private void startAddressComments(
-            Task task, String repo, int number, PullRequestDetail detail, Instant newest)
-    {
-        phaseMachine.observe(task.id(), TaskPhase.ADDRESSING_COMMENTS, "new_review_comments");
-        // Advance the marker up front so a later sweep doesn't re-trigger on
-        // the same comments while the analysis / user review is underway; a
-        // genuinely newer round of comments still reads as new.
-        reviewMarkers.mark(task.id(), newest);
-        notifyNewComments(task, repo, number);
-        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
-        if (threadOpt.isEmpty()) {
-            log.warn("address-comments: thread {} not found (task {})", task.threadId(), task.id());
-            return;
-        }
-        Thread thread = threadOpt.get();
-        if (thread.status() != ThreadStatus.IDLE) {
-            // Busy thread — the notification already alerted the user, who
-            // can open the task and start the analysis themselves. Don't
-            // stack a turn on top of a running one.
-            log.info("address-comments: thread {} is {} (task {}); notified only",
-                    thread.id(), thread.status(), task.id());
-            return;
-        }
-        String prompt = buildReviewAnalysisPrompt(
-                repo, number, detail, iterationService.latestCiFixingSummaries(task.id()));
-        try {
-            // Bind the task id AND the review-monitor stage so this runs on the
-            // task's own agent and its messages land in stage_messages, not the
-            // thread slice. The stage is PAUSED while it waits on remote review,
-            // which findActiveStage (OPEN/ACTIVE only) misses — so pin it
-            // explicitly via findLiveStageByType.
-            String stageId = stageStore.findLiveStageByType(task.id(), StageType.REVIEW_MONITOR_STAGE)
-                    .map(s -> s.id().toString())
-                    .orElse(null);
-            String turnId = scheduler.enqueueTaskTurn(
-                    thread, prompt, task.id(), stageId,
-                    TurnInitiator.unattended("address-comments-analysis"));
-            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_NEW_COMMENTS);
-            log.info("address-comments: analysis turn queued for task {} on {} #{}",
-                    task.id(), repo, number);
-        }
-        catch (RuntimeException e) {
-            log.warn("address-comments analysis enqueue failed for task {}: {}",
-                    task.id(), e.getMessage());
+        if (phase == TaskPhase.AWAITING_REMOTE_REVIEW) {
+            // The phase no longer moves for a new batch of reviewer comments
+            // — a review_round AgentRun triages and addresses it beside this
+            // phase. reviewRounds reads directly from the review_comment
+            // rows commentIngestor just mirrored in, above.
+            reviewRounds.reconcile(task);
         }
     }
 
@@ -499,80 +432,6 @@ public class TaskLifecycleDriver
             log.warn("Failed to write mark-ready gate payload for task {}: {}",
                     task.id(), e.getMessage());
         }
-    }
-
-    /** Best-effort NEEDS_ATTENTION row so the bell flags the new comments
-     *  even if the user isn't looking at the task chat. */
-    private void notifyNewComments(Task task, String repo, int number)
-    {
-        try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("reason", "New review comments");
-            payload.put("repoFullName", repo);
-            payload.put("prNumber", number);
-            notifications.notifyNeedsAttention(
-                    task.threadId(), task.id(), mapper.writeValueAsString(payload));
-        }
-        catch (JsonProcessingException e) {
-            log.warn("Failed to write new-review-comments payload for task {}: {}",
-                    task.id(), e.getMessage());
-        }
-    }
-
-    /** The analysis turn's first prompt. Carries the unresolved review
-     *  threads inline so the agent needn't re-fetch the PR, asks for a
-     *  structured per-comment analysis, and tells it to STOP and wait for
-     *  the user before addressing anything. */
-    private static String buildReviewAnalysisPrompt(
-            String repo, int number, PullRequestDetail detail, List<String> ciFixingSummaries)
-    {
-        StringBuilder out = new StringBuilder();
-        out.append("New review comments arrived on ").append(repo).append(" #").append(number)
-                .append(". Do NOT change code or reply on the PR yet.\n\n");
-        // Seed the agent with what the CI-fixing stage just did, so it
-        // doesn't re-derive context the prior stage already established.
-        if (ciFixingSummaries != null && !ciFixingSummaries.isEmpty()) {
-            out.append("Recent CI-fixing iterations on this task:\n");
-            for (String summary : ciFixingSummaries) {
-                out.append("  - ").append(summary).append('\n');
-            }
-            out.append('\n');
-        }
-        out
-                .append("For EACH unresolved review thread below, write a short analysis:\n")
-                .append("  1. Summary — what is the comment asking?\n")
-                .append("  2. Problem — what is actually wrong, if anything?\n")
-                .append("  3. Does it make sense? If you disagree, draft a respectful "
-                        + "push-back reply.\n")
-                .append("  4. If it needs a code change, give a concrete plan for the fix.\n\n")
-                .append("Then STOP and wait. I'll review your analysis, discuss any of it, and "
-                        + "tell you to proceed. Only after I confirm should you address them one "
-                        + "by one — implement the fix or post the push-back, validate, push, and "
-                        + "reply on the threads.\n\n")
-                .append("Unresolved review threads:\n");
-        int i = 1;
-        for (ReviewThread thread : detail.reviewThreads()) {
-            if (Boolean.TRUE.equals(thread.resolved())
-                    || thread.messages() == null
-                    || thread.messages().isEmpty()) {
-                continue;
-            }
-            out.append('\n').append(i++).append(". ");
-            if (thread.filePath() != null) {
-                out.append(thread.filePath());
-                if (thread.line() != null) {
-                    out.append(':').append(thread.line());
-                }
-            }
-            out.append('\n');
-            for (ReviewMessage message : thread.messages()) {
-                out.append("   @").append(message.author() == null ? "?" : message.author())
-                        .append(": ")
-                        .append(message.body() == null ? "" : message.body().strip())
-                        .append('\n');
-            }
-        }
-        return out.toString();
     }
 
     /** Drive a task to a terminal state from an observed remote merge /

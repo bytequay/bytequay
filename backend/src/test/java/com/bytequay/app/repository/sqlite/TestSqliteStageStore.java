@@ -149,10 +149,10 @@ class TestSqliteStageStore
 
         ReviewComment unresolved = stageStore.saveReviewComment(new ReviewComment(
                 null, taskId, "src/Foo.java", 12, "nit: rename", now,
-                ReviewCommentSource.LOCAL_USER, null, false));
+                ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null));
         stageStore.saveReviewComment(new ReviewComment(
                 null, taskId, "src/Bar.java", 3, "addressed", now,
-                ReviewCommentSource.LOCAL_USER, null, true));
+                ReviewCommentSource.LOCAL_USER, null, true, null, null, null, null));
 
         assertThat(stageStore.findReviewCommentById(unresolved.id())).isPresent();
         assertThat(stageStore.findUnresolvedComments(taskId))

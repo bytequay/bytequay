@@ -137,4 +137,15 @@ public interface StageStore
     default void setReviewCommentResolved(UUID id, boolean resolved)
     {
     }
+
+    /** A task's remote-reviewer comments not yet grouped into a
+     *  {@code ReviewRound} — what {@code ReviewRoundService} batches each
+     *  reconcile sweep. */
+    List<ReviewComment> findUnroundedRemoteComments(String taskId);
+
+    /** A round's assigned comments, oldest-first. */
+    List<ReviewComment> findCommentsByRound(UUID roundId);
+
+    /** Assign a batch of comments to a round in one go. */
+    void assignCommentsToRound(List<UUID> commentIds, UUID roundId);
 }

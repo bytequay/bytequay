@@ -39,10 +39,8 @@ class TestTaskFlowLabels
     void phasesThatShareABucketMapToTheSameMilestone()
     {
         // The loop phases collapse into their stage's bucket.
-        assertThat(TaskMilestone.of(TaskPhase.ADDRESSING_COMMENTS)).isEqualTo(TaskMilestone.IMPLEMENT);
+        assertThat(TaskMilestone.of(TaskPhase.ADDRESSING_LOCAL_COMMENTS)).isEqualTo(TaskMilestone.PUSH);
         assertThat(TaskMilestone.of(TaskPhase.IMPLEMENTING)).isEqualTo(TaskMilestone.IMPLEMENT);
-        assertThat(TaskMilestone.of(TaskPhase.AGENT_RE_REVIEW)).isEqualTo(TaskMilestone.REVIEW);
-        assertThat(TaskMilestone.of(TaskPhase.AWAITING_UPDATE_PUSH)).isEqualTo(TaskMilestone.PUSH);
         assertThat(TaskMilestone.of(TaskPhase.AWAITING_READY)).isEqualTo(TaskMilestone.WAIT_ON_PR);
         assertThat(TaskMilestone.of(TaskPhase.AWAITING_REMOTE_REVIEW)).isEqualTo(TaskMilestone.WAIT_ON_PR);
     }
@@ -80,7 +78,6 @@ class TestTaskFlowLabels
     {
         List<TaskPhaseEvent> none = List.of();
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_PUSH), none)).isEqualTo("Push");
-        assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_UPDATE_PUSH), none)).isEqualTo("Push update");
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_READY), none)).isEqualTo("Mark ready");
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_REMOTE_REVIEW), none)).isEqualTo("Remote review");
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.COMPLETED), none)).isEqualTo("Merged");

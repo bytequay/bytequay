@@ -188,7 +188,7 @@ class TestStageLifecycle
     }
 
     @Test
-    void reviewMonitorStageArmsAndStaysAcrossOverlapPhases()
+    void reviewMonitorStageArmsAndStaysThroughRoundActivity()
     {
         String taskId = seedTask();
         events.publishEvent(new TaskCreatedEvent(taskId));
@@ -204,14 +204,19 @@ class TestStageLifecycle
         assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
         assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
 
-        // Addressing comments and the awaiting_update_push gate both stay in
-        // the review-monitor stage.
-        machine.transition(taskId, TaskPhase.ADDRESSING_COMMENTS, "new_comment", Actor.WEBHOOK);
-        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
-        machine.transition(taskId, TaskPhase.AGENT_RE_REVIEW, "re_review", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.AWAITING_UPDATE_PUSH, "approved", Actor.HUMAN);
+        // A review_round AgentRun works beside this phase (its own backing
+        // stage, opened directly — not through a phase transition), so
+        // review-monitor stays the active stage for the task's whole time
+        // on the remote-review spine.
         assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
         assertThat(stagesOfType(taskId, StageType.REVIEW_MONITOR_STAGE)).hasSize(1);
+
+        // The round's gate approval pushes straight to PUSHED_AWAITING_CI —
+        // an unmapped idle wait, same as after any other push, so
+        // review-monitor stays active (mirrors how DevelopmentStage stays
+        // active through the same phase after the first push).
+        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "round_approved", Actor.HUMAN);
+        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
     }
 
     @Test

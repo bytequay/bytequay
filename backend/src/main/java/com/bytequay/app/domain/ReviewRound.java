@@ -1,0 +1,81 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.domain;
+
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * One reviewer batch + the agent's entire response to it — triage, fix
+ * commits, drafted replies, and any nested {@code ci_fix} run — gated
+ * behind a single posting approval (plan-rail-runs.md R11-R13).
+ *
+ * @param idx 1-based round number for this task (round 1, 2, 3...)
+ * @param reviewers the reviewer handles this batch came from, e.g. "@alice"
+ * @param runId the round's own {@code agent_run(kind=review_round)} row,
+ *              null until the run opens
+ * @param gatedAt when drafts became ready for the user to review, null while live
+ * @param postedAt when the user approved the gate (posted + pushed), null until then
+ */
+public record ReviewRound(
+        String id,
+        String taskId,
+        int idx,
+        List<String> reviewers,
+        String status,
+        ReviewRoundStats stats,
+        String runId,
+        Instant openedAt,
+        Instant gatedAt,
+        Instant postedAt)
+{
+    public static final String STATUS_TRIAGING = "triaging";
+    public static final String STATUS_ADDRESSING = "addressing";
+    public static final String STATUS_AWAITING_GATE = "awaiting_gate";
+    public static final String STATUS_POSTED = "posted";
+    public static final String STATUS_CLOSED = "closed";
+
+    public record ReviewRoundStats(int fixed, int replied, int pushedBack, int open)
+    {
+        public static ReviewRoundStats empty()
+        {
+            return new ReviewRoundStats(0, 0, 0, 0);
+        }
+    }
+
+    public ReviewRound withRunId(String runId)
+    {
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+    }
+
+    public ReviewRound withStatus(String status)
+    {
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+    }
+
+    public ReviewRound withStats(ReviewRoundStats stats)
+    {
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+    }
+
+    public ReviewRound withGatedAt(Instant gatedAt)
+    {
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+    }
+
+    public ReviewRound withPostedAt(Instant postedAt)
+    {
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+    }
+}

@@ -36,11 +36,10 @@ public enum TaskPhaseGroup
     {
         return switch (phase) {
             case IMPLEMENTING, VALIDATING, INTERNAL_REVIEW, PUSHED_AWAITING_CI,
-                 ADDRESSING_COMMENTS, AGENT_RE_REVIEW, ADDRESSING_LOCAL_COMMENTS -> IN_PROGRESS;
+                 ADDRESSING_LOCAL_COMMENTS -> IN_PROGRESS;
             // PLANNING holds for the user to approve the plan before any dev
             // work starts — it's an action the user owns.
-            case PLANNING, AWAITING_PUSH, AWAITING_READY, AWAITING_UPDATE_PUSH,
-                 NEEDS_ATTENTION -> AWAITING_YOU;
+            case PLANNING, AWAITING_PUSH, AWAITING_READY, NEEDS_ATTENTION -> AWAITING_YOU;
             // QUEUED waits on the scheduler to free a slot; the remote-
             // review wait is on external humans. Neither needs the user.
             case QUEUED, AWAITING_REMOTE_REVIEW -> IDLE;

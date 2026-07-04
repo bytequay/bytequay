@@ -18,20 +18,24 @@ package com.bytequay.app.domain;
  * "writing code" through "PR merged". Orthogonal to {@link TaskStatus},
  * which stays the agent <em>runtime</em> liveness axis (is the
  * subprocess alive / at a permission gate); a task can be {@code
- * phase=ADDRESSING_COMMENTS} while {@code status=RUNNING} or {@code
+ * phase=AWAITING_REMOTE_REVIEW} while {@code status=RUNNING} or {@code
  * IDLE}.
  *
- * <p>The 13 forward phases are deliberately granular — each maps to a
+ * <p>The forward phases are deliberately granular — each maps to a
  * distinct thing the agent or human is doing or waiting on. They are not
  * to be folded. {@link #NEEDS_ATTENTION} is a parked escape reachable
  * from any phase, not a forward step.
  *
  * <p>Pushes to the remote only ever originate from {@link #AWAITING_PUSH}
- * and {@link #AWAITING_UPDATE_PUSH} — every one human-approved (or auto,
- * within the consecutive-auto cap). A red CI check on {@link
- * #PUSHED_AWAITING_CI} no longer moves the phase at all — it opens a
- * {@code ci_fix} {@code AgentRun} that fixes and re-pushes beside whatever
- * phase the task is already on (see {@code CiFixRunExecutor}).
+ * — every one human-approved (or auto, within the consecutive-auto cap).
+ * A red CI check on {@link #PUSHED_AWAITING_CI} no longer moves the phase
+ * at all — it opens a {@code ci_fix} {@code AgentRun} that fixes and
+ * re-pushes beside whatever phase the task is already on (see {@code
+ * CiFixRunExecutor}). Likewise, remote review comments no longer move the
+ * phase off {@link #AWAITING_REMOTE_REVIEW} — a {@code review_round}
+ * {@code AgentRun} triages, fixes, and drafts replies beside it, and the
+ * round's own gate approval pushes straight to {@link #PUSHED_AWAITING_CI}
+ * (see {@code ReviewRoundService}).
  */
 public enum TaskPhase
 {
@@ -68,7 +72,7 @@ public enum TaskPhase
     /** New local PR review comments arrived (pre-push); agent is
      *  addressing them directly (no gate — the unpushed branch is the
      *  safety buffer), then returns to {@link #AWAITING_PUSH}. The local
-     *  twin of {@link #ADDRESSING_COMMENTS}. */
+     *  twin of a remote {@code review_round}. */
     ADDRESSING_LOCAL_COMMENTS,
 
     /** Branch pushed; waiting on remote CI to report. Also the phase a task
@@ -80,19 +84,11 @@ public enum TaskPhase
      *  for remote review. */
     AWAITING_READY,
 
-    /** PR is ready; waiting on remote reviewers (external humans). */
+    /** PR is ready; waiting on remote reviewers (external humans). Also the
+     *  phase a task holds at while a {@code review_round} {@code AgentRun}
+     *  triages and addresses a batch of reviewer comments — the run works
+     *  beside this phase rather than moving it. */
     AWAITING_REMOTE_REVIEW,
-
-    /** Remote review comments arrived; agent is addressing them. */
-    ADDRESSING_COMMENTS,
-
-    /** A TaskPhase-hosted RE_REVIEW pass (Loop D) is verifying the prior
-     *  findings were addressed. */
-    AGENT_RE_REVIEW,
-
-    /** Comments addressed + re-review clean; holding for the human to
-     *  approve the update push. */
-    AWAITING_UPDATE_PUSH,
 
     /** Terminal: the PR merged (success) or was closed (cancelled). */
     COMPLETED,

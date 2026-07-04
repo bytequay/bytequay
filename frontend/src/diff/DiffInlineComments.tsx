@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import type { LocalPRComment } from '../types/localPr';
+import { useAutoGrow } from '../useAutoGrow';
 
 function initials(author: string): string {
   const cleaned = author.replace(/^@/, '');
@@ -37,6 +38,7 @@ export function DiffInlineComments({
   onResolve?: (commentId: string) => void;
 }) {
   const [draft, setDraft] = useState('');
+  const draftRef = useAutoGrow(draft);
   const submit = () => {
     const body = draft.trim();
     if (body.length > 0 && onAdd !== undefined) { onAdd(body); setDraft(''); }
@@ -69,6 +71,7 @@ export function DiffInlineComments({
       {allowLocalComments && onAdd !== undefined && (
         <div className="cd-inline-comment">
           <textarea
+            ref={draftRef}
             className="ic-composer"
             placeholder="Leave a local comment… (⌘↵ to save)"
             value={draft}

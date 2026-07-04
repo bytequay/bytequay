@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { MarkdownProse } from '../../threads/MarkdownProse';
+import { useAutoGrow } from '../../useAutoGrow';
 
 const TOOLBAR = ['H', 'B', 'I', '"', '<>', '🔗', '≡', '1.'];
 
@@ -32,6 +33,7 @@ export function PRCommentComposer({
   onSubmit?: () => void;
 }) {
   const [tab, setTab] = useState<'write' | 'preview'>('write');
+  const inputRef = useAutoGrow(value);
   const submit = () => {
     if (onSubmit !== undefined && value.trim().length > 0) onSubmit();
   };
@@ -55,6 +57,7 @@ export function PRCommentComposer({
             {TOOLBAR.map(g => <span key={g}>{g}</span>)}
           </div>
           <textarea
+            ref={inputRef}
             className="cc-input"
             placeholder="Leave a comment on this PR…"
             value={value}

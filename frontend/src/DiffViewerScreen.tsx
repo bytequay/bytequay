@@ -565,6 +565,8 @@ type FinishReviewPanelProps = {
   discardRunning: boolean;
   publishState: 'idle' | 'running' | 'error';
   publishError: string | null;
+  /** Logins offered as @mention autocomplete in the review body. */
+  mentionCandidates: string[];
 };
 
 const VERDICT_OPTIONS: Array<{
@@ -602,6 +604,7 @@ function FinishReviewPanel({
   discardRunning,
   publishState,
   publishError,
+  mentionCandidates,
 }: FinishReviewPanelProps) {
   const submitting = publishState === 'running';
   return (
@@ -632,6 +635,7 @@ function FinishReviewPanel({
           rows={4}
           disabled={submitting}
           textareaClassName="finish-review-panel__textarea"
+          mentionCandidates={mentionCandidates}
         />
         {/* "Better words" polish — same affordance the inline-composer
             and PR-comment surfaces use, so the top-level review body
@@ -1791,6 +1795,13 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
   // their anchor row so reviewers see prior conversation while reading
   // the diff. Refreshed when the user posts a new inline comment.
   const [reviewThreads, setReviewThreads] = useState<ReviewThreadDto[]>([]);
+  // @mention candidates for the review-submit box — everyone already on
+  // this PR (author + anyone who's commented on a thread), bots dropped.
+  const mentionCandidates = useMemo(() => Array.from(new Set([
+    pr.author,
+    ...reviewThreads.flatMap(t => t.messages.map(m => m.author)),
+  ].filter((x): x is string => typeof x === 'string' && x.length > 0 && !x.includes('[bot]'))))
+    .sort((a, b) => a.localeCompare(b)), [pr.author, reviewThreads]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const aiSidebarRef = useRef<AiReviewSidebarHandle>(null);
 
@@ -2243,6 +2254,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
                     discardRunning={discardState === 'running'}
                     publishState={publishState}
                     publishError={publishError}
+                    mentionCandidates={mentionCandidates}
                   />
                 )}
               </>

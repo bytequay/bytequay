@@ -20,7 +20,9 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window
 
 function mockBridge(over: Record<string, unknown> = {}) {
   const bridge = {
-    getTask: vi.fn().mockResolvedValue({ id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z' }),
+    getTask: vi.fn().mockResolvedValue({
+      id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z', workspaceId: 'ws-1',
+    }),
     getTaskIndex: vi.fn().mockResolvedValue({
       threadId: 't1', totalUserMessages: 1, entries: [], loadedFromSeq: null, nextCursor: null,
       messages: [
@@ -105,6 +107,37 @@ describe('TrunkRoute', () => {
     expect(card).toBeTruthy();
     fireEvent.click(card);
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('reports the loaded thread\'s own workspace id', async () => {
+    const onWorkspaceResolved = vi.fn();
+    mockBridge();
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} onWorkspaceResolved={onWorkspaceResolved} />);
+    await waitFor(() => expect(onWorkspaceResolved).toHaveBeenCalledWith('ws-1'));
+  });
+
+  it('discards a slow response for a thread the user has since navigated away from', async () => {
+    let resolveT1Task: (v: unknown) => void = () => {};
+    const t1TaskPromise = new Promise(resolve => { resolveT1Task = resolve; });
+    mockBridge({
+      getTask: vi.fn((id: string) => (id === 't1'
+        ? t1TaskPromise
+        : Promise.resolve({ id: 't2', title: 'Other thread', createdAt: '2026-06-24T00:00:00Z' }))),
+    });
+
+    const { rerender } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    // Switch to a different thread before t1's slow getTask resolves —
+    // mirrors navigating home and clicking a different sidebar thread while
+    // the previous page's fetch is still in flight.
+    rerender(<TrunkRoute threadId="t2" onOpenTask={() => {}} />);
+    await screen.findAllByText('Other thread');
+
+    // t1's fetch finally resolves — it must not clobber t2's content, which
+    // is what's now on screen and what the sidebar highlight points at.
+    resolveT1Task({ id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z' });
+    await new Promise(r => setTimeout(r, 0));
+    expect(screen.queryByText('Backend cleanup')).toBeNull();
+    expect((await screen.findAllByText('Other thread')).length).toBeGreaterThanOrEqual(1);
   });
 
   it('folds the round work and surfaces the headline reply', async () => {

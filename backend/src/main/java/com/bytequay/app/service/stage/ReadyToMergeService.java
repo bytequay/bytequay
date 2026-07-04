@@ -148,11 +148,12 @@ public class ReadyToMergeService
      * The merge is pre-approved (standing consent), so keep it moving without
      * re-prompting. While the PR sits in the queue, wait. If it bounces back
      * out still ready, silently re-enqueue up to {@link #MAX_MERGE_QUEUE_RETRIES}
-     * times. When those run out, hand the task to CI fixing to investigate the
-     * queue failure, drop consent (a fresh approval is required afterward), and
-     * notify the user. A red CI head needs no special case here — the phase
-     * machine already routes it to CI fixing, and consent still stands so the
-     * PR auto-merges again once it's green.
+     * times. When those run out, park the task at NEEDS_ATTENTION — the head is
+     * green, so it isn't a CI-fix run's job, it's a merge-queue problem a human
+     * has to look at — drop consent (a fresh approval is required afterward),
+     * and notify the user. A red CI head needs no special case here — the
+     * automation coordinator already opens a ci_fix run for it, and consent
+     * still stands so the PR auto-merges again once it's green.
      */
     private void evaluateAuthorized(Task task, PullRequestDetail detail, boolean ready)
     {
@@ -179,11 +180,11 @@ public class ReadyToMergeService
             }
             return;
         }
-        // Retries exhausted with a green head — not a simple transient. Hand it
-        // to CI fixing to investigate, require fresh approval afterward, notify.
+        // Retries exhausted with a green head — not a simple transient. Park
+        // for the human, require fresh approval afterward, notify.
         taskStore.clearMergeNotificationSent(task.id());
         taskStore.clearMergeAuthorization(task.id());
-        phaseMachine.observe(task.id(), TaskPhase.CI_FIXING, "merge_queue_failed_repeatedly");
+        phaseMachine.observe(task.id(), TaskPhase.NEEDS_ATTENTION, "merge_queue_failed_repeatedly");
         notifyMergeQueueFailed(task, detail, pr);
     }
 

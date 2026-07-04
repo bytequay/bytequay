@@ -119,12 +119,7 @@ public class StageLifecycle
         if (active.isPresent()) {
             StageType activeType = active.get().type();
             // Stay put when the new phase is already the active stage's, or
-            // when it legally belongs to the active stage. The latter keeps a
-            // monitor stage stable across a phase that overlaps two stages —
-            // e.g. AWAITING_UPDATE_PUSH belongs to both CI-fixing and
-            // review-monitor; the active stage wins over forPhase's
-            // declaration-order precedence so a review-comment push doesn't
-            // flip the active stage to CI-fixing mid-loop.
+            // when it legally belongs to the active stage.
             if (activeType == target.get() || activeType.allowedPhases().contains(toPhase)) {
                 return;
             }

@@ -40,7 +40,6 @@ class TestTaskFlowLabels
     {
         // The loop phases collapse into their stage's bucket.
         assertThat(TaskMilestone.of(TaskPhase.ADDRESSING_COMMENTS)).isEqualTo(TaskMilestone.IMPLEMENT);
-        assertThat(TaskMilestone.of(TaskPhase.CI_FIXING)).isEqualTo(TaskMilestone.IMPLEMENT);
         assertThat(TaskMilestone.of(TaskPhase.IMPLEMENTING)).isEqualTo(TaskMilestone.IMPLEMENT);
         assertThat(TaskMilestone.of(TaskPhase.AGENT_RE_REVIEW)).isEqualTo(TaskMilestone.REVIEW);
         assertThat(TaskMilestone.of(TaskPhase.AWAITING_UPDATE_PUSH)).isEqualTo(TaskMilestone.PUSH);
@@ -82,7 +81,6 @@ class TestTaskFlowLabels
         List<TaskPhaseEvent> none = List.of();
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_PUSH), none)).isEqualTo("Push");
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_UPDATE_PUSH), none)).isEqualTo("Push update");
-        assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.CI_FIXING), none)).isEqualTo("Fix CI");
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_READY), none)).isEqualTo("Mark ready");
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.AWAITING_REMOTE_REVIEW), none)).isEqualTo("Remote review");
         assertThat(TaskFlowLabels.friendlyLabel(toPhase(TaskPhase.COMPLETED), none)).isEqualTo("Merged");

@@ -53,7 +53,7 @@ class TestWorkspaceInsightsService
     {
         when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(
                 task("acme/widget#1", TaskPhase.COMPLETED, TaskStatus.COMPLETED, NOW.minusSeconds(3600)),
-                task("acme/widget#2", TaskPhase.CI_FIXING, TaskStatus.RUNNING, NOW.minusSeconds(60)),
+                task("acme/widget#2", TaskPhase.PUSHED_AWAITING_CI, TaskStatus.RUNNING, NOW.minusSeconds(60)),
                 task("acme/other#9", TaskPhase.COMPLETED, TaskStatus.COMPLETED, NOW.minusSeconds(120)),
                 // No link ref → no repo signal → omitted.
                 task(null, TaskPhase.IMPLEMENTING, TaskStatus.RUNNING, NOW)));

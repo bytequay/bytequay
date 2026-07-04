@@ -15,6 +15,7 @@ package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,10 +29,11 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Worktree-edit auto-approval. While a Task is in one of the autonomous
- * work stages (Development, CI-fixing, Addressing-comments, Cleanup), a
- * file-edit tool whose target path is inside that Task's worktree is
- * allowed without a prompt — editing the worktree is the whole job of
- * those stages.
+ * work stages (Development, Addressing-comments, Cleanup) — or has a live
+ * {@link com.bytequay.app.domain.AgentRun} (e.g. a {@code ci_fix} run
+ * working in the same worktree) — a file-edit tool whose target path is
+ * inside that Task's worktree is allowed without a prompt: editing the
+ * worktree is the whole job of those stages / runs.
  *
  * <p>Deliberately narrow so the app's "nothing reaches GitHub without an
  * explicit action" invariant holds:
@@ -57,13 +59,14 @@ public class WorktreeEditStep
             Set.of("Edit", "Write", "MultiEdit", "NotebookEdit");
 
     /** The autonomous work stages whose whole job is editing the worktree —
-     *  Development, CI-fixing, Addressing-comments (the review monitor) and
-     *  Cleanup. In-worktree edits during these stages are always allowed,
-     *  with no prompt and regardless of the manual accept-edits toggle; the
-     *  read-only PlanStage is deliberately excluded. */
+     *  Development, Addressing-comments (the review monitor) and Cleanup.
+     *  In-worktree edits during these stages are always allowed, with no
+     *  prompt and regardless of the manual accept-edits toggle; the
+     *  read-only PlanStage is deliberately excluded. CI-fixing is no longer
+     *  a stage a task's phase resolves into — its live-run check below
+     *  covers it instead. */
     private static final Set<StageType> ALWAYS_EDIT_STAGES = Set.of(
             StageType.DEVELOPMENT_STAGE,
-            StageType.CI_FIXING_STAGE,
             StageType.REVIEW_MONITOR_STAGE,
             StageType.CLEANUP_STAGE);
 
@@ -71,11 +74,13 @@ public class WorktreeEditStep
     private static final String[] PATH_KEYS = {"file_path", "notebook_path", "path"};
 
     private final TaskStore taskStore;
+    private final AgentRunStore agentRuns;
     private final McpResponses responses;
 
-    public WorktreeEditStep(TaskStore taskStore, McpResponses responses)
+    public WorktreeEditStep(TaskStore taskStore, AgentRunStore agentRuns, McpResponses responses)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
         this.responses = requireNonNull(responses, "responses is null");
     }
 
@@ -110,14 +115,18 @@ public class WorktreeEditStep
 
     /** Whether the task's edits to its own worktree need no prompt: true in
      *  the autonomous work stages (editing is their whole job), so
-     *  Development / CI-fixing / Addressing-comments / Cleanup never block on
-     *  approval. The read-only PlanStage and cross-cutting phases that map to
-     *  no stage (e.g. NEEDS_ATTENTION) fall through to a normal prompt. */
-    private static boolean editsAllowed(Task task)
+     *  Development / Addressing-comments / Cleanup never block on approval —
+     *  or when the task has a live {@link com.bytequay.app.domain.AgentRun}
+     *  (a {@code ci_fix} run doesn't move the task's phase, so it needs this
+     *  separate check). The read-only PlanStage and cross-cutting phases that
+     *  map to no stage and have no live run (e.g. NEEDS_ATTENTION) fall
+     *  through to a normal prompt. */
+    private boolean editsAllowed(Task task)
     {
-        return StageType.forPhase(task.phase())
+        boolean stageAllows = StageType.forPhase(task.phase())
                 .map(ALWAYS_EDIT_STAGES::contains)
                 .orElse(false);
+        return stageAllows || !agentRuns.findLiveByTask(task.id()).isEmpty();
     }
 
     private static String filePath(JsonNode input)

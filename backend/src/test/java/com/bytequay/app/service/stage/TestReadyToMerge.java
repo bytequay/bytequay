@@ -220,7 +220,7 @@ class TestReadyToMerge
     }
 
     @Test
-    void escalatesToCiFixingAndNotifiesOnceRetriesAreExhausted()
+    void escalatesToNeedsAttentionAndNotifiesOnceRetriesAreExhausted()
     {
         String threadId = seedThread();
         String taskId = seedTask(threadId);
@@ -234,7 +234,7 @@ class TestReadyToMerge
 
         assertThat(taskStore.isMergeAuthorized(taskId)).isFalse();
         assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
-                .isEqualTo(TaskPhase.CI_FIXING);
+                .isEqualTo(TaskPhase.NEEDS_ATTENTION);
         assertThat(needsAttentionNotifications(threadId)).isEqualTo(1);
     }
 

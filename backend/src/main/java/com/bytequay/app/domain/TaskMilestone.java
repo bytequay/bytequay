@@ -21,10 +21,10 @@ import java.util.List;
  * ({@link #PLAN} and {@link #QUEUED} before the sequence starts,
  * {@link #PARKED} for a NEEDS_ATTENTION escape).
  *
- * <p>Several phases collapse into the same milestone (e.g. IMPLEMENTING,
- * ADDRESSING_COMMENTS and CI_FIXING all live under {@link #IMPLEMENT}),
- * which is what makes a loop show up as a single bucket carrying a
- * {@code ×N} visit badge in the collapsed view.
+ * <p>Several phases collapse into the same milestone (e.g. IMPLEMENTING and
+ * ADDRESSING_COMMENTS both live under {@link #IMPLEMENT}), which is what
+ * makes a loop show up as a single bucket carrying a {@code ×N} visit badge
+ * in the collapsed view.
  *
  * <p>Distinct from {@link TaskPhaseGroup}, which answers "who is waiting"
  * (the trunk card's four buckets); this answers "what lifecycle stage".
@@ -65,7 +65,7 @@ public enum TaskMilestone
         return switch (phase) {
             case PLANNING -> PLAN;
             case QUEUED -> QUEUED;
-            case IMPLEMENTING, ADDRESSING_COMMENTS, CI_FIXING -> IMPLEMENT;
+            case IMPLEMENTING, ADDRESSING_COMMENTS -> IMPLEMENT;
             case VALIDATING -> VALIDATE;
             case INTERNAL_REVIEW, AGENT_RE_REVIEW -> REVIEW;
             case AWAITING_PUSH, AWAITING_UPDATE_PUSH, ADDRESSING_LOCAL_COMMENTS -> PUSH;

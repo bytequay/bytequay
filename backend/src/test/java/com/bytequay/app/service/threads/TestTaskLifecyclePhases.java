@@ -50,16 +50,13 @@ class TestTaskLifecyclePhases
     }
 
     @Test
-    void failingCiGoesToCiFixing()
+    void failingPendingOrUnknownCiWaitsOnCi()
     {
+        // A red check no longer moves the phase — a ci_fix AgentRun handles
+        // it beside PUSHED_AWAITING_CI instead (see AutomationCoordinator).
         assertThat(TaskLifecyclePhases.observedPhaseFor(
                 pr(CiStatus.FAILING, false, "open", null, null)))
-                .contains(TaskPhase.CI_FIXING);
-    }
-
-    @Test
-    void pendingOrUnknownCiWaitsOnCi()
-    {
+                .contains(TaskPhase.PUSHED_AWAITING_CI);
         assertThat(TaskLifecyclePhases.observedPhaseFor(
                 pr(CiStatus.PENDING, false, "open", null, null)))
                 .contains(TaskPhase.PUSHED_AWAITING_CI);
@@ -97,15 +94,10 @@ class TestTaskLifecyclePhases
     }
 
     @Test
-    void fromDetail_failingCi_goesToCiFixing()
+    void fromDetail_failingPendingOrUnknownCi_waitsOnCi()
     {
         assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(CiStatus.FAILING, false)))
-                .contains(TaskPhase.CI_FIXING);
-    }
-
-    @Test
-    void fromDetail_pendingOrUnknownCi_waitsOnCi()
-    {
+                .contains(TaskPhase.PUSHED_AWAITING_CI);
         assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(CiStatus.PENDING, false)))
                 .contains(TaskPhase.PUSHED_AWAITING_CI);
         assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(null, false)))

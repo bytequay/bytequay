@@ -40,7 +40,6 @@ public final class TaskFlowLabels
         return switch (event.toPhase()) {
             case IMPLEMENTING ->
                     firstVisit(previousEvents, TaskPhase.IMPLEMENTING) ? "Implement" : "Address";
-            case CI_FIXING -> "Fix CI";
             case ADDRESSING_COMMENTS, ADDRESSING_LOCAL_COMMENTS -> "Address";
             case VALIDATING -> "Validate";
             case INTERNAL_REVIEW ->
@@ -75,7 +74,6 @@ public final class TaskFlowLabels
             case PLANNING -> "Plan";
             case QUEUED -> "Queued";
             case IMPLEMENTING -> "Implement";
-            case CI_FIXING -> "Fix CI";
             case ADDRESSING_COMMENTS, ADDRESSING_LOCAL_COMMENTS -> "Address";
             case VALIDATING -> "Validate";
             case INTERNAL_REVIEW -> "Review";
@@ -95,7 +93,6 @@ public final class TaskFlowLabels
     {
         return switch (to) {
             case COMPLETED -> "PR merged externally";
-            case CI_FIXING -> "on CI red";
             case AWAITING_REMOTE_REVIEW -> "on CI green / ready";
             case AWAITING_READY -> "on CI green, still draft";
             case ADDRESSING_COMMENTS -> "on new review comments";

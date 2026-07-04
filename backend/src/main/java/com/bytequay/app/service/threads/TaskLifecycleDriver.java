@@ -93,7 +93,6 @@ public class TaskLifecycleDriver
     static final Set<TaskPhase> REMOTE_SPINE = EnumSet.of(
             TaskPhase.PUSHED_AWAITING_CI,
             TaskPhase.AWAITING_READY,
-            TaskPhase.CI_FIXING,
             TaskPhase.AWAITING_REMOTE_REVIEW,
             TaskPhase.AWAITING_UPDATE_PUSH);
 

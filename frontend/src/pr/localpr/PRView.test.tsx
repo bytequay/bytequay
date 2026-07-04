@@ -118,6 +118,63 @@ describe('PRView', () => {
     expect(screen.getByText(/open comment · resolve before merge/)).toBeTruthy();
   });
 
+  it('disables push while an open comment remains (promotion gate)', () => {
+    const onPush = vi.fn();
+    render(
+      <PRView
+        mode="local"
+        bundle={bundle({ pr: pr('local-open'), comments: [comment()] })}
+        commentValue="" onCommentChange={noop} onPush={onPush} onAskAgent={noop}
+      />,
+    );
+    const push = screen.getByText(/Approve & push to GitHub/).closest('button') as HTMLButtonElement;
+    expect(push.disabled).toBe(true);
+    fireEvent.click(push);
+    expect(onPush).not.toHaveBeenCalled();
+    expect(screen.getByText(/Resolve.*or dismiss them/)).toBeTruthy();
+  });
+
+  it('disables push while the latest local test run is failing', () => {
+    const onPush = vi.fn();
+    render(
+      <PRView
+        mode="local"
+        bundle={bundle({
+          pr: pr('local-open'),
+          checks: [
+            check({ kind: 'local', status: 'passed', startedAt: 1 }),
+            check({ kind: 'local', status: 'failed', startedAt: 2 }),
+          ],
+        })}
+        commentValue="" onCommentChange={noop} onPush={onPush} onAskAgent={noop}
+      />,
+    );
+    const push = screen.getByText(/Approve & push to GitHub/).closest('button') as HTMLButtonElement;
+    expect(push.disabled).toBe(true);
+    expect(screen.getByText(/Local tests are currently/)).toBeTruthy();
+  });
+
+  it('enables push once the latest local test run passes even after an earlier failure', () => {
+    const onPush = vi.fn();
+    render(
+      <PRView
+        mode="local"
+        bundle={bundle({
+          pr: pr('local-open'),
+          checks: [
+            check({ kind: 'local', status: 'failed', startedAt: 1 }),
+            check({ kind: 'local', status: 'passed', startedAt: 2 }),
+          ],
+        })}
+        commentValue="" onCommentChange={noop} onPush={onPush} onAskAgent={noop}
+      />,
+    );
+    const push = screen.getByText(/Approve & push to GitHub/).closest('button') as HTMLButtonElement;
+    expect(push.disabled).toBe(false);
+    fireEvent.click(push);
+    expect(onPush).toHaveBeenCalledOnce();
+  });
+
   it('marks local-only timeline events (lock) and dims pre-push history in remote mode', () => {
     const events: LocalPRTimelineEvent[] = [
       event({ eventType: 'commit', isLocalOnly: true, createdAt: 1,

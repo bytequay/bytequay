@@ -15,6 +15,7 @@ package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.LocalPRCheck;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
@@ -32,6 +33,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -45,6 +48,12 @@ import static java.util.Objects.requireNonNull;
  * <p>A local PR pushes to its own origin and opens against origin's base, so
  * (unlike the fork-aware {@code PublishService}) there is no cross-fork head:
  * the head is the bare branch name.
+ *
+ * <p>Promotion gate (design doc slice 5): {@link #push} refuses while any
+ * comment thread is still open, or the most recently recorded local test run
+ * failed. A repo with no recognised test runner (so no {@code local_pr_check}
+ * row ever gets written) is treated as having nothing to gate on — "don't
+ * ship red" means don't ship a known failure, not "require a runner exist."
  */
 @Service
 public class LocalPRPublishService
@@ -80,6 +89,16 @@ public class LocalPRPublishService
         if (!LocalPR.STATUS_LOCAL_OPEN.equals(pr.status())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT, "local PR " + prId + " is not ready to push (status=" + pr.status() + ")");
+        }
+        long openComments = openCommentCount(prId);
+        if (openComments > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "local PR " + prId + " has " + openComments + " open comment thread(s) — "
+                            + "resolve or dismiss them before promoting");
+        }
+        if (latestLocalCheckFailed(prId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "local PR " + prId + " has a failing local test run — fix it before promoting");
         }
         Task task = taskStore.findTaskById(pr.taskId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "no task for local PR " + prId));
@@ -126,6 +145,26 @@ public class LocalPRPublishService
                     "GitHub did not merge PR #" + pr.remotePrNumber() + ": " + result.message());
         }
         return localPr.recordMerged(prId);
+    }
+
+    private long openCommentCount(String prId)
+    {
+        return localPr.comments(prId).stream()
+                .filter(c -> c.resolvedAt() == null && c.dismissedAt() == null)
+                .count();
+    }
+
+    /** The most recently started local check, if any, failed. No local checks
+     *  recorded at all (no recognised test runner) does not count as a
+     *  failure — there is nothing to gate on. */
+    private boolean latestLocalCheckFailed(String prId)
+    {
+        List<LocalPRCheck> checks = localPr.checks(prId);
+        return checks.stream()
+                .filter(c -> LocalPRCheck.KIND_LOCAL.equals(c.kind()))
+                .max(Comparator.comparing(LocalPRCheck::startedAt))
+                .map(c -> LocalPRCheck.STATUS_FAILED.equals(c.status()))
+                .orElse(false);
     }
 
     private static MergePullRequestCommand mergeCommand(String method)

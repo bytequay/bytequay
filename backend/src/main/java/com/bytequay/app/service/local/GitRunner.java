@@ -760,6 +760,26 @@ public class GitRunner
     }
 
     /**
+     * Actually rebases the current branch onto {@code base} — a real
+     * mutation, unlike {@link #rebasePreview}'s dry run. Callers are
+     * expected to check {@link #rebasePreview} is {@link
+     * RebaseOutcome#CLEAN} first; if the real rebase still fails (a race —
+     * base moved between the preview and this call, say), it's aborted
+     * immediately so the worktree never sits mid-rebase, and the original
+     * {@link GitCommandException} propagates.
+     */
+    public void rebase(Path workingDir, String base)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        GitResult result = run(List.of("git", "rebase", base), workingDir, 120);
+        if (result.exitCode() != 0) {
+            run(List.of("git", "rebase", "--abort"), workingDir, 30);
+            result.requireSuccess();
+        }
+    }
+
+    /**
      * Fetches the GitHub-magic {@code pull/{N}/head} ref + the PR's
      * base branch into a non-user-visible refs namespace
      * ({@code refs/bytequay/pr/{N}/{head,base}}) so the merge-tree call

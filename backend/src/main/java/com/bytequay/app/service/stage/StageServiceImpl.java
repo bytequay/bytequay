@@ -1088,6 +1088,7 @@ public class StageServiceImpl
             case CLEANUP_STAGE -> "Cleanup";
             case REVIEW_STAGE -> "Review panel";
             case REVIEW_ROUND_STAGE -> "Review round";
+            case BRANCH_GUARD_STAGE -> "Branch guard";
         };
     }
 

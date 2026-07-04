@@ -74,7 +74,13 @@ public enum StageType
      *  opened via a phase transition; {@link AgentRun} opens one directly
      *  as a round's backing stage. Empty {@code allowedPhases} mirrors
      *  {@code CI_FIXING_STAGE}. */
-    REVIEW_ROUND_STAGE(Set.of());
+    REVIEW_ROUND_STAGE(Set.of()),
+
+    /** Pure container for {@code branch_guard} {@link AgentRun}s — never
+     *  opened via a phase transition; {@code BranchGuardJob} opens one
+     *  directly per tick as its backing stage. Empty {@code allowedPhases}
+     *  mirrors {@code CI_FIXING_STAGE}. */
+    BRANCH_GUARD_STAGE(Set.of());
 
     private final Set<TaskPhase> allowedPhases;
 
@@ -109,6 +115,7 @@ public enum StageType
             case CLEANUP_STAGE -> "CleanupStage";
             case REVIEW_STAGE -> "ReviewStage";
             case REVIEW_ROUND_STAGE -> "ReviewRoundStage";
+            case BRANCH_GUARD_STAGE -> "BranchGuardStage";
         };
     }
 

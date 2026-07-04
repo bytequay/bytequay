@@ -19,6 +19,7 @@ import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRCommit;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.repository.LocalPRStore;
+import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,18 +46,20 @@ class LocalPRServiceImpl
             Set.of(LocalPRCheck.STATUS_PASSED, LocalPRCheck.STATUS_FAILED, LocalPRCheck.STATUS_NEUTRAL);
 
     private final LocalPRStore store;
+    private final DevReportService devReports;
     private final ObjectMapper mapper;
     private final Clock clock;
 
     @Autowired
-    LocalPRServiceImpl(LocalPRStore store, ObjectMapper mapper)
+    LocalPRServiceImpl(LocalPRStore store, DevReportService devReports, ObjectMapper mapper)
     {
-        this(store, mapper, Clock.systemUTC());
+        this(store, devReports, mapper, Clock.systemUTC());
     }
 
-    LocalPRServiceImpl(LocalPRStore store, ObjectMapper mapper, Clock clock)
+    LocalPRServiceImpl(LocalPRStore store, DevReportService devReports, ObjectMapper mapper, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
+        this.devReports = requireNonNull(devReports, "devReports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -164,7 +167,13 @@ class LocalPRServiceImpl
     @Override
     public LocalPR requestUserReview(String prId, String actor)
     {
-        return transition(prId, LocalPR.STATUS_LOCAL_OPEN, actor);
+        LocalPR pr = require(prId);
+        LocalPR flipped = transition(prId, LocalPR.STATUS_LOCAL_OPEN, actor);
+        // Guarantee a DevReport exists once local-open fires, even via the
+        // LocalPRSyncService fallback path that bypasses record_dev_report —
+        // a placeholder here is a no-op if the agent already recorded one.
+        devReports.ensurePlaceholder(pr.taskId());
+        return flipped;
     }
 
     @Override

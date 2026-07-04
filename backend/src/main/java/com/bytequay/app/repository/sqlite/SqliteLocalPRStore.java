@@ -176,6 +176,7 @@ class SqliteLocalPRStore
         e.setBody(comment.body());
         e.setCreatedAtMs(comment.createdAt().toEpochMilli());
         e.setResolvedAtMs(epochOrNull(comment.resolvedAt()));
+        e.setDismissedAtMs(epochOrNull(comment.dismissedAt()));
         e.setStrippedOnPushAtMs(epochOrNull(comment.strippedOnPushAt()));
         e.setParentCommentId(comment.parentCommentId());
         return toDomain(comments.save(e));
@@ -292,6 +293,7 @@ class SqliteLocalPRStore
                 e.getBody(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 instantOrNull(e.getResolvedAtMs()),
+                instantOrNull(e.getDismissedAtMs()),
                 instantOrNull(e.getStrippedOnPushAtMs()),
                 e.getParentCommentId());
     }

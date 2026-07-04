@@ -72,13 +72,14 @@ function lineKey(filename: string, ln: number): string {
  * comments arrive through their own path once the PR is pushed.
  */
 export function PaneDiff({
-  files, comments = [], allowLocalComments = false, onAddComment, onResolveComment,
+  files, comments = [], allowLocalComments = false, onAddComment, onResolveComment, onDismissComment,
 }: {
   files: DiffFileDto[];
   comments?: LocalPRComment[];
   allowLocalComments?: boolean;
   onAddComment?: (filePath: string, lineNumber: number, body: string) => void;
   onResolveComment?: (commentId: string) => void;
+  onDismissComment?: (commentId: string) => void;
 }) {
   // Which (file:line) has its composer expanded. Existing threads always show;
   // the composer only appears when the user clicks a line's anchor.
@@ -142,6 +143,7 @@ export function PaneDiff({
                             ? body => { onAddComment(file.filename, r.ln!, body); setOpenLine(null); }
                             : undefined}
                           onResolve={onResolveComment}
+                          onDismiss={onDismissComment}
                           onCancel={openLine === key ? () => setOpenLine(null) : undefined}
                         />
                       )}

@@ -54,6 +54,9 @@ class LocalPrCommentEntity
     @Column(name = "resolved_at_ms")
     private Long resolvedAtMs;
 
+    @Column(name = "dismissed_at_ms")
+    private Long dismissedAtMs;
+
     @Column(name = "stripped_on_push_at_ms")
     private Long strippedOnPushAtMs;
 
@@ -89,6 +92,9 @@ class LocalPrCommentEntity
 
     Long getResolvedAtMs() { return resolvedAtMs; }
     void setResolvedAtMs(Long resolvedAtMs) { this.resolvedAtMs = resolvedAtMs; }
+
+    Long getDismissedAtMs() { return dismissedAtMs; }
+    void setDismissedAtMs(Long dismissedAtMs) { this.dismissedAtMs = dismissedAtMs; }
 
     Long getStrippedOnPushAtMs() { return strippedOnPushAtMs; }
     void setStrippedOnPushAtMs(Long strippedOnPushAtMs) { this.strippedOnPushAtMs = strippedOnPushAtMs; }

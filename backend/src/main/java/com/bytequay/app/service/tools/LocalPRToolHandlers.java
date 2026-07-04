@@ -210,6 +210,10 @@ public class LocalPRToolHandlers
             return ToolOutcome.Completed.error("comment_id is required");
         }
         try {
+            if ("dismissed".equals(args.resolution())) {
+                localPr.dismissComment(args.commentId());
+                return ToolOutcome.Completed.ok("dismissed comment " + args.commentId());
+            }
             localPr.resolveComment(args.commentId());
             return ToolOutcome.Completed.ok("resolved comment " + args.commentId());
         }

@@ -251,7 +251,8 @@ class LocalPRServiceImpl
         Instant when = now();
         LocalPRComment comment = store.saveComment(new LocalPRComment(
                 UUID.randomUUID().toString(), pr.id(), origin, scope, filePath, lineNumber,
-                author, body, when, /* resolvedAt */ null, /* strippedOnPushAt */ null, parentCommentId));
+                author, body, when, /* resolvedAt */ null, /* dismissedAt */ null,
+                /* strippedOnPushAt */ null, parentCommentId));
         // PR-level comments show on the timeline; inline comments live on the
         // diff, so only a pr-scoped comment writes a timeline event.
         if (LocalPRComment.SCOPE_PR.equals(scope)) {
@@ -267,6 +268,14 @@ class LocalPRServiceImpl
         LocalPRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         return store.saveComment(comment.withResolved(now()));
+    }
+
+    @Override
+    public LocalPRComment dismissComment(String commentId)
+    {
+        LocalPRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        return store.saveComment(comment.withDismissed(now()));
     }
 
     private LocalPR require(String prId)

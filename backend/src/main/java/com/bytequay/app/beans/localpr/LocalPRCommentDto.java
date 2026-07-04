@@ -29,6 +29,7 @@ public record LocalPRCommentDto(
         String body,
         long createdAt,
         Long resolvedAt,
+        Long dismissedAt,
         Long strippedOnPushAt,
         String parentCommentId)
 {
@@ -45,6 +46,7 @@ public record LocalPRCommentDto(
                 c.body(),
                 c.createdAt().toEpochMilli(),
                 epochOrNull(c.resolvedAt()),
+                epochOrNull(c.dismissedAt()),
                 epochOrNull(c.strippedOnPushAt()),
                 c.parentCommentId());
     }

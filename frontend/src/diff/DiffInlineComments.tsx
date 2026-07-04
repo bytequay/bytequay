@@ -30,12 +30,15 @@ function initials(author: string): string {
  * offers Reply / Mark resolved.
  */
 export function DiffInlineComments({
-  comments, allowLocalComments, onAdd, onResolve, onCancel,
+  comments, allowLocalComments, onAdd, onResolve, onDismiss, onCancel,
 }: {
   comments: LocalPRComment[];
   allowLocalComments: boolean;
   onAdd?: (body: string) => void;
   onResolve?: (commentId: string) => void;
+  /** Close the thread without the agent addressing it — the other terminal
+   *  state alongside `onResolve`. */
+  onDismiss?: (commentId: string) => void;
   /** Discard the open composer (Esc or the Cancel button). */
   onCancel?: () => void;
 }) {
@@ -56,14 +59,20 @@ export function DiffInlineComments({
               {c.origin === 'local' ? '🔒 LOCAL' : 'REMOTE'}
             </span>
             {c.resolvedAt !== null && <span className="resolved-badge">resolved</span>}
+            {c.dismissedAt !== null && <span className="dismissed-badge">dismissed</span>}
           </div>
           <div className="ic-body">{c.body}</div>
-          {allowLocalComments && c.resolvedAt === null && (
+          {allowLocalComments && c.resolvedAt === null && c.dismissedAt === null && (
             <div className="ic-actions">
               <button type="button">Reply</button>
               {onResolve !== undefined && (
                 <button type="button" className="resolve" onClick={() => onResolve(c.id)}>
                   Mark resolved
+                </button>
+              )}
+              {onDismiss !== undefined && (
+                <button type="button" className="dismiss" onClick={() => onDismiss(c.id)}>
+                  Dismiss
                 </button>
               )}
             </div>

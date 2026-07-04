@@ -928,6 +928,16 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('localpr:dismissComment', async (_event, commentId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/local-pr/comments/${encodeURIComponent(commentId)}/dismiss`, {
+      method: 'PATCH',
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend local-pr dismiss returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
 
   ipcMain.handle('stages:steer', async (_event, stageId: string, text: string) => {
     const res = await fetch(

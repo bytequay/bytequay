@@ -36,12 +36,13 @@ function lineKey(filename: string, ln: number): string {
  * FileDiffBody's {@code renderAfterRow} / {@code rowDecoration} hooks — the
  * remote review page wires GitHub review threads through the very same hooks.
  */
-function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onResolveComment }: {
+function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onResolveComment, onDismissComment }: {
   file: DiffFileDto;
   comments: LocalPRComment[];
   allowLocalComments: boolean;
   onAddComment?: (filePath: string, lineNumber: number, body: string) => void;
   onResolveComment?: (commentId: string) => void;
+  onDismissComment?: (commentId: string) => void;
 }) {
   // Which new-side line has its composer open. Existing threads always show;
   // the composer only appears when the user clicks a line to add a comment.
@@ -72,6 +73,7 @@ function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onRes
           ? body => { onAddComment(file.filename, line, body); setOpenLine(null); }
           : undefined}
         onResolve={onResolveComment}
+        onDismiss={onDismissComment}
       />
     );
   };
@@ -100,7 +102,8 @@ function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onRes
  * write path is the local {@code file-line} comments.
  */
 export function LocalPrReviewScreen({
-  title, files, comments, allowLocalComments = false, onAddComment, onResolveComment, onBack, error = null,
+  title, files, comments, allowLocalComments = false, onAddComment, onResolveComment, onDismissComment,
+  onBack, error = null,
 }: {
   title: string;
   /** Null = still loading. Empty array = nothing changed. */
@@ -109,6 +112,7 @@ export function LocalPrReviewScreen({
   allowLocalComments?: boolean;
   onAddComment?: (filePath: string, lineNumber: number, body: string) => void;
   onResolveComment?: (commentId: string) => void;
+  onDismissComment?: (commentId: string) => void;
   onBack: () => void;
   error?: string | null;
 }) {
@@ -207,6 +211,7 @@ export function LocalPrReviewScreen({
                   allowLocalComments={allowLocalComments}
                   onAddComment={onAddComment}
                   onResolveComment={onResolveComment}
+                  onDismissComment={onDismissComment}
                 />
               )}
             />

@@ -86,10 +86,17 @@ export function useLocalPrActions(taskId: string, opts: {
       .catch(() => { /* poll reconciles */ });
   }, [refresh]);
 
+  const dismissLocalComment = useCallback((commentId: string) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.dismissLocalPrComment(commentId)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [refresh]);
+
   return {
     bundle, refresh, localPr, prMode,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment,
+    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
     reviewOpen, setReviewOpen, prBusy,
   };

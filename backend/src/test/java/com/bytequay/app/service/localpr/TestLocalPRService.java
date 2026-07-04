@@ -124,6 +124,45 @@ class TestLocalPRService
     }
 
     @Test
+    void resolveCommentStampsResolvedAt()
+    {
+        LocalPRComment comment = new LocalPRComment(
+                "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, null, null, null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalPRComment resolved = service.resolveComment("cm1");
+
+        assertThat(resolved.resolvedAt()).isEqualTo(NOW);
+        assertThat(resolved.dismissedAt()).isNull();
+    }
+
+    @Test
+    void dismissCommentStampsDismissedAt()
+    {
+        LocalPRComment comment = new LocalPRComment(
+                "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, null, null, null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalPRComment dismissed = service.dismissComment("cm1");
+
+        assertThat(dismissed.dismissedAt()).isEqualTo(NOW);
+        assertThat(dismissed.resolvedAt()).isNull();
+    }
+
+    @Test
+    void resolveCommentUnknownIdThrows()
+    {
+        when(store.findCommentById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.resolveComment("missing"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void recordPushStripsLocalsRecordsRemoteAndFlipsStatus()
     {
         pr(LocalPR.STATUS_LOCAL_OPEN);
@@ -132,7 +171,7 @@ class TestLocalPRService
                 /* localOnly */ true, /* strippedOnPushAt */ null, NOW, null);
         LocalPRComment localComment = new LocalPRComment(
                 "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
-                "you", "note", NOW, null, /* strippedOnPushAt */ null, null);
+                "you", "note", NOW, null, /* dismissedAt */ null, /* strippedOnPushAt */ null, null);
         when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(localEvent));
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(localComment));
 
@@ -178,7 +217,7 @@ class TestLocalPRService
                 "ev1", "pr1", LocalPRTimelineEvent.TYPE_COMMIT, "claude-code", true, null, NOW, null);
         LocalPRComment c = new LocalPRComment(
                 "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
-                "you", "n", NOW, null, null, null);
+                "you", "n", NOW, null, null, null, null);
         when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(e, e));
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(c));
 

@@ -62,7 +62,7 @@ describe('PushDialog', () => {
     const comments: LocalPRComment[] = [
       { id: 'x1', localPrId: 'pr1', origin: 'local', scope: 'pr', filePath: null,
         lineNumber: null, author: 'you', body: 'a', createdAt: Date.now(), resolvedAt: null,
-        strippedOnPushAt: null, parentCommentId: null },
+        dismissedAt: null, strippedOnPushAt: null, parentCommentId: null },
     ];
     render(<PushDialog bundle={bundle({ pendingStripCount: undefined, comments })} onPush={() => {}} onCancel={() => {}} />);
     expect(screen.getByText(/1 local review comment will NOT be pushed/)).toBeTruthy();

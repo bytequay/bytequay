@@ -170,10 +170,12 @@
 .cd-inline-comment .ic-head .local-badge { padding: 1px 6px; background: var(--accent-soft); color: var(--accent); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; }
 .cd-inline-comment .ic-head .remote-badge { padding: 1px 6px; background: var(--bg-input); color: var(--text-3); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; border: 1px solid var(--border-mid); }
 .cd-inline-comment .ic-head .resolved-badge { padding: 1px 6px; background: var(--green-soft); color: var(--green); font-size: 9.5px; font-weight: 700; border-radius: 3px; border: 1px solid var(--green-border); }
+.cd-inline-comment .ic-head .dismissed-badge { padding: 1px 6px; background: var(--bg-input); color: var(--text-3); font-size: 9.5px; font-weight: 700; border-radius: 3px; border: 1px solid var(--border-mid); }
 .cd-inline-comment .ic-body { color: var(--text-1); line-height: 1.55; white-space: pre-wrap; }
 .cd-inline-comment .ic-actions { display: flex; gap: 6px; font-size: 11px; }
 .cd-inline-comment .ic-actions button { padding: 3px 9px; background: var(--bg-input); border: 1px solid var(--border-mid); border-radius: 5px; color: var(--text-2); font-size: 11px; cursor: pointer; }
 .cd-inline-comment .ic-actions button.resolve { background: var(--green-soft); color: var(--green); border-color: var(--green-border); }
+.cd-inline-comment .ic-actions button.dismiss { color: var(--text-3); }
 .cd-inline-comment .ic-composer { background: var(--bg-input); border: 1px dashed var(--border-mid); border-radius: 5px; padding: 7px 10px; font-size: 11.5px; color: var(--text-1); font-family: inherit; min-height: 44px; resize: vertical; width: 100%; box-sizing: border-box; }
 .cd-inline-comment .ic-composer::placeholder { color: var(--text-4); font-style: italic; }
 .shell .diff-line.add { background: rgba(34, 197, 94, 0.08); }

@@ -107,6 +107,7 @@ export interface LocalPRComment {
   body: string;
   createdAt: number;
   resolvedAt: number | null;
+  dismissedAt: number | null;
   strippedOnPushAt: number | null;
   parentCommentId: string | null;
 }

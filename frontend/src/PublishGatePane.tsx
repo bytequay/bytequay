@@ -32,12 +32,18 @@ type Props = {
    *  expansion. Not called on an interrupted approval because the row
    *  remains available for local-only recovery. */
   onResolved: () => void;
+  /** Open the PR this gate targets, when it has one. Renders a "View PR"
+   *  button in the action row next to Approve. */
+  onViewPr?: () => void;
+  /** Title of the PR this gate targets, resolved from the cached PR list.
+   *  Shown above the action review so the user sees what they're approving. */
+  prTitle?: string;
 };
 
 /** Render reviewable content for an AWAITING_REVIEW notification plus
  *  the Approve / Discard buttons that call the backend's publish
  *  gate. */
-function PublishGatePane({ notification, onResolved }: Props) {
+function PublishGatePane({ notification, onResolved, onViewPr, prTitle }: Props) {
   const parsed = parsePayload(notification.payloadJson);
   const isResolving = notification.status === 'RESOLVING';
   // Actions whose parked payload carries an editable body. The user
@@ -119,6 +125,9 @@ function PublishGatePane({ notification, onResolved }: Props) {
 
   return (
     <div style={paneStyle} data-testid="publish-gate-pane">
+      {prTitle !== undefined && prTitle.length > 0 && (
+        <div style={prTitleStyle}>{prTitle}</div>
+      )}
       {isResolving && (
         <div style={warningStyle} role="status">
           A previous approval attempt was interrupted. Check remote state first; finishing locally
@@ -162,11 +171,16 @@ function PublishGatePane({ notification, onResolved }: Props) {
         >
           {busy && resolution === null ? 'Working…' : approveLabel}
         </button>
+        {onViewPr && (
+          <button type="button" onClick={onViewPr} style={discardButtonStyle}>
+            View PR
+          </button>
+        )}
         <button
           type="button"
           onClick={() => { void handleDiscard(); }}
           disabled={busy || (resolution?.ok ?? false)}
-          style={discardButtonStyle}
+          style={{ ...discardButtonStyle, marginLeft: 'auto' }}
         >
           Discard
         </button>
@@ -560,22 +574,29 @@ function normalizedDiffPayload(obj: Record<string, unknown>): Record<string, unk
 }
 
 const paneStyle: React.CSSProperties = {
-  marginTop: 12,
-  padding: 16,
+  marginTop: 8,
+  padding: 9,
   background: 'var(--bg-1)',
   border: '1px solid var(--border)',
   borderRadius: 8,
 };
 
 const summaryLineStyle: React.CSSProperties = {
-  fontSize: 13,
+  fontSize: 11,
   color: 'var(--text-3)',
-  marginBottom: 10,
+  marginBottom: 6,
+};
+
+const prTitleStyle: React.CSSProperties = {
+  fontSize: 11.5,
+  fontWeight: 600,
+  color: 'var(--text-1)',
+  marginBottom: 6,
 };
 
 const codeStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  fontSize: 12,
+  fontSize: 11,
   padding: '1px 5px',
   background: 'var(--bg-2)',
   borderRadius: 4,
@@ -620,7 +641,7 @@ const reviewTextStyle: React.CSSProperties = {
   background: 'var(--bg-2)',
   border: '1px solid var(--border)',
   borderRadius: 6,
-  fontSize: 13,
+  fontSize: 12,
   color: 'var(--text-1)',
 };
 
@@ -630,7 +651,7 @@ const draftReplyStyle: React.CSSProperties = {
   background: 'var(--bg-2)',
   border: '1px solid var(--border)',
   borderRadius: 6,
-  fontSize: 13,
+  fontSize: 12,
   color: 'var(--text-1)',
   display: 'flex',
   flexDirection: 'column',
@@ -642,7 +663,7 @@ const textareaStyle: React.CSSProperties = {
   minHeight: 140,
   padding: 10,
   fontFamily: 'inherit',
-  fontSize: 13,
+  fontSize: 12,
   lineHeight: 1.5,
   border: '1px solid var(--border)',
   borderRadius: 6,
@@ -673,27 +694,27 @@ const successStyle: React.CSSProperties = {
 };
 
 const buttonsStyle: React.CSSProperties = {
-  marginTop: 12,
+  marginTop: 8,
   display: 'flex',
-  gap: 8,
+  gap: 5,
 };
 
 const approveButtonStyle: React.CSSProperties = {
-  padding: '8px 14px',
-  fontSize: 13,
+  padding: '3px 9px',
+  fontSize: 11.5,
   fontWeight: 600,
   border: 'none',
-  borderRadius: 6,
+  borderRadius: 5,
   background: '#0066cc',
   color: '#fff',
   cursor: 'pointer',
 };
 
 const discardButtonStyle: React.CSSProperties = {
-  padding: '8px 14px',
-  fontSize: 13,
+  padding: '3px 9px',
+  fontSize: 11.5,
   border: '1px solid var(--border)',
-  borderRadius: 6,
+  borderRadius: 5,
   background: 'var(--bg-2)',
   color: 'var(--text-1)',
   cursor: 'pointer',

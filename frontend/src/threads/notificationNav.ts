@@ -36,6 +36,15 @@ export function prRefFromNotification(n: NotificationDto): PrRef | null {
   if (!payload) {
     return null;
   }
+  // Publish-gate / audit payloads (merge_pr, approve_pr, …) carry the PR as a
+  // nested { owner, repo, number } object rather than repoFullName + prNumber.
+  const pr = payload.pr;
+  if (typeof pr === 'object' && pr !== null) {
+    const ref = pr as { owner?: unknown; repo?: unknown; number?: unknown };
+    if (typeof ref.owner === 'string' && typeof ref.repo === 'string' && typeof ref.number === 'number') {
+      return { owner: ref.owner, repo: ref.repo, prNumber: ref.number };
+    }
+  }
   const repoFullName = typeof payload.repoFullName === 'string' ? payload.repoFullName : null;
   const prNumber = typeof payload.prNumber === 'number' ? payload.prNumber : null;
   if (repoFullName === null || prNumber === null) {

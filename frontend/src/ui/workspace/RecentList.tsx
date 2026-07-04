@@ -117,11 +117,15 @@ export function RecentList({ onResume, onOpenPr }: {
     };
   }, []);
 
-  const workingOn = stops[0] ?? null;
   const buckets = useMemo(() => todayBuckets(prs), [prs]);
+  const workingOnPr = buckets.workingOn[0] ?? null;
   const reviewedToday = buckets.reviewed[0] ?? null;
-  const hasToday = workingOn !== null || reviewedToday !== null
-    || buckets.workingOn.length > 0 || buckets.merged.length > 0;
+  const hasToday = workingOnPr !== null || reviewedToday !== null || buckets.merged.length > 0;
+
+  const openPr = (pr: PullRequestDto) => {
+    const slash = pr.repo.indexOf('/');
+    if (slash > 0) onOpenPr?.(pr.repo.slice(0, slash), pr.repo.slice(slash + 1), pr.number);
+  };
 
   const handleCopy = () => {
     const md = todayMarkdown(buckets);
@@ -187,16 +191,16 @@ export function RecentList({ onResume, onOpenPr }: {
             </div>
           </div>
           <div className="sb-recent">
-            {workingOn !== null && (
+            {workingOnPr !== null && (
               <button
                 type="button"
                 className="sb-recent__row"
-                onClick={() => onResume?.(workingOn)}
-                title={workingOn.context ?? workingOn.surfaceId}
+                onClick={() => openPr(workingOnPr)}
+                title={`${workingOnPr.repo} #${workingOnPr.number}`}
               >
                 <span className="sb-recent__meta">
                   <span className="sb-recent__label">Working on</span>
-                  <span className="sb-recent__title">{workingOn.title ?? workingOn.surfaceId}</span>
+                  <span className="sb-recent__title">{workingOnPr.title} #{workingOnPr.number}</span>
                 </span>
               </button>
             )}
@@ -204,15 +208,7 @@ export function RecentList({ onResume, onOpenPr }: {
               <button
                 type="button"
                 className="sb-recent__row"
-                onClick={() => {
-                  const slash = reviewedToday.repo.indexOf('/');
-                  if (slash > 0) {
-                    onOpenPr?.(
-                        reviewedToday.repo.slice(0, slash),
-                        reviewedToday.repo.slice(slash + 1),
-                        reviewedToday.number);
-                  }
-                }}
+                onClick={() => openPr(reviewedToday)}
                 title={`${reviewedToday.repo} #${reviewedToday.number}`}
               >
                 <span className="sb-recent__meta">

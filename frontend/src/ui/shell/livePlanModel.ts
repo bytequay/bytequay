@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type {
-  AgentRunDto, AgentRunKind, BranchGuardDto, StageDto, StageType, TaskPhase,
+  AgentRunDto, AgentRunKind, BranchGuardDto, ReviewRoundDto, StageDto, StageType, TaskPhase,
 } from '../../types/brainView';
 
 /** Visual state of one node in the live-plan diagram. {@code monitoring} is a
@@ -69,6 +69,9 @@ export type LivePlanInput = {
    *  none. */
   liveRuns?: AgentRunDto[];
   guard?: BranchGuardDto | null;
+  /** The task's currently-open review round — drives the Comments node's
+   *  "round N · M open" meta while it's live. */
+  liveRound?: ReviewRoundDto | null;
   task: { prNumber: number | null; currentPhase: TaskPhase; terminal: boolean };
   /** The PR's merge-state, when known — drives the Merge node. */
   prStatus?: 'open' | 'draft' | 'queued' | 'merged' | null;
@@ -215,7 +218,7 @@ export function buildGuardChip(guard: BranchGuardDto | null | undefined): GuardC
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
-    stages, subStages, liveRuns = [], task, prStatus = null, mergeReady = false,
+    stages, subStages, liveRuns = [], liveRound = null, task, prStatus = null, mergeReady = false,
     viewedStageId = null, viewingBrain = false, working = false,
     awaitingApprovalStageId = null,
   } = input;
@@ -295,9 +298,10 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     },
     {
       key: 'comments', label: 'Comments', status: commentsStat, glyph: glyphFor(commentsStat),
-      meta: comments === undefined ? undefined
-        : commentsStat === 'monitoring' ? 'watching review'
-          : commentsStat === 'sleep' ? 'armed' : undefined,
+      meta: liveRound !== null ? `round ${liveRound.idx} · ${liveRound.stats.open} open`
+        : comments === undefined ? undefined
+          : commentsStat === 'monitoring' ? 'watching review'
+            : commentsStat === 'sleep' ? 'armed' : undefined,
       placement: 'full', activeView: isViewed(comments), nav: stageNav(comments),
     },
     ...(!devEra && roundRun !== undefined ? [runSubNode('comments-addressing', 'Addressing', roundRun)] : []),

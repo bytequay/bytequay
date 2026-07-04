@@ -54,6 +54,14 @@ public record ReviewRound(
         }
     }
 
+    /** True while the round hasn't posted its drafts yet — the rail's
+     *  "round N · M open" meta only ever names one of these. */
+    public boolean isLive()
+    {
+        return STATUS_TRIAGING.equals(status) || STATUS_ADDRESSING.equals(status)
+                || STATUS_AWAITING_GATE.equals(status);
+    }
+
     public ReviewRound withRunId(String runId)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);

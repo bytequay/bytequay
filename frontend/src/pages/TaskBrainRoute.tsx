@@ -41,12 +41,14 @@ import { PlanOverlay } from './PlanOverlay';
  * surface).
  */
 export function TaskBrainRoute({
-  threadId, taskId, onOpenStage, onOpenCode, onClosed, onBack,
+  threadId, taskId, onOpenStage, onOpenCode, onOpenRun, onClosed, onBack,
 }: {
   threadId: string;
   taskId: string;
   onOpenStage: (stageId: string) => void;
   onOpenCode: () => void;
+  /** Navigate to a live run's own log — the rail's Checks/Addressing sub-rows use this. */
+  onOpenRun?: (runId: string) => void;
   /** Closing a task seals it terminal + reaps its worktree, so the page is
    *  a dead end afterwards — navigate away (back to the thread trunk). */
   onClosed: () => void;
@@ -332,6 +334,7 @@ export function TaskBrainRoute({
     subStages,
     liveRuns: data.liveRuns,
     guard: data.guard,
+    liveRound: data.liveRound,
     task: { prNumber: task.prNumber, currentPhase: task.currentPhase as TaskPhase, terminal: task.terminal },
     prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
     mergeReady: proposalAction(shipProposal) === 'merge_pr',
@@ -355,6 +358,7 @@ export function TaskBrainRoute({
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr?.onOpen}
+      onOpenRun={onOpenRun}
     />
   );
 

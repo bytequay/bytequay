@@ -28,8 +28,10 @@ import { PaneDiff } from '../diff/PaneDiff';
 import { PRTabContent } from '../ui/pane/tabs';
 import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
 import type { DiffFileDto } from '../types';
-import type { StageType } from '../types/brainView';
-import { Conv, EventRow, QueuedMessages, Working } from '../ui/conv';
+import type { AgentRunDto, StageType } from '../types/brainView';
+import { Conv, EventRow, QueuedMessages, RoundEpisode, RunEpisode, Working } from '../ui/conv';
+import { useTaskRuns } from '../threads/brain/useTaskRuns';
+import { useTaskRounds } from '../threads/brain/useTaskRounds';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { stageRow } from './stageConversationRow';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
@@ -77,7 +79,7 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * comments, and the CI tab (CI-fix stage only) shows the live check run.
  */
 export function StageDetailRoute({
-  threadId, taskId, stageId, onOpenCode, onOpenStage, onBack, onOpenBrain,
+  threadId, taskId, stageId, onOpenCode, onOpenStage, onOpenRun, onBack, onOpenBrain,
 }: {
   threadId: string;
   taskId: string;
@@ -87,6 +89,9 @@ export function StageDetailRoute({
    *  this Plan stage and opens the Development stage, and by the live-plan
    *  diagram in the task sidebar. */
   onOpenStage?: (stageId: string) => void;
+  /** Navigate to a live run's own log — the rail's Checks/Addressing
+   *  sub-rows and the Dev/Comments feed's run/round episodes use this. */
+  onOpenRun?: (runId: string) => void;
   /** Navigate back to the thread trunk (the task sidebar's back button). */
   onBack?: () => void;
   /** Navigate to this task's brain page — the live plan's Root node. */
@@ -119,6 +124,41 @@ export function StageDetailRoute({
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
+
+  // ── Run / round episodes (plan-rail-runs.md Phase 5) ────────────────────
+  // The Dev feed folds its `ci_fix` runs (not tied to a review round) into
+  // episodes; the Comments feed replaces the flat transcript with the round
+  // list entirely. Both read from the same task-wide runs fetch.
+  const taskRuns = useTaskRuns(taskId);
+  const { rounds, refresh: refreshRounds } = useTaskRounds(taskId);
+  const devRunEpisodes = useMemo(
+    () => taskRuns
+      .filter(r => r.kind === 'ci_fix' && r.reviewRoundId === null)
+      .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt)),
+    [taskRuns],
+  );
+  // A round can cycle through more than one ci_fix run over its lifetime (a
+  // re-run per fix attempt) — keep the live one over a finished one so the
+  // round's expanded body always shows what's actually happening now.
+  const runsByRoundId = useMemo(() => {
+    const map = new Map<string, AgentRunDto>();
+    for (const r of taskRuns) {
+      if (r.reviewRoundId === null) continue;
+      const existing = map.get(r.reviewRoundId);
+      const rLive = r.status === 'running' || r.status === 'awaiting_gate';
+      if (existing === undefined || rLive) map.set(r.reviewRoundId, r);
+    }
+    return map;
+  }, [taskRuns]);
+  const [approvingRoundId, setApprovingRoundId] = useState<string | null>(null);
+  const approveRound = useCallback((roundId: string) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    setApprovingRoundId(roundId);
+    void bridge?.approveRound(roundId)
+      .then(() => { refreshRounds(); refresh(); })
+      .catch(() => { /* poll reconciles */ })
+      .finally(() => setApprovingRoundId(null));
+  }, [refreshRounds, refresh]);
   // Local-PR interactivity is gated on the TASK lifecycle, not the viewed
   // stage: the local-review moment arrives exactly when Dev closes, so a
   // closed stage must not disable commenting on a still-local PR.
@@ -292,9 +332,30 @@ export function StageDetailRoute({
     () => data?.conversation.map(r => stageRow(r, onDecide)),
     [data?.conversation, onDecide],
   );
+  // Dev feed: the flat transcript, with any ci_fix runs folded in as episodes
+  // (a live one flashes). Comments feed: the round list replaces the flat
+  // transcript outright — a round IS the unit of work here, not a raw turn
+  // sequence — with the live round's nested re-run + posting gate expanded.
+  const feedRows = stageKind === 'comments'
+    ? rounds.map(round => (
+        <RoundEpisode
+          key={round.id}
+          round={round}
+          nestedRun={runsByRoundId.get(round.id)}
+          onOpenRun={onOpenRun}
+          onApprove={approveRound}
+          approveBusy={approvingRoundId === round.id}
+        />
+      ))
+    : [
+        ...devRunEpisodes.map(run => (
+          <RunEpisode key={run.id} run={run} onOpen={() => onOpenRun?.(run.id)} />
+        )),
+        ...(transcriptRows ?? []),
+      ];
   const conversation = (
     <Conv>
-      {transcriptRows}
+      {feedRows}
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
         ? <MarkReadyPrompt onReview={onOpenCode} />
@@ -453,6 +514,7 @@ export function StageDetailRoute({
   const planSubStages = data?.subStages ?? brain.subStages;
   const planLiveRuns = data?.liveRuns ?? brain.liveRuns;
   const planGuard = data?.guard ?? brain.guard;
+  const planLiveRound = data?.liveRound ?? brain.liveRound;
   const sidebarTitle = data?.task.title ?? brain.task.title;
   const sidebarBranch = data?.task.branch ?? brain.task.branch;
   const sidebarPhase = (data?.task.currentPhase ?? brain.task.currentPhase) as TaskPhase;
@@ -462,6 +524,7 @@ export function StageDetailRoute({
     subStages: planSubStages,
     liveRuns: planLiveRuns,
     guard: planGuard,
+    liveRound: planLiveRound,
     task: {
       prNumber,
       currentPhase: sidebarPhase,
@@ -472,7 +535,7 @@ export function StageDetailRoute({
     viewedStageId: stageId,
     // Pulse this stage's node while its agent is mid-turn.
     working,
-  }), [planStages, planSubStages, planLiveRuns, planGuard, sidebarPhase, prNumber, pr, state, stageId, shipProposal, working, data, brain.task.terminal]);
+  }), [planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, sidebarPhase, prNumber, pr, state, stageId, shipProposal, working, data, brain.task.terminal]);
 
   // Render once we have any stage data — the stage detail, or the task-level
   // brain stages — so the rail persists across stage switches.
@@ -491,6 +554,7 @@ export function StageDetailRoute({
       onOpenCode={onOpenCode}
       onOpenPr={pr !== null ? openPr : undefined}
       onOpenBrain={onOpenBrain}
+      onOpenRun={onOpenRun}
     />
   );
 

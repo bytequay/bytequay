@@ -15,6 +15,7 @@ package com.bytequay.app.beans.stage;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BranchGuard;
+import com.bytequay.app.domain.ReviewRound;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
@@ -32,6 +33,8 @@ import java.util.Map;
  *                 and rationale as {@code TaskBrainViewData.liveRuns} —
  *                 this page renders the plan rail too
  * @param guard the task's branch guard state
+ * @param liveRound the task's currently-open {@link ReviewRound}, same field
+ *                  and rationale as {@code TaskBrainViewData.liveRound}
  */
 public record StageDetailData(
         DetailTask task,
@@ -52,7 +55,8 @@ public record StageDetailData(
         ContextWindowDto context,
         Scrubber scrubber,
         List<AgentRun> liveRuns,
-        BranchGuard guard)
+        BranchGuard guard,
+        ReviewRound liveRound)
 {
     /**
      * The pull-request block shown on the stage page's PR tab. Surfaced from

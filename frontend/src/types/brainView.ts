@@ -69,6 +69,11 @@ export type AgentRunDto = {
   source: AgentRunSource;
   parentStageId: string | null;
   reviewRoundId: string | null;
+  /** The run's own backing stage — every run gets one purely so its turns
+   *  land in {@code stage_messages} through the existing FK-scoped
+   *  mechanism. `GET /api/stages/{stageId}/detail` on this id is the run's
+   *  own conversation/log (what {@code RunLogPage} renders). */
+  stageId: string;
   status: AgentRunStatus;
   iterations: number;
   budget: number | null;
@@ -86,6 +91,32 @@ export type BranchGuardDto = {
   state: BranchGuardState;
   lastRunId: string | null;
   lastCheckedAt: string | null;
+};
+
+export type ReviewRoundStatus = 'triaging' | 'addressing' | 'awaiting_gate' | 'posted' | 'closed';
+
+export type ReviewRoundStats = { fixed: number; replied: number; pushedBack: number; open: number };
+
+/** One reviewer batch + the agent's entire response to it (plan-rail-runs.md
+ *  R11-R13) — the Comments stage feed's unit, folded to one row per round
+ *  except the live one, which renders expanded with its own run's
+ *  conversation nested inside plus a {@code RoundGateBar}. */
+export type ReviewRoundDto = {
+  id: string;
+  taskId: string;
+  /** 1-based round number for this task (round 1, 2, 3…). */
+  idx: number;
+  /** Reviewer handles this batch came from, e.g. "@alice". */
+  reviewers: string[];
+  status: ReviewRoundStatus;
+  stats: ReviewRoundStats;
+  /** The round's own `review_round`-kind {@link AgentRunDto}, null until it opens. */
+  runId: string | null;
+  openedAt: string;
+  /** When drafts became ready for the user to review; null while live. */
+  gatedAt: string | null;
+  /** When the user approved the gate (posted + pushed); null until then. */
+  postedAt: string | null;
 };
 
 export type StageState = 'OPEN' | 'ACTIVE' | 'PAUSED' | 'CLOSED';
@@ -272,6 +303,9 @@ export type TaskBrainViewData = {
    *  never drifts from the run table. */
   liveRuns: AgentRunDto[];
   guard: BranchGuardDto;
+  /** The task's currently-open review round (not yet posted/closed), or
+   *  null — drives the Comments node's "round N · M open" rail meta. */
+  liveRound: ReviewRoundDto | null;
 };
 
 /** Result of posting a brain message: the answering turn id and the
@@ -338,6 +372,7 @@ export type StageDetailData = {
    *  this page renders the plan rail too. */
   liveRuns: AgentRunDto[];
   guard: BranchGuardDto;
+  liveRound: ReviewRoundDto | null;
 };
 
 /** The PR-tab payload surfaced on the stage detail (frames 6/7). */

@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { BrainMessageResult, SpawnReviewResult, StageDetailData, TaskBrainViewData } from './types/brainView';
+import type {
+  AgentRunDto, BrainMessageResult, ReviewRoundDto, SpawnReviewResult, StageDetailData, TaskBrainViewData,
+} from './types/brainView';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
 
 export type HandledAction =
@@ -3933,6 +3935,17 @@ export type Bridge = {
   sendBrainMessage: (taskId: string, text: string) => Promise<BrainMessageResult>;
   /** Drill-in detail for one stage: iteration log, metrics, realtime CI. */
   getStageDetail: (stageId: string) => Promise<StageDetailData>;
+  /** A task's agent runs (live and finished) — the Dev stage feed folds the
+   *  `ci_fix`-kind ones (not tied to a review round) into episodes. */
+  getTaskRuns: (taskId: string) => Promise<AgentRunDto[]>;
+  /** One run's own record, notably its {@code stageId} — {@code RunLogPage}
+   *  resolves this once, then reuses the stage-detail machinery as-is. */
+  getAgentRun: (runId: string) => Promise<AgentRunDto>;
+  /** A task's review rounds, newest-first — the Comments stage feed. */
+  getTaskRounds: (taskId: string) => Promise<ReviewRoundDto[]>;
+  /** User-gated round approval: posts the round's drafted replies + pushes
+   *  its commits. */
+  approveRound: (roundId: string) => Promise<ReviewRoundDto>;
 
   // ── Local PR (the PR artifact living in ByteQuay before GitHub) ──────
   /** The task's whole local PR (row + commits + timeline + checks +

@@ -23,6 +23,7 @@ import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.StageEventDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
@@ -41,6 +42,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.review.BranchGuardService;
+import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -82,6 +84,7 @@ public class StageServiceImpl
     private final ThreadTurnStore turnStore;
     private final AgentRunService agentRuns;
     private final BranchGuardService branchGuards;
+    private final ReviewRoundService reviewRounds;
     private final ObjectMapper mapper;
 
     public StageServiceImpl(
@@ -93,6 +96,7 @@ public class StageServiceImpl
             ThreadTurnStore turnStore,
             AgentRunService agentRuns,
             BranchGuardService branchGuards,
+            ReviewRoundService reviewRounds,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -103,7 +107,13 @@ public class StageServiceImpl
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
         this.branchGuards = requireNonNull(branchGuards, "branchGuards is null");
+        this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+    }
+
+    private ReviewRound liveRound(String taskId)
+    {
+        return reviewRounds.findByTask(taskId).stream().filter(ReviewRound::isLive).findFirst().orElse(null);
     }
 
     @Override
@@ -147,7 +157,8 @@ public class StageServiceImpl
                 buildRightRail(task, allStages, cost),
                 buildScrubbers(allEvents, brainMessages),
                 agentRuns.liveRunsByTask(taskId),
-                branchGuards.get(taskId));
+                branchGuards.get(taskId),
+                liveRound(taskId));
     }
 
     /** The task's brain-thread conversation (user + assistant text rows),

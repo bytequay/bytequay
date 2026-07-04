@@ -28,7 +28,7 @@ function stage(type: StageType, state: StageState, over: Partial<StageDto> = {})
 function run(kind: AgentRunKind, over: Partial<AgentRunDto> = {}): AgentRunDto {
   return {
     id: `${kind}-run`, taskId: 't', kind, source: 'remote', parentStageId: null,
-    reviewRoundId: null, status: 'running', iterations: 1, budget: null,
+    reviewRoundId: null, stageId: `${kind}-stage`, status: 'running', iterations: 1, budget: null,
     headline: null, startedAt: '2026-01-01T00:00:00Z', finishedAt: null, ...over,
   };
 }

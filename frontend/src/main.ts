@@ -872,6 +872,43 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('runs:forTask', async (_event, taskId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/runs`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend task runs returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('runs:get', async (_event, runId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/runs/${encodeURIComponent(runId)}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend run returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('rounds:forTask', async (_event, taskId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/rounds`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend task rounds returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('rounds:approve', async (_event, roundId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/rounds/${encodeURIComponent(roundId)}/approve`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend round approve returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   // ── Local PR ──────────────────────────────────────────────────────
   // A task has at most one local PR; a 404 means "none yet", surfaced as
   // null so the renderer can fall back to the remote PR view.

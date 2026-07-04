@@ -314,15 +314,14 @@ public class StageDetailServiceImpl
 
     /** Backward (rework) phase transitions — moving back to redo earlier work
      *  rather than progressing. Kept as an explicit set since the natural
-     *  progression isn't a strict enum ordering. CI red no longer moves the
-     *  phase at all (a ci_fix {@code AgentRun} handles it beside whatever
-     *  phase the task is already on), so it isn't a backflow anymore. */
+     *  progression isn't a strict enum ordering. Neither CI red nor a new
+     *  remote review batch moves the phase at all anymore (a ci_fix /
+     *  review_round {@code AgentRun} handles each beside whatever phase the
+     *  task is already on), so neither is a backflow anymore. */
     private static final Set<Map.Entry<TaskPhase, TaskPhase>> BACKFLOWS =
             Set.of(
                     Map.entry(TaskPhase.INTERNAL_REVIEW, TaskPhase.IMPLEMENTING),
                     Map.entry(TaskPhase.VALIDATING, TaskPhase.IMPLEMENTING),
-                    Map.entry(TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.ADDRESSING_COMMENTS),
-                    Map.entry(TaskPhase.AGENT_RE_REVIEW, TaskPhase.ADDRESSING_COMMENTS),
                     Map.entry(TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS));
 
     private static boolean isBackflow(TaskPhaseEvent e)

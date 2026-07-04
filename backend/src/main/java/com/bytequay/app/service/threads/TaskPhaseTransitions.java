@@ -55,10 +55,10 @@ final class TaskPhaseTransitions
         m.put(TaskPhase.QUEUED, EnumSet.of(TaskPhase.PLANNING, TaskPhase.IMPLEMENTING));
         m.put(TaskPhase.IMPLEMENTING, EnumSet.of(TaskPhase.VALIDATING));
         m.put(TaskPhase.VALIDATING, EnumSet.of(TaskPhase.INTERNAL_REVIEW));
-        // Internal review either surfaces findings to address, or is clean
-        // and the task holds for the first push.
+        // Internal review either surfaces findings to address (back to
+        // IMPLEMENTING), or is clean and the task holds for the first push.
         m.put(TaskPhase.INTERNAL_REVIEW,
-                EnumSet.of(TaskPhase.ADDRESSING_COMMENTS, TaskPhase.AWAITING_PUSH));
+                EnumSet.of(TaskPhase.IMPLEMENTING, TaskPhase.AWAITING_PUSH));
         // A new local PR comment can arrive at any point while the task holds
         // here (the local addressing loop's reactive detour); addressing
         // returns straight back to AWAITING_PUSH.
@@ -71,15 +71,12 @@ final class TaskPhaseTransitions
         m.put(TaskPhase.PUSHED_AWAITING_CI,
                 EnumSet.of(TaskPhase.AWAITING_READY, TaskPhase.AWAITING_REMOTE_REVIEW));
         m.put(TaskPhase.AWAITING_READY, EnumSet.of(TaskPhase.AWAITING_REMOTE_REVIEW));
-        m.put(TaskPhase.AWAITING_REMOTE_REVIEW, EnumSet.of(TaskPhase.ADDRESSING_COMMENTS));
-        m.put(TaskPhase.ADDRESSING_COMMENTS, EnumSet.of(TaskPhase.AGENT_RE_REVIEW));
-        // Re-review either finds more to fix, or is clean — and the clean
-        // exit depends on whether the work was already pushed (update push)
-        // or is still the first internal pass (first push).
-        m.put(TaskPhase.AGENT_RE_REVIEW,
-                EnumSet.of(TaskPhase.ADDRESSING_COMMENTS, TaskPhase.AWAITING_UPDATE_PUSH,
-                        TaskPhase.AWAITING_PUSH));
-        m.put(TaskPhase.AWAITING_UPDATE_PUSH, EnumSet.of(TaskPhase.PUSHED_AWAITING_CI));
+        // Remote comments no longer move the phase off AWAITING_REMOTE_REVIEW
+        // — a review_round AgentRun triages/fixes/drafts beside it, and its
+        // own gate approval pushes straight to PUSHED_AWAITING_CI (mirrors
+        // how a ci_fix run's push never routes through a phase transition
+        // of its own either).
+        m.put(TaskPhase.AWAITING_REMOTE_REVIEW, EnumSet.of(TaskPhase.PUSHED_AWAITING_CI));
         // Human-recovered parked task restarts the cycle.
         m.put(TaskPhase.NEEDS_ATTENTION, EnumSet.of(TaskPhase.IMPLEMENTING));
         m.put(TaskPhase.COMPLETED, EnumSet.noneOf(TaskPhase.class));

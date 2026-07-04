@@ -53,6 +53,18 @@ class ReviewCommentEntity
     @Column(name = "resolved", nullable = false)
     private boolean resolved;
 
+    @Column(name = "remote_comment_id")
+    private Long remoteCommentId;
+
+    @Column(name = "round_id")
+    private String roundId;
+
+    @Column(name = "draft_reply_body")
+    private String draftReplyBody;
+
+    @Column(name = "draft_reply_created_at_ms")
+    private Long draftReplyCreatedAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -79,4 +91,16 @@ class ReviewCommentEntity
 
     boolean isResolved() { return resolved; }
     void setResolved(boolean resolved) { this.resolved = resolved; }
+
+    Long getRemoteCommentId() { return remoteCommentId; }
+    void setRemoteCommentId(Long remoteCommentId) { this.remoteCommentId = remoteCommentId; }
+
+    String getRoundId() { return roundId; }
+    void setRoundId(String roundId) { this.roundId = roundId; }
+
+    String getDraftReplyBody() { return draftReplyBody; }
+    void setDraftReplyBody(String draftReplyBody) { this.draftReplyBody = draftReplyBody; }
+
+    Long getDraftReplyCreatedAtMs() { return draftReplyCreatedAtMs; }
+    void setDraftReplyCreatedAtMs(Long draftReplyCreatedAtMs) { this.draftReplyCreatedAtMs = draftReplyCreatedAtMs; }
 }

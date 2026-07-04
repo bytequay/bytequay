@@ -11,17 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.domain;
+package com.bytequay.app.repository.sqlite;
 
-/**
- * What a {@link ReviewPass} is hosted by. {@link #THREAD} is the
- * standalone "Assign review" flow (carries the spawn-build affordance);
- * {@link #TASK_PHASE} is a pass the dev-task lifecycle runs at
- * INTERNAL_REVIEW (no spawn-build — the dev task IS the build).
- * {@code host_id} points at the review thread or the task respectively.
- */
-public enum ReviewPassHostKind
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+interface ReviewRoundJpaRepository
+        extends JpaRepository<ReviewRoundEntity, String>
 {
-    THREAD,
-    TASK_PHASE
+    List<ReviewRoundEntity> findByTaskIdOrderByOpenedAtMsDesc(String taskId);
 }

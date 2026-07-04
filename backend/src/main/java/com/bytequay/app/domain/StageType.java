@@ -27,11 +27,12 @@ import java.util.Set;
  * <p>{@code PLAN_STAGE} is the mandatory planning stage every Task opens
  * with; {@code DEVELOPMENT_STAGE} / {@code REVIEW_MONITOR_STAGE} are
  * looping work stages driven by phase transitions, {@code CLEANUP_STAGE}
- * is the terminal stage, and {@code REVIEW_STAGE} / {@code CI_FIXING_STAGE}
- * are pure containers with no phases of their own — opened directly by an
- * {@code AgentRun} (or, for {@code REVIEW_STAGE}, the review panel) purely
- * so its turns land in {@code stage_messages} via the same stage-id FK every
- * other turn uses; both carry a {@code callerStageId}.
+ * is the terminal stage, and {@code REVIEW_STAGE} / {@code CI_FIXING_STAGE} /
+ * {@code REVIEW_ROUND_STAGE} are pure containers with no phases of their
+ * own — opened directly by an {@code AgentRun} (or, for {@code
+ * REVIEW_STAGE}, the review panel) purely so its turns land in {@code
+ * stage_messages} via the same stage-id FK every other turn uses; all
+ * three carry a {@code callerStageId}.
  */
 public enum StageType
 {
@@ -55,21 +56,25 @@ public enum StageType
      *  REVIEW_STAGE}. */
     CI_FIXING_STAGE(Set.of()),
 
-    /** Polling loop on remote review comments. Arms as soon as the PR is
-     *  out for review ({@code AWAITING_REMOTE_REVIEW}), then stays active
-     *  while comments are addressed. */
-    REVIEW_MONITOR_STAGE(Set.of(
-            TaskPhase.AWAITING_REMOTE_REVIEW,
-            TaskPhase.ADDRESSING_COMMENTS,
-            TaskPhase.AGENT_RE_REVIEW,
-            TaskPhase.AWAITING_UPDATE_PUSH)),
+    /** Arms as soon as the PR is out for review ({@code
+     *  AWAITING_REMOTE_REVIEW}) and stays active for the rest of the
+     *  task's remote-review life — the phase no longer moves while
+     *  {@code review_round} runs address comment batches beside it,
+     *  mirroring how {@code CI_FIXING_STAGE} relates to {@code ci_fix}. */
+    REVIEW_MONITOR_STAGE(Set.of(TaskPhase.AWAITING_REMOTE_REVIEW)),
 
     /** Terminal stage; runs once the PR closes. */
     CLEANUP_STAGE(Set.of(TaskPhase.COMPLETED)),
 
     /** Callable multi-agent review sub-stage with its own internal phases —
      *  left empty here; populated when the panel lifecycle lands. */
-    REVIEW_STAGE(Set.of());
+    REVIEW_STAGE(Set.of()),
+
+    /** Pure container for {@code review_round} {@link AgentRun}s — never
+     *  opened via a phase transition; {@link AgentRun} opens one directly
+     *  as a round's backing stage. Empty {@code allowedPhases} mirrors
+     *  {@code CI_FIXING_STAGE}. */
+    REVIEW_ROUND_STAGE(Set.of());
 
     private final Set<TaskPhase> allowedPhases;
 
@@ -103,6 +108,7 @@ public enum StageType
             case REVIEW_MONITOR_STAGE -> "ReviewMonitorStage";
             case CLEANUP_STAGE -> "CleanupStage";
             case REVIEW_STAGE -> "ReviewStage";
+            case REVIEW_ROUND_STAGE -> "ReviewRoundStage";
         };
     }
 

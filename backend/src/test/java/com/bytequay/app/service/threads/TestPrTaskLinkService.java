@@ -107,7 +107,7 @@ class TestPrTaskLinkService
     {
         when(taskStore.findTasksByPrRef("acme/widget#42")).thenReturn(List.of(
                 taskWith("task-done-1", TaskPhase.COMPLETED),
-                taskWith("task-active", TaskPhase.ADDRESSING_COMMENTS),
+                taskWith("task-active", TaskPhase.PUSHED_AWAITING_CI),
                 taskWith("task-done-2", TaskPhase.COMPLETED)));
 
         PrTaskLinkService.LinkedTasks linked = service.linkedTasksFor("acme/widget", 42);

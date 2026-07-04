@@ -72,7 +72,11 @@ public class ReviewCommentServiceImpl
                 Instant.now(),
                 ReviewCommentSource.LOCAL_USER,
                 null,
-                false);
+                false,
+                null,
+                null,
+                null,
+                null);
         return stageStore.saveReviewComment(comment);
     }
 

@@ -84,7 +84,11 @@ public class RemoteCommentIngestor
                         message.createdAt() == null ? Instant.now() : message.createdAt(),
                         ReviewCommentSource.REMOTE_REVIEWER,
                         remoteLink,
-                        resolved));
+                        resolved,
+                        message.githubId(),
+                        null,
+                        null,
+                        null));
             }
         }
     }

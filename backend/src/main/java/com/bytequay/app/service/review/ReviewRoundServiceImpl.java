@@ -1,0 +1,304 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.review;
+
+import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.ReviewComment;
+import com.bytequay.app.domain.ReviewRound;
+import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.ReviewRoundStore;
+import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
+import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static java.util.Objects.requireNonNull;
+
+@Service
+class ReviewRoundServiceImpl
+        implements ReviewRoundService
+{
+    private static final Logger log = LoggerFactory.getLogger(ReviewRoundServiceImpl.class);
+
+    /** How long a batch of freshly-arrived remote comments waits before a
+     *  round opens, in case more trickle in from the same reviewer pass.
+     *  Dogfooding may retune this (plan-rail-runs.md open question). */
+    static final Duration DEBOUNCE = Duration.ofMinutes(10);
+
+    private final TaskStore taskStore;
+    private final StageStore stageStore;
+    private final ReviewRoundStore roundStore;
+    private final AgentRunService agentRuns;
+    private final ThreadStore threadStore;
+    private final ThreadTurnScheduler scheduler;
+    private final ThreadTurnStore turnStore;
+    private final TaskPhaseMachine phaseMachine;
+    private final PullRequestService pullRequests;
+    private final GitRunner git;
+    private final Clock clock;
+
+    @Autowired
+    ReviewRoundServiceImpl(
+            TaskStore taskStore,
+            StageStore stageStore,
+            ReviewRoundStore roundStore,
+            AgentRunService agentRuns,
+            ThreadStore threadStore,
+            ThreadTurnScheduler scheduler,
+            ThreadTurnStore turnStore,
+            TaskPhaseMachine phaseMachine,
+            PullRequestService pullRequests,
+            GitRunner git)
+    {
+        this(taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore,
+                phaseMachine, pullRequests, git, Clock.systemUTC());
+    }
+
+    ReviewRoundServiceImpl(
+            TaskStore taskStore,
+            StageStore stageStore,
+            ReviewRoundStore roundStore,
+            AgentRunService agentRuns,
+            ThreadStore threadStore,
+            ThreadTurnScheduler scheduler,
+            ThreadTurnStore turnStore,
+            TaskPhaseMachine phaseMachine,
+            PullRequestService pullRequests,
+            GitRunner git,
+            Clock clock)
+    {
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.roundStore = requireNonNull(roundStore, "roundStore is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.git = requireNonNull(git, "git is null");
+        this.clock = requireNonNull(clock, "clock is null");
+    }
+
+    @Override
+    @Transactional
+    public void reconcile(Task task)
+    {
+        if (roundStore.findLiveByTask(task.id()).isPresent()) {
+            // A round is already collecting/addressing/gated — freshly
+            // ingested comments wait for the next round once this one closes,
+            // rather than growing mid-flight (R11: one batch per round).
+            return;
+        }
+        List<ReviewComment> unrounded = stageStore.findUnroundedRemoteComments(task.id());
+        if (unrounded.isEmpty()) {
+            return;
+        }
+        Instant oldest = unrounded.stream()
+                .map(ReviewComment::createdAt)
+                .min(Instant::compareTo)
+                .orElseThrow();
+        if (Duration.between(oldest, now()).compareTo(DEBOUNCE) < 0) {
+            return; // still within the debounce window — wait for more to arrive.
+        }
+        openRound(task, unrounded);
+    }
+
+    private void openRound(Task task, List<ReviewComment> comments)
+    {
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
+        if (ref.isEmpty()) {
+            return;
+        }
+        String parentStageId = stageStore.findLiveStageByType(task.id(), StageType.REVIEW_MONITOR_STAGE)
+                .map(s -> s.id().toString())
+                .orElse(null);
+        String roundId = UUID.randomUUID().toString();
+        List<UUID> commentIds = comments.stream().map(ReviewComment::id).toList();
+        stageStore.assignCommentsToRound(commentIds, UUID.fromString(roundId));
+
+        AgentRun run = agentRuns.open(
+                task.id(), AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                parentStageId, StageType.REVIEW_ROUND_STAGE, /* budget */ null);
+
+        ReviewRound round = new ReviewRound(
+                roundId, task.id(), roundStore.nextIndex(task.id()), List.of(),
+                ReviewRound.STATUS_ADDRESSING, ReviewRound.ReviewRoundStats.empty(),
+                run.id(), now(), /* gatedAt */ null, /* postedAt */ null);
+        roundStore.save(round);
+
+        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
+        if (threadOpt.isEmpty() || threadOpt.get().status() != ThreadStatus.IDLE) {
+            log.info("review-round: thread not idle for task {}; round {} opened, turn deferred",
+                    task.id(), roundId);
+            return;
+        }
+        String prompt = buildRoundPrompt(ref.get(), comments);
+        try {
+            scheduler.enqueueTaskTurn(
+                    threadOpt.get(), prompt, task.id(), run.stageId(),
+                    TurnInitiator.unattended("review-round"));
+            log.info("review-round: round {} (#{}) opened for task {}",
+                    round.idx(), roundId, task.id());
+        }
+        catch (RuntimeException e) {
+            log.warn("review-round: enqueue failed for task {} round {}: {}",
+                    task.id(), roundId, e.getMessage());
+        }
+    }
+
+    /** A round's kickoff turn finishing means the agent's triage + fixes +
+     *  drafted replies are done — the round is ready for the user's gate.
+     *  Matched by stage id (the run's own backing stage), the same
+     *  mechanism {@code CiFixRunExecutor} uses to find its own turns. */
+    @EventListener
+    @Transactional
+    public void onTurnFinished(TaskTurnFinishedEvent event)
+    {
+        ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
+        if (turn == null || turn.stageId() == null) {
+            return;
+        }
+        Optional<ReviewRound> live = roundStore.findLiveByTask(event.taskId())
+                .filter(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status()))
+                .filter(r -> r.runId() != null);
+        if (live.isEmpty()) {
+            return;
+        }
+        ReviewRound round = live.get();
+        AgentRun run = agentRuns.findById(round.runId()).orElse(null);
+        if (run == null || !turn.stageId().equals(run.stageId())) {
+            return;
+        }
+        agentRuns.transition(run.id(), AgentRun.STATUS_AWAITING_GATE, "drafts_ready");
+        roundStore.save(round.withStatus(ReviewRound.STATUS_AWAITING_GATE).withGatedAt(now()));
+    }
+
+    @Override
+    public Optional<ReviewRound> findById(String roundId)
+    {
+        return roundStore.findById(roundId);
+    }
+
+    @Override
+    public List<ReviewRound> findByTask(String taskId)
+    {
+        return roundStore.findByTask(taskId);
+    }
+
+    @Override
+    @Transactional
+    public ReviewRound approve(String roundId)
+    {
+        ReviewRound round = roundStore.findById(roundId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no round: " + roundId));
+        if (!ReviewRound.STATUS_AWAITING_GATE.equals(round.status())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "round " + roundId + " is not awaiting its gate");
+        }
+        Task task = taskStore.findTaskById(round.taskId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + round.taskId()));
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
+        if (ref.isPresent()) {
+            for (ReviewComment comment : stageStore.findCommentsByRound(UUID.fromString(roundId))) {
+                if (comment.draftReplyBody() == null || comment.draftReplyBody().isBlank()
+                        || comment.remoteCommentId() == null) {
+                    continue;
+                }
+                pullRequests.replyToReviewThread(ref.get().repoRef().fullName(), ref.get().number(),
+                        comment.remoteCommentId(), comment.draftReplyBody());
+            }
+        }
+        if (task.worktreePath() != null && !task.worktreePath().isBlank()) {
+            try {
+                git.push(Path.of(task.worktreePath()));
+            }
+            catch (InterruptedException e) {
+                java.lang.Thread.currentThread().interrupt();
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                        "push interrupted for round " + roundId);
+            }
+            catch (IOException e) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                        "push failed for round " + roundId + ": " + e.getMessage());
+            }
+        }
+        phaseMachine.transition(task.id(), TaskPhase.PUSHED_AWAITING_CI, "round_approved", Actor.HUMAN);
+        if (round.runId() != null) {
+            agentRuns.transition(round.runId(), AgentRun.STATUS_SUCCEEDED, "round_approved");
+        }
+        ReviewRound posted = round.withStatus(ReviewRound.STATUS_POSTED).withPostedAt(now());
+        return roundStore.save(posted);
+    }
+
+    private String buildRoundPrompt(PullRequestRef ref, List<ReviewComment> comments)
+    {
+        StringBuilder out = new StringBuilder();
+        out.append("A new batch of review comments arrived on ")
+                .append(ref.repoRef().fullName()).append(" #").append(ref.number())
+                .append(".\n\n")
+                .append("For EACH comment below: if it needs a code change, make the fix and "
+                        + "commit it (plain git commit — do not push). If it's a question or "
+                        + "needs no code change, draft a reply with "
+                        + "record_round_reply(comment_id, body). Either way, once you've handled "
+                        + "a comment, call resolve_review_comment(comment_id). Do NOT push, and do "
+                        + "NOT call any tool that posts directly to GitHub — everything you draft "
+                        + "here is held for the user's review before anything goes out.\n\n")
+                .append("Comments in this batch:\n");
+        for (ReviewComment c : comments) {
+            out.append('\n').append("[id: ").append(c.id()).append("] ")
+                    .append(c.file()).append(':').append(c.line()).append('\n')
+                    .append("   ").append(c.body() == null ? "" : c.body().strip()).append('\n');
+        }
+        return out.toString();
+    }
+
+    private Instant now()
+    {
+        return Instant.now(clock);
+    }
+}

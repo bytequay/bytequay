@@ -13,16 +13,11 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
-import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
-import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.TaskPhase;
 
-import java.time.Instant;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -58,15 +53,11 @@ final class TaskLifecyclePhases
         if (ci == CiStatus.FAILING || ci == CiStatus.PENDING || ci == null) {
             return Optional.of(TaskPhase.PUSHED_AWAITING_CI);
         }
-        // CI green, or no CI gate (NONE): the PR's draft / review state
-        // decides where on the remote spine the task sits.
-        if (pr.draft()) {
-            return Optional.of(TaskPhase.AWAITING_READY);
-        }
-        if (hasChangesRequested(pr)) {
-            return Optional.of(TaskPhase.ADDRESSING_COMMENTS);
-        }
-        return Optional.of(TaskPhase.AWAITING_REMOTE_REVIEW);
+        // CI green, or no CI gate (NONE): a draft holds for "mark ready";
+        // everything else (including changes requested — a review_round
+        // AgentRun addresses those beside this phase, not by moving it) is
+        // out for remote review.
+        return Optional.of(pr.draft() ? TaskPhase.AWAITING_READY : TaskPhase.AWAITING_REMOTE_REVIEW);
     }
 
     /**
@@ -101,54 +92,5 @@ final class TaskLifecyclePhases
         return Optional.of(detail.draft()
                 ? TaskPhase.AWAITING_READY
                 : TaskPhase.AWAITING_REMOTE_REVIEW);
-    }
-
-    private static boolean hasChangesRequested(PullRequest pr)
-    {
-        Map<String, String> verdicts = pr.reviewerVerdicts();
-        return verdicts != null
-                && verdicts.values().stream()
-                        .anyMatch(v -> GithubReviewState.CHANGES_REQUESTED.equalsIgnoreCase(v));
-    }
-
-    /**
-     * The timestamp of the newest comment in an <em>unresolved</em> review
-     * thread that is strictly newer than {@code addressedThrough} (the
-     * per-task last-addressed marker; null means nothing has been
-     * addressed, so every unresolved comment counts as new), or empty when
-     * there are no new unresolved comments to address.
-     *
-     * <p>Drives the post-ship address-comments loop: a ready PR with a
-     * non-empty result has a fresh round of reviewer feedback, so the
-     * reconciler moves the task onto the {@code ADDRESSING_COMMENTS} spine
-     * and asks the user. Resolved threads are skipped — they've been dealt
-     * with — and the returned instant becomes the next marker so the same
-     * comments don't re-trigger on the next poll.
-     */
-    static Optional<Instant> newestUnaddressedReviewComment(
-            PullRequestDetail detail, Instant addressedThrough)
-    {
-        if (detail == null || detail.reviewThreads() == null) {
-            return Optional.empty();
-        }
-        Instant newest = null;
-        for (ReviewThread thread : detail.reviewThreads()) {
-            if (Boolean.TRUE.equals(thread.resolved()) || thread.messages() == null) {
-                continue;
-            }
-            for (ReviewMessage message : thread.messages()) {
-                Instant at = message.createdAt();
-                if (at == null) {
-                    continue;
-                }
-                if (addressedThrough != null && !at.isAfter(addressedThrough)) {
-                    continue;
-                }
-                if (newest == null || at.isAfter(newest)) {
-                    newest = at;
-                }
-            }
-        }
-        return Optional.ofNullable(newest);
     }
 }

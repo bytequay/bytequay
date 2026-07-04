@@ -115,7 +115,7 @@ class TestReviewCommentService
         UUID openId = UUID.randomUUID();
         ReviewComment resolved = comment(resolvedId, "task-1", true);
         ReviewComment open = new ReviewComment(openId, "task-1", "src/Foo.java", 7, "rename it",
-                NOW, ReviewCommentSource.LOCAL_USER, null, false);
+                NOW, ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null);
         when(stageStore.findCommentsBySource("task-1", ReviewCommentSource.LOCAL_USER))
                 .thenReturn(List.of(resolved, open));
         UUID devStageId = UUID.randomUUID();
@@ -153,7 +153,7 @@ class TestReviewCommentService
     private static ReviewComment comment(UUID id, String taskId, boolean resolved)
     {
         return new ReviewComment(id, taskId, "src/Foo.java", 1, "body",
-                NOW, ReviewCommentSource.LOCAL_USER, null, resolved);
+                NOW, ReviewCommentSource.LOCAL_USER, null, resolved, null, null, null, null);
     }
 
     private static StageInstance stage(UUID id, StageType type, StageState state)

@@ -90,6 +90,15 @@ describe('buildLivePlan', () => {
     expect(node(nodes, 'dev').status).toBe('awaiting');
   });
 
+  it('marks Development running while addressing local PR comments', () => {
+    const nodes = buildLivePlan({
+      stages: [stage('DEVELOPMENT_STAGE', 'OPEN')],
+      subStages: [],
+      task: { prNumber: null, currentPhase: 'ADDRESSING_LOCAL_COMMENTS' as TaskPhase, terminal: false },
+    });
+    expect(node(nodes, 'dev').status).toBe('running');
+  });
+
   it('marks a monitor stage running while its phase is the current work', () => {
     // CI fixing loops, so the stage row sits OPEN between turns. While the
     // task is in CI_FIXING the node must still read "running", not "sleep".

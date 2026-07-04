@@ -93,8 +93,11 @@ function glyphFor(status: LivePlanStatus, future = '○'): string {
  *  node must read "running" then even if its stage row sits OPEN between
  *  turns (a CLI subprocess turn leaves the row OPEN, not ACTIVE), which is
  *  why the plain stage-state mapping under-lit it. AWAITING_PUSH is the
- *  dev-finished, parked-for-push-approval state → "awaiting". */
-const DEV_RUNNING_PHASES = new Set<TaskPhase>(['IMPLEMENTING', 'VALIDATING', 'INTERNAL_REVIEW']);
+ *  dev-finished, parked-for-push-approval state → "awaiting";
+ *  ADDRESSING_LOCAL_COMMENTS is a reactive detour off it where the agent is
+ *  actively addressing local PR comments, so it reads "running" too. */
+const DEV_RUNNING_PHASES = new Set<TaskPhase>(
+  ['IMPLEMENTING', 'VALIDATING', 'INTERNAL_REVIEW', 'ADDRESSING_LOCAL_COMMENTS']);
 
 function devNodeStatus(dev: StageDto | undefined, phase: TaskPhase): LivePlanStatus {
   if (dev === undefined) return 'future';

@@ -21,7 +21,7 @@ package com.bytequay.app.domain;
  * phase=ADDRESSING_COMMENTS} while {@code status=RUNNING} or {@code
  * IDLE}.
  *
- * <p>The 12 forward phases are deliberately granular — each maps to a
+ * <p>The 13 forward phases are deliberately granular — each maps to a
  * distinct thing the agent or human is doing or waiting on. They are not
  * to be folded. {@link #NEEDS_ATTENTION} is a parked escape reachable
  * from any phase, not a forward step.
@@ -57,8 +57,16 @@ public enum TaskPhase
     INTERNAL_REVIEW,
 
     /** Validation + internal review passed; holding for the human to
-     *  approve the first push. */
+     *  approve the first push. Also the wait state the local addressing
+     *  loop returns to once a round of local PR comments is addressed —
+     *  it's already the de facto "local PR ready for review" state. */
     AWAITING_PUSH,
+
+    /** New local PR review comments arrived (pre-push); agent is
+     *  addressing them directly (no gate — the unpushed branch is the
+     *  safety buffer), then returns to {@link #AWAITING_PUSH}. The local
+     *  twin of {@link #ADDRESSING_COMMENTS}. */
+    ADDRESSING_LOCAL_COMMENTS,
 
     /** Branch pushed; waiting on remote CI to report. */
     PUSHED_AWAITING_CI,

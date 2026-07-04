@@ -37,7 +37,7 @@ public enum TaskPhaseGroup
         return switch (phase) {
             case IMPLEMENTING, VALIDATING, INTERNAL_REVIEW,
                  PUSHED_AWAITING_CI, CI_FIXING,
-                 ADDRESSING_COMMENTS, AGENT_RE_REVIEW -> IN_PROGRESS;
+                 ADDRESSING_COMMENTS, AGENT_RE_REVIEW, ADDRESSING_LOCAL_COMMENTS -> IN_PROGRESS;
             // PLANNING holds for the user to approve the plan before any dev
             // work starts — it's an action the user owns.
             case PLANNING, AWAITING_PUSH, AWAITING_READY, AWAITING_UPDATE_PUSH,

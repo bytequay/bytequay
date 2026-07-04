@@ -41,7 +41,7 @@ public final class TaskFlowLabels
             case IMPLEMENTING ->
                     firstVisit(previousEvents, TaskPhase.IMPLEMENTING) ? "Implement" : "Address";
             case CI_FIXING -> "Fix CI";
-            case ADDRESSING_COMMENTS -> "Address";
+            case ADDRESSING_COMMENTS, ADDRESSING_LOCAL_COMMENTS -> "Address";
             case VALIDATING -> "Validate";
             case INTERNAL_REVIEW ->
                     firstVisit(previousEvents, TaskPhase.INTERNAL_REVIEW) ? "Review" : "Re-review";
@@ -76,7 +76,7 @@ public final class TaskFlowLabels
             case QUEUED -> "Queued";
             case IMPLEMENTING -> "Implement";
             case CI_FIXING -> "Fix CI";
-            case ADDRESSING_COMMENTS -> "Address";
+            case ADDRESSING_COMMENTS, ADDRESSING_LOCAL_COMMENTS -> "Address";
             case VALIDATING -> "Validate";
             case INTERNAL_REVIEW -> "Review";
             case AGENT_RE_REVIEW -> "Re-review";
@@ -99,6 +99,7 @@ public final class TaskFlowLabels
             case AWAITING_REMOTE_REVIEW -> "on CI green / ready";
             case AWAITING_READY -> "on CI green, still draft";
             case ADDRESSING_COMMENTS -> "on new review comments";
+            case ADDRESSING_LOCAL_COMMENTS -> "on new local PR comments";
             case AWAITING_PUSH -> "on review clean";
             case AWAITING_UPDATE_PUSH -> "on re-review clean";
             case AGENT_RE_REVIEW -> "after addressing comments";

@@ -68,6 +68,7 @@ class SqliteLocalPRStore
         e.setRemotePrUrl(pr.remotePrUrl());
         e.setMergedAtMs(epochOrNull(pr.mergedAt()));
         e.setClosedAtMs(epochOrNull(pr.closedAt()));
+        e.setLocalAddressedThroughMs(epochOrNull(pr.localAddressedThroughAt()));
         return toDomain(prs.save(e));
     }
 
@@ -237,7 +238,8 @@ class SqliteLocalPRStore
                 e.getRemotePrNumber(),
                 e.getRemotePrUrl(),
                 instantOrNull(e.getMergedAtMs()),
-                instantOrNull(e.getClosedAtMs()));
+                instantOrNull(e.getClosedAtMs()),
+                instantOrNull(e.getLocalAddressedThroughMs()));
     }
 
     private static LocalPRCommit toDomain(LocalPrCommitEntity e)

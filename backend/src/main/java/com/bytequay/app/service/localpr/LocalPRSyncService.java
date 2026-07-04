@@ -53,8 +53,8 @@ public class LocalPRSyncService
     private static final String DEFAULT_BASE = "main";
 
     /** Phases at which dev is finished and the PR is awaiting the user's review. */
-    private static final Set<TaskPhase> READY_FOR_REVIEW =
-            ImmutableSet.of(TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH);
+    private static final Set<TaskPhase> READY_FOR_REVIEW = ImmutableSet.of(
+            TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
 
     private final LocalPRService localPr;
     private final TaskStore taskStore;

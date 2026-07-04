@@ -43,7 +43,8 @@ public enum StageType
             TaskPhase.IMPLEMENTING,
             TaskPhase.VALIDATING,
             TaskPhase.INTERNAL_REVIEW,
-            TaskPhase.AWAITING_PUSH)),
+            TaskPhase.AWAITING_PUSH,
+            TaskPhase.ADDRESSING_LOCAL_COMMENTS)),
 
     /** Polling loop on remote CI. */
     CI_FIXING_STAGE(Set.of(

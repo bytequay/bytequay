@@ -48,7 +48,8 @@ public record LocalPR(
         Integer remotePrNumber,
         String remotePrUrl,
         Instant mergedAt,
-        Instant closedAt)
+        Instant closedAt,
+        Instant localAddressedThroughAt)
 {
     public static final String STATUS_LOCAL_DRAFTED = "local-drafted";
     public static final String STATUS_LOCAL_OPEN = "local-open";
@@ -85,7 +86,7 @@ public record LocalPR(
                 description == null ? "" : description,
                 STATUS_LOCAL_DRAFTED, createdAt,
                 /* pushedAt */ null, /* remotePrNumber */ null, /* remotePrUrl */ null,
-                /* mergedAt */ null, /* closedAt */ null);
+                /* mergedAt */ null, /* closedAt */ null, /* localAddressedThroughAt */ null);
     }
 
     /** True iff {@code target} is a legal next status from the current one. */
@@ -108,7 +109,8 @@ public record LocalPR(
                 id, taskId, branchName, baseBranch,
                 newTitle == null ? title : newTitle,
                 newDescription == null ? description : newDescription,
-                status, createdAt, pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt);
+                status, createdAt, pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt,
+                localAddressedThroughAt);
     }
 
     /**
@@ -124,7 +126,8 @@ public record LocalPR(
                 STATUS_REMOTE_DRAFTED.equals(newStatus) && pushedAt == null ? when : pushedAt,
                 remotePrNumber, remotePrUrl,
                 STATUS_MERGED.equals(newStatus) ? when : mergedAt,
-                STATUS_CLOSED.equals(newStatus) ? when : closedAt);
+                STATUS_CLOSED.equals(newStatus) ? when : closedAt,
+                localAddressedThroughAt);
     }
 
     /** Copy recording the remote PR identity assigned on push. */
@@ -132,6 +135,19 @@ public record LocalPR(
     {
         return new LocalPR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
-                pushedAt == null ? when : pushedAt, number, url, mergedAt, closedAt);
+                pushedAt == null ? when : pushedAt, number, url, mergedAt, closedAt,
+                localAddressedThroughAt);
+    }
+
+    /** Copy with the local-addressing marker advanced to {@code through} — the
+     *  high-water mark past which every {@code local_pr_comment} has already
+     *  triggered (or been folded into) an addressing turn. Mirrors {@code
+     *  TaskReviewMarkerStore} for the remote loop, scoped here since a
+     *  {@code LocalPR} is already 1:1 with its task. */
+    public LocalPR withLocalAddressedThrough(Instant through)
+    {
+        return new LocalPR(
+                id, taskId, branchName, baseBranch, title, description, status, createdAt,
+                pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, through);
     }
 }

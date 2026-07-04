@@ -38,7 +38,7 @@ import type { StageKind } from './StageDetailPage';
 import { PlanCard } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
-import { buildLivePlan } from '../ui/shell/livePlanModel';
+import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
 import type { TaskPhase } from '../types/brainView';
 
@@ -451,6 +451,8 @@ export function StageDetailRoute({
   // collapsing the layout for a frame.
   const planStages = data?.allStages ?? brain.stages;
   const planSubStages = data?.subStages ?? brain.subStages;
+  const planLiveRuns = data?.liveRuns ?? brain.liveRuns;
+  const planGuard = data?.guard ?? brain.guard;
   const sidebarTitle = data?.task.title ?? brain.task.title;
   const sidebarBranch = data?.task.branch ?? brain.task.branch;
   const sidebarPhase = (data?.task.currentPhase ?? brain.task.currentPhase) as TaskPhase;
@@ -458,6 +460,8 @@ export function StageDetailRoute({
   const livePlanNodes = useMemo(() => buildLivePlan({
     stages: planStages,
     subStages: planSubStages,
+    liveRuns: planLiveRuns,
+    guard: planGuard,
     task: {
       prNumber,
       currentPhase: sidebarPhase,
@@ -468,7 +472,7 @@ export function StageDetailRoute({
     viewedStageId: stageId,
     // Pulse this stage's node while its agent is mid-turn.
     working,
-  }), [planStages, planSubStages, sidebarPhase, prNumber, pr, state, stageId, shipProposal, working, data, brain.task.terminal]);
+  }), [planStages, planSubStages, planLiveRuns, planGuard, sidebarPhase, prNumber, pr, state, stageId, shipProposal, working, data, brain.task.terminal]);
 
   // Render once we have any stage data — the stage detail, or the task-level
   // brain stages — so the rail persists across stage switches.
@@ -481,6 +485,7 @@ export function StageDetailRoute({
         finished: sidebarFinished,
       }}
       nodes={livePlanNodes}
+      guard={buildGuardChip(planGuard)}
       onBack={onBack}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}

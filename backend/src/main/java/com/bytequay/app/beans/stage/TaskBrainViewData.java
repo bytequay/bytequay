@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.beans.stage;
 
+import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.BranchGuard;
+
 import java.util.List;
 
 /**
@@ -20,6 +23,14 @@ import java.util.List;
  * The shape is locked against the frontend mock; many fields are
  * placeholders in this milestone (0 / empty / null) and fill in as the
  * loop, conversation, and cost machinery land.
+ *
+ * @param liveRuns the task's live-or-gated {@link AgentRun}s — what the
+ *                 plan rail renders sub-rows from (R5: rail data never
+ *                 drifts from the run table; folded into this existing
+ *                 payload rather than a separate endpoint, since nothing
+ *                 else consumes the rail standalone)
+ * @param guard the task's branch guard state, always present (a disabled
+ *              row is created lazily)
  */
 public record TaskBrainViewData(
         BrainTask task,
@@ -28,7 +39,9 @@ public record TaskBrainViewData(
         List<StageDto> subStages,
         List<BrainFeedRow> brainFeed,
         RightRail rightRail,
-        Scrubbers scrubbers)
+        Scrubbers scrubbers,
+        List<AgentRun> liveRuns,
+        BranchGuard guard)
 {
     /**
      * The Task header shown above the brain feed.

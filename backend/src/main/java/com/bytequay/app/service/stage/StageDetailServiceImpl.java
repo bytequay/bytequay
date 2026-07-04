@@ -50,6 +50,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.review.BranchGuardService;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -92,6 +94,8 @@ public class StageDetailServiceImpl
     private final ThreadTurnStore turnStore;
     private final StageBudgetService budgetService;
     private final PullRequestService pullRequests;
+    private final AgentRunService agentRuns;
+    private final BranchGuardService branchGuards;
     private final ObjectMapper mapper;
 
     public StageDetailServiceImpl(
@@ -102,6 +106,8 @@ public class StageDetailServiceImpl
             ThreadTurnStore turnStore,
             StageBudgetService budgetService,
             PullRequestService pullRequests,
+            AgentRunService agentRuns,
+            BranchGuardService branchGuards,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -111,6 +117,8 @@ public class StageDetailServiceImpl
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.budgetService = requireNonNull(budgetService, "budgetService is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.branchGuards = requireNonNull(branchGuards, "branchGuards is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -162,7 +170,9 @@ public class StageDetailServiceImpl
                 buildCiFixHistory(stage, iters, events),
                 buildPrTab(task, prDetail),
                 new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe"),
-                new Scrubber(List.<ScrubberDash>of()));
+                new Scrubber(List.<ScrubberDash>of()),
+                agentRuns.liveRunsByTask(task.id()),
+                branchGuards.get(task.id()));
     }
 
     // ── task + stage identity ───────────────────────────────────────────

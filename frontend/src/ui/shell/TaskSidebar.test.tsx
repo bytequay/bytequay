@@ -21,7 +21,7 @@ afterEach(cleanup);
 
 const nodes = buildLivePlan({
   stages: [], subStages: [],
-  task: { prNumber: 145, currentPhase: 'CI_FIXING' as TaskPhase, terminal: false },
+  task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
 });
 
 describe('TaskSidebar', () => {

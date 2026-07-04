@@ -14,8 +14,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LivePlan } from './LivePlan';
-import { buildLivePlan } from './livePlanModel';
-import type { StageDto, StageState, StageType, TaskPhase } from '../../types/brainView';
+import { buildGuardChip, buildLivePlan } from './livePlanModel';
+import type {
+  AgentRunDto, AgentRunKind, StageDto, StageState, StageType, TaskPhase,
+} from '../../types/brainView';
 
 afterEach(cleanup);
 
@@ -27,38 +29,47 @@ function stage(type: StageType, state: StageState, over: Partial<StageDto> = {})
   };
 }
 
+function run(kind: AgentRunKind, over: Partial<AgentRunDto> = {}): AgentRunDto {
+  return {
+    id: `${kind}-run`, taskId: 't', kind, source: 'remote', parentStageId: null,
+    reviewRoundId: null, status: 'running', iterations: 1, budget: null,
+    headline: null, startedAt: '2026-01-01T00:00:00Z', finishedAt: null, ...over,
+  };
+}
+
 function model(viewedStageId?: string) {
   return buildLivePlan({
     stages: [
       stage('PLAN_STAGE', 'CLOSED'),
-      stage('DEVELOPMENT_STAGE', 'CLOSED'),
-      stage('CI_FIXING_STAGE', 'ACTIVE', { loopIteration: 2 }),
+      stage('DEVELOPMENT_STAGE', 'OPEN'),
     ],
     subStages: [],
-    task: { prNumber: 145, currentPhase: 'CI_FIXING' as TaskPhase, terminal: false },
+    liveRuns: [run('ci_fix', { iterations: 2 })],
+    task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     viewedStageId,
   });
 }
 
 describe('LivePlan', () => {
-  it('renders every lifecycle node with its status class', () => {
+  it('renders every lifecycle node with its status class, plus a live Checks sub-row', () => {
     const { container } = render(<LivePlan nodes={model()} />);
     // The first node is Root (the brain/root conversation) — Plan as a
     // drill-in stage is gone. A closed PlanStage reads as 'done'.
     expect(screen.getByText('Root').closest('.plan-node')?.className).toContain('done');
-    expect(screen.getByText('CI Fix').closest('.plan-node')?.className).toContain('running');
+    expect(screen.getByText('Checks').closest('.plan-node')?.className).toContain('running');
     expect(screen.getByText('Comments').closest('.plan-node')?.className).toContain('future');
-    // Push milestone shows the PR number.
+    // Remote Push milestone shows the PR number.
     expect(screen.getByText('PR #145')).toBeTruthy();
-    // The split renders both branches inside one container.
-    expect(container.querySelector('.plan-split .split-row')?.children.length).toBe(2);
+    // Review (callable, not-invoked, Development still open) + the live
+    // Checks run both render as sub-rows.
+    expect(container.querySelectorAll('.plan-sub-row').length).toBe(2);
   });
 
   it('navigates to a stage when its node is clicked', () => {
     const onOpenStage = vi.fn();
     render(<LivePlan nodes={model()} onOpenStage={onOpenStage} />);
-    fireEvent.click(screen.getByText('CI Fix'));
-    expect(onOpenStage).toHaveBeenCalledWith('CI_FIXING_STAGE-id');
+    fireEvent.click(screen.getByText('Development'));
+    expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
   });
 
   it('navigates to the brain page when the Root node is clicked', () => {
@@ -68,10 +79,10 @@ describe('LivePlan', () => {
     expect(onOpenBrain).toHaveBeenCalledOnce();
   });
 
-  it('routes the Push sub-node to the Development conversation', () => {
+  it('routes the Remote Push node to the Development conversation', () => {
     const onOpenStage = vi.fn();
     render(<LivePlan nodes={model()} onOpenStage={onOpenStage} />);
-    fireEvent.click(screen.getByText('Push'));
+    fireEvent.click(screen.getByText('Remote Push'));
     expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
   });
 
@@ -81,7 +92,21 @@ describe('LivePlan', () => {
   });
 
   it('highlights the currently-viewed stage', () => {
-    render(<LivePlan nodes={model('CI_FIXING_STAGE-id')} />);
-    expect(screen.getByText('CI Fix').closest('.plan-node')?.className).toContain('active-view');
+    render(<LivePlan nodes={model('DEVELOPMENT_STAGE-id')} />);
+    expect(screen.getByText('Development').closest('.plan-node')?.className).toContain('active-view');
+  });
+
+  it('renders the guard chip when the guard is enabled, hides it otherwise', () => {
+    const { rerender } = render(
+      <LivePlan nodes={model()} guard={buildGuardChip({
+        taskId: 't', enabled: true, schedule: 'nightly', state: 'drifting',
+        lastRunId: null, lastCheckedAt: null,
+      })}
+      />,
+    );
+    expect(screen.getByText('drifting from main')).toBeTruthy();
+
+    rerender(<LivePlan nodes={model()} guard={buildGuardChip(null)} />);
+    expect(screen.queryByText('drifting from main')).toBeNull();
   });
 });

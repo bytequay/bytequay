@@ -29,7 +29,7 @@ import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { usePersistentToggle } from '../ui/shell';
-import { buildLivePlan } from '../ui/shell/livePlanModel';
+import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import { PlanOverlay } from './PlanOverlay';
 
@@ -330,6 +330,8 @@ export function TaskBrainRoute({
   const livePlanNodes = buildLivePlan({
     stages,
     subStages,
+    liveRuns: data.liveRuns,
+    guard: data.guard,
     task: { prNumber: task.prNumber, currentPhase: task.currentPhase as TaskPhase, terminal: task.terminal },
     prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
     mergeReady: proposalAction(shipProposal) === 'merge_pr',
@@ -348,6 +350,7 @@ export function TaskBrainRoute({
         metaLine: task.statusLabel, finished,
       }}
       nodes={livePlanNodes}
+      guard={buildGuardChip(data.guard)}
       onBack={onBack}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}

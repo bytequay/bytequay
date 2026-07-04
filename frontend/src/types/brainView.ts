@@ -23,17 +23,70 @@
  */
 
 /** Lifecycle phases an agentic task moves through. Mirrors the backend
- *  TaskPhase enum; server-computed and surfaced as a status label. */
+ *  TaskPhase enum; server-computed and surfaced as a status label.
+ *
+ *  <p>CI_FIXING, ADDRESSING_COMMENTS, AGENT_RE_REVIEW, and AWAITING_UPDATE_PUSH
+ *  are retired (plan-rail-runs.md R7 / Phase 2): a red check or a new review
+ *  batch no longer moves the phase at all — a {@link AgentRunKind} run works
+ *  beside PUSHED_AWAITING_CI / AWAITING_REMOTE_REVIEW instead. A historical
+ *  phase-event log entered before the migration can still show these values
+ *  (the backend rewrote live rows but old audit log entries — where
+ *  distinct from the live column — are display-only prose, not re-typed);
+ *  treat an unrecognized value defensively rather than crashing. */
 export type TaskPhase =
   | 'IMPLEMENTING' | 'VALIDATING' | 'INTERNAL_REVIEW' | 'AWAITING_PUSH'
   | 'ADDRESSING_LOCAL_COMMENTS'
-  | 'PUSHED_AWAITING_CI' | 'CI_FIXING' | 'AWAITING_READY'
-  | 'AWAITING_REMOTE_REVIEW' | 'ADDRESSING_COMMENTS' | 'AGENT_RE_REVIEW'
-  | 'AWAITING_UPDATE_PUSH' | 'COMPLETED' | 'NEEDS_ATTENTION' | 'QUEUED';
+  | 'PUSHED_AWAITING_CI' | 'AWAITING_READY'
+  | 'AWAITING_REMOTE_REVIEW'
+  | 'COMPLETED' | 'NEEDS_ATTENTION' | 'QUEUED';
 
+/** {@code CI_FIXING_STAGE} / {@code REVIEW_ROUND_STAGE} / {@code
+ *  BRANCH_GUARD_STAGE} are pure run containers now (plan-rail-runs.md R7 /
+ *  R3) — never opened via a phase transition, so they never appear as a
+ *  spine node; the rail instead derives run sub-rows from {@link
+ *  AgentRunDto}. They still appear in {@code stages}/{@code subStages} for
+ *  historical stage-detail drill-in. */
 export type StageType =
   | 'PLAN_STAGE' | 'DEVELOPMENT_STAGE' | 'CI_FIXING_STAGE' | 'REVIEW_MONITOR_STAGE'
-  | 'CLEANUP_STAGE' | 'REVIEW_STAGE';
+  | 'CLEANUP_STAGE' | 'REVIEW_STAGE' | 'REVIEW_ROUND_STAGE' | 'BRANCH_GUARD_STAGE';
+
+/** Mirrors the backend AgentRun.kind — an isolated agent session attached
+ *  to whatever it serves, containment without lifecycle position
+ *  (plan-rail-runs.md R6). */
+export type AgentRunKind = 'ci_fix' | 'review_round' | 'branch_guard' | 'panel_review';
+
+export type AgentRunSource = 'local' | 'remote' | 'scheduled' | null;
+
+export type AgentRunStatus = 'running' | 'awaiting_gate' | 'succeeded' | 'failed' | 'cancelled';
+
+/** One live-or-recently-finished agent run. The rail only ever renders a
+ *  sub-row for a run whose status is live/gated (R2: "shows now, never
+ *  history") — finished runs fold into the parent node's meta count. */
+export type AgentRunDto = {
+  id: string;
+  taskId: string;
+  kind: AgentRunKind;
+  source: AgentRunSource;
+  parentStageId: string | null;
+  reviewRoundId: string | null;
+  status: AgentRunStatus;
+  iterations: number;
+  budget: number | null;
+  headline: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+export type BranchGuardState = 'in_sync' | 'drifting' | 'fixing' | 'needs_attention';
+
+export type BranchGuardDto = {
+  taskId: string;
+  enabled: boolean;
+  schedule: string;
+  state: BranchGuardState;
+  lastRunId: string | null;
+  lastCheckedAt: string | null;
+};
 
 export type StageState = 'OPEN' | 'ACTIVE' | 'PAUSED' | 'CLOSED';
 
@@ -214,6 +267,11 @@ export type TaskBrainViewData = {
     stageEvents: ScrubberDash[];      // for the LEFT scrubber
     userMessages: ScrubberDash[];     // for the RIGHT scrubber
   };
+  /** The task's live-or-gated agent runs — folded into this existing payload
+   *  (R5) rather than a separate `/plan-rail` endpoint, so the rail data
+   *  never drifts from the run table. */
+  liveRuns: AgentRunDto[];
+  guard: BranchGuardDto;
 };
 
 /** Result of posting a brain message: the answering turn id and the
@@ -276,6 +334,10 @@ export type StageDetailData = {
   pr: StagePrTab | null;
   context: ContextWindowDto;
   scrubber: { userMessages: ScrubberDash[] };
+  /** Folded in for the same reason as {@link TaskBrainViewData.liveRuns} —
+   *  this page renders the plan rail too. */
+  liveRuns: AgentRunDto[];
+  guard: BranchGuardDto;
 };
 
 /** The PR-tab payload surfaced on the stage detail (frames 6/7). */

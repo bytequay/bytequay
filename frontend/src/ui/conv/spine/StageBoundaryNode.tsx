@@ -23,6 +23,8 @@ const VISUAL: Record<StageType, { color: SpineColor; mark: string; name: string 
   REVIEW_MONITOR_STAGE: { color: 'teal', mark: '◇', name: 'Review Monitor' },
   CLEANUP_STAGE: { color: 'gray', mark: '◆', name: 'Cleanup' },
   REVIEW_STAGE: { color: 'purple', mark: '◆', name: 'Review' },
+  REVIEW_ROUND_STAGE: { color: 'teal', mark: '✦', name: 'Review Round' },
+  BRANCH_GUARD_STAGE: { color: 'amber', mark: '🛡', name: 'Branch Guard' },
 };
 
 /** Wall-clock duration of a stage, when both ends are known. */

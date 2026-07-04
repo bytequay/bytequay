@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.beans.stage;
 
+import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.BranchGuard;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
@@ -25,6 +27,11 @@ import java.util.Map;
  * (the trigger payload doesn't carry it), and metrics are the derivable
  * subset only; uncomputed fields are omitted (never zero) via
  * {@link JsonInclude}.
+ *
+ * @param liveRuns the task's live-or-gated {@link AgentRun}s, same field
+ *                 and rationale as {@code TaskBrainViewData.liveRuns} —
+ *                 this page renders the plan rail too
+ * @param guard the task's branch guard state
  */
 public record StageDetailData(
         DetailTask task,
@@ -43,7 +50,9 @@ public record StageDetailData(
         List<CiFixHistoryEntry> ciFixHistory,
         PrTab pr,
         ContextWindowDto context,
-        Scrubber scrubber)
+        Scrubber scrubber,
+        List<AgentRun> liveRuns,
+        BranchGuard guard)
 {
     /**
      * The pull-request block shown on the stage page's PR tab. Surfaced from

@@ -26,7 +26,7 @@ import { PlanReminderTab } from './PlanOverlay';
 
 /** The four work stages that share this page. */
 export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
-type StageTab = 'changes' | 'pr' | 'files' | 'details';
+type StageTab = 'pr' | 'changes' | 'ci';
 
 const PILL_LABEL: Record<StageKind, string> = {
   plan: 'PLAN',
@@ -34,18 +34,6 @@ const PILL_LABEL: Record<StageKind, string> = {
   'ci-fix': 'CI FIX',
   comments: 'COMMENTS',
   cleanup: 'CLEANUP',
-};
-
-/** Which tab opens first for a given stage. PR is the primary artifact, so
- *  Dev / Comments lead with it (decision #48). CI Fix keeps its live-CI focus;
- *  Plan has no PR so it leads with the diff; Cleanup leads with Details.
- *  Falls back to the first present tab when the preferred one is absent. */
-const PREFERRED_TAB: Record<StageKind, StageTab> = {
-  plan: 'changes',
-  dev: 'pr',
-  'ci-fix': 'changes',
-  comments: 'pr',
-  cleanup: 'details',
 };
 
 /**
@@ -82,7 +70,7 @@ export function StageDetailPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  tabs: { changes?: ReactNode; pr?: ReactNode; files?: ReactNode; details: ReactNode };
+  tabs: { pr?: ReactNode; changes?: ReactNode; ci?: ReactNode };
   /** Optional per-tab count badge (e.g. changed-file count, PR number). */
   tabCounts?: Partial<Record<StageTab, { count?: number; countColor?: 'red' | 'acc' | 'muted' }>>;
   /** Sub-header under the tab strip, shown on the Changes tab (frame 6). */
@@ -95,20 +83,19 @@ export function StageDetailPage({
   /** Click handler for the reminder pill — opens the zoomed plan overlay. */
   onRevealPlan?: () => void;
 }) {
-  // PR leads the strip (decision #48) — it's the primary artifact. The CI Fix
-  // stage keeps its "CI" label on the changes tab; every other stage shows the
-  // in-pane code diff as "Code Diff".
+  // PR leads the strip and opens first (decision #48) — it's the primary
+  // artifact. The Code Diff tab renders the in-pane diff on every work stage;
+  // the CI Fix stage adds its own CI tab for the live run. Stages without a
+  // PR tab (Plan, or a task with no PR yet) fall back to the first present.
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
-    ...(tabs.changes !== undefined
-      ? [{ key: 'changes' as const, label: stageKind === 'ci-fix' ? 'CI' : 'Code Diff', node: tabs.changes }]
-      : []),
-    ...(tabs.files !== undefined ? [{ key: 'files' as const, label: 'Files', node: tabs.files }] : []),
-    { key: 'details' as const, label: 'Details', node: tabs.details },
+    ...(tabs.changes !== undefined ? [{ key: 'changes' as const, label: 'Code Diff', node: tabs.changes }] : []),
+    ...(tabs.ci !== undefined ? [{ key: 'ci' as const, label: 'CI', node: tabs.ci }] : []),
   ];
-  const preferred = PREFERRED_TAB[stageKind];
-  const initial = available.find(t => t.key === preferred)?.key ?? available[0].key;
-  const [activeTab, setActiveTab] = useState<StageTab>(initial);
+  // A stage without a PR/diff/CI yet (e.g. Plan, before Dev opens a PR) has
+  // nothing to show in the side pane at all.
+  const hasTabs = available.length > 0;
+  const [activeTab, setActiveTab] = useState<StageTab | undefined>(available[0]?.key);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
 
@@ -125,7 +112,7 @@ export function StageDetailPage({
   // The inline pill toggles the pane: closed → open and jump to the tab;
   // open on another tab → jump; open on this tab → close the pane.
   const openTab = (key: StageTab) => {
-    if (paneOpen && active.key === key) { setPaneOpen(false); return; }
+    if (paneOpen && active?.key === key) { setPaneOpen(false); return; }
     setActiveTab(key);
     setPaneOpen(true);
   };
@@ -147,9 +134,13 @@ export function StageDetailPage({
       />
       {showCi && <TopBarButton icon="✓" onClick={onOpenCi}>CI Status</TopBarButton>}
       {onOpenChanges !== undefined && <TopBarButton icon="▢" onClick={onOpenChanges}>Changes</TopBarButton>}
-      <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
+      {hasTabs && (
+        <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
+      )}
     </TopBar>
   );
+
+  const showPane = paneOpen && hasTabs && active !== undefined;
 
   return (
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
@@ -157,8 +148,8 @@ export function StageDetailPage({
       <Main topBar={topBar}>
         <div
           ref={bodyRef}
-          className={paneOpen ? 'body with-pane' : 'body'}
-          style={paneOpen ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+          className={showPane ? 'body with-pane' : 'body'}
+          style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
         >
           <div className="conv-col">
             {conversation}
@@ -187,11 +178,11 @@ export function StageDetailPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {paneOpen && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
-          {paneOpen && (
+          {showPane && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
+          {showPane && (
             <RightPane>
               <RightPane.Tabs<StageTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />
-              {paneMeta !== undefined && active.key === 'changes' && (
+              {paneMeta !== undefined && (active.key === 'changes' || active.key === 'ci') && (
                 <RightPane.MetaRow left={paneMeta.left} right={paneMeta.right} />
               )}
               <RightPane.Content>{active.node}</RightPane.Content>

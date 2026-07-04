@@ -30,7 +30,6 @@ function renderBrain(overrides: Partial<Parameters<typeof TaskBrainPage>[0]> = {
       composer={{ value: '', onChange: () => {}, onSubmit: () => {}, modePill: <span>Dev → claude</span> }}
       tabs={{
         pr: <div data-testid="pr-tab">pr content</div>,
-        details: <div data-testid="details-tab">details content</div>,
       }}
       {...overrides}
     />,
@@ -57,22 +56,15 @@ describe('TaskBrainPage', () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it('shows the first available tab (PR) and switches to Details', () => {
+  it('shows the PR tab', () => {
     renderBrain();
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(screen.queryByTestId('details-tab')).toBeNull();
-    // Details appears twice now (pane-tab strip + inline pill); click the tab.
-    const detailsTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent === 'Details');
-    fireEvent.click(detailsTab as Element);
-    expect(screen.getByTestId('details-tab')).toBeTruthy();
   });
 
-  it('omits the PR tab when none is provided, leaving Details', () => {
-    renderBrain({ tabs: { details: <div data-testid="details-tab">d</div> } });
-    const paneTabLabels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(paneTabLabels).not.toContain('PR');
-    expect(paneTabLabels).toContain('Details');
-    expect(screen.getByTestId('details-tab')).toBeTruthy();
+  it('shows no side pane when no PR tab is provided', () => {
+    renderBrain({ tabs: {} });
+    expect(document.querySelector('.body.with-pane')).toBeNull();
+    expect(document.querySelector('.pane-tab')).toBeNull();
   });
 
   it('top bar exposes Close (confirmed); toggling the pane reveals inline chips', () => {

@@ -27,7 +27,6 @@ function renderStage(stageKind: StageKind, overrides: Partial<Parameters<typeof 
       composer={{ value: '', onChange: () => {}, onSubmit: () => {}, modePill: <span>Dev → claude-code · CLI</span> }}
       tabs={{
         pr: <div data-testid="pr-tab">pr threads</div>,
-        details: <div data-testid="details-tab">details</div>,
       }}
       onOpenChanges={() => {}}
       {...overrides}
@@ -46,7 +45,6 @@ describe('StageDetailPage', () => {
     renderStage('dev', { tabs: {
       changes: <div data-testid="changes-tab">changes</div>,
       pr: <div data-testid="pr-tab">pr</div>,
-      details: <div data-testid="details-tab">details</div>,
     } });
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
     expect(screen.queryByTestId('changes-tab')).toBeNull();
@@ -55,16 +53,19 @@ describe('StageDetailPage', () => {
   it('Dev falls back to Code Diff when no PR tab is present', () => {
     renderStage('dev', { tabs: {
       changes: <div data-testid="changes-tab">changes</div>,
-      details: <div data-testid="details-tab">details</div>,
     } });
     expect(screen.getByTestId('changes-tab')).toBeTruthy();
-    expect(screen.queryByTestId('details-tab')).toBeNull();
   });
 
   it('Comments leads with the PR tab', () => {
     renderStage('comments');
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(screen.queryByTestId('details-tab')).toBeNull();
+  });
+
+  it('shows no side pane when a stage has no PR/diff/CI content yet', () => {
+    renderStage('plan', { tabs: {} });
+    expect(document.querySelector('.body.with-pane')).toBeNull();
+    expect(document.querySelector('.pane-tab')).toBeNull();
   });
 
   it('CI Fix surfaces the CI Status entry', () => {
@@ -76,9 +77,9 @@ describe('StageDetailPage', () => {
     expect(onOpenCi).toHaveBeenCalledOnce();
   });
 
-  it('Cleanup leads with Details and has no CI Status entry', () => {
+  it('Cleanup leads with PR like every stage and has no CI Status entry', () => {
     renderStage('cleanup', { stageKind: 'cleanup', onOpenCi: vi.fn() });
-    expect(screen.getByTestId('details-tab')).toBeTruthy();
+    expect(screen.getByTestId('pr-tab')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'CI Status' })).toBeNull();
   });
 
@@ -88,30 +89,34 @@ describe('StageDetailPage', () => {
   });
 
   const fullTabs = {
-    changes: <div data-testid="changes-tab">changes</div>,
     pr: <div data-testid="pr-tab">pr threads</div>,
-    files: <div data-testid="files-tab">files</div>,
-    details: <div data-testid="details-tab">details</div>,
+    changes: <div data-testid="changes-tab">changes</div>,
+    ci: <div data-testid="ci-tab">ci run</div>,
   };
 
-  it('renders the PR · Code Diff · Files · Details strip (PR first)', () => {
-    renderStage('dev', { tabs: fullTabs });
-    const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toEqual(['PR', 'Code Diff', 'Files', 'Details']);
-  });
-
-  it('CI Fix leads with the Changes tab when one is provided', () => {
+  it('renders the PR · Code Diff · CI strip (PR first)', () => {
     renderStage('ci-fix', { tabs: fullTabs });
-    expect(screen.getByTestId('changes-tab')).toBeTruthy();
-    expect(screen.queryByTestId('details-tab')).toBeNull();
+    const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
+    expect(labels).toEqual(['PR', 'Code Diff', 'CI']);
   });
 
-  it('shows the pane meta-row only on the Changes tab', () => {
+  it('CI Fix leads with the PR tab; the CI run has its own tab', () => {
+    renderStage('ci-fix', { tabs: fullTabs });
+    expect(screen.getByTestId('pr-tab')).toBeTruthy();
+    const ciTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent === 'CI');
+    fireEvent.click(ciTab as Element);
+    expect(screen.getByTestId('ci-tab')).toBeTruthy();
+  });
+
+  it('shows the pane meta-row on the Code Diff and CI tabs only', () => {
     renderStage('ci-fix', { tabs: fullTabs, paneMeta: { left: 'CI fix · iter 2', right: 'View on GitHub' } });
+    // Starts on PR — no meta row there.
+    expect(screen.queryByText('CI fix · iter 2')).toBeNull();
+    const tab = (label: string) =>
+      Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith(label)) as Element;
+    fireEvent.click(tab('CI'));
     expect(screen.getByText('CI fix · iter 2')).toBeTruthy();
-    // Switching to Details (the pane tab, not the inline chip) hides the row.
-    const detailsTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent === 'Details');
-    fireEvent.click(detailsTab as Element);
+    fireEvent.click(tab('PR'));
     expect(screen.queryByText('CI fix · iter 2')).toBeNull();
   });
 
@@ -132,9 +137,11 @@ describe('StageDetailPage', () => {
     renderStage('ci-fix', { tabs: fullTabs });
     const inlineCi = () => within(document.querySelector('.inline-chips') as HTMLElement)
       .getByRole('button', { name: 'CI' });
-    // Pane starts open on the CI (changes) tab.
+    // Pane starts open on the PR tab; the CI pill jumps to the CI tab.
     expect(document.querySelector('.body.with-pane')).toBeTruthy();
-    // Clicking the active tab's inline pill closes the pane…
+    fireEvent.click(inlineCi());
+    expect(screen.getByTestId('ci-tab')).toBeTruthy();
+    // Clicking the now-active tab's inline pill closes the pane…
     fireEvent.click(inlineCi());
     expect(document.querySelector('.body.with-pane')).toBeNull();
     // …and clicking it again reopens on that tab.

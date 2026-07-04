@@ -32,6 +32,12 @@ describe('prRefFromNotification', () => {
     expect(ref).toEqual({ owner: 'chenjian2664', repo: 'ByteQuay', prNumber: 18 });
   });
 
+  it('extracts the ref from a publish-gate pr object payload (merge_pr etc.)', () => {
+    const ref = prRefFromNotification(
+      notif({ action: 'merge_pr', pr: { owner: 'chenjian2664', repo: 'ByteQuay', number: 29 } }));
+    expect(ref).toEqual({ owner: 'chenjian2664', repo: 'ByteQuay', prNumber: 29 });
+  });
+
   it('returns null when there is no PR number', () => {
     expect(prRefFromNotification(notif({ repoFullName: 'a/b' }))).toBeNull();
   });

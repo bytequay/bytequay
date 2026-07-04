@@ -33,6 +33,9 @@ export type InboxHandlers = {
   /** The row was expanded — the section marks informational
    *  notifications read on engagement (same rule as the thread strip). */
   opened?: (item: InboxItem) => void;
+  /** Resolve a PR's title from the cached PR list, for the publish-gate
+   *  header. Null when the PR isn't in cache. */
+  prTitle?: (owner: string, repo: string, prNumber: number) => string | null;
 };
 
 /** Icon glyph per row flavour — the type-colored tile's content. */
@@ -138,9 +141,19 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
     if (item.source.kind === 'notification') {
       const n = item.source.notification;
       if (isPublishGateNotification(n)) {
+        const gateRef = prRefFromNotification(n);
         return (
           <div className="home-inbox-detail" onClick={e => e.stopPropagation()}>
-            <PublishGatePane notification={n} onResolved={handlers.resolved} />
+            <PublishGatePane
+              notification={n}
+              onResolved={handlers.resolved}
+              onViewPr={gateRef
+                ? () => handlers.openPr(gateRef.owner, gateRef.repo, gateRef.prNumber)
+                : undefined}
+              prTitle={gateRef
+                ? handlers.prTitle?.(gateRef.owner, gateRef.repo, gateRef.prNumber) ?? undefined
+                : undefined}
+            />
           </div>
         );
       }

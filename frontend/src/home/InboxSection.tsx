@@ -111,6 +111,10 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
       window.bridge.fetchPrs().then(onPrsChanged).catch(() => {});
     },
     resolved: () => { void refresh(); },
+    prTitle: (owner: string, repo: string, prNumber: number) => {
+      const full = `${owner}/${repo}`;
+      return (prs ?? []).find(p => p.repo === full && p.number === prNumber)?.title ?? null;
+    },
     opened: (item: InboxItem) => {
       if (item.source.kind !== 'notification') return;
       const n = item.source.notification;

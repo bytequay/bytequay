@@ -739,8 +739,6 @@ public class StageServiceImpl
         JsonNode latest = recorded.isEmpty() ? mapper.createObjectNode()
                 : recorded.get(recorded.size() - 1);
         String status = latest.path("status").asText("suggested");
-        String state = plan.state() == StageState.CLOSED ? "locked"
-                : "finalized".equals(status) ? "awaiting" : "draft";
 
         List<TaskBrainViewData.PlanStep> steps = new ArrayList<>();
         JsonNode stepNodes = latest.path("intent").path("steps");
@@ -816,12 +814,23 @@ public class StageServiceImpl
                 .toList();
 
         String understandingSummary = latest.path("understanding").path("summary").asText("");
+        String goal = firstNonBlank(latest.path("goal").asText(""), understandingSummary);
+        // A model can call record_plan more than once per turn (an early
+        // low-detail stake, then a refined version) — a call already carrying
+        // status=finalized but with no goal/steps yet parses successfully and
+        // would otherwise render as a fully actionable "awaiting" card (with
+        // Approve enabled) for the few seconds until the real, complete call
+        // lands. Gate "awaiting" on actual structural completeness too, not
+        // status alone, so an in-between stake reads as still drafting.
+        boolean structurallyComplete = !goal.isBlank() && !steps.isEmpty();
+        String state = plan.state() == StageState.CLOSED ? "locked"
+                : "finalized".equals(status) && structurallyComplete ? "awaiting" : "draft";
         return new TaskBrainViewData.PlanCard(
                 plan.id().toString(),
                 state,
                 status,
                 latest.path("source").asText(""),
-                firstNonBlank(latest.path("goal").asText(""), understandingSummary),
+                goal,
                 understandingSummary,
                 latest.path("intent").path("summary").asText(""),
                 steps,

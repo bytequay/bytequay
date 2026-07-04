@@ -357,6 +357,42 @@ class TestStageBrain
     }
 
     @Test
+    void rightRailPlanCardStaysDraftUntilAFinalizedRecordIsStructurallyComplete()
+    {
+        // record_plan is callable more than once per turn (an early stake,
+        // then the real one) — a call already carrying status=finalized but
+        // with no goal/steps yet must not read as an actionable "awaiting"
+        // card; that flashes a false-positive Approve button for the few
+        // seconds until the real, complete call lands.
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
+                "id", "rev-1",
+                "status", "finalized",
+                "source", "brain",
+                "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
+
+        TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
+
+        assertThat(card.state()).isEqualTo("draft");
+
+        // The real, complete call lands moments later — same round trip
+        // updates the card to awaiting.
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
+                "id", "rev-2",
+                "status", "finalized",
+                "source", "brain",
+                "understanding", Map.of("summary", "bump the retry default"),
+                "intent", Map.of(
+                        "summary", "change the default and add a test",
+                        "steps", List.of(Map.of("ordinal", 1, "action", "edit RetryConfig"))),
+                "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
+
+        TaskBrainViewData.PlanCard updated = stageService.getBrain(taskId).rightRail().plan();
+        assertThat(updated.state()).isEqualTo("awaiting");
+    }
+
+    @Test
     void rightRailPlanCardAcceptsStringStepsAndAlternateKeysAndDropsBlanks()
     {
         // record_plan is free-form JSON, so the brain may emit steps as plain

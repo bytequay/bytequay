@@ -16,7 +16,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TrunkRoute } from './TrunkRoute';
 
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); Reflect.deleteProperty(window, 'bridge'); });
 
 function mockBridge(over: Record<string, unknown> = {}) {
   const bridge = {
@@ -107,6 +107,52 @@ describe('TrunkRoute', () => {
     expect(card).toBeTruthy();
     fireEvent.click(card);
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('clears a stuck Working indicator once a turn ends without ever replying', async () => {
+    vi.useFakeTimers();
+    let getTaskCalls = 0;
+    const bridge = mockBridge({
+      // 1st call: initial mount (IDLE). 2nd: sendNow's own immediate reload
+      // once sendTrunkMessage resolves — the backend has picked up the turn
+      // (RUNNING). 3rd: the next poll tick, still RUNNING. 4th+: its tool
+      // calls got denied/cancelled and it ends WITHOUT ever sending a
+      // closing reply — back to IDLE with no new assistant message ever
+      // landing.
+      getTask: vi.fn(() => {
+        getTaskCalls += 1;
+        const status = getTaskCalls <= 1 ? 'IDLE' : getTaskCalls <= 3 ? 'RUNNING' : 'IDLE';
+        return Promise.resolve({
+          id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z',
+          workspaceId: 'ws-1', status,
+        });
+      }),
+      getTaskIndex: vi.fn().mockResolvedValue({
+        threadId: 't1', totalUserMessages: 1, entries: [], loadedFromSeq: null, nextCursor: null,
+        messages: [
+          { id: 'm1', threadId: 't1', taskId: null, seq: 1, role: 'user', type: 'text', contentJson: JSON.stringify({ text: 'clean this up' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:00Z' },
+        ],
+      }),
+    });
+
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    await vi.advanceTimersByTimeAsync(0); // flush the mount-time load()
+    expect(bridge.getTask).toHaveBeenCalledTimes(1);
+
+    const box = screen.getByRole('textbox');
+    fireEvent.change(box, { target: { value: 'go' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await vi.advanceTimersByTimeAsync(0); // flush sendTrunkMessage's promise chain
+
+    // Poll tick #3 lands RUNNING (call #2 already did, via sendNow's own
+    // reload) — the Working banner shows.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(screen.getByRole('status')).toBeTruthy();
+
+    // Poll tick #4 lands back at IDLE with still no new assistant reply —
+    // the turn is over; Working must clear instead of sticking forever.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('reports the loaded thread\'s own workspace id', async () => {

@@ -498,6 +498,15 @@ public class LogicLoopThreadAgent
         userInterrupted.set(false);
         lastError.set(null);
         status.set(ThreadStatus.RUNNING);
+        // Persist RUNNING synchronously — a turn can run many autonomous
+        // steps over several minutes, and the thread row is the only signal
+        // GET /api/threads/{id} (and so the sidebar dot + the trunk's
+        // Working banner) has. Without this, the row sits at its pre-turn
+        // status for the whole turn and only gets rewritten once, back to
+        // IDLE, when the turn finishes — the UI shows nothing is happening
+        // until some unrelated write (like the user's own next message)
+        // happens to persist a fresher snapshot.
+        persistThreadProgress();
         CompletableFuture<Void> turn = CompletableFuture.runAsync(
                 () -> runTurn(userInput), executor);
         currentTurn.set(turn);

@@ -78,14 +78,38 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
     setTasks([]);
     setMergeReadyIds(new Set());
   }
-  // Clear the "working" indicator only when a new assistant reply lands,
-  // not when the user's own message persists into the planning slice.
+  // Clear the "working" indicator once a new assistant reply lands, not when
+  // the user's own message persists into the planning slice.
   const replyCount = messages.filter(
     m => m.taskId === null && m.role === 'assistant' && (m.type === 'text' || m.type === 'thinking')).length;
   const [awaitedAt, setAwaitedAt] = useState<number | null>(null);
+  // A turn that ends WITHOUT ever producing a new reply (its tool calls got
+  // denied/cancelled mid-flight, the session errored, …) would otherwise
+  // leave this flag — and so the Working banner — stuck on forever, since
+  // nothing else ever satisfies "a new reply landed". Track having actually
+  // seen the backend reach RUNNING for this send; once it drops back out of
+  // RUNNING after that with still no new reply, the turn is over, reply or
+  // not, so stop waiting for one.
+  const sawRunningRef = useRef(false);
   useEffect(() => {
-    if (awaitedAt !== null && replyCount > awaitedAt) setAwaitedAt(null);
-  }, [replyCount, awaitedAt]);
+    if (awaitedAt === null) {
+      sawRunningRef.current = false;
+      return;
+    }
+    if (replyCount > awaitedAt) {
+      setAwaitedAt(null);
+      sawRunningRef.current = false;
+      return;
+    }
+    if (thread?.status === 'RUNNING') {
+      sawRunningRef.current = true;
+      return;
+    }
+    if (sawRunningRef.current) {
+      setAwaitedAt(null);
+      sawRunningRef.current = false;
+    }
+  }, [replyCount, awaitedAt, thread?.status]);
   // The agent is working whenever the thread process is RUNNING — not just
   // right after the user's own submit. An autonomous multi-step turn (cut a
   // task, run tools, reply, run more) keeps the indicator up the whole time,

@@ -1456,6 +1456,10 @@
 .pr-timeline-event .tl-nested-commits .nc-row .sha { font-family: var(--mono); font-size: 11px; color: var(--teal); font-weight: 600; }
 .pr-timeline-event .tl-nested-commits .nc-row .msg { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-timeline-event .tl-nested-commits .nc-row .delta { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+.pr-timeline-fold { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 0; background: none; border: none; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-2); text-align: left; }
+.pr-timeline-fold:hover { color: var(--text-1); }
+.pr-timeline-fold .caret { width: 12px; font-size: 10px; color: var(--text-4); }
+.pr-timeline-fold .count { font-weight: 400; color: var(--text-4); font-size: 11px; }
 
 .pr-comment-composer { padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
 .pr-comment-composer .cc-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin: -2px -12px 4px; padding: 0 12px; }

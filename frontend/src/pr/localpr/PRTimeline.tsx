@@ -11,21 +11,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { LocalPRTimelineEvent } from '../../types/localPr';
 import type { PRViewMode } from '../../types/localPr';
 import { agoLabel, isFailedCiPayload, timelineIconMeta } from './prViewMeta';
 
 /** The unified PR timeline (decision #55). Every timeline event renders in one
  *  stream through {@link PRTimelineEvent}; a `local-only` event gets the 🔒
- *  marker (a CSS `::after` on the icon), and in `mode="remote"` the pre-push
- *  local history is dimmed so the remote events read as current. */
+ *  marker (a CSS `::after` on the icon).
+ *
+ *  Pre-push (`mode="local"`) every event shows inline. Once the PR is promoted
+ *  (`mode="remote"`), the private local-dev history collapses under one
+ *  foldable `▸ Local development` group so the synced GitHub events read as
+ *  current — the local segment stays one click away, never lost. */
 export function PRTimeline({ events, mode }: { events: LocalPRTimelineEvent[]; mode: PRViewMode }) {
+  const [localOpen, setLocalOpen] = useState(false);
+
+  if (mode === 'local') {
+    return (
+      <div className="pr-timeline">
+        {events.map(e => <PRTimelineEvent key={e.id} event={e} mode={mode} />)}
+      </div>
+    );
+  }
+
+  // Promoted: fold the local-only segment, show the GitHub segment inline.
+  const local = events.filter(e => e.isLocalOnly);
+  const remote = events.filter(e => !e.isLocalOnly);
   return (
     <div className="pr-timeline">
-      {events.map(e => (
-        <PRTimelineEvent key={e.id} event={e} mode={mode} />
-      ))}
+      {local.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="pr-timeline-fold"
+            onClick={() => setLocalOpen(o => !o)}
+            aria-expanded={localOpen}
+          >
+            <span className="caret" aria-hidden="true">{localOpen ? '▾' : '▸'}</span>
+            Local development
+            <span className="count">{local.length} event{local.length === 1 ? '' : 's'}</span>
+          </button>
+          {localOpen && local.map(e => <PRTimelineEvent key={e.id} event={e} mode={mode} />)}
+        </>
+      )}
+      {remote.map(e => <PRTimelineEvent key={e.id} event={e} mode={mode} />)}
     </div>
   );
 }

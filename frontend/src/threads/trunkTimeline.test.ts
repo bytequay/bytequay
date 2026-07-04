@@ -13,7 +13,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
-import { buildTrunkTimeline, extractText, parseToolCall, trunkHeadline, trunkWork } from './trunkTimeline';
+import {
+  buildTrunkTimeline, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
+} from './trunkTimeline';
 
 function msg(id: string, role: string, type: string, body: unknown, ts: string): ThreadMessageDto {
   return {
@@ -80,5 +82,45 @@ describe('buildTrunkTimeline', () => {
     const round = items[0].kind === 'round' ? items[0].round : null;
     expect(trunkHeadline(round!)?.id).toBe('tx');
     expect(trunkWork(round!).map(r => r.id)).toEqual(['th', 'tc']);
+  });
+
+  it('keeps a pending permission_request in the round instead of dropping it', () => {
+    const items = buildTrunkTimeline([
+      msg('u', 'user', 'text', { text: 'check the branch' }, '2026-01-01T00:00:00Z'),
+      msg('tx', 'assistant', 'text', { text: 'let me check' }, '2026-01-01T00:00:05Z'),
+      msg('pr', 'system', 'permission_request',
+        { callId: 'c1', toolName: 'Bash', summary: '{"command":"git fetch origin main"}' },
+        '2026-01-01T00:00:06Z'),
+    ], []);
+    const round = items[0].kind === 'round' ? items[0].round : null;
+    // The trailing permission_request means there's no settled headline yet —
+    // both rows fold into work rather than the text row swallowing the
+    // permission_request that comes after it.
+    expect(trunkHeadline(round!)).toBeNull();
+    expect(trunkWork(round!).map(r => r.id)).toEqual(['tx', 'pr']);
+  });
+
+  it('drops an already-decided permission_request from the timeline', () => {
+    const items = buildTrunkTimeline([
+      msg('u', 'user', 'text', { text: 'check the branch' }, '2026-01-01T00:00:00Z'),
+      msg('pr', 'system', 'permission_request', { callId: 'c1', toolName: 'Bash', summary: 'git fetch' },
+        '2026-01-01T00:00:05Z'),
+      msg('dec', 'system', 'permission_decision', { callId: 'c1', decision: 'ALLOW' },
+        '2026-01-01T00:00:10Z'),
+    ], []);
+    const round = items[0].kind === 'round' ? items[0].round : null;
+    expect(round!.rows.some(r => r.type === 'permission_request')).toBe(false);
+  });
+});
+
+describe('parsePermissionRequest', () => {
+  it('reads callId / toolName / summary out of the envelope', () => {
+    const parsed = parsePermissionRequest(
+      JSON.stringify({ callId: 'c1', toolName: 'Bash', summary: '{"command":"git fetch origin main"}' }));
+    expect(parsed).toEqual({ callId: 'c1', toolName: 'Bash', summary: '{"command":"git fetch origin main"}' });
+  });
+
+  it('falls back to blanks on unparseable input', () => {
+    expect(parsePermissionRequest('not json')).toEqual({ callId: '', toolName: 'tool', summary: '' });
   });
 });

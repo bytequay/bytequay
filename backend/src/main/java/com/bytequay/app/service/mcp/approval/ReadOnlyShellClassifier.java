@@ -47,10 +47,14 @@ public final class ReadOnlyShellClassifier
 
     /** Git subcommands that only read. Mutating ones (push, commit,
      *  checkout, branch -D, tag -d, remote add, config set, …) are absent
-     *  on purpose, so they prompt. */
+     *  on purpose, so they prompt. {@code fetch} updates local
+     *  remote-tracking refs and touches the network, but never the shared
+     *  remote or the worktree, so it's allow-listed alongside the rest —
+     *  {@link DenyRemoteGitStep} still hard-denies anything that pushes or
+     *  mutates GitHub-side state regardless of this list. */
     private static final Set<String> GIT_READ_SUBCOMMANDS = Set.of(
             "status", "diff", "log", "show", "ls-files", "ls-tree",
-            "cat-file", "rev-parse", "blame", "describe", "shortlog");
+            "cat-file", "rev-parse", "rev-list", "blame", "describe", "shortlog", "fetch");
 
     /** {@code find} primaries that run a command — only allowed when the
      *  command they run is itself read-only. */

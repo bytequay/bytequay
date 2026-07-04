@@ -24,9 +24,11 @@ import { EventTimestamp } from '../ui/conv';
 import { taskLabel } from './taskLabel';
 import { cardStatus, toTaskCard } from './taskCardData';
 import {
-  buildTrunkTimeline, extractText, parseToolCall, trunkHeadline, trunkWork,
+  buildTrunkTimeline, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
 } from './trunkTimeline';
 import type { TrunkRound } from './trunkTimeline';
+import { PermissionCard } from './PermissionCard';
+import type { PermissionDecideHandler } from './PermissionCard';
 
 /** The raw tool-call input, for tools whose input the feed renders
  *  directly (AskUserQuestion's question/options payload). */
@@ -49,8 +51,13 @@ type AskHandling = {
 /** Batch a round's work rows into folded sub-messages + tool activity strips,
  *  preserving order (consecutive tool calls collapse into one strip).
  *  AskUserQuestion tool calls surface as a question card instead of a strip
- *  row — the CLI runs headless, so this card IS the tool's UI. */
-function renderWork(rows: ThreadMessageDto[], full: boolean, ask: AskHandling): ReactNode[] {
+ *  row — the CLI runs headless, so this card IS the tool's UI. A pending
+ *  `permission_request` surfaces as a clickable {@link PermissionCard} —
+ *  the trunk's own approval gate, previously answerable only by waiting out
+ *  the backend's timeout. */
+function renderWork(
+  rows: ThreadMessageDto[], full: boolean, ask: AskHandling, onDecidePermission?: PermissionDecideHandler,
+): ReactNode[] {
   const out: ReactNode[] = [];
   let toolBatch: ThreadMessageDto[] = [];
   const flush = () => {
@@ -67,6 +74,16 @@ function renderWork(rows: ThreadMessageDto[], full: boolean, ask: AskHandling): 
     toolBatch = [];
   };
   for (const m of rows) {
+    if (m.type === 'permission_request') {
+      flush();
+      const { callId, toolName, summary } = parsePermissionRequest(m.contentJson);
+      if (callId.length > 0 && onDecidePermission) {
+        out.push(
+          <PermissionCard key={m.id} permission={{ callId, toolName, summary }} onDecide={onDecidePermission} />,
+        );
+      }
+      continue;
+    }
     if (m.type === 'tool_call') {
       if (parseToolCall(m.contentJson).name === 'AskUserQuestion') {
         flush();
@@ -103,7 +120,9 @@ function renderWork(rows: ThreadMessageDto[], full: boolean, ask: AskHandling): 
  * nodes are its outputs. Architecture/risk stay prose in the rounds until a
  * later milestone emits them structured (DISCOVERY-FINDINGS deferral).
  */
-export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, mergeReadyIds, onAnswerQuestion }: {
+export function TrunkFeed({
+  messages, tasks, density, onOpenTask, trailer, mergeReadyIds, onAnswerQuestion, onDecidePermission,
+}: {
   messages: ThreadMessageDto[];
   tasks: WorkUnitTaskDto[];
   density: Density;
@@ -115,6 +134,10 @@ export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, merge
   /** Sends an AskUserQuestion answer as the next user turn — makes the
    *  latest unanswered question card interactive. */
   onAnswerQuestion?: (text: string) => void;
+  /** Answers a pending `permission_request` — makes the trunk's approval
+   *  prompt (previously answerable only by waiting out the backend's
+   *  timeout) an actual clickable card. */
+  onDecidePermission?: PermissionDecideHandler;
 }) {
   const full = density === 'full';
   const items = useMemo(() => buildTrunkTimeline(messages, tasks), [messages, tasks]);
@@ -163,16 +186,21 @@ export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, merge
       const tag = round.userTurn === null ? `R${(autonomous += 1)}` : undefined;
       const work = trunkWork(round);
       const headline = trunkHeadline(round);
-      // A question awaiting the user must be visible without un-folding.
+      // A question — or a permission prompt — awaiting the user must be
+      // visible without un-folding.
       const holdsPendingAsk = ask.pendingId !== null && work.some(m => m.id === ask.pendingId);
+      const holdsPendingPermission = work.some(m => m.type === 'permission_request');
       return (
         <Round key={round.id} tag={tag}>
           {round.userTurn !== null && (
             <UserTurn text={extractText(round.userTurn.contentJson)} timestamp={<EventTimestamp iso={round.userTurn.ts} />} />
           )}
           {work.length > 0 && (
-            <WorkFold meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`} forceOpen={full || holdsPendingAsk}>
-              {renderWork(work, full, ask)}
+            <WorkFold
+              meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`}
+              forceOpen={full || holdsPendingAsk || holdsPendingPermission}
+            >
+              {renderWork(work, full, ask, onDecidePermission)}
             </WorkFold>
           )}
           {headline !== null && (
@@ -221,7 +249,7 @@ export function TrunkFeed({ messages, tasks, density, onOpenTask, trailer, merge
     }
     out.push(...block);
     return out;
-  }, [items, full, flashId, onOpenTask, mergeReadyIds, ask]);
+  }, [items, full, flashId, onOpenTask, mergeReadyIds, ask, onDecidePermission]);
 
   return (
     <>

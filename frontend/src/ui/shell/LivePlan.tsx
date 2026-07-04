@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
-import type { LivePlanNode } from './livePlanModel';
+import type { GuardChipData, LivePlanNode } from './livePlanModel';
 
 /** One node button in the diagram. Disabled when it has nowhere to go (a
  *  future stage that hasn't been instantiated, or a milestone pseudo-node
@@ -39,15 +39,30 @@ function PlanNode({ node, onClick, small }: {
   );
 }
 
+/** The guard chip rendered above the rail (R4) — hidden entirely until the
+ *  task has pushed and the guard is enabled ({@link buildGuardChip} returns
+ *  null until then). */
+function GuardChip({ guard }: { guard: GuardChipData }) {
+  if (guard === null) return null;
+  return (
+    <div className={`guard-chip ${guard.state}`} title={guard.meta ?? undefined}>
+      <span className="guard-icon" aria-hidden>🛡</span>
+      <span className="guard-label">{guard.label}</span>
+    </div>
+  );
+}
+
 /**
  * The live-plan lifecycle diagram for the task-scoped sidebar (frames 2/6/7).
- * Renders the {@link buildLivePlan} node list as connected lifecycle nodes:
- * a vertical spine of full nodes, the indented Review (callable) sub-node,
- * and the parallel CI-Fix ‖ Comments split. Clicking a node navigates to its
- * stage (or the changes / PR surface for the Push / Merge milestones).
+ * Renders the {@link buildLivePlan} node list as a flat spine of full nodes
+ * with lazy `sub` rows (Review callable, live Checks/Addressing runs)
+ * indented beneath their parent, plus the branch-guard chip above the rail.
+ * Clicking a node navigates to its stage (or the changes / PR surface for
+ * the Push / Merge milestones).
  */
-export function LivePlan({ nodes, onOpenStage, onOpenCode, onOpenPr, onOpenBrain }: {
+export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenBrain }: {
   nodes: LivePlanNode[];
+  guard?: GuardChipData;
   onOpenStage?: (stageId: string) => void;
   onOpenCode?: () => void;
   onOpenPr?: () => void;
@@ -66,24 +81,7 @@ export function LivePlan({ nodes, onOpenStage, onOpenCode, onOpenPr, onOpenBrain
 
   const rows: ReactNode[] = [];
   let prev: LivePlanNode['placement'] | null = null;
-  for (let i = 0; i < nodes.length; i += 1) {
-    const node = nodes[i];
-    if (node.placement === 'split-left') {
-      const right = nodes[i + 1]?.placement === 'split-right' ? nodes[i + 1] : undefined;
-      rows.push(
-        <div className="plan-split" key={node.key}>
-          <div className="split-glyph"><span className="split-icon">┌──┴──┐</span></div>
-          <div className="split-row">
-            <PlanNode node={node} onClick={click(node)} small />
-            {right !== undefined && <PlanNode node={right} onClick={click(right)} small />}
-          </div>
-          <div className="converge-glyph"><span className="converge-icon">└──┬──┘</span></div>
-        </div>,
-      );
-      if (right !== undefined) i += 1;
-      prev = 'split-right';
-      continue;
-    }
+  for (const node of nodes) {
     if (node.placement === 'sub') {
       rows.push(
         <div className="plan-sub-row" key={node.key}>
@@ -94,8 +92,7 @@ export function LivePlan({ nodes, onOpenStage, onOpenCode, onOpenPr, onOpenBrain
       prev = 'sub';
       continue;
     }
-    // Full node: connect it to the spine with a line unless it's the first
-    // element or sits right under the split's converge glyph.
+    // Full node: connect it to the spine with a line unless it's the first.
     if (prev === 'full' || prev === 'sub') {
       rows.push(<div className="plan-line" key={`${node.key}-line`} />);
     }
@@ -103,5 +100,10 @@ export function LivePlan({ nodes, onOpenStage, onOpenCode, onOpenPr, onOpenBrain
     prev = 'full';
   }
 
-  return <div className="live-plan">{rows}</div>;
+  return (
+    <div className="live-plan">
+      <GuardChip guard={guard ?? null} />
+      {rows}
+    </div>
+  );
 }

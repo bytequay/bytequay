@@ -46,6 +46,11 @@ export function buildEmptyBrainView(taskId: string): TaskBrainViewData {
       plan: null,
     },
     scrubbers: { stageEvents: [], userMessages: [] },
+    liveRuns: [],
+    guard: {
+      taskId, enabled: false, schedule: 'nightly', state: 'in_sync',
+      lastRunId: null, lastCheckedAt: null,
+    },
   };
 }
 
@@ -84,8 +89,8 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     repoFullName: 'trinodb/trino',
     prNumber: 5680,
     prDraft: true,
-    currentPhase: 'CI_FIXING',
-    statusLabel: 'CI FIXING · iter #3',
+    currentPhase: 'PUSHED_AWAITING_CI',
+    statusLabel: 'Fixing CI · iter #3',
     agentRuntime: 'CLI',
     agentModel: 'sonnet-3.7',
     paused: false,
@@ -249,6 +254,17 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     userMessages: [
       { id: 'feed-6', label: "2m · 'Are all changes covered by tests?'", active: true },
     ],
+  },
+  liveRuns: [
+    {
+      id: CIFIX, taskId: '...', kind: 'ci_fix', source: 'remote', parentStageId: null,
+      reviewRoundId: null, status: 'running', iterations: 3, budget: 5,
+      headline: 'iter #3 — fixing linter warning', startedAt: ago(10), finishedAt: null,
+    },
+  ],
+  guard: {
+    taskId: '...', enabled: true, schedule: 'nightly', state: 'in_sync',
+    lastRunId: null, lastCheckedAt: ago(20 * 60),
   },
   };
 }

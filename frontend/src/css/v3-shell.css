@@ -858,11 +858,19 @@
 .shell .plan-sub-row { display: grid; grid-template-columns: 18px 1fr; align-items: center; padding: 0 0 0 14px; margin: 4px 0 0; }
 .shell .plan-sub-row .branch-glyph { color: var(--text-4); font-size: 11px; padding-top: 3px; }
 
-.shell .plan-split { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
-.shell .plan-split .split-glyph { padding: 4px 0; display: flex; align-items: center; justify-content: center; }
-.shell .plan-split .split-icon, .shell .plan-split .converge-icon { font-size: 9px; color: var(--text-4); padding: 0 4px; font-family: var(--mono); }
-.shell .plan-split .split-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.shell .plan-split .converge-glyph { padding: 6px 0 4px; display: flex; align-items: center; justify-content: center; }
+/* Branch-guard chip, above the rail — hidden entirely until the task has
+   pushed (buildGuardChip returns null). */
+.shell .guard-chip {
+  display: flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border: 1px solid var(--border); border-radius: 7px; margin-bottom: 10px;
+  font-size: 11px; background: var(--bg-elev);
+}
+.shell .guard-chip .guard-icon { font-size: 11px; }
+.shell .guard-chip .guard-label { color: var(--text-2); }
+.shell .guard-chip.in_sync { border-color: rgba(34, 197, 94, 0.28); }
+.shell .guard-chip.drifting, .shell .guard-chip.fixing { border-color: var(--orange); background: rgba(217, 119, 6, 0.08); }
+.shell .guard-chip.needs_attention { border-color: var(--red); background: rgba(220, 38, 38, 0.08); }
+.shell .guard-chip.needs_attention .guard-label { color: var(--red); }
 
 .shell .task-sidebar .panel-actions { margin-top: auto; padding: 12px 12px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); }
 .shell .task-sidebar .panel-action-btn {

@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { StageDto, StageType, TaskPhase } from '../../types/brainView';
+import type {
+  AgentRunDto, AgentRunKind, BranchGuardDto, StageDto, StageType, TaskPhase,
+} from '../../types/brainView';
 
 /** Visual state of one node in the live-plan diagram. {@code monitoring} is a
  *  looping stage that has pushed and is now polling remote CI / review (no
@@ -22,13 +24,15 @@ export type LivePlanStatus =
   /** Parked for the user's approval (a gate) — rendered orange. */
   | 'awaiting';
 
-/** Where a node sits in the lifecycle layout. `split-*` are the parallel
- *  CI-Fix / Comments branch; `sub` is the indented Review (callable) node. */
-export type LivePlanPlacement = 'full' | 'sub' | 'split-left' | 'split-right';
+/** Where a node sits in the lifecycle layout. `sub` is an indented `└─` row
+ *  under the preceding `full` node — either the callable Review panel or a
+ *  live/gated {@link AgentRunDto} sub-row (R3: lazy, shown only while live). */
+export type LivePlanPlacement = 'full' | 'sub';
 
 /** Where clicking a node navigates. */
 export type LivePlanNav =
   | { kind: 'stage'; stageId: string }
+  | { kind: 'run'; runId: string }
   | { kind: 'code' }
   | { kind: 'pr' }
   | { kind: 'brain' }
@@ -46,9 +50,25 @@ export type LivePlanNode = {
   nav: LivePlanNav;
 };
 
+/** Display data for the branch-guard chip above the rail (R4) — always
+ *  present once a guard row exists (created lazily on first push), so
+ *  `null` here just means "no guard yet" (task never pushed). */
+export type GuardChipData = {
+  state: 'in_sync' | 'drifting' | 'fixing' | 'needs_attention';
+  label: string;
+  meta: string | null;
+};
+
 export type LivePlanInput = {
   stages: StageDto[];
   subStages: StageDto[];
+  /** The task's live-or-gated runs (R2: rail shows now, never history) —
+   *  drives the Checks / Addressing sub-rows. Already filtered to
+   *  live/awaiting_gate by the backend; this model doesn't re-filter by
+   *  status, only by kind + which era the task is currently in. Defaults to
+   *  none. */
+  liveRuns?: AgentRunDto[];
+  guard?: BranchGuardDto | null;
   task: { prNumber: number | null; currentPhase: TaskPhase; terminal: boolean };
   /** The PR's merge-state, when known — drives the Merge node. */
   prStatus?: 'open' | 'draft' | 'queued' | 'merged' | null;
@@ -95,9 +115,18 @@ function glyphFor(status: LivePlanStatus, future = '○'): string {
  *  why the plain stage-state mapping under-lit it. AWAITING_PUSH is the
  *  dev-finished, parked-for-push-approval state → "awaiting";
  *  ADDRESSING_LOCAL_COMMENTS is a reactive detour off it where the agent is
- *  actively addressing local PR comments, so it reads "running" too. */
+ *  actively addressing local PR comments, so it reads "running" too.
+ *  PUSHED_AWAITING_CI / AWAITING_READY stay attached to Development too — a
+ *  ci_fix AgentRun doesn't move the phase off them (plan-rail-runs.md R7),
+ *  so Development remains the active node throughout. */
 const DEV_RUNNING_PHASES = new Set<TaskPhase>(
   ['IMPLEMENTING', 'VALIDATING', 'INTERNAL_REVIEW', 'ADDRESSING_LOCAL_COMMENTS']);
+
+/** Phases during which any live ci_fix / review activity still belongs to
+ *  the dev era (Development's Checks sub-row), rather than Comments'. */
+const DEV_ERA_PHASES = new Set<TaskPhase>(
+  ['IMPLEMENTING', 'VALIDATING', 'INTERNAL_REVIEW', 'AWAITING_PUSH', 'ADDRESSING_LOCAL_COMMENTS',
+    'PUSHED_AWAITING_CI', 'AWAITING_READY']);
 
 function devNodeStatus(dev: StageDto | undefined, phase: TaskPhase): LivePlanStatus {
   if (dev === undefined) return 'future';
@@ -107,20 +136,25 @@ function devNodeStatus(dev: StageDto | undefined, phase: TaskPhase): LivePlanSta
   return stageStatus(dev);
 }
 
-/** Status for a monitor (looping) stage. It loops while its phase is the
- *  current work, so its row can sit OPEN (not ACTIVE) between turns — which
- *  would otherwise dim the node to `sleep`. When the task has pushed and is
- *  polling the remote (CI re-running / out for review) it's `monitoring`;
- *  when an agent turn is actively fixing it's `running`; otherwise fall back
- *  to the generic state mapping. */
-function monitorStatus(
-  stage: StageDto | undefined, activePhase: boolean, waitingPhase: boolean): LivePlanStatus {
-  if (stage === undefined || stage.state === 'CLOSED') {
-    return stageStatus(stage);
-  }
-  if (waitingPhase) return 'monitoring';
-  if (activePhase) return 'running';
-  return stageStatus(stage);
+/** Local Review is a phase-derived milestone, not its own StageType — it
+ *  tracks the INTERNAL_REVIEW portion of Development specifically (the panel
+ *  review, if any, is a separate `Review (callable)` sub-row under
+ *  Development either way). */
+function localReviewStatus(phase: TaskPhase): LivePlanStatus {
+  if (phase === 'QUEUED' || phase === 'IMPLEMENTING' || phase === 'VALIDATING') return 'future';
+  if (phase === 'INTERNAL_REVIEW') return 'running';
+  return 'done';
+}
+
+/** Status for the Comments milestone: running while a review_round works,
+ *  monitoring while just watching for the next batch, otherwise falls back
+ *  to the REVIEW_MONITOR_STAGE row's own state (done once merged/closed). */
+function commentsStatus(
+  comments: StageDto | undefined, phase: TaskPhase, hasLiveRound: boolean): LivePlanStatus {
+  if (comments !== undefined && comments.state === 'CLOSED') return 'done';
+  if (hasLiveRound) return 'running';
+  if (phase === 'AWAITING_REMOTE_REVIEW') return 'monitoring';
+  return stageStatus(comments);
 }
 
 /** Meta hint for a looping stage ("iter N"), omitted at iteration 0. */
@@ -129,17 +163,59 @@ function iterMeta(stage: StageDto | undefined): string | undefined {
   return `iter ${stage.loopIteration}`;
 }
 
+/** The task's one live-or-gated run of `kind`, if any — AgentRunService.open
+ *  is idempotent per (task, kind), so there's never more than one. */
+function findLiveRun(runs: AgentRunDto[], kind: AgentRunKind): AgentRunDto | undefined {
+  return runs.find(r => r.kind === kind && (r.status === 'running' || r.status === 'awaiting_gate'));
+}
+
+function runMeta(run: AgentRunDto): string | undefined {
+  if (run.status === 'awaiting_gate') return 'awaiting you';
+  if (run.headline !== null && run.headline !== '') return run.headline;
+  return run.iterations > 0 ? `iter ${run.iterations}` : undefined;
+}
+
+/** A live/gated run's sub-row: `awaiting_gate` reads as a user gate (amber
+ *  `awaiting`), otherwise `running`. */
+function runSubNode(key: string, label: string, run: AgentRunDto): LivePlanNode {
+  const status: LivePlanStatus = run.status === 'awaiting_gate' ? 'awaiting' : 'running';
+  return {
+    key, label, status, glyph: glyphFor(status), meta: runMeta(run),
+    placement: 'sub', activeView: false, nav: { kind: 'run', runId: run.id },
+  };
+}
+
+const GUARD_LABELS: Record<BranchGuardDto['state'], string> = {
+  in_sync: 'in sync with main',
+  drifting: 'drifting from main',
+  fixing: 'fixing drift',
+  needs_attention: 'needs attention',
+};
+
+/** Derives the guard chip's display data from the raw DTO, or null when the
+ *  task hasn't pushed yet (a disabled row still exists — the chip only
+ *  shows once enabled, matching "always-on for pushed PRs"). */
+export function buildGuardChip(guard: BranchGuardDto | null | undefined): GuardChipData | null {
+  if (guard === null || guard === undefined || !guard.enabled) return null;
+  return {
+    state: guard.state,
+    label: GUARD_LABELS[guard.state],
+    meta: guard.lastCheckedAt !== null ? new Date(guard.lastCheckedAt).toLocaleTimeString() : null,
+  };
+}
+
 /**
  * Derives the ordered live-plan node list from the task's actual stages,
- * phase, and PR state. The lifecycle shape is fixed (Plan → Development →
- * {CI Fix ‖ Comments} → Merge → Cleanup), with Review (callable) and Push
- * hanging as sub-nodes under Development; only each node's status/meta is
- * data-driven. Stages that don't exist yet render as `future` (dashed),
+ * phase, and live runs. The spine is fixed (Plan → Development → Local
+ * Review → Remote Push → Comments → Merge → Cleanup, plan-rail-runs.md R1);
+ * Review (callable), Checks, and Addressing hang as lazy `sub` rows —
+ * Checks/Addressing only while a matching {@link AgentRunDto} is live or
+ * gated (R2/R3). Stages that don't exist yet render as `future` (dashed),
  * matching lazy stage instantiation.
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
-    stages, subStages, task, prStatus = null, mergeReady = false,
+    stages, subStages, liveRuns = [], task, prStatus = null, mergeReady = false,
     viewedStageId = null, viewingBrain = false, working = false,
     awaitingApprovalStageId = null,
   } = input;
@@ -152,9 +228,16 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const plan = byType('PLAN_STAGE');
   const dev = byType('DEVELOPMENT_STAGE');
   const review = subStages.find(s => s.type === 'REVIEW_STAGE');
-  const ciFix = byType('CI_FIXING_STAGE');
   const comments = byType('REVIEW_MONITOR_STAGE');
   const cleanup = byType('CLEANUP_STAGE');
+
+  const ciFixRun = findLiveRun(liveRuns, 'ci_fix');
+  const roundRun = findLiveRun(liveRuns, 'review_round');
+  const devEra = DEV_ERA_PHASES.has(task.currentPhase);
+  // Review (callable) is only invokable while Development is still open —
+  // once it closes the row drops off the rail entirely (R3: lazy, "a nit PR
+  // never grows them"), matching the mockup's zero-sub-row nit-PR rail.
+  const devOpen = dev !== undefined && dev.state !== 'CLOSED';
 
   // The Root node stands in for the plan "stage" — which is really the
   // brain/root conversation, not a drill-in stage. It tracks the plan's
@@ -163,17 +246,11 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const rootStatus: LivePlanStatus = plan === undefined ? 'planning' : stageStatus(plan, true);
   const devStatus = devNodeStatus(dev, task.currentPhase);
   const reviewStatus = stageStatus(review);
-  // PUSHED_AWAITING_CI = pushed, polling remote CI (monitoring); CI_FIXING =
-  // agent actively fixing. AWAITING_REMOTE_REVIEW = out for review (monitoring);
-  // ADDRESSING_COMMENTS = agent fixing comments.
-  const ciStatus = monitorStatus(
-    ciFix, task.currentPhase === 'CI_FIXING', task.currentPhase === 'PUSHED_AWAITING_CI');
-  const commentsStatus = monitorStatus(
-    comments, task.currentPhase === 'ADDRESSING_COMMENTS',
-    task.currentPhase === 'AWAITING_REMOTE_REVIEW');
+  const localReviewStat = localReviewStatus(task.currentPhase);
+  const commentsStat = commentsStatus(comments, task.currentPhase, roundRun !== undefined);
   const cleanupStatus = stageStatus(cleanup);
 
-  // Push isn't a stage — it's the milestone of having opened the PR.
+  // Remote Push isn't a stage — it's the milestone of having opened the PR.
   const pushStatus: LivePlanStatus = task.prNumber !== null ? 'done' : 'future';
 
   // Merge is user-gated and pseudo: done once merged/completed, running while
@@ -182,7 +259,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     task.currentPhase === 'COMPLETED' || prStatus === 'merged' ? 'done'
       : prStatus === 'queued' ? 'running'
         : mergeReady ? 'monitoring'
-          : task.currentPhase === 'AWAITING_REMOTE_REVIEW' || task.currentPhase === 'ADDRESSING_COMMENTS'
+          : task.currentPhase === 'AWAITING_REMOTE_REVIEW'
             ? 'sleep'
             : 'future';
   const mergeMeta = prStatus === 'queued' ? 'queued'
@@ -200,31 +277,31 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       key: 'dev', label: 'Development', status: devStatus, glyph: glyphFor(devStatus),
       meta: iterMeta(dev), placement: 'full', activeView: isViewed(dev), nav: stageNav(dev),
     },
-    {
+    ...(devOpen ? [{
       key: 'review', label: 'Review (callable)', status: reviewStatus,
       glyph: glyphFor(reviewStatus), meta: review === undefined ? 'not invoked' : undefined,
-      placement: 'sub', activeView: isViewed(review), nav: stageNav(review),
+      placement: 'sub' as const, activeView: isViewed(review), nav: stageNav(review),
+    }] : []),
+    ...(devEra && ciFixRun !== undefined ? [runSubNode('dev-checks', 'Checks', ciFixRun)] : []),
+    {
+      key: 'local-review', label: 'Local Review', status: localReviewStat,
+      glyph: glyphFor(localReviewStat), meta: localReviewStat === 'done' ? 'approved' : undefined,
+      placement: 'full', activeView: false, nav: { kind: 'none' },
     },
     {
-      // Push isn't its own stage — it's the tail of Development (the dev agent
-      // opens the PR). So it hangs as a sub-node under Development and a click
-      // routes to the Development conversation rather than a dead/empty view.
-      key: 'push', label: 'Push', status: pushStatus, glyph: glyphFor(pushStatus),
+      key: 'push', label: 'Remote Push', status: pushStatus, glyph: glyphFor(pushStatus),
       meta: task.prNumber !== null ? `PR #${task.prNumber}` : undefined,
-      placement: 'sub', activeView: false, nav: stageNav(dev),
+      placement: 'full', activeView: false, nav: stageNav(dev),
     },
     {
-      key: 'ci-fix', label: 'CI Fix', status: ciStatus, glyph: glyphFor(ciStatus),
-      meta: ciStatus === 'monitoring' ? 'watching CI' : iterMeta(ciFix),
-      placement: 'split-left', activeView: isViewed(ciFix), nav: stageNav(ciFix),
-    },
-    {
-      key: 'comments', label: 'Comments', status: commentsStatus, glyph: glyphFor(commentsStatus),
+      key: 'comments', label: 'Comments', status: commentsStat, glyph: glyphFor(commentsStat),
       meta: comments === undefined ? undefined
-        : commentsStatus === 'monitoring' ? 'watching review'
-          : commentsStatus === 'sleep' ? 'armed' : undefined,
-      placement: 'split-right', activeView: isViewed(comments), nav: stageNav(comments),
+        : commentsStat === 'monitoring' ? 'watching review'
+          : commentsStat === 'sleep' ? 'armed' : undefined,
+      placement: 'full', activeView: isViewed(comments), nav: stageNav(comments),
     },
+    ...(!devEra && roundRun !== undefined ? [runSubNode('comments-addressing', 'Addressing', roundRun)] : []),
+    ...(!devEra && ciFixRun !== undefined ? [runSubNode('comments-checks', 'Checks', ciFixRun)] : []),
     {
       key: 'merge', label: 'Merge (user-gated)', status: mergeStatus, glyph: glyphFor(mergeStatus, '◆'),
       meta: mergeMeta, placement: 'full', activeView: false,

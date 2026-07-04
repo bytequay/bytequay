@@ -40,6 +40,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.review.BranchGuardService;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -78,6 +80,8 @@ public class StageServiceImpl
     private final ThreadTurnEventStore turnEventStore;
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
+    private final AgentRunService agentRuns;
+    private final BranchGuardService branchGuards;
     private final ObjectMapper mapper;
 
     public StageServiceImpl(
@@ -87,6 +91,8 @@ public class StageServiceImpl
             ThreadTurnEventStore turnEventStore,
             ThreadStore threadStore,
             ThreadTurnStore turnStore,
+            AgentRunService agentRuns,
+            BranchGuardService branchGuards,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -95,6 +101,8 @@ public class StageServiceImpl
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.branchGuards = requireNonNull(branchGuards, "branchGuards is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -137,7 +145,9 @@ public class StageServiceImpl
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
                         brainMessages, stageNameIndex, buildStageStats(task, allStages)),
                 buildRightRail(task, allStages, cost),
-                buildScrubbers(allEvents, brainMessages));
+                buildScrubbers(allEvents, brainMessages),
+                agentRuns.liveRunsByTask(taskId),
+                branchGuards.get(taskId));
     }
 
     /** The task's brain-thread conversation (user + assistant text rows),

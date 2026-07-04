@@ -14,7 +14,7 @@
 import type { ReactNode } from 'react';
 import { MergeIcon } from '../primitives';
 import { LivePlan } from './LivePlan';
-import type { LivePlanNode } from './livePlanModel';
+import type { GuardChipData, LivePlanNode } from './livePlanModel';
 
 /**
  * The task-scoped left sidebar for the brain + stage pages (frames 2/6/7):
@@ -24,7 +24,7 @@ import type { LivePlanNode } from './livePlanModel';
  * actions render at the bottom.
  */
 export function TaskSidebar({
-  task, threadLabel, nodes, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, actions,
+  task, threadLabel, nodes, guard, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, actions,
 }: {
   task: {
     title: string; branch: string;
@@ -32,6 +32,7 @@ export function TaskSidebar({
   };
   threadLabel?: string;
   nodes: LivePlanNode[];
+  guard?: GuardChipData;
   onBack?: () => void;
   onOpenStage?: (stageId: string) => void;
   onOpenCode?: () => void;
@@ -63,6 +64,7 @@ export function TaskSidebar({
       <div className="plan-section-h"><span>Live plan</span><span className="live-dot" aria-hidden /></div>
       <LivePlan
         nodes={nodes}
+        guard={guard}
         onOpenStage={onOpenStage}
         onOpenCode={onOpenCode}
         onOpenPr={onOpenPr}

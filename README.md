@@ -11,6 +11,11 @@
   for everything else.
 </p>
 
+<p align="center">
+  <em><strong>Review is all you need.</strong> The agent is the wild
+  horse; review is the reins.</em>
+</p>
+
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml/badge.svg)](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml)
 
@@ -40,6 +45,14 @@ author and commit; you spend your attention where it matters most —
 reading, questioning, and approving the change. Everyone becomes the
 code reviewer.
 
+**Review is all you need.** An agent is a wild horse — fast, tireless,
+occasionally headed for a cliff. Review is the reins. So review isn't a
+step ByteQuay bolts on at the end; it's the first-class member the whole
+app is organized around. A task can't push, can't open a PR, can't merge,
+and can't even leave its own machine until a review — yours, or an
+AI panel's on your behalf — has held it. Every irreversible move is a
+gate, and every gate is a review.
+
 The long-term goal is to fully replace github.com for that daily loop:
 review, approve, merge, and create PRs — delegating the writing to
 agents — without ever opening a browser tab.
@@ -50,8 +63,8 @@ agents — without ever opening a browser tab.
 
 **v0.2.0 — pre-1.0, actively developed.** Used day-to-day by the author
 and a small group of testers. The PR-review surface is stable; the AI
-dev-agent and task-lifecycle features are newer and evolving fast —
-expect rough edges there. macOS only at runtime.
+dev-agent, task-lifecycle, and Local PR review features are newer and
+evolving fast — expect rough edges there. macOS only at runtime.
 
 ---
 
@@ -139,15 +152,33 @@ detects a missing git on launch and points you to this section.
   suggestion-block accept that turns the suggestion into a commit.
 - **AI dev agents** — the writing side of the loop, so your side stays
   review. Cut a task from a planning thread and an agent develops it in
-  an isolated git worktree, driven through a tracked lifecycle (implement
-  → validate → internal review → push → CI → ready → remote review →
+  an isolated git worktree, driven through a tracked lifecycle (plan →
+  develop → validate → local review → push → CI → ready → remote review →
   merge). The phase is shown live; a server-side reconciler watches the
   linked PR and advances it as CI finishes and the PR merges. Publishing
   runs through approval-gated tools — direct `git push` / `gh` are
   blocked so nothing reaches GitHub without your click.
-- **Task queue & threads** — a planning "trunk" thread fans out into
-  serial work-unit tasks; queue them up, reorder, and let the scheduler
-  run them within a small resource cap.
+- **Local PR — review before the world sees it.** Once the agent finishes
+  writing, its work becomes a *Local PR*: a PR-shaped review surface that
+  lives entirely on your machine, before any push. It has the same face a
+  real PR does — a changed-files + diff view, inline review comments you
+  can Resolve or Dismiss, a timeline, and local test checks — but nothing
+  has left your laptop. You leave comments; the dev agent addresses them
+  and replies in-thread; comments group into review **rounds**. A
+  **promotion gate** refuses to push while any thread is still open or the
+  latest local test run is red. Approve, and the same branch flips into the
+  live GitHub PR — the timeline continues past the divider, GitHub events
+  flowing in below your local history. It's the whole review loop, run once
+  privately before it's ever public.
+- **Planning trunk & tasks** — a conversational "trunk" thread where you
+  think out loud with an agent, propose a backlog, and cut work into
+  tasks. The agent can ask you clarifying questions (answerable inline)
+  and propose backlog items in batch; the scheduler runs tasks within a
+  small resource cap, in isolated worktrees.
+- **Home inbox** — one merged feed of what needs you: PRs awaiting review,
+  parked approval gates (approve/merge/push, each with the PR title +
+  a jump-to-PR), failing CI, and agent handoffs — with an "unread only"
+  filter and a "Today" summary you can copy as standup-ready Markdown.
 - **Local-first storage** — everything (drafts, view state, watched
   repos, teams, credentials) lives in a per-user SQLite + macOS Keychain.
   Nothing leaves your machine until you click an action.
@@ -167,9 +198,13 @@ Task
  │                + a confidence level, and the ordered implementation steps
  ├─ Develop       the agent writes the change in an isolated git worktree
  ├─ Validate      tests + checkstyle + repo rules, with a bounded auto-fix loop
- ├─ Review        you and/or an AI panel review the LOCAL diff — before any push
- ├─ Push → PR     you approve the push; the branch lands and a (draft) GitHub
- │                PR opens
+ ├─ Local PR      the change becomes a private, PR-shaped review surface — diff,
+ │                inline comments, review rounds, local test checks — all before
+ │                any push; you review, the agent addresses comments in-thread
+ ├─ Push → PR     you approve the push (blocked while a comment thread is open or
+ │                local tests are red); the same branch lands and a (draft)
+ │                GitHub PR opens — the Local PR's timeline continues past the
+ │                divider
  ├─ CI            watches remote CI; red → the agent Fixes and re-pushes (loop),
  │                green → it holds
  ├─ Mark ready    you flip the draft PR ready for review
@@ -182,16 +217,23 @@ Task
 
 How this maps to a classic *plan → review → PR → merge* mental model:
 
-- **One plan, not three passes.** "Architecture plan", "risk analysis", and
-  "implementation plan" are folded into a single user-approved plan
-  (`understanding` + `signals` + `intent.steps`), not separate stages.
-- **The pre-push review runs on the local diff** — and it can be you, an AI
-  panel, or both. There's no separate "local PR"; the push *is* the remote
-  GitHub PR.
-- **Two review passes:** the pre-push review above, and an AI re-review after
-  you've addressed the remote comments.
+- **One plan, not three passes.** The architecture, the risk signals + a
+  confidence level, and the ordered steps are folded into a single
+  user-approved plan, not separate stages.
+- **The pre-push review is a Local PR.** The change gets a full PR face —
+  diff, inline comments, review rounds, local test checks — that lives only
+  on your machine. Reviewing it is the same muscle as reviewing a GitHub PR,
+  just done privately first. The push is *non-lossy*: the same branch becomes
+  the live GitHub PR and the local timeline continues, GitHub events appended
+  below it. Your local review comments never leave your laptop.
+- **A promotion gate guards the push.** It refuses while any comment thread is
+  still open or the most recent local test run failed — so nothing goes public
+  with an unaddressed review or a red test.
+- **Two review passes:** the Local PR review before the push, and an AI
+  re-review after you've addressed the remote comments.
 - **Human gates** at every irreversible step: approve the plan, approve each
   push, mark the PR ready, and merge — the agent can do none of these itself.
+  Review is the reins.
 
 ---
 
@@ -266,7 +308,7 @@ sticks.
 ```
 backend/    Spring Boot sidecar (Java 21, Maven)
 frontend/   Electron + React + TypeScript (Electron Forge + Vite)
-docs/       Design docs and UI mockups (PNG, by section)
+docs/       Docusaurus user-guide site (docs/website) + design notes
 licenses/   Apache 2.0 header template shared by both modules
 dev.sh      Spawns backend + frontend together
 ```
@@ -275,13 +317,14 @@ dev.sh      Spawns backend + frontend together
 
 ## Documentation
 
+- **[User guide & release notes](docs/website)** — the Docusaurus docs
+  site: task-oriented usage guides (PR dashboard, AI review, tasks,
+  teams) and per-version release notes.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — full development setup,
   IDE configuration (IntelliJ + VS Code), code style, build & test
   gates, commit / PR conventions.
 - **[LICENSE](LICENSE)** — Apache 2.0.
 - **[NOTICE](NOTICE)** — copyright + attribution.
-- Design docs and UI mockups live under `docs/` (PNGs organised by
-  feature area).
 
 ---
 

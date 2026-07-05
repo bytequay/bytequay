@@ -37,7 +37,7 @@ type BrainTab = 'pr';
  */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, planReminder, onRevealPlan, markReadyReminder, onOpenChanges, onOpenCi, autoApprove, onToggleAutoApprove,
+  tabs, planReminder, onRevealPlan, markReadyReminder, onOpenChanges, onOpenCi,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
@@ -80,10 +80,6 @@ export function TaskBrainPage({
   markReadyReminder?: boolean;
   onOpenChanges?: () => void;
   onOpenCi?: () => void;
-  /** Auto-approve mode: when on, the task's parked gates + tool prompts are
-   *  approved automatically (the final PR merge stays manual). */
-  autoApprove?: boolean;
-  onToggleAutoApprove?: () => void;
 }) {
   const available: { key: BrainTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
@@ -134,16 +130,6 @@ export function TaskBrainPage({
         onResume={run.onResume}
         onClose={run.onClose}
       />
-      {onToggleAutoApprove !== undefined && (
-        <TopBarButton
-          icon={autoApprove === true ? '⚡' : '○'}
-          variant={autoApprove === true ? 'submit' : 'default'}
-          onClick={onToggleAutoApprove}
-          title="Auto-approve this task's gates and tool prompts — except the final PR merge, which always asks"
-        >
-          Auto-approve {autoApprove === true ? 'on' : 'off'}
-        </TopBarButton>
-      )}
       {onOpenChanges !== undefined && (
         <TopBarButton icon="▢" onClick={onOpenChanges}>Changes</TopBarButton>
       )}

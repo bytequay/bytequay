@@ -175,6 +175,73 @@ class TestPlanToolHandlers
     }
 
     @Test
+    void finalizingALowRiskLowEffortPlanTurnsAutoApproveOn()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        tools.recordPlan(new RecordPlanArgs(taskId, planJsonWithSignals("finalized", "low", "trivial")), CALL);
+
+        assertThat(taskStore.isAutoApprove(taskId)).isTrue();
+    }
+
+    @Test
+    void aSuggestedLowRiskLowEffortPlanDoesNotTurnAutoApproveOn()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        tools.recordPlan(new RecordPlanArgs(taskId, planJsonWithSignals("suggested", "low", "small")), CALL);
+
+        assertThat(taskStore.isAutoApprove(taskId)).isFalse();
+    }
+
+    @Test
+    void aFinalizedHighRiskPlanDoesNotTurnAutoApproveOn()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        tools.recordPlan(new RecordPlanArgs(taskId, planJsonWithSignals("finalized", "high", "small")), CALL);
+
+        assertThat(taskStore.isAutoApprove(taskId)).isFalse();
+    }
+
+    @Test
+    void aFinalizedLowRiskLargeEffortPlanDoesNotTurnAutoApproveOn()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        tools.recordPlan(new RecordPlanArgs(taskId, planJsonWithSignals("finalized", "low", "large")), CALL);
+
+        assertThat(taskStore.isAutoApprove(taskId)).isFalse();
+    }
+
+    @Test
+    void aLaterHighRiskRevisionNeverTurnsAutoApproveBackOff()
+    {
+        String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        tools.recordPlan(new RecordPlanArgs(taskId, planJsonWithSignals("finalized", "low", "small")), CALL);
+        assertThat(taskStore.isAutoApprove(taskId)).isTrue();
+
+        tools.recordPlan(new RecordPlanArgs(taskId, planJsonWithSignals("finalized", "high", "large")), CALL);
+
+        assertThat(taskStore.isAutoApprove(taskId)).isTrue();
+    }
+
+    private JsonNode planJsonWithSignals(String status, String riskLevel, String estimatedComplexity)
+    {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("status", status);
+        node.set("signals", mapper.createObjectNode()
+                .put("riskLevel", riskLevel)
+                .put("estimatedComplexity", estimatedComplexity));
+        return node;
+    }
+
+    @Test
     void recordingAfterTheStageClosedErrors()
     {
         String taskId = seedTask();

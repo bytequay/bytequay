@@ -22,7 +22,7 @@ import {
 import type { StageChip } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
-import { PlanReminderTab } from './PlanOverlay';
+import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
 
 /** The four work stages that share this page. */
 export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
@@ -45,7 +45,7 @@ const PILL_LABEL: Record<StageKind, string> = {
  */
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi, planReminder, onRevealPlan,
+  tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi, planReminder, onRevealPlan, markReadyReminder,
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
@@ -82,6 +82,10 @@ export function StageDetailPage({
   planReminder?: 'awaiting' | 'locked';
   /** Click handler for the reminder pill — opens the zoomed plan overlay. */
   onRevealPlan?: () => void;
+  /** Shows a green, glowing reminder pill above the composer while a shipped
+   *  draft's CI is green and the mark-ready gate is parked — clicking it
+   *  jumps to the Changes page via {@code onOpenChanges}. */
+  markReadyReminder?: boolean;
 }) {
   // PR leads the strip and opens first (decision #48) — it's the primary
   // artifact. The Code Diff tab renders the in-pane diff on every work stage;
@@ -158,6 +162,9 @@ export function StageDetailPage({
                 click away from where you're typing. The plan reminder pill sits
                 on the left of the same row; the tab chips align to the right. */}
             <div className="chip-reminder-row">
+              {markReadyReminder === true && onOpenChanges !== undefined && (
+                <MarkReadyReminderTab onClick={onOpenChanges} />
+              )}
               {planReminder !== undefined && onRevealPlan !== undefined && (
                 <PlanReminderTab state={planReminder} onClick={onRevealPlan} />
               )}

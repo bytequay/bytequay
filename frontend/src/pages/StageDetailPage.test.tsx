@@ -148,4 +148,16 @@ describe('StageDetailPage', () => {
     fireEvent.click(inlineCi());
     expect(document.querySelector('.body.with-pane')).toBeTruthy();
   });
+
+  it('shows the mark-ready reminder pill and routes it to onOpenChanges', () => {
+    const onOpenChanges = vi.fn();
+    renderStage('dev', { markReadyReminder: true, onOpenChanges });
+    fireEvent.click(screen.getByText('Mark ready for review'));
+    expect(onOpenChanges).toHaveBeenCalledOnce();
+  });
+
+  it('hides the mark-ready reminder pill when not pending', () => {
+    renderStage('dev', { markReadyReminder: false });
+    expect(screen.queryByText('Mark ready for review')).toBeNull();
+  });
 });

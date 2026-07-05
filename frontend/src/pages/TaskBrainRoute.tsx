@@ -404,6 +404,7 @@ export function TaskBrainRoute({
         : plan.state === 'locked' ? 'locked'
         : undefined}
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
+      markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
       tabs={{
         pr: localPrBundle != null ? (
           <PRView

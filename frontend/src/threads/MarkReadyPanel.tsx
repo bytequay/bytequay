@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MarkdownProse } from './MarkdownProse';
+import { useMentions } from '../useMentions';
 
 /** A PR reference parsed from the parked `mark_ready` payload. */
 export type MarkReadyPrRef = { owner: string; repo: string; number: number };
@@ -58,6 +59,24 @@ export function MarkReadyPanel({ notificationId, pr, onMarked }: {
       .catch(() => { /* leave the description hidden if the fetch fails */ });
     return () => { cancelled = true; };
   }, [pr.owner, pr.repo, pr.number]);
+
+  // Candidate logins for the "@" reviewer picker — GitHub's suggested
+  // reviewers for this PR (blame + review history). The picker stays inert
+  // when the list is empty or the bridge lacks the call; manual typing of
+  // any username still works either way.
+  const [candidates, setCandidates] = useState<string[]>([]);
+  useEffect(() => {
+    const fetchSuggested = window.bridge?.getSuggestedReviewers;
+    if (typeof fetchSuggested !== 'function') return;
+    let cancelled = false;
+    fetchSuggested(`${pr.owner}/${pr.repo}`, pr.number)
+      .then(rs => { if (!cancelled) setCandidates(rs.map(r => r.login).filter(Boolean)); })
+      .catch(() => { /* no suggestions — the @ picker just stays inert */ });
+    return () => { cancelled = true; };
+  }, [pr.owner, pr.repo, pr.number]);
+
+  const reviewersRef = useRef<HTMLTextAreaElement>(null);
+  const mentions = useMentions({ value: reviewers, onChange: setReviewers, candidates, textareaRef: reviewersRef });
 
   const prUrl = `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}`;
   const requested = parseReviewers(reviewers);
@@ -106,14 +125,22 @@ export function MarkReadyPanel({ notificationId, pr, onMarked }: {
         off for review. Add reviewers below (comma or space separated GitHub
         usernames) — or leave it empty to just mark the PR ready.
       </p>
-      <input
-        className="ship-description__title"
-        value={reviewers}
-        onChange={(e) => setReviewers(e.target.value)}
-        placeholder="reviewers — e.g. octocat, hubot (optional)"
-        aria-label="Reviewers"
-        disabled={busy}
-      />
+      <div style={{ position: 'relative' }}>
+        <textarea
+          ref={reviewersRef}
+          className="ship-description__title"
+          style={{ resize: 'none' }}
+          rows={1}
+          value={reviewers}
+          onChange={mentions.onChange}
+          onKeyDown={(e) => { mentions.onKeyDown(e); }}
+          onClick={mentions.onClick}
+          placeholder="reviewers — e.g. @octocat, @hubot (optional)"
+          aria-label="Reviewers"
+          disabled={busy}
+        />
+        {mentions.dropdown}
+      </div>
       {note !== null && <div className="diff-viewer__review-note" role="alert">{note}</div>}
       <div className="ship-description__actions">
         <button

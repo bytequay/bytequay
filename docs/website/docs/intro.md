@@ -10,10 +10,23 @@ slug: /
 
 > A calmer home for pull requests, reviews, and AI coding tasks.
 
-ByteQuay is a developer-productivity app that brings your pull requests,
-code reviews, repositories, teams, and AI coding sessions into one focused
+ByteQuay is a native macOS developer app that brings your pull requests,
+code reviews, repositories, teams, and AI coding tasks into one focused
 surface — so you can move through your day's review work without bouncing
 between tabs and terminals.
+
+## Review is all you need
+
+ByteQuay is built around one conviction: **your job is to review, not to
+type.** Let AI agents do the writing and committing; you spend your
+attention where it matters — reading, questioning, and approving the change.
+
+An agent is a wild horse: fast, tireless, and occasionally headed for a
+cliff. **Review is the reins.** So review isn't a step bolted on at the
+end — it's the first-class member the whole app is organized around. An
+agent's work can't push, can't open a PR, can't merge, and can't even
+leave your machine until a review has held it. Every irreversible move is
+a gate, and every gate is a review.
 
 This site is the home for everything you need to use and understand ByteQuay:
 
@@ -27,11 +40,8 @@ This site is the home for everything you need to use and understand ByteQuay:
 | --- | --- |
 | PR dashboard | Your inbox of PRs you created and PRs awaiting your review. |
 | AI PR review | AI-assisted review that drafts comments and surfaces risks. |
-| Tasks | Run, resume, and monitor AI coding sessions inside the app. |
+| AI tasks | Cut a task from a planning trunk; an agent develops it in an isolated worktree through a gated lifecycle. |
+| Local PR | A private, PR-shaped review of the agent's change — diff, inline comments, review rounds, local tests — before anything is pushed. |
+| Home inbox | One feed of what needs you: reviews to do, approval gates to clear, CI failures, and agent handoffs. |
 | Repositories | Unified view of watched repos and local clones. |
 | Teams | Per-team home, members, and contribution analytics. |
-
-:::note Scaffold
-This is a freshly scaffolded docs site. Pages below are placeholders ready
-for you to fill in. Replace this content as the product takes shape.
-:::

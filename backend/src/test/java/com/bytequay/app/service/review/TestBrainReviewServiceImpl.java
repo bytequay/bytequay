@@ -57,6 +57,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -179,6 +180,26 @@ class TestBrainReviewServiceImpl
         verify(stageStore).recordEvent(
                 eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
                 eq(Map.of("verdict", ReviewRound.VERDICT_APPROVED)));
+        // The plan predates the local PR — its timeline event is backfilled
+        // later, when LocalPRServiceImpl.createForTask first creates the row.
+        verify(localPr, never()).recordBrainReview(any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void recordVerdictForDevScopePersistsItOnTheRoundAndWritesTheTimelineEvent()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING);
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+
+        service.recordVerdict(TASK_ID, "run-stage", "dev", ReviewRound.VERDICT_CHANGES_REQUESTED);
+
+        verify(roundStore).save(argThat(r ->
+                ReviewRound.VERDICT_CHANGES_REQUESTED.equals(r.brainVerdict()) && r.iteration() == 1));
+        verify(localPr).recordBrainReview(TASK_ID, "dev", ReviewRound.VERDICT_CHANGES_REQUESTED, 1);
     }
 
     // ── R21-R23: code lock-point review loop ─────────────────────────────

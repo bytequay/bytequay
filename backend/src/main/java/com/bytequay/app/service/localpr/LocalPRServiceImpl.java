@@ -18,7 +18,11 @@ import com.bytequay.app.domain.LocalPRCheck;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRCommit;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
+import com.bytequay.app.domain.StageEvent;
+import com.bytequay.app.domain.StageEventType;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.repository.LocalPRStore;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,19 +52,22 @@ class LocalPRServiceImpl
     private final LocalPRStore store;
     private final DevReportService devReports;
     private final ObjectMapper mapper;
+    private final StageStore stageStore;
     private final Clock clock;
 
     @Autowired
-    LocalPRServiceImpl(LocalPRStore store, DevReportService devReports, ObjectMapper mapper)
+    LocalPRServiceImpl(LocalPRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore)
     {
-        this(store, devReports, mapper, Clock.systemUTC());
+        this(store, devReports, mapper, stageStore, Clock.systemUTC());
     }
 
-    LocalPRServiceImpl(LocalPRStore store, DevReportService devReports, ObjectMapper mapper, Clock clock)
+    LocalPRServiceImpl(
+            LocalPRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.devReports = requireNonNull(devReports, "devReports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -115,7 +122,46 @@ class LocalPRServiceImpl
         }
         LocalPR pr = LocalPR.create(
                 UUID.randomUUID().toString(), taskId, branchName, baseBranch, title, description, now());
-        return store.save(pr);
+        LocalPR saved = store.save(pr);
+        backfillPlanSelfReview(taskId, saved.id());
+        return saved;
+    }
+
+    /** The plan self-review (R20) predates the local PR — its `review` event
+     *  is backfilled onto the timeline, at its original timestamp, the first
+     *  time a local PR row is created for this task. */
+    private void backfillPlanSelfReview(String taskId, String prId)
+    {
+        stageStore.findStagesByTask(taskId).stream()
+                .filter(s -> s.type() == StageType.PLAN_STAGE)
+                .findFirst()
+                .flatMap(plan -> stageStore.findEventsByStage(plan.id()).stream()
+                        .filter(e -> e.eventType() == StageEventType.PLAN_SELF_REVIEWED)
+                        .findFirst())
+                .ifPresent(reviewed -> appendEvent(
+                        prId, LocalPRTimelineEvent.TYPE_REVIEW, LocalPRTimelineEvent.ACTOR_BRAIN,
+                        /* localOnly */ true, reviewed.eventAt(),
+                        payload("scope", "plan", "verdict", verdictOf(reviewed), "iteration", 1)));
+    }
+
+    private String verdictOf(StageEvent event)
+    {
+        try {
+            return event.payloadJson() == null ? null
+                    : mapper.readTree(event.payloadJson()).path("verdict").asText(null);
+        }
+        catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public void recordBrainReview(String taskId, String scope, String verdict, int iteration)
+    {
+        store.findByTaskId(taskId).ifPresent(pr -> appendEvent(
+                pr.id(), LocalPRTimelineEvent.TYPE_REVIEW, LocalPRTimelineEvent.ACTOR_BRAIN,
+                /* localOnly */ true, now(),
+                payload("scope", scope, "verdict", verdict, "iteration", iteration)));
     }
 
     @Override

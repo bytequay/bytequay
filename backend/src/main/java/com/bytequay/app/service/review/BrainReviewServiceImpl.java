@@ -236,7 +236,9 @@ public class BrainReviewServiceImpl
                     scope, taskId);
             return;
         }
-        roundStore.save(live.get().withBrainVerdict(verdict));
+        ReviewRound updated = live.get().withBrainVerdict(verdict);
+        roundStore.save(updated);
+        localPr.recordBrainReview(taskId, scope, verdict, updated.iteration());
     }
 
     private boolean matchesRunStage(ReviewRound round, String stageId)

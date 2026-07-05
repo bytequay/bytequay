@@ -60,6 +60,14 @@ export function PRView({
   const local = isLocalStatus(pr.status);
 
   const openComments = comments.filter(c => c.resolvedAt === null && c.strippedOnPushAt === null).length;
+  // The brain's dev-end review outcome (plan-rail-runs.md R21/R23) — derived
+  // from its own local_pr_comment rows (author='brain'), never a separate
+  // fetch: a brain review round always concludes before the PR flips to
+  // local-open, so by the time this renders, its story is fully told here.
+  const brainComments = comments.filter(c => c.author === 'brain');
+  const brainReview = brainComments.length > 0
+    ? { total: brainComments.length, unresolved: brainComments.filter(c => c.resolvedAt === null && c.dismissedAt === null).length }
+    : undefined;
   const localChecks = checks.filter(c => c.kind === 'local');
   const remoteChecks = checks.filter(c => c.kind === 'remote');
   const localChecksPassed = localChecks.length > 0 && localChecks.every(c => c.status === 'passed' || c.status === 'neutral');
@@ -114,6 +122,7 @@ export function PRView({
           openComments={openComments}
           localChecksPassed={localChecksPassed}
           localTestsFailing={localTestsFailing}
+          brainReview={brainReview}
           onPush={onPush}
           onAskAgent={onAskAgent}
           onMerge={onMerge}

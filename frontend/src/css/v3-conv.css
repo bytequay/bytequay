@@ -520,6 +520,17 @@
   gap: 8px;
   padding-left: 22px;
 }
+/* Brain adversarial review (plan-rail-runs.md R21/R22/R24) */
+.shell .brain-badge {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-border);
+  border-radius: 4px; padding: 1px 5px; margin-right: 5px;
+}
+.shell .verdict-pill {
+  font-size: 9px; font-weight: 800; border-radius: 999px; padding: 1px 7px;
+}
+.shell .verdict-pill.ok { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
+.shell .verdict-pill.chg { background: var(--orange-soft); color: var(--orange); border: 1px solid var(--orange-border); }
 .shell .round-gate-bar {
   display: flex;
   align-items: center;
@@ -1525,6 +1536,10 @@
 .pr-action-bar .ab-head .ic { width: 20px; height: 20px; border-radius: 50%; background: var(--orange); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
 .pr-action-bar .ab-head .title { font-weight: 700; color: var(--text-1); }
 .pr-action-bar .ab-head .subtitle { color: var(--text-3); font-size: 11.5px; margin-left: auto; }
+/* Brain dev-end review outcome (plan-rail-runs.md R21/R23) */
+.brain-review-tag { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.brain-review-tag.ok { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
+.brain-review-tag.warn { background: var(--orange-soft); color: var(--orange); border: 1px solid var(--orange-border); }
 .pr-action-bar .ab-body { font-size: 11.5px; color: var(--text-2); line-height: 1.5; padding-left: 28px; }
 .pr-action-bar .ab-body code { font-family: var(--mono); font-size: 11px; }
 .pr-action-bar .ab-actions { display: flex; gap: 8px; padding-left: 28px; padding-top: 2px; }

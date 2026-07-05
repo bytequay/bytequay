@@ -66,6 +66,13 @@ public interface LocalPRService
     /** Flip {@code local-drafted → local-open} (dev auto-declares "ready"). */
     LocalPR requestUserReview(String prId, String actor);
 
+    /** Records one brain adversarial-review pass as a `review` timeline event
+     *  (author=brain, local-only — plan-rail-runs.md R24). A no-op when the
+     *  task has no local PR yet (the plan self-review, R20, predates it — its
+     *  event is backfilled onto the timeline once {@link #createForTask}
+     *  first creates the row). */
+    void recordBrainReview(String taskId, String scope, String verdict, int iteration);
+
     /**
      * Validated status flip. Throws {@link IllegalArgumentException} on an
      * unknown PR or an illegal edge. Writes the {@code status} timeline event.

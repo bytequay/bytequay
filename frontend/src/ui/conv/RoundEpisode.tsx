@@ -17,6 +17,9 @@ import { RunEpisode } from './RunEpisode';
 import { RoundGateBar } from './RoundGateBar';
 
 function summaryMeta(round: ReviewRoundDto): string {
+  if (round.origin === 'brain') {
+    return `iter ${round.iteration}/${round.budget}`;
+  }
   const { fixed, replied, pushedBack, open } = round.stats;
   const total = fixed + replied + pushedBack + open;
   const who = round.reviewers.length > 0 ? round.reviewers.join(', ') : 'reviewer';
@@ -24,6 +27,24 @@ function summaryMeta(round: ReviewRoundDto): string {
   if (pushedBack > 0) parts.push(`${pushedBack} pushed back`);
   if (open > 0 && round.status !== 'posted' && round.status !== 'closed') parts.push(`${open} open`);
   return parts.join(' · ');
+}
+
+/** The brain's adversarial-review badge (plan-rail-runs.md R21/R22) — reuses
+ *  the #52 AGENT-badge visual family, tinted for the brain's own identity
+ *  rather than the dev/fix agent. */
+function BrainBadge() {
+  return <span className="brain-badge">BRAIN</span>;
+}
+
+/** The brain's latest verdict, when it's reviewed at least once. */
+function VerdictPill({ verdict }: { verdict: ReviewRoundDto['brainVerdict'] }) {
+  if (verdict === null) return null;
+  const approved = verdict === 'approved';
+  return (
+    <span className={`verdict-pill ${approved ? 'ok' : 'chg'}`}>
+      {approved ? 'APPROVED' : 'CHANGES REQUESTED'}
+    </span>
+  );
 }
 
 /**
@@ -43,13 +64,20 @@ export function RoundEpisode({ round, nestedRun, onOpenRun, onApprove, approveBu
   approveBusy?: boolean;
 }) {
   const live = round.status !== 'posted' && round.status !== 'closed';
+  const isBrain = round.origin === 'brain';
   return (
     <div className={`round-episode${live ? ' live' : ''}`}>
       <SpineNode
         mark={live ? '●' : '✓'}
-        color="teal"
-        name={`Round ${round.idx}`}
+        color={isBrain ? 'purple' : 'teal'}
+        name={isBrain ? 'Brain review' : `Round ${round.idx}`}
         meta={summaryMeta(round)}
+        right={isBrain && (
+          <>
+            <BrainBadge />
+            <VerdictPill verdict={round.brainVerdict} />
+          </>
+        )}
         onOpen={round.runId !== null ? () => onOpenRun?.(round.runId as string) : undefined}
       />
       {live && (

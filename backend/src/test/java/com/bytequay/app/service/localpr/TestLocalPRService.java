@@ -17,7 +17,13 @@ import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRCheck;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
+import com.bytequay.app.domain.StageEvent;
+import com.bytequay.app.domain.StageEventType;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.repository.LocalPRStore;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -28,6 +34,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,8 +57,9 @@ class TestLocalPRService
 
     private final LocalPRStore store = mock(LocalPRStore.class);
     private final DevReportService devReports = mock(DevReportService.class);
-    private final LocalPRService service =
-            new LocalPRServiceImpl(store, devReports, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
+    private final StageStore stageStore = mock(StageStore.class);
+    private final LocalPRService service = new LocalPRServiceImpl(
+            store, devReports, new ObjectMapper(), stageStore, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private LocalPR pr(String status)
     {
@@ -224,5 +232,72 @@ class TestLocalPRService
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(c));
 
         assertThat(service.pendingStripCount("pr1")).isEqualTo(3);
+    }
+
+    // ── brain adversarial review (plan-rail-runs.md R24) ─────────────────
+
+    @Test
+    void createForTaskBackfillsThePlanSelfReviewOntoTheNewRowsTimeline()
+    {
+        UUID planStageId = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
+        Instant reviewedAt = NOW.minusSeconds(600);
+        StageInstance plan = new StageInstance(
+                planStageId, "task1", StageType.PLAN_STAGE, StageState.CLOSED, NOW.minusSeconds(700), NOW, null);
+        StageEvent reviewed = new StageEvent(
+                UUID.randomUUID(), planStageId, "task1", StageEventType.PLAN_SELF_REVIEWED, reviewedAt,
+                "{\"verdict\":\"approved\"}");
+        when(stageStore.findStagesByTask("task1")).thenReturn(List.of(plan));
+        when(stageStore.findEventsByStage(planStageId)).thenReturn(List.of(reviewed));
+        when(store.findByTaskId("task1")).thenReturn(Optional.empty());
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.createForTask("task1", "dev/x", "main", "T", "");
+
+        ArgumentCaptor<LocalPRTimelineEvent> event = ArgumentCaptor.forClass(LocalPRTimelineEvent.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(LocalPRTimelineEvent.TYPE_REVIEW);
+        assertThat(event.getValue().actor()).isEqualTo(LocalPRTimelineEvent.ACTOR_BRAIN);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().createdAt()).isEqualTo(reviewedAt);
+        assertThat(event.getValue().payloadJson()).contains("\"verdict\":\"approved\"");
+    }
+
+    @Test
+    void createForTaskWritesNoBackfillEventWhenThereWasNoSelfReview()
+    {
+        when(stageStore.findStagesByTask("task1")).thenReturn(List.of());
+        when(store.findByTaskId("task1")).thenReturn(Optional.empty());
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.createForTask("task1", "dev/x", "main", "T", "");
+
+        verify(store, never()).addEvent(any());
+    }
+
+    @Test
+    void recordBrainReviewWritesATimelineEventWhenTheLocalPrExists()
+    {
+        LocalPR existing = LocalPR.create("pr1", "task1", "dev/x", "main", "T", "", NOW);
+        when(store.findByTaskId("task1")).thenReturn(Optional.of(existing));
+
+        service.recordBrainReview("task1", "dev", "changes_requested", 2);
+
+        ArgumentCaptor<LocalPRTimelineEvent> event = ArgumentCaptor.forClass(LocalPRTimelineEvent.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(LocalPRTimelineEvent.TYPE_REVIEW);
+        assertThat(event.getValue().actor()).isEqualTo(LocalPRTimelineEvent.ACTOR_BRAIN);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().payloadJson())
+                .contains("\"scope\":\"dev\"").contains("\"verdict\":\"changes_requested\"").contains("\"iteration\":2");
+    }
+
+    @Test
+    void recordBrainReviewNoOpsWhenTheTaskHasNoLocalPrYet()
+    {
+        when(store.findByTaskId("task1")).thenReturn(Optional.empty());
+
+        service.recordBrainReview("task1", "plan", "approved", 1);
+
+        verify(store, never()).addEvent(any());
     }
 }

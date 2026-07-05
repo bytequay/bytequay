@@ -165,15 +165,14 @@ public class StageServiceImpl
                 liveRuns,
                 branchGuards.get(taskId),
                 liveRound(taskId),
-                buildDevPhases(task.phase(), dev, liveRuns));
+                buildDevPhases(task.phase(), dev, liveRuns, reviewRounds.findByTask(taskId)));
     }
 
     /** Development's in-stage phase ladder (plan-rail-runs.md R29):
      *  Implementing → Validation → Brain review. {@code status} values are
-     *  already in the rail's vocabulary so the frontend applies them as-is.
-     *  Brain review always renders {@code future} — Phase 7 wires it up. */
+     *  already in the rail's vocabulary so the frontend applies them as-is. */
     private static List<TaskBrainViewData.DevPhase> buildDevPhases(
-            TaskPhase phase, StageInstance dev, List<AgentRun> liveRuns)
+            TaskPhase phase, StageInstance dev, List<AgentRun> liveRuns, List<ReviewRound> rounds)
     {
         if (dev == null) {
             return List.of();
@@ -187,6 +186,10 @@ public class StageServiceImpl
                 .filter(r -> dev.id().toString().equals(r.parentStageId()))
                 .findFirst()
                 .orElse(null);
+        ReviewRound brainRound = rounds.stream()
+                .filter(r -> ReviewRound.ORIGIN_BRAIN.equals(r.origin()))
+                .findFirst()
+                .orElse(null);
 
         return List.of(
                 new TaskBrainViewData.DevPhase(
@@ -196,7 +199,19 @@ public class StageServiceImpl
                         pastValidation ? "done" : phase == TaskPhase.VALIDATING ? "running" : "future",
                         null,
                         localCiFix != null ? localCiFix.id() : null),
-                new TaskBrainViewData.DevPhase("brainReview", "future", "next", null));
+                buildBrainReviewPhase(brainRound));
+    }
+
+    private static TaskBrainViewData.DevPhase buildBrainReviewPhase(ReviewRound brainRound)
+    {
+        if (brainRound == null) {
+            return new TaskBrainViewData.DevPhase("brainReview", "future", "next", null);
+        }
+        if (brainRound.isLive()) {
+            return new TaskBrainViewData.DevPhase(
+                    "brainReview", "running", "iter " + brainRound.iteration(), brainRound.runId());
+        }
+        return new TaskBrainViewData.DevPhase("brainReview", "done", null, null);
     }
 
     /** Phases reached only once Validation has finished. */

@@ -289,4 +289,65 @@ describe('PRView', () => {
     // No action bar while the agent is still drafting.
     expect(document.querySelector('.pr-action-bar')).toBeNull();
   });
+
+  it('shows "Brain-reviewed" once the brain\'s dev-end comments are all resolved', () => {
+    render(
+      <PRView
+        mode="local"
+        bundle={bundle({
+          pr: pr('local-open'),
+          comments: [comment({ id: 'b1', author: 'brain', resolvedAt: Date.now() })],
+        })}
+        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
+      />,
+    );
+    expect(screen.getByText('✓ Brain-reviewed')).toBeTruthy();
+  });
+
+  it('shows "brain unresolved · N" when the brain escalated with open comments', () => {
+    render(
+      <PRView
+        mode="local"
+        bundle={bundle({
+          pr: pr('local-open'),
+          comments: [
+            comment({ id: 'b1', author: 'brain', resolvedAt: null }),
+            comment({ id: 'b2', author: 'brain', resolvedAt: null }),
+          ],
+        })}
+        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
+      />,
+    );
+    expect(screen.getByText('◆ brain unresolved · 2')).toBeTruthy();
+  });
+
+  it('shows no brain-review tag when the brain never reviewed this PR', () => {
+    render(
+      <PRView
+        mode="local"
+        bundle={bundle({ pr: pr('local-open') })}
+        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
+      />,
+    );
+    expect(document.querySelector('.brain-review-tag')).toBeNull();
+  });
+
+  it('renders a brain review timeline event with its BRAIN badge and verdict', () => {
+    render(
+      <PRView
+        mode="local"
+        bundle={bundle({
+          pr: pr('local-open'),
+          timeline: [event({
+            eventType: 'review', actor: 'brain', isLocalOnly: true,
+            payload: { scope: 'dev', verdict: 'changes_requested', iteration: 1 },
+          })],
+        })}
+        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
+      />,
+    );
+    expect(screen.getByText('BRAIN')).toBeTruthy();
+    expect(screen.getByText(/reviewed the diff/)).toBeTruthy();
+    expect(screen.getByText('CHANGES REQUESTED')).toBeTruthy();
+  });
 });

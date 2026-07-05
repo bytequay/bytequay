@@ -30,8 +30,9 @@ export type InboxHandlers = {
   approve: (pr: PullRequestDto) => Promise<void>;
   /** A parked approval was resolved via the embedded publish gate. */
   resolved: () => void;
-  /** The row was expanded — the section marks informational
-   *  notifications read on engagement (same rule as the thread strip). */
+  /** The row was engaged with — expanded (plain AWAITING_REVIEW) or a
+   *  view action clicked (AUTO_FIX_DONE) — so the section marks
+   *  informational notifications read (same rule as the thread strip). */
   opened?: (item: InboxItem) => void;
   /** Resolve a PR's title from the cached PR list, for the publish-gate
    *  header. Null when the PR isn't in cache. */
@@ -83,6 +84,9 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
   const [open, setOpen] = useState(false);
   const [approving, setApproving] = useState(false);
   const badges = rowBadges(item);
+  // AUTO_FIX_DONE rows resolve via Dismiss or a view action, not the
+  // expand itself — see the viewMarksRead note in body() below.
+  const opensReadOnExpand = !(item.source.kind === 'notification' && item.source.notification.kind === 'AUTO_FIX_DONE');
 
   const openPrRow = (pr: PullRequestDto) => {
     const ref = splitRepo(pr.repo);
@@ -158,6 +162,11 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
         );
       }
       const ref = prRefFromNotification(n);
+      // AUTO_FIX_DONE rows have no dedicated resolution action, so
+      // engaging with a view button is the read signal instead of the
+      // row expand (which would clear it before the user chose Dismiss
+      // vs. actually viewing) — see the opened() rule in InboxSection.
+      const viewMarksRead = n.kind === 'AUTO_FIX_DONE' ? () => handlers.opened?.(item) : () => {};
       return (
         <div className="home-inbox-detail">
           <div className="home-inbox-detail__actions">
@@ -165,7 +174,7 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
               <button
                 type="button"
                 className="home-inbox-btn"
-                onClick={() => handlers.openPr(ref.owner, ref.repo, ref.prNumber)}
+                onClick={() => { viewMarksRead(); handlers.openPr(ref.owner, ref.repo, ref.prNumber); }}
               >
                 View PR
               </button>
@@ -174,7 +183,7 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
               <button
                 type="button"
                 className="home-inbox-btn"
-                onClick={() => handlers.openTask?.(n.threadId as string, n.taskId as string)}
+                onClick={() => { viewMarksRead(); handlers.openTask?.(n.threadId as string, n.taskId as string); }}
               >
                 View task
               </button>
@@ -218,13 +227,13 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
         role="button"
         tabIndex={0}
         onClick={() => {
-          if (!open) handlers.opened?.(item);
+          if (!open && opensReadOnExpand) handlers.opened?.(item);
           setOpen(v => !v);
         }}
         onKeyDown={e => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if (!open) handlers.opened?.(item);
+            if (!open && opensReadOnExpand) handlers.opened?.(item);
             setOpen(v => !v);
           }
         }}

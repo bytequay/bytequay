@@ -64,4 +64,18 @@ describe('InboxCard', () => {
     expect(handlers.openPr).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
     expect(handlers.opened).toHaveBeenCalledOnce();
   });
+
+  it('leaves an audit row unread on expand alone — only a view action reports engagement', () => {
+    const handlers = makeHandlers();
+    const item = notificationToInboxItem(notif({
+      kind: 'AUTO_FIX_DONE',
+      payload: { publishResolution: 'approved', action: 'merge_pr', message: 'Marked #29 ready', pr: MERGE_GATE.pr },
+    }));
+    render(<InboxCard item={item} handlers={handlers} />);
+    fireEvent.click(screen.getByText('Approved'));
+    expect(handlers.opened).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(handlers.dismiss).toHaveBeenCalledOnce();
+    expect(handlers.opened).not.toHaveBeenCalled();
+  });
 });

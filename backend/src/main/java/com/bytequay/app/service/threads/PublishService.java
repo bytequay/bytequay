@@ -36,6 +36,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -136,6 +137,7 @@ public class PublishService
     private final ReviewPassResolver reviewPassResolver;
     private final StageStore stageStore;
     private final LocalPRService localPr;
+    private final BrainReviewService brainReview;
 
     public PublishService(
             NotificationService notifications,
@@ -149,7 +151,8 @@ public class PublishService
             ReviewPassResolver reviewPassResolver,
             TaskPhaseMachine phaseMachine,
             StageStore stageStore,
-            LocalPRService localPr)
+            LocalPRService localPr,
+            BrainReviewService brainReview)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -163,6 +166,7 @@ public class PublishService
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.localPr = requireNonNull(localPr, "localPr is null");
+        this.brainReview = requireNonNull(brainReview, "brainReview is null");
     }
 
     /**
@@ -1128,7 +1132,7 @@ public class PublishService
             localPr.findByTask(taskId).ifPresent(pr -> {
                 LocalPR current = pr;
                 if (LocalPR.STATUS_LOCAL_DRAFTED.equals(current.status())) {
-                    current = localPr.requestUserReview(current.id(), LocalPRTimelineEvent.ACTOR_AGENT);
+                    current = brainReview.reviewBeforeLocalOpen(current.id(), LocalPRTimelineEvent.ACTOR_AGENT);
                 }
                 if (LocalPR.STATUS_LOCAL_OPEN.equals(current.status())) {
                     localPr.recordPush(current.id(), remotePrNumber, remotePrUrl);

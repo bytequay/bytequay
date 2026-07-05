@@ -77,6 +77,7 @@ class ReviewRoundServiceImpl
     private final TaskPhaseMachine phaseMachine;
     private final PullRequestService pullRequests;
     private final GitRunner git;
+    private final BrainReviewService brainReview;
     private final Clock clock;
 
     @Autowired
@@ -90,10 +91,11 @@ class ReviewRoundServiceImpl
             ThreadTurnStore turnStore,
             TaskPhaseMachine phaseMachine,
             PullRequestService pullRequests,
-            GitRunner git)
+            GitRunner git,
+            BrainReviewService brainReview)
     {
         this(taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore,
-                phaseMachine, pullRequests, git, Clock.systemUTC());
+                phaseMachine, pullRequests, git, brainReview, Clock.systemUTC());
     }
 
     ReviewRoundServiceImpl(
@@ -107,6 +109,7 @@ class ReviewRoundServiceImpl
             TaskPhaseMachine phaseMachine,
             PullRequestService pullRequests,
             GitRunner git,
+            BrainReviewService brainReview,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -119,6 +122,7 @@ class ReviewRoundServiceImpl
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.git = requireNonNull(git, "git is null");
+        this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -166,7 +170,9 @@ class ReviewRoundServiceImpl
         ReviewRound round = new ReviewRound(
                 roundId, task.id(), roundStore.nextIndex(task.id()), List.of(),
                 ReviewRound.STATUS_ADDRESSING, ReviewRound.ReviewRoundStats.empty(),
-                run.id(), now(), /* gatedAt */ null, /* postedAt */ null);
+                run.id(), now(), /* gatedAt */ null, /* postedAt */ null,
+                ReviewRound.ORIGIN_EXTERNAL, /* brainVerdict */ null, /* iteration */ 0,
+                ReviewRound.DEFAULT_BRAIN_BUDGET);
         roundStore.save(round);
 
         Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
@@ -190,9 +196,12 @@ class ReviewRoundServiceImpl
     }
 
     /** A round's kickoff turn finishing means the agent's triage + fixes +
-     *  drafted replies are done — the round is ready for the user's gate.
-     *  Matched by stage id (the run's own backing stage), the same
-     *  mechanism {@code CiFixRunExecutor} uses to find its own turns. */
+     *  drafted replies are done. Matched by stage id (the run's own backing
+     *  stage), the same mechanism {@code CiFixRunExecutor} uses to find its
+     *  own turns. Only handles the round's FIRST addressing-turn completion
+     *  (iteration 0, no brain verdict yet) — the brain verification pass
+     *  this hands off to (R21b) reuses the same ADDRESSING status for its
+     *  own fix turns, and {@link BrainReviewServiceImpl} owns those. */
     @EventListener
     @Transactional
     public void onTurnFinished(TaskTurnFinishedEvent event)
@@ -203,6 +212,7 @@ class ReviewRoundServiceImpl
         }
         Optional<ReviewRound> live = roundStore.findLiveByTask(event.taskId())
                 .filter(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status()))
+                .filter(r -> r.iteration() == 0 && r.brainVerdict() == null)
                 .filter(r -> r.runId() != null);
         if (live.isEmpty()) {
             return;
@@ -212,8 +222,11 @@ class ReviewRoundServiceImpl
         if (run == null || !turn.stageId().equals(run.stageId())) {
             return;
         }
-        agentRuns.transition(run.id(), AgentRun.STATUS_AWAITING_GATE, "drafts_ready");
-        roundStore.save(round.withStatus(ReviewRound.STATUS_AWAITING_GATE).withGatedAt(now()));
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null) {
+            return;
+        }
+        brainReview.reviewBeforeRoundGate(round, task);
     }
 
     @Override

@@ -85,9 +85,10 @@ class TestReviewRoundService
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final GitRunner git = mock(GitRunner.class);
+    private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final ReviewRoundServiceImpl service = new ReviewRoundServiceImpl(
             taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore,
-            phaseMachine, pullRequests, git, Clock.fixed(NOW, ZoneOffset.UTC));
+            phaseMachine, pullRequests, git, brainReview, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void reconcileIsANoOpWhenARoundIsAlreadyLive()
@@ -142,11 +143,13 @@ class TestReviewRoundService
     }
 
     @Test
-    void onTurnFinishedFlipsTheLiveAddressingRoundToAwaitingGate()
+    void onTurnFinishedHandsTheLiveAddressingRoundToBrainReview()
     {
         ReviewRound live = round(ReviewRound.STATUS_ADDRESSING);
+        Task task = task();
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(live));
         when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(BACKING_STAGE_ID.toString())));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
         AgentRun run = new AgentRun(
                 live.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
                 BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, null, null, null, NOW, null);
@@ -154,8 +157,26 @@ class TestReviewRoundService
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
-        verify(agentRuns).transition(live.runId(), AgentRun.STATUS_AWAITING_GATE, "drafts_ready");
-        verify(roundStore).save(argThat(r -> ReviewRound.STATUS_AWAITING_GATE.equals(r.status())));
+        // The round's own addressing-turn completion hands off to the R21(b)
+        // brain verification pass instead of arming the gate directly.
+        verify(brainReview).reviewBeforeRoundGate(live, task);
+        verify(agentRuns, never()).transition(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void onTurnFinishedSkipsBrainReviewOnceAlreadyVerified()
+    {
+        // iteration > 0 / a verdict already recorded means the brain loop is
+        // mid-flight or done — this listener only ever hands off ONCE
+        // (BrainReviewServiceImpl owns every subsequent turn on this round).
+        ReviewRound alreadyLooping = round(ReviewRound.STATUS_ADDRESSING).withBrainVerdict(
+                ReviewRound.VERDICT_CHANGES_REQUESTED);
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(alreadyLooping));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(BACKING_STAGE_ID.toString())));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
+
+        verifyNoInteractions(brainReview);
     }
 
     @Test
@@ -264,7 +285,8 @@ class TestReviewRoundService
         return new ReviewRound(
                 UUID.randomUUID().toString(), TASK_ID, 1, List.of(), status,
                 ReviewRound.ReviewRoundStats.empty(), "run1", NOW.minusSeconds(60),
-                gated ? NOW : null, null);
+                gated ? NOW : null, null,
+                ReviewRound.ORIGIN_EXTERNAL, null, 0, ReviewRound.DEFAULT_BRAIN_BUDGET);
     }
 
     private static UUID commentId(String suffix)

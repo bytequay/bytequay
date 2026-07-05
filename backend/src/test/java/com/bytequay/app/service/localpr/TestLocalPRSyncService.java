@@ -20,6 +20,7 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.review.BrainReviewService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -48,7 +49,8 @@ class TestLocalPRSyncService
     private final LocalPRService localPr = mock(LocalPRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final GitRunner git = mock(GitRunner.class);
-    private final LocalPRSyncService service = new LocalPRSyncService(localPr, taskStore, git);
+    private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final LocalPRSyncService service = new LocalPRSyncService(localPr, taskStore, git, brainReview);
 
     private Task task(TaskPhase phase)
     {
@@ -173,7 +175,7 @@ class TestLocalPRSyncService
 
         service.syncFromTask("task1");
 
-        verify(localPr).requestUserReview(eq("pr1"), any());
+        verify(brainReview).reviewBeforeLocalOpen(eq("pr1"), any());
     }
 
     @Test
@@ -189,6 +191,6 @@ class TestLocalPRSyncService
 
         service.syncFromTask("task1");
 
-        verify(localPr, never()).requestUserReview(any(), any());
+        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
     }
 }

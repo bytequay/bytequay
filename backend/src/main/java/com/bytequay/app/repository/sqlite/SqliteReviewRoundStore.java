@@ -62,6 +62,10 @@ class SqliteReviewRoundStore
         e.setOpenedAtMs(round.openedAt().toEpochMilli());
         e.setGatedAtMs(epochOrNull(round.gatedAt()));
         e.setPostedAtMs(epochOrNull(round.postedAt()));
+        e.setOrigin(round.origin());
+        e.setBrainVerdict(round.brainVerdict());
+        e.setIteration(round.iteration());
+        e.setBudget(round.budget());
         return toDomain(rounds.save(e));
     }
 
@@ -113,7 +117,11 @@ class SqliteReviewRoundStore
                 e.getRunId(),
                 Instant.ofEpochMilli(e.getOpenedAtMs()),
                 instantOrNull(e.getGatedAtMs()),
-                instantOrNull(e.getPostedAtMs()));
+                instantOrNull(e.getPostedAtMs()),
+                e.getOrigin(),
+                e.getBrainVerdict(),
+                e.getIteration(),
+                e.getBudget());
     }
 
     private List<String> fromJsonReviewers(String json)

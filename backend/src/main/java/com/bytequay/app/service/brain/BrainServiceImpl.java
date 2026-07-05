@@ -15,6 +15,7 @@ package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -28,6 +29,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.stage.PlanSeedWindow;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
+import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -117,6 +119,61 @@ public class BrainServiceImpl
                 TurnInitiator.unattended("plan-kickoff"));
         log.debug("kicked off planning turn {} on brain thread {} for task {}",
                 turnId, brain.id(), event.taskId());
+    }
+
+    /**
+     * Kick off the trunk completion summary when a task reaches COMPLETED.
+     * Ensures the task's brain thread exists, then enqueues a one-shot
+     * "summarize this task" turn and records its turn id so {@code
+     * TaskCompletionAnnouncer} can pick up the answer once the turn
+     * finishes (see {@code TaskTurnFinishedEvent}) and write it as the
+     * trunk's {@code task_summary} marker. Skips if a summary turn is
+     * already pending for this task (a re-delivered COMPLETED transition).
+     * No trunk write happens here — this only starts the brain thinking.
+     */
+    @EventListener
+    @Transactional
+    public void onTaskCompleted(TaskPhaseTransitionedEvent event)
+    {
+        if (event.to() != TaskPhase.COMPLETED) {
+            return;
+        }
+        if (taskStore.pendingCompletionSummaryTurnId(event.taskId()).isPresent()) {
+            return;
+        }
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null) {
+            return;
+        }
+        Thread brain = threadStore.findBrainThreadByTask(event.taskId())
+                .orElseGet(() -> createBrainThread(task));
+        try {
+            String turnId = scheduler.enqueueTurn(
+                    brain, completionSummaryPrompt(task), TurnInitiator.unattended("task-completion-summary"));
+            taskStore.setPendingCompletionSummaryTurnId(event.taskId(), turnId);
+        }
+        catch (RuntimeException e) {
+            // No pending turn id recorded — TaskCompletionAnnouncer's
+            // stale-completion sweep picks this up after its grace window
+            // and writes the mechanical fallback instead.
+            log.warn("completion-summary enqueue failed for task {}: {}", event.taskId(), e.getMessage());
+        }
+    }
+
+    private static String completionSummaryPrompt(Task task)
+    {
+        String outcome = task.prNumber() == null
+                ? "It completed without ever opening a pull request."
+                : "closed".equals(task.prState())
+                        ? "Its pull request (#" + task.prNumber() + ") was closed without merging."
+                        : "Its pull request (#" + task.prNumber() + ") was merged.";
+        return """
+                This task just reached COMPLETED. %s Using your read-only tools as needed \
+                (read_diff_summary, read_commit_summary, read_remote_pr_status, \
+                list_unresolved_comments, read_phase_history, etc.), reply directly with a \
+                concise plain-text summary (1-3 sentences, no markdown) of what this task did \
+                and its outcome — this becomes the trunk's permanent record of the task. Do \
+                not call a tool to answer; just reply with the summary text.""".formatted(outcome);
     }
 
     private static String planningPrompt(String taskId, String initialPrompt, JsonNode trunkPlan)

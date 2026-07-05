@@ -25,6 +25,7 @@ function round(id: string): ReviewRoundDto {
     id, taskId: 't', idx: 1, reviewers: ['@alice'], status: 'posted',
     stats: { fixed: 1, replied: 0, pushedBack: 0, open: 0 }, runId: null,
     openedAt: '2026-01-01T00:00:00Z', gatedAt: null, postedAt: '2026-01-01T00:05:00Z',
+    origin: 'external', brainVerdict: null, iteration: 0, budget: 3,
   };
 }
 

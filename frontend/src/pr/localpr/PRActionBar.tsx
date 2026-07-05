@@ -19,8 +19,22 @@ import type { LocalPR } from '../../types/localPr';
  * the green "Merge pull request" box, disabled while open comments remain.
  * Terminal states (merged / closed / drafting) render no bar.
  */
+/** The brain's dev-end review verdict, once it's concluded (plan-rail-runs.md
+ *  R21/R23) — derived by the caller from the local PR's brain-authored
+ *  comments, since a brain review round never blocks the flip forever. */
+export type BrainReviewSummary = { total: number; unresolved: number };
+
+function BrainReviewTag({ brainReview }: { brainReview?: BrainReviewSummary }) {
+  if (brainReview === undefined || brainReview.total === 0) return null;
+  if (brainReview.unresolved === 0) {
+    return <span className="brain-review-tag ok">✓ Brain-reviewed</span>;
+  }
+  return <span className="brain-review-tag warn">◆ brain unresolved · {brainReview.unresolved}</span>;
+}
+
 export function PRActionBar({
-  pr, openComments, localChecksPassed, localTestsFailing = false, onPush, onAskAgent, onMerge, onMergeAnyway,
+  pr, openComments, localChecksPassed, localTestsFailing = false, brainReview,
+  onPush, onAskAgent, onMerge, onMergeAnyway,
 }: {
   pr: LocalPR;
   openComments: number;
@@ -29,6 +43,9 @@ export function PRActionBar({
    *  (design doc slice 5's promotion gate). No checks recorded at all does
    *  NOT count as failing (nothing to gate on). */
   localTestsFailing?: boolean;
+  /** The brain's dev-end review outcome, when it ran (R21) — undefined or
+   *  zero-total renders no tag at all (no brain review data for this PR). */
+  brainReview?: BrainReviewSummary;
   onPush?: () => void;
   onAskAgent?: () => void;
   onMerge?: () => void;
@@ -41,6 +58,7 @@ export function PRActionBar({
         <div className="ab-head">
           <span className="ic">✓</span>
           <span className="title">Ready to push to GitHub as a Draft PR</span>
+          <BrainReviewTag brainReview={brainReview} />
           <span className="subtitle">
             {localChecksPassed ? 'local checks passed' : 'local checks pending'}
             {openComments > 0 ? ` · ${openComments} open comment${openComments === 1 ? '' : 's'}` : ''}

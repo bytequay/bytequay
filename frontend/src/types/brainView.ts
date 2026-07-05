@@ -109,6 +109,9 @@ export type ReviewRoundStatus = 'triaging' | 'addressing' | 'awaiting_gate' | 'p
 
 export type ReviewRoundStats = { fixed: number; replied: number; pushedBack: number; open: number };
 
+export type ReviewRoundOrigin = 'external' | 'brain';
+export type ReviewRoundBrainVerdict = 'approved' | 'changes_requested' | null;
+
 /** One reviewer batch + the agent's entire response to it (plan-rail-runs.md
  *  R11-R13) — the Comments stage feed's unit, folded to one row per round
  *  except the live one, which renders expanded with its own run's
@@ -127,8 +130,19 @@ export type ReviewRoundDto = {
   openedAt: string;
   /** When drafts became ready for the user to review; null while live. */
   gatedAt: string | null;
-  /** When the user approved the gate (posted + pushed); null until then. */
+  /** When the user approved the gate (posted + pushed), null until then. */
   postedAt: string | null;
+  /** `external` (a real reviewer's batch) or `brain` (the brain opened this
+   *  round on itself at the dev-end lock point, no external reviewer
+   *  involved — plan-rail-runs.md R20-R24). */
+  origin: ReviewRoundOrigin;
+  /** The brain's latest verdict on this round's diff, null before it's
+   *  reviewed. */
+  brainVerdict: ReviewRoundBrainVerdict;
+  /** How many review-fix cycles the brain has run so far. */
+  iteration: number;
+  /** Max review-fix cycles before escalating to the human (default 3). */
+  budget: number;
 };
 
 /** One row of Development's in-stage phase ladder (plan-rail-runs.md R29):

@@ -125,8 +125,29 @@ function eventBody(event: LocalPRTimelineEvent): ReactNode {
           {actor} {str(p, 'message') ?? 'updated the branch'}
         </>
       );
-    case 'review':
-      return <>{actor} submitted a review</>;
+    case 'review': {
+      if (event.actor !== 'brain') {
+        return <>{actor} submitted a review</>;
+      }
+      // Brain adversarial review (plan-rail-runs.md R20-R24) — always
+      // local-only (never posted to GitHub); scope names which lock point.
+      const scope = str(p, 'scope');
+      const verdict = str(p, 'verdict');
+      const iteration = num(p, 'iteration');
+      const scopeLabel = scope === 'plan' ? 'the plan' : scope === 'round' ? 'the round\'s fixes' : 'the diff';
+      return (
+        <>
+          <span className="brain-badge">BRAIN</span>
+          reviewed {scopeLabel}
+          {iteration !== null && <span className="ts">iter {iteration}</span>}
+          {verdict !== null && (
+            <span className={`verdict-pill ${verdict === 'approved' ? 'ok' : 'chg'}`}>
+              {verdict === 'approved' ? 'APPROVED' : 'CHANGES REQUESTED'}
+            </span>
+          )}
+        </>
+      );
+    }
     case 'comment':
       return <>{actor} commented</>;
     case 'follow-up':

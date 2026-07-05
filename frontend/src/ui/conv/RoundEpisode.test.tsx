@@ -22,7 +22,8 @@ function round(over: Partial<ReviewRoundDto> = {}): ReviewRoundDto {
   return {
     id: 'round-1', taskId: 't', idx: 3, reviewers: ['@alice'], status: 'addressing',
     stats: { fixed: 9, replied: 2, pushedBack: 1, open: 5 }, runId: 'run-round-1',
-    openedAt: '2026-01-01T00:00:00Z', gatedAt: null, postedAt: null, ...over,
+    openedAt: '2026-01-01T00:00:00Z', gatedAt: null, postedAt: null,
+    origin: 'external', brainVerdict: null, iteration: 0, budget: 3, ...over,
   };
 }
 
@@ -59,5 +60,24 @@ describe('RoundEpisode', () => {
     render(<RoundEpisode round={round()} onOpenRun={onOpenRun} />);
     fireEvent.click(screen.getByText('Round 3'));
     expect(onOpenRun).toHaveBeenCalledWith('run-round-1');
+  });
+
+  it('renders a brain-origin round as "Brain review" with a BRAIN badge and no verdict yet', () => {
+    render(<RoundEpisode round={round({ origin: 'brain', iteration: 1, budget: 3 })} />);
+    expect(screen.getByText('Brain review')).toBeTruthy();
+    expect(screen.getByText('BRAIN')).toBeTruthy();
+    expect(screen.getByText('iter 1/3')).toBeTruthy();
+    expect(screen.queryByText('APPROVED')).toBeNull();
+    expect(screen.queryByText('CHANGES REQUESTED')).toBeNull();
+  });
+
+  it('shows the brain\'s verdict pill once it has reviewed', () => {
+    const { rerender } = render(
+      <RoundEpisode round={round({ origin: 'brain', brainVerdict: 'changes_requested' })} />,
+    );
+    expect(screen.getByText('CHANGES REQUESTED')).toBeTruthy();
+
+    rerender(<RoundEpisode round={round({ origin: 'brain', status: 'closed', brainVerdict: 'approved' })} />);
+    expect(screen.getByText('APPROVED')).toBeTruthy();
   });
 });

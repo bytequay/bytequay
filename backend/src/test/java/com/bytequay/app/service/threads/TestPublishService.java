@@ -15,6 +15,8 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
@@ -32,6 +34,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.threads.PublishService.PublishResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -82,6 +85,7 @@ class TestPublishService
     private TaskService taskService;
     private TaskPhaseMachine phaseMachine;
     private StageStore stageStore;
+    private LocalPRService localPr;
     private PublishService service;
 
     @BeforeEach
@@ -97,11 +101,13 @@ class TestPublishService
         taskService = mock(TaskService.class);
         phaseMachine = mock(TaskPhaseMachine.class);
         stageStore = mock(StageStore.class);
+        localPr = mock(LocalPRService.class);
         service = new PublishService(
                 notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
-                mock(ReviewPassResolver.class), phaseMachine, stageStore);
+                mock(ReviewPassResolver.class), phaseMachine, stageStore, localPr);
         when(notifications.claimResolution(anyString())).thenReturn(true);
         when(stageStore.findUnresolvedComments(anyString())).thenReturn(List.of());
+        when(localPr.findByTask(anyString())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -1076,6 +1082,51 @@ class TestPublishService
         assertThat(result.message()).contains("#42");
     }
 
+    @Test
+    void openPrAdvancesAStuckLocalPrRowSoTheStalePushPromptClears()
+    {
+        // The LocalPR row is a separate tracking table from the task's own
+        // phase — auto-approve resolving this gate must also carry it
+        // forward, or PRActionBar keeps offering "Approve & push to
+        // GitHub" for a push that already happened.
+        Notification parked = parkedOpenPr("notif-sync-local-pr", "task-sync-local-pr",
+                "acme", "widget", "Add cache layer", "feature/cache", "main", "Draft body.");
+        when(notifications.find("notif-sync-local-pr")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-sync-local-pr"))
+                .thenReturn(Optional.of(taskAt("task-sync-local-pr", TaskStatus.AWAITING_REVIEW)));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.createPullRequest(any(), any(), any()))
+                .thenReturn(samplePr(42, true));
+        LocalPR stuck = LocalPR.create(
+                "local-pr-1", "task-sync-local-pr", "feature/cache", "main",
+                "Add cache layer", "", Instant.parse("2026-05-22T11:00:00Z"))
+                .withStatus(LocalPR.STATUS_LOCAL_OPEN, Instant.parse("2026-05-22T11:30:00Z"));
+        when(localPr.findByTask("task-sync-local-pr")).thenReturn(Optional.of(stuck));
+
+        service.approve("notif-sync-local-pr", "", "open_pr");
+
+        verify(localPr).recordPush("local-pr-1", 42, "https://github.com/acme/widget/pull/42");
+    }
+
+    @Test
+    void markReadyAdvancesAStuckLocalPrRowToRemoteOpen()
+    {
+        Notification parked = parkedMarkReady("notif-mark-ready-sync", "task-mark-ready-sync",
+                "acme", "widget", 42, "");
+        when(notifications.find("notif-mark-ready-sync")).thenReturn(Optional.of(parked));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        LocalPR remoteDrafted = LocalPR.create(
+                "local-pr-2", "task-mark-ready-sync", "feature/cache", "main",
+                "Add cache layer", "", Instant.parse("2026-05-22T11:00:00Z"))
+                .withStatus(LocalPR.STATUS_LOCAL_OPEN, Instant.parse("2026-05-22T11:30:00Z"))
+                .withStatus(LocalPR.STATUS_REMOTE_DRAFTED, Instant.parse("2026-05-22T11:31:00Z"));
+        when(localPr.findByTask("task-mark-ready-sync")).thenReturn(Optional.of(remoteDrafted));
+
+        service.approve("notif-mark-ready-sync", "", "mark_ready");
+
+        verify(localPr).transition("local-pr-2", LocalPR.STATUS_REMOTE_OPEN, LocalPRTimelineEvent.ACTOR_AGENT);
+    }
+
     private static PullRequest samplePr(int number, boolean draft)
     {
         Instant now = Instant.parse("2026-05-22T12:00:00Z");
@@ -1256,6 +1307,21 @@ class TestPublishService
                 + "\"draft\":false,"
                 + "\"repo\":{\"owner\":" + quote(owner) + ",\"repo\":" + quote(repo) + "},"
                 + "\"source\":\"mcp:open_pr\""
+                + "}";
+        return new Notification(
+                notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,
+                NotificationStatus.UNREAD, json, Instant.now(), null);
+    }
+
+    private static Notification parkedMarkReady(
+            String notificationId, String taskId, String owner, String repo, int number, String body)
+    {
+        String json = "{"
+                + "\"action\":\"mark_ready\","
+                + "\"pr\":{\"owner\":" + quote(owner) + ",\"repo\":" + quote(repo)
+                + ",\"number\":" + number + "},"
+                + "\"body\":" + quote(body) + ","
+                + "\"source\":\"lifecycle:mark_ready\""
                 + "}";
         return new Notification(
                 notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,

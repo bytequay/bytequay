@@ -19,8 +19,9 @@ import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.repository.StageStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -42,6 +43,8 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class RemoteCommentIngestor
 {
+    private static final Logger log = LoggerFactory.getLogger(RemoteCommentIngestor.class);
+
     private final StageStore stageStore;
 
     public RemoteCommentIngestor(StageStore stageStore)
@@ -53,8 +56,14 @@ public class RemoteCommentIngestor
      * Ingest every not-yet-stored remote review comment on the PR. A no-op
      * when there's no detail or no threads. Comments without an anchored
      * file are skipped (they aren't line review comments).
+     *
+     * <p>No transaction wraps the whole loop — each {@code saveReviewComment}
+     * call gets its own (it's {@code @Transactional} itself), and a failure
+     * on one message is caught and skipped rather than left to abort the
+     * batch: one bad row must never block every other comment on the same PR
+     * (including a genuinely new one) from ever being seen, nor stop the
+     * caller from reaching the round-reconcile step that follows this call.
      */
-    @Transactional
     public void ingest(String taskId, String repoFullName, int prNumber, PullRequestDetail detail)
     {
         if (detail == null || detail.reviewThreads() == null) {
@@ -75,20 +84,25 @@ public class RemoteCommentIngestor
                 if (stageStore.reviewCommentExistsByRemoteLink(remoteLink)) {
                     continue;
                 }
-                stageStore.saveReviewComment(new ReviewComment(
-                        null,
-                        taskId,
-                        thread.filePath(),
-                        line,
-                        message.body() == null ? "" : message.body(),
-                        message.createdAt() == null ? Instant.now() : message.createdAt(),
-                        ReviewCommentSource.REMOTE_REVIEWER,
-                        remoteLink,
-                        resolved,
-                        message.githubId(),
-                        null,
-                        null,
-                        null));
+                try {
+                    stageStore.saveReviewComment(new ReviewComment(
+                            null,
+                            taskId,
+                            thread.filePath(),
+                            line,
+                            message.body() == null ? "" : message.body(),
+                            message.createdAt() == null ? Instant.now() : message.createdAt(),
+                            ReviewCommentSource.REMOTE_REVIEWER,
+                            remoteLink,
+                            resolved,
+                            message.githubId(),
+                            null,
+                            null,
+                            null));
+                }
+                catch (RuntimeException e) {
+                    log.warn("failed to ingest remote comment {} for task {}: {}", remoteLink, taskId, e.getMessage());
+                }
             }
         }
     }

@@ -26,10 +26,12 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -81,10 +83,34 @@ class TestRemoteCommentIngestor
         verify(stageStore, never()).saveReviewComment(any());
     }
 
+    @Test
+    void aFailedSaveIsLoggedAndSkippedRatherThanBlockingSiblingCommentsOrPropagating()
+    {
+        // Two threads on the same PR: the first's save blows up (e.g. the
+        // FK-constraint failure seen in production), the second must still
+        // be ingested, and ingest() itself must not throw.
+        PullRequestDetail detail = detailWith(List.of(
+                thread("src/Foo.java", 12, false, message(1001L, "bad one")),
+                thread("src/Bar.java", 5, false, message(2002L, "good one"))));
+        when(stageStore.reviewCommentExistsByRemoteLink(anyString())).thenReturn(false);
+        when(stageStore.saveReviewComment(any()))
+                .thenThrow(new RuntimeException("SQLITE_CONSTRAINT_FOREIGNKEY"))
+                .thenReturn(null);
+
+        assertThatCode(() -> ingestor.ingest("task-1", "octo/repo", 7, detail)).doesNotThrowAnyException();
+
+        verify(stageStore, times(2)).saveReviewComment(any());
+    }
+
     private static PullRequestDetail detailWith(ReviewThread thread)
     {
+        return detailWith(List.of(thread));
+    }
+
+    private static PullRequestDetail detailWith(List<ReviewThread> threads)
+    {
         PullRequestDetail detail = mock(PullRequestDetail.class);
-        when(detail.reviewThreads()).thenReturn(List.of(thread));
+        when(detail.reviewThreads()).thenReturn(threads);
         return detail;
     }
 

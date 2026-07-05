@@ -869,8 +869,10 @@
   font-size: 11px; background: var(--bg-elev);
 }
 .shell .guard-chip .guard-icon { font-size: 11px; }
+.shell .guard-chip .guard-lb { font-weight: 700; }
 .shell .guard-chip .guard-label { color: var(--text-2); }
-.shell .guard-chip .toggle { margin-left: auto; }
+.shell .guard-chip .guard-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.shell .guard-chip .guard-meta { font-family: var(--mono); font-size: 9.5px; opacity: 0.8; }
 .shell .guard-chip.off { opacity: 0.6; }
 .shell .guard-chip.in_sync { border-color: rgba(34, 197, 94, 0.28); }
 .shell .guard-chip.drifting, .shell .guard-chip.fixing { border-color: var(--orange); background: rgba(217, 119, 6, 0.08); }

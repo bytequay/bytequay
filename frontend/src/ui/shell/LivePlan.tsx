@@ -40,23 +40,25 @@ function PlanNode({ node, onClick, small }: {
   );
 }
 
-/** The guard chip rendered above the rail (R4) — hidden entirely until the
- *  task has pushed ({@link buildGuardChip} returns null until then); shown
- *  dimmed with a toggle while disabled so the user can arm it. */
+/** The guard chip rendered above the rail (R4, plan-spine-options.html) —
+ *  hidden entirely until the task has pushed ({@link buildGuardChip} returns
+ *  null until then); shown dimmed with a toggle while disabled so the user
+ *  can arm it. */
 function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enabled: boolean) => void }) {
   if (guard === null) return null;
   return (
-    <div
-      className={`guard-chip ${guard.enabled ? guard.state : 'off'}`}
-      title={guard.meta ?? undefined}
-    >
+    <div className={`guard-chip ${guard.enabled ? guard.state : 'off'}`}>
       <span className="guard-icon" aria-hidden>🛡</span>
+      <span className="guard-lb">Guard</span>
       <span className="guard-label">{guard.label}</span>
-      <Toggle
-        on={guard.enabled}
-        onChange={next => onToggle?.(next)}
-        ariaLabel={guard.enabled ? 'Disable branch guard' : 'Enable branch guard'}
-      />
+      <span className="guard-right">
+        {guard.meta !== null && <span className="guard-meta">{guard.meta}</span>}
+        <Toggle
+          on={guard.enabled}
+          onChange={next => onToggle?.(next)}
+          ariaLabel={guard.enabled ? 'Disable branch guard' : 'Enable branch guard'}
+        />
+      </span>
     </div>
   );
 }

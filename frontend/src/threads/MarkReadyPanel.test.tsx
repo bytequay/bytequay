@@ -84,6 +84,25 @@ describe('MarkReadyPanel', () => {
     await waitFor(() => expect(onMarked).toHaveBeenCalledWith(2));
   });
 
+  it('offers an @ reviewer picker from suggested reviewers and inserts the pick', async () => {
+    const getSuggestedReviewers = vi.fn().mockResolvedValue([
+      { login: 'octocat', avatarUrl: null, name: null, isAuthor: false, isCommenter: false },
+      { login: 'hubot', avatarUrl: null, name: null, isAuthor: false, isCommenter: false },
+    ]);
+    (window as unknown as { bridge: unknown }).bridge = {
+      approveNotification: vi.fn(), openExternal: vi.fn(), getSuggestedReviewers,
+    };
+    render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={vi.fn()} />);
+    await waitFor(() => expect(getSuggestedReviewers).toHaveBeenCalledWith('me/proj', 7));
+
+    const field = screen.getByLabelText('Reviewers') as HTMLTextAreaElement;
+    fireEvent.change(field, { target: { value: '@oc', selectionStart: 3 } });
+    // 'oc' matches octocat, not hubot.
+    expect(screen.queryByText('@hubot')).toBeNull();
+    fireEvent.mouseDown(await screen.findByText('@octocat'));
+    expect((screen.getByLabelText('Reviewers') as HTMLTextAreaElement).value).toBe('@octocat ');
+  });
+
   it('surfaces a non-approved resolution instead of navigating away', async () => {
     const approveNotification = vi.fn().mockResolvedValue({ ok: false, resolution: 'failed', message: 'boom', action: 'mark_ready' });
     (window as unknown as { bridge: unknown }).bridge = { approveNotification, openExternal: vi.fn() };

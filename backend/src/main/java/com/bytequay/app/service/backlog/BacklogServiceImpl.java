@@ -214,10 +214,14 @@ public class BacklogServiceImpl
         // Hand the item to the trunk as a fresh planning prompt: the trunk
         // agent reads the code, asks clarifying questions, drafts a plan, and
         // eventually cuts a task — none of which happens here. We only post
-        // the prompt and flip the item to in-progress.
-        String prompt = item.body().isBlank()
+        // the prompt and flip the item to in-progress. The id prefix is the
+        // only way the trunk can later tell create_task which item to
+        // resolve — nothing else carries it into that conversation.
+        String content = item.body().isBlank()
                 ? item.title()
                 : item.title() + "\n\n" + item.body();
+        String prompt = "(backlog item " + item.id() + " — pass this as backlog_item_id if you cut a "
+                + "task from it)\n\n" + content;
         threadService.sendTrunk(item.threadId(), prompt);
 
         BacklogItem updated = store.save(item.markInProgress(Instant.now()));
@@ -239,6 +243,20 @@ public class BacklogServiceImpl
                 "backlog-cancel-exploration", restored.id(), "cancelled", null,
                 Map.of("title", restored.title()), restored.threadId(), restored.workspaceId());
         return restored;
+    }
+
+    @Override
+    public BacklogItem resolve(String id, String taskId)
+    {
+        BacklogItem item = require(id);
+        if (BacklogItem.STATUS_RESOLVED.equals(item.status())) {
+            throw status(409, "backlog item already resolved");
+        }
+        BacklogItem resolved = store.save(item.markResolved(taskId, Instant.now()));
+        distillation.record(
+                "backlog-resolve", resolved.id(), "resolved", null,
+                Map.of("title", resolved.title(), "taskId", taskId), resolved.threadId(), resolved.workspaceId());
+        return resolved;
     }
 
     private BacklogItem require(String id)

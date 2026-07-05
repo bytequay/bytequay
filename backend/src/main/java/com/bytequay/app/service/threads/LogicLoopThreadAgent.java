@@ -256,7 +256,10 @@ public class LogicLoopThreadAgent
             // one, reorder the plan, or drop a stale entry.
             "queue_task",
             "reorder_queue",
-            "drop_queued_task");
+            "drop_queued_task",
+            // trunk-role.md already instructs the trunk extensively to ask
+            // rather than assume — this was the missing mechanical half.
+            "ask_user_question");
 
     /** The read-only tool surface the brain agent is allowed to call.
      *  Enforced the same way as {@link #TRUNK_TOOL_ALLOWLIST}: the rendered

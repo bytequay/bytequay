@@ -81,4 +81,10 @@ public interface BacklogService
     /** Abort an in-progress exploration, returning the item to
      *  {@code created}. 404 when unknown, 409 when not in exploration. */
     BacklogItem cancelExploration(String id);
+
+    /** Mark an item {@code resolved} and link it to the task cut from it —
+     *  called once {@code create_task} succeeds with a {@code backlog_item_id}
+     *  (the trunk's completion of the exploration {@link #startDevelopment}
+     *  began). 404 when unknown, 409 when already resolved. */
+    BacklogItem resolve(String id, String taskId);
 }

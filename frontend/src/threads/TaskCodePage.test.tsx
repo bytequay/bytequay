@@ -184,6 +184,57 @@ describe('TaskCodePage', () => {
     expect(onBack).not.toHaveBeenCalled();
   });
 
+  it('review mode: approving refetches the task so the Shipped pill replaces the toolbar after "Stay here"', async () => {
+    const resolved = { ...OPEN_COMMENT, resolved: true };
+    const bridge = mockBridge({
+      listTasksForThread: vi.fn()
+        .mockResolvedValueOnce([{ id: 'task-1', seq: 1, name: 'Fix typos', branchName: 'jack/fix' }])
+        .mockResolvedValue([{ id: 'task-1', seq: 1, name: 'Fix typos', branchName: 'jack/fix', status: 'IN_REVIEW' }]),
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([resolved]),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    const approve = await screen.findByRole('button', { name: /Approve & ship/ });
+    await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(approve);
+
+    // Approve succeeds → the confirmation dialog appears; dismiss with "Stay here".
+    fireEvent.click(await screen.findByRole('button', { name: 'Stay here' }));
+
+    // The toolbar's Approve button is gone (review mode ended) — the task
+    // refetch must have already landed so the Shipped pill takes its place
+    // instead of leaving an empty toolbar.
+    await waitFor(() => expect(bridge.listTasksForThread).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTitle('This task has been shipped')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Approve & ship/ })).toBeNull();
+  });
+
+  it('mark-ready gate: still renders after the notification is merely read, not resolved', async () => {
+    // Viewing a mark_ready gate (e.g. glancing at it from the inbox) flips
+    // its status UNREAD -> READ but does not resolve it — the gate must
+    // keep showing here so the user still has a way to act on it.
+    const READ_MARK_READY: NotificationDto = {
+      id: 'notif-2',
+      kind: 'AWAITING_REVIEW',
+      threadId: 'thread-1',
+      taskId: 'task-1',
+      status: 'READ',
+      payloadJson: JSON.stringify({
+        action: 'mark_ready',
+        pr: { owner: 'acme', repo: 'widgets', number: 30 },
+      }),
+      createdAt: '2026-06-20T10:00:00Z',
+      readAt: '2026-06-20T10:05:00Z',
+    };
+    mockBridge({ listNotificationsForThread: vi.fn().mockResolvedValue([READ_MARK_READY]) });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Pull request' }));
+    expect(await screen.findByText('Ready for review')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'acme/widgets#30 ↗' })).toBeTruthy();
+  });
+
   it('review mode: "Submit review" calls submitReview', async () => {
     const bridge = mockBridge({
       listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),

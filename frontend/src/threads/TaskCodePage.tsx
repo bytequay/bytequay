@@ -29,6 +29,7 @@ import { DiffInlineComments } from '../diff/DiffInlineComments';
 import { useThreadTasks } from './useThreadTasks';
 import { MarkReadyPanel, type MarkReadyPrRef } from './MarkReadyPanel';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
+import { isPendingProposal } from '../notificationDisplay';
 
 /** The (file, line) the inline composer is open on, or null when closed.
  *  Local review comments always anchor to the new-side (RIGHT) line. */
@@ -180,7 +181,7 @@ export default function TaskCodePage({
    *  when opened outside a stage. */
   stageId?: string;
 }) {
-  const { tasks } = useThreadTasks(threadId);
+  const { tasks, refresh: refreshTasks } = useThreadTasks(threadId);
   const task = useMemo(() => tasks?.find(t => t.id === taskId) ?? null, [tasks, taskId]);
   const title = task === null
     ? 'Loading…'
@@ -230,17 +231,7 @@ export default function TaskCodePage({
     if (bridge?.listNotificationsForThread === undefined) return;
     try {
       const list = await bridge.listNotificationsForThread(threadId);
-      const next = list.find((n) => {
-        if (n.kind !== 'AWAITING_REVIEW' || n.taskId !== taskId) return false;
-        if (n.status !== 'UNREAD' && n.status !== 'RESOLVING') return false;
-        // Any parked publish proposal (ship_task, open_pr, push, …) is an
-        // approval gate to review here — not just ship_task.
-        try {
-          const action = JSON.parse(n.payloadJson)?.action;
-          return typeof action === 'string' && action.length > 0;
-        }
-        catch { return false; }
-      }) ?? null;
+      const next = list.find((n) => isPendingProposal(n, taskId)) ?? null;
       setProposal(next);
     }
     catch { /* non-fatal — page stays read-only */ }
@@ -443,10 +434,13 @@ export default function TaskCodePage({
         return;
       }
       // Success — confirm what happens next instead of silently leaving. The
-      // gate is resolved, so the proposal clears (review mode ends); the
-      // Shipped pill then reflects the task's IN_REVIEW state.
+      // gate is resolved, so the proposal clears (review mode ends); refetch
+      // the task so its status (IN_REVIEW/COMPLETED) is current by the time
+      // the ship-notice dialog closes — otherwise the toolbar just vanishes
+      // with no Shipped/Finalized pill to replace it, even on "Stay here".
       setProposal(null);
       setActionBusy(false);
+      void refreshTasks();
       // A bare `push` updates an already-open PR (the mid-cycle CI-fix /
       // address-comments loop); `ship_task` / `open_pr` are the first push
       // that opens the draft PR.
@@ -459,7 +453,7 @@ export default function TaskCodePage({
       setActionNote(e instanceof Error ? e.message : String(e));
       setActionBusy(false);
     }
-  }, [actionBusy, proposal, proposalAction, hasUnresolved, prTitle, prBody, onBack, refreshProposal]);
+  }, [actionBusy, proposal, proposalAction, hasUnresolved, prTitle, prBody, onBack, refreshProposal, refreshTasks]);
 
   // Commit list for the left column.
   useEffect(() => {

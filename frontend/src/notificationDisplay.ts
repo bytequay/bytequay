@@ -164,6 +164,21 @@ export function isPublishGateNotification(n: NotificationDto): boolean {
     && typeof raw.summary === 'string';
 }
 
+/** True when a notification is still a live, unresolved approval gate for
+ *  the given task — the payload carries a non-empty `action` and the row
+ *  hasn't been resolved yet. Viewing a gate flips its status UNREAD → READ;
+ *  that must not hide the prompt, or a gate the user merely glanced at
+ *  (e.g. from the inbox) becomes permanently un-actionable on the page
+ *  that's supposed to let them act on it. Shared so `TaskCodePage`'s review
+ *  toolbar and `usePendingShipProposal`'s prompt cards agree on what's
+ *  still pending. */
+export function isPendingProposal(n: NotificationDto, taskId: string): boolean {
+  if (n.kind !== 'AWAITING_REVIEW' || n.taskId !== taskId) return false;
+  if (n.status !== 'UNREAD' && n.status !== 'READ' && n.status !== 'RESOLVING') return false;
+  const raw = payloadOf(n);
+  return raw !== null && typeof raw.action === 'string' && raw.action.length > 0;
+}
+
 function payloadOf(n: NotificationDto): Record<string, unknown> | null {
   if (!n.payloadJson) return null;
   try {

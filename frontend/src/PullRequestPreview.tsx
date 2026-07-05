@@ -303,6 +303,15 @@ const MERGE_STRATEGY_HINT: Record<MergeStrategy, string> = {
   merge: 'Creates a merge commit that joins the PR branch into the base.',
 };
 
+/** In-progress verb for the button while a merge runs — names the actual
+ *  operation (a rebase-and-merge can take a beat) so the user sees
+ *  "Rebasing…" rather than a generic "Merging…" and a silent wait. */
+const MERGE_STRATEGY_RUNNING: Record<MergeStrategy, string> = {
+  rebase: 'Rebasing…',
+  squash: 'Squashing…',
+  merge: 'Merging…',
+};
+
 const MERGE_STRATEGY_KEY = 'settings:merge-strategy';
 
 function loadMergeStrategy(): MergeStrategy {
@@ -392,6 +401,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Set when the user confirms a merge from the dialog, so we keep the dialog
+  // open (showing "Rebasing…") until the merge settles instead of closing it
+  // instantly and leaving the user staring at a silent screen.
+  const mergeStartedRef = useRef(false);
+  useEffect(() => {
+    if (confirmOpen && mergeStartedRef.current && mergeState !== 'running') {
+      mergeStartedRef.current = false;
+      setConfirmOpen(false);
+    }
+  }, [confirmOpen, mergeState]);
   // Re-run the failed CI jobs on GitHub — the one-click flaky-failure
   // fix. Self-contained: hits the bridge directly and refreshes CI so the
   // re-running jobs flip to in-progress. 'empty' = nothing on the head had
@@ -883,7 +902,7 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
               {mergeState === 'running'
                 ? (mergeMode === 'queue' ? 'Enqueuing…'
                   : mergeMode === 'when-ready' ? 'Enabling…'
-                  : 'Merging…')
+                  : MERGE_STRATEGY_RUNNING[strategy])
                 : (mergeMode === 'queue' ? 'Add to merge queue'
                   : mergeMode === 'when-ready' ? 'Merge when ready'
                   : MERGE_STRATEGY_LABEL[strategy])}
@@ -1030,23 +1049,25 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
                 type="button"
                 className="merge-bar__btn"
                 onClick={() => {
-                  // Fire the merge then close the dialog. The parent's
-                  // handleMerge / handleEnableAutoMerge surfaces errors
-                  // via mergeError below.
+                  // Fire the merge and keep the dialog open — the effect
+                  // above closes it once mergeState settles, so the user
+                  // watches "Rebasing…" here instead of a silent wait. The
+                  // parent's handleMerge / handleEnableAutoMerge surfaces
+                  // errors via mergeError below.
+                  mergeStartedRef.current = true;
                   if (mergeMode === 'when-ready' && onEnableAutoMerge) {
                     onEnableAutoMerge(strategy);
                   }
                   else {
                     onMerge(strategy);
                   }
-                  setConfirmOpen(false);
                 }}
                 disabled={mergeState === 'running'}
               >
                 {mergeState === 'running'
                   ? (mergeMode === 'queue' ? 'Enqueuing…'
                     : mergeMode === 'when-ready' ? 'Enabling…'
-                    : 'Merging…')
+                    : MERGE_STRATEGY_RUNNING[strategy])
                   : (mergeMode === 'queue' ? 'Yes, add to queue'
                     : mergeMode === 'when-ready' ? 'Yes, enable auto-merge'
                     : 'Yes, merge')}

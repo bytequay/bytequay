@@ -632,6 +632,30 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
   });
 
+  it('keeps the confirm dialog open showing "Rebasing…" until the merge settles', async () => {
+    let resolveMerge: () => void = () => { /* set below */ };
+    const onMerge = vi.fn().mockImplementation(
+      () => new Promise<void>(res => { resolveMerge = () => res(); }));
+    const bridge = await render(makeDetail({ viewerCanWrite: true }), makePr(), { onMerge });
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail({ viewerCanWrite: true }));
+
+    const merge = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Rebase and merge');
+    await act(async () => { merge!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const confirm = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Yes, merge');
+    await act(async () => { confirm!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+
+    // Merge is in flight: dialog stays open, button reads "Rebasing…".
+    expect(container.querySelector('.merge-confirm')).toBeTruthy();
+    expect(Array.from(container.querySelectorAll('button'))
+      .some(el => el.textContent === 'Rebasing…')).toBe(true);
+
+    // Settle the merge — the dialog closes on its own.
+    await act(async () => { resolveMerge(); await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('.merge-confirm')).toBeNull();
+  });
+
   it('keeps issue reactions optimistic without fetching stale detail', async () => {
     const bridge = await render(makeDetail());
     const chip = container.querySelector('.prc-comment-card .reaction-chip--clickable');

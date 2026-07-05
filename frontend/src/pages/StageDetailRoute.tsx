@@ -44,8 +44,8 @@ import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
 import type { TaskPhase } from '../types/brainView';
 
-/** Last-known cumulative diff per thread, so switching stages within a task
- *  paints the diff at once (the diff is task-wide, identical across the
+/** Last-known cumulative diff per thread+task, so switching stages within a
+ *  task paints the diff at once (the diff is task-wide, identical across the
  *  task's stages) instead of flashing "Loading diff…" on every hop. */
 const diffCache = makeIdCache<DiffFileDto[]>();
 
@@ -173,24 +173,27 @@ export function StageDetailRoute({
   const hasDiff = stageKind !== 'plan';
 
   // ── Right-pane data: the task's cumulative diff ─────────────────────────
-  // Seed from the per-thread cache so a stage switch shows the diff instantly
+  // Seed from the per-task cache so a stage switch shows the diff instantly
   // (stale-while-revalidate) rather than flashing the "Loading diff…" state.
-  const [files, setFiles] = useState<DiffFileDto[] | null>(() => diffCache.get(threadId) ?? null);
+  // Keyed by thread+task, not just thread — a thread can carry more than one
+  // task, and each task's cumulative diff is its own.
+  const diffCacheKey = `${threadId}:${taskId}`;
+  const [files, setFiles] = useState<DiffFileDto[] | null>(() => diffCache.get(diffCacheKey) ?? null);
 
   useEffect(() => {
     if (!hasDiff) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (bridge?.getTaskCumulativeDiff === undefined) return;
     let cancelled = false;
-    void bridge.getTaskCumulativeDiff(threadId)
+    void bridge.getTaskCumulativeDiff(threadId, taskId)
       .then(list => {
         if (cancelled) return;
-        diffCache.set(threadId, list);
+        diffCache.set(diffCacheKey, list);
         setFiles(list);
       })
       .catch(() => { if (!cancelled) setFiles(prev => prev ?? []); });
     return () => { cancelled = true; };
-  }, [threadId, hasDiff]);
+  }, [threadId, taskId, diffCacheKey, hasDiff]);
 
   const openPr = useCallback(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;

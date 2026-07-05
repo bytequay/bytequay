@@ -460,13 +460,13 @@ export default function TaskCodePage({
     let cancelled = false;
     void (async () => {
       try {
-        const list = await window.bridge.listTaskCommits(threadId);
+        const list = await window.bridge.listTaskCommits(threadId, taskId);
         if (!cancelled) setCommits(list);
       }
       catch { if (!cancelled) setCommits([]); }
     })();
     return () => { cancelled = true; };
-  }, [threadId]);
+  }, [threadId, taskId]);
 
   // Diff for the active scope. Empty selection ⇒ cumulative; one commit ⇒
   // that commit; a range ⇒ the union of the selected commits' diffs.
@@ -479,13 +479,13 @@ export default function TaskCodePage({
       try {
         let list: DiffFileDto[];
         if (selected.size === 0) {
-          list = await window.bridge.getTaskCumulativeDiff(threadId);
+          list = await window.bridge.getTaskCumulativeDiff(threadId, taskId);
         }
         else {
           // Fetch each selected commit (in commit order) and union by path.
           const orderedSel = (commits ?? []).map(c => c.sha).filter(sha => selected.has(sha));
           const perCommit = await Promise.all(
-            orderedSel.map(sha => window.bridge.getTaskCommitDiffFiles(threadId, sha)));
+            orderedSel.map(sha => window.bridge.getTaskCommitDiffFiles(threadId, sha, taskId)));
           list = unionCommitFiles(perCommit, f => f.filename);
         }
         if (cancelled) return;
@@ -499,7 +499,7 @@ export default function TaskCodePage({
     return () => { cancelled = true; };
     // selKey captures the selection contents; commits feed the union order.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, selKey, commits]);
+  }, [threadId, taskId, selKey, commits]);
 
   const orderedShas = useMemo(() => (commits ?? []).map(c => c.sha), [commits]);
 

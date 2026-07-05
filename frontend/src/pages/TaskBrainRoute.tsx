@@ -87,11 +87,11 @@ export function TaskBrainRoute({
     const b = typeof window !== 'undefined' ? window.bridge : undefined;
     if (b?.getTaskCumulativeDiff === undefined) return;
     let cancelled = false;
-    void b.getTaskCumulativeDiff(threadId)
+    void b.getTaskCumulativeDiff(threadId, taskId)
       .then(list => { if (!cancelled) setReviewFiles(list); })
       .catch(() => { if (!cancelled) setReviewFiles([]); });
     return () => { cancelled = true; };
-  }, [reviewOpen, threadId]);
+  }, [reviewOpen, threadId, taskId]);
   // Auto-approve mode. The backend persists it per-task; a per-thread default
   // (localStorage) lets new tasks inherit the user's latest choice, with the
   // per-task toggle overriding (A4.3, defaulted). Toggling updates both.

@@ -3476,11 +3476,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return body.diff ?? '';
   });
 
-  ipcMain.handle('threads:listCommits', async (_event, id: unknown) => {
+  ipcMain.handle('threads:listCommits', async (_event, id: unknown, taskId?: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits`);
+    const query = typeof taskId === 'string' && taskId.trim().length > 0
+      ? `?taskId=${encodeURIComponent(taskId)}` : '';
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits${query}`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend GET /api/threads/${id}/commits returned ${res.status}: ${text}`);
@@ -3524,11 +3526,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return body.diff ?? '';
   });
 
-  ipcMain.handle('threads:cumulativeDiff', async (_event, id: unknown) => {
+  ipcMain.handle('threads:cumulativeDiff', async (_event, id: unknown, taskId?: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/cumulative-diff`;
+    const query = typeof taskId === 'string' && taskId.trim().length > 0
+      ? `?taskId=${encodeURIComponent(taskId)}` : '';
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/cumulative-diff${query}`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -3537,14 +3541,16 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('threads:commitDiffFiles', async (_event, id: unknown, sha: unknown) => {
+  ipcMain.handle('threads:commitDiffFiles', async (_event, id: unknown, sha: unknown, taskId?: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
     if (typeof sha !== 'string' || sha.trim().length === 0) {
       throw new Error('sha must be a non-empty string');
     }
-    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff-files`;
+    const query = typeof taskId === 'string' && taskId.trim().length > 0
+      ? `?taskId=${encodeURIComponent(taskId)}` : '';
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff-files${query}`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');

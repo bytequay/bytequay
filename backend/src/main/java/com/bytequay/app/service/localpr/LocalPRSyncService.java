@@ -97,7 +97,15 @@ public class LocalPRSyncService
         }
         try {
             Path dir = Path.of(cwd);
-            List<GitRunner.CommitEntry> ahead = git.listCommitsAhead(dir, base, COMMIT_LIMIT);
+            // Resolve the real fork point rather than trusting the configured
+            // base name verbatim — a stale local base ref (never fast-forwarded
+            // while origin/<base> moved on, e.g. because another parallel
+            // worktree merged work upstream) would otherwise sweep in commits
+            // that already landed upstream as if they belonged to this branch
+            // (see GitRunner.resolveCommitBase).
+            String resolvedBase = git.resolveCommitBase(dir, base);
+            List<GitRunner.CommitEntry> ahead = resolvedBase == null
+                    ? List.of() : git.listCommitsAhead(dir, resolvedBase, COMMIT_LIMIT);
             // git log is newest-first; record oldest-first so the timeline reads
             // in the order the commits were authored.
             for (int i = ahead.size() - 1; i >= 0; i--) {

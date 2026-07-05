@@ -1183,6 +1183,62 @@ public class GitRunner
     }
 
     /**
+     * Resolve the ref to diff/list a branch's own commits against. A
+     * configured base branch name is only that — a name; in a fresh worktree
+     * it may exist only as a remote-tracking ref ({@code origin/main}) and
+     * not locally, and a purely local ref can go stale (never fast-forwarded)
+     * while {@code origin/<base>} moves on, silently sweeping in commits that
+     * already landed upstream by other work. We probe the configured base,
+     * its remote-tracking variants, the detected default branch, and a few
+     * common fallbacks, then pick whichever resolvable candidate's merge-base
+     * is CLOSEST to {@code HEAD} (fewest commits in {@code base..HEAD}) —
+     * the tightest base is the branch's real fork point, immune to any one
+     * candidate ref having drifted stale. Every caller that lists or diffs
+     * "this branch's own commits" must route through this one resolver
+     * rather than trusting a configured base name verbatim, or the two call
+     * sites silently disagree (one over-includes upstream history).
+     *
+     * @return the resolved merge-base ref/sha, or null when nothing resolves
+     */
+    public String resolveCommitBase(Path workingDir, String configuredBaseBranch)
+            throws IOException, InterruptedException
+    {
+        List<String> candidates = new ArrayList<>();
+        if (configuredBaseBranch != null && !configuredBaseBranch.isBlank()) {
+            String c = configuredBaseBranch.trim();
+            candidates.add(c);
+            candidates.add("origin/" + c);
+            candidates.add("upstream/" + c);
+        }
+        defaultBranch(workingDir).ifPresent(b -> {
+            candidates.add(b);
+            candidates.add("origin/" + b);
+            candidates.add("upstream/" + b);
+        });
+        candidates.addAll(List.of(
+                "main", "origin/main", "upstream/main",
+                "master", "origin/master", "upstream/master"));
+        String best = null;
+        int bestCount = Integer.MAX_VALUE;
+        String firstResolvable = null;
+        for (String ref : candidates) {
+            if (!refExists(workingDir, ref)) {
+                continue;
+            }
+            String mergeBase = mergeBase(workingDir, "HEAD", ref).orElse(ref);
+            if (firstResolvable == null) {
+                firstResolvable = mergeBase;
+            }
+            Integer count = commitCountUniqueTo(workingDir, "HEAD", mergeBase);
+            if (count != null && count < bestCount) {
+                bestCount = count;
+                best = mergeBase;
+            }
+        }
+        return best != null ? best : firstResolvable;
+    }
+
+    /**
      * Lists every file touched by a single commit, with status and
      * line counts. Powers the middle pane of the Commits tab.
      *

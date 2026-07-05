@@ -29,6 +29,7 @@ import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { usePersistentToggle } from '../ui/shell';
+import type { StageChip } from '../ui/shell';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import { PlanOverlay } from './PlanOverlay';
@@ -220,7 +221,13 @@ export function TaskBrainRoute({
   // The original execution plan card (steps + signals + review bar). Shown
   // inline while planning is live, and re-openable from the reminder pill via
   // the overlay below — so it stays reachable once locked and off the feed.
-  const planCard = plan !== null ? (
+  // Suppressed until the brain has actually written something — a freshly
+  // opened PlanStage's draft row is otherwise all empty placeholders (no
+  // steps, no summary, "0 steps in scope"), which reads as broken rather
+  // than "still thinking".
+  const planHasContent = plan !== null
+    && (plan.steps.length > 0 || plan.understandingSummary.trim().length > 0);
+  const planCard = planHasContent && plan !== null ? (
     <PlanCard
       plan={plan}
       autoApprove={autoApprove}
@@ -345,7 +352,36 @@ export function TaskBrainRoute({
     working,
     // Light the parked stage orange when a gate is awaiting the user's approval.
     awaitingApprovalStageId: data.rightRail.approval?.stageId ?? null,
+    devPhases: data.devPhases,
+    ciStatus: linkedPr?.ciStatus ?? null,
+    ciSummary: linkedPr?.ciSummary ?? null,
   });
+  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
+  // review / Remote pull request / Merge-Close, R27) — a fresh token
+  // re-fires even for a repeat click on the tab that's already open.
+  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr'; token: number } | undefined>(undefined);
+  const openTab = useCallback((tab: 'pr') => {
+    setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
+  }, []);
+  // Top-bar breadcrumb: the three 🤖 stage-typed nodes (Plan/Development/
+  // Comments, R30) — Plan is always "current" here since this IS the brain page.
+  const devStage = stages.find(s => s.type === 'DEVELOPMENT_STAGE');
+  const commentsStage = stages.find(s => s.type === 'REVIEW_MONITOR_STAGE');
+  const stageChips: StageChip[] = [
+    { label: 'Plan', dot: 'done', current: true },
+    ...(devStage !== undefined ? [{
+      label: 'Development',
+      dot: (devStage.state === 'CLOSED' ? 'done' : devStage.state === 'ACTIVE' ? 'active' : undefined) as
+        StageChip['dot'],
+      onClick: () => onOpenStage(devStage.id),
+    }] : []),
+    ...(commentsStage !== undefined ? [{
+      label: 'Comments',
+      dot: (commentsStage.state === 'CLOSED' ? 'done' : commentsStage.state === 'ACTIVE' ? 'active' : undefined) as
+        StageChip['dot'],
+      onClick: () => onOpenStage(commentsStage.id),
+    }] : []),
+  ];
   const sidebar = (
     <TaskSidebar
       task={{
@@ -358,6 +394,7 @@ export function TaskBrainRoute({
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr?.onOpen}
+      onOpenTab={openTab}
       onOpenRun={onOpenRun}
       onToggleGuard={enabled => {
         void window.bridge.updateTaskGuard(taskId, { enabled }).then(pollFast).catch(() => { /* poll reconciles */ });
@@ -387,6 +424,8 @@ export function TaskBrainRoute({
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
       pr={pr}
       sidebar={sidebar}
+      stageChips={stageChips}
+      openTabRequest={openTabRequest}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Ask the brain, or steer the task…' }}
       run={{

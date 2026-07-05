@@ -23,6 +23,7 @@ import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.StageEventDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
@@ -146,6 +147,11 @@ public class StageServiceImpl
         Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
         TaskBrainViewData.CostBreakdown cost = buildCostBreakdown(task, allStages, brainMessages);
+        List<AgentRun> liveRuns = agentRuns.liveRunsByTask(taskId);
+        StageInstance dev = allStages.stream()
+                .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
+                .findFirst()
+                .orElse(null);
 
         return new TaskBrainViewData(
                 buildTask(task),
@@ -156,10 +162,48 @@ public class StageServiceImpl
                         brainMessages, stageNameIndex, buildStageStats(task, allStages)),
                 buildRightRail(task, allStages, cost),
                 buildScrubbers(allEvents, brainMessages),
-                agentRuns.liveRunsByTask(taskId),
+                liveRuns,
                 branchGuards.get(taskId),
-                liveRound(taskId));
+                liveRound(taskId),
+                buildDevPhases(task.phase(), dev, liveRuns));
     }
+
+    /** Development's in-stage phase ladder (plan-rail-runs.md R29):
+     *  Implementing → Validation → Brain review. {@code status} values are
+     *  already in the rail's vocabulary so the frontend applies them as-is.
+     *  Brain review always renders {@code future} — Phase 7 wires it up. */
+    private static List<TaskBrainViewData.DevPhase> buildDevPhases(
+            TaskPhase phase, StageInstance dev, List<AgentRun> liveRuns)
+    {
+        if (dev == null) {
+            return List.of();
+        }
+        boolean devClosed = dev.state() == StageState.CLOSED;
+        boolean pastImplementing = devClosed || phase != TaskPhase.IMPLEMENTING;
+        boolean pastValidation = devClosed || VALIDATION_DONE_PHASES.contains(phase);
+        AgentRun localCiFix = liveRuns.stream()
+                .filter(r -> AgentRun.KIND_CI_FIX.equals(r.kind()))
+                .filter(r -> AgentRun.SOURCE_LOCAL.equals(r.source()))
+                .filter(r -> dev.id().toString().equals(r.parentStageId()))
+                .findFirst()
+                .orElse(null);
+
+        return List.of(
+                new TaskBrainViewData.DevPhase(
+                        "implementing", pastImplementing ? "done" : "running", null, null),
+                new TaskBrainViewData.DevPhase(
+                        "validation",
+                        pastValidation ? "done" : phase == TaskPhase.VALIDATING ? "running" : "future",
+                        null,
+                        localCiFix != null ? localCiFix.id() : null),
+                new TaskBrainViewData.DevPhase("brainReview", "future", "next", null));
+    }
+
+    /** Phases reached only once Validation has finished. */
+    private static final Set<TaskPhase> VALIDATION_DONE_PHASES = EnumSet.of(
+            TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS,
+            TaskPhase.PUSHED_AWAITING_CI, TaskPhase.AWAITING_READY, TaskPhase.AWAITING_REMOTE_REVIEW,
+            TaskPhase.COMPLETED);
 
     /** The task's brain-thread conversation (user + assistant text rows),
      *  oldest-first; empty when no brain thread exists yet. */

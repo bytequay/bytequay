@@ -37,7 +37,7 @@ type BrainTab = 'pr';
  */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
-  tabs, planReminder, onRevealPlan, markReadyReminder, onOpenChanges, onOpenCi,
+  tabs, planReminder, onRevealPlan, markReadyReminder, onOpenChanges, onOpenCi, openTabRequest,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
@@ -80,6 +80,10 @@ export function TaskBrainPage({
   markReadyReminder?: boolean;
   onOpenChanges?: () => void;
   onOpenCi?: () => void;
+  /** Force-opens a tab from outside (the live-plan rail's gate nodes) — a
+   *  fresh object (new `token`) re-fires even for a repeat click on the tab
+   *  that's already open. */
+  openTabRequest?: { tab: BrainTab; token: number };
 }) {
   const available: { key: BrainTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
@@ -89,6 +93,12 @@ export function TaskBrainPage({
   const [activeTab, setActiveTab] = useState<BrainTab | undefined>(available[0]?.key);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
+
+  useEffect(() => {
+    if (openTabRequest === undefined) return;
+    setActiveTab(openTabRequest.tab);
+    setPaneOpen(true);
+  }, [openTabRequest]);
 
   const active = available.find(t => t.key === activeTab) ?? available[available.length - 1];
   const paneTabs: PaneTab<BrainTab>[] = available.map(t => ({ key: t.key, label: t.label }));

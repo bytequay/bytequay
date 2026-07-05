@@ -44,25 +44,31 @@ function model(viewedStageId?: string) {
       stage('DEVELOPMENT_STAGE', 'OPEN'),
     ],
     subStages: [],
-    liveRuns: [run('ci_fix', { iterations: 2 })],
+    liveRuns: [run('ci_fix', { id: 'local-fix', iterations: 2 })],
+    devPhases: [
+      { key: 'implementing', status: 'done', meta: null, badgeRunId: null },
+      { key: 'validation', status: 'running', meta: null, badgeRunId: 'local-fix' },
+      { key: 'brainReview', status: 'future', meta: 'next', badgeRunId: null },
+    ],
     task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     viewedStageId,
   });
 }
 
 describe('LivePlan', () => {
-  it('renders every lifecycle node with its status class, plus a live Checks sub-row', () => {
+  it('renders every lifecycle node with its status class, plus the nested phase ladder', () => {
     const { container } = render(<LivePlan nodes={model()} />);
-    // The first node is Root (the brain/root conversation) — Plan as a
-    // drill-in stage is gone. A closed PlanStage reads as 'done'.
-    expect(screen.getByText('Root').closest('.plan-node')?.className).toContain('done');
-    expect(screen.getByText('Checks').closest('.plan-node')?.className).toContain('running');
+    // The first node is Plan (the brain/root conversation). A closed
+    // PlanStage reads as 'done'.
+    expect(screen.getByText('Plan').closest('.plan-node')?.className).toContain('done');
+    expect(screen.getByText('Validation').closest('.plan-phase-row')?.className).toContain('running');
     expect(screen.getByText('Comments').closest('.plan-node')?.className).toContain('future');
-    // Remote Push milestone shows the PR number.
-    expect(screen.getByText('PR #145')).toBeTruthy();
-    // Review (callable, not-invoked, Development still open) + the live
-    // Checks run both render as sub-rows.
-    expect(container.querySelectorAll('.plan-sub-row').length).toBe(2);
+    // A live run badges its phase row inline.
+    expect(screen.getByText('iter 2')).toBeTruthy();
+    // Review (callable, not-invoked, Development still open) renders as a
+    // sub-row; the phase ladder renders as its own nested rows.
+    expect(container.querySelectorAll('.plan-sub-row').length).toBe(1);
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(3);
   });
 
   it('navigates to a stage when its node is clicked', () => {
@@ -72,18 +78,18 @@ describe('LivePlan', () => {
     expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
   });
 
-  it('navigates to the brain page when the Root node is clicked', () => {
+  it('navigates to the brain page when the Plan node is clicked', () => {
     const onOpenBrain = vi.fn();
     render(<LivePlan nodes={model()} onOpenBrain={onOpenBrain} />);
-    fireEvent.click(screen.getByText('Root'));
+    fireEvent.click(screen.getByText('Plan'));
     expect(onOpenBrain).toHaveBeenCalledOnce();
   });
 
-  it('routes the Remote Push node to the Development conversation', () => {
-    const onOpenStage = vi.fn();
-    render(<LivePlan nodes={model()} onOpenStage={onOpenStage} />);
-    fireEvent.click(screen.getByText('Remote Push'));
-    expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
+  it('force-opens the PR tab for a gate node click', () => {
+    const onOpenTab = vi.fn();
+    render(<LivePlan nodes={model()} onOpenTab={onOpenTab} />);
+    fireEvent.click(screen.getByText('Local review'));
+    expect(onOpenTab).toHaveBeenCalledWith('pr');
   });
 
   it('disables future nodes that have nowhere to navigate', () => {
@@ -100,6 +106,7 @@ describe('LivePlan', () => {
     const { rerender } = render(
       <LivePlan nodes={model()} guard={buildGuardChip({
         taskId: 't', enabled: true, schedule: 'nightly', state: 'drifting',
+        health: { behindBy: 3, mergeable: true, checksGreen: true },
         lastRunId: null, lastCheckedAt: null,
       })}
       />,
@@ -113,7 +120,8 @@ describe('LivePlan', () => {
   it('shows the bold "Guard" label and the last-checked meta inline (plan-spine-options.html), not just in a tooltip', () => {
     render(
       <LivePlan nodes={model()} guard={buildGuardChip({
-        taskId: 't', enabled: true, schedule: 'nightly', state: 'in_sync',
+        taskId: 't', enabled: true, schedule: 'nightly', state: 'healthy',
+        health: { behindBy: 0, mergeable: true, checksGreen: true },
         lastRunId: null, lastCheckedAt: '2026-07-05T00:00:00Z',
       })}
       />,
@@ -128,7 +136,8 @@ describe('LivePlan', () => {
       <LivePlan
         nodes={model()}
         guard={buildGuardChip({
-          taskId: 't', enabled: false, schedule: 'nightly', state: 'in_sync',
+          taskId: 't', enabled: false, schedule: 'nightly', state: 'healthy',
+          health: { behindBy: 0, mergeable: true, checksGreen: true },
           lastRunId: null, lastCheckedAt: null,
         })}
         onToggleGuard={onToggleGuard}

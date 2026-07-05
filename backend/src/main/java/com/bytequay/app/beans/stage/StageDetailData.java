@@ -35,6 +35,8 @@ import java.util.Map;
  * @param guard the task's branch guard state
  * @param liveRound the task's currently-open {@link ReviewRound}, same field
  *                  and rationale as {@code TaskBrainViewData.liveRound}
+ * @param devPhases Development's in-stage phase ladder, same field and
+ *                  rationale as {@code TaskBrainViewData.devPhases}
  */
 public record StageDetailData(
         DetailTask task,
@@ -56,7 +58,8 @@ public record StageDetailData(
         Scrubber scrubber,
         List<AgentRun> liveRuns,
         BranchGuard guard,
-        ReviewRound liveRound)
+        ReviewRound liveRound,
+        List<TaskBrainViewData.DevPhase> devPhases)
 {
     /**
      * The pull-request block shown on the stage page's PR tab. Surfaced from

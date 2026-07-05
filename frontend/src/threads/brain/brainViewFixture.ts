@@ -48,10 +48,12 @@ export function buildEmptyBrainView(taskId: string): TaskBrainViewData {
     scrubbers: { stageEvents: [], userMessages: [] },
     liveRuns: [],
     guard: {
-      taskId, enabled: false, schedule: 'nightly', state: 'in_sync',
+      taskId, enabled: false, schedule: 'nightly', state: 'healthy',
+      health: { behindBy: 0, mergeable: true, checksGreen: true },
       lastRunId: null, lastCheckedAt: null,
     },
     liveRound: null,
+    devPhases: [],
   };
 }
 
@@ -264,9 +266,15 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     },
   ],
   guard: {
-    taskId: '...', enabled: true, schedule: 'nightly', state: 'in_sync',
+    taskId: '...', enabled: true, schedule: 'nightly', state: 'healthy',
+    health: { behindBy: 0, mergeable: true, checksGreen: true },
     lastRunId: null, lastCheckedAt: ago(20 * 60),
   },
   liveRound: null,
+  devPhases: [
+    { key: 'implementing', status: 'done', meta: null, badgeRunId: null },
+    { key: 'validation', status: 'done', meta: null, badgeRunId: null },
+    { key: 'brainReview', status: 'future', meta: 'next', badgeRunId: null },
+  ],
   };
 }

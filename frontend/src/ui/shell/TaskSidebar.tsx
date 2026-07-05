@@ -24,7 +24,7 @@ import type { GuardChipData, LivePlanNode } from './livePlanModel';
  * actions render at the bottom.
  */
 export function TaskSidebar({
-  task, threadLabel, nodes, guard, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun,
+  task, threadLabel, nodes, guard, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun,
   onToggleGuard, actions,
 }: {
   task: {
@@ -38,6 +38,9 @@ export function TaskSidebar({
   onOpenStage?: (stageId: string) => void;
   onOpenCode?: () => void;
   onOpenPr?: () => void;
+  /** Force-switch the host page's own right-pane tab — the gate nodes
+   *  (Local review / Remote pull request / Merge-Close) use this. */
+  onOpenTab?: (tab: 'pr') => void;
   /** Navigate to the task's brain page — the Root node in the live plan. */
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
@@ -73,6 +76,7 @@ export function TaskSidebar({
         onOpenStage={onOpenStage}
         onOpenCode={onOpenCode}
         onOpenPr={onOpenPr}
+        onOpenTab={onOpenTab}
         onOpenBrain={onOpenBrain}
         onOpenRun={onOpenRun}
         onToggleGuard={onToggleGuard}

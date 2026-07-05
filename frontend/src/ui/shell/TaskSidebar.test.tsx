@@ -35,9 +35,8 @@ describe('TaskSidebar', () => {
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
     expect(screen.getByText('feat/cost-meter')).toBeTruthy();
     expect(screen.getByText('Live plan')).toBeTruthy();
-    // The live plan leads with the Root node (brain/root conversation),
-    // not a "Plan" stage.
-    expect(screen.getByText('Root')).toBeTruthy();
+    // The live plan leads with the Plan node (brain/root conversation).
+    expect(screen.getByText('Plan')).toBeTruthy();
     expect(screen.getByText('Cleanup')).toBeTruthy();
   });
 

@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import type {
-  AgentRunDto, AgentRunKind, BranchGuardDto, ReviewRoundDto, StageDto, StageType, TaskPhase,
+  AgentRunDto, AgentRunKind, BranchGuardDto, BranchGuardState, DevPhaseDto, DevPhaseKey, ReviewRoundDto, StageDto,
+  StageType, TaskPhase,
 } from '../../types/brainView';
 
 /** Visual state of one node in the live-plan diagram. {@code monitoring} is a
@@ -29,14 +30,36 @@ export type LivePlanStatus =
  *  live/gated {@link AgentRunDto} sub-row (R3: lazy, shown only while live). */
 export type LivePlanPlacement = 'full' | 'sub';
 
-/** Where clicking a node navigates. */
+/** Where clicking a node navigates. `tab` force-switches the host page's own
+ *  right-pane tab (e.g. the PR tab) rather than leaving the page — used by
+ *  the gate nodes, which stay on whatever stage owns the composer (R27). */
 export type LivePlanNav =
   | { kind: 'stage'; stageId: string }
   | { kind: 'run'; runId: string }
   | { kind: 'code' }
   | { kind: 'pr' }
+  | { kind: 'tab'; tab: 'pr' }
   | { kind: 'brain' }
   | { kind: 'none' };
+
+/** Explicit node kind (R26/R30): a 🤖 `stage` owns a conversation + composer;
+ *  a ◆ `gate` opens an action surface and waits on the user; an ○ `auto`
+ *  checkpoint is machine-driven with no owner of its own. */
+export type LivePlanNodeType = 'stage' | 'gate' | 'auto';
+
+/** One row of Development's in-stage phase ladder, rendered nested under the
+ *  `dev` node only while it's live (R29) — collapses into the node's own
+ *  `meta` once Development closes. */
+export type LivePlanPhaseNode = {
+  key: DevPhaseKey;
+  label: string;
+  status: LivePlanStatus;
+  glyph: string;
+  meta?: string;
+  /** A live run's badge (e.g. "⚙ CI FIX · iter 2"), shown inline. */
+  badge?: string;
+  nav: LivePlanNav;
+};
 
 export type LivePlanNode = {
   key: string;
@@ -48,13 +71,16 @@ export type LivePlanNode = {
   /** True when this node's stage is the one currently being viewed. */
   activeView: boolean;
   nav: LivePlanNav;
+  nodeType: LivePlanNodeType;
+  /** Development's phase ladder, present only while it's live (R29). */
+  phases?: LivePlanPhaseNode[];
 };
 
 /** Display data for the branch-guard chip above the rail (R4) — always
  *  present once a guard row exists (created lazily on first push), so
  *  `null` here just means "no guard yet" (task never pushed). */
 export type GuardChipData = {
-  state: 'in_sync' | 'drifting' | 'fixing' | 'needs_attention';
+  state: BranchGuardState;
   label: string;
   meta: string | null;
   enabled: boolean;
@@ -92,6 +118,13 @@ export type LivePlanInput = {
   /** Stage id currently parked for the user's approval (a NEEDS_ATTENTION
    *  gate), lit orange as `awaiting`. Null when nothing is parked. */
   awaitingApprovalStageId?: string | null;
+  /** Development's phase ladder (Implementing/Validation/Brain review),
+   *  present whenever a Development stage exists (R29). */
+  devPhases?: DevPhaseDto[];
+  /** The linked PR's CI status/summary — drives the CI validation checkpoint;
+   *  absent/null before the task has pushed. */
+  ciStatus?: 'green' | 'failing' | 'pending' | 'unknown' | null;
+  ciSummary?: string | null;
 };
 
 /** Status for a stage-backed node: closed → done, active → running (or
@@ -187,13 +220,36 @@ function runSubNode(key: string, label: string, run: AgentRunDto): LivePlanNode 
   const status: LivePlanStatus = run.status === 'awaiting_gate' ? 'awaiting' : 'running';
   return {
     key, label, status, glyph: glyphFor(status), meta: runMeta(run),
-    placement: 'sub', activeView: false, nav: { kind: 'run', runId: run.id },
+    placement: 'sub', activeView: false, nav: { kind: 'run', runId: run.id }, nodeType: 'auto',
   };
 }
 
+const PHASE_LABEL: Record<DevPhaseKey, string> = {
+  implementing: 'Implementing',
+  validation: 'Validation',
+  brainReview: 'Brain review',
+};
+
+/** Builds Development's nested phase rows from the backend's `devPhases`
+ *  (already in rail vocabulary — no reinterpretation) — a phase's
+ *  `badgeRunId` looks up its live run in `liveRuns` for the inline badge. */
+function buildDevPhases(devPhases: DevPhaseDto[], liveRuns: AgentRunDto[]): LivePlanPhaseNode[] {
+  return devPhases.map(p => {
+    const status = p.status as LivePlanStatus;
+    const run = p.badgeRunId !== null ? liveRuns.find(r => r.id === p.badgeRunId) : undefined;
+    return {
+      key: p.key, label: PHASE_LABEL[p.key], status, glyph: glyphFor(status),
+      meta: p.meta ?? undefined,
+      badge: run !== undefined ? runMeta(run) : undefined,
+      nav: { kind: 'none' },
+    };
+  });
+}
+
 const GUARD_LABELS: Record<BranchGuardDto['state'], string> = {
-  in_sync: 'in sync with main',
+  healthy: 'in sync with main',
   drifting: 'drifting from main',
+  conflicted: 'conflicts with main',
   fixing: 'fixing drift',
   needs_attention: 'needs attention',
 };
@@ -214,18 +270,19 @@ export function buildGuardChip(guard: BranchGuardDto | null | undefined): GuardC
 
 /**
  * Derives the ordered live-plan node list from the task's actual stages,
- * phase, and live runs. The spine is fixed (Plan → Development → Local
- * Review → Remote Push → Comments → Merge → Cleanup, plan-rail-runs.md R1);
- * Review (callable), Checks, and Addressing hang as lazy `sub` rows —
- * Checks/Addressing only while a matching {@link AgentRunDto} is live or
- * gated (R2/R3). Stages that don't exist yet render as `future` (dashed),
- * matching lazy stage instantiation.
+ * phase, and live runs. The spine is the 8-node checkpoint amendment
+ * (plan-rail-runs.md R29): Plan → Development → Local review → Remote
+ * pull request → CI validation → Comments → Merge / Close → Cleanup.
+ * Development nests its own phase ladder (Implementing → Validation →
+ * Brain review) while it's live, collapsing into its node's `meta` once it
+ * closes (R29). Review (callable) and the round-addressing run still hang
+ * as lazy `sub` rows — shown only while live/gated (R2/R3).
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
     stages, subStages, liveRuns = [], liveRound = null, task, prStatus = null, mergeReady = false,
     viewedStageId = null, viewingBrain = false, working = false,
-    awaitingApprovalStageId = null,
+    awaitingApprovalStageId = null, devPhases = [], ciStatus = null, ciSummary = null,
   } = input;
   const byType = (type: StageType): StageDto | undefined => stages.find(s => s.type === type);
   const isViewed = (stage: StageDto | undefined): boolean =>
@@ -247,22 +304,47 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   // never grows them"), matching the mockup's zero-sub-row nit-PR rail.
   const devOpen = dev !== undefined && dev.state !== 'CLOSED';
 
-  // The Root node stands in for the plan "stage" — which is really the
+  // The Plan node stands in for the plan "stage" — which is really the
   // brain/root conversation, not a drill-in stage. It tracks the plan's
   // progress (planning while the PlanStage is active, done once approved)
   // but navigates back to the brain page instead of a stage page.
-  const rootStatus: LivePlanStatus = plan === undefined ? 'planning' : stageStatus(plan, true);
+  // A CLI subprocess turn leaves the stage row OPEN, not ACTIVE, the same
+  // reason Development needs DEV_RUNNING_PHASES below — so the Plan node
+  // must read "planning" straight off the phase while it's actually the
+  // active work, not solely off the (possibly stale) stage row state.
+  const rootStatus: LivePlanStatus =
+    (plan === undefined || plan.state !== 'CLOSED') && task.currentPhase === 'PLANNING'
+      ? 'planning'
+      : stageStatus(plan, true);
   const devStatus = devNodeStatus(dev, task.currentPhase);
   const reviewStatus = stageStatus(review);
   const localReviewStat = localReviewStatus(task.currentPhase);
   const commentsStat = commentsStatus(comments, task.currentPhase, roundRun !== undefined);
   const cleanupStatus = stageStatus(cleanup);
 
-  // Remote Push isn't a stage — it's the milestone of having opened the PR.
-  const pushStatus: LivePlanStatus = task.prNumber !== null ? 'done' : 'future';
+  // Remote pull request isn't a stage — it's the milestone of having opened
+  // the PR. Local review / Remote PR / Merge-Close all open the same PR
+  // surface (PRView already renders the right actions for whatever state
+  // the PR is in), so they share the same `tab` nav once there's something
+  // to show.
+  const prTabNav: LivePlanNav = { kind: 'tab', tab: 'pr' };
+  const remotePrStatus: LivePlanStatus = task.prNumber !== null ? 'done' : 'future';
 
-  // Merge is user-gated and pseudo: done once merged/completed, running while
-  // it's queued, sleeping while it's out for remote review, future otherwise.
+  // A live remote ci_fix run badges CI validation directly (the old
+  // Comments "Checks" sub-row folded into this node instead, R29).
+  const remoteCiFixRun = !devEra ? ciFixRun : undefined;
+  const ciValidationStatus: LivePlanStatus = remoteCiFixRun !== undefined
+    ? (remoteCiFixRun.status === 'awaiting_gate' ? 'awaiting' : 'running')
+    : task.prNumber === null ? 'future'
+      : ciStatus === 'green' ? 'done'
+        : ciStatus === 'failing' ? 'errored'
+          : ciStatus === 'pending' ? 'running'
+            : 'sleep';
+  const ciValidationMeta = remoteCiFixRun !== undefined ? runMeta(remoteCiFixRun) : (ciSummary ?? undefined);
+
+  // Merge/Close is user-gated and pseudo: done once merged/completed, running
+  // while it's queued, sleeping while it's out for remote review, future
+  // otherwise.
   const mergeStatus: LivePlanStatus =
     task.currentPhase === 'COMPLETED' || prStatus === 'merged' ? 'done'
       : prStatus === 'queued' ? 'running'
@@ -277,29 +359,39 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
 
   const nodes: LivePlanNode[] = [
     {
-      key: 'root', label: 'Root', status: rootStatus, glyph: glyphFor(rootStatus),
+      key: 'root', label: 'Plan', status: rootStatus, glyph: glyphFor(rootStatus),
       meta: rootStatus === 'done' ? 'plan approved' : 'planning',
-      placement: 'full', activeView: viewingBrain, nav: { kind: 'brain' },
+      placement: 'full', activeView: viewingBrain, nav: { kind: 'brain' }, nodeType: 'stage',
     },
     {
       key: 'dev', label: 'Development', status: devStatus, glyph: glyphFor(devStatus),
       meta: iterMeta(dev), placement: 'full', activeView: isViewed(dev), nav: stageNav(dev),
+      nodeType: 'stage',
+      phases: devOpen && devPhases.length > 0 ? buildDevPhases(devPhases, liveRuns) : undefined,
     },
     ...(devOpen ? [{
       key: 'review', label: 'Review (callable)', status: reviewStatus,
       glyph: glyphFor(reviewStatus), meta: review === undefined ? 'not invoked' : undefined,
       placement: 'sub' as const, activeView: isViewed(review), nav: stageNav(review),
+      nodeType: 'stage' as const,
     }] : []),
-    ...(devEra && ciFixRun !== undefined ? [runSubNode('dev-checks', 'Checks', ciFixRun)] : []),
     {
-      key: 'local-review', label: 'Local Review', status: localReviewStat,
-      glyph: glyphFor(localReviewStat), meta: localReviewStat === 'done' ? 'approved' : undefined,
-      placement: 'full', activeView: false, nav: { kind: 'none' },
+      key: 'local-review', label: 'Local review', status: localReviewStat,
+      glyph: glyphFor(localReviewStat, '◆'), meta: localReviewStat === 'done' ? 'approved' : undefined,
+      placement: 'full', activeView: false, nodeType: 'gate',
+      nav: dev !== undefined ? prTabNav : { kind: 'none' },
     },
     {
-      key: 'push', label: 'Remote Push', status: pushStatus, glyph: glyphFor(pushStatus),
+      key: 'remote-pr', label: 'Remote pull request', status: remotePrStatus, glyph: glyphFor(remotePrStatus, '◆'),
       meta: task.prNumber !== null ? `PR #${task.prNumber}` : undefined,
-      placement: 'full', activeView: false, nav: stageNav(dev),
+      placement: 'full', activeView: false, nodeType: 'gate',
+      nav: task.prNumber !== null ? prTabNav : { kind: 'none' },
+    },
+    {
+      key: 'ci-validation', label: 'CI validation', status: ciValidationStatus,
+      glyph: glyphFor(ciValidationStatus), meta: ciValidationMeta,
+      placement: 'full', activeView: false, nodeType: 'auto',
+      nav: task.prNumber !== null ? { kind: 'pr' } : { kind: 'none' },
     },
     {
       key: 'comments', label: 'Comments', status: commentsStat, glyph: glyphFor(commentsStat),
@@ -307,23 +399,22 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
         : comments === undefined ? undefined
           : commentsStat === 'monitoring' ? 'watching review'
             : commentsStat === 'sleep' ? 'armed' : undefined,
-      placement: 'full', activeView: isViewed(comments), nav: stageNav(comments),
+      placement: 'full', activeView: isViewed(comments), nav: stageNav(comments), nodeType: 'stage',
     },
     ...(!devEra && roundRun !== undefined ? [runSubNode('comments-addressing', 'Addressing', roundRun)] : []),
-    ...(!devEra && ciFixRun !== undefined ? [runSubNode('comments-checks', 'Checks', ciFixRun)] : []),
     {
-      key: 'merge', label: 'Merge (user-gated)', status: mergeStatus, glyph: glyphFor(mergeStatus, '◆'),
-      meta: mergeMeta, placement: 'full', activeView: false,
-      nav: task.prNumber !== null ? { kind: 'pr' } : { kind: 'none' },
+      key: 'merge-close', label: 'Merge / Close', status: mergeStatus, glyph: glyphFor(mergeStatus, '◆'),
+      meta: mergeMeta, placement: 'full', activeView: false, nodeType: 'gate',
+      nav: task.prNumber !== null ? prTabNav : { kind: 'none' },
     },
     {
       key: 'cleanup', label: 'Cleanup', status: cleanupStatus, glyph: glyphFor(cleanupStatus),
-      placement: 'full', activeView: isViewed(cleanup), nav: stageNav(cleanup),
+      placement: 'full', activeView: isViewed(cleanup), nav: stageNav(cleanup), nodeType: 'auto',
     },
   ];
 
   // While the active surface's agent is mid-turn, light its node so the user
-  // sees it working without waiting for the stage-state poll: the Root (brain)
+  // sees it working without waiting for the stage-state poll: the Plan node
   // pulses purple ('planning'), a stage node pulses orange ('running').
   if (working) {
     for (const node of nodes) {

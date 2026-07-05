@@ -36,7 +36,6 @@ describe('TaskBrainRoute', () => {
     render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
     // The new task inherits the thread default (on) and persists it to the backend.
     await waitFor(() => expect(setTaskAutoApprove).toHaveBeenCalledWith('t1', 'task-1', true));
-    expect(await screen.findByText('Auto-approve on')).toBeTruthy();
   });
 
   it('mounts the V3 brain page on the fixture data and steers the brain agent', async () => {
@@ -86,6 +85,32 @@ describe('TaskBrainRoute', () => {
     fireEvent.click(screen.getByRole('button', { name: /Approve & start dev/ }));
     await waitFor(() => expect(approvePlan).toHaveBeenCalledWith('plan-1'));
     await waitFor(() => expect(onOpenStage).toHaveBeenCalledWith('dev-9'));
+  });
+
+  it('renders the auto-approve toggle only in the plan card, not as a top-bar button', async () => {
+    const base = buildMockBrainView(0);
+    const plan: PlanCardDto = {
+      planStageId: 'plan-1', state: 'awaiting', status: 'finalized', source: 'brain',
+      understandingSummary: 'Add a cost meter to the rail', intentSummary: 'wire it',
+      steps: [{ ordinal: 1, action: 'Build the meter' }], validationStrategy: 'tests',
+      pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 2, expectedGain: 'x' },
+      revisionCount: 0, followups: [],
+    };
+    const view = { ...base, rightRail: { ...base.rightRail, plan } };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      sendBrainMessage: vi.fn().mockResolvedValue({}),
+      getTaskAutoApprove: vi.fn().mockResolvedValue({ enabled: false }),
+      setTaskAutoApprove: vi.fn().mockResolvedValue({ enabled: true }),
+    };
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
+
+    await screen.findByText('Build the meter');
+    // The switch lives inside the plan card's header, top-right.
+    expect(document.querySelector('.plan-card__hd .plan-auto')).toBeTruthy();
+    // The old top-bar button (with its dynamic "Auto-approve on/off" label) is gone.
+    expect(screen.queryByText(/^Auto-approve (on|off)$/)).toBeNull();
   });
 });
 

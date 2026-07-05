@@ -386,8 +386,6 @@ export function TaskBrainRoute({
     <TaskBrainPage
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
       pr={pr}
-      autoApprove={autoApprove}
-      onToggleAutoApprove={toggleAutoApprove}
       sidebar={sidebar}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Ask the brain, or steer the task…' }}

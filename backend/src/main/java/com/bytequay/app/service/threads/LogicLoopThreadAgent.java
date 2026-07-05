@@ -278,7 +278,15 @@ public class LogicLoopThreadAgent
             // open, so it's inert outside planning.
             "record_plan",
             // Lets the brain re-read the finalized plan it (or the trunk) recorded.
-            "read_plan_summary");
+            "read_plan_summary",
+            // Brain adversarial review (plan-rail-runs.md R20-R24): the plan
+            // self-review turn and the two code lock-point review turns all
+            // run on this same brain thread, so it needs the dev-context read
+            // tools plus its own comment + verdict writers.
+            "read_dev_report",
+            "read_dev_conversation",
+            "record_pr_comment",
+            "record_review_verdict");
 
     /** System prompt for the read-only brain agent. A later change prepends
      *  a digest of the task's recent iteration summaries; this is the static

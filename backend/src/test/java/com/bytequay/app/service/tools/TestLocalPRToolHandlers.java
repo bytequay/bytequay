@@ -17,8 +17,11 @@ import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.tools.LocalPRToolHandlers.RecordPrCheckArgs;
 import com.bytequay.app.service.tools.LocalPRToolHandlers.RecordPrDescriptionArgs;
 import com.bytequay.app.service.tools.LocalPRToolHandlers.ResolvePrCommentArgs;
@@ -47,7 +50,11 @@ class TestLocalPRToolHandlers
 
     private final LocalPRService localPr = mock(LocalPRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final LocalPRToolHandlers handlers = new LocalPRToolHandlers(localPr, taskStore);
+    private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final ReviewRoundStore roundStore = mock(ReviewRoundStore.class);
+    private final AgentRunService agentRuns = mock(AgentRunService.class);
+    private final LocalPRToolHandlers handlers =
+            new LocalPRToolHandlers(localPr, taskStore, brainReview, roundStore, agentRuns);
 
     private final ToolCall taskCall = new ToolCall("thread-1", null, AgentRole.TASK, "task1", null);
 

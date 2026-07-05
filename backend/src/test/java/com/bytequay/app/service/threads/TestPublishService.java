@@ -35,6 +35,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.threads.PublishService.PublishResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -86,6 +87,7 @@ class TestPublishService
     private TaskPhaseMachine phaseMachine;
     private StageStore stageStore;
     private LocalPRService localPr;
+    private BrainReviewService brainReview;
     private PublishService service;
 
     @BeforeEach
@@ -102,9 +104,10 @@ class TestPublishService
         phaseMachine = mock(TaskPhaseMachine.class);
         stageStore = mock(StageStore.class);
         localPr = mock(LocalPRService.class);
+        brainReview = mock(BrainReviewService.class);
         service = new PublishService(
                 notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
-                mock(ReviewPassResolver.class), phaseMachine, stageStore, localPr);
+                mock(ReviewPassResolver.class), phaseMachine, stageStore, localPr, brainReview);
         when(notifications.claimResolution(anyString())).thenReturn(true);
         when(stageStore.findUnresolvedComments(anyString())).thenReturn(List.of());
         when(localPr.findByTask(anyString())).thenReturn(Optional.empty());

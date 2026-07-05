@@ -54,6 +54,18 @@ class ReviewRoundEntity
     @Column(name = "posted_at_ms")
     private Long postedAtMs;
 
+    @Column(name = "origin", nullable = false)
+    private String origin;
+
+    @Column(name = "brain_verdict")
+    private String brainVerdict;
+
+    @Column(name = "iteration", nullable = false)
+    private int iteration;
+
+    @Column(name = "budget", nullable = false)
+    private int budget;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -83,4 +95,16 @@ class ReviewRoundEntity
 
     Long getPostedAtMs() { return postedAtMs; }
     void setPostedAtMs(Long postedAtMs) { this.postedAtMs = postedAtMs; }
+
+    String getOrigin() { return origin; }
+    void setOrigin(String origin) { this.origin = origin; }
+
+    String getBrainVerdict() { return brainVerdict; }
+    void setBrainVerdict(String brainVerdict) { this.brainVerdict = brainVerdict; }
+
+    int getIteration() { return iteration; }
+    void setIteration(int iteration) { this.iteration = iteration; }
+
+    int getBudget() { return budget; }
+    void setBudget(int budget) { this.budget = budget; }
 }

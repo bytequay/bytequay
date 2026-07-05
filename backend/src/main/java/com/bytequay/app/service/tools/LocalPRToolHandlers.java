@@ -16,9 +16,13 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
+import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.runs.AgentRunService;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -47,11 +51,19 @@ public class LocalPRToolHandlers
 
     private final LocalPRService localPr;
     private final TaskStore taskStore;
+    private final BrainReviewService brainReview;
+    private final ReviewRoundStore roundStore;
+    private final AgentRunService agentRuns;
 
-    public LocalPRToolHandlers(LocalPRService localPr, TaskStore taskStore)
+    public LocalPRToolHandlers(
+            LocalPRService localPr, TaskStore taskStore, BrainReviewService brainReview,
+            ReviewRoundStore roundStore, AgentRunService agentRuns)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.roundStore = requireNonNull(roundStore, "roundStore is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
     }
 
     /** Args for {@code record_pr_description}. */
@@ -153,8 +165,10 @@ public class LocalPRToolHandlers
             return ToolOutcome.Completed.ok("no-op: request_user_review was not set");
         }
         return withPr(call, pr -> {
-            localPr.requestUserReview(pr.id(), LocalPRTimelineEvent.ACTOR_AGENT);
-            return ToolOutcome.Completed.ok("flipped local PR to local-open for user review");
+            LocalPR after = brainReview.reviewBeforeLocalOpen(pr.id(), LocalPRTimelineEvent.ACTOR_AGENT);
+            return ToolOutcome.Completed.ok(LocalPR.STATUS_LOCAL_OPEN.equals(after.status())
+                    ? "flipped local PR to local-open for user review"
+                    : "development done — the brain is reviewing the diff before handing it to the user");
         });
     }
 
@@ -177,6 +191,7 @@ public class LocalPRToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome recordPrComment(RecordPrCommentArgs args, ToolCall call)
     {
+        String author = isBrainReviewTurn(call) ? LocalPRTimelineEvent.ACTOR_BRAIN : LocalPRTimelineEvent.ACTOR_AGENT;
         return withPr(call, pr -> {
             localPr.addComment(
                     pr.id(),
@@ -184,11 +199,29 @@ public class LocalPRToolHandlers
                     args.scope(),
                     args.filePath(),
                     args.lineNumber(),
-                    LocalPRTimelineEvent.ACTOR_AGENT,
+                    author,
                     args.body(),
                     /* parentCommentId */ null);
             return ToolOutcome.Completed.ok("recorded PR comment");
         });
+    }
+
+    /** True while the calling turn is a brain adversarial-review pass (its
+     *  stage is a live round in {@code triaging} — plan-rail-runs.md R21/R22)
+     *  — attributes the comment to the brain rather than the dev agent. */
+    private boolean isBrainReviewTurn(ToolCall call)
+    {
+        String taskId = call.taskId();
+        String stageId = call.stageId();
+        if (taskId == null || stageId == null) {
+            return false;
+        }
+        return roundStore.findLiveByTask(taskId)
+                .filter(r -> ReviewRound.STATUS_TRIAGING.equals(r.status()))
+                .filter(r -> r.runId() != null)
+                .flatMap(r -> agentRuns.findById(r.runId()))
+                .map(run -> stageId.equals(run.stageId()))
+                .orElse(false);
     }
 
     /** Args for {@code resolve_pr_comment}. */

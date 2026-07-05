@@ -54,5 +54,11 @@ public enum StageEventType
     /** A CLOSED stage was woken back up for a new burst of work of the same
      *  kind, reusing its id (and whatever agent session is cached under it)
      *  instead of opening a second stage. */
-    REOPENED
+    REOPENED,
+
+    /** The brain's mandatory one-round self-review of its own plan finished
+     *  (plan-rail-runs.md R20) — payload carries the verdict + whether it
+     *  revised the plan. Written on the PlanStage; at most one per task, so
+     *  its presence also gates against re-triggering the self-review turn. */
+    PLAN_SELF_REVIEWED
 }

@@ -45,6 +45,9 @@ public record LocalPRTimelineEvent(
 
     public static final String ACTOR_AGENT = "claude-code";
     public static final String ACTOR_USER = "you";
+    /** The brain's own adversarial-review events (plan-rail-runs.md R20-R24)
+     *  — always {@code localOnly}, never migrated to GitHub. */
+    public static final String ACTOR_BRAIN = "brain";
 
     /** Copy stamped as stripped-on-push — a local-only event never migrates
      *  to GitHub, so the push transition marks it here (design #47). */

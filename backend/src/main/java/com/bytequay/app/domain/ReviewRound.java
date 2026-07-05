@@ -27,6 +27,15 @@ import java.util.List;
  *              null until the run opens
  * @param gatedAt when drafts became ready for the user to review, null while live
  * @param postedAt when the user approved the gate (posted + pushed), null until then
+ * @param origin {@code external} (a real reviewer's comment batch) or
+ *               {@code brain} (a dev-end adversarial review the brain opened
+ *               on itself, no external reviewer involved — R20-R24)
+ * @param brainVerdict the brain's latest verdict on this round's diff —
+ *                     {@code approved} / {@code changes_requested} / null
+ *                     before the brain has reviewed it
+ * @param iteration how many review-fix cycles the brain has run so far
+ * @param budget max review-fix cycles before escalating to the human
+ *               (default 3, R23)
  */
 public record ReviewRound(
         String id,
@@ -38,13 +47,28 @@ public record ReviewRound(
         String runId,
         Instant openedAt,
         Instant gatedAt,
-        Instant postedAt)
+        Instant postedAt,
+        String origin,
+        String brainVerdict,
+        int iteration,
+        int budget)
 {
     public static final String STATUS_TRIAGING = "triaging";
     public static final String STATUS_ADDRESSING = "addressing";
     public static final String STATUS_AWAITING_GATE = "awaiting_gate";
     public static final String STATUS_POSTED = "posted";
     public static final String STATUS_CLOSED = "closed";
+
+    public static final String ORIGIN_EXTERNAL = "external";
+    public static final String ORIGIN_BRAIN = "brain";
+
+    public static final String VERDICT_APPROVED = "approved";
+    public static final String VERDICT_CHANGES_REQUESTED = "changes_requested";
+
+    /** Default review-fix cycles before a brain review escalates to the
+     *  human (R23) — deliberately conservative: two agents can deadlock
+     *  arguing style or philosophy, and the human is the tiebreaker. */
+    public static final int DEFAULT_BRAIN_BUDGET = 3;
 
     public record ReviewRoundStats(int fixed, int replied, int pushedBack, int open)
     {
@@ -62,28 +86,49 @@ public record ReviewRound(
                 || STATUS_AWAITING_GATE.equals(status);
     }
 
+    /** True once the brain's iteration budget is spent — the loop stops and
+     *  escalates to the human regardless of the latest verdict (R23). */
+    public boolean brainBudgetExhausted()
+    {
+        return iteration >= budget;
+    }
+
     public ReviewRound withRunId(String runId)
     {
-        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
+                origin, brainVerdict, iteration, budget);
     }
 
     public ReviewRound withStatus(String status)
     {
-        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
+                origin, brainVerdict, iteration, budget);
     }
 
     public ReviewRound withStats(ReviewRoundStats stats)
     {
-        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
+                origin, brainVerdict, iteration, budget);
     }
 
     public ReviewRound withGatedAt(Instant gatedAt)
     {
-        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
+                origin, brainVerdict, iteration, budget);
     }
 
     public ReviewRound withPostedAt(Instant postedAt)
     {
-        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt);
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
+                origin, brainVerdict, iteration, budget);
+    }
+
+    /** Copy with the brain's latest verdict recorded and the iteration count
+     *  bumped — one call per review pass, whether this round is heading
+     *  toward another fix cycle or concluding. */
+    public ReviewRound withBrainVerdict(String verdict)
+    {
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
+                origin, verdict, iteration + 1, budget);
     }
 }

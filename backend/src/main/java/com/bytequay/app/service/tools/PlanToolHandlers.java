@@ -38,7 +38,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -148,28 +147,11 @@ public class PlanToolHandlers
         // prompt's first line (which reads like a stray chat message). The
         // prompt-derived name set at creation stands until the brain plans.
         renameFromGoal(args.taskId(), args.plan());
-        autoApproveIfLowRiskLowEffort(args.taskId(), args.plan());
+        // Auto-approve is evaluated by BrainReviewServiceImpl instead of here
+        // (plan-rail-runs.md R20) — the brain's mandatory self-review runs
+        // between this call and the review bar, so the confidence gate must
+        // see the POST-self-review plan, not this one.
         return serialise(event.payloadJson());
-    }
-
-    private static final Set<String> LOW_EFFORT_COMPLEXITY = Set.of("trivial", "small");
-
-    /** A finalized plan that's both low-risk and low-effort turns auto-approve
-     *  on by default, so a routine change starts development without the user
-     *  having to flip the switch themselves. One-directional: this never turns
-     *  auto-approve back off, since the user may have set it deliberately for
-     *  other reasons. */
-    private void autoApproveIfLowRiskLowEffort(String taskId, JsonNode plan)
-    {
-        if (!"finalized".equals(plan.path("status").asText(""))) {
-            return;
-        }
-        JsonNode signals = plan.path("signals");
-        boolean lowRisk = "low".equals(signals.path("riskLevel").asText(""));
-        boolean lowEffort = LOW_EFFORT_COMPLEXITY.contains(signals.path("estimatedComplexity").asText(""));
-        if (lowRisk && lowEffort) {
-            taskStore.setAutoApprove(taskId, true);
-        }
     }
 
     /** Rename the task to the plan's {@code goal} (a concise objective

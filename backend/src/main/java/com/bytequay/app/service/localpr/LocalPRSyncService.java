@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.review.BrainReviewService;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,12 +60,15 @@ public class LocalPRSyncService
     private final LocalPRService localPr;
     private final TaskStore taskStore;
     private final GitRunner git;
+    private final BrainReviewService brainReview;
 
-    public LocalPRSyncService(LocalPRService localPr, TaskStore taskStore, GitRunner git)
+    public LocalPRSyncService(
+            LocalPRService localPr, TaskStore taskStore, GitRunner git, BrainReviewService brainReview)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.git = requireNonNull(git, "git is null");
+        this.brainReview = requireNonNull(brainReview, "brainReview is null");
     }
 
     /** Ensure the task's local PR exists and reflects the branch's commits.
@@ -156,7 +160,7 @@ public class LocalPRSyncService
         }
         LocalPR pr = localPr.findById(prId).orElse(null);
         if (pr != null && pr.canTransitionTo(LocalPR.STATUS_LOCAL_OPEN)) {
-            localPr.requestUserReview(prId, LocalPRTimelineEvent.ACTOR_AGENT);
+            brainReview.reviewBeforeLocalOpen(prId, LocalPRTimelineEvent.ACTOR_AGENT);
         }
     }
 }

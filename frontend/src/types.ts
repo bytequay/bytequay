@@ -3999,17 +3999,21 @@ export type Bridge = {
   /** Unified diff for one uncommitted file. Truncated at 256 KB. */
   getTaskWorkingDiff: (id: string, path: string) => Promise<string>;
   /** Commits authored in the thread's workingDir since thread.createdAt,
-   *  most-recent first. Limited to 100. */
-  listTaskCommits: (id: string) => Promise<ThreadCommitDto[]>;
+   *  most-recent first. Limited to 100. `taskId` disambiguates which of the
+   *  thread's tasks to scope to — a thread can carry more than one task, and
+   *  omitting it falls back to the thread's latest task, which is wrong once
+   *  the viewed task isn't that one. */
+  listTaskCommits: (id: string, taskId?: string) => Promise<ThreadCommitDto[]>;
   /** Per-file rollup (path + status + +/-) for one of the thread's commits. */
   listTaskCommitFiles: (id: string, sha: string) => Promise<ThreadCommitFileDto[]>;
   /** Unified diff for one file at one of the thread's commits. */
   getTaskCommitDiff: (id: string, sha: string, path: string) => Promise<string>;
   /** The task's full diff against its base branch, shaped like the PR
-   *  review's DiffFileDto so the same diff component renders it. */
-  getTaskCumulativeDiff: (id: string) => Promise<DiffFileDto[]>;
+   *  review's DiffFileDto so the same diff component renders it. `taskId`
+   *  disambiguates which task on the thread — see {@link listTaskCommits}. */
+  getTaskCumulativeDiff: (id: string, taskId?: string) => Promise<DiffFileDto[]>;
   /** One commit's diff as DiffFileDto rows for the shared diff view. */
-  getTaskCommitDiffFiles: (id: string, sha: string) => Promise<DiffFileDto[]>;
+  getTaskCommitDiffFiles: (id: string, sha: string, taskId?: string) => Promise<DiffFileDto[]>;
 };
 
 /** Mirror of GitRunner.WorkingTreeFile — uncommitted change in a

@@ -80,11 +80,15 @@ const OPEN_COMMENT = {
 
 describe('TaskCodePage', () => {
   it('renders the cumulative diff via the shared continuous renderer', async () => {
-    mockBridge();
+    const bridge = mockBridge();
     const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
 
     // Toolbar + title.
     expect(await screen.findByRole('button', { name: '← Back' })).toBeTruthy();
+    // The task id must reach the bridge — a thread can carry more than one
+    // task, and omitting it made the backend resolve the wrong task's diff.
+    await waitFor(() => expect(bridge.getTaskCumulativeDiff).toHaveBeenCalledWith('thread-1', 'task-1'));
+    expect(bridge.listTaskCommits).toHaveBeenCalledWith('thread-1', 'task-1');
     // Continuous diff body (default Files tab): the changed file header +
     // actual diff rows from its patch (the shared renderer parsed the hunks).
     expect((await screen.findAllByText('src/Foo.ts')).length).toBeGreaterThan(0);
@@ -102,7 +106,7 @@ describe('TaskCodePage', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: /Commits/ }));
     fireEvent.click(await screen.findByText('Fix typos in docs'));
-    await waitFor(() => expect(bridge.getTaskCommitDiffFiles).toHaveBeenCalledWith('thread-1', 'abc123def'));
+    await waitFor(() => expect(bridge.getTaskCommitDiffFiles).toHaveBeenCalledWith('thread-1', 'abc123def', 'task-1'));
     // The per-commit diff replaces the cumulative one.
     expect((await screen.findAllByText('src/Bar.ts')).length).toBeGreaterThan(0);
   });

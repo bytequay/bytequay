@@ -840,9 +840,9 @@
 .shell .plan-node:disabled:hover { transform: none; }
 .shell .plan-node.sm { padding: 5px 9px; }
 .shell .plan-node.sm .pn-name { font-size: 11.5px; }
-.shell .plan-node.done { background: rgba(34, 197, 94, 0.06); border-color: rgba(34, 197, 94, 0.28); }
+/* Done stays the plain default card (plan-spine-options.html's `.stage` —
+   no background tint) — only the checkmark glyph turns green. */
 .shell .plan-node.done .pn-glyph { color: #16a34a; }
-.shell .plan-node.done .pn-name { color: var(--text-1); }
 .shell .plan-node.running { background: rgba(217, 119, 6, 0.08); border-color: var(--orange); }
 .shell .plan-node.running .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
 .shell .plan-node.running .pn-name { color: var(--text-1); font-weight: 600; }
@@ -860,7 +860,7 @@
 .shell .plan-node.awaiting .pn-meta { color: var(--orange); opacity: 0.85; }
 .shell .plan-node.sleep .pn-glyph { color: var(--text-4); }
 .shell .plan-node.sleep .pn-name { color: var(--text-3); }
-.shell .plan-node.future { background: transparent; border-style: dashed; opacity: 0.6; }
+.shell .plan-node.future { background: transparent; border-color: transparent; opacity: 0.6; }
 .shell .plan-node.future .pn-glyph { color: var(--text-4); }
 .shell .plan-node.future .pn-name { color: var(--text-4); }
 .shell .plan-node.errored { background: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.32); }
@@ -889,8 +889,12 @@
 .shell .guard-chip .guard-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .shell .guard-chip .guard-meta { font-family: var(--mono); font-size: 9.5px; opacity: 0.8; }
 .shell .guard-chip.off { opacity: 0.6; }
-.shell .guard-chip.in_sync { border-color: rgba(34, 197, 94, 0.28); }
+/* Matches plan-spine-options.html's `.guard.ok`/`.guard.warn` — the whole
+   chip tints to the state's color, not just its border. */
+.shell .guard-chip.in_sync { border-color: rgba(34, 197, 94, 0.28); background: rgba(34, 197, 94, 0.10); }
+.shell .guard-chip.in_sync .guard-label { color: #16a34a; }
 .shell .guard-chip.drifting, .shell .guard-chip.fixing { border-color: var(--orange); background: rgba(217, 119, 6, 0.08); }
+.shell .guard-chip.drifting .guard-label, .shell .guard-chip.fixing .guard-label { color: var(--orange); }
 .shell .guard-chip.needs_attention { border-color: var(--red); background: rgba(220, 38, 38, 0.08); }
 .shell .guard-chip.needs_attention .guard-label { color: var(--red); }
 

@@ -18,8 +18,6 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.ReviewRound;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -125,10 +123,6 @@ class TestReviewRoundService
         ReviewComment c1 = comment("c1", NOW.minus(Duration.ofMinutes(15)));
         ReviewComment c2 = comment("c2", NOW.minus(Duration.ofMinutes(12)));
         when(stageStore.findUnroundedRemoteComments(TASK_ID)).thenReturn(List.of(c1, c2));
-        when(stageStore.findLiveStageByType(TASK_ID, StageType.REVIEW_MONITOR_STAGE))
-                .thenReturn(Optional.of(new StageInstance(
-                        UUID.randomUUID(), TASK_ID, StageType.REVIEW_MONITOR_STAGE,
-                        StageState.OPEN, NOW, null, null)));
         when(roundStore.nextIndex(TASK_ID)).thenReturn(1);
         AgentRun run = new AgentRun(
                 "run1", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,

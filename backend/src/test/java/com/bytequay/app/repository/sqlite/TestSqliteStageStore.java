@@ -118,6 +118,57 @@ class TestSqliteStageStore
     }
 
     @Test
+    void reopenStageFlipsClosedBackToOpenAndWritesReopenedEvent()
+    {
+        String taskId = seedTask();
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        stageStore.closeStage(stage.id(), "ci_green");
+
+        StageInstance reopened = stageStore.reopenStage(stage.id());
+
+        assertThat(reopened.id()).isEqualTo(stage.id());
+        assertThat(reopened.state()).isEqualTo(StageState.OPEN);
+        assertThat(reopened.closedAt()).isEmpty();
+        StageInstance reloaded = stageStore.findStageById(stage.id()).orElseThrow();
+        assertThat(reloaded.state()).isEqualTo(StageState.OPEN);
+        assertThat(reloaded.closedAt()).isEmpty();
+        assertThat(stageStore.findEventsByStage(stage.id()))
+                .extracting(StageEvent::eventType)
+                .containsExactly(StageEventType.OPENED, StageEventType.CLOSED, StageEventType.REOPENED);
+    }
+
+    @Test
+    void reopenStageNoOpsWhenTheStageIsNotClosed()
+    {
+        String taskId = seedTask();
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+
+        StageInstance result = stageStore.reopenStage(stage.id());
+
+        assertThat(result.state()).isEqualTo(StageState.OPEN);
+        assertThat(stageStore.findEventsByStage(stage.id()))
+                .extracting(StageEvent::eventType)
+                .containsExactly(StageEventType.OPENED);
+    }
+
+    @Test
+    void findStageByTypeFindsAStageRegardlessOfState()
+    {
+        String taskId = seedTask();
+        assertThat(stageStore.findStageByType(taskId, StageType.CI_FIXING_STAGE)).isEmpty();
+
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        assertThat(stageStore.findStageByType(taskId, StageType.CI_FIXING_STAGE).map(StageInstance::id))
+                .hasValue(stage.id());
+
+        stageStore.closeStage(stage.id(), "ci_green");
+        // Unlike findLiveStageByType, a closed stage still comes back.
+        assertThat(stageStore.findLiveStageByType(taskId, StageType.CI_FIXING_STAGE)).isEmpty();
+        assertThat(stageStore.findStageByType(taskId, StageType.CI_FIXING_STAGE).map(StageInstance::id))
+                .hasValue(stage.id());
+    }
+
+    @Test
     void findActiveStageTracksTheOpenStage()
     {
         String taskId = seedTask();

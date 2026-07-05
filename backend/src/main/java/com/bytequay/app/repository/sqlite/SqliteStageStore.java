@@ -124,6 +124,22 @@ class SqliteStageStore
     }
 
     @Override
+    @Transactional
+    public StageInstance reopenStage(UUID stageId)
+    {
+        requireNonNull(stageId, "stageId is null");
+        TaskStageEntity row = stages.findById(stageId.toString()).orElse(null);
+        if (row == null || !StageState.CLOSED.name().equals(row.getState())) {
+            return row == null ? null : toStage(row);
+        }
+        row.setState(StageState.OPEN.name());
+        row.setClosedAtMs(null);
+        stages.save(row);
+        writeEvent(row.getId(), row.getTaskId(), StageEventType.REOPENED, Map.of(), Instant.now());
+        return toStage(row);
+    }
+
+    @Override
     public Optional<StageInstance> findStageById(UUID stageId)
     {
         return stages.findById(stageId.toString()).map(SqliteStageStore::toStage);

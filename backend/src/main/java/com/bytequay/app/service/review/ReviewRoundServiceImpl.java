@@ -152,16 +152,16 @@ class ReviewRoundServiceImpl
         if (ref.isEmpty()) {
             return;
         }
-        String parentStageId = stageStore.findLiveStageByType(task.id(), StageType.REVIEW_MONITOR_STAGE)
-                .map(s -> s.id().toString())
-                .orElse(null);
         String roundId = UUID.randomUUID().toString();
         List<UUID> commentIds = comments.stream().map(ReviewComment::id).toList();
         stageStore.assignCommentsToRound(commentIds, UUID.fromString(roundId));
 
+        // No caller-stage lookup — agentRuns.open reuses (wakes back up) the
+        // task's existing REVIEW_ROUND_STAGE if one's already been opened
+        // before, rather than us threading a parent pointer through.
         AgentRun run = agentRuns.open(
                 task.id(), AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
-                parentStageId, StageType.REVIEW_ROUND_STAGE, /* budget */ null);
+                /* parentStageId */ null, StageType.REVIEW_ROUND_STAGE, /* budget */ null);
 
         ReviewRound round = new ReviewRound(
                 roundId, task.id(), roundStore.nextIndex(task.id()), List.of(),

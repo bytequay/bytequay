@@ -31,6 +31,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -50,6 +51,7 @@ class TestAgentRunService
     void openStartsAFreshRunWithItsOwnBackingStage()
     {
         when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
+        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.empty());
         when(stageStore.openStage(eq("t1"), eq(StageType.CI_FIXING_STAGE), any()))
                 .thenReturn(new StageInstance(
                         BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
@@ -85,13 +87,17 @@ class TestAgentRunService
     }
 
     @Test
-    void openPassesParentStageIdAsTheBackingStageCallerId()
+    void openNeverThreadsParentStageIdIntoTheBackingStagesCallerId()
     {
+        // parentStageId still lands on the AgentRun record itself (whatever
+        // the caller passes), but open() no longer forwards it as the backing
+        // stage's caller id — every stage opens/reuses with a null caller.
         UUID devStageId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
         when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
-        when(stageStore.openStage(eq("t1"), eq(StageType.CI_FIXING_STAGE), eq(devStageId)))
+        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.empty());
+        when(stageStore.openStage(eq("t1"), eq(StageType.CI_FIXING_STAGE), isNull()))
                 .thenReturn(new StageInstance(
-                        BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, devStageId));
+                        BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun run = service.open(
@@ -99,7 +105,43 @@ class TestAgentRunService
                 StageType.CI_FIXING_STAGE, null);
 
         assertThat(run.parentStageId()).isEqualTo(devStageId.toString());
-        verify(stageStore).openStage("t1", StageType.CI_FIXING_STAGE, devStageId);
+        verify(stageStore).openStage("t1", StageType.CI_FIXING_STAGE, null);
+    }
+
+    @Test
+    void openReopensAClosedStageOfTheSameTypeInsteadOfMintingANewOne()
+    {
+        StageInstance closedStage = new StageInstance(
+                BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.CLOSED, NOW, NOW, null);
+        when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
+        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.of(closedStage));
+        when(stageStore.reopenStage(BACKING_STAGE_ID)).thenReturn(new StageInstance(
+                BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun run = service.open(
+                "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
+
+        assertThat(run.stageId()).isEqualTo(BACKING_STAGE_ID.toString());
+        verify(stageStore).reopenStage(BACKING_STAGE_ID);
+        verify(stageStore, never()).openStage(any(), any(), any());
+    }
+
+    @Test
+    void openReusesAnAlreadyOpenStageOfTheSameTypeWithoutReopeningOrCreating()
+    {
+        StageInstance openStage = new StageInstance(
+                BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null);
+        when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
+        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.of(openStage));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun run = service.open(
+                "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
+
+        assertThat(run.stageId()).isEqualTo(BACKING_STAGE_ID.toString());
+        verify(stageStore, never()).reopenStage(any());
+        verify(stageStore, never()).openStage(any(), any(), any());
     }
 
     @Test

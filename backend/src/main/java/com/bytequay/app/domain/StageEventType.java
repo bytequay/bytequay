@@ -49,5 +49,10 @@ public enum StageEventType
     /** A planning turn finished without producing a plan (the brain agent
      *  errored or never recorded one). Payload carries the failure reason so
      *  the plan card / feed can surface it instead of a silent empty draft. */
-    PLAN_FAILED
+    PLAN_FAILED,
+
+    /** A CLOSED stage was woken back up for a new burst of work of the same
+     *  kind, reusing its id (and whatever agent session is cached under it)
+     *  instead of opening a second stage. */
+    REOPENED
 }

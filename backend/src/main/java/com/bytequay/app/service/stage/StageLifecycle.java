@@ -15,6 +15,7 @@ package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.StageStore;
@@ -140,9 +141,16 @@ public class StageLifecycle
             throw new IllegalStateException(
                     "DevelopmentStage cannot open without an approved PlanStage on task " + taskId);
         }
-        // Phase-driven stages are top-level — only a callable review panel
-        // carries a caller pointer, so callerStageId stays null here.
-        StageInstance opened = stageStore.openStage(taskId, target.get(), null);
+        // A closed stage of this type means the task already ran this chapter
+        // before (e.g. NEEDS_ATTENTION -> IMPLEMENTING re-entering a task
+        // that already closed its DevelopmentStage) — wake it back up rather
+        // than opening a second one, reusing whatever agent session is
+        // cached under its id.
+        StageInstance opened = stageStore.findStageByType(taskId, target.get())
+                .map(found -> found.state() == StageState.CLOSED
+                        ? stageStore.reopenStage(found.id())
+                        : found)
+                .orElseGet(() -> stageStore.openStage(taskId, target.get(), null));
         // The CleanupStage is a terminal marker, not live work — the worktree
         // reap happens in the completion path, not in an agent turn. Open and
         // immediately close it so a finished task shows "done", never a stage

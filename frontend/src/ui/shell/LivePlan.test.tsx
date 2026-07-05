@@ -96,7 +96,7 @@ describe('LivePlan', () => {
     expect(screen.getByText('Development').closest('.plan-node')?.className).toContain('active-view');
   });
 
-  it('renders the guard chip when the guard is enabled, hides it otherwise', () => {
+  it('renders the guard chip once a guard row exists, hides it before the task has ever pushed', () => {
     const { rerender } = render(
       <LivePlan nodes={model()} guard={buildGuardChip({
         taskId: 't', enabled: true, schedule: 'nightly', state: 'drifting',
@@ -108,5 +108,25 @@ describe('LivePlan', () => {
 
     rerender(<LivePlan nodes={model()} guard={buildGuardChip(null)} />);
     expect(screen.queryByText('drifting from main')).toBeNull();
+  });
+
+  it('shows a disabled guard as "off" with a toggle, and fires onToggleGuard when flipped', () => {
+    const onToggleGuard = vi.fn();
+    render(
+      <LivePlan
+        nodes={model()}
+        guard={buildGuardChip({
+          taskId: 't', enabled: false, schedule: 'nightly', state: 'in_sync',
+          lastRunId: null, lastCheckedAt: null,
+        })}
+        onToggleGuard={onToggleGuard}
+      />,
+    );
+    expect(screen.getByText('guard off')).toBeTruthy();
+    const toggle = screen.getByRole('switch', { name: 'Enable branch guard' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+
+    fireEvent.click(toggle);
+    expect(onToggleGuard).toHaveBeenCalledWith(true);
   });
 });

@@ -555,6 +555,11 @@ export function StageDetailRoute({
       onOpenPr={pr !== null ? openPr : undefined}
       onOpenBrain={onOpenBrain}
       onOpenRun={onOpenRun}
+      onToggleGuard={enabled => {
+        void window.bridge.updateTaskGuard(taskId, { enabled })
+          .then(() => { pollFast(); refresh(); })
+          .catch(() => { /* poll reconciles */ });
+      }}
     />
   );
 

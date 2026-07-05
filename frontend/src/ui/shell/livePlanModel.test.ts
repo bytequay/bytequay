@@ -346,13 +346,18 @@ describe('buildGuardChip', () => {
     };
   }
 
-  it('returns null before the guard is enabled (no push yet)', () => {
+  it('returns null only when no guard row exists yet (no push yet)', () => {
     expect(buildGuardChip(null)).toBeNull();
     expect(buildGuardChip(undefined)).toBeNull();
-    expect(buildGuardChip(guard({ enabled: false }))).toBeNull();
   });
 
-  it('labels each guard state', () => {
+  it('shows a disabled row as "off" — with a toggle, not hidden — so it can be armed', () => {
+    const chip = buildGuardChip(guard({ enabled: false, state: 'in_sync' }));
+    expect(chip?.enabled).toBe(false);
+    expect(chip?.label).toBe('guard off');
+  });
+
+  it('labels each guard state while enabled', () => {
     expect(buildGuardChip(guard({ state: 'in_sync' }))?.label).toBe('in sync with main');
     expect(buildGuardChip(guard({ state: 'drifting' }))?.label).toBe('drifting from main');
     expect(buildGuardChip(guard({ state: 'fixing' }))?.label).toBe('fixing drift');

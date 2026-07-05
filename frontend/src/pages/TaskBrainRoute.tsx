@@ -359,6 +359,9 @@ export function TaskBrainRoute({
       onOpenCode={onOpenCode}
       onOpenPr={pr?.onOpen}
       onOpenRun={onOpenRun}
+      onToggleGuard={enabled => {
+        void window.bridge.updateTaskGuard(taskId, { enabled }).then(pollFast).catch(() => { /* poll reconciles */ });
+      }}
     />
   );
 

@@ -15,6 +15,7 @@ package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.StageStore;
@@ -79,8 +80,16 @@ class AgentRunServiceImpl
         if (existing.isPresent()) {
             return existing.get();
         }
-        UUID callerStageId = parentStageId == null ? null : UUID.fromString(parentStageId);
-        StageInstance backing = stageStore.openStage(taskId, backingStageType, callerStageId);
+        // A closed stage of this type means the task already ran this kind of
+        // work before (an earlier CI-fix attempt, review round, guard tick) —
+        // wake it back up instead of opening a second one, so whatever agent
+        // session is cached under its id gets reused rather than rebuilt from
+        // scratch.
+        StageInstance backing = stageStore.findStageByType(taskId, backingStageType)
+                .map(found -> found.state() == StageState.CLOSED
+                        ? stageStore.reopenStage(found.id())
+                        : found)
+                .orElseGet(() -> stageStore.openStage(taskId, backingStageType, null));
         AgentRun run = new AgentRun(
                 UUID.randomUUID().toString(), taskId, kind, source, parentStageId,
                 /* reviewRoundId */ null, backing.id().toString(), AgentRun.STATUS_RUNNING,

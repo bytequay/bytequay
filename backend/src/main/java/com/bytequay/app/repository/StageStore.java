@@ -55,6 +55,14 @@ public interface StageStore
      *  rather than as a second row. No-op when unknown or already closed. */
     void closeStage(UUID stageId, String reason, Map<String, Object> extraPayload);
 
+    /** Wake a {@code CLOSED} stage back up for a new burst of the same kind
+     *  of work: state → {@code OPEN}, {@code closedAt} cleared, writing a
+     *  {@code REOPENED} event. Lets a later CI-fix / review-round / guard
+     *  tick reuse the stage id (and whatever agent session is cached under
+     *  it) instead of opening a second stage. No-op (returns the row
+     *  unchanged) when the stage is unknown or not currently closed. */
+    StageInstance reopenStage(UUID stageId);
+
     Optional<StageInstance> findStageById(UUID stageId);
 
     /** The raw {@code metrics_json} blob for a stage, or empty if unknown. */
@@ -82,6 +90,18 @@ public interface StageStore
     {
         return findStagesByTask(taskId).stream()
                 .filter(s -> s.type() == type && s.state() != StageState.CLOSED)
+                .reduce((first, second) -> second);
+    }
+
+    /** The task's stage of this exact type, regardless of state (including
+     *  {@code CLOSED}) — the reuse check a caller runs before minting a new
+     *  stage, so a second burst of the same kind of work (another CI-fix
+     *  attempt, another review round, tomorrow's guard tick) wakes the
+     *  existing stage back up instead of duplicating it. */
+    default Optional<StageInstance> findStageByType(String taskId, StageType type)
+    {
+        return findStagesByTask(taskId).stream()
+                .filter(s -> s.type() == type)
                 .reduce((first, second) -> second);
     }
 

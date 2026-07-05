@@ -237,6 +237,41 @@ class TestStageLifecycle
         assertThat(stageStore.findStagesByTask(taskId)).hasSize(2);
     }
 
+    @Test
+    void needsAttentionRecoveryReopensTheOriginalDevelopmentStageInsteadOfDuplicatingIt()
+    {
+        String taskId = seedTask();
+        events.publishEvent(new TaskCreatedEvent(taskId));
+        planStageService.approve(taskId, "rev-1");
+        StageInstance originalDev = only(taskId, StageType.DEVELOPMENT_STAGE);
+        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
+        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "push", Actor.HUMAN);
+        // Moving into remote review closes the DevelopmentStage for real.
+        machine.transition(taskId, TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green", Actor.WEBHOOK);
+        assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
+
+        // Parked (a universal escape, cross-cutting — ReviewMonitor stays
+        // active through it), then a human recovers it straight back to
+        // IMPLEMENTING — a legal edge that re-enters DevelopmentStage's
+        // phase set from a LATER stage's active window.
+        machine.transition(taskId, TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
+        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
+
+        machine.transition(taskId, TaskPhase.IMPLEMENTING, "recovered", Actor.HUMAN);
+
+        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
+        // The SAME row wakes back up — not a second DevelopmentStage.
+        StageInstance reopenedDev = only(taskId, StageType.DEVELOPMENT_STAGE);
+        assertThat(reopenedDev.id()).isEqualTo(originalDev.id());
+        assertThat(reopenedDev.state()).isEqualTo(StageState.OPEN);
+        assertThat(reopenedDev.closedAt()).isEmpty();
+        assertThat(stageStore.findEventsByStage(reopenedDev.id()))
+                .extracting(StageEvent::eventType)
+                .containsExactly(StageEventType.OPENED, StageEventType.CLOSED, StageEventType.REOPENED);
+    }
+
     private void assertActive(String taskId, StageType type)
     {
         StageInstance active = stageStore.findActiveStage(taskId).orElseThrow();

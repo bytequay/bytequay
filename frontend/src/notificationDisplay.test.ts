@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { previewFor, titleFor } from './notificationDisplay';
+import { isPendingProposal, previewFor, titleFor } from './notificationDisplay';
 import type { NotificationDto } from './types';
 
 describe('notificationDisplay.titleFor', () => {
@@ -147,6 +147,27 @@ describe('notificationDisplay.previewFor', () => {
       nextTitle: 'Address review comments',
     }));
     expect(preview).toBe('acme/widget #42 · next: Address review comments');
+  });
+});
+
+describe('notificationDisplay.isPendingProposal', () => {
+  it('accepts an unread, a read, and a resolving parked proposal for the same task', () => {
+    for (const status of ['UNREAD', 'READ', 'RESOLVING'] as const) {
+      const n = { ...awaitingReview({ action: 'mark_ready' }), status };
+      expect(isPendingProposal(n, 'task-1')).toBe(true);
+    }
+  });
+
+  it('rejects a proposal for a different task', () => {
+    expect(isPendingProposal(awaitingReview({ action: 'mark_ready' }), 'task-2')).toBe(false);
+  });
+
+  it('rejects a notification with no parked action', () => {
+    expect(isPendingProposal(awaitingReview({}), 'task-1')).toBe(false);
+  });
+
+  it('rejects a non-AWAITING_REVIEW kind', () => {
+    expect(isPendingProposal(autoFixDone({ action: 'mark_ready' }), 'task-1')).toBe(false);
   });
 });
 

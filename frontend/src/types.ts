@@ -2537,6 +2537,7 @@ export const PUBLISH_GATE_ACTIONS = [
   'set_issue_state',
   'open_pr',
   'publish_review',
+  'mark_ready',
 ] as const;
 export type PublishGateAction = typeof PUBLISH_GATE_ACTIONS[number];
 

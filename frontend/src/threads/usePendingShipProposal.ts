@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { isPendingProposal } from '../notificationDisplay';
 import type { NotificationDto } from '../types';
 
 /** The parked `action` carried by a proposal notification, or null when
@@ -43,19 +44,7 @@ export function usePendingShipProposal(threadId: string, taskId: string): Notifi
     if (bridge?.listNotificationsForThread === undefined) return;
     try {
       const list = await bridge.listNotificationsForThread(threadId);
-      const matches = list.filter((n) => {
-        if (n.kind !== 'AWAITING_REVIEW' || n.taskId !== taskId) return false;
-        if (n.status !== 'UNREAD' && n.status !== 'RESOLVING') return false;
-        // Any parked publish proposal — ship_task, open_pr, push, merge_pr … —
-        // is an approval gate the user must see; matching only ship_task left
-        // open_pr/push parks invisible. A parked proposal always carries a
-        // non-empty `action`, which distinguishes it from a bare notice.
-        try {
-          const action = JSON.parse(n.payloadJson)?.action;
-          return typeof action === 'string' && action.length > 0;
-        }
-        catch { return false; }
-      });
+      const matches = list.filter((n) => isPendingProposal(n, taskId));
       // The LATEST parked proposal is the live gate. An older un-superseded
       // one — e.g. a stale `ship_task` left behind after the task already
       // shipped — must never win over the current `merge_pr`, or the

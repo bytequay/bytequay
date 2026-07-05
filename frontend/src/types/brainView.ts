@@ -83,13 +83,24 @@ export type AgentRunDto = {
   finishedAt: string | null;
 };
 
-export type BranchGuardState = 'in_sync' | 'drifting' | 'fixing' | 'needs_attention';
+export type BranchGuardState = 'healthy' | 'drifting' | 'conflicted' | 'fixing' | 'needs_attention';
+
+/** The last probe's three facets (R18) — purely observational; `checksGreen`
+ *  never drives the guard's own state (that stays AutomationCoordinator's
+ *  job, so it never reacts to CI failures caused by our own just-pushed
+ *  commits). Any facet may be `null` before the guard's first tick. */
+export type BranchGuardHealth = {
+  behindBy: number | null;
+  mergeable: boolean | null;
+  checksGreen: boolean | null;
+};
 
 export type BranchGuardDto = {
   taskId: string;
   enabled: boolean;
   schedule: string;
   state: BranchGuardState;
+  health: BranchGuardHealth;
   lastRunId: string | null;
   lastCheckedAt: string | null;
 };
@@ -118,6 +129,20 @@ export type ReviewRoundDto = {
   gatedAt: string | null;
   /** When the user approved the gate (posted + pushed); null until then. */
   postedAt: string | null;
+};
+
+/** One row of Development's in-stage phase ladder (plan-rail-runs.md R29):
+ *  Implementing → Validation → Brain review. `status` mirrors the rail's own
+ *  vocabulary so the frontend can render it directly with no reinterpretation
+ *  layer. `badgeRunId` points at the `liveRuns` entry to badge this phase with
+ *  (the local `ci_fix` run for Validation), null when nothing's live. */
+export type DevPhaseStatus = 'done' | 'running' | 'future';
+export type DevPhaseKey = 'implementing' | 'validation' | 'brainReview';
+export type DevPhaseDto = {
+  key: DevPhaseKey;
+  status: DevPhaseStatus;
+  meta: string | null;
+  badgeRunId: string | null;
 };
 
 export type StageState = 'OPEN' | 'ACTIVE' | 'PAUSED' | 'CLOSED';
@@ -307,6 +332,10 @@ export type TaskBrainViewData = {
   /** The task's currently-open review round (not yet posted/closed), or
    *  null — drives the Comments node's "round N · M open" rail meta. */
   liveRound: ReviewRoundDto | null;
+  /** Development's in-stage phase ladder (Implementing/Validation/Brain
+   *  review, plan-rail-runs.md R29) — empty until a Development stage
+   *  exists. */
+  devPhases: DevPhaseDto[];
 };
 
 /** Result of posting a brain message: the answering turn id and the
@@ -374,6 +403,8 @@ export type StageDetailData = {
   liveRuns: AgentRunDto[];
   guard: BranchGuardDto;
   liveRound: ReviewRoundDto | null;
+  /** Same field and rationale as {@link TaskBrainViewData.devPhases}. */
+  devPhases: DevPhaseDto[];
 };
 
 /** The PR-tab payload surfaced on the stage detail (frames 6/7). */

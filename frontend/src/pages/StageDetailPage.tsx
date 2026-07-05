@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import { IconBtn, Pill } from '../ui/primitives';
@@ -46,6 +46,7 @@ const PILL_LABEL: Record<StageKind, string> = {
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
   tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi, planReminder, onRevealPlan, markReadyReminder,
+  openTabRequest,
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
@@ -86,6 +87,10 @@ export function StageDetailPage({
    *  draft's CI is green and the mark-ready gate is parked — clicking it
    *  jumps to the Changes page via {@code onOpenChanges}. */
   markReadyReminder?: boolean;
+  /** Force-opens a tab from outside (the live-plan rail's gate nodes) — a
+   *  fresh object (new `token`) re-fires even for a repeat click on the tab
+   *  that's already open. */
+  openTabRequest?: { tab: StageTab; token: number };
 }) {
   // PR leads the strip and opens first (decision #48) — it's the primary
   // artifact. The Code Diff tab renders the in-pane diff on every work stage;
@@ -102,6 +107,12 @@ export function StageDetailPage({
   const [activeTab, setActiveTab] = useState<StageTab | undefined>(available[0]?.key);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
+
+  useEffect(() => {
+    if (openTabRequest === undefined) return;
+    setActiveTab(openTabRequest.tab);
+    setPaneOpen(true);
+  }, [openTabRequest]);
 
   const active = available.find(t => t.key === activeTab) ?? available[available.length - 1];
   const paneTabs: PaneTab<StageTab>[] = available.map(t => ({

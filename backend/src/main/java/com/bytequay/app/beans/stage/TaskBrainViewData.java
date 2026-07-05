@@ -36,6 +36,9 @@ import java.util.List;
  *                  posted/closed), or null — drives the Comments node's
  *                  "round N · M open" rail meta, same folded-in-payload
  *                  rationale as {@code liveRuns}/{@code guard}
+ * @param devPhases Development's in-stage phase ladder (Implementing /
+ *                  Validation / Brain review, plan-rail-runs.md R29) — empty
+ *                  until a Development stage exists
  */
 public record TaskBrainViewData(
         BrainTask task,
@@ -47,7 +50,8 @@ public record TaskBrainViewData(
         Scrubbers scrubbers,
         List<AgentRun> liveRuns,
         BranchGuard guard,
-        ReviewRound liveRound)
+        ReviewRound liveRound,
+        List<DevPhase> devPhases)
 {
     /**
      * The Task header shown above the brain feed.
@@ -193,4 +197,17 @@ public record TaskBrainViewData(
             List<ScrubberDash> userMessages)
     {
     }
+
+    /**
+     * One row of Development's phase ladder. {@code status} is already in the
+     * rail's own vocabulary ({@code done} / {@code running} / {@code future})
+     * so the frontend renders it with no reinterpretation layer.
+     *
+     * @param key {@code implementing} / {@code validation} / {@code brainReview}
+     * @param meta short hint text (e.g. iteration count), or null
+     * @param badgeRunId the live {@link AgentRun} id to badge this phase with
+     *                    (the local {@code ci_fix} run for Validation), or
+     *                    null when nothing's live
+     */
+    public record DevPhase(String key, String status, String meta, String badgeRunId) {}
 }

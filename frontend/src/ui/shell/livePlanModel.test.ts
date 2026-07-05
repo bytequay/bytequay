@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildGuardChip, buildLivePlan } from './livePlanModel';
 import type {
-  AgentRunDto, AgentRunKind, BranchGuardDto, StageDto, StageState, StageType, TaskPhase,
+  AgentRunDto, AgentRunKind, BranchGuardDto, DevPhaseDto, StageDto, StageState, StageType, TaskPhase,
 } from '../../types/brainView';
 
 function stage(type: StageType, state: StageState, over: Partial<StageDto> = {}): StageDto {
@@ -33,19 +33,27 @@ function run(kind: AgentRunKind, over: Partial<AgentRunDto> = {}): AgentRunDto {
   };
 }
 
+function devPhase(key: DevPhaseDto['key'], over: Partial<DevPhaseDto> = {}): DevPhaseDto {
+  return { key, status: 'future', meta: null, badgeRunId: null, ...over };
+}
+
 const node = (nodes: ReturnType<typeof buildLivePlan>, key: string) =>
   nodes.find(n => n.key === key)!;
 
 describe('buildLivePlan', () => {
-  it('renders the flat eight-node spine with Review while Development is open', () => {
+  it('renders the eight-node checkpoint spine with Review while Development is open', () => {
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
     });
-    expect(nodes.map(n => n.key)).toEqual(
-      ['root', 'dev', 'review', 'local-review', 'push', 'comments', 'merge', 'cleanup']);
+    expect(nodes.map(n => n.key)).toEqual([
+      'root', 'dev', 'review', 'local-review', 'remote-pr', 'ci-validation', 'comments', 'merge-close', 'cleanup',
+    ]);
     // Only the Review sub-row — no Checks/Addressing rows.
     expect(nodes.filter(n => n.placement === 'sub').map(n => n.key)).toEqual(['review']);
+    expect(nodes.map(n => n.nodeType)).toEqual([
+      'stage', 'stage', 'stage', 'gate', 'gate', 'auto', 'stage', 'gate', 'auto',
+    ]);
   });
 
   it('renders zero sub-rows once a nit PR closes Development (matches the mockup)', () => {
@@ -114,37 +122,79 @@ describe('buildLivePlan', () => {
     expect(node(nodes, 'dev').status).toBe('running');
   });
 
-  it('adds a Checks sub-row under Development for a live ci_fix run in the dev era', () => {
+  it("badges Development's Validation phase with a live local ci_fix run, nested while open", () => {
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      liveRuns: [run('ci_fix', { iterations: 3, headline: 'fixing linter warning' })],
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      liveRuns: [run('ci_fix', { id: 'local-fix', iterations: 3, headline: 'fixing linter warning' })],
+      devPhases: [
+        devPhase('implementing', { status: 'done' }),
+        devPhase('validation', { status: 'running', badgeRunId: 'local-fix' }),
+        devPhase('brainReview', { status: 'future', meta: 'next' }),
+      ],
+      task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false },
     });
-    const idx = nodes.findIndex(n => n.key === 'dev-checks');
-    expect(idx).toBeGreaterThan(-1);
-    expect(nodes[idx].placement).toBe('sub');
-    expect(nodes[idx].label).toBe('Checks');
-    expect(nodes[idx].status).toBe('running');
-    expect(nodes[idx].meta).toBe('fixing linter warning');
-    expect(nodes[idx].nav).toEqual({ kind: 'run', runId: 'ci_fix-run' });
-    // It sits right after the dev-era Review sub-row, before Local Review.
-    expect(nodes[idx - 1].key).toBe('review');
+    const phases = node(nodes, 'dev').phases;
+    expect(phases?.map(p => p.key)).toEqual(['implementing', 'validation', 'brainReview']);
+    const validation = phases?.find(p => p.key === 'validation');
+    expect(validation?.status).toBe('running');
+    expect(validation?.badge).toBe('fixing linter warning');
+    // No separate rail row for it — it only ever badges the phase row.
+    expect(nodes.some(n => n.key === 'dev-checks')).toBe(false);
     expect(nodes.some(n => n.key === 'comments-checks')).toBe(false);
   });
 
-  it('adds Checks/Addressing sub-rows under Comments once out for remote review', () => {
+  it("collapses Development's phase ladder once the stage closes", () => {
+    const nodes = buildLivePlan({
+      stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
+      devPhases: [
+        devPhase('implementing', { status: 'done' }),
+        devPhase('validation', { status: 'done' }),
+        devPhase('brainReview', { status: 'future', meta: 'next' }),
+      ],
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+    });
+    expect(node(nodes, 'dev').phases).toBeUndefined();
+  });
+
+  it('adds an Addressing sub-row under Comments and badges CI validation once out for remote review', () => {
     const nodes = buildLivePlan({
       stages: [], subStages: [],
-      liveRuns: [run('ci_fix'), run('review_round', { status: 'awaiting_gate' })],
+      liveRuns: [run('ci_fix', { status: 'awaiting_gate' }), run('review_round', { status: 'awaiting_gate' })],
       task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
     });
     expect(nodes.some(n => n.key === 'dev-checks')).toBe(false);
+    expect(nodes.some(n => n.key === 'comments-checks')).toBe(false);
     const addressing = node(nodes, 'comments-addressing');
     expect(addressing.placement).toBe('sub');
     expect(addressing.status).toBe('awaiting');
     expect(addressing.meta).toBe('awaiting you');
-    const checks = node(nodes, 'comments-checks');
-    expect(checks.status).toBe('running');
+    const ciValidation = node(nodes, 'ci-validation');
+    expect(ciValidation.status).toBe('awaiting');
+    expect(ciValidation.meta).toBe('awaiting you');
+  });
+
+  it('derives CI validation status from the linked PR ciStatus when no run is live', () => {
+    const green = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      ciStatus: 'green', ciSummary: 'all checks passed',
+    });
+    expect(node(green, 'ci-validation').status).toBe('done');
+    expect(node(green, 'ci-validation').meta).toBe('all checks passed');
+
+    const failing = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      ciStatus: 'failing',
+    });
+    expect(node(failing, 'ci-validation').status).toBe('errored');
+
+    const noPr = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+    });
+    expect(node(noPr, 'ci-validation').status).toBe('future');
+    expect(node(noPr, 'ci-validation').nav).toEqual({ kind: 'none' });
   });
 
   it('marks a live run\'s sub-row status by its own status, not the parent stage', () => {
@@ -213,48 +263,64 @@ describe('buildLivePlan', () => {
     expect(node(after, 'local-review').meta).toBe('approved');
   });
 
-  it('marks Remote Push done with the PR number once a PR exists, as a peer node', () => {
+  it('opens the PR tab in place for Local review once Development exists, else disabled', () => {
+    const withDev = buildLivePlan({
+      stages: [stage('DEVELOPMENT_STAGE', 'ACTIVE')], subStages: [],
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+    });
+    expect(node(withDev, 'local-review').nav).toEqual({ kind: 'tab', tab: 'pr' });
+
+    const noDev = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: null, currentPhase: 'PLANNING' as TaskPhase, terminal: false },
+    });
+    expect(node(noDev, 'local-review').nav).toEqual({ kind: 'none' });
+  });
+
+  it('marks Remote pull request done with the PR number once a PR exists, as a peer node', () => {
     const nodes = buildLivePlan({
       stages: [], subStages: [],
       task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
-    expect(node(nodes, 'push').status).toBe('done');
-    expect(node(nodes, 'push').meta).toBe('PR #145');
-    expect(node(nodes, 'push').placement).toBe('full');
+    expect(node(nodes, 'remote-pr').status).toBe('done');
+    expect(node(nodes, 'remote-pr').meta).toBe('PR #145');
+    expect(node(nodes, 'remote-pr').placement).toBe('full');
+    expect(node(nodes, 'remote-pr').nav).toEqual({ kind: 'tab', tab: 'pr' });
 
     const early = buildLivePlan({
       stages: [], subStages: [],
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
     });
-    expect(node(early, 'push').status).toBe('future');
+    expect(node(early, 'remote-pr').status).toBe('future');
+    expect(node(early, 'remote-pr').nav).toEqual({ kind: 'none' });
   });
 
-  it('drives the Merge node from PR/merge state', () => {
+  it('drives the Merge / Close node from PR/merge state', () => {
     const queued = buildLivePlan({
       stages: [], subStages: [],
       task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
       prStatus: 'queued',
     });
-    expect(node(queued, 'merge').status).toBe('running');
-    expect(node(queued, 'merge').meta).toBe('queued');
+    expect(node(queued, 'merge-close').status).toBe('running');
+    expect(node(queued, 'merge-close').meta).toBe('queued');
 
     const merged = buildLivePlan({
       stages: [], subStages: [],
       task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, terminal: true },
       prStatus: 'merged',
     });
-    expect(node(merged, 'merge').status).toBe('done');
+    expect(node(merged, 'merge-close').status).toBe('done');
   });
 
-  it('lights the Merge node as ready-to-merge when a merge gate is open', () => {
+  it('lights the Merge / Close node as ready-to-merge when a merge gate is open', () => {
     const ready = buildLivePlan({
       stages: [], subStages: [],
       task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
       prStatus: 'open',
       mergeReady: true,
     });
-    expect(node(ready, 'merge').status).toBe('monitoring');
-    expect(node(ready, 'merge').meta).toBe('ready to merge');
+    expect(node(ready, 'merge-close').status).toBe('monitoring');
+    expect(node(ready, 'merge-close').meta).toBe('ready to merge');
   });
 
   it('shows Review (callable) as not-invoked until a ReviewStage exists, while Development is open', () => {
@@ -341,7 +407,8 @@ describe('buildLivePlan', () => {
 describe('buildGuardChip', () => {
   function guard(over: Partial<BranchGuardDto> = {}): BranchGuardDto {
     return {
-      taskId: 't', enabled: true, schedule: 'nightly', state: 'in_sync',
+      taskId: 't', enabled: true, schedule: 'nightly', state: 'healthy',
+      health: { behindBy: 0, mergeable: true, checksGreen: true },
       lastRunId: null, lastCheckedAt: null, ...over,
     };
   }
@@ -352,14 +419,15 @@ describe('buildGuardChip', () => {
   });
 
   it('shows a disabled row as "off" — with a toggle, not hidden — so it can be armed', () => {
-    const chip = buildGuardChip(guard({ enabled: false, state: 'in_sync' }));
+    const chip = buildGuardChip(guard({ enabled: false, state: 'healthy' }));
     expect(chip?.enabled).toBe(false);
     expect(chip?.label).toBe('guard off');
   });
 
   it('labels each guard state while enabled', () => {
-    expect(buildGuardChip(guard({ state: 'in_sync' }))?.label).toBe('in sync with main');
+    expect(buildGuardChip(guard({ state: 'healthy' }))?.label).toBe('in sync with main');
     expect(buildGuardChip(guard({ state: 'drifting' }))?.label).toBe('drifting from main');
+    expect(buildGuardChip(guard({ state: 'conflicted' }))?.label).toBe('conflicts with main');
     expect(buildGuardChip(guard({ state: 'fixing' }))?.label).toBe('fixing drift');
     expect(buildGuardChip(guard({ state: 'needs_attention' }))?.label).toBe('needs attention');
   });

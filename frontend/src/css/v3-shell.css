@@ -847,9 +847,10 @@
 .shell .plan-node.running { background: rgba(217, 119, 6, 0.08); border-color: var(--orange); }
 .shell .plan-node.running .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
 .shell .plan-node.running .pn-name { color: var(--text-1); font-weight: 600; }
-/* Planning (the Root node while the brain is thinking) — deep blue. */
-.shell .plan-node.planning { background: rgba(29, 78, 216, 0.16); border-color: #1d4ed8; }
-.shell .plan-node.planning .pn-glyph { color: #1d4ed8; animation: working-pulse 1.4s infinite; }
+/* Planning (the Plan node while the brain is actively drafting) — same
+   orange "agent working" treatment as .running, for one consistent signal. */
+.shell .plan-node.planning { background: rgba(217, 119, 6, 0.08); border-color: var(--orange); }
+.shell .plan-node.planning .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
 .shell .plan-node.planning .pn-name { color: var(--text-1); font-weight: 600; }
 /* Pushed and polling the remote (CI re-running / out for review) — a distinct
    blue "watching" background, separate from the orange agent-working state. */
@@ -873,11 +874,39 @@
 .shell .plan-node .pn-name { font-size: 12px; font-weight: 500; color: var(--text-2); line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell .plan-node .pn-meta { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
 .shell .plan-node.running .pn-meta, .shell .plan-node.planning .pn-meta { color: inherit; opacity: 0.7; }
+/* Node-type styling (R26/R30): a gate opens an action surface and waits on
+   the user, so it renders dashed — matching stage-phase-rail.html's `.nd.gate`. */
+.shell .plan-node.nt-gate { border-style: dashed; }
 
 .shell .plan-line { width: 2px; height: 14px; background: var(--border-mid); margin-left: 18px; }
 .shell .plan-line.dim { background: var(--border); }
 .shell .plan-sub-row { display: grid; grid-template-columns: 18px 1fr; align-items: center; padding: 0 0 0 14px; margin: 4px 0 0; }
 .shell .plan-sub-row .branch-glyph { color: var(--text-4); font-size: 11px; padding-top: 3px; }
+
+/* Development's in-stage phase ladder (R29) — nested rows with a left accent
+   border, matching stage-phase-rail.html's `.ph`. */
+.shell .plan-phase-row {
+  display: grid; grid-template-columns: 13px 1fr auto; align-items: center; gap: 6px;
+  padding: 4px 8px 4px 10px; margin: 3px 0 0 14px; background: var(--bg-elev);
+  border: 1px solid var(--border); border-left: 2px solid rgba(139, 92, 246, 0.35);
+  border-radius: 6px; cursor: pointer; font-family: inherit; text-align: left;
+  transition: all 0.15s; width: calc(100% - 14px);
+}
+.shell .plan-phase-row:hover { border-color: var(--accent); }
+.shell .plan-phase-row:disabled { cursor: default; }
+.shell .plan-phase-row .ph-glyph { font-size: 10px; line-height: 1; text-align: center; font-weight: 700; color: var(--text-4); }
+.shell .plan-phase-row .ph-name { font-size: 11px; font-weight: 500; color: var(--text-2); line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell .plan-phase-row .ph-meta { font-family: var(--mono); font-size: 9px; color: var(--text-4); }
+.shell .plan-phase-row .ph-badge {
+  font-size: 8px; font-weight: 800; background: rgba(194, 99, 42, 0.12); color: var(--orange);
+  border: 1px solid rgba(194, 99, 42, 0.30); border-radius: 999px; padding: 0 5px; white-space: nowrap;
+}
+.shell .plan-phase-row.done .ph-glyph { color: #16a34a; }
+.shell .plan-phase-row.running { background: rgba(139, 92, 246, 0.10); border-left-color: var(--accent); }
+.shell .plan-phase-row.running .ph-glyph { color: var(--accent); animation: working-pulse 1.4s infinite; }
+.shell .plan-phase-row.running .ph-name { color: var(--text-1); font-weight: 600; }
+.shell .plan-phase-row.running .ph-meta { color: var(--accent); opacity: 0.8; }
+.shell .plan-phase-row.future { opacity: 0.6; border-left-color: var(--border); }
 
 /* Branch-guard chip, above the rail — hidden entirely until the task has
    pushed (buildGuardChip returns null); dimmed with a toggle while disabled. */
@@ -894,10 +923,10 @@
 .shell .guard-chip.off { opacity: 0.6; }
 /* Matches plan-spine-options.html's `.guard.ok`/`.guard.warn` — the whole
    chip tints to the state's color, not just its border. */
-.shell .guard-chip.in_sync { border-color: rgba(34, 197, 94, 0.28); background: rgba(34, 197, 94, 0.10); }
-.shell .guard-chip.in_sync .guard-label { color: #16a34a; }
-.shell .guard-chip.drifting, .shell .guard-chip.fixing { border-color: var(--orange); background: rgba(217, 119, 6, 0.08); }
-.shell .guard-chip.drifting .guard-label, .shell .guard-chip.fixing .guard-label { color: var(--orange); }
+.shell .guard-chip.healthy { border-color: rgba(34, 197, 94, 0.28); background: rgba(34, 197, 94, 0.10); }
+.shell .guard-chip.healthy .guard-label { color: #16a34a; }
+.shell .guard-chip.drifting, .shell .guard-chip.conflicted, .shell .guard-chip.fixing { border-color: var(--orange); background: rgba(217, 119, 6, 0.08); }
+.shell .guard-chip.drifting .guard-label, .shell .guard-chip.conflicted .guard-label, .shell .guard-chip.fixing .guard-label { color: var(--orange); }
 .shell .guard-chip.needs_attention { border-color: var(--red); background: rgba(220, 38, 38, 0.08); }
 .shell .guard-chip.needs_attention .guard-label { color: var(--red); }
 

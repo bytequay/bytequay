@@ -13,18 +13,20 @@
  */
 import type { ReactNode } from 'react';
 import Toggle from '../../settings/shared/Toggle';
-import type { GuardChipData, LivePlanNode } from './livePlanModel';
+import type { GuardChipData, LivePlanNode, LivePlanPhaseNode } from './livePlanModel';
 
 /** One node button in the diagram. Disabled when it has nowhere to go (a
  *  future stage that hasn't been instantiated, or a milestone pseudo-node
- *  with no PR yet). */
+ *  with no PR yet). `nt-<nodeType>` carries the R26/R30 node-type styling
+ *  (gates render dashed, matching stage-phase-rail.html's `.nd.gate`). */
 function PlanNode({ node, onClick, small }: {
   node: LivePlanNode;
   onClick: () => void;
   small?: boolean;
 }) {
-  const cls = ['plan-node', node.status, node.activeView ? 'active-view' : '', small ? 'sm' : '']
-    .filter(Boolean).join(' ');
+  const cls = [
+    'plan-node', node.status, `nt-${node.nodeType}`, node.activeView ? 'active-view' : '', small ? 'sm' : '',
+  ].filter(Boolean).join(' ');
   return (
     <button
       type="button"
@@ -36,6 +38,21 @@ function PlanNode({ node, onClick, small }: {
       <span className="pn-glyph" aria-hidden>{node.glyph}</span>
       <span className="pn-name">{node.label}</span>
       {node.meta !== undefined && <span className="pn-meta">{node.meta}</span>}
+    </button>
+  );
+}
+
+/** One row of Development's in-stage phase ladder (R29) — nested beneath the
+ *  `dev` node with a left accent border, matching stage-phase-rail.html's
+ *  `.ph` treatment. */
+function PhaseRow({ phase, onClick }: { phase: LivePlanPhaseNode; onClick: () => void }) {
+  const cls = ['plan-phase-row', phase.status].filter(Boolean).join(' ');
+  return (
+    <button type="button" className={cls} onClick={onClick} disabled={phase.nav.kind === 'none'} title={phase.label}>
+      <span className="ph-glyph" aria-hidden>{phase.glyph}</span>
+      <span className="ph-name">{phase.label}</span>
+      {phase.badge !== undefined && <span className="ph-badge">{phase.badge}</span>}
+      {phase.meta !== undefined && <span className="ph-meta">{phase.meta}</span>}
     </button>
   );
 }
@@ -72,13 +89,16 @@ function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enab
  * the Push / Merge milestones).
  */
 export function LivePlan({
-  nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun, onToggleGuard,
+  nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
 }: {
   nodes: LivePlanNode[];
   guard?: GuardChipData;
   onOpenStage?: (stageId: string) => void;
   onOpenCode?: () => void;
   onOpenPr?: () => void;
+  /** Force-switch the host page's own right-pane tab (e.g. Local review /
+   *  Remote pull request / Merge-Close all open the PR tab in place, R27). */
+  onOpenTab?: (tab: 'pr') => void;
   /** Navigate to the task's brain page — the Root node uses this. */
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
@@ -86,16 +106,18 @@ export function LivePlan({
   /** Enable/disable the branch guard from its chip's toggle. */
   onToggleGuard?: (enabled: boolean) => void;
 }) {
-  const click = (node: LivePlanNode) => () => {
-    switch (node.nav.kind) {
-      case 'stage': onOpenStage?.(node.nav.stageId); break;
+  const navigate = (nav: LivePlanNode['nav']) => {
+    switch (nav.kind) {
+      case 'stage': onOpenStage?.(nav.stageId); break;
       case 'code': onOpenCode?.(); break;
       case 'pr': onOpenPr?.(); break;
+      case 'tab': onOpenTab?.(nav.tab); break;
       case 'brain': onOpenBrain?.(); break;
-      case 'run': onOpenRun?.(node.nav.runId); break;
+      case 'run': onOpenRun?.(nav.runId); break;
       default: break;
     }
   };
+  const click = (node: LivePlanNode) => () => navigate(node.nav);
 
   const rows: ReactNode[] = [];
   let prev: LivePlanNode['placement'] | null = null;
@@ -116,6 +138,14 @@ export function LivePlan({
     }
     rows.push(<PlanNode node={node} key={node.key} onClick={click(node)} />);
     prev = 'full';
+    if (node.phases !== undefined && node.phases.length > 0) {
+      for (const phase of node.phases) {
+        rows.push(
+          <PhaseRow phase={phase} key={`${node.key}-${phase.key}`} onClick={() => navigate(phase.nav)} />,
+        );
+      }
+      prev = 'sub';
+    }
   }
 
   return (

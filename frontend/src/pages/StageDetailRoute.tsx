@@ -40,6 +40,7 @@ import type { StageKind } from './StageDetailPage';
 import { PlanCard } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import type { StageChip } from '../ui/shell';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
 import type { TaskPhase } from '../types/brainView';
@@ -518,6 +519,7 @@ export function StageDetailRoute({
   const planLiveRuns = data?.liveRuns ?? brain.liveRuns;
   const planGuard = data?.guard ?? brain.guard;
   const planLiveRound = data?.liveRound ?? brain.liveRound;
+  const planDevPhases = data?.devPhases ?? brain.devPhases;
   const sidebarTitle = data?.task.title ?? brain.task.title;
   const sidebarBranch = data?.task.branch ?? brain.task.branch;
   const sidebarPhase = (data?.task.currentPhase ?? brain.task.currentPhase) as TaskPhase;
@@ -538,7 +540,42 @@ export function StageDetailRoute({
     viewedStageId: stageId,
     // Pulse this stage's node while its agent is mid-turn.
     working,
-  }), [planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, sidebarPhase, prNumber, pr, state, stageId, shipProposal, working, data, brain.task.terminal]);
+    devPhases: planDevPhases,
+    ciStatus: brain.rightRail.linkedPr?.ciStatus ?? null,
+    ciSummary: brain.rightRail.linkedPr?.ciSummary ?? null,
+  }), [
+    planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, planDevPhases, sidebarPhase, prNumber, pr,
+    state, stageId, shipProposal, working, data, brain.task.terminal, brain.rightRail.linkedPr,
+  ]);
+  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
+  // review / Remote pull request / Merge-Close, R27) — a fresh token
+  // re-fires even for a repeat click on the tab that's already open.
+  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'changes' | 'ci'; token: number } | undefined>(
+    undefined);
+  const openTab = useCallback((tab: 'pr') => {
+    setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
+  }, []);
+  // Top-bar breadcrumb: the three 🤖 stage-typed nodes (Plan/Development/
+  // Comments, R30) — whichever one is currently viewed reads "current".
+  const devStageForChips = planStages.find(s => s.type === 'DEVELOPMENT_STAGE');
+  const commentsStageForChips = planStages.find(s => s.type === 'REVIEW_MONITOR_STAGE');
+  const stageChips: StageChip[] = [
+    { label: 'Plan', dot: 'done', onClick: onOpenBrain },
+    ...(devStageForChips !== undefined ? [{
+      label: 'Development',
+      dot: (devStageForChips.state === 'CLOSED' ? 'done' : devStageForChips.state === 'ACTIVE' ? 'active' : undefined) as
+        StageChip['dot'],
+      current: devStageForChips.id === stageId,
+      onClick: () => onOpenStage?.(devStageForChips.id),
+    }] : []),
+    ...(commentsStageForChips !== undefined ? [{
+      label: 'Comments',
+      dot: (commentsStageForChips.state === 'CLOSED' ? 'done'
+        : commentsStageForChips.state === 'ACTIVE' ? 'active' : undefined) as StageChip['dot'],
+      current: commentsStageForChips.id === stageId,
+      onClick: () => onOpenStage?.(commentsStageForChips.id),
+    }] : []),
+  ];
 
   // Render once we have any stage data — the stage detail, or the task-level
   // brain stages — so the rail persists across stage switches.
@@ -556,6 +593,7 @@ export function StageDetailRoute({
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr !== null ? openPr : undefined}
+      onOpenTab={openTab}
       onOpenBrain={onOpenBrain}
       onOpenRun={onOpenRun}
       onToggleGuard={enabled => {
@@ -588,6 +626,8 @@ export function StageDetailRoute({
     <StageDetailPage
       stageKind={stageKind}
       sidebar={sidebar}
+      stageChips={stageChips}
+      openTabRequest={openTabRequest}
       stage={{ title: data?.task.title ?? 'Stage', branch: data?.task.branch }}
       conversation={conversation}
       composer={{

@@ -175,7 +175,7 @@ public class StageDetailServiceImpl
                 topLevel,
                 subStages,
                 iterations,
-                buildConversation(stage, task, window, devMessages, iters),
+                buildConversation(stage, task, devMessages, iters),
                 buildRealtimeCi(task, prDetail),
                 buildCiFixHistory(stage, iters, events),
                 buildPrTab(task, prDetail),
@@ -235,16 +235,16 @@ public class StageDetailServiceImpl
             StageInstance stage, List<TaskStageIteration> iters,
             TimeWindow window, List<ThreadMessage> devMessages)
     {
-        List<ThreadMessage> inWindow = stageMessages(stage, window, devMessages);
-        List<OperationGroup> groups = operationGroups(inWindow);
+        List<ThreadMessage> stageMsgs = stageMessages(stage, devMessages);
+        List<OperationGroup> groups = operationGroups(stageMsgs);
         long toolCalls = groups.stream().mapToLong(g -> g.messages().size()).sum();
-        long tokens = inWindow.stream()
+        long tokens = stageMsgs.stream()
                 .mapToLong(m -> nz(m.tokensIn()) + nz(m.tokensOut())).sum();
-        long costMilli = inWindow.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
+        long costMilli = stageMsgs.stream().mapToLong(m -> nz(m.costUsdMilli())).sum();
         long turns = turnStore.listTurnsByTaskId(stage.taskId(), TURN_SCAN_CAP).stream()
                 .filter(t -> window.contains(t.createdAt())).count();
-        // Steering (interventions): user messages on the dev thread in window.
-        long interventions = inWindow.stream()
+        // Steering (interventions): user messages stamped with this stage.
+        long interventions = stageMsgs.stream()
                 .filter(m -> "user".equals(m.role()) && "text".equals(m.type())).count();
         List<OperationGroup> ops = groups.stream()
                 .filter(g -> g.kind() != null)
@@ -268,7 +268,7 @@ public class StageDetailServiceImpl
                 iters.size(),
                 (int) toolCalls,
                 (int) turns,
-                inWindow.size(),
+                stageMsgs.size(),
                 tokens,
                 Math.round(costMilli * 0.1),
                 /* panelInvocationsCount */ 0,
@@ -286,29 +286,16 @@ public class StageDetailServiceImpl
 
     /**
      * The dev-thread messages that belong to {@code stage}: rows explicitly
-     * stamped with this stage id (the durable attribution), plus legacy rows
-     * with no stage id that fall inside the stage's time window (backfill for
-     * pre-migration transcripts). A row stamped with a <em>different</em> stage
-     * is excluded even when its timestamp overlaps — which is what makes a
-     * callable sub-stage's transcript unambiguous, unlike pure time windowing.
-     *
-     * <p>The window fallback must also require the row's {@code taskId} to
-     * match this stage's task: a TRUNK-scoped message (typed on the thread's
-     * root chat, not focused on any task) also has a null {@code stageId},
-     * and {@code devMessages} is built from every message on the whole
-     * thread — without this check, anything typed in the trunk while this
-     * stage happened to be open would fall inside the window and leak into
-     * the stage's transcript.
+     * stamped with this stage id — every message written by current code
+     * carries one (see {@code AbstractCliThreadAgent}/{@code
+     * LogicLoopThreadAgent}). A row stamped with a <em>different</em> stage
+     * is excluded even when its timestamp overlaps with this one's, which is
+     * what makes a callable sub-stage's transcript unambiguous.
      */
-    private static List<ThreadMessage> stageMessages(
-            StageInstance stage, TimeWindow window, List<ThreadMessage> devMessages)
+    private static List<ThreadMessage> stageMessages(StageInstance stage, List<ThreadMessage> devMessages)
     {
         String id = stage.id().toString();
-        String taskId = stage.taskId();
-        return devMessages.stream()
-                .filter(m -> id.equals(m.stageId())
-                        || (m.stageId() == null && taskId.equals(m.taskId()) && window.contains(m.ts())))
-                .toList();
+        return devMessages.stream().filter(m -> id.equals(m.stageId())).toList();
     }
 
     private record TimeWindow(Instant start, Instant end, String closedAtText)
@@ -466,7 +453,16 @@ public class StageDetailServiceImpl
         TimeWindow window = TimeWindow.forIteration(it);
         List<LogRow> rows = new ArrayList<>();
 
-        List<ThreadMessage> windowMsgs = window.messages(devMessages);
+        // Scope to this iteration's own stage first (stage_id is the durable
+        // attribution — trunk/task/sibling-stage messages never carry it),
+        // then bucket into this iteration's band by time; the window alone,
+        // applied to every message on the thread, would leak the same way
+        // stageMessages() used to.
+        String stageId = it.stageId().toString();
+        List<ThreadMessage> stageMsgs = devMessages.stream()
+                .filter(m -> stageId.equals(m.stageId()))
+                .toList();
+        List<ThreadMessage> windowMsgs = window.messages(stageMsgs);
 
         for (OperationGroup g : operationGroups(windowMsgs)) {
             List<LogRow> nested = g.messages().stream()
@@ -530,14 +526,13 @@ public class StageDetailServiceImpl
      * renders whether the stage looped or ran once.
      */
     private List<ConversationRow> buildConversation(
-            StageInstance stage, Task task, TimeWindow window,
-            List<ThreadMessage> devMessages, List<TaskStageIteration> iters)
+            StageInstance stage, Task task, List<ThreadMessage> devMessages, List<TaskStageIteration> iters)
     {
         List<ThreadMessage> source = stage.type() == StageType.PLAN_STAGE
                 ? threadStore.findBrainThreadByTask(task.id())
                         .map(t -> threadStore.listMessages(t.id()))
                         .orElseGet(List::of)
-                : stageMessages(stage, window, devMessages);
+                : stageMessages(stage, devMessages);
 
         // Pair each tool call with its result row (same callId) so the
         // transcript can show command + outcome on a single card.

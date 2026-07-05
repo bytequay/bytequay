@@ -87,12 +87,12 @@ class TestStageDetailService
         // A dev-thread tool call inside both iter #1's window and the
         // (open) stage's [openedAt, now] window — anchor at openedAt so it
         // predates the query's wall-clock now.
-        appendMessage(threadId, taskId, 1, "assistant", "tool_call",
-                "{\"name\":\"read_file\",\"path\":\"Foo.java\"}", open);
+        appendStageMessage(threadId, taskId, 1, "assistant", "tool_call",
+                "{\"name\":\"read_file\",\"path\":\"Foo.java\"}", open, stage.id().toString());
         // A user steering message in the window — drives interventionsCount.
         // Anchor at openedAt so it predates the open stage's wall-clock window end.
-        appendMessage(threadId, taskId, 2, "user", "text",
-                "{\"text\":\"bump the retry default\"}", open);
+        appendStageMessage(threadId, taskId, 2, "user", "text",
+                "{\"text\":\"bump the retry default\"}", open, stage.id().toString());
         // A stage event (recorded ~now, inside iter #1's window) so the
         // iteration log surfaces a stage_event row.
         stageStore.recordEvent(stage.id(), taskId, StageEventType.NOTIFY_FIRED,
@@ -172,11 +172,11 @@ class TestStageDetailService
         Instant open = stage.openedAt();
         iterationStore.save(TaskStageIteration
                 .opened(UUID.randomUUID(), stage.id(), taskId, "turn-1", 1, "red_ci", open));
-        // A dev-agent text turn + a tool call on the task thread, in the window.
-        appendMessage(threadId, taskId, 1, "assistant", "text",
-                "{\"text\":\"Removing the unused import.\"}", open);
-        appendMessage(threadId, taskId, 2, "assistant", "tool_call",
-                "{\"name\":\"read_file\",\"path\":\"Foo.java\"}", open);
+        // A dev-agent text turn + a tool call, stamped with this stage.
+        appendStageMessage(threadId, taskId, 1, "assistant", "text",
+                "{\"text\":\"Removing the unused import.\"}", open, stage.id().toString());
+        appendStageMessage(threadId, taskId, 2, "assistant", "tool_call",
+                "{\"name\":\"read_file\",\"path\":\"Foo.java\"}", open, stage.id().toString());
 
         StageDetailData detail = detailService.getDetail(stage.id());
 
@@ -215,10 +215,12 @@ class TestStageDetailService
         StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
         Instant open = stage.openedAt();
         // The real claude-code shape: name under toolName, args nested in input.
-        appendMessage(threadId, taskId, 1, "tool", "tool_call",
-                "{\"callId\":\"c1\",\"toolName\":\"Read\",\"input\":{\"file_path\":\"CostMeter.tsx\"}}", open);
-        appendMessage(threadId, taskId, 2, "tool", "tool_call",
-                "{\"callId\":\"c2\",\"toolName\":\"Bash\",\"input\":{\"command\":\"grep -rn useMemo\"}}", open);
+        appendStageMessage(threadId, taskId, 1, "tool", "tool_call",
+                "{\"callId\":\"c1\",\"toolName\":\"Read\",\"input\":{\"file_path\":\"CostMeter.tsx\"}}",
+                open, stage.id().toString());
+        appendStageMessage(threadId, taskId, 2, "tool", "tool_call",
+                "{\"callId\":\"c2\",\"toolName\":\"Bash\",\"input\":{\"command\":\"grep -rn useMemo\"}}",
+                open, stage.id().toString());
 
         StageDetailData detail = detailService.getDetail(stage.id());
 
@@ -235,9 +237,10 @@ class TestStageDetailService
         String taskId = seedTask(threadId);
         StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
         Instant open = stage.openedAt();
-        appendMessage(threadId, taskId, 1, "tool", "tool_call",
+        appendStageMessage(threadId, taskId, 1, "tool", "tool_call",
                 "{\"callId\":\"c1\",\"toolName\":\"Edit\",\"input\":{\"file_path\":\"Foo.md\","
-                        + "\"old_string\":\"const x = 1\",\"new_string\":\"const x = 2\"}}", open);
+                        + "\"old_string\":\"const x = 1\",\"new_string\":\"const x = 2\"}}",
+                open, stage.id().toString());
 
         StageDetailData detail = detailService.getDetail(stage.id());
 
@@ -255,10 +258,12 @@ class TestStageDetailService
         String taskId = seedTask(threadId);
         StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
         Instant open = stage.openedAt();
-        appendMessage(threadId, taskId, 1, "tool", "tool_call",
-                "{\"callId\":\"c1\",\"toolName\":\"Bash\",\"input\":{\"command\":\"mvn verify\"}}", open);
-        appendMessage(threadId, taskId, 2, "tool", "tool_result",
-                "{\"callId\":\"c1\",\"isError\":true,\"output\":\"BUILD FAILURE\"}", open);
+        appendStageMessage(threadId, taskId, 1, "tool", "tool_call",
+                "{\"callId\":\"c1\",\"toolName\":\"Bash\",\"input\":{\"command\":\"mvn verify\"}}",
+                open, stage.id().toString());
+        appendStageMessage(threadId, taskId, 2, "tool", "tool_result",
+                "{\"callId\":\"c1\",\"isError\":true,\"output\":\"BUILD FAILURE\"}",
+                open, stage.id().toString());
 
         StageDetailData detail = detailService.getDetail(stage.id());
 
@@ -296,7 +301,7 @@ class TestStageDetailService
     }
 
     @Test
-    void conversationPrefersExplicitStageIdOverTheTimeWindow()
+    void conversationIncludesOnlyRowsStampedWithThisStagesId()
     {
         String threadId = seedThread();
         String taskId = seedTask(threadId);
@@ -305,13 +310,13 @@ class TestStageDetailService
         iterationStore.save(TaskStageIteration
                 .opened(UUID.randomUUID(), stage.id(), taskId, "turn-1", 1, "red_ci", open));
 
-        // Stamped with THIS stage but dated a day before the window opened —
-        // still belongs, because stage_id is the source of truth, not the clock.
+        // Stamped with THIS stage but dated a day before it opened — still
+        // belongs, because stage_id is the source of truth, not the clock.
         appendStageMessage(threadId, taskId, 1, "assistant", "text",
                 "{\"text\":\"mine despite the old timestamp\"}",
                 open.minusSeconds(86_400), stage.id().toString());
-        // Stamped with a DIFFERENT stage but inside this stage's window — must
-        // be excluded (the overlap that time-windowing alone would mis-include).
+        // Stamped with a DIFFERENT stage but inside this stage's own window —
+        // must still be excluded; only the stage_id match counts.
         appendStageMessage(threadId, taskId, 2, "assistant", "text",
                 "{\"text\":\"belongs to another stage\"}",
                 open, UUID.randomUUID().toString());
@@ -322,6 +327,33 @@ class TestStageDetailService
                 r -> r.kind().equals("agent") && "mine despite the old timestamp".equals(r.text()));
         assertThat(detail.conversation()).noneMatch(
                 r -> "belongs to another stage".equals(r.text()));
+    }
+
+    @Test
+    void iterationLogExcludesTrunkMessagesTypedWhileTheIterationWasOpen()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        Instant open = stage.openedAt();
+        iterationStore.save(TaskStageIteration
+                .opened(UUID.randomUUID(), stage.id(), taskId, "turn-1", 1, "red_ci", open));
+
+        // A trunk-chat message (no task focused) timed inside iteration #1's
+        // window — the per-iteration log must not sweep it in either, the
+        // same leak buildConversation() had before it was scoped by stage id.
+        appendMessage(threadId, null, 1, "user", "text",
+                "{\"text\":\"trunk-level chat, not this iteration\"}", open);
+        appendStageMessage(threadId, taskId, 2, "user", "text",
+                "{\"text\":\"the iteration's own steering message\"}", open, stage.id().toString());
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        StageDetailData.IterationDetail iter1 = detail.iterations().get(0);
+        assertThat(iter1.log()).noneMatch(r -> r.kind().equals("user_message")
+                && "trunk-level chat, not this iteration".equals(r.userMessage().text()));
+        assertThat(iter1.log()).anyMatch(r -> r.kind().equals("user_message")
+                && "the iteration's own steering message".equals(r.userMessage().text()));
     }
 
     @Test
@@ -336,8 +368,8 @@ class TestStageDetailService
         // not be swept in as if it were the stage's own transcript.
         appendMessage(threadId, null, 1, "user", "text",
                 "{\"text\":\"trunk-level chat, not this stage\"}", open);
-        appendMessage(threadId, taskId, 2, "assistant", "text",
-                "{\"text\":\"the stage's own reply\"}", open);
+        appendStageMessage(threadId, taskId, 2, "assistant", "text",
+                "{\"text\":\"the stage's own reply\"}", open, stage.id().toString());
 
         StageDetailData detail = detailService.getDetail(stage.id());
 

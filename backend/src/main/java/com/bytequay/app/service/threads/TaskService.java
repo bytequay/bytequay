@@ -23,7 +23,6 @@ import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -141,15 +140,6 @@ public class TaskService
         return taskStore.listTasksByThread(threadId);
     }
 
-    /** Newest non-terminal task for the thread, or empty if the thread
-     *  is in the 0-Task state (brainstorm / Q&A). A thread may run several
-     *  at once; this returns the most recent for the single-task UI surface. */
-    public Optional<Task> findActiveTask(String threadId)
-    {
-        requireThread(threadId);
-        return taskStore.activeTasksForThread(threadId).stream().findFirst();
-    }
-
     /**
      * Append to (or replace) a task's opening-prompt accumulator — the
      * text the agent reads as its first-turn input when it starts. Editable
@@ -229,14 +219,6 @@ public class TaskService
                     HttpStatusCode.valueOf(404), "task " + taskId + " is not on thread " + threadId);
         }
         return task;
-    }
-
-    /** Per-(task, path) file rollup the agent has produced. Powers the
-     *  "Files touched" sidebar at task scope. */
-    public List<TaskFile> listFiles(String threadId, String taskId)
-    {
-        requireTask(threadId, taskId);
-        return taskStore.listFiles(taskId);
     }
 
     /**

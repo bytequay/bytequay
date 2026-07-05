@@ -226,6 +226,35 @@ class TestBacklogService
     }
 
     @Test
+    void resolveLinksTheItemToTheTaskItSpawned()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
+
+        BacklogItem resolved = service.resolve("b1", "task-42");
+
+        assertThat(resolved.status()).isEqualTo("resolved");
+        assertThat(resolved.linkedTaskId()).isEqualTo("task-42");
+        verify(distillation).record(
+                eq("backlog-resolve"), eq("b1"), eq("resolved"), eq(null), any(), any(), any());
+    }
+
+    @Test
+    void resolveOnAnAlreadyResolvedItemIs409()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", true, "task-1")));
+        assertThatThrownBy(() -> service.resolve("b1", "task-2"))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void resolveOnAnUnknownItemIs404()
+    {
+        when(store.findById("missing")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.resolve("missing", "task-1"))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
     void reviveRestoresANotToProceedItemToCreated()
     {
         when(store.findById("b1")).thenReturn(

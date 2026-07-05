@@ -23,6 +23,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.backlog.BacklogService;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.ThreadService;
@@ -31,6 +32,8 @@ import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -90,6 +93,9 @@ public class AgentToolHandlers
     private final ThreadService threads;
     private final WorktreeService worktreeService;
     private final ObjectMapper mapper;
+    private final BacklogService backlog;
+
+    private static final Logger log = LoggerFactory.getLogger(AgentToolHandlers.class);
 
     public AgentToolHandlers(
             TaskStore taskStore,
@@ -104,7 +110,8 @@ public class AgentToolHandlers
             WatchedRepoStore watchedRepos,
             ThreadService threads,
             WorktreeService worktreeService,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            BacklogService backlog)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.prStore = requireNonNull(prStore, "prStore is null");
@@ -119,6 +126,7 @@ public class AgentToolHandlers
         this.threads = requireNonNull(threads, "threads is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.backlog = requireNonNull(backlog, "backlog is null");
     }
 
     /** Args record for {@code read_task}. */
@@ -664,7 +672,11 @@ public class AgentToolHandlers
                     + "it's ready, or 'suggested' / include uncertainAreas to have the task's brain "
                     + "finalize it. When given, it seeds the task's plan so the brain validates or "
                     + "revises it instead of planning from scratch.",
-                    wireName = "trunk_plan") JsonNode trunkPlan) {}
+                    wireName = "trunk_plan") JsonNode trunkPlan,
+            @ToolParam(description = "If this task originates from a backlog item, its id (the "
+                    + "kickoff message told you this) — resolves and links that item to the task "
+                    + "you're cutting.",
+                    wireName = "backlog_item_id") String backlogItemId) {}
 
     @AgentTool(
             name = "create_task",
@@ -737,6 +749,7 @@ public class AgentToolHandlers
                 args.trunkPlan());
         try {
             Task created = threads.materialiseTask(threadId, request);
+            resolveBacklogItemIfGiven(args.backlogItemId(), created.id());
             return toolOutcome(new CreatedTaskResult(
                     created.id(),
                     created.threadId(),
@@ -749,6 +762,23 @@ public class AgentToolHandlers
         }
         catch (IllegalArgumentException | IllegalStateException e) {
             return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
+        }
+    }
+
+    /** Best-effort: link the new task back to the backlog item it came from.
+     *  Never fails {@code create_task} itself over a stale/bad id — the task
+     *  is already cut by the time this runs. */
+    private void resolveBacklogItemIfGiven(String backlogItemId, String taskId)
+    {
+        if (backlogItemId == null || backlogItemId.isBlank()) {
+            return;
+        }
+        try {
+            backlog.resolve(backlogItemId, taskId);
+        }
+        catch (RuntimeException e) {
+            log.warn("create_task: failed to resolve backlog item {} for task {}: {}",
+                    backlogItemId, taskId, e.getMessage());
         }
     }
 

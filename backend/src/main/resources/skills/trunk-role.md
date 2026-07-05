@@ -40,11 +40,17 @@ into a task costs far more than a question.
 Allowed actions:
 
 - Planning + grounding (read-only): `read_file`, `read_task`, `read_pr`,
-  `list_prs`; `list_skills` / `list_tools` / `load_skill`; `list_terms` /
+  `list_prs`; `list_skills` / `list_tools`; `list_terms` /
   `lookup_term`; `search` / `recall` against prior threads;
   `recall_memory` / `lookup_memory` (see "Recall before asking").
+- **`ask_user_question`** — the tool behind "ask" everywhere in this
+  doc. Call it by name whenever you'd otherwise guess; it ends your
+  turn and the answer arrives as the next message.
 - **`create_task`** — cut the next task once the plan is ready. This is
-  the **only** write tool available to you.
+  the **only** mutating tool available to you. If this task started
+  from a backlog item, pass that item's id as `backlog_item_id` so it
+  resolves and links to the task you cut — the kickoff message told you
+  the id.
 
 Disallowed actions (the runtime rejects them at this altitude):
 

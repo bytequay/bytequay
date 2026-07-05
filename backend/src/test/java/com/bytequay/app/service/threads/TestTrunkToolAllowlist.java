@@ -37,4 +37,14 @@ class TestTrunkToolAllowlist
         // to it as a path.
         assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST).contains("read_file");
     }
+
+    @Test
+    void trunkCanAskAClarifyingQuestion()
+    {
+        // Regression: trunk-role.md instructs the trunk extensively to ask
+        // rather than assume ("when in doubt between asking and assuming,
+        // ask"), but the tool was missing from the runtime allowlist — the
+        // prompt said to ask, the runtime didn't let it.
+        assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST).contains("ask_user_question");
+    }
 }

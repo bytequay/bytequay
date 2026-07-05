@@ -24,6 +24,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.backlog.BacklogService;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.ThreadService;
@@ -67,6 +68,7 @@ class TestAgentToolHandlersCreateTask
     private final ThreadService threads = mock(ThreadService.class);
     private final WorkspaceService workspaces = mock(WorkspaceService.class);
     private final WorktreeService worktreeService = mock(WorktreeService.class);
+    private final BacklogService backlog = mock(BacklogService.class);
 
     private AgentToolHandlers handlers;
 
@@ -86,7 +88,8 @@ class TestAgentToolHandlersCreateTask
                 watchedRepos,
                 threads,
                 worktreeService,
-                new ObjectMapper());
+                new ObjectMapper(),
+                backlog);
 
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(trunkThread()));
     }
@@ -133,7 +136,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", /* title */ null,
                         "Clean duplicate and unused code",
-                        null, null, null, plan),
+                        null, null, null, plan, null),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -156,7 +159,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", "Clean up backend exception handling",
                         "Clean up a few backend exception-handling spots. Scope is limited to X.",
-                        null, null, null, null),
+                        null, null, null, null, null),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -177,7 +180,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay",
                         "De-duplicate the two identical keyset-pagination recovery loops in "
                                 + "AgentScheduler into one private recoverTurns(status, cursor)",
-                        null, null, null, null, null),
+                        null, null, null, null, null, null),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -200,7 +203,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", /* title */ null,
                         "Clean up a few backend exception-handling spots. Scope is limited to X.",
-                        null, null, null, null),
+                        null, null, null, null, null),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -208,6 +211,56 @@ class TestAgentToolHandlersCreateTask
         verify(threads).materialiseTask(eq(THREAD_ID), req.capture());
         // Cut at the sentence, not a hard char slice into "Scope is".
         assertThat(req.getValue().title()).isEqualTo("Clean up a few backend exception-handling spots.");
+    }
+
+    @Test
+    void resolvesTheBacklogItemWhenIdIsSupplied()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "bl-1"),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(backlog).resolve("bl-1", "task-42");
+    }
+
+    @Test
+    void doesNotTouchTheBacklogWhenNoIdIsSupplied()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(mock(Task.class));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, null),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void aBadBacklogIdDoesNotFailTaskCreation()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.resolve(any(), any())).thenThrow(new IllegalArgumentException("unknown backlog item"));
+
+        ToolOutcome outcome = handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "stale-id"),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
     }
 
     @Test
@@ -245,7 +298,7 @@ class TestAgentToolHandlersCreateTask
     private ToolOutcome.Completed createTask(String repo)
     {
         ToolOutcome outcome = handlers.createTask(
-                new AgentToolHandlers.CreateTaskArgs(repo, null, null, null, null, null, null),
+                new AgentToolHandlers.CreateTaskArgs(repo, null, null, null, null, null, null, null),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
         return (ToolOutcome.Completed) outcome;
     }

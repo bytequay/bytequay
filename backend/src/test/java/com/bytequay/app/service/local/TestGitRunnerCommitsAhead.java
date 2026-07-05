@@ -115,6 +115,51 @@ class TestGitRunnerCommitsAhead
         assertThat(git.listCommitsAhead(repo, mergeBase, 100)).hasSize(2);
     }
 
+    /**
+     * The "unrelated commit shows up in my PR" bug: a worktree whose local
+     * base branch ref never fast-forwarded while {@code origin/<base>} moved
+     * on (e.g. another parallel task's work landed upstream in the meantime).
+     * Diffing against the raw, stale local base sweeps that commit in as if
+     * it were the task's own; resolving against the candidate with the
+     * TIGHTEST merge-base excludes it correctly.
+     */
+    @Test
+    void resolveCommitBasePrefersTheTighterOriginRefOverAStaleLocalOne(@TempDir Path repo)
+            throws Exception
+    {
+        git(repo, "init", "-b", "main");
+        git(repo, "config", "user.email", "t@example.com");
+        git(repo, "config", "user.name", "Test");
+        commit(repo, "base.txt", "initial");
+
+        // A commit lands on main from other, already-merged work — this is
+        // the "9a55cc4" of the bug report.
+        commit(repo, "unrelated.txt", "unrelated upstream work");
+        // origin/main tracks that commit …
+        git(repo, "update-ref", "refs/remotes/origin/main", "main");
+
+        // The task branch is cut AFTER that commit, so it's in dev/test's own
+        // history too, then the task adds its real work.
+        git(repo, "checkout", "-b", "dev/test");
+        commit(repo, "task.txt", "the task's own change");
+
+        // … but local main never advanced past the pre-unrelated-commit point
+        // (simulates a worktree whose local branch ref went stale while
+        // origin/main was fetched fresh by another parallel session).
+        git(repo, "branch", "-f", "main", "HEAD~2");
+
+        String resolved = git.resolveCommitBase(repo, "main");
+
+        // Diffing from the stale local "main" directly would sweep in the
+        // unrelated commit too.
+        assertThat(git.listCommitsAhead(repo, "main", 100)).hasSize(2);
+        // The resolver picks origin/main's tighter merge-base instead.
+        assertThat(git.listCommitsAhead(repo, resolved, 100)).hasSize(1);
+        assertThat(git.listCommitsAhead(repo, resolved, 100))
+                .extracting(GitRunner.CommitEntry::subject)
+                .containsExactly("the task's own change");
+    }
+
     @Test
     void effectiveFilesIncludesCommittedUncommittedAndUntracked(@TempDir Path repo)
             throws Exception

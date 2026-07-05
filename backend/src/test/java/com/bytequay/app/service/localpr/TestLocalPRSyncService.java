@@ -86,6 +86,7 @@ class TestLocalPRSyncService
         when(localPr.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(draftPr());
         when(localPr.commits("pr1")).thenReturn(List.of());
         when(localPr.findById("pr1")).thenReturn(Optional.of(draftPr()));
+        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("main");
         // git log is newest-first.
         when(git.listCommitsAhead(any(), eq("main"), eq(200)))
                 .thenReturn(List.of(commit("ccc", "third"), commit("bbb", "second"), commit("aaa", "first")));
@@ -101,6 +102,31 @@ class TestLocalPRSyncService
     }
 
     @Test
+    void listsCommitsAgainstTheResolvedBaseNotTheRawConfiguredName()
+            throws Exception
+    {
+        // A worktree whose local "main" ref never fast-forwarded while
+        // "origin/main" moved on (e.g. another parallel task's work merged
+        // upstream) resolves to the tighter origin/main-based merge-base —
+        // excluding a commit that's already reachable from origin/main even
+        // though it'd show as "ahead" of the stale local main.
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
+        when(localPr.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(draftPr());
+        when(localPr.commits("pr1")).thenReturn(List.of());
+        when(localPr.findById("pr1")).thenReturn(Optional.of(draftPr()));
+        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("origin/main");
+        when(git.listCommitsAhead(any(), eq("origin/main"), eq(200)))
+                .thenReturn(List.of(commit("f121bf0", "the task's own work")));
+        stubDelta();
+
+        service.syncFromTask("task1");
+
+        verify(localPr).recordCommit(eq("pr1"), eq("f121bf0"), eq("the task's own work"), eq(10), eq(2), any());
+        // Never asked git for the raw "main" name — only the resolved base.
+        verify(git, never()).listCommitsAhead(any(), eq("main"), anyInt());
+    }
+
+    @Test
     void skipsCommitsAlreadyRecorded()
             throws Exception
     {
@@ -109,6 +135,7 @@ class TestLocalPRSyncService
         when(localPr.findById("pr1")).thenReturn(Optional.of(draftPr()));
         when(localPr.commits("pr1")).thenReturn(List.of(new LocalPRCommit(
                 "id-aaa", "pr1", "aaa", "first", 0, 0, NOW, null)));
+        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("main");
         when(git.listCommitsAhead(any(), eq("main"), eq(200)))
                 .thenReturn(List.of(commit("bbb", "second"), commit("aaa", "first")));
         stubDelta();
@@ -140,6 +167,7 @@ class TestLocalPRSyncService
         when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.AWAITING_PUSH)));
         when(localPr.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
         when(localPr.commits("pr1")).thenReturn(List.of());
+        when(git.resolveCommitBase(any(), any())).thenReturn("main");
         when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
         when(localPr.findById("pr1")).thenReturn(Optional.of(draftPr()));
 
@@ -155,6 +183,7 @@ class TestLocalPRSyncService
         when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
         when(localPr.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
         when(localPr.commits("pr1")).thenReturn(List.of());
+        when(git.resolveCommitBase(any(), any())).thenReturn("main");
         when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
         when(localPr.findById("pr1")).thenReturn(Optional.of(draftPr()));
 

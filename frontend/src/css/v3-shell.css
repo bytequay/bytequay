@@ -344,7 +344,10 @@
   padding: 0;
 }
 .shell.sidebar-collapsed .sb-traffic {
-  padding: 11px 8px 9px;
+  /* Extra top padding clears the native traffic-light buttons (fixed at
+     trafficLightPosition 14,14 in main.ts) — collapsed, .dots is hidden
+     and .sb-toggle would otherwise sit directly underneath them. */
+  padding: 34px 8px 9px;
   flex-direction: column;
   gap: 10px;
   align-items: flex-start;

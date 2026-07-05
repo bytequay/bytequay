@@ -89,4 +89,16 @@ describe('TaskBrainPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Changes' })[0]);
     expect(onOpenChanges).toHaveBeenCalledOnce();
   });
+
+  it('shows the mark-ready reminder pill and routes it to onOpenChanges', () => {
+    const onOpenChanges = vi.fn();
+    renderBrain({ markReadyReminder: true, onOpenChanges });
+    fireEvent.click(screen.getByText('Mark ready for review'));
+    expect(onOpenChanges).toHaveBeenCalledOnce();
+  });
+
+  it('hides the mark-ready reminder pill when not pending', () => {
+    renderBrain({ markReadyReminder: false });
+    expect(screen.queryByText('Mark ready for review')).toBeNull();
+  });
 });

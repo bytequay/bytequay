@@ -689,14 +689,29 @@
   color: #fff;
   background: linear-gradient(135deg, #b794f4, #7c5cff);
 }
+/* Mark-ready: green, same flowing-light treatment as awaiting — a shipped
+   draft's CI just went green and wants a click to hand it off. */
+.shell .plan-reminder--ready {
+  color: #0a6b4f;
+  background:
+    linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
+    linear-gradient(90deg, #6ee7b7, #10b981, #ecfdf5, #10b981, #6ee7b7) border-box;
+  background-size: auto, 300% 100%;
+  animation: plan-reminder-flow 2.4s linear infinite;
+}
 .shell .plan-reminder:hover { filter: brightness(1.03); }
 @media (prefers-reduced-motion: reduce) {
-  .shell .plan-reminder--awaiting { animation: none; }
+  .shell .plan-reminder--awaiting, .shell .plan-reminder--ready { animation: none; }
 }
-/* Stage page: the plan reminder pill and the quick-access tab chips share one
-   row — pill pinned left, chips aligned to the right (filling right-to-left). */
+/* Stage page: reminder pills (mark-ready, plan) and the quick-access tab
+   chips share one row — pills pinned left in a tight group, chips aligned to
+   the right (filling right-to-left). A lone pill keeps the original 32px
+   inset + auto-margin push; a second pill hugs the first with a fixed gap
+   and takes over the auto-margin push instead. */
 .shell .chip-reminder-row { display: flex; align-items: center; }
-.shell .chip-reminder-row .plan-reminder { margin: 0 auto 0 32px; }
+.shell .chip-reminder-row .plan-reminder { margin: 0 8px 0 32px; }
+.shell .chip-reminder-row .plan-reminder + .plan-reminder { margin-left: 0; }
+.shell .chip-reminder-row .plan-reminder:last-of-type { margin-right: auto; }
 .shell .chip-reminder-row .inline-chips { padding-left: 0; justify-content: flex-end; flex: 1 1 auto; }
 .shell .composer .input {
   font-size: 15px;

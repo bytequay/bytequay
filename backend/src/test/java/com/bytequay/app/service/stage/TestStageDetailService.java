@@ -325,6 +325,48 @@ class TestStageDetailService
     }
 
     @Test
+    void conversationExcludesTrunkMessagesTypedWhileTheStageWasOpen()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant open = stage.openedAt();
+        // A message typed on the thread's trunk chat (no task focused) whose
+        // timestamp happens to fall inside this stage's open window — must
+        // not be swept in as if it were the stage's own transcript.
+        appendMessage(threadId, null, 1, "user", "text",
+                "{\"text\":\"trunk-level chat, not this stage\"}", open);
+        appendMessage(threadId, taskId, 2, "assistant", "text",
+                "{\"text\":\"the stage's own reply\"}", open);
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).noneMatch(
+                r -> "trunk-level chat, not this stage".equals(r.text()));
+        assertThat(detail.conversation()).anyMatch(
+                r -> "the stage's own reply".equals(r.text()));
+    }
+
+    @Test
+    void conversationExcludesAnotherTasksMessagesOnTheSameThread()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        String otherTaskId = seedTask(threadId, 2L);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant open = stage.openedAt();
+        // A sibling task's message on the same thread, timed inside this
+        // stage's window — must not leak into this stage's transcript either.
+        appendMessage(threadId, otherTaskId, 1, "assistant", "text",
+                "{\"text\":\"belongs to the other task\"}", open);
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).noneMatch(
+                r -> "belongs to the other task".equals(r.text()));
+    }
+
+    @Test
     void unknownStageIs404()
     {
         assertThatThrownBy(() -> detailService.getDetail(UUID.randomUUID()))
@@ -362,10 +404,15 @@ class TestStageDetailService
 
     private String seedTask(String threadId)
     {
+        return seedTask(threadId, 1L);
+    }
+
+    private String seedTask(String threadId, long seq)
+    {
         Instant now = Instant.parse("2026-06-21T09:00:00Z");
         String taskId = UUID.randomUUID().toString();
         taskStore.saveTask(new Task(
-                taskId, threadId, 1L, TaskStatus.RUNNING, "feature", null, "main", "/tmp",
+                taskId, threadId, seq, TaskStatus.RUNNING, "feature", null, "main", "/tmp",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, now, null, null, null, null, null));
         return taskId;

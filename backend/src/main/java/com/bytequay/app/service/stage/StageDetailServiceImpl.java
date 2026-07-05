@@ -291,14 +291,23 @@ public class StageDetailServiceImpl
      * pre-migration transcripts). A row stamped with a <em>different</em> stage
      * is excluded even when its timestamp overlaps — which is what makes a
      * callable sub-stage's transcript unambiguous, unlike pure time windowing.
+     *
+     * <p>The window fallback must also require the row's {@code taskId} to
+     * match this stage's task: a TRUNK-scoped message (typed on the thread's
+     * root chat, not focused on any task) also has a null {@code stageId},
+     * and {@code devMessages} is built from every message on the whole
+     * thread — without this check, anything typed in the trunk while this
+     * stage happened to be open would fall inside the window and leak into
+     * the stage's transcript.
      */
     private static List<ThreadMessage> stageMessages(
             StageInstance stage, TimeWindow window, List<ThreadMessage> devMessages)
     {
         String id = stage.id().toString();
+        String taskId = stage.taskId();
         return devMessages.stream()
                 .filter(m -> id.equals(m.stageId())
-                        || (m.stageId() == null && window.contains(m.ts())))
+                        || (m.stageId() == null && taskId.equals(m.taskId()) && window.contains(m.ts())))
                 .toList();
     }
 

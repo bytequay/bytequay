@@ -110,6 +110,18 @@ describe('LivePlan', () => {
     expect(screen.queryByText('drifting from main')).toBeNull();
   });
 
+  it('shows the bold "Guard" label and the last-checked meta inline (plan-spine-options.html), not just in a tooltip', () => {
+    render(
+      <LivePlan nodes={model()} guard={buildGuardChip({
+        taskId: 't', enabled: true, schedule: 'nightly', state: 'in_sync',
+        lastRunId: null, lastCheckedAt: '2026-07-05T00:00:00Z',
+      })}
+      />,
+    );
+    expect(screen.getByText('Guard')).toBeTruthy();
+    expect(screen.getByText(new Date('2026-07-05T00:00:00Z').toLocaleTimeString())).toBeTruthy();
+  });
+
   it('shows a disabled guard as "off" with a toggle, and fires onToggleGuard when flipped', () => {
     const onToggleGuard = vi.fn();
     render(

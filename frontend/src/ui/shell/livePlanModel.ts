@@ -72,7 +72,9 @@ export type LivePlanNode = {
   activeView: boolean;
   nav: LivePlanNav;
   nodeType: LivePlanNodeType;
-  /** Development's phase ladder, present only while it's live (R29). */
+  /** Development's phase ladder — present whenever the backend has phase
+   *  data (live or closed); the rail shows it collapsed behind a disclosure
+   *  toggle once Development is done, expandable on click. */
   phases?: LivePlanPhaseNode[];
 };
 
@@ -279,8 +281,8 @@ export function buildGuardChip(guard: BranchGuardDto | null | undefined): GuardC
  * (plan-rail-runs.md R29): Plan → Development → Local review → Remote
  * pull request → CI validation → Comments → Merge / Close → Cleanup.
  * Development nests its own phase ladder (Implementing → Validation →
- * Brain review) while it's live, collapsing into its node's `meta` once it
- * closes (R29). Review (callable) and the round-addressing run still hang
+ * Brain review), which the rail keeps behind a click-to-expand toggle once
+ * Development is done (R29). Review (callable) and the round-addressing run still hang
  * as lazy `sub` rows — shown only while live/gated (R2/R3).
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
@@ -372,7 +374,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       key: 'dev', label: 'Development', status: devStatus, glyph: '🤖',
       meta: iterMeta(dev), placement: 'full', activeView: isViewed(dev), nav: stageNav(dev),
       nodeType: 'stage',
-      phases: devOpen && devPhases.length > 0 ? buildDevPhases(devPhases, liveRuns) : undefined,
+      phases: devPhases.length > 0 ? buildDevPhases(devPhases, liveRuns) : undefined,
     },
     ...(devOpen ? [{
       key: 'review', label: 'Review (callable)', status: reviewStatus,

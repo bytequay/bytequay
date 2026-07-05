@@ -829,6 +829,16 @@
 .shell .plan-section-h .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #16a34a; margin-left: auto; animation: working-pulse 1.4s infinite; }
 
 .shell .live-plan { padding: 10px 12px 14px; display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+/* Wraps a node with a phase ladder (Development) plus its disclosure toggle
+   — two sibling buttons, not nested, since .plan-node stays a real <button>. */
+.shell .plan-node-row { display: flex; align-items: center; gap: 4px; width: 100%; }
+.shell .plan-node-row .plan-node { width: auto; flex: 1; min-width: 0; }
+.shell .plan-node-toggle {
+  flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; border-radius: 6px; color: var(--text-4); cursor: pointer;
+  font-size: 10px; transition: all 0.15s;
+}
+.shell .plan-node-toggle:hover { color: var(--accent); background: var(--bg-elev); }
 .shell .plan-node {
   display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px;
   padding: 7px 10px; background: var(--bg-elev); border: 1px solid var(--border);

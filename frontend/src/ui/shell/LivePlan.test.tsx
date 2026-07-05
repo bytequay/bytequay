@@ -102,6 +102,26 @@ describe('LivePlan', () => {
     expect(screen.getByText('Development').closest('.plan-node')?.className).toContain('active-view');
   });
 
+  it("collapses Development's phase ladder by default once closed, and expands it on toggle click", () => {
+    const nodes = buildLivePlan({
+      stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
+      devPhases: [
+        { key: 'implementing', status: 'done', meta: null, badgeRunId: null },
+        { key: 'validation', status: 'done', meta: null, badgeRunId: null },
+        { key: 'brainReview', status: 'done', meta: null, badgeRunId: null },
+      ],
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+    });
+    const { container } = render(<LivePlan nodes={nodes} />);
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Development' }));
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(3);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Development' }));
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
+  });
+
   it('renders the guard chip once a guard row exists, hides it before the task has ever pushed', () => {
     const { rerender } = render(
       <LivePlan nodes={model()} guard={buildGuardChip({

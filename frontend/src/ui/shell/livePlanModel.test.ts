@@ -143,7 +143,7 @@ describe('buildLivePlan', () => {
     expect(nodes.some(n => n.key === 'comments-checks')).toBe(false);
   });
 
-  it("collapses Development's phase ladder once the stage closes", () => {
+  it("keeps Development's phase ladder available once the stage closes, for the rail's expand toggle", () => {
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
       devPhases: [
@@ -153,7 +153,7 @@ describe('buildLivePlan', () => {
       ],
       task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
-    expect(node(nodes, 'dev').phases).toBeUndefined();
+    expect(node(nodes, 'dev').phases?.map(p => p.key)).toEqual(['implementing', 'validation', 'brainReview']);
   });
 
   it('adds an Addressing sub-row under Comments and badges CI validation once out for remote review', () => {

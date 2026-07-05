@@ -11,23 +11,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Toggle from '../../settings/shared/Toggle';
 import type { GuardChipData, LivePlanNode, LivePlanPhaseNode } from './livePlanModel';
 
 /** One node button in the diagram. Disabled when it has nowhere to go (a
  *  future stage that hasn't been instantiated, or a milestone pseudo-node
  *  with no PR yet). `nt-<nodeType>` carries the R26/R30 node-type styling
- *  (gates render dashed, matching stage-phase-rail.html's `.nd.gate`). */
-function PlanNode({ node, onClick, small }: {
+ *  (gates render dashed, matching stage-phase-rail.html's `.nd.gate`).
+ *  `toggle`, when present (Development once it has phase data), renders a
+ *  sibling disclosure button so the main click keeps opening the stage while
+ *  the toggle expands/collapses the phase ladder underneath. */
+function PlanNode({ node, onClick, small, toggle }: {
   node: LivePlanNode;
   onClick: () => void;
   small?: boolean;
+  toggle?: { expanded: boolean; onToggle: () => void };
 }) {
   const cls = [
     'plan-node', node.status, `nt-${node.nodeType}`, node.activeView ? 'active-view' : '', small ? 'sm' : '',
   ].filter(Boolean).join(' ');
-  return (
+  const button = (
     <button
       type="button"
       className={cls}
@@ -39,6 +43,20 @@ function PlanNode({ node, onClick, small }: {
       <span className="pn-name">{node.label}</span>
       {node.meta !== undefined && <span className="pn-meta">{node.meta}</span>}
     </button>
+  );
+  if (toggle === undefined) return button;
+  return (
+    <div className="plan-node-row">
+      {button}
+      <button
+        type="button"
+        className="plan-node-toggle"
+        onClick={toggle.onToggle}
+        aria-label={toggle.expanded ? `Collapse ${node.label}` : `Expand ${node.label}`}
+      >
+        {toggle.expanded ? '▾' : '▸'}
+      </button>
+    </div>
   );
 }
 
@@ -119,6 +137,13 @@ export function LivePlan({
   };
   const click = (node: LivePlanNode) => () => navigate(node.nav);
 
+  // Explicit user toggles for a node's phase ladder, keyed by node key.
+  // Absent = default to expanded while the node is still live, collapsed
+  // once it's done (e.g. Development, after it closes).
+  const [phaseToggles, setPhaseToggles] = useState<Record<string, boolean>>({});
+  const phasesExpanded = (node: LivePlanNode): boolean =>
+    phaseToggles[node.key] ?? node.status !== 'done';
+
   const rows: ReactNode[] = [];
   let prev: LivePlanNode['placement'] | null = null;
   for (const node of nodes) {
@@ -136,9 +161,20 @@ export function LivePlan({
     if (prev === 'full' || prev === 'sub') {
       rows.push(<div className="plan-line" key={`${node.key}-line`} />);
     }
-    rows.push(<PlanNode node={node} key={node.key} onClick={click(node)} />);
+    const hasPhases = node.phases !== undefined && node.phases.length > 0;
+    const expanded = hasPhases && phasesExpanded(node);
+    rows.push(
+      <PlanNode
+        node={node}
+        key={node.key}
+        onClick={click(node)}
+        toggle={hasPhases
+          ? { expanded, onToggle: () => setPhaseToggles(prevToggles => ({ ...prevToggles, [node.key]: !expanded })) }
+          : undefined}
+      />,
+    );
     prev = 'full';
-    if (node.phases !== undefined && node.phases.length > 0) {
+    if (expanded && node.phases !== undefined) {
       for (const phase of node.phases) {
         rows.push(
           <PhaseRow phase={phase} key={`${node.key}-${phase.key}`} onClick={() => navigate(phase.nav)} />,

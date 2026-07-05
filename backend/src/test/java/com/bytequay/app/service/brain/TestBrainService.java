@@ -15,15 +15,18 @@ package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
+import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
@@ -197,6 +200,100 @@ class TestBrainService
         return new ThreadMessage(
                 "m" + seq, DEV_THREAD, null, seq, role, "text", contentJson,
                 null, null, null, null, ts);
+    }
+
+    @Test
+    void taskCompletedKicksOffASummaryTurnAndRecordsItsTurnId()
+    {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(task.threadId()).thenReturn(DEV_THREAD);
+        when(task.prNumber()).thenReturn(30);
+        when(task.prState()).thenReturn("merged");
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(taskStore.pendingCompletionSummaryTurnId(TASK_ID)).thenReturn(Optional.empty());
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
+        Thread devThread = mock(Thread.class);
+        when(devThread.workspaceId()).thenReturn("ws-default");
+        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
+        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("summary-turn-1");
+
+        service.onTaskCompleted(
+                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
+
+        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
+        verify(threadStore).saveThread(saved.capture());
+        assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
+        ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
+        verify(scheduler).enqueueTurn(eq(saved.getValue()), anyString(), initiator.capture());
+        assertThat(initiator.getValue().attended()).isFalse();
+        verify(taskStore).setPendingCompletionSummaryTurnId(TASK_ID, "summary-turn-1");
+    }
+
+    @Test
+    void taskCompletedPromptNamesTheMergedOrClosedPr()
+    {
+        Task merged = mock(Task.class);
+        when(merged.id()).thenReturn(TASK_ID);
+        when(merged.threadId()).thenReturn(DEV_THREAD);
+        when(merged.prNumber()).thenReturn(30);
+        when(merged.prState()).thenReturn("merged");
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(merged));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
+        Thread devThread = mock(Thread.class);
+        when(devThread.workspaceId()).thenReturn("ws-default");
+        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
+        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("summary-turn-1");
+
+        service.onTaskCompleted(
+                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(scheduler).enqueueTurn(any(), prompt.capture(), any());
+        assertThat(prompt.getValue()).contains("#30").contains("was merged");
+    }
+
+    @Test
+    void taskCompletedSkipsWhenATurnIsAlreadyPending()
+    {
+        when(taskStore.pendingCompletionSummaryTurnId(TASK_ID)).thenReturn(Optional.of("already-pending"));
+
+        service.onTaskCompleted(
+                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
+
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
+    }
+
+    @Test
+    void taskCompletedLeavesNoPendingTurnIdWhenEnqueueFails()
+    {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(task.threadId()).thenReturn(DEV_THREAD);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
+        Thread devThread = mock(Thread.class);
+        when(devThread.workspaceId()).thenReturn("ws-default");
+        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
+        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenThrow(new RuntimeException("scheduler busy"));
+
+        service.onTaskCompleted(
+                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
+
+        // No pending turn id recorded — TaskCompletionAnnouncer's sweep is the backstop.
+        verify(taskStore, never()).setPendingCompletionSummaryTurnId(anyString(), anyString());
+    }
+
+    @Test
+    void ignoresNonCompletionPhaseTransitions()
+    {
+        service.onTaskCompleted(
+                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING, "x"));
+
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
     }
 
     @Test

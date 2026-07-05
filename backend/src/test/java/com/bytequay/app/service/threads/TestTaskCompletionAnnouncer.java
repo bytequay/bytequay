@@ -14,11 +14,12 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
-import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
-import com.bytequay.app.repository.IterationStore;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,13 +30,10 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -46,17 +44,18 @@ class TestTaskCompletionAnnouncer
 {
     private static final String THREAD = "ws.t1";
     private static final String TASK = "ws.t1.k1";
+    private static final String TURN = "turn-1";
+    private static final String BRAIN_THREAD = "brain-1";
 
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final IterationStore iterationStore = mock(IterationStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final TaskCompletionAnnouncer announcer =
-            new TaskCompletionAnnouncer(taskStore, iterationStore, threadStore, mapper);
+            new TaskCompletionAnnouncer(taskStore, threadStore, mapper);
 
-    private TaskPhaseTransitionedEvent completed()
+    private TaskTurnFinishedEvent finished(boolean failed)
     {
-        return new TaskPhaseTransitionedEvent(TASK, TaskPhase.INTERNAL_REVIEW, TaskPhase.COMPLETED, "pr_merged");
+        return new TaskTurnFinishedEvent(TASK, TURN, failed);
     }
 
     private Task task(long seq)
@@ -65,23 +64,47 @@ class TestTaskCompletionAnnouncer
                 null, null, null, null, null, null, 0L, 0L, 0L, null, Instant.EPOCH, null, null, null, null, null);
     }
 
-    private TaskStageIteration summarised(String text)
+    private Task taskWithPr(long seq, int prNumber, String prState)
     {
-        return TaskStageIteration.opened(UUID.randomUUID(), UUID.randomUUID(), TASK, "turn", 1, "red_ci", Instant.EPOCH)
-                .withSummary(text, Instant.EPOCH);
+        return new Task(TASK, THREAD, seq, TaskStatus.RUNNING, "feat/x", null, "main", null, null, null,
+                prNumber, prState, null, null, null, null, 0L, 0L, 0L, null, Instant.EPOCH, null, null, null, null, null);
+    }
+
+    /** A task with an explicit {@code endedAt}, for the sweep's grace-window
+     *  check — everything else defaulted like {@link #task}. */
+    private Task taskEndedAt(long seq, Instant endedAt)
+    {
+        return new Task(TASK, THREAD, seq, TaskStatus.COMPLETED, "feat/x", null, "main", null, null, null,
+                null, null, null, null, null, null, 0L, 0L, 0L, null, Instant.EPOCH, endedAt, null, null, null, null);
+    }
+
+    private Thread brainThread()
+    {
+        return new Thread(
+                BRAIN_THREAD, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain · " + TASK,
+                ThreadStatus.IDLE, "claude-haiku-4-5-20251001", 0L, 0L, 0L,
+                Instant.EPOCH, Instant.EPOCH, null, null, ThreadFlow.BUILD, "ws-default", null, null, 1, TASK);
+    }
+
+    private ThreadMessage assistantText(String text)
+    {
+        return new ThreadMessage(
+                "m-brain-1", BRAIN_THREAD, TASK, 1L, "assistant", "text",
+                mapper.createObjectNode().put("text", text).toString(),
+                null, null, null, null, Instant.EPOCH);
     }
 
     @Test
-    void writesATrunkSummaryMarkerOnCompletion()
+    void writesTheBrainsAnswerWhenTheTurnSucceeds()
             throws Exception
     {
-        when(taskStore.findTaskById(TASK)).thenReturn(Optional.of(task(3L)));
-        when(iterationStore.findRecentSummaries(eq(TASK), anyInt()))
-                .thenReturn(List.of(summarised("Hoisted repeated message() calls")));
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN)).thenReturn(Optional.of(task(3L)));
+        when(threadStore.findBrainThreadByTask(TASK)).thenReturn(Optional.of(brainThread()));
+        when(threadStore.listMessages(BRAIN_THREAD)).thenReturn(List.of(assistantText("Cleaned up dead endpoints.")));
         when(threadStore.listMessages(THREAD)).thenReturn(List.of());
         when(threadStore.maxMessageSeq(THREAD)).thenReturn(Optional.of(7L));
 
-        announcer.onPhaseTransition(completed());
+        announcer.onTurnFinished(finished(false));
 
         ArgumentCaptor<ThreadMessage> captor = ArgumentCaptor.forClass(ThreadMessage.class);
         verify(threadStore).appendMessage(captor.capture());
@@ -91,26 +114,86 @@ class TestTaskCompletionAnnouncer
         assertThat(m.type()).isEqualTo("task_summary");
         assertThat(m.seq()).isEqualTo(8L);
         JsonNode env = mapper.readTree(m.contentJson());
-        assertThat(env.get("text").asText()).isEqualTo("Hoisted repeated message() calls");
+        assertThat(env.get("text").asText()).isEqualTo("Cleaned up dead endpoints.");
         assertThat(env.get("taskId").asText()).isEqualTo(TASK);
         assertThat(env.get("taskSeq").asInt()).isEqualTo(3);
+        verify(taskStore).clearPendingCompletionSummaryTurnId(TASK);
     }
 
     @Test
-    void ignoresNonCompletionTransitions()
+    void fallsBackWhenTheTurnFailed()
+            throws Exception
     {
-        announcer.onPhaseTransition(
-                new TaskPhaseTransitionedEvent(TASK, TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING, "x"));
-        verify(threadStore, never()).appendMessage(any());
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN)).thenReturn(Optional.of(task(3L)));
+        when(threadStore.listMessages(THREAD)).thenReturn(List.of());
+        when(threadStore.maxMessageSeq(THREAD)).thenReturn(Optional.of(7L));
+
+        announcer.onTurnFinished(finished(true));
+
+        ArgumentCaptor<ThreadMessage> captor = ArgumentCaptor.forClass(ThreadMessage.class);
+        verify(threadStore).appendMessage(captor.capture());
+        JsonNode env = mapper.readTree(captor.getValue().contentJson());
+        assertThat(env.get("text").asText()).contains("feat/x");
     }
 
     @Test
-    void skipsWhenTheTaskHasNoSummary()
+    void fallsBackWhenTheBrainAnswerIsBlank()
+            throws Exception
     {
-        when(taskStore.findTaskById(TASK)).thenReturn(Optional.of(task(3L)));
-        when(iterationStore.findRecentSummaries(eq(TASK), anyInt())).thenReturn(List.of());
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN)).thenReturn(Optional.of(task(3L)));
+        when(threadStore.findBrainThreadByTask(TASK)).thenReturn(Optional.of(brainThread()));
+        when(threadStore.listMessages(BRAIN_THREAD)).thenReturn(List.of(assistantText("")));
+        when(threadStore.listMessages(THREAD)).thenReturn(List.of());
+        when(threadStore.maxMessageSeq(THREAD)).thenReturn(Optional.of(7L));
 
-        announcer.onPhaseTransition(completed());
+        announcer.onTurnFinished(finished(false));
+
+        ArgumentCaptor<ThreadMessage> captor = ArgumentCaptor.forClass(ThreadMessage.class);
+        verify(threadStore).appendMessage(captor.capture());
+        JsonNode env = mapper.readTree(captor.getValue().contentJson());
+        assertThat(env.get("text").asText()).contains("feat/x");
+    }
+
+    @Test
+    void fallbackNamesTheClosedPrWhenNotMerged()
+            throws Exception
+    {
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN))
+                .thenReturn(Optional.of(taskWithPr(3L, 30, "closed")));
+        when(threadStore.listMessages(THREAD)).thenReturn(List.of());
+        when(threadStore.maxMessageSeq(THREAD)).thenReturn(Optional.of(7L));
+
+        announcer.onTurnFinished(finished(true));
+
+        ArgumentCaptor<ThreadMessage> captor = ArgumentCaptor.forClass(ThreadMessage.class);
+        verify(threadStore).appendMessage(captor.capture());
+        JsonNode env = mapper.readTree(captor.getValue().contentJson());
+        assertThat(env.get("text").asText()).contains("#30").contains("closed without merging");
+    }
+
+    @Test
+    void fallbackNamesTheMergedPrWhenMerged()
+            throws Exception
+    {
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN))
+                .thenReturn(Optional.of(taskWithPr(3L, 30, "merged")));
+        when(threadStore.listMessages(THREAD)).thenReturn(List.of());
+        when(threadStore.maxMessageSeq(THREAD)).thenReturn(Optional.of(7L));
+
+        announcer.onTurnFinished(finished(true));
+
+        ArgumentCaptor<ThreadMessage> captor = ArgumentCaptor.forClass(ThreadMessage.class);
+        verify(threadStore).appendMessage(captor.capture());
+        JsonNode env = mapper.readTree(captor.getValue().contentJson());
+        assertThat(env.get("text").asText()).contains("#30").contains("— merged.").doesNotContain("closed");
+    }
+
+    @Test
+    void ignoresATurnFinishedEventThatIsntACompletionSummaryTurn()
+    {
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId("some-other-turn")).thenReturn(Optional.empty());
+
+        announcer.onTurnFinished(new TaskTurnFinishedEvent(TASK, "some-other-turn", false));
 
         verify(threadStore, never()).appendMessage(any());
     }
@@ -118,30 +201,70 @@ class TestTaskCompletionAnnouncer
     @Test
     void isIdempotentWhenAMarkerAlreadyExists()
     {
-        when(taskStore.findTaskById(TASK)).thenReturn(Optional.of(task(3L)));
-        when(iterationStore.findRecentSummaries(eq(TASK), anyInt())).thenReturn(List.of(summarised("done")));
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN)).thenReturn(Optional.of(task(3L)));
         ThreadMessage existing = new ThreadMessage(
                 "m0", THREAD, null, 5L, "assistant", "task_summary",
                 "{\"text\":\"done\",\"taskId\":\"" + TASK + "\",\"taskSeq\":3}",
                 null, null, null, null, Instant.EPOCH);
         when(threadStore.listMessages(THREAD)).thenReturn(List.of(existing));
 
-        announcer.onPhaseTransition(completed());
+        announcer.onTurnFinished(finished(true));
 
         verify(threadStore, never()).appendMessage(any());
+        verify(taskStore).clearPendingCompletionSummaryTurnId(TASK);
     }
 
     @Test
     void neverThrowsWhenTheWriteFails()
     {
-        when(taskStore.findTaskById(TASK)).thenReturn(Optional.of(task(3L)));
-        when(iterationStore.findRecentSummaries(eq(TASK), anyInt())).thenReturn(List.of(summarised("done")));
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN)).thenReturn(Optional.of(task(3L)));
         when(threadStore.listMessages(THREAD)).thenReturn(List.of());
         when(threadStore.maxMessageSeq(THREAD)).thenReturn(Optional.of(0L));
-        when(threadStore.maxMessageSeq(anyString())).thenReturn(Optional.of(0L));
         // Simulate a store failure — the completion must not blow up over a marker.
         doThrow(new RuntimeException("db down")).when(threadStore).appendMessage(any());
 
-        announcer.onPhaseTransition(completed());   // must not throw
+        announcer.onTurnFinished(finished(true));   // must not throw
+    }
+
+    @Test
+    void sweepWritesFallbackForATaskPastTheGraceWindowWithNoMarker()
+            throws Exception
+    {
+        when(taskStore.listByPhases(any(), anyInt())).thenReturn(List.of(taskEndedAt(3L, Instant.EPOCH)));
+        when(threadStore.listMessages(THREAD)).thenReturn(List.of());
+        when(threadStore.maxMessageSeq(THREAD)).thenReturn(Optional.of(7L));
+
+        announcer.sweepStaleCompletions();
+
+        ArgumentCaptor<ThreadMessage> captor = ArgumentCaptor.forClass(ThreadMessage.class);
+        verify(threadStore).appendMessage(captor.capture());
+        JsonNode env = mapper.readTree(captor.getValue().contentJson());
+        assertThat(env.get("text").asText()).contains("feat/x");
+        verify(taskStore).clearPendingCompletionSummaryTurnId(TASK);
+    }
+
+    @Test
+    void sweepSkipsATaskStillInsideTheGraceWindow()
+    {
+        when(taskStore.listByPhases(any(), anyInt())).thenReturn(List.of(taskEndedAt(3L, Instant.now())));
+
+        announcer.sweepStaleCompletions();
+
+        verify(threadStore, never()).appendMessage(any());
+    }
+
+    @Test
+    void sweepSkipsATaskThatAlreadyHasAMarker()
+    {
+        when(taskStore.listByPhases(any(), anyInt())).thenReturn(List.of(taskEndedAt(3L, Instant.EPOCH)));
+        ThreadMessage existing = new ThreadMessage(
+                "m0", THREAD, null, 5L, "assistant", "task_summary",
+                "{\"text\":\"done\",\"taskId\":\"" + TASK + "\",\"taskSeq\":3}",
+                null, null, null, null, Instant.EPOCH);
+        when(threadStore.listMessages(THREAD)).thenReturn(List.of(existing));
+
+        announcer.sweepStaleCompletions();
+
+        verify(threadStore, never()).appendMessage(any());
     }
 }

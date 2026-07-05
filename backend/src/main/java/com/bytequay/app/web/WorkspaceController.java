@@ -285,22 +285,6 @@ public class WorkspaceController
         return workspaces.addRepo(id, body.repoFullName(), body.defaultBaseBranch());
     }
 
-    @DeleteMapping("/{id}/repos/{owner}/{repo}")
-    public void removeRepo(@PathVariable String id,
-            @PathVariable String owner, @PathVariable String repo)
-    {
-        workspaces.removeRepo(id, owner + "/" + repo);
-    }
-
-    @PutMapping("/{id}/repos/{owner}/{repo}/default-base-branch")
-    public WorkspaceRepo setDefaultBaseBranch(@PathVariable String id,
-            @PathVariable String owner, @PathVariable String repo,
-            @RequestBody DefaultBaseBranchBody body)
-    {
-        body = requireBody(body);
-        return workspaces.setDefaultBaseBranch(id, owner + "/" + repo, body.defaultBaseBranch());
-    }
-
     /** Flip the headless auto-fix opt-in on or off for one repo.
      *  Off by default per CLAUDE.md — only when this is explicitly
      *  enabled will the automation coordinator spawn a CLI agent
@@ -317,8 +301,6 @@ public class WorkspaceController
     public record MemoryBody(String memoryMd) {}
 
     public record RepoAttachBody(String repoFullName, String defaultBaseBranch) {}
-
-    public record DefaultBaseBranchBody(String defaultBaseBranch) {}
 
     public record AutoFixEnabledBody(boolean autoFixEnabled) {}
 

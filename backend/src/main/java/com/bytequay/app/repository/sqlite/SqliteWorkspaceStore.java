@@ -131,17 +131,6 @@ class SqliteWorkspaceStore
     }
 
     @Override
-    @Transactional
-    public void removeRepo(String workspaceId, String repoFullName)
-    {
-        WorkspaceRepoEntity.WorkspaceRepoKey key =
-                new WorkspaceRepoEntity.WorkspaceRepoKey(workspaceId, repoFullName);
-        if (repos.existsById(key)) {
-            repos.deleteById(key);
-        }
-    }
-
-    @Override
     public List<WorkspaceRepo> listRepos(String workspaceId)
     {
         return repos.findByIdWorkspaceIdOrderByAddedAtMsAsc(workspaceId).stream()
@@ -155,18 +144,6 @@ class SqliteWorkspaceStore
         WorkspaceRepoEntity.WorkspaceRepoKey key =
                 new WorkspaceRepoEntity.WorkspaceRepoKey(workspaceId, repoFullName);
         return repos.findById(key).map(SqliteWorkspaceStore::toRepo);
-    }
-
-    @Override
-    @Transactional
-    public void setDefaultBaseBranch(String workspaceId, String repoFullName, String defaultBaseBranch)
-    {
-        WorkspaceRepoEntity.WorkspaceRepoKey key =
-                new WorkspaceRepoEntity.WorkspaceRepoKey(workspaceId, repoFullName);
-        repos.findById(key).ifPresent(entity -> {
-            entity.setDefaultBaseBranch(defaultBaseBranch);
-            repos.save(entity);
-        });
     }
 
     @Override

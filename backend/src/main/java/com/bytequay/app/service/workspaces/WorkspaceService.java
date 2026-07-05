@@ -668,12 +668,6 @@ public class WorkspaceService
         return next;
     }
 
-    public void removeRepo(String workspaceId, String repoFullName)
-    {
-        require(workspaceId);
-        store.removeRepo(workspaceId, repoFullName);
-    }
-
     /**
      * Resolve the per-repo merge-target branch for ship-and-continue.
      * Used as the "from main" base when cutting the next task. Returns
@@ -685,17 +679,6 @@ public class WorkspaceService
         return store.findRepo(workspaceId, repoFullName)
                 .map(WorkspaceRepo::defaultBaseBranch)
                 .filter(s -> s != null && !s.isBlank());
-    }
-
-    public WorkspaceRepo setDefaultBaseBranch(String workspaceId, String repoFullName, String branch)
-    {
-        require(workspaceId);
-        String normalised = trimToNull(branch);
-        store.setDefaultBaseBranch(workspaceId, repoFullName, normalised);
-        return store.findRepo(workspaceId, repoFullName)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404),
-                        repoFullName + " not attached to workspace " + workspaceId));
     }
 
     private static String trimToNull(String s)

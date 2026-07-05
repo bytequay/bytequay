@@ -229,7 +229,7 @@ describe('buildLivePlan', () => {
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
     });
     expect(node(nodes, 'root').status).toBe('planning');
-    expect(node(nodes, 'root').glyph).toBe('●');
+    expect(node(nodes, 'root').glyph).toBe('🤖');
   });
 
   it('drives Local Review from the phase: future before, running during, done after', () => {

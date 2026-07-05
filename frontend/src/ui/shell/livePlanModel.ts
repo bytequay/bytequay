@@ -138,13 +138,18 @@ function stageStatus(stage: StageDto | undefined, planning = false): LivePlanSta
   }
 }
 
-function glyphFor(status: LivePlanStatus, future = '○'): string {
+function glyphFor(status: LivePlanStatus): string {
   if (status === 'done') return '✓';
   if (status === 'monitoring') return '◎';
   if (status === 'running' || status === 'planning' || status === 'errored' || status === 'awaiting') return '●';
-  if (status === 'sleep') return '○';
-  return future;
+  return '○';
 }
+
+/** Which spine nodes always render the 🤖 glyph — done or not, they're
+ *  AI-owned stages, so the shape never swaps to ✓ (status still conveys
+ *  progress via the node's color/opacity). Review (callable) is also
+ *  `nodeType: 'stage'` but stays a plain status glyph. */
+const ROBOT_KEYS = new Set(['root', 'dev', 'comments']);
 
 /** Task phases during which the Development stage is the active work — the
  *  node must read "running" then even if its stage row sits OPEN between
@@ -359,12 +364,12 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
 
   const nodes: LivePlanNode[] = [
     {
-      key: 'root', label: 'Plan', status: rootStatus, glyph: glyphFor(rootStatus),
+      key: 'root', label: 'Plan', status: rootStatus, glyph: '🤖',
       meta: rootStatus === 'done' ? 'plan approved' : 'planning',
       placement: 'full', activeView: viewingBrain, nav: { kind: 'brain' }, nodeType: 'stage',
     },
     {
-      key: 'dev', label: 'Development', status: devStatus, glyph: glyphFor(devStatus),
+      key: 'dev', label: 'Development', status: devStatus, glyph: '🤖',
       meta: iterMeta(dev), placement: 'full', activeView: isViewed(dev), nav: stageNav(dev),
       nodeType: 'stage',
       phases: devOpen && devPhases.length > 0 ? buildDevPhases(devPhases, liveRuns) : undefined,
@@ -377,12 +382,12 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     }] : []),
     {
       key: 'local-review', label: 'Local review', status: localReviewStat,
-      glyph: glyphFor(localReviewStat, '◆'), meta: localReviewStat === 'done' ? 'approved' : undefined,
+      glyph: '◆', meta: localReviewStat === 'done' ? 'approved' : undefined,
       placement: 'full', activeView: false, nodeType: 'gate',
       nav: dev !== undefined ? prTabNav : { kind: 'none' },
     },
     {
-      key: 'remote-pr', label: 'Remote pull request', status: remotePrStatus, glyph: glyphFor(remotePrStatus, '◆'),
+      key: 'remote-pr', label: 'Remote pull request', status: remotePrStatus, glyph: '◆',
       meta: task.prNumber !== null ? `PR #${task.prNumber}` : undefined,
       placement: 'full', activeView: false, nodeType: 'gate',
       nav: task.prNumber !== null ? prTabNav : { kind: 'none' },
@@ -394,7 +399,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       nav: task.prNumber !== null ? { kind: 'pr' } : { kind: 'none' },
     },
     {
-      key: 'comments', label: 'Comments', status: commentsStat, glyph: glyphFor(commentsStat),
+      key: 'comments', label: 'Comments', status: commentsStat, glyph: '🤖',
       meta: liveRound !== null ? `round ${liveRound.idx} · ${liveRound.stats.open} open`
         : comments === undefined ? undefined
           : commentsStat === 'monitoring' ? 'watching review'
@@ -403,7 +408,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     },
     ...(!devEra && roundRun !== undefined ? [runSubNode('comments-addressing', 'Addressing', roundRun)] : []),
     {
-      key: 'merge-close', label: 'Merge / Close', status: mergeStatus, glyph: glyphFor(mergeStatus, '◆'),
+      key: 'merge-close', label: 'Merge / Close', status: mergeStatus, glyph: '◆',
       meta: mergeMeta, placement: 'full', activeView: false, nodeType: 'gate',
       nav: task.prNumber !== null ? prTabNav : { kind: 'none' },
     },
@@ -420,7 +425,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     for (const node of nodes) {
       if (node.activeView) {
         node.status = node.key === 'root' ? 'planning' : 'running';
-        node.glyph = glyphFor(node.status);
+        node.glyph = ROBOT_KEYS.has(node.key) ? '🤖' : glyphFor(node.status);
       }
     }
   }
@@ -431,7 +436,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     for (const node of nodes) {
       if (node.nav.kind === 'stage' && node.nav.stageId === awaitingApprovalStageId) {
         node.status = 'awaiting';
-        node.glyph = glyphFor('awaiting');
+        node.glyph = ROBOT_KEYS.has(node.key) ? '🤖' : glyphFor('awaiting');
         node.meta = 'awaiting approval';
       }
     }

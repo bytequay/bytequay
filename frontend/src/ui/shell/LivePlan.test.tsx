@@ -58,9 +58,9 @@ function model(viewedStageId?: string) {
 describe('LivePlan', () => {
   it('renders every lifecycle node with its status class, plus the nested phase ladder', () => {
     const { container } = render(<LivePlan nodes={model()} />);
-    // The first node is Plan (the brain/root conversation). A closed
+    // The first node is Root (the brain/root conversation). A closed
     // PlanStage reads as 'done'.
-    expect(screen.getByText('Plan').closest('.plan-node')?.className).toContain('done');
+    expect(screen.getByText('Root').closest('.plan-node')?.className).toContain('done');
     expect(screen.getByText('Validation').closest('.plan-phase-row')?.className).toContain('running');
     expect(screen.getByText('Comments').closest('.plan-node')?.className).toContain('future');
     // A live run badges its phase row inline.
@@ -71,17 +71,10 @@ describe('LivePlan', () => {
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(3);
   });
 
-  it('navigates to a stage when its node is clicked', () => {
-    const onOpenStage = vi.fn();
-    render(<LivePlan nodes={model()} onOpenStage={onOpenStage} />);
-    fireEvent.click(screen.getByText('Development'));
-    expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
-  });
-
-  it('navigates to the brain page when the Plan node is clicked', () => {
+  it('navigates to the brain page when the Root node is clicked', () => {
     const onOpenBrain = vi.fn();
     render(<LivePlan nodes={model()} onOpenBrain={onOpenBrain} />);
-    fireEvent.click(screen.getByText('Plan'));
+    fireEvent.click(screen.getByText('Root'));
     expect(onOpenBrain).toHaveBeenCalledOnce();
   });
 
@@ -102,7 +95,8 @@ describe('LivePlan', () => {
     expect(screen.getByText('Development').closest('.plan-node')?.className).toContain('active-view');
   });
 
-  it("collapses Development's phase ladder by default once closed, and expands it on toggle click", () => {
+  it("collapses Development's phase ladder by default once closed, and expands/collapses it on click", () => {
+    const onOpenStage = vi.fn();
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
       devPhases: [
@@ -112,14 +106,18 @@ describe('LivePlan', () => {
       ],
       task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
-    const { container } = render(<LivePlan nodes={nodes} />);
+    const { container } = render(<LivePlan nodes={nodes} onOpenStage={onOpenStage} />);
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Development' }));
+    // Clicking the Development node itself toggles the ladder, not navigation
+    // — Development has no separate "open stage" affordance any more.
+    fireEvent.click(screen.getByText('Development'));
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(3);
+    expect(onOpenStage).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Development' }));
+    fireEvent.click(screen.getByText('Development'));
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
+    expect(onOpenStage).not.toHaveBeenCalled();
   });
 
   it('renders the guard chip once a guard row exists, hides it before the task has ever pushed', () => {

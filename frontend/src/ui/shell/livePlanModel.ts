@@ -48,8 +48,7 @@ export type LivePlanNav =
 export type LivePlanNodeType = 'stage' | 'gate' | 'auto';
 
 /** One row of Development's in-stage phase ladder, rendered nested under the
- *  `dev` node only while it's live (R29) — collapses into the node's own
- *  `meta` once Development closes. */
+ *  `dev` node behind a click-to-expand toggle (R29). */
 export type LivePlanPhaseNode = {
   key: DevPhaseKey;
   label: string;
@@ -366,7 +365,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
 
   const nodes: LivePlanNode[] = [
     {
-      key: 'root', label: 'Plan', status: rootStatus, glyph: '🤖',
+      key: 'root', label: 'Root', status: rootStatus, glyph: '🤖',
       meta: rootStatus === 'done' ? 'plan approved' : 'planning',
       placement: 'full', activeView: viewingBrain, nav: { kind: 'brain' }, nodeType: 'stage',
     },

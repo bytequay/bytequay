@@ -14,7 +14,6 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.localpr.AddLocalPRCommentRequest;
-import com.bytequay.app.beans.localpr.CreateLocalPRRequest;
 import com.bytequay.app.beans.localpr.LocalPRBundleDto;
 import com.bytequay.app.beans.localpr.LocalPRCheckDto;
 import com.bytequay.app.beans.localpr.LocalPRCommentDto;
@@ -22,12 +21,9 @@ import com.bytequay.app.beans.localpr.LocalPRCommitDto;
 import com.bytequay.app.beans.localpr.LocalPRDto;
 import com.bytequay.app.beans.localpr.LocalPRTimelineEventDto;
 import com.bytequay.app.beans.localpr.MergeLocalPRRequest;
-import com.bytequay.app.beans.localpr.UpdateLocalPRRequest;
 import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRComment;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.LocalPRPublishService;
 import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.localpr.LocalPRSyncService;
@@ -41,49 +37,35 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
-
 import static java.util.Objects.requireNonNull;
 
 /**
  * REST surface for the local PR — the PR artifact that lives in ByteQuay
- * before it reaches GitHub. Reads and the create / update / comment mutations
- * are here; the user-gated {@code push} and {@code merge} transitions land in
- * a later phase (they perform GitHub I/O). Agents mutate the local PR through
- * the {@code record_pr_*} MCP tools inside a scheduler-dispatched turn, not
- * through this controller.
+ * before it reaches GitHub. The read bundle and comment mutations are here;
+ * the user-gated {@code push} and {@code merge} transitions perform GitHub
+ * I/O. Agents mutate the local PR through the {@code record_pr_*} MCP tools
+ * inside a scheduler-dispatched turn, not through this controller.
  */
 @RestController
 public class LocalPRController
 {
     private static final String USER_AUTHOR = LocalPRTimelineEvent.ACTOR_USER;
-    private static final String DEFAULT_BASE_BRANCH = "main";
 
     private final LocalPRService localPr;
     private final LocalPRPublishService publish;
     private final LocalPRSyncService sync;
-    private final TaskStore taskStore;
     private final ObjectMapper mapper;
 
     public LocalPRController(
             LocalPRService localPr,
             LocalPRPublishService publish,
             LocalPRSyncService sync,
-            TaskStore taskStore,
             ObjectMapper mapper)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
         this.publish = requireNonNull(publish, "publish is null");
         this.sync = requireNonNull(sync, "sync is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
-    }
-
-    @GetMapping("/api/tasks/{taskId}/local-pr")
-    public LocalPRDto getForTask(@PathVariable String taskId)
-    {
-        return LocalPRDto.from(localPr.findByTask(taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR for task " + taskId)));
     }
 
     /** The whole local PR in one payload — the frontend PR view / push dialog
@@ -120,56 +102,6 @@ public class LocalPRController
     public LocalPRDto merge(@PathVariable String prId, @RequestBody(required = false) MergeLocalPRRequest body)
     {
         return LocalPRDto.from(publish.merge(prId, body == null ? null : body.method()));
-    }
-
-    @PostMapping("/api/tasks/{taskId}/local-pr")
-    public LocalPRDto create(@PathVariable String taskId, @RequestBody(required = false) CreateLocalPRRequest body)
-    {
-        Task task = taskStore.findTaskById(taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + taskId));
-        if (task.branchName() == null || task.branchName().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "task " + taskId + " has no branch yet");
-        }
-        String baseBranch = task.baseBranch() == null || task.baseBranch().isBlank()
-                ? DEFAULT_BASE_BRANCH : task.baseBranch();
-        String title = body != null && body.title() != null && !body.title().isBlank()
-                ? body.title()
-                : task.name() != null && !task.name().isBlank() ? task.name() : task.branchName();
-        String description = body == null ? "" : body.description();
-        return LocalPRDto.from(
-                localPr.createForTask(taskId, task.branchName(), baseBranch, title, description));
-    }
-
-    @PatchMapping("/api/local-pr/{prId}")
-    public LocalPRDto update(@PathVariable String prId, @RequestBody(required = false) UpdateLocalPRRequest body)
-    {
-        String title = body == null ? null : body.title();
-        String description = body == null ? null : body.description();
-        return LocalPRDto.from(localPr.updateDetails(prId, title, description));
-    }
-
-    @GetMapping("/api/local-pr/{prId}/timeline")
-    public List<LocalPRTimelineEventDto> timeline(@PathVariable String prId)
-    {
-        return localPr.timeline(prId).stream().map(e -> LocalPRTimelineEventDto.from(e, mapper)).toList();
-    }
-
-    @GetMapping("/api/local-pr/{prId}/commits")
-    public List<LocalPRCommitDto> commits(@PathVariable String prId)
-    {
-        return localPr.commits(prId).stream().map(LocalPRCommitDto::from).toList();
-    }
-
-    @GetMapping("/api/local-pr/{prId}/checks")
-    public List<LocalPRCheckDto> checks(@PathVariable String prId)
-    {
-        return localPr.checks(prId).stream().map(LocalPRCheckDto::from).toList();
-    }
-
-    @GetMapping("/api/local-pr/{prId}/comments")
-    public List<LocalPRCommentDto> comments(@PathVariable String prId)
-    {
-        return localPr.comments(prId).stream().map(LocalPRCommentDto::from).toList();
     }
 
     @PostMapping("/api/local-pr/{prId}/comments")

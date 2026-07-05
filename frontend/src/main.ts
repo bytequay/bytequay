@@ -847,6 +847,35 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('tasks:updateGuard', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('updateGuard args must be an object');
+    }
+    const a = args as { taskId?: unknown; enabled?: unknown; schedule?: unknown };
+    if (typeof a.taskId !== 'string' || a.taskId.trim().length === 0) {
+      throw new Error('taskId must be a non-empty string');
+    }
+    const body: Record<string, unknown> = {};
+    if (typeof a.enabled === 'boolean') {
+      body.enabled = a.enabled;
+    }
+    if (typeof a.schedule === 'string' && a.schedule.length > 0) {
+      body.schedule = a.schedule;
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(a.taskId)}/guard`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PATCH /api/tasks/${a.taskId}/guard returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('brain:sendMessage', async (_event, taskId: string, text: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain/message`,

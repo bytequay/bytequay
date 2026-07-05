@@ -24,7 +24,8 @@ import type { GuardChipData, LivePlanNode } from './livePlanModel';
  * actions render at the bottom.
  */
 export function TaskSidebar({
-  task, threadLabel, nodes, guard, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun, actions,
+  task, threadLabel, nodes, guard, onBack, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun,
+  onToggleGuard, actions,
 }: {
   task: {
     title: string; branch: string;
@@ -41,6 +42,8 @@ export function TaskSidebar({
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
   onOpenRun?: (runId: string) => void;
+  /** Enable/disable the branch guard from its chip's toggle. */
+  onToggleGuard?: (enabled: boolean) => void;
   actions?: ReactNode;
 }) {
   return (
@@ -72,6 +75,7 @@ export function TaskSidebar({
         onOpenPr={onOpenPr}
         onOpenBrain={onOpenBrain}
         onOpenRun={onOpenRun}
+        onToggleGuard={onToggleGuard}
       />
       {actions !== undefined && <div className="panel-actions">{actions}</div>}
     </aside>

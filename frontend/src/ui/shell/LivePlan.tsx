@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
+import Toggle from '../../settings/shared/Toggle';
 import type { GuardChipData, LivePlanNode } from './livePlanModel';
 
 /** One node button in the diagram. Disabled when it has nowhere to go (a
@@ -40,14 +41,22 @@ function PlanNode({ node, onClick, small }: {
 }
 
 /** The guard chip rendered above the rail (R4) — hidden entirely until the
- *  task has pushed and the guard is enabled ({@link buildGuardChip} returns
- *  null until then). */
-function GuardChip({ guard }: { guard: GuardChipData }) {
+ *  task has pushed ({@link buildGuardChip} returns null until then); shown
+ *  dimmed with a toggle while disabled so the user can arm it. */
+function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enabled: boolean) => void }) {
   if (guard === null) return null;
   return (
-    <div className={`guard-chip ${guard.state}`} title={guard.meta ?? undefined}>
+    <div
+      className={`guard-chip ${guard.enabled ? guard.state : 'off'}`}
+      title={guard.meta ?? undefined}
+    >
       <span className="guard-icon" aria-hidden>🛡</span>
       <span className="guard-label">{guard.label}</span>
+      <Toggle
+        on={guard.enabled}
+        onChange={next => onToggle?.(next)}
+        ariaLabel={guard.enabled ? 'Disable branch guard' : 'Enable branch guard'}
+      />
     </div>
   );
 }
@@ -60,7 +69,9 @@ function GuardChip({ guard }: { guard: GuardChipData }) {
  * Clicking a node navigates to its stage (or the changes / PR surface for
  * the Push / Merge milestones).
  */
-export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun }: {
+export function LivePlan({
+  nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenBrain, onOpenRun, onToggleGuard,
+}: {
   nodes: LivePlanNode[];
   guard?: GuardChipData;
   onOpenStage?: (stageId: string) => void;
@@ -70,6 +81,8 @@ export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOp
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
   onOpenRun?: (runId: string) => void;
+  /** Enable/disable the branch guard from its chip's toggle. */
+  onToggleGuard?: (enabled: boolean) => void;
 }) {
   const click = (node: LivePlanNode) => () => {
     switch (node.nav.kind) {
@@ -105,7 +118,7 @@ export function LivePlan({ nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOp
 
   return (
     <div className="live-plan">
-      <GuardChip guard={guard ?? null} />
+      <GuardChip guard={guard ?? null} onToggle={onToggleGuard} />
       {rows}
     </div>
   );

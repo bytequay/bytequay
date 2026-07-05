@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import type {
-  AgentRunDto, BrainMessageResult, ReviewRoundDto, SpawnReviewResult, StageDetailData, TaskBrainViewData,
+  AgentRunDto, BrainMessageResult, BranchGuardDto, ReviewRoundDto, SpawnReviewResult, StageDetailData,
+  TaskBrainViewData,
 } from './types/brainView';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
 
@@ -3931,6 +3932,9 @@ export type Bridge = {
   /** Full brain-view payload for a task: aggregate strip, stages,
    *  brain feed, right rail, scrubbers. Polled by the brain view. */
   getBrainView: (taskId: string) => Promise<TaskBrainViewData>;
+  /** Toggle or reschedule the task's branch-guard (nightly rebase-and-push
+   *  drift maintenance). Omitted fields are left unchanged. */
+  updateTaskGuard: (taskId: string, patch: { enabled?: boolean; schedule?: string }) => Promise<BranchGuardDto>;
   /** Post a question to the task's brain agent. Returns the answering
    *  turn id and the brain thread id (subscribe to its stream). */
   sendBrainMessage: (taskId: string, text: string) => Promise<BrainMessageResult>;

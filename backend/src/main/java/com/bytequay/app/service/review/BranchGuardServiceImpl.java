@@ -38,7 +38,12 @@ class BranchGuardServiceImpl
     @Transactional
     public BranchGuard get(String taskId)
     {
-        return store.findByTask(taskId).orElseGet(() -> store.save(BranchGuard.disabled(taskId)));
+        // Read-only: must NOT persist a row. The stage/brain views call this
+        // on every load, long before a task ever pushes — if that lazily
+        // saved a disabled row, enableOnFirstPush's "only act if absent"
+        // check below would find it already present and skip arming the
+        // guard, permanently stuck disabled despite having pushed.
+        return store.findByTask(taskId).orElseGet(() -> BranchGuard.disabled(taskId));
     }
 
     @Override

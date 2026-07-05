@@ -943,6 +943,8 @@ const bridge: Bridge = {
 
   // ── Brain agent ──────────────────────────────────────────────────
   getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),
+  updateTaskGuard: (taskId: string, patch: { enabled?: boolean; schedule?: string }) =>
+      ipcRenderer.invoke('tasks:updateGuard', { taskId, ...patch }),
   sendBrainMessage: (taskId: string, text: string) =>
     ipcRenderer.invoke('brain:sendMessage', taskId, text),
   getStageDetail: (stageId: string) => ipcRenderer.invoke('stages:getDetail', stageId),

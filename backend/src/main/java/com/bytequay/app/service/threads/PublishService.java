@@ -15,6 +15,8 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
@@ -33,6 +35,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
+import com.bytequay.app.service.localpr.LocalPRService;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -132,6 +135,7 @@ public class PublishService
     private final TaskService taskService;
     private final ReviewPassResolver reviewPassResolver;
     private final StageStore stageStore;
+    private final LocalPRService localPr;
 
     public PublishService(
             NotificationService notifications,
@@ -144,7 +148,8 @@ public class PublishService
             @Lazy TaskService taskService,
             ReviewPassResolver reviewPassResolver,
             TaskPhaseMachine phaseMachine,
-            StageStore stageStore)
+            StageStore stageStore,
+            LocalPRService localPr)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -157,6 +162,7 @@ public class PublishService
         this.reviewPassResolver = requireNonNull(reviewPassResolver, "reviewPassResolver is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.localPr = requireNonNull(localPr, "localPr is null");
     }
 
     /**
@@ -397,7 +403,7 @@ public class PublishService
                     editedBody -> doShipTask(shipTask, original));
             case ParkedProposal.MarkReady markReady -> action(
                     editedBody -> preflightMarkReady(markReady),
-                    editedBody -> doMarkReady(markReady, editedBody));
+                    editedBody -> doMarkReady(markReady, editedBody, original));
         };
     }
 
@@ -1081,7 +1087,7 @@ public class PublishService
      * supplied reviewers in {@code editedBody} (comma/space/newline-separated
      * GitHub logins), request them. An empty body means "just mark ready".
      */
-    private PublishResult doMarkReady(ParkedProposal.MarkReady markReady, String editedBody)
+    private PublishResult doMarkReady(ParkedProposal.MarkReady markReady, String editedBody, Notification original)
     {
         ParkedProposal.PrRef pullRequest = requirePrRef(markReady.pr(), markReady.action());
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
@@ -1098,12 +1104,59 @@ public class PublishService
             pullRequests.requestReviewers(pat, ref,
                     new RequestReviewersCommand(reviewers, ImmutableList.of()));
         }
+        syncLocalPrMarkedReady(original == null ? null : original.taskId());
         String who = pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number();
         return new PublishResult(true, RESOLUTION_APPROVED,
                 reviewers.isEmpty()
                         ? "Marked " + who + " ready for review."
                         : "Marked " + who + " ready and requested " + String.join(", ", reviewers) + ".",
                 markReady.action());
+    }
+
+    /** Best-effort: keep the separate LocalPR tracking row in step with a
+     *  real push/open-PR that just ran through this gate (e.g. via
+     *  auto-approve). That row otherwise only advances when the user clicks
+     *  the local-PR panel's own Push button, so a push resolved here would
+     *  leave it stuck offering "ready to push" for a push that already
+     *  happened. Never fails the publish over a sync miss. */
+    private void syncLocalPrPushed(String taskId, int remotePrNumber, String remotePrUrl)
+    {
+        if (taskId == null || taskId.isBlank()) {
+            return;
+        }
+        try {
+            localPr.findByTask(taskId).ifPresent(pr -> {
+                LocalPR current = pr;
+                if (LocalPR.STATUS_LOCAL_DRAFTED.equals(current.status())) {
+                    current = localPr.requestUserReview(current.id(), LocalPRTimelineEvent.ACTOR_AGENT);
+                }
+                if (LocalPR.STATUS_LOCAL_OPEN.equals(current.status())) {
+                    localPr.recordPush(current.id(), remotePrNumber, remotePrUrl);
+                }
+            });
+        }
+        catch (RuntimeException e) {
+            log.warn("syncing local PR push state for task {} failed: {}", taskId, e.getMessage());
+        }
+    }
+
+    /** Best-effort: flip a still-{@code remote-drafted} LocalPR row to
+     *  {@code remote-open} once mark-ready resolves through this gate —
+     *  same rationale as {@link #syncLocalPrPushed}. */
+    private void syncLocalPrMarkedReady(String taskId)
+    {
+        if (taskId == null || taskId.isBlank()) {
+            return;
+        }
+        try {
+            localPr.findByTask(taskId)
+                    .filter(pr -> LocalPR.STATUS_REMOTE_DRAFTED.equals(pr.status()))
+                    .ifPresent(pr -> localPr.transition(
+                            pr.id(), LocalPR.STATUS_REMOTE_OPEN, LocalPRTimelineEvent.ACTOR_AGENT));
+        }
+        catch (RuntimeException e) {
+            log.warn("syncing local PR mark-ready state for task {} failed: {}", taskId, e.getMessage());
+        }
     }
 
     private PublishResult doCommentOnIssue(ParkedProposal.CommentOnIssue commentOnIssue, String editedBody)
@@ -1217,6 +1270,7 @@ public class PublishService
                 log.warn("linking PR #{} to task {} failed: {}",
                         opened.number(), task.id(), e.getMessage());
             }
+            syncLocalPrPushed(task.id(), opened.number(), opened.htmlUrl());
         }
         String prRef = opened == null ? "" : " #" + opened.number();
         return new PublishResult(true, RESOLUTION_APPROVED,

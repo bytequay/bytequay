@@ -14,9 +14,13 @@
 package com.bytequay.app.repository.sqlite;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+
+import java.util.List;
+import java.util.Map;
 
 /** JPA row for a {@code pr}. */
 @Entity
@@ -78,6 +82,55 @@ class PrEntity
     @Column(name = "synced_at_ms")
     private Long syncedAtMs;
 
+    @Column(name = "watch_reason")
+    private String watchReason;
+
+    @Column(name = "gh_updated_at_ms")
+    private Long ghUpdatedAtMs;
+
+    @Column(name = "labels", nullable = false)
+    @Convert(converter = StringListConverter.class)
+    private List<String> labels = List.of();
+
+    @Column(name = "label_colors")
+    @Convert(converter = StringMapConverter.class)
+    private Map<String, String> labelColors;
+
+    @Column(name = "draft", nullable = false)
+    private boolean draft;
+
+    @Column(name = "ci_status")
+    private String ciStatus;
+
+    @Column(name = "additions", nullable = false)
+    private int additions;
+
+    @Column(name = "deletions", nullable = false)
+    private int deletions;
+
+    @Column(name = "comment_count", nullable = false)
+    private int commentCount;
+
+    @Column(name = "attention_reason")
+    private String attentionReason;
+
+    @Column(name = "mergeable")
+    private Boolean mergeable;
+
+    @Column(name = "mergeable_state")
+    private String mergeableState;
+
+    @Column(name = "head_pushed_at_ms")
+    private Long headPushedAtMs;
+
+    @Column(name = "reviewer_verdicts")
+    @Convert(converter = StringMapConverter.class)
+    private Map<String, String> reviewerVerdicts;
+
+    @Column(name = "requested_reviewers", nullable = false)
+    @Convert(converter = StringListConverter.class)
+    private List<String> requestedReviewers = List.of();
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -131,4 +184,49 @@ class PrEntity
 
     Long getSyncedAtMs() { return syncedAtMs; }
     void setSyncedAtMs(Long syncedAtMs) { this.syncedAtMs = syncedAtMs; }
+
+    String getWatchReason() { return watchReason; }
+    void setWatchReason(String watchReason) { this.watchReason = watchReason; }
+
+    Long getGhUpdatedAtMs() { return ghUpdatedAtMs; }
+    void setGhUpdatedAtMs(Long ghUpdatedAtMs) { this.ghUpdatedAtMs = ghUpdatedAtMs; }
+
+    List<String> getLabels() { return labels; }
+    void setLabels(List<String> labels) { this.labels = labels; }
+
+    Map<String, String> getLabelColors() { return labelColors; }
+    void setLabelColors(Map<String, String> labelColors) { this.labelColors = labelColors; }
+
+    boolean isDraft() { return draft; }
+    void setDraft(boolean draft) { this.draft = draft; }
+
+    String getCiStatus() { return ciStatus; }
+    void setCiStatus(String ciStatus) { this.ciStatus = ciStatus; }
+
+    int getAdditions() { return additions; }
+    void setAdditions(int additions) { this.additions = additions; }
+
+    int getDeletions() { return deletions; }
+    void setDeletions(int deletions) { this.deletions = deletions; }
+
+    int getCommentCount() { return commentCount; }
+    void setCommentCount(int commentCount) { this.commentCount = commentCount; }
+
+    String getAttentionReason() { return attentionReason; }
+    void setAttentionReason(String attentionReason) { this.attentionReason = attentionReason; }
+
+    Boolean getMergeable() { return mergeable; }
+    void setMergeable(Boolean mergeable) { this.mergeable = mergeable; }
+
+    String getMergeableState() { return mergeableState; }
+    void setMergeableState(String mergeableState) { this.mergeableState = mergeableState; }
+
+    Long getHeadPushedAtMs() { return headPushedAtMs; }
+    void setHeadPushedAtMs(Long headPushedAtMs) { this.headPushedAtMs = headPushedAtMs; }
+
+    Map<String, String> getReviewerVerdicts() { return reviewerVerdicts; }
+    void setReviewerVerdicts(Map<String, String> reviewerVerdicts) { this.reviewerVerdicts = reviewerVerdicts; }
+
+    List<String> getRequestedReviewers() { return requestedReviewers; }
+    void setRequestedReviewers(List<String> requestedReviewers) { this.requestedReviewers = requestedReviewers; }
 }

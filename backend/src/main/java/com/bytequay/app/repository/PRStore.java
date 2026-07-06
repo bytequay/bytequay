@@ -17,7 +17,9 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PRTriageState;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +42,17 @@ public interface PRStore
     /** The external PR already synced in for this (repo, remote PR number),
      *  if any — the dashboard/details-page resolver's idempotency check. */
     Optional<PR> findByRepoAndRemotePrNumber(String repo, int remotePrNumber);
+
+    // ── dashboard ──────────────────────────────────────────────────
+    /** Every PR currently watched by the dashboard sync (non-null {@code
+     *  watch_reason}), each paired with its triage state (empty if the
+     *  user has never touched it). */
+    List<PRDashboardEntry> findDashboardEntries();
+
+    Optional<PRTriageState> findTriage(String prId);
+
+    /** Insert or update the triage row; returns the persisted value. */
+    PRTriageState saveTriage(PRTriageState triage);
 
     // ── pr_commit ──────────────────────────────────────────────────
     PRCommit addCommit(PRCommit commit);

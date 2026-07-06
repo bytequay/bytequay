@@ -13,11 +13,18 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.AttentionReason;
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PR.PRSyncSnapshot;
 import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PRTriageState;
+import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.repository.PRStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,19 +42,22 @@ class SqlitePRStore
     private final PrTimelineEventJpaRepository events;
     private final PrCheckJpaRepository checks;
     private final PrCommentJpaRepository comments;
+    private final PrTriageJpaRepository triage;
 
     SqlitePRStore(
             PrJpaRepository prs,
             PrCommitJpaRepository commits,
             PrTimelineEventJpaRepository events,
             PrCheckJpaRepository checks,
-            PrCommentJpaRepository comments)
+            PrCommentJpaRepository comments,
+            PrTriageJpaRepository triage)
     {
         this.prs = prs;
         this.commits = commits;
         this.events = events;
         this.checks = checks;
         this.comments = comments;
+        this.triage = triage;
     }
 
     @Override
@@ -73,7 +83,30 @@ class SqlitePRStore
         e.setRepo(pr.repo());
         e.setAuthor(pr.author());
         e.setSyncedAtMs(epochOrNull(pr.syncedAt()));
+        applySyncSnapshot(e, pr.githubSync());
         return toDomain(prs.save(e));
+    }
+
+    private static void applySyncSnapshot(PrEntity e, PRSyncSnapshot snap)
+    {
+        if (snap == null) {
+            return;
+        }
+        e.setWatchReason(snap.watchReason() == null ? null : snap.watchReason().name());
+        e.setGhUpdatedAtMs(epochOrNull(snap.ghUpdatedAt()));
+        e.setLabels(snap.labels());
+        e.setLabelColors(snap.labelColors());
+        e.setDraft(snap.draft());
+        e.setCiStatus(snap.ciStatus() == null ? null : snap.ciStatus().name());
+        e.setAdditions(snap.additions());
+        e.setDeletions(snap.deletions());
+        e.setCommentCount(snap.commentCount());
+        e.setAttentionReason(snap.attentionReason() == null ? null : snap.attentionReason().name());
+        e.setMergeable(snap.mergeable());
+        e.setMergeableState(snap.mergeableState());
+        e.setHeadPushedAtMs(epochOrNull(snap.headPushedAt()));
+        e.setReviewerVerdicts(snap.reviewerVerdicts());
+        e.setRequestedReviewers(snap.requestedReviewers());
     }
 
     @Override
@@ -95,6 +128,40 @@ class SqlitePRStore
     public Optional<PR> findByRepoAndRemotePrNumber(String repo, int remotePrNumber)
     {
         return prs.findByRepoAndRemotePrNumber(repo, remotePrNumber).map(SqlitePRStore::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PRDashboardEntry> findDashboardEntries()
+    {
+        return prs.findByWatchReasonIsNotNull().stream()
+                .map(e -> new PRDashboardEntry(
+                        toDomain(e),
+                        triage.findById(e.getId()).map(SqlitePRStore::toDomain)
+                                .orElseGet(() -> PRTriageState.empty(e.getId()))))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<PRTriageState> findTriage(String prId)
+    {
+        return triage.findById(prId).map(SqlitePRStore::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public PRTriageState saveTriage(PRTriageState state)
+    {
+        PrTriageEntity e = new PrTriageEntity();
+        e.setPrId(state.prId());
+        e.setViewedAtMs(epochOrNull(state.viewedAt()));
+        e.setReviewedAtMs(epochOrNull(state.reviewedAt()));
+        e.setHandledAction(state.handledAction() == null ? null : state.handledAction().name());
+        e.setSnoozedUntilMs(epochOrNull(state.snoozedUntil()));
+        e.setSnoozedAtMs(epochOrNull(state.snoozedAt()));
+        e.setSnoozeWakeReason(state.snoozeWakeReason());
+        return toDomain(triage.save(e));
     }
 
     @Override
@@ -263,7 +330,47 @@ class SqlitePRStore
                 e.getOrigin(),
                 e.getRepo(),
                 e.getAuthor(),
-                instantOrNull(e.getSyncedAtMs()));
+                instantOrNull(e.getSyncedAtMs()),
+                toSyncSnapshot(e));
+    }
+
+    /** Absent unless the row has been touched by {@code syncList} at least
+     *  once ({@code gh_updated_at_ms} is the reliable signal — {@code
+     *  watch_reason} alone can't be, since it's cleared to null once a PR
+     *  falls out of the dashboard while its sync fields stay put). */
+    private static PRSyncSnapshot toSyncSnapshot(PrEntity e)
+    {
+        if (e.getGhUpdatedAtMs() == null) {
+            return null;
+        }
+        return new PRSyncSnapshot(
+                e.getWatchReason() == null ? null : PullRequest.Origin.valueOf(e.getWatchReason()),
+                instantOrNull(e.getGhUpdatedAtMs()),
+                e.getLabels(),
+                e.getLabelColors(),
+                e.isDraft(),
+                e.getCiStatus() == null ? null : PullRequestDetail.CiStatus.valueOf(e.getCiStatus()),
+                e.getAdditions(),
+                e.getDeletions(),
+                e.getCommentCount(),
+                e.getAttentionReason() == null ? null : AttentionReason.valueOf(e.getAttentionReason()),
+                e.getMergeable(),
+                e.getMergeableState(),
+                instantOrNull(e.getHeadPushedAtMs()),
+                e.getReviewerVerdicts(),
+                e.getRequestedReviewers());
+    }
+
+    private static PRTriageState toDomain(PrTriageEntity e)
+    {
+        return new PRTriageState(
+                e.getPrId(),
+                instantOrNull(e.getViewedAtMs()),
+                instantOrNull(e.getReviewedAtMs()),
+                e.getHandledAction() == null ? null : HandledAction.valueOf(e.getHandledAction()),
+                instantOrNull(e.getSnoozedUntilMs()),
+                instantOrNull(e.getSnoozedAtMs()),
+                e.getSnoozeWakeReason());
     }
 
     private static PRCommit toDomain(PrCommitEntity e)

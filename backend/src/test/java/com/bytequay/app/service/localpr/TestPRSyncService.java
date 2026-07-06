@@ -32,12 +32,14 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -343,7 +345,7 @@ class TestPRSyncService
         return new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
     }
 
     @Test
@@ -423,7 +425,7 @@ class TestPRSyncService
         PR created = new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "body text", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
         when(prService.createExternal(
                 eq("acme/widget"), eq(99), any(), eq("@octocat"), eq("feature/y"), eq("main"),
                 eq("Fix flaky test"), eq("body text"), eq(PR.STATUS_REMOTE_OPEN), eq(NOW), any(), any()))
@@ -445,7 +447,7 @@ class TestPRSyncService
         PR existing = new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
         PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
         when(prService.findByRepoAndNumber("acme/widget", 99)).thenReturn(Optional.of(existing));
         when(prService.findById("pr-ext")).thenReturn(Optional.of(existing));
@@ -464,7 +466,7 @@ class TestPRSyncService
         PR pr = new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
         PullRequestDetail refreshedDetail = detail("feature/y", "main", "", true, "closed", false);
         when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
         when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
@@ -472,5 +474,43 @@ class TestPRSyncService
         service.syncPR("pr-ext");
 
         verify(prService).transition("pr-ext", PR.STATUS_MERGED, PRTimelineEntry.ACTOR_AGENT);
+    }
+
+    /** Built via the real constructor, not {@code mock(PullRequest.class)} —
+     *  records don't mock cleanly with this project's Mockito setup (see
+     *  the {@code lightPr}/{@code detail} fix earlier in this file). */
+    private static PullRequest ghPr(int number, String title, String author, PullRequest.Origin origin)
+    {
+        return new PullRequest(
+                1L, "acme/widget", number, title, author,
+                "https://github.com/acme/widget/pull/" + number,
+                NOW, NOW, origin, List.of(), Map.of(), /* draft */ false,
+                null, null, null, List.of(), null, 0, 0, 0, null,
+                "open", null, null, null, null, null, Map.of(), null, null, "feature/z");
+    }
+
+    @Test
+    void syncListUpsertsAnExistingWatchedPrWithoutDuplicatingIt()
+    {
+        PR.PRSyncSnapshot existingSnapshot = new PR.PRSyncSnapshot(
+                PullRequest.Origin.AUTHORED, NOW, List.of(), Map.of(), false,
+                PullRequestDetail.CiStatus.PASSING, 5, 1, 0, null, null, null, null, Map.of(), List.of());
+        PR existing = new PR(
+                "pr-101", null, "feature/z", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 101, "https://github.com/acme/widget/pull/101", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, existingSnapshot);
+        when(pullRequests.searchRelevantForDashboard())
+                .thenReturn(List.of(ghPr(101, "Fix flaky test", "octocat", PullRequest.Origin.AUTHORED)));
+        when(pullRequests.resolveCurrentDashboardLogin()).thenReturn("octocat");
+        when(prService.findByRepoAndNumber("acme/widget", 101)).thenReturn(Optional.of(existing));
+        when(prService.updateSyncSnapshot(eq("pr-101"), any())).thenReturn(existing);
+        when(prService.dashboardEntries()).thenReturn(List.of());
+
+        service.syncList();
+
+        verify(prService, never()).createExternal(
+                any(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(prService).updateSyncSnapshot(eq("pr-101"), argThat(
+                snap -> snap.watchReason() == PullRequest.Origin.AUTHORED && !snap.draft()));
     }
 }

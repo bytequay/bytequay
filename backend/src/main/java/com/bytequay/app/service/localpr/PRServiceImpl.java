@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PRTriageState;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageType;
@@ -169,6 +173,130 @@ class PRServiceImpl
         PR saved = store.save(pr.withSynced(when));
         notifyUpdated(prId);
         return saved;
+    }
+
+    @Override
+    public List<PRDashboardEntry> dashboardEntries()
+    {
+        return store.findDashboardEntries();
+    }
+
+    @Override
+    public PRTriageState triage(String prId)
+    {
+        return triageOrEmpty(prId);
+    }
+
+    @Override
+    public PR setWatchReason(String prId, PullRequest.Origin watchReason)
+    {
+        PR pr = require(prId);
+        PR.PRSyncSnapshot current = pr.githubSync();
+        PR.PRSyncSnapshot updated = current == null
+                ? new PR.PRSyncSnapshot(watchReason, null, List.of(), Map.of(), false, null, 0, 0, 0, null,
+                        null, null, null, Map.of(), List.of())
+                : new PR.PRSyncSnapshot(watchReason, current.ghUpdatedAt(), current.labels(), current.labelColors(),
+                        current.draft(), current.ciStatus(), current.additions(), current.deletions(),
+                        current.commentCount(), current.attentionReason(), current.mergeable(),
+                        current.mergeableState(), current.headPushedAt(), current.reviewerVerdicts(),
+                        current.requestedReviewers());
+        PR saved = store.save(pr.withGithubSync(updated));
+        notifyUpdated(prId);
+        return saved;
+    }
+
+    @Override
+    public PR updateSyncSnapshot(String prId, PR.PRSyncSnapshot snapshot)
+    {
+        PR pr = require(prId);
+        PR saved = store.save(pr.withGithubSync(snapshot));
+        notifyUpdated(prId);
+        return saved;
+    }
+
+    @Override
+    public void markViewed(String prId)
+    {
+        PRTriageState state = triageOrEmpty(prId);
+        if (state.viewedAt() == null) {
+            saveTriage(withViewedAt(state, clock.instant()));
+        }
+    }
+
+    @Override
+    public void markHandled(String prId, HandledAction action)
+    {
+        requireNonNull(action, "action is null");
+        PRTriageState state = triageOrEmpty(prId);
+        Instant now = clock.instant();
+        saveTriage(new PRTriageState(
+                prId, state.viewedAt() == null ? now : state.viewedAt(), now, action,
+                state.snoozedUntil(), state.snoozedAt(), state.snoozeWakeReason()));
+    }
+
+    @Override
+    public void reopen(String prId)
+    {
+        PRTriageState state = triageOrEmpty(prId);
+        saveTriage(new PRTriageState(
+                prId, state.viewedAt(), null, null,
+                state.snoozedUntil(), state.snoozedAt(), state.snoozeWakeReason()));
+    }
+
+    @Override
+    public void snooze(String prId, Instant until)
+    {
+        requireNonNull(until, "until is null");
+        PRTriageState state = triageOrEmpty(prId);
+        // A fresh snooze clears any prior auto-wake reason — the user is
+        // parking the PR again on purpose.
+        saveTriage(new PRTriageState(
+                prId, state.viewedAt(), state.reviewedAt(), state.handledAction(),
+                until, clock.instant(), null));
+    }
+
+    @Override
+    public void unsnooze(String prId)
+    {
+        autoWake(prId, null);
+    }
+
+    @Override
+    public void autoWake(String prId, String wakeReason)
+    {
+        PRTriageState state = triageOrEmpty(prId);
+        saveTriage(new PRTriageState(
+                prId, state.viewedAt(), state.reviewedAt(), state.handledAction(),
+                null, null, wakeReason));
+    }
+
+    @Override
+    public void clearSnoozeWakeReason(String prId)
+    {
+        PRTriageState state = triageOrEmpty(prId);
+        if (state.snoozeWakeReason() != null) {
+            saveTriage(new PRTriageState(
+                    prId, state.viewedAt(), state.reviewedAt(), state.handledAction(),
+                    state.snoozedUntil(), state.snoozedAt(), null));
+        }
+    }
+
+    private PRTriageState triageOrEmpty(String prId)
+    {
+        return store.findTriage(prId).orElseGet(() -> PRTriageState.empty(prId));
+    }
+
+    private void saveTriage(PRTriageState state)
+    {
+        store.saveTriage(state);
+        notifyUpdated(state.prId());
+    }
+
+    private static PRTriageState withViewedAt(PRTriageState state, Instant viewedAt)
+    {
+        return new PRTriageState(
+                state.prId(), viewedAt, state.reviewedAt(), state.handledAction(),
+                state.snoozedUntil(), state.snoozedAt(), state.snoozeWakeReason());
     }
 
     /** The plan self-review (R20) predates the local PR — its `review` event

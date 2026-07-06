@@ -300,6 +300,24 @@ public class PullRequestService
         }
     }
 
+    /** The dashboard's relevant-PR sweep (open authored + review-requested +
+     *  reviewed-by + recently-closed-authored), for the unified {@code
+     *  PRSyncService.syncList} to upsert into the {@code pr} table. Pure
+     *  GitHub search — no storage side effects, same as every other caller
+     *  of {@link #fetchRelevant}. */
+    public List<PullRequest> searchRelevantForDashboard()
+    {
+        return fetchRelevant(patResolver.resolve());
+    }
+
+    /** The authenticated GitHub login, for the unified dashboard sync's
+     *  attention-reason / mention detection — same resolution {@link
+     *  #syncFromGitHub} uses for its own reconciliation pass. */
+    public String resolveCurrentDashboardLogin()
+    {
+        return resolveCurrentLogin(patResolver.resolve());
+    }
+
     /** True when an under-enriched PR is due for a forced backfill sync:
      *  either we've never re-checked it or the last attempt is older than
      *  {@link #BACKFILL_RECHECK_INTERVAL}. */

@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 interface PrJpaRepository
@@ -25,4 +26,8 @@ interface PrJpaRepository
 
     /** The external PR already synced in for this (repo, remote PR number). */
     Optional<PrEntity> findByRepoAndRemotePrNumber(String repo, Integer remotePrNumber);
+
+    /** Every PR currently on the dashboard — {@code watch_reason} is set
+     *  precisely for rows the relevant-PR search has surfaced. */
+    List<PrEntity> findByWatchReasonIsNotNull();
 }

@@ -363,7 +363,7 @@ class TestTaskLifecycleDriver
         Instant now = Instant.parse("2026-06-01T00:00:00Z");
         return new PR(id, "t1.k2", "dev/x", "main", "T", "", status, now,
                 null, null, null, null, null, localAddressedThroughAt,
-                PR.ORIGIN_TASK, null, null, null);
+                PR.ORIGIN_TASK, null, null, null, null);
     }
 
     private static PRComment localComment(

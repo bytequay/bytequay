@@ -31,7 +31,8 @@ public record PRCommentDto(
         Long resolvedAt,
         Long dismissedAt,
         Long strippedOnPushAt,
-        String parentCommentId)
+        String parentCommentId,
+        Long publishedAt)
 {
     public static PRCommentDto from(PRComment c)
     {
@@ -48,7 +49,8 @@ public record PRCommentDto(
                 epochOrNull(c.resolvedAt()),
                 epochOrNull(c.dismissedAt()),
                 epochOrNull(c.strippedOnPushAt()),
-                c.parentCommentId());
+                c.parentCommentId(),
+                epochOrNull(c.publishedAt()));
     }
 
     private static Long epochOrNull(Instant instant)

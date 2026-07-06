@@ -63,6 +63,9 @@ class PrCommentEntity
     @Column(name = "parent_comment_id")
     private String parentCommentId;
 
+    @Column(name = "published_at_ms")
+    private Long publishedAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -101,4 +104,7 @@ class PrCommentEntity
 
     String getParentCommentId() { return parentCommentId; }
     void setParentCommentId(String parentCommentId) { this.parentCommentId = parentCommentId; }
+
+    Long getPublishedAtMs() { return publishedAtMs; }
+    void setPublishedAtMs(Long publishedAtMs) { this.publishedAtMs = publishedAtMs; }
 }

@@ -323,7 +323,7 @@ class PRServiceImpl
         PRComment comment = store.saveComment(new PRComment(
                 UUID.randomUUID().toString(), pr.id(), origin, scope, filePath, lineNumber,
                 author, body, when, /* resolvedAt */ null, /* dismissedAt */ null,
-                /* strippedOnPushAt */ null, parentCommentId));
+                /* strippedOnPushAt */ null, parentCommentId, /* publishedAt */ null));
         // PR-level comments show on the timeline; inline comments live on the
         // diff, so only a pr-scoped comment writes a timeline event.
         if (PRComment.SCOPE_PR.equals(scope)) {
@@ -349,7 +349,7 @@ class PRServiceImpl
                 UUID.randomUUID().toString(), pr.id(), PRComment.ORIGIN_REMOTE, PRComment.SCOPE_PR,
                 /* filePath */ null, /* lineNumber */ null, author, body, createdAt,
                 /* resolvedAt */ null, /* dismissedAt */ null, /* strippedOnPushAt */ null,
-                /* parentCommentId */ null));
+                /* parentCommentId */ null, /* publishedAt */ null));
         appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMENT, author, /* localOnly */ false, createdAt,
                 payload("commentId", comment.id()), remoteCommentId);
         notifyUpdated(pr.id());
@@ -382,6 +382,16 @@ class PRServiceImpl
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PRComment saved = store.saveComment(comment.withDismissed(now()));
+        notifyUpdated(comment.prId());
+        return saved;
+    }
+
+    @Override
+    public PRComment markPublished(String commentId, Instant when)
+    {
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        PRComment saved = store.saveComment(comment.withPublished(when));
         notifyUpdated(comment.prId());
         return saved;
     }

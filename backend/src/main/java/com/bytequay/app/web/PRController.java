@@ -84,22 +84,50 @@ public class PRController
         this.testRunner = requireNonNull(testRunner, "testRunner is null");
     }
 
-    @GetMapping("/api/tasks/{taskId}/local-pr")
+    /** Resolver — the task's PR id, so the frontend's PR-scoped hook has
+     *  something to key off of. Does not create; {@code POST} does that. */
+    @GetMapping("/api/tasks/{taskId}/pr")
     public PRDto getForTask(@PathVariable String taskId)
     {
         return PRDto.from(prService.findByTask(taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR for task " + taskId)));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR for task " + taskId)));
     }
 
-    /** The whole local PR in one payload — the frontend PR view / push dialog
-     *  fetch this rather than five separate reads. */
-    @GetMapping("/api/tasks/{taskId}/local-pr/bundle")
-    public PRBundleDto bundle(@PathVariable String taskId)
+    @PostMapping("/api/tasks/{taskId}/pr")
+    public PRDto create(@PathVariable String taskId, @RequestBody(required = false) CreatePRRequest body)
     {
-        // Materialise/refresh the local PR from the task's branch on read, so
-        // the view shows the real commits even before an agent records them.
-        PR pr = sync.syncFromTask(taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR for task " + taskId));
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + taskId));
+        if (task.branchName() == null || task.branchName().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "task " + taskId + " has no branch yet");
+        }
+        String baseBranch = task.baseBranch() == null || task.baseBranch().isBlank()
+                ? DEFAULT_BASE_BRANCH : task.baseBranch();
+        String title = body != null && body.title() != null && !body.title().isBlank()
+                ? body.title()
+                : task.name() != null && !task.name().isBlank() ? task.name() : task.branchName();
+        String description = body == null ? "" : body.description();
+        return PRDto.from(
+                prService.createForTask(taskId, task.branchName(), baseBranch, title, description));
+    }
+
+    @GetMapping("/api/prs/{prId}")
+    public PRDto getById(@PathVariable String prId)
+    {
+        return PRDto.from(prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
+    }
+
+    /** The whole PR in one payload — {@code usePR} fetches this rather than
+     *  five separate reads. Materialises/refreshes on read (task-origin picks
+     *  up branch commits; either origin picks up the remote timeline once
+     *  pushed), so the view shows real state even before an agent or a GitHub
+     *  sync has caught up. */
+    @GetMapping("/api/prs/{prId}/bundle")
+    public PRBundleDto bundle(@PathVariable String prId)
+    {
+        PR pr = sync.syncPR(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
         return new PRBundleDto(
                 PRDto.from(pr),
                 prService.commits(pr.id()).stream().map(PRCommitDto::from).toList(),
@@ -126,11 +154,11 @@ public class PRController
      * wait for it" click is the same shape as running it in a terminal; the
      * frontend shows a busy state for the call's duration.
      */
-    @PostMapping("/api/local-pr/{prId}/run-tests")
+    @PostMapping("/api/prs/{prId}/run-tests")
     public List<PRCheckDto> runTests(@PathVariable String prId)
     {
         PR pr = prService.findById(prId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
         Task task = taskStore.findTaskById(pr.taskId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + pr.taskId()));
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
@@ -145,38 +173,30 @@ public class PRController
      * the private local record, and flips the PR to {@code remote-drafted}.
      * This is not an agent path — only the user's Approve &amp; push triggers it.
      */
-    @PostMapping("/api/local-pr/{prId}/push")
+    @PostMapping("/api/prs/{prId}/push")
     public PRDto push(@PathVariable String prId)
     {
         return PRDto.from(publish.push(prId));
     }
 
-    /** User-gated merge of a pushed PR, then flip the local PR to {@code merged}. */
-    @PostMapping("/api/local-pr/{prId}/merge")
+    /** User-gated merge of a pushed task-origin PR, then flip it to {@code merged}. */
+    @PostMapping("/api/prs/{prId}/merge")
     public PRDto merge(@PathVariable String prId, @RequestBody(required = false) MergePRRequest body)
     {
         return PRDto.from(publish.merge(prId, body == null ? null : body.method()));
     }
 
-    @PostMapping("/api/tasks/{taskId}/local-pr")
-    public PRDto create(@PathVariable String taskId, @RequestBody(required = false) CreatePRRequest body)
+    /** Batch every draft comment on an {@code origin=external} PR into one
+     *  GitHub review, then re-sync so the review appears on the timeline. */
+    @PostMapping("/api/prs/{prId}/publish-review")
+    public PRDto publishReview(@PathVariable String prId)
     {
-        Task task = taskStore.findTaskById(taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + taskId));
-        if (task.branchName() == null || task.branchName().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "task " + taskId + " has no branch yet");
-        }
-        String baseBranch = task.baseBranch() == null || task.baseBranch().isBlank()
-                ? DEFAULT_BASE_BRANCH : task.baseBranch();
-        String title = body != null && body.title() != null && !body.title().isBlank()
-                ? body.title()
-                : task.name() != null && !task.name().isBlank() ? task.name() : task.branchName();
-        String description = body == null ? "" : body.description();
-        return PRDto.from(
-                prService.createForTask(taskId, task.branchName(), baseBranch, title, description));
+        publish.publishReview(prId);
+        return PRDto.from(sync.syncPR(prId, 0)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }
 
-    @PatchMapping("/api/local-pr/{prId}")
+    @PatchMapping("/api/prs/{prId}")
     public PRDto update(@PathVariable String prId, @RequestBody(required = false) UpdatePRRequest body)
     {
         String title = body == null ? null : body.title();
@@ -184,31 +204,31 @@ public class PRController
         return PRDto.from(prService.updateDetails(prId, title, description));
     }
 
-    @GetMapping("/api/local-pr/{prId}/timeline")
+    @GetMapping("/api/prs/{prId}/timeline")
     public List<PRTimelineEntryDto> timeline(@PathVariable String prId)
     {
         return prService.timeline(prId).stream().map(e -> PRTimelineEntryDto.from(e, mapper)).toList();
     }
 
-    @GetMapping("/api/local-pr/{prId}/commits")
+    @GetMapping("/api/prs/{prId}/commits")
     public List<PRCommitDto> commits(@PathVariable String prId)
     {
         return prService.commits(prId).stream().map(PRCommitDto::from).toList();
     }
 
-    @GetMapping("/api/local-pr/{prId}/checks")
+    @GetMapping("/api/prs/{prId}/checks")
     public List<PRCheckDto> checks(@PathVariable String prId)
     {
         return prService.checks(prId).stream().map(PRCheckDto::from).toList();
     }
 
-    @GetMapping("/api/local-pr/{prId}/comments")
+    @GetMapping("/api/prs/{prId}/comments")
     public List<PRCommentDto> comments(@PathVariable String prId)
     {
         return prService.comments(prId).stream().map(PRCommentDto::from).toList();
     }
 
-    @PostMapping("/api/local-pr/{prId}/comments")
+    @PostMapping("/api/prs/{prId}/comments")
     public PRCommentDto addComment(@PathVariable String prId, @RequestBody AddPRCommentRequest body)
     {
         if (body == null) {
@@ -228,13 +248,13 @@ public class PRController
                 body.parentCommentId()));
     }
 
-    @PatchMapping("/api/local-pr/comments/{commentId}")
+    @PatchMapping("/api/prs/comments/{commentId}")
     public PRCommentDto resolveComment(@PathVariable String commentId)
     {
         return PRCommentDto.from(prService.resolveComment(commentId));
     }
 
-    @PatchMapping("/api/local-pr/comments/{commentId}/dismiss")
+    @PatchMapping("/api/prs/comments/{commentId}/dismiss")
     public PRCommentDto dismissComment(@PathVariable String commentId)
     {
         return PRCommentDto.from(prService.dismissComment(commentId));

@@ -40,7 +40,8 @@ public record PRComment(
         Instant resolvedAt,
         Instant dismissedAt,
         Instant strippedOnPushAt,
-        String parentCommentId)
+        String parentCommentId,
+        Instant publishedAt)
 {
     public static final String ORIGIN_LOCAL = "local";
     public static final String ORIGIN_REMOTE = "remote";
@@ -53,7 +54,7 @@ public record PRComment(
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, when, dismissedAt, strippedOnPushAt, parentCommentId);
+                createdAt, when, dismissedAt, strippedOnPushAt, parentCommentId, publishedAt);
     }
 
     /** Copy marked dismissed at {@code when} — closed without the agent
@@ -62,7 +63,7 @@ public record PRComment(
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, resolvedAt, when, strippedOnPushAt, parentCommentId);
+                createdAt, resolvedAt, when, strippedOnPushAt, parentCommentId, publishedAt);
     }
 
     /** Copy stamped stripped-on-push — a local comment never migrates to
@@ -71,6 +72,16 @@ public record PRComment(
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, resolvedAt, dismissedAt, when, parentCommentId);
+                createdAt, resolvedAt, dismissedAt, when, parentCommentId, publishedAt);
+    }
+
+    /** Copy stamped published-at — an {@code origin=external} draft that
+     *  {@code publish-review} just batched into one GitHub review. Task-origin
+     *  drafts never reach this state; they're stripped on push instead. */
+    public PRComment withPublished(Instant when)
+    {
+        return new PRComment(
+                id, prId, origin, scope, filePath, lineNumber, author, body,
+                createdAt, resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId, when);
     }
 }

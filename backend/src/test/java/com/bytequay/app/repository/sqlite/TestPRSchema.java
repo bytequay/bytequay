@@ -77,6 +77,10 @@ class TestPRSchema
         List<String> commitColumns = jdbc.query(
                 "PRAGMA table_info(pr_commit)", (rs, n) -> rs.getString("name"));
         assertThat(commitColumns).contains("pr_id");
+
+        List<String> commentColumns = jdbc.query(
+                "PRAGMA table_info(pr_comment)", (rs, n) -> rs.getString("name"));
+        assertThat(commentColumns).contains("published_at_ms");
     }
 
     @Test

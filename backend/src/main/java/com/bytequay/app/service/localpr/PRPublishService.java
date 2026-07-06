@@ -14,10 +14,13 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
+import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
+import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -41,6 +44,8 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -185,6 +190,55 @@ public class PRPublishService
                     "GitHub did not merge PR #" + pr.remotePrNumber() + ": " + result.message());
         }
         return prService.recordMerged(prId);
+    }
+
+    /**
+     * Batch every unpublished, unresolved-and-not-dismissed local draft on an
+     * {@code origin=external} PR into one GitHub review, then mark each
+     * published (design #9 — "Submit review" is a draft's other exit door,
+     * alongside stripped-on-push for task-origin comments). File-line drafts
+     * become the review's inline comments (against the RIGHT/added side —
+     * ByteQuay doesn't track diff side per draft); pr-scoped drafts join into
+     * the review's summary body.
+     */
+    public PR publishReview(String prId)
+    {
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        if (!PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "publish-review only applies to external PRs");
+        }
+        if (pr.repo() == null || pr.remotePrNumber() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
+        }
+        List<PRComment> drafts = prService.comments(prId).stream()
+                .filter(c -> PRComment.ORIGIN_LOCAL.equals(c.origin()))
+                .filter(c -> c.publishedAt() == null && c.dismissedAt() == null)
+                .toList();
+        if (drafts.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "no draft comments to publish for PR " + prId);
+        }
+
+        String[] ownerRepo = pr.repo().split("/", 2);
+        PullRequestRef ref = new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber());
+        String pat = patResolver.resolve(pr.repo());
+        String body = drafts.stream()
+                .filter(c -> PRComment.SCOPE_PR.equals(c.scope()))
+                .map(PRComment::body)
+                .collect(Collectors.joining("\n\n"));
+        List<ReviewLineComment> lineComments = drafts.stream()
+                .filter(c -> PRComment.SCOPE_FILE_LINE.equals(c.scope()))
+                .map(c -> new ReviewLineComment(
+                        c.filePath(), Optional.empty(), Optional.of(c.lineNumber()), "RIGHT", c.body()))
+                .toList();
+        pullRequests.createReview(pat, ref, new CreateReviewCommand(
+                Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), "COMMENT", lineComments));
+
+        Instant when = Instant.now();
+        for (PRComment draft : drafts) {
+            prService.markPublished(draft.id(), when);
+        }
+        return prService.findById(prId).orElse(pr);
     }
 
     private long openCommentCount(String prId)

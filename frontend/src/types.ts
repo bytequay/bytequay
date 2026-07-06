@@ -4003,6 +4003,8 @@ export type Bridge = {
   unsnoozeDashboardPr: (prId: string) => Promise<void>;
   /** Drops the wake-reason flag once the user has seen the "PR woke up" banner. */
   clearDashboardPrSnoozeWakeReason: (prId: string) => Promise<void>;
+  /** Submits a GitHub approval review, then records it as handled locally. */
+  approveDashboardPr: (prId: string) => Promise<void>;
 
   /** Spawn a panel review as a callable sub-stage of {@code parentStageId}.
    *  Returns the opened review stage, the seated pass, and the review

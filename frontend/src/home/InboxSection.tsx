@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { NotificationDto, PullRequestDto } from '../types';
+import type { NotificationDto } from '../types';
+import type { DashboardPR } from '../types/dashboardPr';
 import { buildInboxItems, type InboxItem } from './inboxItems';
 import { fetchDeployNotices, type DeployNoticeDto } from './homeData';
 import { isPublishGateNotification } from '../notificationDisplay';
@@ -27,13 +28,13 @@ const UNREAD_ONLY_KEY = 'home:inbox:unreadOnly';
 type Props = {
   /** Cached PR list from the page's own fetch — review requests and
    *  attention-flagged PRs derive inbox rows from it. */
-  prs: PullRequestDto[] | null;
+  prs: DashboardPR[] | null;
   onOpenPr: (owner: string, repo: string, prNumber: number) => void;
   onOpenTask?: (threadId: string, taskId: string) => void;
   /** "See all" → the notification center. */
   onSeeAll: () => void;
   /** Re-fetch the PR list after an inbox action changed it (approve). */
-  onPrsChanged: (next: PullRequestDto[]) => void;
+  onPrsChanged: (next: DashboardPR[]) => void;
 };
 
 /** Home Inbox — app notifications merged with PR rows that need the
@@ -91,8 +92,8 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
       if (item.source.kind === 'pr') {
         // Same concept as the kanban: dismissing moves the PR to its
         // Handled bucket, which also removes it from this inbox.
-        window.bridge.markPrHandled(item.source.pr.id, 'DISMISSED')
-          .then(() => window.bridge.fetchPrs())
+        window.bridge.markDashboardPrHandled(item.source.pr.id, 'DISMISSED')
+          .then(() => window.bridge.fetchDashboardPrs())
           .then(onPrsChanged)
           .catch(() => setNote("Couldn't dismiss — try again."));
         return;
@@ -100,16 +101,16 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
       // Provider-backed rows have no backend record — hide locally.
       setHiddenIds(ids => [...ids, item.id]);
     },
-    approve: async (pr: PullRequestDto) => {
+    approve: async (pr: DashboardPR) => {
       // GitHub first; only refresh the local caches once it succeeded.
       try {
-        await window.bridge.approvePr(pr.id, pr.repo, pr.number);
+        await window.bridge.approveDashboardPr(pr.id);
       }
       catch (e) {
         setNote(`Couldn't approve: ${e instanceof Error ? e.message : String(e)}`);
         return;
       }
-      window.bridge.fetchPrs().then(onPrsChanged).catch(() => {});
+      window.bridge.fetchDashboardPrs().then(onPrsChanged).catch(() => {});
     },
     resolved: () => { void refresh(); },
     prTitle: (owner: string, repo: string, prNumber: number) => {

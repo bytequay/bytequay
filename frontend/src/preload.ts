@@ -984,6 +984,7 @@ const bridge: Bridge = {
   unsnoozeDashboardPr: (prId: string) => ipcRenderer.invoke('pr:dashboardUnsnooze', prId),
   clearDashboardPrSnoozeWakeReason: (prId: string) =>
     ipcRenderer.invoke('pr:dashboardClearSnoozeWakeReason', prId),
+  approveDashboardPr: (prId: string) => ipcRenderer.invoke('pr:dashboardApprove', prId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

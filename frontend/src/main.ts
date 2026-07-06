@@ -1115,6 +1115,13 @@ function registerIpc(): void {
       throw new Error(`backend PR clear-snooze-wake-reason returned ${res.status}: ${text}`);
     }
   });
+  ipcMain.handle('pr:dashboardApprove', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/approve`, { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR approve returned ${res.status}: ${text}`);
+    }
+  });
 
   ipcMain.handle('stages:steer', async (_event, stageId: string, text: string) => {
     const res = await fetch(

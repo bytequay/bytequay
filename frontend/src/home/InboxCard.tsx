@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { PullRequestDto } from '../types';
+import type { DashboardPR } from '../types/dashboardPr';
 import Avatar from '../Avatar';
 import { isPublishGateNotification, relativeTime } from '../notificationDisplay';
 import { prRefFromNotification } from '../threads/notificationNav';
@@ -27,7 +27,7 @@ export type InboxHandlers = {
    *  the kanban's Handled tab), local hide for provider rows. */
   dismiss: (item: InboxItem) => void;
   /** Approve the PR on GitHub. The section refreshes the list after. */
-  approve: (pr: PullRequestDto) => Promise<void>;
+  approve: (pr: DashboardPR) => Promise<void>;
   /** A parked approval was resolved via the embedded publish gate. */
   resolved: () => void;
   /** The row was engaged with — expanded (plain AWAITING_REVIEW) or a
@@ -69,7 +69,7 @@ function rowBadges(item: InboxItem): { author: string | null; repoOwner: string 
   return { author: null, repoOwner: splitRepo(item.source.deploy.repoFullName)?.owner ?? null };
 }
 
-function checksLabel(pr: PullRequestDto): { text: string; ok: boolean } | null {
+function checksLabel(pr: DashboardPR): { text: string; ok: boolean } | null {
   switch (pr.ciStatus) {
     case 'PASSING': return { text: 'Checks passing', ok: true };
     case 'FAILING': return { text: 'Checks failing', ok: false };
@@ -88,7 +88,7 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
   // expand itself — see the viewMarksRead note in body() below.
   const opensReadOnExpand = !(item.source.kind === 'notification' && item.source.notification.kind === 'AUTO_FIX_DONE');
 
-  const openPrRow = (pr: PullRequestDto) => {
+  const openPrRow = (pr: DashboardPR) => {
     const ref = splitRepo(pr.repo);
     if (ref) handlers.openPr(ref.owner, ref.repo, pr.number);
   };

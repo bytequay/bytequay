@@ -1107,9 +1107,18 @@ public class PullRequestService
      */
     public void approvePullRequest(String repo, int number, long prId)
     {
+        submitApproval(repo, number);
+        viewStateStore.markReviewed(prId, HandledAction.APPROVED);
+    }
+
+    /** GitHub-only half of {@link #approvePullRequest} — the unified
+     *  dashboard's {@code POST /api/prs/{id}/approve} calls this directly
+     *  and records its own triage state via {@code PRService.markHandled}
+     *  instead of the legacy {@code pr_view_state} write. */
+    public void submitApproval(String repo, int number)
+    {
         String pat = patResolver.resolve(repo);
         gitHub.createReview(pat, parseRef(repo, number), CreateReviewCommand.approve(""));
-        viewStateStore.markReviewed(prId, HandledAction.APPROVED);
         // Drop the cached detail so the next /prs/detail call re-pulls the
         // timeline and the new "reviewed APPROVED" event shows up in the
         // conversation immediately. Without this the user waits for the

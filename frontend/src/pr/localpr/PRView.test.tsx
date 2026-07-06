@@ -32,7 +32,8 @@ function pr(status: LocalPRStatus, over: Partial<LocalPR> = {}): LocalPR {
     title: 'Add cost-meter card', description: 'Adds a `CostMeterCard`.',
     status, createdAt: Date.now(), pushedAt: null, remotePrNumber: null,
     remotePrUrl: null, mergedAt: null, closedAt: null,
-    origin: 'task', repo: null, author: null, syncedAt: null, ...over,
+    origin: 'task', repo: null, author: null, syncedAt: null,
+    syncedAdditions: null, syncedDeletions: null, ...over,
   };
 }
 

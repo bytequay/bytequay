@@ -54,6 +54,11 @@ export interface LocalPR {
   repo: string | null; // "owner/name", set for origin=external
   author: string | null; // set for origin=external
   syncedAt: number | null; // last successful GitHub sync, null pre-first-sync
+  /** GitHub's own PR-level diff totals (origin=external only) — GitHub's
+   *  commit-list API has no per-commit stats, so summing `LocalPRCommit`s
+   *  the way a task-origin PR does always reads 0. Null pre-first-sync. */
+  syncedAdditions: number | null;
+  syncedDeletions: number | null;
 }
 
 export interface LocalPRCommit {

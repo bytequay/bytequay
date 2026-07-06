@@ -86,8 +86,12 @@ export function PRView({
   const localTestsFailing = latestLocalCheck?.status === 'failed';
   const draftCount = comments.filter(
     c => c.origin === 'local' && c.publishedAt === null && c.dismissedAt === null).length;
-  const additions = commits.reduce((sum, c) => sum + c.additions, 0);
-  const deletions = commits.reduce((sum, c) => sum + c.deletions, 0);
+  // GitHub's commit-list API has no per-commit stats, so an external PR's
+  // synced commits always sum to 0 — use the PR-level total GitHub reports
+  // instead. Task-origin commits carry real per-commit stats, so summing
+  // them is exact.
+  const additions = pr.origin === 'external' ? pr.syncedAdditions ?? 0 : commits.reduce((sum, c) => sum + c.additions, 0);
+  const deletions = pr.origin === 'external' ? pr.syncedDeletions ?? 0 : commits.reduce((sum, c) => sum + c.deletions, 0);
 
   return (
     <div className="pr-view">

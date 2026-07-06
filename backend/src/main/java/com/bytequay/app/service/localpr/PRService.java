@@ -125,6 +125,22 @@ public interface PRService
      *  reaches a terminal status (passed / failed / neutral). */
     PRCheck recordCheck(String prId, String kind, String name, String status, Long durationMs);
 
+    /** Append a commit synced from GitHub for an external-origin PR, using
+     *  its real authored timestamp instead of "now" (unlike {@link
+     *  #recordCommit}, which assumes a freshly-made local commit). GitHub's
+     *  PR-commits list endpoint has no per-commit diff stats, so this always
+     *  records zero additions/deletions — the header sums the PR-level
+     *  total from {@link PRSyncSnapshot} instead. */
+    PRCommit recordSyncedCommit(String prId, String sha, String message, Instant authoredAt, String actor);
+
+    /** Upsert a remote check run synced from GitHub for an external-origin
+     *  PR, deduped by GitHub's check-run id — unlike {@link #recordCheck},
+     *  which always appends a fresh row for a local test run with no
+     *  external id to dedupe against. Writes a {@code ci} timeline event
+     *  only the first time this run reaches a terminal status. */
+    PRCheck recordSyncedCheck(
+            String prId, String runId, String name, String status, Instant startedAt, Instant finishedAt);
+
     /** Flip {@code local-drafted → local-open} (dev auto-declares "ready"). */
     PR requestUserReview(String prId, String actor);
 

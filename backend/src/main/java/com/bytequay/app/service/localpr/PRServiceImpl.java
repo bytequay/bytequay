@@ -398,6 +398,52 @@ class PRServiceImpl
     }
 
     @Override
+    public PRCommit recordSyncedCommit(String prId, String sha, String message, Instant authoredAt, String actor)
+    {
+        PR pr = require(prId);
+        requireText(sha, "sha");
+        Instant when = authoredAt == null ? now() : authoredAt;
+        PRCommit commit = store.addCommit(new PRCommit(
+                UUID.randomUUID().toString(), pr.id(), sha, message == null ? "" : message,
+                0, 0, when, /* pushedAt */ null));
+        appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMIT, actor, /* localOnly */ false, when,
+                payload("sha", sha, "message", commit.message(), "additions", 0, "deletions", 0));
+        notifyUpdated(pr.id());
+        return commit;
+    }
+
+    @Override
+    public PRCheck recordSyncedCheck(
+            String prId, String runId, String name, String status, Instant startedAt, Instant finishedAt)
+    {
+        PR pr = require(prId);
+        requireText(runId, "runId");
+        requireText(name, "name");
+        requireText(status, "status");
+        Instant when = now();
+        PRCheck existing = store.checksFor(pr.id()).stream()
+                .filter(c -> runId.equals(c.runId()))
+                .findFirst().orElse(null);
+        boolean wasTerminal = existing != null && TERMINAL_CHECK_STATUSES.contains(existing.status());
+        boolean nowTerminal = TERMINAL_CHECK_STATUSES.contains(status);
+        Instant effectiveStart = existing != null ? existing.startedAt() : startedAt != null ? startedAt : when;
+        Instant effectiveFinish = !nowTerminal ? null
+                : existing != null && existing.finishedAt() != null ? existing.finishedAt()
+                : finishedAt != null ? finishedAt : when;
+        PRCheck check = store.addCheck(new PRCheck(
+                existing == null ? UUID.randomUUID().toString() : existing.id(),
+                pr.id(), PRCheck.KIND_REMOTE, name, status, /* durationMs */ null,
+                effectiveStart, effectiveFinish, runId));
+        if (nowTerminal && !wasTerminal) {
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_CI, PRTimelineEntry.ACTOR_AGENT, /* localOnly */ false,
+                    effectiveFinish, payload("kind", PRCheck.KIND_REMOTE, "name", name, "status", status,
+                            "durationMs", null));
+        }
+        notifyUpdated(pr.id());
+        return check;
+    }
+
+    @Override
     public PR requestUserReview(String prId, String actor)
     {
         PR pr = require(prId);

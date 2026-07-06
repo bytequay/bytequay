@@ -36,6 +36,7 @@ import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PRSyncService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -72,6 +73,7 @@ public class PRController
     private final TaskStore taskStore;
     private final ObjectMapper mapper;
     private final RepoTestValidationCheck testRunner;
+    private final PullRequestService pullRequests;
 
     public PRController(
             PRService prService,
@@ -79,12 +81,14 @@ public class PRController
             PRSyncService sync,
             TaskStore taskStore,
             ObjectMapper mapper,
-            RepoTestValidationCheck testRunner)
+            RepoTestValidationCheck testRunner,
+            PullRequestService pullRequests)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.publish = requireNonNull(publish, "publish is null");
         this.sync = requireNonNull(sync, "sync is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.testRunner = requireNonNull(testRunner, "testRunner is null");
     }
@@ -199,6 +203,20 @@ public class PRController
     public void clearSnoozeWakeReason(@PathVariable String prId)
     {
         prService.clearSnoozeWakeReason(prId);
+    }
+
+    /** Submits a GitHub approval review, then records it as handled locally
+     *  — the dashboard/inbox's "Approve" affordance for an external PR. */
+    @PostMapping("/api/prs/{prId}/approve")
+    public void approve(@PathVariable String prId)
+    {
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        if (pr.repo() == null || pr.remotePrNumber() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity yet");
+        }
+        pullRequests.submitApproval(pr.repo(), pr.remotePrNumber());
+        prService.markHandled(prId, HandledAction.APPROVED);
     }
 
     /** The whole PR in one payload — {@code usePR} fetches this rather than

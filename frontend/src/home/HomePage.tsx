@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { PullRequestDto, RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } from '../types';
+import type { RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } from '../types';
+import type { DashboardPR } from '../types/dashboardPr';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { bucketize } from '../prBuckets';
@@ -110,14 +111,14 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
   // GitHub-sourced flows below (profile, events, following) start empty
   // and populate from the backend's DB cache on the load() call.
   const cachedWatched = getCached<WatchedRepoDto[]>(KEY_WATCHED);
-  const cachedPrs = getCached<PullRequestDto[]>(KEY_PRS);
+  const cachedPrs = getCached<DashboardPR[]>(KEY_PRS);
   const cachedTeams = getCached<TeamSummaryDto[]>(KEY_TEAMS);
 
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
   const [repos, setRepos] = useState<WatchedRepoDto[]>(cachedWatched ?? []);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
-  const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
+  const [prs, setPrs] = useState<DashboardPR[] | null>(cachedPrs ?? null);
   const [teams, setTeams] = useState<TeamSummaryDto[]>(cachedTeams ?? []);
   // Only show the first-load spinner when we have nothing to paint yet.
   const [loading, setLoading] = useState(cachedWatched === undefined);
@@ -156,7 +157,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
     window.bridge.listTeams()
       .then(v => { setTeams(v); setCached(KEY_TEAMS, v); })
       .catch(() => {});
-    window.bridge.fetchPrs()
+    window.bridge.fetchDashboardPrs()
       .then(v => { setPrs(v); setCached(KEY_PRS, v); })
       .catch(() => {});
   }

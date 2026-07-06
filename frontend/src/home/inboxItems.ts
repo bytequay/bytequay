@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { NotificationDto, PullRequestDto } from '../types';
+import type { NotificationDto } from '../types';
+import type { DashboardPR } from '../types/dashboardPr';
 import { titleFor, previewFor } from '../notificationDisplay';
 import { bucketize } from '../prBuckets';
 import type { DeployNoticeDto } from './homeData';
@@ -34,7 +35,7 @@ export type InboxItem = {
   read: boolean;
   source:
     | { kind: 'notification'; notification: NotificationDto }
-    | { kind: 'pr'; pr: PullRequestDto }
+    | { kind: 'pr'; pr: DashboardPR }
     | { kind: 'deploy'; deploy: DeployNoticeDto };
 };
 
@@ -80,10 +81,10 @@ function reasonLabel(reason: string): string {
 /** Derive an inbox row from a cached PR, or null when the PR isn't
  *  inbox-worthy. Review requests always qualify; authored PRs only
  *  when something needs the user (failing CI, conflict, mention, …). */
-export function prToInboxItem(pr: PullRequestDto): InboxItem | null {
+export function prToInboxItem(pr: DashboardPR): InboxItem | null {
   if (bucketize(pr) !== 'inbox') return null;
   const base = {
-    time: pr.updatedAt,
+    time: pr.updatedAt ?? pr.createdAt ?? new Date(0).toISOString(),
     read: pr.viewedAt !== null,
     source: { kind: 'pr' as const, pr },
   };
@@ -142,7 +143,7 @@ export function deployToInboxItem(d: DeployNoticeDto): InboxItem {
 /** Merge every inbox source into one newest-first list. */
 export function buildInboxItems(
   notifications: NotificationDto[],
-  prs: PullRequestDto[],
+  prs: DashboardPR[],
   deploys: DeployNoticeDto[],
 ): InboxItem[] {
   const items = [

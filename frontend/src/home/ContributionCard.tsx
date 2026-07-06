@@ -11,14 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDto, UserProfileDto } from '../types';
+import type { UserProfileDto } from '../types';
+import type { DashboardPR } from '../types/dashboardPr';
 import Avatar from '../Avatar';
 import YearInCodeHeatmap from '../YearInCodeHeatmap';
 
 type Props = {
   profile: UserProfileDto | null;
   /** Cached PR list — the reviewed / contributed strips derive from it. */
-  prs: PullRequestDto[] | null;
+  prs: DashboardPR[] | null;
   onOpenPr: (owner: string, repo: string, prNumber: number) => void;
   /** "See all" on a strip — opens the PR-activity view on that tab. */
   onSeeAllActivity?: (kind: 'reviewed' | 'contributed') => void;
@@ -26,7 +27,7 @@ type Props = {
 
 const STRIP_ROWS = 3;
 
-function openPrRow(pr: PullRequestDto, onOpenPr: Props['onOpenPr']) {
+function openPrRow(pr: DashboardPR, onOpenPr: Props['onOpenPr']) {
   const slash = pr.repo.indexOf('/');
   if (slash <= 0) return;
   onOpenPr(pr.repo.slice(0, slash), pr.repo.slice(slash + 1), pr.number);
@@ -35,7 +36,7 @@ function openPrRow(pr: PullRequestDto, onOpenPr: Props['onOpenPr']) {
 function PrStripColumn({ label, accentClass, rows, onOpenPr, onSeeAll }: {
   label: string;
   accentClass: string;
-  rows: PullRequestDto[];
+  rows: DashboardPR[];
   onOpenPr: Props['onOpenPr'];
   onSeeAll?: () => void;
 }) {
@@ -79,7 +80,7 @@ function ContributionCard({ profile, prs, onOpenPr, onSeeAllActivity }: Props) {
     .slice(0, STRIP_ROWS);
   const contributed = (prs ?? [])
     .filter(p => p.origin === 'AUTHORED')
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .sort((a, b) => Date.parse(b.updatedAt ?? '') - Date.parse(a.updatedAt ?? ''))
     .slice(0, STRIP_ROWS);
 
   return (

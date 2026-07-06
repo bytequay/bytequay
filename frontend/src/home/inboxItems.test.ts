@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { NotificationDto, PullRequestDto } from '../types';
+import type { NotificationDto } from '../types';
+import type { DashboardPR } from '../types/dashboardPr';
 import { buildInboxItems, notificationToInboxItem, prToInboxItem } from './inboxItems';
 
 function notif(over: Partial<NotificationDto> = {}): NotificationDto {
@@ -29,9 +30,9 @@ function notif(over: Partial<NotificationDto> = {}): NotificationDto {
   };
 }
 
-function pr(over: Partial<PullRequestDto> = {}): PullRequestDto {
+function pr(over: Partial<DashboardPR> = {}): DashboardPR {
   return {
-    id: 1,
+    id: 'pr-1',
     repo: 'org/backend-core',
     number: 412,
     title: 'feat: migrate auth to JWT',
@@ -112,7 +113,7 @@ describe('prToInboxItem', () => {
 
   it('skips snoozed and handled PRs (non-inbox buckets)', () => {
     expect(prToInboxItem(pr({ snoozedUntil: '2999-01-01T00:00:00Z' }))).toBeNull();
-    expect(prToInboxItem(pr({ reviewedAt: '2026-07-01T08:00:00Z', handledAction: 'APPROVED' as PullRequestDto['handledAction'] }))).toBeNull();
+    expect(prToInboxItem(pr({ reviewedAt: '2026-07-01T08:00:00Z', handledAction: 'APPROVED' }))).toBeNull();
   });
 
   it('marks viewed PRs as read', () => {
@@ -127,6 +128,6 @@ describe('buildInboxItems', () => {
       [pr({ updatedAt: '2026-07-01T11:00:00Z' })],
       [],
     );
-    expect(items.map(i => i.id)).toEqual(['pr:1', 'n:n1']);
+    expect(items.map(i => i.id)).toEqual(['pr:pr-1', 'n:n1']);
   });
 });

@@ -26,8 +26,8 @@ export type LivePlanStatus =
   | 'awaiting';
 
 /** Where a node sits in the lifecycle layout. `sub` is an indented `└─` row
- *  under the preceding `full` node — either the callable Review panel or a
- *  live/gated {@link AgentRunDto} sub-row (R3: lazy, shown only while live). */
+ *  under the preceding `full` node — a live/gated {@link AgentRunDto}
+ *  sub-row (R3: lazy, shown only while live). */
 export type LivePlanPlacement = 'full' | 'sub';
 
 /** Where clicking a node navigates. `tab` force-switches the host page's own
@@ -148,8 +148,7 @@ function glyphFor(status: LivePlanStatus): string {
 
 /** Which spine nodes always render the 🤖 glyph — done or not, they're
  *  AI-owned stages, so the shape never swaps to ✓ (status still conveys
- *  progress via the node's color/opacity). Review (callable) is also
- *  `nodeType: 'stage'` but stays a plain status glyph. */
+ *  progress via the node's color/opacity). */
 const ROBOT_KEYS = new Set(['root', 'dev', 'comments']);
 
 /** Task phases during which the Development stage is the active work — the
@@ -180,9 +179,7 @@ function devNodeStatus(dev: StageDto | undefined, phase: TaskPhase): LivePlanSta
 }
 
 /** Local Review is a phase-derived milestone, not its own StageType — it
- *  tracks the INTERNAL_REVIEW portion of Development specifically (the panel
- *  review, if any, is a separate `Review (callable)` sub-row under
- *  Development either way). */
+ *  tracks the INTERNAL_REVIEW portion of Development specifically. */
 function localReviewStatus(phase: TaskPhase): LivePlanStatus {
   if (phase === 'PLANNING' || phase === 'QUEUED' || phase === 'IMPLEMENTING' || phase === 'VALIDATING') {
     return 'future';
@@ -281,12 +278,12 @@ export function buildGuardChip(guard: BranchGuardDto | null | undefined): GuardC
  * pull request → CI validation → Comments → Merge / Close → Cleanup.
  * Development nests its own phase ladder (Implementing → Validation →
  * Brain review), which the rail keeps behind a click-to-expand toggle once
- * Development is done (R29). Review (callable) and the round-addressing run still hang
- * as lazy `sub` rows — shown only while live/gated (R2/R3).
+ * Development is done (R29). The round-addressing run still hangs as a
+ * lazy `sub` row — shown only while live/gated (R2/R3).
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
-    stages, subStages, liveRuns = [], liveRound = null, task, prStatus = null, mergeReady = false,
+    stages, liveRuns = [], liveRound = null, task, prStatus = null, mergeReady = false,
     viewedStageId = null, viewingBrain = false, working = false,
     awaitingApprovalStageId = null, devPhases = [], ciStatus = null, ciSummary = null,
   } = input;
@@ -298,17 +295,12 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
 
   const plan = byType('PLAN_STAGE');
   const dev = byType('DEVELOPMENT_STAGE');
-  const review = subStages.find(s => s.type === 'REVIEW_STAGE');
   const comments = byType('REVIEW_MONITOR_STAGE');
   const cleanup = byType('CLEANUP_STAGE');
 
   const ciFixRun = findLiveRun(liveRuns, 'ci_fix');
   const roundRun = findLiveRun(liveRuns, 'review_round');
   const devEra = DEV_ERA_PHASES.has(task.currentPhase);
-  // Review (callable) is only invokable while Development is still open —
-  // once it closes the row drops off the rail entirely (R3: lazy, "a nit PR
-  // never grows them"), matching the mockup's zero-sub-row nit-PR rail.
-  const devOpen = dev !== undefined && dev.state !== 'CLOSED';
 
   // The Plan node stands in for the plan "stage" — which is really the
   // brain/root conversation, not a drill-in stage. It tracks the plan's
@@ -323,7 +315,6 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       ? 'planning'
       : stageStatus(plan, true);
   const devStatus = devNodeStatus(dev, task.currentPhase);
-  const reviewStatus = stageStatus(review);
   const localReviewStat = localReviewStatus(task.currentPhase);
   const commentsStat = commentsStatus(comments, task.currentPhase, roundRun !== undefined);
   const cleanupStatus = stageStatus(cleanup);
@@ -375,12 +366,6 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       nodeType: 'stage',
       phases: devPhases.length > 0 ? buildDevPhases(devPhases, liveRuns) : undefined,
     },
-    ...(devOpen ? [{
-      key: 'review', label: 'Review (callable)', status: reviewStatus,
-      glyph: glyphFor(reviewStatus), meta: review === undefined ? 'not invoked' : undefined,
-      placement: 'sub' as const, activeView: isViewed(review), nav: stageNav(review),
-      nodeType: 'stage' as const,
-    }] : []),
     {
       key: 'local-review', label: 'Local review', status: localReviewStat,
       glyph: '◆', meta: localReviewStat === 'done' ? 'approved' : undefined,

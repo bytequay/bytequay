@@ -65,9 +65,8 @@ describe('LivePlan', () => {
     expect(screen.getByText('Comments').closest('.plan-node')?.className).toContain('future');
     // A live run badges its phase row inline.
     expect(screen.getByText('iter 2')).toBeTruthy();
-    // Review (callable, not-invoked, Development still open) renders as a
-    // sub-row; the phase ladder renders as its own nested rows.
-    expect(container.querySelectorAll('.plan-sub-row').length).toBe(1);
+    // The phase ladder renders as its own nested rows; no other sub-rows.
+    expect(container.querySelectorAll('.plan-sub-row').length).toBe(0);
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(3);
   });
 
@@ -95,7 +94,7 @@ describe('LivePlan', () => {
     expect(screen.getByText('Development').closest('.plan-node')?.className).toContain('active-view');
   });
 
-  it("collapses Development's phase ladder by default once closed, and expands/collapses it on click", () => {
+  it("collapses Development's phase ladder by default once closed, and expands/collapses it via its chevron without blocking navigation", () => {
     const onOpenStage = vi.fn();
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
@@ -109,15 +108,18 @@ describe('LivePlan', () => {
     const { container } = render(<LivePlan nodes={nodes} onOpenStage={onOpenStage} />);
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
 
-    // Clicking the Development node itself toggles the ladder, not navigation
-    // — Development has no separate "open stage" affordance any more.
-    fireEvent.click(screen.getByText('Development'));
+    // The chevron toggles the ladder, independent of navigation.
+    fireEvent.click(screen.getByLabelText('Expand Development'));
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(3);
     expect(onOpenStage).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText('Development'));
+    fireEvent.click(screen.getByLabelText('Collapse Development'));
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
     expect(onOpenStage).not.toHaveBeenCalled();
+
+    // Clicking the node itself still navigates to the Development stage.
+    fireEvent.click(screen.getByText('Development'));
+    expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
   });
 
   it('renders the guard chip once a guard row exists, hides it before the task has ever pushed', () => {

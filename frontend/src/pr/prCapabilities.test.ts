@@ -62,4 +62,54 @@ describe('derivePRCapabilities', () => {
     expect(derivePRCapabilities(pr('task', 'local-open'), 'task').postRemoteComment).toBe(false);
     expect(derivePRCapabilities(pr('external', 'merged'), 'details').postRemoteComment).toBe(false);
   });
+
+  // Exhaustive matrix — every (origin, status, surface) cell the unified PR
+  // aggregate can actually reach, checked against an explicit whitelist per
+  // capability (not the same boolean expressions derivePRCapabilities uses)
+  // so a regression in the source logic actually fails a test here.
+  // `external` never occupies a local-only status (PR.EXTERNAL_STATUSES on
+  // the backend), so those cells are skipped rather than asserted against
+  // a value that can't occur.
+  const ORIGINS: PROrigin[] = ['task', 'external'];
+  const STATUSES: LocalPRStatus[] = [
+    'local-drafted', 'local-open', 'remote-drafted', 'remote-open', 'merged', 'closed',
+  ];
+  const SURFACES: Array<'task' | 'details'> = ['task', 'details'];
+  const LOCAL_ONLY_STATUSES = new Set<LocalPRStatus>(['local-drafted', 'local-open']);
+
+  // Whitelisted TRUE cells per capability, as `${origin}/${status}` keys
+  // (chatAgent depends only on surface, handled separately below).
+  const PUSH_TRUE = new Set(['task/local-open']);
+  const MERGE_TRUE = new Set(['task/remote-open']);
+  const PUBLISH_REVIEW_TRUE = new Set([
+    'external/remote-drafted', 'external/remote-open', 'external/merged', 'external/closed',
+  ]);
+  const POST_REMOTE_COMMENT_TRUE = new Set([
+    'task/remote-drafted', 'task/remote-open', 'external/remote-drafted', 'external/remote-open',
+  ]);
+  const DRAFT_LOCAL_COMMENTS_FALSE = new Set([
+    'task/merged', 'task/closed', 'external/merged', 'external/closed',
+  ]);
+
+  describe('capability matrix', () => {
+    for (const origin of ORIGINS) {
+      for (const status of STATUSES) {
+        if (origin === 'external' && LOCAL_ONLY_STATUSES.has(status)) continue;
+        const key = `${origin}/${status}`;
+        for (const surface of SURFACES) {
+          it(`${key}/${surface}`, () => {
+            const caps = derivePRCapabilities(pr(origin, status), surface);
+            expect(caps).toEqual({
+              draftLocalComments: !DRAFT_LOCAL_COMMENTS_FALSE.has(key),
+              publishReview: PUBLISH_REVIEW_TRUE.has(key),
+              push: PUSH_TRUE.has(key),
+              merge: MERGE_TRUE.has(key),
+              chatAgent: surface === 'task',
+              postRemoteComment: POST_REMOTE_COMMENT_TRUE.has(key),
+            });
+          });
+        }
+      }
+    }
+  });
 });

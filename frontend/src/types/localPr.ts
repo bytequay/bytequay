@@ -30,9 +30,15 @@ export type LocalPRStatus =
   | 'merged'
   | 'closed';
 
+/** `origin=task` — created by the dev agent, full local→remote lifecycle.
+ *  `origin=external` — discovered via the dashboard sync (someone else's PR,
+ *  or our own PR opened outside ByteQuay); never occupies the local-only
+ *  statuses. See `derivePRCapabilities`. */
+export type PROrigin = 'task' | 'external';
+
 export interface LocalPR {
   id: string;
-  taskId: string;
+  taskId: string | null; // null for origin=external
   branchName: string;
   baseBranch: string;
   title: string;
@@ -44,6 +50,10 @@ export interface LocalPR {
   remotePrUrl: string | null;
   mergedAt: number | null;
   closedAt: number | null;
+  origin: PROrigin;
+  repo: string | null; // "owner/name", set for origin=external
+  author: string | null; // set for origin=external
+  syncedAt: number | null; // last successful GitHub sync, null pre-first-sync
 }
 
 export interface LocalPRCommit {
@@ -110,6 +120,10 @@ export interface LocalPRComment {
   dismissedAt: number | null;
   strippedOnPushAt: number | null;
   parentCommentId: string | null;
+  /** Set once `publish-review` batches this draft into a GitHub review
+   *  (origin=external only — task-origin drafts are stripped on push
+   *  instead and never reach this state). */
+  publishedAt: number | null;
 }
 
 /** Everything the `<PRView>` needs, as one bundle a bridge hook resolves. */

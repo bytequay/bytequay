@@ -32,7 +32,8 @@ function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
     id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
     filePath: 'backend/src/Composer.java', lineNumber: 181, author: 'you',
     body: 'Split this into a wrapper + memoized inner component.',
-    createdAt: Date.now(), resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, ...over,
+    createdAt: Date.now(), resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null,
+    publishedAt: null, ...over,
   };
 }
 

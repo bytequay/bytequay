@@ -287,6 +287,15 @@ public class PRSyncService
             return;
         }
         PR current = prService.findById(pr.id()).orElse(pr);
+        // The dashboard sweep's initial createExternal has no better guess
+        // than "unknown"/the default base — GitHub's search API never
+        // returns head.ref (GitHubClient.toPullRequest). Backfill the real
+        // names once the detail fetch resolves them. Task-origin PRs keep
+        // their git-derived branch name untouched.
+        if (PR.ORIGIN_EXTERNAL.equals(current.origin())
+                && (detail.headRef() != null || detail.baseRef() != null)) {
+            current = prService.updateBranches(current.id(), detail.headRef(), detail.baseRef());
+        }
         PR.PRSyncSnapshot baseline = current.githubSync();
         if (baseline == null) {
             return;

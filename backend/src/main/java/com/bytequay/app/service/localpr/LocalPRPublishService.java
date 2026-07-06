@@ -16,6 +16,7 @@ package com.bytequay.app.service.localpr;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRCheck;
+import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
@@ -26,8 +27,13 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.review.BrainReviewService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -58,6 +64,8 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class LocalPRPublishService
 {
+    private static final Logger log = LoggerFactory.getLogger(LocalPRPublishService.class);
+
     private static final String LINKED_STATUS_DRAFT = "draft";
 
     private final LocalPRService localPr;
@@ -65,19 +73,51 @@ public class LocalPRPublishService
     private final GitRunner git;
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
+    private final BrainReviewService brainReview;
 
     public LocalPRPublishService(
             LocalPRService localPr,
             TaskStore taskStore,
             GitRunner git,
             PullRequestRepository pullRequests,
-            PatResolver patResolver)
+            PatResolver patResolver,
+            BrainReviewService brainReview)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.git = requireNonNull(git, "git is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.brainReview = requireNonNull(brainReview, "brainReview is null");
+    }
+
+    /**
+     * Keep the LocalPR row in step with a push/open-PR that just happened
+     * through some other path (a push/open_pr gate, auto-approved or not; the
+     * ship/next tool flow) instead of this service's own {@link #push}. That
+     * row otherwise only advances when the user clicks the local-PR panel's
+     * own Push button, so a push resolved elsewhere would leave it stuck
+     * offering "ready to push" for a push that already happened. Runs after
+     * the publishing transaction commits; best-effort — never fails the
+     * caller over a sync miss.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onPushedElsewhere(LocalPrPushedEvent event)
+    {
+        try {
+            localPr.findByTask(event.taskId()).ifPresent(pr -> {
+                LocalPR current = pr;
+                if (LocalPR.STATUS_LOCAL_DRAFTED.equals(current.status())) {
+                    current = brainReview.reviewBeforeLocalOpen(current.id(), LocalPRTimelineEvent.ACTOR_AGENT);
+                }
+                if (LocalPR.STATUS_LOCAL_OPEN.equals(current.status())) {
+                    localPr.recordPush(current.id(), event.remotePrNumber(), event.remotePrUrl());
+                }
+            });
+        }
+        catch (RuntimeException e) {
+            log.warn("syncing local PR push state for task {} failed: {}", event.taskId(), e.getMessage());
+        }
     }
 
     /** Push {@code prId}'s branch and open a Draft PR, then strip locals + flip

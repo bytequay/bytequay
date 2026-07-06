@@ -130,10 +130,15 @@ class ReviewRoundServiceImpl
     @Transactional
     public void reconcile(Task task)
     {
-        if (roundStore.findLiveByTask(task.id()).isPresent()) {
+        Optional<ReviewRound> live = roundStore.findLiveByTask(task.id());
+        if (live.isPresent()) {
             // A round is already collecting/addressing/gated — freshly
             // ingested comments wait for the next round once this one closes,
             // rather than growing mid-flight (R11: one batch per round).
+            // Refresh its stats on every sweep too, so a round whose stats
+            // fell behind (e.g. opened before recomputeStats existed) heals
+            // on its own rather than staying stuck until its next resolve.
+            recomputeStats(live.get().id());
             return;
         }
         List<ReviewComment> unrounded = stageStore.findUnroundedRemoteComments(task.id());
@@ -168,7 +173,7 @@ class ReviewRoundServiceImpl
 
         ReviewRound round = new ReviewRound(
                 roundId, task.id(), roundStore.nextIndex(task.id()), List.of(),
-                ReviewRound.STATUS_ADDRESSING, ReviewRound.ReviewRoundStats.empty(),
+                ReviewRound.STATUS_ADDRESSING, new ReviewRound.ReviewRoundStats(0, 0, 0, comments.size()),
                 run.id(), now(), /* gatedAt */ null, /* postedAt */ null,
                 ReviewRound.ORIGIN_EXTERNAL, /* brainVerdict */ null, /* iteration */ 0,
                 ReviewRound.DEFAULT_BRAIN_BUDGET);
@@ -292,6 +297,36 @@ class ReviewRoundServiceImpl
         return roundStore.save(posted);
     }
 
+    @Override
+    @Transactional
+    public void recomputeStats(String roundId)
+    {
+        UUID id;
+        try {
+            id = UUID.fromString(roundId);
+        }
+        catch (IllegalArgumentException e) {
+            return;
+        }
+        roundStore.findById(roundId).ifPresent(round -> {
+            int fixed = 0;
+            int replied = 0;
+            int open = 0;
+            for (ReviewComment comment : stageStore.findCommentsByRound(id)) {
+                if (!comment.resolved()) {
+                    open++;
+                }
+                else if (comment.draftReplyBody() != null) {
+                    replied++;
+                }
+                else {
+                    fixed++;
+                }
+            }
+            roundStore.save(round.withStats(new ReviewRound.ReviewRoundStats(fixed, replied, 0, open)));
+        });
+    }
+
     private String buildRoundPrompt(PullRequestRef ref, List<ReviewComment> comments)
     {
         StringBuilder out = new StringBuilder();
@@ -307,8 +342,9 @@ class ReviewRoundServiceImpl
                         + "here is held for the user's review before anything goes out.\n\n")
                 .append("Comments in this batch:\n");
         for (ReviewComment c : comments) {
+            String location = c.file() == null ? "(general PR comment)" : c.file() + ':' + c.line();
             out.append('\n').append("[id: ").append(c.id()).append("] ")
-                    .append(c.file()).append(':').append(c.line()).append('\n')
+                    .append(location).append('\n')
                     .append("   ").append(c.body() == null ? "" : c.body().strip()).append('\n');
         }
         return out.toString();

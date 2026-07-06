@@ -26,6 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,11 +39,14 @@ public class ReviewCommentServiceImpl
 {
     private final StageStore stageStore;
     private final StageSteeringService steering;
+    private final ReviewRoundService reviewRounds;
 
-    public ReviewCommentServiceImpl(StageStore stageStore, StageSteeringService steering)
+    public ReviewCommentServiceImpl(
+            StageStore stageStore, StageSteeringService steering, ReviewRoundService reviewRounds)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.steering = requireNonNull(steering, "steering is null");
+        this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
     }
 
     @Override
@@ -89,13 +93,28 @@ public class ReviewCommentServiceImpl
     @Override
     public void resolve(UUID commentId)
     {
-        stageStore.setReviewCommentResolved(requireNonNull(commentId, "commentId is null"), true);
+        requireNonNull(commentId, "commentId is null");
+        stageStore.setReviewCommentResolved(commentId, true);
+        recomputeOwningRoundStats(commentId);
     }
 
     @Override
     public void reopen(UUID commentId)
     {
-        stageStore.setReviewCommentResolved(requireNonNull(commentId, "commentId is null"), false);
+        requireNonNull(commentId, "commentId is null");
+        stageStore.setReviewCommentResolved(commentId, false);
+        recomputeOwningRoundStats(commentId);
+    }
+
+    /** A resolve/reopen on a round-attached comment (the remote-reviewer
+     *  batch a review_round is addressing) moves it between the round's
+     *  open/fixed/replied buckets — keep the round's stored stats in step. */
+    private void recomputeOwningRoundStats(UUID commentId)
+    {
+        stageStore.findReviewCommentById(commentId)
+                .map(ReviewComment::roundId)
+                .filter(Objects::nonNull)
+                .ifPresent(roundId -> reviewRounds.recomputeStats(roundId.toString()));
     }
 
     @Override

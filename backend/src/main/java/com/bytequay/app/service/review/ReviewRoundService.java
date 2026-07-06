@@ -50,4 +50,15 @@ public interface ReviewRoundService
      * PUSHED_AWAITING_CI}. Throws if the round isn't awaiting its gate.
      */
     ReviewRound approve(String roundId);
+
+    /**
+     * Recompute {@code fixed}/{@code replied}/{@code open} from the round's
+     * actual comments (a resolved comment with a drafted reply counts as
+     * replied, resolved with none as fixed, unresolved as still open) and
+     * persist it. {@code pushedBack} always stays 0 — nothing in the agent
+     * tool surface produces that outcome yet. Called whenever a round
+     * comment's resolved/replied state changes; a no-op for an unknown
+     * round id.
+     */
+    void recomputeStats(String roundId);
 }

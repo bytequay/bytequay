@@ -48,6 +48,9 @@ class LocalPrTimelineEventEntity
     @Column(name = "payload_json")
     private String payloadJson;
 
+    @Column(name = "remote_event_id")
+    private Long remoteEventId;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -71,4 +74,7 @@ class LocalPrTimelineEventEntity
 
     String getPayloadJson() { return payloadJson; }
     void setPayloadJson(String payloadJson) { this.payloadJson = payloadJson; }
+
+    Long getRemoteEventId() { return remoteEventId; }
+    void setRemoteEventId(Long remoteEventId) { this.remoteEventId = remoteEventId; }
 }

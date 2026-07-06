@@ -229,6 +229,12 @@ public class TaskLifecycleDriver
         String repo = parsed.get().repoRef().fullName();
         int number = parsed.get().number();
         PullRequestDetail detail = pullRequests.getPullRequestDetail(repo, number);
+        // Persist the live CI status so the live-plan rail's CI validation
+        // node reflects it — task.ciState otherwise never gets written and
+        // stays permanently "unknown" even once the PR is actually green.
+        if (detail.ciStatus() != null) {
+            taskStore.updateCiState(task.id(), detail.ciStatus().name());
+        }
         // Mirror any new remote review comments into the unified
         // review_comment table (idempotent) before acting on the phase.
         commentIngestor.ingest(task.id(), repo, number, detail);

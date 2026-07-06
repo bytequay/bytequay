@@ -27,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +45,7 @@ class TestReviewCommentService
 
     private StageStore stageStore;
     private StageSteeringService steering;
+    private ReviewRoundService reviewRounds;
     private ReviewCommentServiceImpl service;
 
     @BeforeEach
@@ -51,7 +53,8 @@ class TestReviewCommentService
     {
         stageStore = mock(StageStore.class);
         steering = mock(StageSteeringService.class);
-        service = new ReviewCommentServiceImpl(stageStore, steering);
+        reviewRounds = mock(ReviewRoundService.class);
+        service = new ReviewCommentServiceImpl(stageStore, steering, reviewRounds);
     }
 
     @Test
@@ -106,6 +109,35 @@ class TestReviewCommentService
         UUID id = UUID.randomUUID();
         service.reopen(id);
         verify(stageStore).setReviewCommentResolved(id, false);
+    }
+
+    @Test
+    void resolvingARoundCommentRecomputesThatRoundsStats()
+    {
+        UUID id = UUID.randomUUID();
+        UUID roundId = UUID.randomUUID();
+        ReviewComment comment = new ReviewComment(
+                id, "task-1", "src/Foo.java", 12, "nit", NOW, ReviewCommentSource.REMOTE_REVIEWER,
+                "https://github.com/octo/repo/pull/7#discussion_r1", false, 1001L, roundId, null, null);
+        when(stageStore.findReviewCommentById(id)).thenReturn(Optional.of(comment));
+
+        service.resolve(id);
+
+        verify(reviewRounds).recomputeStats(roundId.toString());
+    }
+
+    @Test
+    void resolvingALocalUserCommentWithNoRoundNeverTouchesReviewRounds()
+    {
+        UUID id = UUID.randomUUID();
+        ReviewComment comment = new ReviewComment(
+                id, "task-1", "src/Foo.java", 12, "note", NOW, ReviewCommentSource.LOCAL_USER,
+                null, false, null, /* roundId */ null, null, null);
+        when(stageStore.findReviewCommentById(id)).thenReturn(Optional.of(comment));
+
+        service.resolve(id);
+
+        verify(reviewRounds, never()).recomputeStats(any());
     }
 
     @Test

@@ -134,6 +134,52 @@ class TestLocalPRService
     }
 
     @Test
+    void addRemoteCommentSavesAnOriginRemoteCommentAndATaggedTimelineEvent()
+    {
+        pr(LocalPR.STATUS_REMOTE_DRAFTED);
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+        Instant createdAt = Instant.parse("2026-06-20T10:00:00Z");
+
+        LocalPRComment comment = service.addRemoteComment("pr1", "@octocat", "Can you handle nulls?", createdAt, 5001L);
+
+        assertThat(comment.origin()).isEqualTo(LocalPRComment.ORIGIN_REMOTE);
+        assertThat(comment.scope()).isEqualTo(LocalPRComment.SCOPE_PR);
+        assertThat(comment.filePath()).isNull();
+        assertThat(comment.author()).isEqualTo("@octocat");
+        ArgumentCaptor<LocalPRTimelineEvent> event = ArgumentCaptor.forClass(LocalPRTimelineEvent.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(LocalPRTimelineEvent.TYPE_COMMENT);
+        assertThat(event.getValue().localOnly()).isFalse();
+        assertThat(event.getValue().remoteEventId()).isEqualTo(5001L);
+    }
+
+    @Test
+    void recordRemoteReviewWritesAReviewEventWithVerdictAndBody()
+    {
+        pr(LocalPR.STATUS_REMOTE_DRAFTED);
+        Instant when = Instant.parse("2026-06-20T10:00:00Z");
+
+        service.recordRemoteReview("pr1", "@reviewer1", "APPROVED", "Nice cleanup, LGTM.", when, 9001L);
+
+        ArgumentCaptor<LocalPRTimelineEvent> event = ArgumentCaptor.forClass(LocalPRTimelineEvent.class);
+        verify(store).addEvent(event.capture());
+        LocalPRTimelineEvent saved = event.getValue();
+        assertThat(saved.eventType()).isEqualTo(LocalPRTimelineEvent.TYPE_REVIEW);
+        assertThat(saved.actor()).isEqualTo("@reviewer1");
+        assertThat(saved.localOnly()).isFalse();
+        assertThat(saved.remoteEventId()).isEqualTo(9001L);
+        assertThat(saved.payloadJson()).contains("APPROVED").contains("Nice cleanup, LGTM.");
+    }
+
+    @Test
+    void hasRemoteEventDelegatesToTheStore()
+    {
+        when(store.timelineEventExistsByRemoteId("pr1", 5001L)).thenReturn(true);
+
+        assertThat(service.hasRemoteEvent("pr1", 5001L)).isTrue();
+    }
+
+    @Test
     void resolveCommentStampsResolvedAt()
     {
         LocalPRComment comment = new LocalPRComment(
@@ -178,7 +224,7 @@ class TestLocalPRService
         pr(LocalPR.STATUS_LOCAL_OPEN);
         LocalPRTimelineEvent localEvent = new LocalPRTimelineEvent(
                 "ev1", "pr1", LocalPRTimelineEvent.TYPE_COMMIT, "claude-code",
-                /* localOnly */ true, /* strippedOnPushAt */ null, NOW, null);
+                /* localOnly */ true, /* strippedOnPushAt */ null, NOW, null, /* remoteEventId */ null);
         LocalPRComment localComment = new LocalPRComment(
                 "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
                 "you", "note", NOW, null, /* dismissedAt */ null, /* strippedOnPushAt */ null, null);
@@ -224,7 +270,7 @@ class TestLocalPRService
     void pendingStripCountSumsLocalEventsAndComments()
     {
         LocalPRTimelineEvent e = new LocalPRTimelineEvent(
-                "ev1", "pr1", LocalPRTimelineEvent.TYPE_COMMIT, "claude-code", true, null, NOW, null);
+                "ev1", "pr1", LocalPRTimelineEvent.TYPE_COMMIT, "claude-code", true, null, NOW, null, null);
         LocalPRComment c = new LocalPRComment(
                 "cm1", "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR, null, null,
                 "you", "n", NOW, null, null, null, null);

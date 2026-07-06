@@ -127,7 +127,21 @@ function eventBody(event: LocalPRTimelineEvent): ReactNode {
       );
     case 'review': {
       if (event.actor !== 'brain') {
-        return <>{actor} submitted a review</>;
+        // A remote GitHub review (LocalPRSyncService) — verdict + written
+        // summary, if the reviewer left one.
+        const verdict = str(p, 'verdict');
+        const body = str(p, 'body');
+        return (
+          <>
+            {actor} submitted a review
+            {verdict !== null && (
+              <span className={`verdict-pill ${verdict === 'APPROVED' ? 'ok' : 'chg'}`}>
+                {verdict.replace('_', ' ')}
+              </span>
+            )}
+            {body !== null && body !== '' && <div className="tl-review-body">{body}</div>}
+          </>
+        );
       }
       // Brain adversarial review (plan-rail-runs.md R20-R24) — always
       // local-only (never posted to GitHub); scope names which lock point.

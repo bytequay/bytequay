@@ -23,4 +23,6 @@ interface LocalPrTimelineEventJpaRepository
     List<LocalPrTimelineEventEntity> findByLocalPrIdOrderByCreatedAtMsAsc(String localPrId);
 
     List<LocalPrTimelineEventEntity> findByLocalPrIdAndLocalOnlyTrueAndStrippedOnPushAtMsIsNull(String localPrId);
+
+    boolean existsByLocalPrIdAndRemoteEventId(String localPrId, long remoteEventId);
 }

@@ -50,6 +50,11 @@ public interface LocalPRStore
     /** Local-only events not yet stripped — the push transition stamps these. */
     List<LocalPRTimelineEvent> unstrippedLocalOnlyEvents(String localPrId);
 
+    /** Whether a remote-synced event with this GitHub id has already been
+     *  mirrored onto the timeline — keeps a repeated remote-timeline sync
+     *  idempotent. */
+    boolean timelineEventExistsByRemoteId(String localPrId, long remoteEventId);
+
     // ── local_pr_check ───────────────────────────────────────────────────
     LocalPRCheck addCheck(LocalPRCheck check);
 

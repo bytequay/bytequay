@@ -318,6 +318,36 @@ class LocalPRServiceImpl
     }
 
     @Override
+    public boolean hasRemoteEvent(String prId, long remoteEventId)
+    {
+        return store.timelineEventExistsByRemoteId(prId, remoteEventId);
+    }
+
+    @Override
+    public LocalPRComment addRemoteComment(String prId, String author, String body, Instant createdAt,
+            long remoteCommentId)
+    {
+        LocalPR pr = require(prId);
+        LocalPRComment comment = store.saveComment(new LocalPRComment(
+                UUID.randomUUID().toString(), pr.id(), LocalPRComment.ORIGIN_REMOTE, LocalPRComment.SCOPE_PR,
+                /* filePath */ null, /* lineNumber */ null, author, body, createdAt,
+                /* resolvedAt */ null, /* dismissedAt */ null, /* strippedOnPushAt */ null,
+                /* parentCommentId */ null));
+        appendEvent(pr.id(), LocalPRTimelineEvent.TYPE_COMMENT, author, /* localOnly */ false, createdAt,
+                payload("commentId", comment.id()), remoteCommentId);
+        return comment;
+    }
+
+    @Override
+    public void recordRemoteReview(
+            String prId, String reviewer, String verdict, String body, Instant when, long remoteReviewId)
+    {
+        LocalPR pr = require(prId);
+        appendEvent(pr.id(), LocalPRTimelineEvent.TYPE_REVIEW, reviewer, /* localOnly */ false, when,
+                payload("verdict", verdict, "body", body), remoteReviewId);
+    }
+
+    @Override
     public LocalPRComment resolveComment(String commentId)
     {
         LocalPRComment comment = store.findCommentById(commentId)
@@ -349,9 +379,16 @@ class LocalPRServiceImpl
     private void appendEvent(
             String prId, String type, String actor, boolean localOnly, Instant when, String payloadJson)
     {
+        appendEvent(prId, type, actor, localOnly, when, payloadJson, /* remoteEventId */ null);
+    }
+
+    private void appendEvent(
+            String prId, String type, String actor, boolean localOnly, Instant when, String payloadJson,
+            Long remoteEventId)
+    {
         store.addEvent(new LocalPRTimelineEvent(
                 UUID.randomUUID().toString(), prId, type, actor == null ? "" : actor,
-                localOnly, /* strippedOnPushAt */ null, when, payloadJson));
+                localOnly, /* strippedOnPushAt */ null, when, payloadJson, remoteEventId));
     }
 
     private String payload(Object... keyValues)

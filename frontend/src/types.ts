@@ -3955,6 +3955,10 @@ export type Bridge = {
   // ── PR (unified local/external aggregate) ─────────────────────────────
   /** Resolver — the task's PR id (as a full `PR`), or null if it has none yet. */
   getPrForTask: (taskId: string) => Promise<LocalPR | null>;
+  /** Resolver for the standalone details page — a GitHub PR not tied to a
+   *  ByteQuay task. Creates the row (origin=external) on first sight,
+   *  syncing on every call after; never null (throws on a bad repo/number). */
+  getPrForRepoPull: (owner: string, repo: string, number: number) => Promise<LocalPR>;
   /** The whole PR (row + commits + timeline + checks + comments + strip
    *  count) in one call, keyed by PR id, or null if it doesn't exist. */
   getLocalPrBundle: (prId: string) => Promise<LocalPRBundle | null>;
@@ -3963,6 +3967,9 @@ export type Bridge = {
   pushLocalPr: (prId: string) => Promise<LocalPR>;
   /** User-gated merge of a pushed PR with the chosen method. */
   mergeLocalPr: (prId: string, method: string) => Promise<LocalPR>;
+  /** Batch every unpublished draft comment into one GitHub review
+   *  (external PRs only — see {@code PRCapabilities.publishReview}). */
+  publishLocalPrReview: (prId: string) => Promise<LocalPR>;
   /** Add a user comment to the local PR (PR-level or inline file-line). */
   addLocalPrComment: (
     prId: string,

@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { PullRequestDto, UserProfileDto } from './types';
-import PullRequestPreview from './PullRequestPreview';
+import { PrDetailsView } from './pr/localpr/PrDetailsView';
 import ReviewScreen from './ReviewScreen';
 import DiffViewerScreen from './DiffViewerScreen';
 import ResizeHandle from './ResizeHandle';
@@ -32,14 +32,12 @@ import {
   bucketize,
   groupHandledByTime,
   markHandledPatch,
-  mergedPatch,
   patchPr,
   reopenPatch,
   sortHandled,
   sortSnoozed,
   splitByBucket,
   syncCachesAfterPrChange,
-  unmergedPatch,
 } from './prBuckets';
 import { CategorizedList, HandledTimeline, SnoozedList } from './PrBucketViews';
 import KanbanBoard, { LANE_KEY, loadLane, pickFocusCards, type Lane } from './kanban/KanbanBoard';
@@ -392,27 +390,6 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     }
   };
 
-  const handleMerge = async (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => {
-    const previous = (prs ?? []).find(p => p.id === prId);
-    const previousState = previous?.state ?? null;
-    const previousMergedAt = previous?.mergedAt ?? null;
-    updatePrState(prId, repo, mergedPatch());
-    try {
-      const result = await window.bridge.mergePr(prId, repo, number, strategy);
-      if (result?.queued) {
-        // Merge queue picked it up — PR is still open until its slot
-        // drains. Roll back the optimistic "merged" patch so the row
-        // doesn't lie; the MergeBar in the preview pane surfaces the
-        // queued state from the same result.
-        updatePrState(prId, repo, unmergedPatch(previousState, previousMergedAt));
-      }
-      return result;
-    } catch (e) {
-      updatePrState(prId, repo, unmergedPatch(previousState, previousMergedAt));
-      throw e;
-    }
-  };
-
   const handleReopen = async (prId: number) => {
     const previous = (prs ?? []).find(p => p.id === prId);
     updatePrState(prId, previous?.repo, reopenPatch());
@@ -759,22 +736,14 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
       onStartReview={onStartReview}
     />
   ) : selected ? (
-    <PullRequestPreview
+    <PrDetailsView
       pr={selected}
+      onStartReview={onStartReview}
       onOpenReview={() => {
         setReviewingPr(selected);
         setSidebarCollapsedPersist(true);
       }}
-      onInspectDiffs={(sha) => {
-        // Belt-and-braces: only accept a string. A bare onClick={onInspectDiffs}
-        // somewhere would otherwise route the MouseEvent into this slot.
-        setDiffViewerCommitSha(typeof sha === 'string' ? sha : null);
-        setDiffViewerPr(selected);
-        setSidebarCollapsedPersist(true);
-      }}
       onMarkHandled={handleMarkHandled}
-      onMerge={handleMerge}
-      onOpenLocalBranch={onOpenLocalBranch}
     />
   ) : null;
 

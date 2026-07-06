@@ -13,12 +13,12 @@
  */
 package com.bytequay.app.service.checks;
 
-import com.bytequay.app.domain.LocalPR;
-import com.bytequay.app.domain.LocalPRCheck;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
-import com.bytequay.app.service.localpr.LocalPRService;
-import com.bytequay.app.service.localpr.LocalPRSyncService;
+import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.localpr.PRSyncService;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -34,7 +34,7 @@ import static java.util.Objects.requireNonNull;
  * doc slice 4 — "local CI"): auto-detects the ecosystem the same way the
  * {@code run_checks} agent tool does and runs its canonical verify command,
  * then records the outcome on the task's local PR (materialising it first if
- * it doesn't exist yet — {@link LocalPRSyncService#syncFromTask} is
+ * it doesn't exist yet — {@link PRSyncService#syncFromTask} is
  * idempotent) so the PR page's Tests card shows real runs instead of only
  * whatever the agent recorded manually via {@code record_pr_check}.
  *
@@ -64,19 +64,19 @@ public class RepoTestValidationCheck
 
     private final TestRunnerDetector detector;
     private final ShellRunner shellRunner;
-    private final LocalPRService localPr;
-    private final LocalPRSyncService localPrSync;
+    private final PRService prService;
+    private final PRSyncService prSync;
 
     public RepoTestValidationCheck(
             TestRunnerDetector detector,
             ShellRunner shellRunner,
-            LocalPRService localPr,
-            LocalPRSyncService localPrSync)
+            PRService prService,
+            PRSyncService prSync)
     {
         this.detector = requireNonNull(detector, "detector is null");
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
-        this.localPr = requireNonNull(localPr, "localPr is null");
-        this.localPrSync = requireNonNull(localPrSync, "localPrSync is null");
+        this.prService = requireNonNull(prService, "prService is null");
+        this.prSync = requireNonNull(prSync, "prSync is null");
     }
 
     @Override
@@ -112,10 +112,10 @@ public class RepoTestValidationCheck
 
     private void recordCheck(String taskId, String ecosystem, boolean passed, long durationMs)
     {
-        Optional<LocalPR> pr = localPrSync.syncFromTask(taskId);
-        pr.ifPresent(p -> localPr.recordCheck(
-                p.id(), LocalPRCheck.KIND_LOCAL, ecosystem + " test",
-                passed ? LocalPRCheck.STATUS_PASSED : LocalPRCheck.STATUS_FAILED, durationMs));
+        Optional<PR> pr = prSync.syncFromTask(taskId);
+        pr.ifPresent(p -> prService.recordCheck(
+                p.id(), PRCheck.KIND_LOCAL, ecosystem + " test",
+                passed ? PRCheck.STATUS_PASSED : PRCheck.STATUS_FAILED, durationMs));
     }
 
     private static String tail(String output)

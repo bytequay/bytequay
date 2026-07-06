@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.LocalPR;
-import com.bytequay.app.domain.LocalPRComment;
-import com.bytequay.app.domain.LocalPRTimelineEvent;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageInstance;
@@ -30,7 +30,7 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
@@ -110,7 +110,7 @@ public class TaskLifecycleDriver
     private final ReviewRoundService reviewRounds;
     private final ThreadRegistry registry;
     private final StageStore stageStore;
-    private final LocalPRService localPr;
+    private final PRService prService;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -126,7 +126,7 @@ public class TaskLifecycleDriver
             ReviewRoundService reviewRounds,
             ThreadRegistry registry,
             StageStore stageStore,
-            LocalPRService localPr)
+            PRService prService)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -141,7 +141,7 @@ public class TaskLifecycleDriver
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
-        this.localPr = requireNonNull(localPr, "localPr is null");
+        this.prService = requireNonNull(prService, "prService is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -282,15 +282,15 @@ public class TaskLifecycleDriver
      *  loop. */
     void reconcileLocalTask(Task task)
     {
-        Optional<LocalPR> prOpt = localPr.findByTask(task.id());
+        Optional<PR> prOpt = prService.findByTask(task.id());
         if (prOpt.isEmpty()) {
             return;
         }
-        LocalPR pr = prOpt.get();
-        if (!LocalPR.STATUS_LOCAL_OPEN.equals(pr.status())) {
+        PR pr = prOpt.get();
+        if (!PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
             return; // nothing to review yet, or already promoted/terminal.
         }
-        List<LocalPRComment> comments = localPr.comments(pr.id());
+        List<PRComment> comments = prService.comments(pr.id());
         boolean anyUnaddressed = comments.stream().anyMatch(TaskLifecycleDriver::isUnaddressedLocalComment);
         if (task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
             if (anyUnaddressed) {
@@ -319,10 +319,10 @@ public class TaskLifecycleDriver
 
     /** A comment that still needs the agent's attention: not yet resolved or
      *  dismissed, and not the agent's own comment/reply. */
-    private static boolean isUnaddressedLocalComment(LocalPRComment comment)
+    private static boolean isUnaddressedLocalComment(PRComment comment)
     {
         return comment.resolvedAt() == null && comment.dismissedAt() == null
-                && !LocalPRTimelineEvent.ACTOR_AGENT.equals(comment.author());
+                && !PRTimelineEntry.ACTOR_AGENT.equals(comment.author());
     }
 
     /**
@@ -331,11 +331,11 @@ public class TaskLifecycleDriver
      * local PR comment directly — no analysis-then-wait step like the remote
      * loop: the branch hasn't been pushed yet, so there's nothing to gate.
      */
-    private void startAddressLocalComments(Task task, LocalPR pr, List<LocalPRComment> comments)
+    private void startAddressLocalComments(Task task, PR pr, List<PRComment> comments)
     {
         Instant newest = comments.stream()
                 .filter(TaskLifecycleDriver::isUnaddressedLocalComment)
-                .map(LocalPRComment::createdAt)
+                .map(PRComment::createdAt)
                 .max(Instant::compareTo)
                 .orElse(null);
         if (newest == null) {
@@ -344,7 +344,7 @@ public class TaskLifecycleDriver
         phaseMachine.observe(task.id(), TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments");
         // Advance the marker up front, same reasoning as the remote loop: a
         // later sweep shouldn't treat this same batch as newly arrived.
-        localPr.markLocalAddressed(pr.id(), newest);
+        prService.markLocalAddressed(pr.id(), newest);
         Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
         if (threadOpt.isEmpty()) {
             log.warn("address-local-comments: thread {} not found (task {})", task.threadId(), task.id());
@@ -378,7 +378,7 @@ public class TaskLifecycleDriver
      *  of {@link #buildReviewAnalysisPrompt}, minus the "stop and wait" step
      *  (decision: local addressing is autonomous; the unpushed branch is the
      *  safety net, not a human gate). */
-    private static String buildLocalAddressingPrompt(LocalPR pr, List<LocalPRComment> comments)
+    private static String buildLocalAddressingPrompt(PR pr, List<PRComment> comments)
     {
         StringBuilder out = new StringBuilder();
         out.append("New comments arrived on your local PR \"").append(pr.title()).append("\". ")
@@ -396,7 +396,7 @@ public class TaskLifecycleDriver
                         + "resolution='dismissed').\n\n")
                 .append("Open comments:\n");
         int i = 1;
-        for (LocalPRComment comment : comments) {
+        for (PRComment comment : comments) {
             if (!isUnaddressedLocalComment(comment)) {
                 continue;
             }

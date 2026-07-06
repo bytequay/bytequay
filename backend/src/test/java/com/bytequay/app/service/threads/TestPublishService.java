@@ -15,12 +15,12 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
-import com.bytequay.app.domain.LocalPR;
-import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
@@ -34,8 +34,8 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.localpr.LocalPRService;
-import com.bytequay.app.service.localpr.LocalPrPushedEvent;
+import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.threads.PublishService.PublishResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -87,7 +87,7 @@ class TestPublishService
     private TaskService taskService;
     private TaskPhaseMachine phaseMachine;
     private StageStore stageStore;
-    private LocalPRService localPr;
+    private PRService prService;
     private ApplicationEventPublisher eventPublisher;
     private PublishService service;
 
@@ -104,14 +104,14 @@ class TestPublishService
         taskService = mock(TaskService.class);
         phaseMachine = mock(TaskPhaseMachine.class);
         stageStore = mock(StageStore.class);
-        localPr = mock(LocalPRService.class);
+        prService = mock(PRService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         service = new PublishService(
                 notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
-                mock(ReviewPassResolver.class), phaseMachine, stageStore, localPr, eventPublisher);
+                mock(ReviewPassResolver.class), phaseMachine, stageStore, prService, eventPublisher);
         when(notifications.claimResolution(anyString())).thenReturn(true);
         when(stageStore.findUnresolvedComments(anyString())).thenReturn(List.of());
-        when(localPr.findByTask(anyString())).thenReturn(Optional.empty());
+        when(prService.findByTask(anyString())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -140,11 +140,11 @@ class TestPublishService
     }
 
     @Test
-    void approvePushOnATaskWithAnExistingPrPublishesALocalPrPushedEvent()
+    void approvePushOnATaskWithAnExistingPrPublishesAPrPushedEvent()
     {
         // A plain push gate never creates a PR itself — but if the task
         // already has one (e.g. pushing more commits after addressing
-        // comments), the LocalPR row must still learn about it, or the panel
+        // comments), the PR row must still learn about it, or the panel
         // keeps offering "ready to push" for a push that just landed.
         Notification parked = parkedPush("notif-existing-pr", "task-existing-pr",
                 "feature/x", "/tmp/wt/feature-x");
@@ -155,7 +155,7 @@ class TestPublishService
         service.approve("notif-existing-pr", null, "push");
 
         verify(eventPublisher).publishEvent(
-                new LocalPrPushedEvent("task-existing-pr", 42, "https://github.com/acme/widget/pull/42"));
+                new PrPushedEvent("task-existing-pr", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test
@@ -169,7 +169,7 @@ class TestPublishService
 
         service.approve("notif-no-pr", null, "push");
 
-        verify(eventPublisher, never()).publishEvent(any(LocalPrPushedEvent.class));
+        verify(eventPublisher, never()).publishEvent(any(PrPushedEvent.class));
     }
 
     @Test
@@ -1120,14 +1120,14 @@ class TestPublishService
     }
 
     @Test
-    void openPrPublishesALocalPrPushedEventSoTheStalePushPromptClears()
+    void openPrPublishesAPrPushedEventSoTheStalePushPromptClears()
     {
-        // The LocalPR row is a separate tracking table from the task's own
+        // The PR row is a separate tracking table from the task's own
         // phase — auto-approve resolving this gate must also carry it
         // forward, or PRActionBar keeps offering "Approve & push to
         // GitHub" for a push that already happened. PublishService's job is
-        // just to publish the event; LocalPRPublishService's listener (see
-        // TestLocalPRPublishService) is what actually advances the row.
+        // just to publish the event; PRPublishService's listener (see
+        // TestPRPublishService) is what actually advances the row.
         Notification parked = parkedOpenPr("notif-sync-local-pr", "task-sync-local-pr",
                 "acme", "widget", "Add cache layer", "feature/cache", "main", "Draft body.");
         when(notifications.find("notif-sync-local-pr")).thenReturn(Optional.of(parked));
@@ -1140,26 +1140,26 @@ class TestPublishService
         service.approve("notif-sync-local-pr", "", "open_pr");
 
         verify(eventPublisher).publishEvent(
-                new LocalPrPushedEvent("task-sync-local-pr", 42, "https://github.com/acme/widget/pull/42"));
+                new PrPushedEvent("task-sync-local-pr", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test
-    void markReadyAdvancesAStuckLocalPrRowToRemoteOpen()
+    void markReadyAdvancesAStuckPrRowToRemoteOpen()
     {
         Notification parked = parkedMarkReady("notif-mark-ready-sync", "task-mark-ready-sync",
                 "acme", "widget", 42, "");
         when(notifications.find("notif-mark-ready-sync")).thenReturn(Optional.of(parked));
         when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
-        LocalPR remoteDrafted = LocalPR.create(
+        PR remoteDrafted = PR.create(
                 "local-pr-2", "task-mark-ready-sync", "feature/cache", "main",
                 "Add cache layer", "", Instant.parse("2026-05-22T11:00:00Z"))
-                .withStatus(LocalPR.STATUS_LOCAL_OPEN, Instant.parse("2026-05-22T11:30:00Z"))
-                .withStatus(LocalPR.STATUS_REMOTE_DRAFTED, Instant.parse("2026-05-22T11:31:00Z"));
-        when(localPr.findByTask("task-mark-ready-sync")).thenReturn(Optional.of(remoteDrafted));
+                .withStatus(PR.STATUS_LOCAL_OPEN, Instant.parse("2026-05-22T11:30:00Z"))
+                .withStatus(PR.STATUS_REMOTE_DRAFTED, Instant.parse("2026-05-22T11:31:00Z"));
+        when(prService.findByTask("task-mark-ready-sync")).thenReturn(Optional.of(remoteDrafted));
 
         service.approve("notif-mark-ready-sync", "", "mark_ready");
 
-        verify(localPr).transition("local-pr-2", LocalPR.STATUS_REMOTE_OPEN, LocalPRTimelineEvent.ACTOR_AGENT);
+        verify(prService).transition("local-pr-2", PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_AGENT);
     }
 
     private static PullRequest samplePr(int number, boolean draft)

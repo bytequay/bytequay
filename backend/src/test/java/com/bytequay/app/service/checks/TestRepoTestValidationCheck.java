@@ -13,12 +13,12 @@
  */
 package com.bytequay.app.service.checks;
 
-import com.bytequay.app.domain.LocalPR;
-import com.bytequay.app.domain.LocalPRCheck;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
-import com.bytequay.app.service.localpr.LocalPRService;
-import com.bytequay.app.service.localpr.LocalPRSyncService;
+import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.localpr.PRSyncService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -40,10 +40,10 @@ class TestRepoTestValidationCheck
 {
     private final TestRunnerDetector detector = mock(TestRunnerDetector.class);
     private final ShellRunner shellRunner = mock(ShellRunner.class);
-    private final LocalPRService localPr = mock(LocalPRService.class);
-    private final LocalPRSyncService localPrSync = mock(LocalPRSyncService.class);
+    private final PRService prService = mock(PRService.class);
+    private final PRSyncService prSync = mock(PRSyncService.class);
     private final RepoTestValidationCheck check =
-            new RepoTestValidationCheck(detector, shellRunner, localPr, localPrSync);
+            new RepoTestValidationCheck(detector, shellRunner, prService, prSync);
 
     private final Path worktree = Path.of("/tmp/wt");
 
@@ -63,7 +63,7 @@ class TestRepoTestValidationCheck
 
         assertThat(failures).isEmpty();
         verify(shellRunner, never()).runArgv(any(), any(), anyLong(), any(Integer.class));
-        verify(localPrSync, never()).syncFromTask(any());
+        verify(prSync, never()).syncFromTask(any());
     }
 
     @Test
@@ -74,14 +74,14 @@ class TestRepoTestValidationCheck
                 .thenReturn(Optional.of(new TestRunnerDetector.Detected("maven", List.of("mvn", "-q", "verify"))));
         when(shellRunner.runArgv(eq(worktree), any(), anyLong(), any(Integer.class)))
                 .thenReturn(new ShellRunner.Result(true, 0, "BUILD SUCCESS", false, null));
-        LocalPR pr = localPr("pr1");
-        when(localPrSync.syncFromTask("t1")).thenReturn(Optional.of(pr));
+        PR pr = pr("pr1");
+        when(prSync.syncFromTask("t1")).thenReturn(Optional.of(pr));
 
         List<ValidationFailure> failures = check.run("t1", worktree);
 
         assertThat(failures).isEmpty();
-        verify(localPr).recordCheck(
-                eq("pr1"), eq(LocalPRCheck.KIND_LOCAL), eq("maven test"), eq(LocalPRCheck.STATUS_PASSED), anyLong());
+        verify(prService).recordCheck(
+                eq("pr1"), eq(PRCheck.KIND_LOCAL), eq("maven test"), eq(PRCheck.STATUS_PASSED), anyLong());
     }
 
     @Test
@@ -92,32 +92,32 @@ class TestRepoTestValidationCheck
                 .thenReturn(Optional.of(new TestRunnerDetector.Detected("npm", List.of("npm", "test"))));
         when(shellRunner.runArgv(eq(worktree), any(), anyLong(), any(Integer.class)))
                 .thenReturn(new ShellRunner.Result(true, 1, "1 failing\nAssertionError: expected true", false, null));
-        LocalPR pr = localPr("pr1");
-        when(localPrSync.syncFromTask("t1")).thenReturn(Optional.of(pr));
+        PR pr = pr("pr1");
+        when(prSync.syncFromTask("t1")).thenReturn(Optional.of(pr));
 
         List<ValidationFailure> failures = check.run("t1", worktree);
 
         assertThat(failures).hasSize(1);
         assertThat(failures.get(0).source()).isEqualTo("test");
         assertThat(failures.get(0).detail()).contains("npm").contains("AssertionError");
-        verify(localPr).recordCheck(
-                eq("pr1"), eq(LocalPRCheck.KIND_LOCAL), eq("npm test"), eq(LocalPRCheck.STATUS_FAILED), anyLong());
+        verify(prService).recordCheck(
+                eq("pr1"), eq(PRCheck.KIND_LOCAL), eq("npm test"), eq(PRCheck.STATUS_FAILED), anyLong());
     }
 
     @Test
-    void skipsRecordingWhenNoLocalPrExistsYet()
+    void skipsRecordingWhenNoPrExistsYet()
             throws InterruptedException
     {
         when(detector.detect(worktree))
                 .thenReturn(Optional.of(new TestRunnerDetector.Detected("maven", List.of("mvn", "-q", "verify"))));
         when(shellRunner.runArgv(eq(worktree), any(), anyLong(), any(Integer.class)))
                 .thenReturn(new ShellRunner.Result(true, 0, "BUILD SUCCESS", false, null));
-        when(localPrSync.syncFromTask("t1")).thenReturn(Optional.empty());
+        when(prSync.syncFromTask("t1")).thenReturn(Optional.empty());
 
         List<ValidationFailure> failures = check.run("t1", worktree);
 
         assertThat(failures).isEmpty();
-        verify(localPr, never()).recordCheck(any(), any(), any(), any(), any());
+        verify(prService, never()).recordCheck(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -135,9 +135,9 @@ class TestRepoTestValidationCheck
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
     }
 
-    private static LocalPR localPr(String id)
+    private static PR pr(String id)
     {
         Instant now = Instant.parse("2026-07-01T00:00:00Z");
-        return LocalPR.create(id, "t1", "dev/x", "main", "T", "", now);
+        return PR.create(id, "t1", "dev/x", "main", "T", "", now);
     }
 }

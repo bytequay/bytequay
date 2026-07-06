@@ -37,7 +37,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
-import com.bytequay.app.service.localpr.LocalPrPushedEvent;
+import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.pr.PullRequestMergedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
@@ -456,9 +456,9 @@ public class TaskService
                 taskPhaseMachine.observe(
                         current.id(), TaskPhase.PUSHED_AWAITING_CI, "shipped_draft_pr_open");
                 // Ship pushed + opened the PR directly (not through a push/
-                // open_pr gate), so the LocalPR row otherwise never learns
+                // open_pr gate), so the PR row otherwise never learns
                 // about it and keeps offering "ready to push" forever.
-                eventPublisher.publishEvent(new LocalPrPushedEvent(
+                eventPublisher.publishEvent(new PrPushedEvent(
                         current.id(), prNumber, "https://github.com/" + repoFullName + "/pull/" + prNumber));
             }
 

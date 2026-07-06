@@ -980,7 +980,7 @@ const bridge: Bridge = {
   markDashboardPrHandled: (prId: string, action: string) =>
     ipcRenderer.invoke('pr:dashboardMarkHandled', prId, action),
   reopenDashboardPr: (prId: string) => ipcRenderer.invoke('pr:dashboardReopen', prId),
-  snoozeDashboardPr: (prId: string, until: number) => ipcRenderer.invoke('pr:dashboardSnooze', prId, until),
+  snoozeDashboardPr: (prId: string, untilIso: string) => ipcRenderer.invoke('pr:dashboardSnooze', prId, untilIso),
   unsnoozeDashboardPr: (prId: string) => ipcRenderer.invoke('pr:dashboardUnsnooze', prId),
   clearDashboardPrSnoozeWakeReason: (prId: string) =>
     ipcRenderer.invoke('pr:dashboardClearSnoozeWakeReason', prId),

@@ -16,12 +16,13 @@ import type { AttentionReason, CiStatus, HandledAction } from '../types';
 /**
  * A dashboard row backed by the unified `pr` table (`GET /api/prs`) —
  * field-for-field compatible with the legacy `PullRequestDto` (same names,
- * same enum spellings) so `prBuckets.ts`'s categorization logic works
- * unchanged against it, modulo one deliberate difference: `id` is the
- * unified PR's string id (not two different GitHub numeric-id namespaces —
- * see unified-pr-view.md's dashboard migration), and every timestamp is
- * epoch-millis (matching the rest of the unified PR wire format) rather
- * than an ISO string.
+ * same enum spellings, same ISO-string timestamps) so `prBuckets.ts`'s
+ * categorization logic — and its large existing fixture-based test suite —
+ * works unchanged against it. `id` is the one field that genuinely can't
+ * stay compatible: the legacy numeric id was never stable across GitHub's
+ * two id namespaces (search-issue vs REST pull-request), which unifying
+ * onto one string id fixes as a side effect (see unified-pr-view.md's
+ * dashboard migration).
  */
 export type DashboardPR = {
   id: string;
@@ -30,14 +31,14 @@ export type DashboardPR = {
   title: string;
   author: string | null;
   htmlUrl: string;
-  createdAt: number | null;
-  updatedAt: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
   origin: 'AUTHORED' | 'REVIEW_REQUESTED' | null;
   labels: string[];
   labelColors: Record<string, string> | null;
   draft: boolean;
-  viewedAt: number | null;
-  reviewedAt: number | null;
+  viewedAt: string | null;
+  reviewedAt: string | null;
   handledAction: HandledAction | null;
   requestedReviewers: string[];
   ciStatus: CiStatus | null;
@@ -46,12 +47,12 @@ export type DashboardPR = {
   commentCount: number;
   attentionReason: AttentionReason | null;
   state: 'open' | 'closed' | 'merged' | string | null;
-  closedAt: number | null;
-  mergedAt: number | null;
+  closedAt: string | null;
+  mergedAt: string | null;
   mergeable: boolean | null;
   mergeableState: string | null;
-  headPushedAt: number | null;
+  headPushedAt: string | null;
   reviewerVerdicts: Record<string, string> | null;
-  snoozedUntil: number | null;
+  snoozedUntil: string | null;
   snoozeWakeReason: string | null;
 };

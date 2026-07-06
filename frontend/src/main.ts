@@ -1089,7 +1089,7 @@ function registerIpc(): void {
       throw new Error(`backend PR reopen returned ${res.status}: ${text}`);
     }
   });
-  ipcMain.handle('pr:dashboardSnooze', async (_event, prId: string, until: number) => {
+  ipcMain.handle('pr:dashboardSnooze', async (_event, prId: string, until: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/snooze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

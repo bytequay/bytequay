@@ -3997,8 +3997,8 @@ export type Bridge = {
   markDashboardPrHandled: (prId: string, action: HandledAction) => Promise<void>;
   /** Clears the local reviewed timestamp so the PR returns to the Inbox. */
   reopenDashboardPr: (prId: string) => Promise<void>;
-  /** Parks a PR until {@code until} (epoch millis, must be in the future). */
-  snoozeDashboardPr: (prId: string, until: number) => Promise<void>;
+  /** Parks a PR until {@code until} (ISO-8601, must be in the future). */
+  snoozeDashboardPr: (prId: string, untilIso: string) => Promise<void>;
   /** User-initiated wake — no wake-reason banner. */
   unsnoozeDashboardPr: (prId: string) => Promise<void>;
   /** Drops the wake-reason flag once the user has seen the "PR woke up" banner. */

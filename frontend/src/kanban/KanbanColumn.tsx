@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useRef, useState, type DragEvent } from 'react';
-import type { PullRequestDto } from '../types';
+import type { PrLikeWithId } from '../prBuckets';
 import KanbanCard from './KanbanCard';
 import { PR_DRAG_MIME, type PrDragPayload } from './KanbanPrCard';
 
@@ -53,11 +53,11 @@ const EMPTY_COPY: Record<KanbanColumnKind, string> = {
   handled: 'Nothing handled yet',
 };
 
-type Props = {
+type Props<T extends PrLikeWithId> = {
   kind: KanbanColumnKind;
   label: string;
-  prs: PullRequestDto[];
-  selectedId: number | null;
+  prs: T[];
+  selectedId: number | string | null;
   /** Whether this column is shown as a 38px vertical strip. */
   collapsed: boolean;
   /** Optional "your move" hint shown next to the column title — mockup
@@ -68,10 +68,10 @@ type Props = {
    *  rendered when greater than zero. */
   urgentCount?: number;
   onToggle: () => void;
-  onSelect: (pr: PullRequestDto) => void;
-  onHandle: (prId: number) => void;
-  onReopen: (prId: number) => void;
-  onSnooze?: (prId: number, untilIso: string) => void;
+  onSelect: (pr: T) => void;
+  onHandle: (prId: T['id']) => void;
+  onReopen: (prId: T['id']) => void;
+  onSnooze?: (prId: T['id'], untilIso: string) => void;
   /** When provided, the column's cards are HTML5-draggable. Only set
    *  by the My-PRs board. */
   draggable?: boolean;
@@ -101,13 +101,13 @@ type Props = {
   };
 };
 
-function KanbanColumn({
+function KanbanColumn<T extends PrLikeWithId>({
   kind, label, prs, selectedId, collapsed, yourMove, urgentCount,
   onToggle, onSelect, onHandle, onReopen, onSnooze,
   draggable, acceptDropFrom, onCardDrop,
   cardMode,
   totalCount, onLoadMore, footerCta,
-}: Props) {
+}: Props<T>) {
   const [shownCount, setShownCount] = useState(INITIAL_SHOWN);
   const [loadingMore, setLoadingMore] = useState(false);
   // Drop-target visual: 'accept' = green outline (drop will translate

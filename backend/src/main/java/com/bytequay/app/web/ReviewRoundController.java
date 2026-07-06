@@ -27,7 +27,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Read-only listing plus the one write: approving a round's gate (posts
  * drafted replies + pushes commits, user-gated — same pattern as push/merge
- * in {@code LocalPRController}).
+ * in {@code PRController}).
  */
 @RestController
 public class ReviewRoundController

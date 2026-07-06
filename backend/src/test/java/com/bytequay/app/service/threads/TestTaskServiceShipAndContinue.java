@@ -35,7 +35,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.localpr.LocalPrPushedEvent;
+import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -172,11 +172,11 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void shipOpeningAPrPublishesALocalPrPushedEventSoItsLocalPrRowLearnsAboutIt()
+    void shipOpeningAPrPublishesAPrPushedEventSoItsPrRowLearnsAboutIt()
             throws Exception
     {
         // Ship pushes + opens the PR directly — not through a push/open_pr
-        // gate — so without this event the task's LocalPR row (a separate
+        // gate — so without this event the task's PR row (a separate
         // tracking table) never learns the push happened and keeps offering
         // "ready to push" forever.
         String workingDir = "/tmp/acme/widget";
@@ -208,7 +208,7 @@ class TestTaskServiceShipAndContinue
                 new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
 
         verify(eventPublisher).publishEvent(
-                new LocalPrPushedEvent("task-1", 42, "https://github.com/acme/widget/pull/42"));
+                new PrPushedEvent("task-1", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test

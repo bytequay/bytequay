@@ -14,7 +14,7 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
@@ -38,7 +38,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
@@ -86,11 +86,11 @@ class TestBrainReviewServiceImpl
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
-    private final LocalPRService localPr = mock(LocalPRService.class);
+    private final PRService prService = mock(PRService.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final BrainReviewServiceImpl service = new BrainReviewServiceImpl(
-            taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore, localPr,
+            taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore, prService,
             notifications, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
 
     // ── R20: plan self-review ────────────────────────────────────────────
@@ -181,8 +181,8 @@ class TestBrainReviewServiceImpl
                 eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
                 eq(Map.of("verdict", ReviewRound.VERDICT_APPROVED)));
         // The plan predates the local PR — its timeline event is backfilled
-        // later, when LocalPRServiceImpl.createForTask first creates the row.
-        verify(localPr, never()).recordBrainReview(any(), any(), any(), anyInt());
+        // later, when PRServiceImpl.createForTask first creates the row.
+        verify(prService, never()).recordBrainReview(any(), any(), any(), anyInt());
     }
 
     @Test
@@ -201,7 +201,7 @@ class TestBrainReviewServiceImpl
 
         verify(roundStore).save(argThat(r ->
                 ReviewRound.VERDICT_CHANGES_REQUESTED.equals(r.brainVerdict()) && r.iteration() == 1));
-        verify(localPr).recordBrainReview(TASK_ID, "dev", ReviewRound.VERDICT_CHANGES_REQUESTED, 1);
+        verify(prService).recordBrainReview(TASK_ID, "dev", ReviewRound.VERDICT_CHANGES_REQUESTED, 1);
     }
 
     // ── R21-R23: code lock-point review loop ─────────────────────────────
@@ -209,8 +209,8 @@ class TestBrainReviewServiceImpl
     @Test
     void devEndLockPointOpensABrainRoundAndLeavesThePrUnflipped()
     {
-        LocalPR drafted = LocalPR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
-        when(localPr.findById("pr1")).thenReturn(Optional.of(drafted));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(prService.findById("pr1")).thenReturn(Optional.of(drafted));
         Task task = task();
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
         when(roundStore.findByTask(TASK_ID)).thenReturn(List.of());
@@ -222,43 +222,43 @@ class TestBrainReviewServiceImpl
                 any(), eq(StageType.REVIEW_ROUND_STAGE), any())).thenReturn(run);
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
 
-        LocalPR result = service.reviewBeforeLocalOpen("pr1", "claude-code");
+        PR result = service.reviewBeforeLocalOpen("pr1", "claude-code");
 
-        assertThat(result.status()).isEqualTo(LocalPR.STATUS_LOCAL_DRAFTED);
+        assertThat(result.status()).isEqualTo(PR.STATUS_LOCAL_DRAFTED);
         verify(roundStore).save(argThat(r ->
                 ReviewRound.ORIGIN_BRAIN.equals(r.origin()) && ReviewRound.STATUS_TRIAGING.equals(r.status())));
-        verify(localPr, never()).requestUserReview(any(), any());
+        verify(prService, never()).requestUserReview(any(), any());
     }
 
     @Test
     void devEndLockPointLeavesThePrUnflippedWhileTheRoundIsStillLive()
     {
-        LocalPR drafted = LocalPR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
-        when(localPr.findById("pr1")).thenReturn(Optional.of(drafted));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(prService.findById("pr1")).thenReturn(Optional.of(drafted));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
         when(roundStore.findByTask(TASK_ID)).thenReturn(List.of(brainRound(ReviewRound.STATUS_TRIAGING)));
 
-        LocalPR result = service.reviewBeforeLocalOpen("pr1", "claude-code");
+        PR result = service.reviewBeforeLocalOpen("pr1", "claude-code");
 
-        assertThat(result.status()).isEqualTo(LocalPR.STATUS_LOCAL_DRAFTED);
+        assertThat(result.status()).isEqualTo(PR.STATUS_LOCAL_DRAFTED);
         verify(agentRuns, never()).open(any(), any(), any(), any(), any(), any());
-        verify(localPr, never()).requestUserReview(any(), any());
+        verify(prService, never()).requestUserReview(any(), any());
     }
 
     @Test
     void devEndLockPointFlipsOnceItsBrainRoundHasAlreadyConcluded()
     {
-        LocalPR drafted = LocalPR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
-        LocalPR open = drafted.withStatus(LocalPR.STATUS_LOCAL_OPEN, NOW);
-        when(localPr.findById("pr1")).thenReturn(Optional.of(drafted));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        PR open = drafted.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findById("pr1")).thenReturn(Optional.of(drafted));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
         when(roundStore.findByTask(TASK_ID)).thenReturn(List.of(brainRound(ReviewRound.STATUS_CLOSED)));
-        when(localPr.requestUserReview("pr1", "claude-code")).thenReturn(open);
+        when(prService.requestUserReview("pr1", "claude-code")).thenReturn(open);
 
-        LocalPR result = service.reviewBeforeLocalOpen("pr1", "claude-code");
+        PR result = service.reviewBeforeLocalOpen("pr1", "claude-code");
 
-        assertThat(result.status()).isEqualTo(LocalPR.STATUS_LOCAL_OPEN);
-        verify(localPr).requestUserReview("pr1", "claude-code");
+        assertThat(result.status()).isEqualTo(PR.STATUS_LOCAL_OPEN);
+        verify(prService).requestUserReview("pr1", "claude-code");
     }
 
     @Test
@@ -298,14 +298,14 @@ class TestBrainReviewServiceImpl
                 triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
                 "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
-        LocalPR drafted = LocalPR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
-        when(localPr.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-6", false));
 
         verify(roundStore).save(argThat(r -> ReviewRound.STATUS_CLOSED.equals(r.status())));
         verify(agentRuns).transition(triaging.runId(), AgentRun.STATUS_SUCCEEDED, "brain_review_concluded");
-        verify(localPr).requestUserReview("pr1", "brain");
+        verify(prService).requestUserReview("pr1", "brain");
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
     }
 
@@ -325,14 +325,14 @@ class TestBrainReviewServiceImpl
                 lastIteration.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
                 "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         when(agentRuns.findById(lastIteration.runId())).thenReturn(Optional.of(run));
-        LocalPR drafted = LocalPR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
-        when(localPr.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-7", false));
 
         assertThat(lastIteration.brainBudgetExhausted()).isTrue();
         verify(notifications).notifyNeedsAttention(eq(task().threadId()), eq(TASK_ID), anyString());
-        verify(localPr).requestUserReview("pr1", "brain");
+        verify(prService).requestUserReview("pr1", "brain");
     }
 
     @Test
@@ -353,8 +353,8 @@ class TestBrainReviewServiceImpl
                 neverVerdicted.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
                 "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         when(agentRuns.findById(neverVerdicted.runId())).thenReturn(Optional.of(run));
-        LocalPR drafted = LocalPR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
-        when(localPr.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-8", false));
 

@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
-import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
 
@@ -34,10 +34,10 @@ public interface BrainReviewService
      * state — still {@code local-drafted} while a review is in flight,
      * already {@code local-open} once the brain approved (or escalated)
      * and the flip actually happened. Callers that used to call {@code
-     * LocalPRService.requestUserReview} directly call this instead; no
+     * PRService.requestUserReview} directly call this instead; no
      * other change is needed at the call site.
      */
-    LocalPR reviewBeforeLocalOpen(String prId, String actor);
+    PR reviewBeforeLocalOpen(String prId, String actor);
 
     /**
      * The R21(b) round lock point: called once an external round's

@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.LocalPR;
-import com.bytequay.app.domain.LocalPRComment;
-import com.bytequay.app.domain.LocalPRTimelineEvent;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
 import com.bytequay.app.domain.Task;
@@ -27,7 +27,7 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
@@ -69,11 +69,11 @@ class TestTaskLifecycleDriver
     private final ReviewRoundService reviewRounds = mock(ReviewRoundService.class);
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final StageStore stageStore = mock(StageStore.class);
-    private final LocalPRService localPr = mock(LocalPRService.class);
+    private final PRService prService = mock(PRService.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     threadStore, scheduler, notifications, mapper,
-                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, localPr);
+                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService);
 
     @TempDir
     private Path tempDir;
@@ -255,9 +255,9 @@ class TestTaskLifecycleDriver
     {
         Task task = task(null, TaskPhase.AWAITING_PUSH);
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
-        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, null);
-        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
-        when(localPr.comments("pr1")).thenReturn(
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, null);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -267,7 +267,7 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(phaseMachine).observe("t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments");
-        verify(localPr).markLocalAddressed("pr1", commentAt);
+        verify(prService).markLocalAddressed("pr1", commentAt);
         ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
         verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), any(), initiator.capture());
         assertThat(initiator.getValue().attended()).isFalse();
@@ -281,9 +281,9 @@ class TestTaskLifecycleDriver
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
         // The marker already covers this comment — surfaced (and presumably
         // enqueued) on a prior sweep.
-        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, commentAt);
-        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
-        when(localPr.comments("pr1")).thenReturn(
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
 
         driver.reconcileLocalTask(task);
@@ -298,10 +298,10 @@ class TestTaskLifecycleDriver
     {
         Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
-        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, commentAt);
-        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         // Resolved — nothing left to address.
-        when(localPr.comments("pr1")).thenReturn(
+        when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, commentAt, null)));
 
         driver.reconcileLocalTask(task);
@@ -315,9 +315,9 @@ class TestTaskLifecycleDriver
     {
         Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
-        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, commentAt);
-        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
-        when(localPr.comments("pr1")).thenReturn(
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -336,10 +336,10 @@ class TestTaskLifecycleDriver
     {
         Task task = task(null, TaskPhase.AWAITING_PUSH);
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
-        LocalPR pr = localPr("pr1", LocalPR.STATUS_LOCAL_OPEN, null);
-        when(localPr.findByTask("t1.k2")).thenReturn(Optional.of(pr));
-        when(localPr.comments("pr1")).thenReturn(List.of(
-                localComment("cm1", LocalPRTimelineEvent.ACTOR_AGENT, "reply", commentAt, null, null)));
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, null);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(List.of(
+                localComment("cm1", PRTimelineEntry.ACTOR_AGENT, "reply", commentAt, null, null)));
 
         driver.reconcileLocalTask(task);
 
@@ -348,27 +348,28 @@ class TestTaskLifecycleDriver
     }
 
     @Test
-    void localReconcileSkipsATaskWithNoLocalPr()
+    void localReconcileSkipsATaskWithNoPr()
     {
         Task task = task(null, TaskPhase.AWAITING_PUSH);
-        when(localPr.findByTask("t1.k2")).thenReturn(Optional.empty());
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.empty());
 
         driver.reconcileLocalTask(task);
 
         verify(phaseMachine, never()).observe(anyString(), any(), anyString());
     }
 
-    private static LocalPR localPr(String id, String status, Instant localAddressedThroughAt)
+    private static PR pr(String id, String status, Instant localAddressedThroughAt)
     {
         Instant now = Instant.parse("2026-06-01T00:00:00Z");
-        return new LocalPR(id, "t1.k2", "dev/x", "main", "T", "", status, now,
-                null, null, null, null, null, localAddressedThroughAt);
+        return new PR(id, "t1.k2", "dev/x", "main", "T", "", status, now,
+                null, null, null, null, null, localAddressedThroughAt,
+                PR.ORIGIN_TASK, null, null, null);
     }
 
-    private static LocalPRComment localComment(
+    private static PRComment localComment(
             String id, String author, String body, Instant createdAt, Instant resolvedAt, Instant dismissedAt)
     {
-        return new LocalPRComment(id, "pr1", LocalPRComment.ORIGIN_LOCAL, LocalPRComment.SCOPE_PR,
+        return new PRComment(id, "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
                 null, null, author, body, createdAt, resolvedAt, dismissedAt, null, null);
     }
 

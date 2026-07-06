@@ -14,7 +14,7 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.domain.LocalPR;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
@@ -31,7 +31,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.localpr.LocalPRService;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
@@ -78,7 +78,7 @@ import static java.util.Objects.requireNonNull;
  * {@code origin=external} round before its gate arms ({@link
  * #reviewBeforeRoundGate}). Both drive the same review-fix-review loop:
  * a review turn on the brain thread (status {@code triaging}) leaves
- * {@code local_pr_comment} rows and a verdict; if {@code
+ * {@code pr_comment} rows and a verdict; if {@code
  * changes_requested} and budget remains, a fix turn on the task's own
  * thread (status {@code addressing}) addresses them, then the loop
  * reviews again — until {@code approved} or the budget's spent (R23),
@@ -109,7 +109,7 @@ public class BrainReviewServiceImpl
     private final ThreadStore threadStore;
     private final ThreadTurnScheduler scheduler;
     private final ThreadTurnStore turnStore;
-    private final LocalPRService localPr;
+    private final PRService prService;
     private final NotificationService notifications;
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -123,11 +123,11 @@ public class BrainReviewServiceImpl
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             ThreadTurnStore turnStore,
-            LocalPRService localPr,
+            PRService prService,
             NotificationService notifications,
             ObjectMapper mapper)
     {
-        this(taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore, localPr,
+        this(taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore, prService,
                 notifications, mapper, Clock.systemUTC());
     }
 
@@ -139,7 +139,7 @@ public class BrainReviewServiceImpl
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             ThreadTurnStore turnStore,
-            LocalPRService localPr,
+            PRService prService,
             NotificationService notifications,
             ObjectMapper mapper,
             Clock clock)
@@ -151,7 +151,7 @@ public class BrainReviewServiceImpl
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
-        this.localPr = requireNonNull(localPr, "localPr is null");
+        this.prService = requireNonNull(prService, "prService is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -159,17 +159,17 @@ public class BrainReviewServiceImpl
 
     @Override
     @Transactional
-    public LocalPR reviewBeforeLocalOpen(String prId, String actor)
+    public PR reviewBeforeLocalOpen(String prId, String actor)
     {
-        LocalPR pr = localPr.findById(prId)
+        PR pr = prService.findById(prId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown local PR: " + prId));
-        if (!LocalPR.STATUS_LOCAL_DRAFTED.equals(pr.status())) {
+        if (!PR.STATUS_LOCAL_DRAFTED.equals(pr.status())) {
             // Already past this lock point (or not applicable) — nothing to gate.
             return pr;
         }
         Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
         if (task == null) {
-            return localPr.requestUserReview(prId, actor);
+            return prService.requestUserReview(prId, actor);
         }
         Optional<ReviewRound> existing = roundStore.findByTask(task.id()).stream()
                 .filter(r -> ReviewRound.ORIGIN_BRAIN.equals(r.origin()))
@@ -184,7 +184,7 @@ public class BrainReviewServiceImpl
         }
         // Already reviewed (approved or escalated) in an earlier call — perform
         // the deferred flip now.
-        return localPr.requestUserReview(prId, actor);
+        return prService.requestUserReview(prId, actor);
     }
 
     private void openBrainRound(Task task, String prId)
@@ -241,7 +241,7 @@ public class BrainReviewServiceImpl
         }
         ReviewRound updated = live.get().withBrainVerdict(verdict);
         roundStore.save(updated);
-        localPr.recordBrainReview(taskId, scope, verdict, updated.iteration());
+        prService.recordBrainReview(taskId, scope, verdict, updated.iteration());
     }
 
     private boolean matchesRunStage(ReviewRound round, String stageId)
@@ -459,7 +459,7 @@ public class BrainReviewServiceImpl
                     "{\"reason\":\"brain review budget exhausted\",\"roundId\":\"" + round.id() + "\"}");
         }
         if (ReviewRound.ORIGIN_BRAIN.equals(round.origin())) {
-            localPr.findByTask(task.id()).ifPresent(pr -> localPr.requestUserReview(pr.id(), "brain"));
+            prService.findByTask(task.id()).ifPresent(pr -> prService.requestUserReview(pr.id(), "brain"));
         }
         log.info("brain-review: round {} concluded ({}), approved={}", round.id(), round.origin(), approved);
     }

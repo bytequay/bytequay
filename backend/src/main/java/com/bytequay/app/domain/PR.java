@@ -103,6 +103,33 @@ public record PR(
                 ORIGIN_TASK, /* repo */ null, /* author */ null, /* syncedAt */ null);
     }
 
+    /** A PR discovered via the dashboard sync — already occupies whatever
+     *  remote/terminal status GitHub reports today (never local-only).
+     *  {@code mergedAt}/{@code closedAt} carry GitHub's real timestamps
+     *  (null unless the status says otherwise). */
+    public static PR createExternal(
+            String id,
+            String repo,
+            int remotePrNumber,
+            String remotePrUrl,
+            String author,
+            String branchName,
+            String baseBranch,
+            String title,
+            String description,
+            String status,
+            Instant createdAt,
+            Instant mergedAt,
+            Instant closedAt)
+    {
+        return new PR(
+                id, /* taskId */ null, branchName, baseBranch, title,
+                description == null ? "" : description, status, createdAt,
+                /* pushedAt */ null, remotePrNumber, remotePrUrl, mergedAt, closedAt,
+                /* localAddressedThroughAt */ null,
+                ORIGIN_EXTERNAL, repo, author, /* syncedAt */ null);
+    }
+
     /** True iff {@code target} is a legal next status from the current one. */
     public boolean canTransitionTo(String target)
     {
@@ -164,5 +191,16 @@ public record PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, through,
                 origin, repo, author, syncedAt);
+    }
+
+    /** Copy stamping a successful GitHub sync — {@code PRSyncService} calls
+     *  this once a {@code syncPR} pass completes, so the sync chip has a
+     *  real "synced Xs ago" to show. */
+    public PR withSynced(Instant when)
+    {
+        return new PR(
+                id, taskId, branchName, baseBranch, title, description, status, createdAt,
+                pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
+                origin, repo, author, when);
     }
 }

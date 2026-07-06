@@ -15,6 +15,8 @@ package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.RepoRef;
@@ -380,5 +382,95 @@ class TestPRSyncService
         when(prService.findById("missing")).thenReturn(Optional.empty());
 
         assertThat(service.syncPR("missing")).isEmpty();
+    }
+
+    private static PullRequest lightPr(String title, String author, String state, boolean draft, Instant mergedAt)
+    {
+        PullRequest pr = mock(PullRequest.class);
+        when(pr.title()).thenReturn(title);
+        when(pr.author()).thenReturn(author);
+        when(pr.htmlUrl()).thenReturn("https://github.com/acme/widget/pull/99");
+        when(pr.createdAt()).thenReturn(NOW);
+        when(pr.state()).thenReturn(state);
+        when(pr.draft()).thenReturn(draft);
+        when(pr.mergedAt()).thenReturn(mergedAt);
+        when(pr.closedAt()).thenReturn(null);
+        return pr;
+    }
+
+    private static PullRequestDetail detail(String headRef, String baseRef, String body, boolean merged, String state, boolean draft)
+    {
+        PullRequestDetail detail = mock(PullRequestDetail.class);
+        when(detail.headRef()).thenReturn(headRef);
+        when(detail.baseRef()).thenReturn(baseRef);
+        when(detail.body()).thenReturn(body);
+        when(detail.merged()).thenReturn(merged);
+        when(detail.state()).thenReturn(state);
+        when(detail.draft()).thenReturn(draft);
+        when(detail.recentActivity()).thenReturn(List.of());
+        return detail;
+    }
+
+    @Test
+    void syncExternalPrCreatesTheRowOnFirstSightThenDelegatesToSyncPr()
+    {
+        PullRequest light = lightPr("Fix flaky test", "octocat", "open", false, null);
+        PullRequestDetail fetchedDetail = detail("feature/y", "main", "body text", false, "open", false);
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "body text", false, "open", false);
+        when(prService.findByRepoAndNumber("acme/widget", 99)).thenReturn(Optional.empty());
+        when(pullRequests.lookupPullRequest("acme/widget", 99)).thenReturn(light);
+        when(pullRequests.getPullRequestDetail("acme/widget", 99)).thenReturn(fetchedDetail);
+        PR created = new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "body text", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+        when(prService.createExternal(
+                eq("acme/widget"), eq(99), any(), eq("@octocat"), eq("feature/y"), eq("main"),
+                eq("Fix flaky test"), eq("body text"), eq(PR.STATUS_REMOTE_OPEN), eq(NOW), any(), any()))
+                .thenReturn(created);
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(created));
+        when(pullRequests.refreshPullRequestDetail(eq("acme/widget"), eq(99), anyInt())).thenReturn(refreshedDetail);
+
+        Optional<PR> result = service.syncExternalPR("acme/widget", 99);
+
+        assertThat(result).isPresent();
+        verify(prService).createExternal(
+                eq("acme/widget"), eq(99), any(), eq("@octocat"), eq("feature/y"), eq("main"),
+                eq("Fix flaky test"), eq("body text"), eq(PR.STATUS_REMOTE_OPEN), eq(NOW), any(), any());
+    }
+
+    @Test
+    void syncExternalPrIsIdempotentOnceTheRowExists()
+    {
+        PR existing = new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
+        when(prService.findByRepoAndNumber("acme/widget", 99)).thenReturn(Optional.of(existing));
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(existing));
+        when(pullRequests.refreshPullRequestDetail(eq("acme/widget"), eq(99), anyInt())).thenReturn(refreshedDetail);
+
+        service.syncExternalPR("acme/widget", 99);
+
+        verify(pullRequests, never()).lookupPullRequest(any(), anyInt());
+        verify(prService, never()).createExternal(
+                any(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void syncFlipsAnExternalPrToMergedOnceGitHubReportsIt()
+    {
+        PR pr = new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "", true, "closed", false);
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
+
+        service.syncPR("pr-ext");
+
+        verify(prService).transition("pr-ext", PR.STATUS_MERGED, PRTimelineEntry.ACTOR_AGENT);
     }
 }

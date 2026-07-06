@@ -16,6 +16,7 @@ package com.bytequay.app.service.localpr;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.PullRequestRef;
@@ -129,6 +130,7 @@ public class PRSyncService
             if (pr.repo() != null && pr.remotePrNumber() != null) {
                 syncRemoteTimeline(pr, pr.repo(), maxAgeSeconds);
             }
+            prService.markSynced(prId, Instant.now());
             return prService.findById(prId);
         }
 
@@ -145,7 +147,40 @@ public class PRSyncService
             resolveGitRemoteSlug(task).ifPresent(
                     repo -> syncRemoteTimeline(healed, repo.owner() + "/" + repo.repo(), maxAgeSeconds));
         }
+        prService.markSynced(healed.id(), Instant.now());
         return prService.findById(healed.id());
+    }
+
+    /**
+     * Resolver for an external PR (the dashboard/details-page entry point):
+     * finds the already-synced-in row for this (repo, number), or fetches
+     * just enough from GitHub to create one, then hands off to {@link
+     * #syncPR} for the rest (timeline, status). Empty only when GitHub has
+     * no such PR (a bad link, or the caller lacks access).
+     */
+    public Optional<PR> syncExternalPR(String repo, int number)
+    {
+        Optional<PR> existing = prService.findByRepoAndNumber(repo, number);
+        if (existing.isPresent()) {
+            return syncPR(existing.get().id(), DEFAULT_MAX_AGE_SECONDS);
+        }
+        PullRequest light;
+        PullRequestDetail detail;
+        try {
+            light = pullRequests.lookupPullRequest(repo, number);
+            detail = pullRequests.getPullRequestDetail(repo, number);
+        }
+        catch (RuntimeException e) {
+            log.info("looking up external PR {}#{} failed: {}", repo, number, e.getMessage());
+            return Optional.empty();
+        }
+        String status = deriveExternalStatus(light.mergedAt() != null, light.state(), light.draft());
+        PR created = prService.createExternal(
+                repo, number, light.htmlUrl(), actorLabel(light.author()),
+                detail.headRef() != null ? detail.headRef() : "unknown",
+                detail.baseRef() != null ? detail.baseRef() : DEFAULT_BASE,
+                light.title(), detail.body(), status, light.createdAt(), light.mergedAt(), light.closedAt());
+        return syncPR(created.id(), DEFAULT_MAX_AGE_SECONDS);
     }
 
     private Optional<RepoRef> resolveGitRemoteSlug(Task task)
@@ -202,6 +237,9 @@ public class PRSyncService
             log.info("fetching remote PR detail for PR {} failed: {}", pr.id(), e.getMessage());
             return;
         }
+        if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
+            reconcileExternalStatus(pr, detail);
+        }
         if (detail.recentActivity() == null) {
             return;
         }
@@ -253,6 +291,28 @@ public class PRSyncService
     private static String actorLabel(String githubLogin)
     {
         return githubLogin == null || githubLogin.isBlank() ? "unknown" : "@" + githubLogin;
+    }
+
+    /** External PRs have no push/merge gate inside ByteQuay — GitHub itself
+     *  drives their status, so a repeat sync must catch up whenever it
+     *  drifts (opened as draft then marked ready, merged, or closed). */
+    private void reconcileExternalStatus(PR pr, PullRequestDetail detail)
+    {
+        String derived = deriveExternalStatus(detail.merged(), detail.state(), detail.draft());
+        if (!derived.equals(pr.status()) && pr.canTransitionTo(derived)) {
+            prService.transition(pr.id(), derived, PRTimelineEntry.ACTOR_AGENT);
+        }
+    }
+
+    private static String deriveExternalStatus(boolean merged, String state, boolean draft)
+    {
+        if (merged) {
+            return PR.STATUS_MERGED;
+        }
+        if ("closed".equalsIgnoreCase(state)) {
+            return PR.STATUS_CLOSED;
+        }
+        return draft ? PR.STATUS_REMOTE_DRAFTED : PR.STATUS_REMOTE_OPEN;
     }
 
     private void syncCommits(PR pr, Task task, String base)

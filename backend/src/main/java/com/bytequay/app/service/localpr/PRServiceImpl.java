@@ -90,6 +90,12 @@ class PRServiceImpl
     }
 
     @Override
+    public Optional<PR> findByRepoAndNumber(String repo, int remotePrNumber)
+    {
+        return store.findByRepoAndRemotePrNumber(repo, remotePrNumber);
+    }
+
+    @Override
     public List<PRCommit> commits(String prId)
     {
         return store.commitsFor(prId);
@@ -131,6 +137,37 @@ class PRServiceImpl
         PR saved = store.save(pr);
         backfillPlanSelfReview(taskId, saved.id());
         notifyUpdated(saved.id());
+        return saved;
+    }
+
+    @Override
+    public PR createExternal(
+            String repo, int remotePrNumber, String remotePrUrl, String author,
+            String branchName, String baseBranch, String title, String description,
+            String status, Instant createdAt, Instant mergedAt, Instant closedAt)
+    {
+        requireText(repo, "repo");
+        requireText(title, "title");
+        // Idempotent — a repeat resolver call (dashboard refresh, revisit) must
+        // never duplicate the row.
+        Optional<PR> existing = store.findByRepoAndRemotePrNumber(repo, remotePrNumber);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        PR pr = PR.createExternal(
+                UUID.randomUUID().toString(), repo, remotePrNumber, remotePrUrl, author,
+                branchName, baseBranch, title, description, status, createdAt, mergedAt, closedAt);
+        PR saved = store.save(pr);
+        notifyUpdated(saved.id());
+        return saved;
+    }
+
+    @Override
+    public PR markSynced(String prId, Instant when)
+    {
+        PR pr = require(prId);
+        PR saved = store.save(pr.withSynced(when));
+        notifyUpdated(prId);
         return saved;
     }
 

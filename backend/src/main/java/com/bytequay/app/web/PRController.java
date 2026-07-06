@@ -121,6 +121,17 @@ public class PRController
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }
 
+    /** Resolver for an external PR — the dashboard/details-page entry point
+     *  for a GitHub PR that isn't tied to a ByteQuay task. Creates the row
+     *  (origin=external) on first sight, syncing on every call after. */
+    @GetMapping("/api/repos/{owner}/{repo}/prs/{number}")
+    public PRDto getExternalPr(@PathVariable String owner, @PathVariable String repo, @PathVariable int number)
+    {
+        String slug = owner + "/" + repo;
+        return PRDto.from(sync.syncExternalPR(slug, number)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + slug + "#" + number)));
+    }
+
     /** The whole PR in one payload — {@code usePR} fetches this rather than
      *  five separate reads. Materialises/refreshes on read (task-origin picks
      *  up branch commits; either origin picks up the remote timeline once

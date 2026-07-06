@@ -39,6 +39,9 @@ public interface PRService
 
     Optional<PR> findById(String prId);
 
+    /** The external PR already synced in for this (repo, remote PR number). */
+    Optional<PR> findByRepoAndNumber(String repo, int remotePrNumber);
+
     List<PRCommit> commits(String prId);
 
     List<PRTimelineEntry> timeline(String prId);
@@ -51,6 +54,17 @@ public interface PRService
     /** Create the task's local PR at {@code local-drafted}, or return the
      *  existing one — idempotent, so Dev can call it on every early commit. */
     PR createForTask(String taskId, String branchName, String baseBranch, String title, String description);
+
+    /** Create an external PR discovered via the dashboard sync, or return the
+     *  existing one for this (repo, remote PR number) — idempotent, so a
+     *  repeat resolver call never duplicates the row. */
+    PR createExternal(
+            String repo, int remotePrNumber, String remotePrUrl, String author,
+            String branchName, String baseBranch, String title, String description,
+            String status, Instant createdAt, Instant mergedAt, Instant closedAt);
+
+    /** Stamp a successful GitHub sync (the sync chip's "synced Xs ago"). */
+    PR markSynced(String prId, Instant when);
 
     /** Edit title / description (a null argument leaves that field unchanged). */
     PR updateDetails(String prId, String title, String description);

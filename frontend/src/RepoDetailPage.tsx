@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { IssueDto, PullRequestDto, UserProfileDto } from './types';
 import IssueDetailScreen from './IssueDetailScreen';
-import PullRequestPreview from './PullRequestPreview';
+import { PrDetailsView } from './pr/localpr/PrDetailsView';
 import ReviewScreen from './ReviewScreen';
 import DiffViewerScreen from './DiffViewerScreen';
 import ResizeHandle from './ResizeHandle';
@@ -50,14 +50,12 @@ import {
   formatRelative,
   groupHandledByTime,
   markHandledPatch,
-  mergedPatch,
   patchPr,
   syncCachesAfterPrChange,
   reopenPatch,
   sortHandled,
   sortSnoozed,
   splitByBucket,
-  unmergedPatch,
 } from './prBuckets';
 import { HandledTimeline, InboxCard, SnoozedList } from './PrBucketViews';
 
@@ -88,17 +86,17 @@ type Props = {
    *  which opens one commit's diff. */
   initialOpenDiff?: boolean;
   /** Reverse nav from a PR back to its head branch's local-repo
-   *  Commits tab. PullRequestPreview surfaces a button next to the
-   *  head ref that calls this. App-level so the nav target lines up
-   *  with the existing local-repo route. */
+   *  Commits tab. App-level so the nav target lines up with the
+   *  existing local-repo route. Not yet wired into the unified
+   *  `<PrDetailsView>` — see unified-pr-view.md follow-ups. */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
-  /** Cross-domain jump: PR detail → thread detail. The header shows a
-   *  chip for every thread whose `linkedPrNumber` matches the PR; the
-   *  click dispatches up to the app shell to flip nav. */
+  /** Cross-domain jump: PR detail → thread detail, for threads whose
+   *  `linkedPrNumber` matches the PR. Not yet wired into the unified
+   *  `<PrDetailsView>` — see unified-pr-view.md follow-ups. */
   onOpenThread?: (threadId: string) => void;
-  /** Forwarded to PullRequestPreview's "AI panel review" button; the
-   *  app shell routes the returned threadId into the review-thread
-   *  page. */
+  /** Forwarded to the standalone PR details page's "Review with agent"
+   *  affordance; the app shell routes the returned threadId into the
+   *  review-thread page. */
   onStartReview?: (threadId: string) => void;
   /** Active workspace — a review panel started from a PR/diff lands in
    *  it. Null falls back to ws-default on the backend. */
@@ -488,38 +486,6 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
     }
   };
 
-  const handleMerge = async (prId: number, prRepo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => {
-    const previous = pulls.find(p => p.id === prId);
-    const previousState = previous?.state ?? null;
-    const previousMergedAt = previous?.mergedAt ?? null;
-    const patch = mergedPatch();
-    setPulls(prev => patchPr(prev, prId, patch));
-    // selectedPr is the snapshot the preview pane reads as `pr`; it lives
-    // in its own useState and doesn't auto-track `pulls`. If we don't
-    // patch it too, the OPEN pill and the merge bar (gated on
-    // !pr.mergedAt) won't update after a successful merge.
-    setSelectedPr(prev => (prev && prev.id === prId ? { ...prev, ...patch } : prev));
-    syncCachesAfterPrChange(prId, patch, prRepo);
-    try {
-      const result = await window.bridge.mergePr(prId, prRepo, number, strategy);
-      if (result?.queued) {
-        // Queue accepted the PR but the merge hasn't happened yet —
-        // undo the optimistic "merged" patch so the row reflects
-        // reality. MergeBar reads queued state from the same result.
-        const rollback = unmergedPatch(previousState, previousMergedAt);
-        setPulls(prev => patchPr(prev, prId, rollback));
-        setSelectedPr(prev => (prev && prev.id === prId ? { ...prev, ...rollback } : prev));
-        syncCachesAfterPrChange(prId, rollback, prRepo);
-      }
-      return result;
-    } catch (e) {
-      const rollback = unmergedPatch(previousState, previousMergedAt);
-      setPulls(prev => patchPr(prev, prId, rollback));
-      setSelectedPr(prev => (prev && prev.id === prId ? { ...prev, ...rollback } : prev));
-      syncCachesAfterPrChange(prId, rollback, prRepo);
-      throw e;
-    }
-  };
 
   const handleReopen = async (prId: number) => {
     const previous = pulls.find(p => p.id === prId);
@@ -785,19 +751,11 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
             embedded
           />
         ) : selectedPr ? (
-          <PullRequestPreview
+          <PrDetailsView
             pr={selectedPr}
-            onOpenReview={() => setReviewingPr(selectedPr)}
-            onInspectDiffs={(sha) => {
-              // Only strings; reject e.g. a forwarded MouseEvent.
-              setDiffViewerCommitSha(typeof sha === 'string' ? sha : null);
-              setDiffViewerPr(selectedPr);
-            }}
-            onMarkHandled={handleMarkHandled}
-            onMerge={handleMerge}
-            onOpenLocalBranch={onOpenLocalBranch}
-            onOpenThread={onOpenThread}
             onStartReview={onStartReview}
+            onOpenReview={() => setReviewingPr(selectedPr)}
+            onMarkHandled={handleMarkHandled}
           />
         ) : (deepLinkPending || initialOpenDiff) && initialPrNumber != null ? (
           // While a PR deep-link (incl. the review panel's "View findings on

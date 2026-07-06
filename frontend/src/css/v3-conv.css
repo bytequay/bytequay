@@ -1450,6 +1450,9 @@
    red/blue) are GitHub's, reusing this file's existing tokens. */
 @keyframes pulse { 50% { opacity: 0.45; } }
 
+.pr-details-view { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.pr-details-view__actions { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.pr-details-view__error { padding: 8px 16px; color: var(--red, #c0392b); font-size: 12.5px; flex-shrink: 0; }
 .pr-view { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow: hidden; }
 .pr-view .pr-header { padding: 12px 16px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; background: var(--bg); flex-shrink: 0; }
 .pr-view .pr-header .pr-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

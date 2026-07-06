@@ -952,6 +952,16 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('pr:forRepoPull', async (_event, owner: string, repo: string, number: number) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/prs/${number}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend PR-for-repo-pull returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('pr:bundle', async (_event, prId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/bundle`);
     if (res.status === 404) {

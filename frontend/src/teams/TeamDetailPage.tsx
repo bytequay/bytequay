@@ -14,9 +14,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ColumnPageDto, MyPrColumnSlug, PullRequestDto, TeamColumnsResponse, TeamDto } from '../types';
 import KanbanBoard from '../kanban/KanbanBoard';
-import PullRequestPreview from '../PullRequestPreview';
+import { PrDetailsView } from '../pr/localpr/PrDetailsView';
 import ReviewScreen from '../ReviewScreen';
-import DiffViewerScreen from '../DiffViewerScreen';
 import ResizeHandle from '../ResizeHandle';
 import TeamEditorModal from './TeamEditorModal';
 import TeamPrSidebar from './TeamPrSidebar';
@@ -82,7 +81,6 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, work
   const [editing, setEditing] = useState(false);
   const [selectedPr, setSelectedPr] = useState<PullRequestDto | null>(null);
   const [reviewingPr, setReviewingPr] = useState<PullRequestDto | null>(null);
-  const [diffViewerPr, setDiffViewerPr] = useState<PullRequestDto | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(loadSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
     () => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1',
@@ -275,7 +273,7 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, work
       setCached(COLUMNS_KEY(teamId), next);
       return next;
     });
-    // Keep the open detail in sync so PullRequestPreview reflects the
+    // Keep the open detail in sync so the details pane reflects the
     // handled state (and the sidebar highlight stays on the same row).
     if (selectedPr?.id === prId) setSelectedPr(handledPr);
     try {
@@ -293,58 +291,6 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, work
         return next;
       });
       restorePrToColumns(removed);
-    }
-  };
-
-  /** Optimistic Approve: stamp handledAction=APPROVED + reviewedAt locally
-   *  on the selected PR (so the diff viewer's title pill reflects it),
-   *  call the GitHub-side approvePr, then force-refresh so the kanban
-   *  re-categorizes. Errors roll the local state back. */
-  const handleApprove = async (prId: number, repo: string, number: number) => {
-    const prev = selectedPr;
-    if (selectedPr?.id === prId) {
-      setSelectedPr({
-        ...selectedPr,
-        handledAction: 'APPROVED',
-        reviewedAt: new Date().toISOString(),
-      });
-    }
-    try {
-      await window.bridge.approvePr(prId, repo, number);
-      await load(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      if (prev && prev.id === prId) setSelectedPr(prev);
-      throw e;
-    }
-  };
-
-  /** Optimistic Merge: same shape as handleApprove but the PR also
-   *  moves to the Handled column on the next refresh. When the backend
-   *  reports queued=true (merge queue accepted but didn't merge yet),
-   *  we roll the optimistic patch back so the row still reads as open. */
-  const handleMerge = async (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => {
-    const prev = selectedPr;
-    if (selectedPr?.id === prId) {
-      setSelectedPr({
-        ...selectedPr,
-        handledAction: 'MERGED',
-        reviewedAt: new Date().toISOString(),
-        mergedAt: new Date().toISOString(),
-        state: 'closed',
-      });
-    }
-    try {
-      const result = await window.bridge.mergePr(prId, repo, number, strategy);
-      if (result?.queued && prev && prev.id === prId) {
-        setSelectedPr(prev);
-      }
-      await load(true);
-      return result;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      if (prev && prev.id === prId) setSelectedPr(prev);
-      throw e;
     }
   };
 
@@ -371,46 +317,25 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, work
   // PR detail / review / diff-viewer overlay. Mirrors PullRequestList's
   // selected-mode layout: a left sidebar (team PR list grouped by column)
   // + a right pane that hosts the preview, review, or diff viewer.
-  if (selectedPr || reviewingPr || diffViewerPr) {
+  if (selectedPr || reviewingPr) {
     const enterReview = () => {
       setReviewingPr(selectedPr);
-      collapseSidebarPersist();
-    };
-    const enterDiff = () => {
-      setDiffViewerPr(selectedPr);
       collapseSidebarPersist();
     };
     const exitReview = () => {
       setReviewingPr(null);
       expandSidebarPersist();
     };
-    const exitDiff = () => {
-      setDiffViewerPr(null);
-      expandSidebarPersist();
-    };
 
     const screen = reviewingPr ? (
       <ReviewScreen pr={reviewingPr} onBack={exitReview} />
-    ) : diffViewerPr ? (
-      <DiffViewerScreen
-        pr={diffViewerPr}
-        onBack={exitDiff}
-        onApprove={handleApprove}
-        workspaceId={workspaceId}
-        onStartReview={onStartReview}
-      />
     ) : selectedPr ? (
-      // Wrap in a positioned container — PullRequestPreview's Classic mode
-      // root uses position:absolute/inset:0, so it needs a positioned
-      // ancestor to anchor against.
       <div className="team-detail-pr-wrap">
-        <PullRequestPreview
+        <PrDetailsView
           pr={selectedPr}
+          onStartReview={onStartReview}
           onOpenReview={enterReview}
-          onInspectDiffs={enterDiff}
           onMarkHandled={handleMarkHandled}
-          onMerge={handleMerge}
-          onOpenLocalBranch={onOpenLocalBranch}
         />
       </div>
     ) : null;
@@ -524,7 +449,7 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, work
               <TeamPrSidebar
                 data={columnsData}
                 repoFilter={repoFilter}
-                selectedId={selectedPr?.id ?? reviewingPr?.id ?? diffViewerPr?.id ?? null}
+                selectedId={selectedPr?.id ?? reviewingPr?.id ?? null}
                 onSelect={handleSelect}
                 onHandle={handleMarkHandled}
                 onReopen={handleReopen}
@@ -537,7 +462,7 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, work
           <ResizeHandle onResize={handleSidebarResize} ariaLabel="Resize team PR list" />
         )}
         <main className="v2-main v2-main--screen">
-          {!reviewingPr && !diffViewerPr && (
+          {!reviewingPr && (
             <div className="v2-main__nav">
               <button
                 type="button"

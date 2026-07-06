@@ -961,9 +961,12 @@ const bridge: Bridge = {
   updateFollowup: (planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed') =>
     ipcRenderer.invoke('plans:updateFollowup', planStageId, followupEventId, status),
   getPrForTask: (taskId: string) => ipcRenderer.invoke('pr:forTask', taskId),
+  getPrForRepoPull: (owner: string, repo: string, number: number) =>
+    ipcRenderer.invoke('pr:forRepoPull', owner, repo, number),
   getLocalPrBundle: (prId: string) => ipcRenderer.invoke('pr:bundle', prId),
   pushLocalPr: (prId: string) => ipcRenderer.invoke('pr:push', prId),
   mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('pr:merge', prId, method),
+  publishLocalPrReview: (prId: string) => ipcRenderer.invoke('pr:publishReview', prId),
   addLocalPrComment: (
     prId: string,
     body: { scope: 'pr' | 'file-line'; filePath?: string | null; lineNumber?: number | null; body: string; parentCommentId?: string | null },

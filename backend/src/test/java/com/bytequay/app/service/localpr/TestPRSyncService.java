@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PRTriageState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
@@ -31,6 +34,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -512,5 +516,41 @@ class TestPRSyncService
                 any(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(prService).updateSyncSnapshot(eq("pr-101"), argThat(
                 snap -> snap.watchReason() == PullRequest.Origin.AUTHORED && !snap.draft()));
+    }
+
+    @Test
+    void syncListUnwatchesAPrThatFellOutOfTheSearchAndWasNeverReviewed()
+    {
+        when(pullRequests.searchRelevantForDashboard()).thenReturn(List.of());
+        when(pullRequests.resolveCurrentDashboardLogin()).thenReturn("octocat");
+        PR fellOut = new PR(
+                "pr-old", null, "feature/y", "main", "Old PR", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 55, "https://github.com/acme/widget/pull/55", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+        when(prService.dashboardEntries()).thenReturn(
+                List.of(new PRDashboardEntry(fellOut, PRTriageState.empty("pr-old"))));
+
+        service.syncList();
+
+        verify(prService).setWatchReason("pr-old", null);
+    }
+
+    @Test
+    void syncListKeepsWatchingARecentlyReviewedPrThatFellOutOfTheSearch()
+    {
+        when(pullRequests.searchRelevantForDashboard()).thenReturn(List.of());
+        when(pullRequests.resolveCurrentDashboardLogin()).thenReturn("octocat");
+        PR fellOut = new PR(
+                "pr-old", null, "feature/y", "main", "Old PR", "", PR.STATUS_MERGED, NOW,
+                null, 55, "https://github.com/acme/widget/pull/55", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+        PRTriageState reviewedYesterday = new PRTriageState(
+                "pr-old", null, NOW.minus(1, ChronoUnit.DAYS), HandledAction.APPROVED, null, null, null);
+        when(prService.dashboardEntries()).thenReturn(
+                List.of(new PRDashboardEntry(fellOut, reviewedYesterday)));
+
+        service.syncList();
+
+        verify(prService, never()).setWatchReason(eq("pr-old"), any());
     }
 }

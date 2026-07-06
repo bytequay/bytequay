@@ -13,10 +13,10 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { PullRequestDto, UserProfileDto } from './types';
+import type { UserProfileDto } from './types';
+import type { DashboardPR } from './types/dashboardPr';
 import { PrDetailsView } from './pr/localpr/PrDetailsView';
 import ReviewScreen from './ReviewScreen';
-import DiffViewerScreen from './DiffViewerScreen';
 import ResizeHandle from './ResizeHandle';
 import { getCached, setCached } from './dataCache';
 import {
@@ -32,12 +32,12 @@ import {
   bucketize,
   groupHandledByTime,
   markHandledPatch,
+  patchDashboardCache,
   patchPr,
   reopenPatch,
   sortHandled,
   sortSnoozed,
   splitByBucket,
-  syncCachesAfterPrChange,
 } from './prBuckets';
 import { CategorizedList, HandledTimeline, SnoozedList } from './PrBucketViews';
 import KanbanBoard, { LANE_KEY, loadLane, pickFocusCards, type Lane } from './kanban/KanbanBoard';
@@ -69,13 +69,12 @@ type Props = {
 };
 
 function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onStartReview, workspaceId }: Props) {
-  const cachedPrs = getCached<PullRequestDto[]>(PRS_CACHE_KEY);
-  const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
+  const cachedPrs = getCached<DashboardPR[]>(PRS_CACHE_KEY);
+  const [prs, setPrs] = useState<DashboardPR[] | null>(cachedPrs ?? null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(cachedPrs === undefined);
-  const [selected, setSelected] = useState<PullRequestDto | null>(null);
-  const [reviewingPr, setReviewingPr] = useState<PullRequestDto | null>(null);
-  const [diffViewerPr, setDiffViewerPr] = useState<PullRequestDto | null>(null);
+  const [selected, setSelected] = useState<DashboardPR | null>(null);
+  const [reviewingPr, setReviewingPr] = useState<DashboardPR | null>(null);
   // The "← Back to kanban" affordance portals into the global topbar
   // (App.tsx renders the slot). We resolve the target node after mount
   // so the first render doesn't see a null DOM.
@@ -83,10 +82,6 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
   useEffect(() => {
     setTopbarExtraNode(document.getElementById('global-topbar-extra'));
   }, []);
-  // Lets the timeline's clickable SHA chips open the diff viewer pointed
-  // at a specific commit. Stays in sync with diffViewerPr — cleared
-  // whenever the viewer closes or the user navigates away.
-  const [diffViewerCommitSha, setDiffViewerCommitSha] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'inbox' | 'urgent' | 'snoozed' | 'handled' | 'analytics'>('inbox');
   // Full closed-PR history page (merged + closed-without-merge). Opened
@@ -102,7 +97,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     setLaneState(next);
     try { localStorage.setItem(LANE_KEY, next); } catch { /* ignore */ }
   };
-  const [lastReviewingPrId, setLastReviewingPrId] = useState<number | null>(loadLastReviewingId);
+  const [lastReviewingPrId, setLastReviewingPrId] = useState<string | null>(loadLastReviewingId);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(loadSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
@@ -140,11 +135,9 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
 
   const clearActiveScreen = () => {
     setReviewingPr(null);
-    setDiffViewerPr(null);
-    setDiffViewerCommitSha(null);
   };
 
-  const updatePrState = (prId: number, repo: string | undefined, patch: Partial<PullRequestDto>) => {
+  const updatePrState = (prId: string, patch: Partial<DashboardPR>) => {
     setPrs((prev) => (prev ? patchPr(prev, prId, patch) : prev));
     // `selected` holds its own snapshot of the PR (taken when the user
     // clicked the row), so it does NOT auto-update when `prs` changes.
@@ -152,15 +145,15 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     // pre-patch values (state='open', mergedAt=null) and the merge bar
     // stays active even after a successful merge.
     setSelected(prev => (prev && prev.id === prId ? { ...prev, ...patch } : prev));
-    syncCachesAfterPrChange(prId, patch, repo);
+    patchDashboardCache(prId, patch);
   };
 
-  const markViewedOptimistically = (pr: PullRequestDto) => {
+  const markViewedOptimistically = (pr: DashboardPR) => {
     if (pr.viewedAt !== null) {
       return;
     }
 
-    updatePrState(pr.id, pr.repo, { viewedAt: new Date().toISOString() });
+    updatePrState(pr.id, { viewedAt: new Date().toISOString() });
   };
 
   const handleSidebarResize = (clientX: number) => {
@@ -181,14 +174,12 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     if (prs === null) setLoading(true);
     setError(null);
     try {
-      // Manual refresh = "I want fresh data". Kick the backend's
-      // GitHub sync first, then read the local DB. Without this
-      // the button only re-reads the same cached row that was
-      // already in memory.
-      if (isManualRefresh) {
-        await window.bridge.triggerSync().catch(() => { /* best-effort */ });
-      }
-      const data = await window.bridge.fetchPrs();
+      // Manual refresh = "I want fresh data" — sync-list sweeps GitHub
+      // first, then returns the freshly-synced rows in the same call.
+      // A passive reload just re-reads the last synced rows.
+      const data = isManualRefresh
+        ? await window.bridge.syncDashboardPrs()
+        : await window.bridge.fetchDashboardPrs();
       setPrs(data);
       setCached(PRS_CACHE_KEY, data);
     } catch (e) {
@@ -203,7 +194,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
       if (prs === null) setLoading(true);
       setError(null);
       try {
-        const data = await window.bridge.fetchPrs();
+        const data = await window.bridge.fetchDashboardPrs();
         setPrs(data);
         setCached(PRS_CACHE_KEY, data);
         if (data.length > 0) return;
@@ -211,7 +202,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
         pollRef.current = setInterval(async () => {
           attempts++;
           try {
-            const fresh = await window.bridge.fetchPrs();
+            const fresh = await window.bridge.fetchDashboardPrs();
             if (fresh.length > 0) {
               stopPolling();
               setPrs(fresh);
@@ -264,33 +255,11 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
   const handledSorted = useMemo(() => sortHandled(handled), [handled]);
   const handledGroups = useMemo(() => groupHandledByTime(handledSorted), [handledSorted]);
   const snoozedSorted = useMemo(() => sortSnoozed(snoozed), [snoozed]);
-  // Urgent slice — IDs come from the backend's UrgentPrFilter so
-  // "urgent" has one definition only (the same predicate the
-  // list_prs agent tool uses). We refetch on every prs change so
-  // the badge count stays in sync with adds/removes; the local
-  // pickFocusCards picker stays as a fallback while the first
-  // backend fetch is in flight.
-  const [urgentIds, setUrgentIds] = useState<Set<number> | null>(null);
-  useEffect(() => {
-    if (!prs) return;
-    let cancelled = false;
-    window.bridge.fetchPrsByFilter('urgent').then(matched => {
-      if (cancelled) return;
-      setUrgentIds(new Set(matched.map(pr => pr.id)));
-    }).catch(() => {
-      // Network blip — leave urgentIds as-is; the local fallback
-      // below keeps the UI usable.
-    });
-    return () => { cancelled = true; };
-  }, [prs]);
-  const urgentCards = useMemo(() => {
-    if (urgentIds === null) {
-      // Cold-start fallback: the local picker mirrors the backend
-      // tiers closely enough that the first paint isn't empty.
-      return pickFocusCards(filtered);
-    }
-    return filtered.filter(pr => urgentIds.has(pr.id));
-  }, [filtered, urgentIds]);
+  // Urgent slice — picked locally (pickFocusCards' tiered rules: just-
+  // woke, ready-to-merge, needs-changes, CI-failing, merge-conflict,
+  // stale). The unified dashboard has no server-side equivalent of the
+  // legacy UrgentPrFilter yet, so this is the one definition for now.
+  const urgentCards = useMemo(() => pickFocusCards(filtered), [filtered]);
   const tabPrs = activeTab === 'inbox' ? inbox
     : activeTab === 'snoozed' ? snoozedSorted
     : activeTab === 'handled' ? handledSorted
@@ -318,13 +287,13 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
       clearActiveScreen();
       // Same optimistic patch as handleSelect — see comment there for why.
       markViewedOptimistically(next);
-      void window.bridge.markPrViewed(next.id);
+      void window.bridge.markDashboardPrViewed(next.id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [tabPrs, selected]);
 
-  const handleSelect = (pr: PullRequestDto) => {
+  const handleSelect = (pr: DashboardPR) => {
     setSelected(pr);
     clearActiveScreen();
     setLastReviewingPrId(pr.id);
@@ -335,7 +304,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     // old null viewedAt and the card stays where it was. The cache sync
     // means this also propagates to repo / kanban caches on other pages.
     markViewedOptimistically(pr);
-    void window.bridge.markPrViewed(pr.id);
+    void window.bridge.markDashboardPrViewed(pr.id);
     // Opening a just-woke PR is the implicit acknowledgement — clear the
     // wake mark so the focus band doesn't keep flagging it.
     if (pr.snoozeWakeReason) handleClearSnoozeWakeReason(pr.id);
@@ -355,51 +324,35 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     clearActiveScreen();
     // Move to whichever tab the PR now lives in so the sidebar list matches.
     setActiveTab(bucketize(continueReviewPr));
-    void window.bridge.markPrViewed(continueReviewPr.id);
+    void window.bridge.markDashboardPrViewed(continueReviewPr.id);
   };
 
   const handleBackFromReview = () => {
     setReviewingPr(null);
     setSidebarCollapsedPersist(false);
-    void window.bridge.triggerSync().catch(() => { /* best-effort */ });
-    void reload(false);
+    void reload(true);
   };
 
-  const handleMarkHandled = async (prId: number) => {
-    const target = (prs ?? []).find(p => p.id === prId);
+  const handleMarkHandled = async (prId: string) => {
     const patch = markHandledPatch('MANUAL');
-    updatePrState(prId, target?.repo, patch);
+    updatePrState(prId, patch);
     try {
-      await window.bridge.markPrHandled(prId, 'MANUAL');
+      await window.bridge.markDashboardPrHandled(prId, 'MANUAL');
     } catch (e) {
-      console.warn('markPrHandled failed; rolling back', e);
-      const rollback = reopenPatch();
-      updatePrState(prId, target?.repo, rollback);
+      console.warn('markDashboardPrHandled failed; rolling back', e);
+      updatePrState(prId, reopenPatch());
     }
   };
 
-  const handleApprove = async (prId: number, repo: string, number: number) => {
-    const patch = markHandledPatch('APPROVED');
-    updatePrState(prId, repo, patch);
-    try {
-      await window.bridge.approvePr(prId, repo, number);
-    } catch (e) {
-      const rollback = reopenPatch();
-      updatePrState(prId, repo, rollback);
-      throw e;
-    }
-  };
-
-  const handleReopen = async (prId: number) => {
+  const handleReopen = async (prId: string) => {
     const previous = (prs ?? []).find(p => p.id === prId);
-    updatePrState(prId, previous?.repo, reopenPatch());
+    updatePrState(prId, reopenPatch());
     try {
-      await window.bridge.reopenPr(prId);
+      await window.bridge.reopenDashboardPr(prId);
     } catch (e) {
-      console.warn('reopenPr failed; rolling back', e);
+      console.warn('reopenDashboardPr failed; rolling back', e);
       if (previous) {
-        const rollback = { reviewedAt: previous.reviewedAt, handledAction: previous.handledAction };
-        updatePrState(prId, previous.repo, rollback);
+        updatePrState(prId, { reviewedAt: previous.reviewedAt, handledAction: previous.handledAction });
       }
     }
   };
@@ -417,15 +370,15 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     clearActiveScreen();
   };
 
-  const handleSnooze = async (prId: number, untilIso: string) => {
+  const handleSnooze = async (prId: string, untilIso: string) => {
     const previous = (prs ?? []).find(p => p.id === prId);
-    updatePrState(prId, previous?.repo, { snoozedUntil: untilIso, snoozeWakeReason: null });
+    updatePrState(prId, { snoozedUntil: untilIso, snoozeWakeReason: null });
     try {
-      await window.bridge.snoozePr(prId, untilIso);
+      await window.bridge.snoozeDashboardPr(prId, untilIso);
     } catch (e) {
-      console.warn('snoozePr failed; rolling back', e);
+      console.warn('snoozeDashboardPr failed; rolling back', e);
       if (previous) {
-        updatePrState(prId, previous.repo, {
+        updatePrState(prId, {
           snoozedUntil: previous.snoozedUntil,
           snoozeWakeReason: previous.snoozeWakeReason,
         });
@@ -433,15 +386,15 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     }
   };
 
-  const handleUnsnooze = async (prId: number) => {
+  const handleUnsnooze = async (prId: string) => {
     const previous = (prs ?? []).find(p => p.id === prId);
-    updatePrState(prId, previous?.repo, { snoozedUntil: null, snoozeWakeReason: null });
+    updatePrState(prId, { snoozedUntil: null, snoozeWakeReason: null });
     try {
-      await window.bridge.unsnoozePr(prId);
+      await window.bridge.unsnoozeDashboardPr(prId);
     } catch (e) {
-      console.warn('unsnoozePr failed; rolling back', e);
+      console.warn('unsnoozeDashboardPr failed; rolling back', e);
       if (previous) {
-        updatePrState(prId, previous.repo, {
+        updatePrState(prId, {
           snoozedUntil: previous.snoozedUntil,
           snoozeWakeReason: previous.snoozeWakeReason,
         });
@@ -449,25 +402,24 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     }
   };
 
-  const handleClearSnoozeWakeReason = (prId: number) => {
-    const previous = (prs ?? []).find(p => p.id === prId);
-    updatePrState(prId, previous?.repo, { snoozeWakeReason: null });
-    void window.bridge.clearSnoozeWakeReason(prId).catch(() => { /* best-effort */ });
+  const handleClearSnoozeWakeReason = (prId: string) => {
+    updatePrState(prId, { snoozeWakeReason: null });
+    void window.bridge.clearDashboardPrSnoozeWakeReason(prId).catch(() => { /* best-effort */ });
   };
 
   // Drag-drop on the My-PRs kanban: dragging across the
   // Drafting ↔ Waiting-on-review boundary toggles the GitHub draft
   // state. The optimistic patch flips `draft` locally so the card
   // jumps columns immediately; the bridge call syncs it to GitHub.
-  const handleSetDraft = async (prId: number, repo: string, number: number, draft: boolean) => {
+  const handleSetDraft = async (prId: string, repo: string, number: number, draft: boolean) => {
     const previous = (prs ?? []).find(p => p.id === prId);
-    updatePrState(prId, repo, { draft });
+    updatePrState(prId, { draft });
     try {
       await window.bridge.setPrDraft(repo, number, draft);
     }
     catch (e) {
       console.warn('setPrDraft failed; rolling back', e);
-      if (previous) updatePrState(prId, repo, { draft: previous.draft });
+      if (previous) updatePrState(prId, { draft: previous.draft });
     }
   };
 
@@ -722,19 +674,6 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
 
   const screen = reviewingPr ? (
     <ReviewScreen pr={reviewingPr} onBack={handleBackFromReview} />
-  ) : diffViewerPr ? (
-    <DiffViewerScreen
-      pr={diffViewerPr}
-      onBack={() => {
-        setDiffViewerPr(null);
-        setDiffViewerCommitSha(null);
-        setSidebarCollapsedPersist(false);
-      }}
-      onApprove={handleApprove}
-      initialCommitSha={diffViewerCommitSha}
-      workspaceId={workspaceId}
-      onStartReview={onStartReview}
-    />
   ) : selected ? (
     <PrDetailsView
       pr={selected}
@@ -756,7 +695,15 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
           onBack={() => setMergeHistoryOpen(false)}
           onSelect={(pr) => {
             setMergeHistoryOpen(false);
-            handleSelect(pr);
+            // Merge history is a live GitHub search (types.ts's
+            // PullRequestHistoryPageDto) — a different id space than the
+            // unified dashboard's string PR id, and the row may not even
+            // be in the local `pr` table (older than the sync window).
+            // Re-key it onto the dashboard shape so the existing
+            // selection/detail-view plumbing works unchanged; viewed/
+            // triage writes against the wrong numeric-derived id are a
+            // harmless no-op on the backend if this PR isn't watched.
+            handleSelect({ ...pr, id: String(pr.id) });
           }}
         />
       </div>
@@ -865,7 +812,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
               #global-topbar-extra slot) instead of sitting in its own
               band above the screen. Saves a vertical strip and groups
               the back action with the existing repo breadcrumb. */}
-          {topbarExtraNode && !reviewingPr && !diffViewerPr && createPortal(
+          {topbarExtraNode && !reviewingPr && createPortal(
             <button
               type="button"
               onClick={() => setSelected(null)}

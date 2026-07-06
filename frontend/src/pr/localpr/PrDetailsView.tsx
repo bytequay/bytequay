@@ -12,12 +12,18 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { PullRequestDto } from '../../types';
 import { PRView } from './PRView';
 import { LocalPrReviewScreen } from './LocalPrReviewScreen';
 import { PushDialog } from './PushDialog';
 import { MergeDialog } from './MergeDialog';
 import { useExternalPrActions } from './useExternalPrActions';
+
+/** `PrDetailsView` only ever needs a (repo, number) to bootstrap the
+ *  unified fetch, plus its own id back for the dashboard-triage
+ *  "Mark handled" callback — every concrete PR row shape in the app
+ *  (repo/team-scoped `PullRequestDto`, the personal dashboard's
+ *  `DashboardPR`, the live merge-history search rows) satisfies this. */
+type DetailsPr = { id: number | string; repo: string; number: number };
 
 /**
  * The standalone PR details page (unified-pr-view.md U10): the same
@@ -26,10 +32,10 @@ import { useExternalPrActions } from './useExternalPrActions';
  * point is the dashboard card's "Open" — `pr` carries the (repo, number)
  * this component resolves to a unified PR id.
  */
-export function PrDetailsView({
+export function PrDetailsView<T extends DetailsPr>({
   pr, onStartReview, onOpenReview, onMarkHandled, onBack, backLabel,
 }: {
-  pr: PullRequestDto;
+  pr: T;
   /** Fires once the agent review panel is created; the parent owns
    *  navigation to the freshly-created review thread. */
   onStartReview?: (threadId: string) => void;
@@ -38,7 +44,7 @@ export function PrDetailsView({
   onOpenReview?: () => void;
   /** Marks the PR handled in the local inbox queue — a dashboard-triage
    *  concept, not part of the unified PR aggregate itself. */
-  onMarkHandled?: (prId: number) => Promise<void>;
+  onMarkHandled?: (prId: T['id']) => Promise<void>;
   onBack?: () => void;
   backLabel?: string;
 }) {

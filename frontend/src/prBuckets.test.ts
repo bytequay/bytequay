@@ -333,11 +333,11 @@ describe('patchPr / markHandledPatch / reopenPatch', () => {
     let list = [pr({ id: 1, reviewedAt: null, handledAction: null })];
     expect(bucketize(list[0])).toBe('inbox');
 
-    list = patchPr(list, 1, markHandledPatch('MANUAL', '2026-04-23T12:00:00Z'));
+    list = patchPr<PullRequestDto>(list, 1, markHandledPatch('MANUAL', '2026-04-23T12:00:00Z'));
     // updatedAt is older than reviewedAt → handled
     expect(bucketize({ ...list[0], updatedAt: '2026-04-23T11:00:00Z' })).toBe('handled');
 
-    list = patchPr(list, 1, reopenPatch());
+    list = patchPr<PullRequestDto>(list, 1, reopenPatch());
     expect(bucketize(list[0])).toBe('inbox');
   });
 });

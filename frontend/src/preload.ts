@@ -960,16 +960,17 @@ const bridge: Bridge = {
   replan: (taskId: string) => ipcRenderer.invoke('plans:replan', taskId),
   updateFollowup: (planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed') =>
     ipcRenderer.invoke('plans:updateFollowup', planStageId, followupEventId, status),
-  getLocalPrBundle: (taskId: string) => ipcRenderer.invoke('localpr:bundle', taskId),
-  pushLocalPr: (prId: string) => ipcRenderer.invoke('localpr:push', prId),
-  mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('localpr:merge', prId, method),
+  getPrForTask: (taskId: string) => ipcRenderer.invoke('pr:forTask', taskId),
+  getLocalPrBundle: (prId: string) => ipcRenderer.invoke('pr:bundle', prId),
+  pushLocalPr: (prId: string) => ipcRenderer.invoke('pr:push', prId),
+  mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('pr:merge', prId, method),
   addLocalPrComment: (
     prId: string,
     body: { scope: 'pr' | 'file-line'; filePath?: string | null; lineNumber?: number | null; body: string; parentCommentId?: string | null },
-  ) => ipcRenderer.invoke('localpr:addComment', prId, body),
-  resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('localpr:resolveComment', commentId),
-  dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('localpr:dismissComment', commentId),
-  runLocalPrTests: (prId: string) => ipcRenderer.invoke('localpr:runTests', prId),
+  ) => ipcRenderer.invoke('pr:addComment', prId, body),
+  resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:resolveComment', commentId),
+  dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:dismissComment', commentId),
+  runLocalPrTests: (prId: string) => ipcRenderer.invoke('pr:runTests', prId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

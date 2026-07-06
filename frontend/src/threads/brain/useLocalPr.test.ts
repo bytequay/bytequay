@@ -14,47 +14,56 @@
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useLocalPr } from './useLocalPr';
-import type { LocalPRBundle } from '../../types/localPr';
+import type { LocalPR, LocalPRBundle } from '../../types/localPr';
 
 afterEach(() => {
   cleanup();
   delete (globalThis as { bridge?: unknown }).bridge;
 });
 
+function prFor(taskId: string): LocalPR {
+  return {
+    id: `pr-${taskId}`, taskId, branchName: 'feat/x', baseBranch: 'main', title: 'T',
+    description: '', status: 'local-open', createdAt: 1, pushedAt: null, remotePrNumber: null,
+    remotePrUrl: null, mergedAt: null, closedAt: null,
+    origin: 'task', repo: null, author: null, syncedAt: null,
+  };
+}
+
 function bundleFor(taskId: string): LocalPRBundle {
   return {
-    pr: {
-      id: `pr-${taskId}`, taskId, branchName: 'feat/x', baseBranch: 'main', title: 'T',
-      description: '', status: 'local-open', createdAt: 1, pushedAt: null, remotePrNumber: null,
-      remotePrUrl: null, mergedAt: null, closedAt: null,
-      origin: 'task', repo: null, author: null, syncedAt: null,
-    },
+    pr: prFor(taskId),
     commits: [], timeline: [], checks: [], comments: [], pendingStripCount: 0,
   };
 }
 
 describe('useLocalPr', () => {
-  it('resolves the task bundle from the bridge', async () => {
+  it('resolves the task id to a PR id, then fetches its bundle', async () => {
     const bundle = bundleFor('t1');
+    const getPrForTask = vi.fn().mockResolvedValue(prFor('t1'));
     const getLocalPrBundle = vi.fn().mockResolvedValue(bundle);
-    (globalThis as { bridge?: unknown }).bridge = { getLocalPrBundle };
+    (globalThis as { bridge?: unknown }).bridge = { getPrForTask, getLocalPrBundle };
 
     const { result } = renderHook(() => useLocalPr('t1'));
     await waitFor(() => expect(result.current.bundle).toEqual(bundle));
-    expect(getLocalPrBundle).toHaveBeenCalledWith('t1');
+    expect(getPrForTask).toHaveBeenCalledWith('t1');
+    expect(getLocalPrBundle).toHaveBeenCalledWith('pr-t1');
   });
 
-  it('resolves null when the task has no local PR yet (404 → null)', async () => {
-    const getLocalPrBundle = vi.fn().mockResolvedValue(null);
-    (globalThis as { bridge?: unknown }).bridge = { getLocalPrBundle };
+  it('resolves null when the task has no PR yet', async () => {
+    const getPrForTask = vi.fn().mockResolvedValue(null);
+    const getLocalPrBundle = vi.fn();
+    (globalThis as { bridge?: unknown }).bridge = { getPrForTask, getLocalPrBundle };
 
     const { result } = renderHook(() => useLocalPr('t2'));
     await waitFor(() => expect(result.current.bundle).toBeNull());
+    expect(getLocalPrBundle).not.toHaveBeenCalled();
   });
 
-  it('refresh() re-fetches on demand', async () => {
+  it('refresh() re-fetches the bundle on demand', async () => {
+    const getPrForTask = vi.fn().mockResolvedValue(prFor('t3'));
     const getLocalPrBundle = vi.fn().mockResolvedValue(bundleFor('t3'));
-    (globalThis as { bridge?: unknown }).bridge = { getLocalPrBundle };
+    (globalThis as { bridge?: unknown }).bridge = { getPrForTask, getLocalPrBundle };
 
     const { result } = renderHook(() => useLocalPr('t3'));
     await waitFor(() => expect(result.current.bundle).not.toBeUndefined());

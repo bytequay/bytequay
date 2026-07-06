@@ -85,11 +85,14 @@ public class PRController
     }
 
     /** Resolver — the task's PR id, so the frontend's PR-scoped hook has
-     *  something to key off of. Does not create; {@code POST} does that. */
+     *  something to key off of. Materialises/refreshes the row from the
+     *  task's branch on read (same as the old task-scoped bundle fetch did),
+     *  so the view has something to show even before an agent records its
+     *  first commit via {@code record_pr_*}. */
     @GetMapping("/api/tasks/{taskId}/pr")
     public PRDto getForTask(@PathVariable String taskId)
     {
-        return PRDto.from(prService.findByTask(taskId)
+        return PRDto.from(sync.syncFromTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR for task " + taskId)));
     }
 

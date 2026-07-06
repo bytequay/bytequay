@@ -348,6 +348,15 @@ class PRServiceImpl
     }
 
     @Override
+    public PR updateBranches(String prId, String branchName, String baseBranch)
+    {
+        PR pr = require(prId);
+        PR saved = store.save(pr.withBranches(branchName, baseBranch));
+        notifyUpdated(prId);
+        return saved;
+    }
+
+    @Override
     public PRCommit recordCommit(
             String prId, String sha, String message, int additions, int deletions, String actor)
     {

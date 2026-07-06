@@ -195,6 +195,21 @@ public record PR(
                 origin, repo, author, syncedAt, githubSync);
     }
 
+    /** Copy correcting the head/base branch names — {@code syncList}'s
+     *  initial create for an external PR has no better guess than "unknown"/
+     *  the default base (GitHub's search API never returns {@code head.ref}),
+     *  so the first successful detail fetch backfills the real names here. */
+    public PR withBranches(String newBranchName, String newBaseBranch)
+    {
+        return new PR(
+                id, taskId,
+                newBranchName == null ? branchName : newBranchName,
+                newBaseBranch == null ? baseBranch : newBaseBranch,
+                title, description, status, createdAt,
+                pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
+                origin, repo, author, syncedAt, githubSync);
+    }
+
     /** Copy stamping a successful GitHub sync — {@code PRSyncService} calls
      *  this once a {@code syncPR} pass completes, so the sync chip has a
      *  real "synced Xs ago" to show. */

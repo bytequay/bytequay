@@ -113,6 +113,10 @@ public interface PRService
     /** Edit title / description (a null argument leaves that field unchanged). */
     PR updateDetails(String prId, String title, String description);
 
+    /** Correct the head/base branch names once a detail fetch resolves the
+     *  real ones (a null argument leaves that field unchanged). */
+    PR updateBranches(String prId, String branchName, String baseBranch);
+
     /** Append a commit + a {@code commit} timeline event. */
     PRCommit recordCommit(
             String prId, String sha, String message, int additions, int deletions, String actor);

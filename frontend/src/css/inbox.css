@@ -11,7 +11,6 @@
 .v2-sidebar {
   width: 380px;
   flex: 0 0 auto;
-  border-right: 1px solid var(--border);
   background: var(--bg-elevated);
   display: flex;
   flex-direction: column;
@@ -52,6 +51,7 @@
 .v2-sidebar--collapsed {
   align-items: center;
   padding: 10px 0;
+  border-right: 1px solid var(--border);
 }
 .v2-sidebar__rail-toggle {
   appearance: none;

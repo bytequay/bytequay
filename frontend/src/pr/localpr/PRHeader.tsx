@@ -52,7 +52,7 @@ export function PRHeader({
       </div>
       <div className="pr-meta-row">
         <StatePill status={pr.status} />
-        <span>
+        <span className="pr-meta-text">
           <span className="who">{author}</span> wants to merge {commitCount} commit{commitCount === 1 ? '' : 's'} into{' '}
           <span className="pr-branch">{pr.baseBranch}</span> from <span className="pr-branch">{pr.branchName}</span>
         </span>

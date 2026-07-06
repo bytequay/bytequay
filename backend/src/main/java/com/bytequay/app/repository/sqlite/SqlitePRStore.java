@@ -91,6 +91,13 @@ class SqlitePRStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Optional<PR> findByRepoAndRemotePrNumber(String repo, int remotePrNumber)
+    {
+        return prs.findByRepoAndRemotePrNumber(repo, remotePrNumber).map(SqlitePRStore::toDomain);
+    }
+
+    @Override
     @Transactional
     public PRCommit addCommit(PRCommit commit)
     {

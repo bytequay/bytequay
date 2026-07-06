@@ -37,6 +37,10 @@ public interface PRStore
 
     Optional<PR> findByTaskId(String taskId);
 
+    /** The external PR already synced in for this (repo, remote PR number),
+     *  if any — the dashboard/details-page resolver's idempotency check. */
+    Optional<PR> findByRepoAndRemotePrNumber(String repo, int remotePrNumber);
+
     // ── pr_commit ──────────────────────────────────────────────────
     PRCommit addCommit(PRCommit commit);
 

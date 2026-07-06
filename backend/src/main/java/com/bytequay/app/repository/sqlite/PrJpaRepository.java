@@ -22,4 +22,7 @@ interface PrJpaRepository
 {
     /** The single local PR for a task, if one has been created. */
     Optional<PrEntity> findByTaskId(String taskId);
+
+    /** The external PR already synced in for this (repo, remote PR number). */
+    Optional<PrEntity> findByRepoAndRemotePrNumber(String repo, Integer remotePrNumber);
 }

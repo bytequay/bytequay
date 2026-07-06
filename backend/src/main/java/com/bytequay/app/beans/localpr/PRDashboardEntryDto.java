@@ -26,7 +26,13 @@ import java.util.Map;
  * so the frontend's existing categorization logic ({@code prBuckets.ts})
  * needs only a type-source swap, not a rewrite. {@code state} is translated
  * from the unified {@code PR.status} into the legacy open/closed/merged
- * vocabulary the categorizer already understands.
+ * vocabulary the categorizer already understands. Timestamps are ISO-8601
+ * strings (not epoch-millis, unlike {@code PRDto}) — matching the legacy
+ * {@code PullRequestDto} exactly, since {@code prBuckets.ts}'s large existing
+ * test suite constructs fixtures with ISO string literals throughout;
+ * {@code id} is the one field that genuinely can't stay compatible (the
+ * legacy numeric id was never stable across GitHub's two id namespaces —
+ * see unified-pr-view.md's dashboard migration).
  */
 public record PRDashboardEntryDto(
         String id,
@@ -35,14 +41,14 @@ public record PRDashboardEntryDto(
         String title,
         String author,
         String htmlUrl,
-        Long createdAt,
-        Long updatedAt,
+        String createdAt,
+        String updatedAt,
         String origin,
         List<String> labels,
         Map<String, String> labelColors,
         boolean draft,
-        Long viewedAt,
-        Long reviewedAt,
+        String viewedAt,
+        String reviewedAt,
         String handledAction,
         List<String> requestedReviewers,
         String ciStatus,
@@ -51,13 +57,13 @@ public record PRDashboardEntryDto(
         int commentCount,
         String attentionReason,
         String state,
-        Long closedAt,
-        Long mergedAt,
+        String closedAt,
+        String mergedAt,
         Boolean mergeable,
         String mergeableState,
-        Long headPushedAt,
+        String headPushedAt,
         Map<String, String> reviewerVerdicts,
-        Long snoozedUntil,
+        String snoozedUntil,
         String snoozeWakeReason)
 {
     public static PRDashboardEntryDto from(PRDashboardEntry entry)
@@ -71,14 +77,14 @@ public record PRDashboardEntryDto(
                 pr.title(),
                 pr.author(),
                 pr.remotePrUrl(),
-                epochOrNull(pr.createdAt()),
-                sync == null ? null : epochOrNull(sync.ghUpdatedAt()),
+                isoOrNull(pr.createdAt()),
+                sync == null ? null : isoOrNull(sync.ghUpdatedAt()),
                 sync == null || sync.watchReason() == null ? null : sync.watchReason().name(),
                 sync == null ? List.of() : sync.labels(),
                 sync == null ? Map.of() : sync.labelColors(),
                 sync != null && sync.draft(),
-                epochOrNull(entry.triage().viewedAt()),
-                epochOrNull(entry.triage().reviewedAt()),
+                isoOrNull(entry.triage().viewedAt()),
+                isoOrNull(entry.triage().reviewedAt()),
                 entry.triage().handledAction() == null ? null : entry.triage().handledAction().name(),
                 sync == null ? List.of() : sync.requestedReviewers(),
                 sync == null || sync.ciStatus() == null ? null : sync.ciStatus().name(),
@@ -87,13 +93,13 @@ public record PRDashboardEntryDto(
                 sync == null ? 0 : sync.commentCount(),
                 sync == null || sync.attentionReason() == null ? null : sync.attentionReason().name(),
                 legacyState(pr.status()),
-                epochOrNull(pr.closedAt()),
-                epochOrNull(pr.mergedAt()),
+                isoOrNull(pr.closedAt()),
+                isoOrNull(pr.mergedAt()),
                 sync == null ? null : sync.mergeable(),
                 sync == null ? null : sync.mergeableState(),
-                sync == null ? null : epochOrNull(sync.headPushedAt()),
+                sync == null ? null : isoOrNull(sync.headPushedAt()),
                 sync == null ? Map.of() : sync.reviewerVerdicts(),
-                epochOrNull(entry.triage().snoozedUntil()),
+                isoOrNull(entry.triage().snoozedUntil()),
                 entry.triage().snoozeWakeReason());
     }
 
@@ -108,8 +114,8 @@ public record PRDashboardEntryDto(
         return "open";
     }
 
-    private static Long epochOrNull(Instant instant)
+    private static String isoOrNull(Instant instant)
     {
-        return instant == null ? null : instant.toEpochMilli();
+        return instant == null ? null : instant.toString();
     }
 }

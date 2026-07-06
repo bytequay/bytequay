@@ -180,7 +180,7 @@ public class PRController
     @PostMapping("/api/prs/{prId}/snooze")
     public void snooze(@PathVariable String prId, @RequestBody SnoozePRRequest body)
     {
-        Instant until = Instant.ofEpochMilli(body.until());
+        Instant until = Instant.parse(body.until());
         if (!until.isAfter(Instant.now())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Snooze target must be in the future.");
         }

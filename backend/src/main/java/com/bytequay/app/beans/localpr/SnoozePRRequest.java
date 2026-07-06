@@ -13,5 +13,5 @@
  */
 package com.bytequay.app.beans.localpr;
 
-/** Body for {@code POST /api/prs/{prId}/snooze} — {@code until} is epoch millis. */
-public record SnoozePRRequest(long until) {}
+/** Body for {@code POST /api/prs/{prId}/snooze} — {@code until} is an ISO-8601 instant. */
+public record SnoozePRRequest(String until) {}

@@ -235,7 +235,7 @@ class TestPRSyncService
         PullRequestDetail detail = detailWithActivity(List.of(
                 commented(5001L, "octocat", "Can you also handle nulls?"),
                 reviewed(9001L, "reviewer1", "APPROVED", "Nice cleanup, LGTM.")));
-        when(pullRequests.getPullRequestDetail("acme/widget", 42)).thenReturn(detail);
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(detail);
         when(prService.hasRemoteEvent(eq("pr1"), anyLong())).thenReturn(false);
 
         service.syncFromTask("task1");
@@ -257,7 +257,7 @@ class TestPRSyncService
         when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
                 .thenReturn(Optional.of(new RepoRef("acme", "widget")));
         PullRequestDetail detail = detailWithActivity(List.of(commented(5001L, "octocat", "already seen")));
-        when(pullRequests.getPullRequestDetail("acme/widget", 42)).thenReturn(detail);
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(detail);
         when(prService.hasRemoteEvent("pr1", 5001L)).thenReturn(true);
 
         service.syncFromTask("task1");
@@ -278,7 +278,7 @@ class TestPRSyncService
 
         service.syncFromTask("task1");
 
-        verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
+        verify(pullRequests, never()).refreshPullRequestDetail(any(), anyInt(), anyInt());
     }
 
     @Test
@@ -334,5 +334,51 @@ class TestPRSyncService
         service.syncFromTask("task1");
 
         verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
+    }
+
+    private PR externalPr()
+    {
+        return new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+    }
+
+    @Test
+    void syncPrSyncsAnExternalOriginPrDirectlyFromItsOwnRepoAndNumberNoTaskOrGitInvolved()
+            throws Exception
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        PullRequestDetail detail = detailWithActivity(
+                List.of(commented(5001L, "octocat", "Can you also handle nulls?")));
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(detail);
+        when(prService.hasRemoteEvent(eq("pr-ext"), anyLong())).thenReturn(false);
+
+        service.syncPR("pr-ext");
+
+        verify(prService).addRemoteComment("pr-ext", "@octocat", "Can you also handle nulls?", NOW, 5001L);
+        verify(taskStore, never()).findTaskById(any());
+        verify(git, never()).remoteSlug(any(), any());
+    }
+
+    @Test
+    void explicitZeroMaxAgeAlwaysProbesEvenForAJustSyncedExternalPr()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        PullRequestDetail detail = detailWithActivity(List.of());
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 0)).thenReturn(detail);
+
+        service.syncPR("pr-ext", 0);
+
+        verify(pullRequests).refreshPullRequestDetail("acme/widget", 99, 0);
+        verify(pullRequests, never()).refreshPullRequestDetail(any(), anyInt(), eq(20));
+    }
+
+    @Test
+    void syncPrReturnsEmptyWhenThePrDoesNotExist()
+    {
+        when(prService.findById("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.syncPR("missing")).isEmpty();
     }
 }

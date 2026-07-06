@@ -59,6 +59,12 @@ public class PRSyncService
     private static final int COMMIT_LIMIT = 200;
     private static final String DEFAULT_BASE = "main";
 
+    /** Passive-sync calls (e.g. a PR-bundle fetch on pane load) probe GitHub
+     *  at most this often — matches {@link PullRequestService}'s own
+     *  detail-page polling maxAge. An explicit user-triggered refresh
+     *  ({@code POST /api/prs/{id}/sync}) passes {@code 0} to always probe. */
+    private static final int DEFAULT_MAX_AGE_SECONDS = 20;
+
     /** Phases at which dev is finished and the PR is awaiting the user's review. */
     private static final Set<TaskPhase> READY_FOR_REVIEW = ImmutableSet.of(
             TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
@@ -94,12 +100,67 @@ public class PRSyncService
         String base = task.baseBranch() == null || task.baseBranch().isBlank() ? DEFAULT_BASE : task.baseBranch();
         String title = task.name() != null && !task.name().isBlank() ? task.name() : task.branchName();
         PR pr = prService.createForTask(taskId, task.branchName(), base, title, "");
+        return syncPR(pr.id(), DEFAULT_MAX_AGE_SECONDS);
+    }
 
+    /** Canonical id-based refresh for either origin — the {@code POST
+     *  /api/prs/{id}/sync} entry point and the target of a future dashboard
+     *  {@code syncList}. Task-origin PRs also pick up their branch's local
+     *  commits; both origins pick up the remote PR's comments/reviews once
+     *  a {@code remotePrNumber} exists. Returns empty only when the PR
+     *  itself doesn't exist. */
+    public Optional<PR> syncPR(String prId)
+    {
+        return syncPR(prId, DEFAULT_MAX_AGE_SECONDS);
+    }
+
+    /**
+     * @param maxAgeSeconds forwarded to {@link PullRequestService#refreshPullRequestDetail}
+     *  — {@code 0} always probes GitHub, otherwise a probe within the last
+     *  {@code maxAgeSeconds} is skipped (see {@link #DEFAULT_MAX_AGE_SECONDS}).
+     */
+    public Optional<PR> syncPR(String prId, int maxAgeSeconds)
+    {
+        PR pr = prService.findById(prId).orElse(null);
+        if (pr == null) {
+            return Optional.empty();
+        }
+        if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
+            if (pr.repo() != null && pr.remotePrNumber() != null) {
+                syncRemoteTimeline(pr, pr.repo(), maxAgeSeconds);
+            }
+            return prService.findById(prId);
+        }
+
+        Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
+        if (task == null) {
+            return Optional.of(pr);
+        }
+        String base = task.baseBranch() == null || task.baseBranch().isBlank() ? DEFAULT_BASE : task.baseBranch();
         syncCommits(pr, task, base);
         maybeFlipToOpen(pr.id(), task);
         pr = healIfAlreadyPushedRemotely(pr, task);
-        syncRemoteTimeline(pr, task);
-        return prService.findById(pr.id());
+        PR healed = pr;
+        if (healed.remotePrNumber() != null) {
+            resolveGitRemoteSlug(task).ifPresent(
+                    repo -> syncRemoteTimeline(healed, repo.owner() + "/" + repo.repo(), maxAgeSeconds));
+        }
+        return prService.findById(healed.id());
+    }
+
+    private Optional<RepoRef> resolveGitRemoteSlug(Task task)
+    {
+        try {
+            return git.remoteSlug(Path.of(task.workingDir()), "origin");
+        }
+        catch (IOException e) {
+            log.info("resolving origin remote for task {} failed: {}", task.id(), e.getMessage());
+            return Optional.empty();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
     }
 
     /** Self-heals a row stuck at {@code local-drafted}/{@code local-open}
@@ -126,35 +187,19 @@ public class PRSyncService
     }
 
     /** Mirror the remote PR's comments and reviews onto the unified timeline
-     *  — a no-op until the PR is actually pushed. Best-effort: a GitHub
-     *  hiccup here must never break the PR view, so failures just log. */
-    private void syncRemoteTimeline(PR pr, Task task)
+     *  — the caller has already confirmed a {@code remotePrNumber} exists.
+     *  Best-effort: a GitHub hiccup here must never break the PR view, so
+     *  failures just log. Goes through {@link PullRequestService#refreshPullRequestDetail}
+     *  rather than a raw fetch, so a repeat sync within {@code maxAgeSeconds}
+     *  (or an unchanged ETag) skips the network round-trip. */
+    private void syncRemoteTimeline(PR pr, String repoSlug, int maxAgeSeconds)
     {
-        if (pr.remotePrNumber() == null) {
-            return;
-        }
-        Optional<RepoRef> repo;
-        try {
-            repo = git.remoteSlug(Path.of(task.workingDir()), "origin");
-        }
-        catch (IOException e) {
-            log.info("resolving origin remote for local PR {} failed: {}", pr.id(), e.getMessage());
-            return;
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return;
-        }
-        if (repo.isEmpty()) {
-            return;
-        }
         PullRequestDetail detail;
         try {
-            detail = pullRequests.getPullRequestDetail(
-                    repo.get().owner() + "/" + repo.get().repo(), pr.remotePrNumber());
+            detail = pullRequests.refreshPullRequestDetail(repoSlug, pr.remotePrNumber(), maxAgeSeconds);
         }
         catch (RuntimeException e) {
-            log.info("fetching remote PR detail for local PR {} failed: {}", pr.id(), e.getMessage());
+            log.info("fetching remote PR detail for PR {} failed: {}", pr.id(), e.getMessage());
             return;
         }
         if (detail.recentActivity() == null) {

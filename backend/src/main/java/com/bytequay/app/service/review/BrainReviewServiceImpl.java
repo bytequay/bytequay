@@ -82,8 +82,11 @@ import static java.util.Objects.requireNonNull;
  * changes_requested} and budget remains, a fix turn on the task's own
  * thread (status {@code addressing}) addresses them, then the loop
  * reviews again — until {@code approved} or the budget's spent (R23),
- * at which point it concludes (and always concludes — a deadlocked
- * loop still hands off to the human, never blocks forever).
+ * at which point it concludes (and always concludes — {@code iteration}
+ * is bumped when each review turn is scheduled, not when the verdict tool
+ * is called, so a turn that never calls {@code record_review_verdict}
+ * still counts against the budget instead of leaving the round stuck
+ * running forever).
  */
 @Service
 public class BrainReviewServiceImpl
@@ -197,7 +200,7 @@ public class BrainReviewServiceImpl
                 UUID.randomUUID().toString(), task.id(), roundStore.nextIndex(task.id()), List.of(),
                 ReviewRound.STATUS_TRIAGING, ReviewRound.ReviewRoundStats.empty(),
                 run.id(), now(), /* gatedAt */ null, /* postedAt */ null,
-                ReviewRound.ORIGIN_BRAIN, /* brainVerdict */ null, /* iteration */ 0,
+                ReviewRound.ORIGIN_BRAIN, /* brainVerdict */ null, /* iteration */ 1,
                 ReviewRound.DEFAULT_BRAIN_BUDGET);
         roundStore.save(round);
         enqueueReviewTurn(task, run.stageId());
@@ -208,7 +211,7 @@ public class BrainReviewServiceImpl
     @Transactional
     public void reviewBeforeRoundGate(ReviewRound round, Task task)
     {
-        ReviewRound triaging = round.withStatus(ReviewRound.STATUS_TRIAGING);
+        ReviewRound triaging = round.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped();
         roundStore.save(triaging);
         AgentRun run = round.runId() == null ? null : agentRuns.findById(round.runId()).orElse(null);
         if (run == null) {
@@ -421,7 +424,7 @@ public class BrainReviewServiceImpl
             return;
         }
         enqueueReviewTurn(task, run.stageId());
-        roundStore.save(round.withStatus(ReviewRound.STATUS_TRIAGING));
+        roundStore.save(round.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped());
     }
 
     private void enqueueReviewTurn(Task task, String stageId)

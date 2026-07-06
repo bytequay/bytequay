@@ -188,7 +188,9 @@ class TestBrainReviewServiceImpl
     @Test
     void recordVerdictForDevScopePersistsItOnTheRoundAndWritesTheTimelineEvent()
     {
-        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING);
+        // iteration is already 1 here — it's bumped when the review turn is
+        // enqueued, not by this call.
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withIterationBumped();
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
         AgentRun run = new AgentRun(
                 triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
@@ -311,9 +313,10 @@ class TestBrainReviewServiceImpl
     void budgetExhaustionEscalatesAndStillConcludes()
     {
         ReviewRound lastIteration = brainRound(ReviewRound.STATUS_TRIAGING)
-                .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED)
-                .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED)
-                .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED); // iteration now == budget (3)
+                .withIterationBumped()
+                .withIterationBumped()
+                .withIterationBumped() // iteration now == budget (3)
+                .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED);
         when(turnStore.findTurnById("turn-7")).thenReturn(Optional.of(turn("run-stage", TurnInitiator.unattended(
                 "brain-review"))));
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(lastIteration));
@@ -330,6 +333,35 @@ class TestBrainReviewServiceImpl
         assertThat(lastIteration.brainBudgetExhausted()).isTrue();
         verify(notifications).notifyNeedsAttention(eq(task().threadId()), eq(TASK_ID), anyString());
         verify(localPr).requestUserReview("pr1", "brain");
+    }
+
+    @Test
+    void aReviewLoopThatNeverRecordsAVerdictStillConcludesOnceBudgetIsExhausted()
+    {
+        // Regression: iteration must bump on every scheduled review turn, not
+        // just when record_review_verdict is called — otherwise a brain agent
+        // that never calls it wedges the round on STATUS_RUNNING forever.
+        ReviewRound neverVerdicted = brainRound(ReviewRound.STATUS_TRIAGING)
+                .withIterationBumped()
+                .withIterationBumped()
+                .withIterationBumped(); // iteration == budget (3), brainVerdict still null
+        when(turnStore.findTurnById("turn-8")).thenReturn(Optional.of(turn("run-stage", TurnInitiator.unattended(
+                "brain-review"))));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(neverVerdicted));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        AgentRun run = new AgentRun(
+                neverVerdicted.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(neverVerdicted.runId())).thenReturn(Optional.of(run));
+        LocalPR drafted = LocalPR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(localPr.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-8", false));
+
+        assertThat(neverVerdicted.brainVerdict()).isNull();
+        verify(roundStore).save(argThat(r -> ReviewRound.STATUS_CLOSED.equals(r.status())));
+        verify(agentRuns).transition(neverVerdicted.runId(), AgentRun.STATUS_SUCCEEDED, "brain_review_concluded");
+        verify(notifications).notifyNeedsAttention(eq(task().threadId()), eq(TASK_ID), anyString());
     }
 
     @Test

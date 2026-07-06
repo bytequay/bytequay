@@ -33,7 +33,11 @@ import java.util.List;
  * @param brainVerdict the brain's latest verdict on this round's diff —
  *                     {@code approved} / {@code changes_requested} / null
  *                     before the brain has reviewed it
- * @param iteration how many review-fix cycles the brain has run so far
+ * @param iteration how many review turns have been enqueued so far — bumped
+ *                  when a review turn is scheduled, not when the verdict
+ *                  tool is called, so a turn that never calls {@code
+ *                  record_review_verdict} still counts against the budget
+ *                  instead of wedging the loop open forever
  * @param budget max review-fix cycles before escalating to the human
  *               (default 3, R23)
  */
@@ -123,12 +127,21 @@ public record ReviewRound(
                 origin, brainVerdict, iteration, budget);
     }
 
-    /** Copy with the brain's latest verdict recorded and the iteration count
-     *  bumped — one call per review pass, whether this round is heading
-     *  toward another fix cycle or concluding. */
+    /** Copy with the brain's latest verdict recorded. Does not touch {@code
+     *  iteration} — that's bumped separately, when the review turn is
+     *  scheduled, so a skipped verdict call can't stall the budget. */
     public ReviewRound withBrainVerdict(String verdict)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, verdict, iteration + 1, budget);
+                origin, verdict, iteration, budget);
+    }
+
+    /** Copy with the iteration count bumped — called once per review turn
+     *  scheduled, regardless of whether that turn ends up recording a
+     *  verdict. */
+    public ReviewRound withIterationBumped()
+    {
+        return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
+                origin, brainVerdict, iteration + 1, budget);
     }
 }

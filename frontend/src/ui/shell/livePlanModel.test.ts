@@ -41,18 +41,17 @@ const node = (nodes: ReturnType<typeof buildLivePlan>, key: string) =>
   nodes.find(n => n.key === key)!;
 
 describe('buildLivePlan', () => {
-  it('renders the eight-node checkpoint spine with Review while Development is open', () => {
+  it('renders the eight-node checkpoint spine with no sub-rows while Development is open and idle', () => {
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
     });
     expect(nodes.map(n => n.key)).toEqual([
-      'root', 'dev', 'review', 'local-review', 'remote-pr', 'ci-validation', 'comments', 'merge-close', 'cleanup',
+      'root', 'dev', 'local-review', 'remote-pr', 'ci-validation', 'comments', 'merge-close', 'cleanup',
     ]);
-    // Only the Review sub-row — no Checks/Addressing rows.
-    expect(nodes.filter(n => n.placement === 'sub').map(n => n.key)).toEqual(['review']);
+    expect(nodes.filter(n => n.placement === 'sub')).toEqual([]);
     expect(nodes.map(n => n.nodeType)).toEqual([
-      'stage', 'stage', 'stage', 'gate', 'gate', 'auto', 'stage', 'gate', 'auto',
+      'stage', 'stage', 'gate', 'gate', 'auto', 'stage', 'gate', 'auto',
     ]);
   });
 
@@ -321,32 +320,6 @@ describe('buildLivePlan', () => {
     });
     expect(node(ready, 'merge-close').status).toBe('monitoring');
     expect(node(ready, 'merge-close').meta).toBe('ready to merge');
-  });
-
-  it('shows Review (callable) as not-invoked until a ReviewStage exists, while Development is open', () => {
-    const none = buildLivePlan({
-      stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
-    });
-    expect(node(none, 'review').status).toBe('future');
-    expect(node(none, 'review').meta).toBe('not invoked');
-    expect(node(none, 'review').placement).toBe('sub');
-
-    const invoked = buildLivePlan({
-      stages: [stage('DEVELOPMENT_STAGE', 'ACTIVE')],
-      subStages: [stage('REVIEW_STAGE', 'ACTIVE', { callerStageId: 'dev-id' })],
-      task: { prNumber: null, currentPhase: 'INTERNAL_REVIEW' as TaskPhase, terminal: false },
-    });
-    expect(node(invoked, 'review').status).toBe('running');
-  });
-
-  it('drops the Review (callable) row once Development closes', () => {
-    const nodes = buildLivePlan({
-      stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')],
-      subStages: [stage('REVIEW_STAGE', 'CLOSED', { callerStageId: 'dev-id' })],
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
-    });
-    expect(nodes.some(n => n.key === 'review')).toBe(false);
   });
 
   it('flags the currently-viewed stage as the active view', () => {

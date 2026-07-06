@@ -14,6 +14,10 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -116,6 +120,39 @@ class TestPRSchema
         assertThat(reloaded.author()).isNull();
         assertThat(reloaded.syncedAt()).isNull();
         assertThat(reloaded.taskId()).isEqualTo(taskId);
+    }
+
+    /** Regression test for the dangling `REFERENCES local_pr(id)` bug: V152
+     *  rebuilt `pr` via create+drop+rename rather than a straight
+     *  `ALTER TABLE RENAME`, so the child tables' FK clauses kept pointing at
+     *  the now-gone `local_pr` until V154 rebuilt them too. Exercise every
+     *  child-row writer for real, not just the `pr` row itself. */
+    @Test
+    void everyChildRowWriterRoundTripsThroughTheRealRepository()
+    {
+        String taskId = seedTask();
+        PR pr = prStore.save(PR.create(
+                UUID.randomUUID().toString(), taskId,
+                "feature/x", "main", "Add cache", "", Instant.parse("2026-07-01T00:00:00Z")));
+
+        PRCommit commit = prStore.addCommit(new PRCommit(
+                UUID.randomUUID().toString(), pr.id(), "abc123", "msg", 1, 0,
+                Instant.parse("2026-07-01T00:00:00Z"), null));
+        PRTimelineEntry event = prStore.addEvent(new PRTimelineEntry(
+                UUID.randomUUID().toString(), pr.id(), PRTimelineEntry.TYPE_COMMIT, "you",
+                false, null, Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        PRCheck check = prStore.addCheck(new PRCheck(
+                UUID.randomUUID().toString(), pr.id(), PRCheck.KIND_LOCAL, "mvn verify",
+                PRCheck.STATUS_PASSED, 1000L, Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        PRComment comment = prStore.saveComment(new PRComment(
+                UUID.randomUUID().toString(), pr.id(), PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, "you", "note", Instant.parse("2026-07-01T00:00:00Z"),
+                null, null, null, null, null));
+
+        assertThat(prStore.commitsFor(pr.id())).containsExactly(commit);
+        assertThat(prStore.timelineFor(pr.id())).containsExactly(event);
+        assertThat(prStore.checksFor(pr.id())).containsExactly(check);
+        assertThat(prStore.commentsFor(pr.id())).containsExactly(comment);
     }
 
     private String seedTask()

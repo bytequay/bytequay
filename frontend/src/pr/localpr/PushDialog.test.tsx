@@ -23,6 +23,7 @@ const PR: LocalPR = {
   title: 'Add cost-meter card', description: 'Adds a `CostMeterCard`.', status: 'local-open',
   createdAt: Date.now(), pushedAt: null, remotePrNumber: null, remotePrUrl: null,
   mergedAt: null, closedAt: null,
+  origin: 'task', repo: null, author: null, syncedAt: null,
 };
 
 function commit(additions: number, deletions: number, i: number): LocalPRCommit {
@@ -62,7 +63,7 @@ describe('PushDialog', () => {
     const comments: LocalPRComment[] = [
       { id: 'x1', localPrId: 'pr1', origin: 'local', scope: 'pr', filePath: null,
         lineNumber: null, author: 'you', body: 'a', createdAt: Date.now(), resolvedAt: null,
-        dismissedAt: null, strippedOnPushAt: null, parentCommentId: null },
+        dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null },
     ];
     render(<PushDialog bundle={bundle({ pendingStripCount: undefined, comments })} onPush={() => {}} onCancel={() => {}} />);
     expect(screen.getByText(/1 local review comment will NOT be pushed/)).toBeTruthy();

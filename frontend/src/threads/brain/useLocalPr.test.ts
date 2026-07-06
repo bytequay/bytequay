@@ -27,6 +27,7 @@ function bundleFor(taskId: string): LocalPRBundle {
       id: `pr-${taskId}`, taskId, branchName: 'feat/x', baseBranch: 'main', title: 'T',
       description: '', status: 'local-open', createdAt: 1, pushedAt: null, remotePrNumber: null,
       remotePrUrl: null, mergedAt: null, closedAt: null,
+      origin: 'task', repo: null, author: null, syncedAt: null,
     },
     commits: [], timeline: [], checks: [], comments: [], pendingStripCount: 0,
   };

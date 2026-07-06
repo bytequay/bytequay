@@ -23,6 +23,7 @@ const PR: LocalPR = {
   title: 'Add cost-meter card', description: '', status: 'remote-open',
   createdAt: Date.now(), pushedAt: Date.now(), remotePrNumber: 145,
   remotePrUrl: 'https://github.com/o/r/pull/145', mergedAt: null, closedAt: null,
+  origin: 'task', repo: null, author: null, syncedAt: null,
 };
 
 describe('MergeDialog', () => {

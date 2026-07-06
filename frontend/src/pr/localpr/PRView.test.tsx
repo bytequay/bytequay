@@ -30,7 +30,8 @@ function pr(status: LocalPRStatus, over: Partial<LocalPR> = {}): LocalPR {
     id: 'pr1', taskId: 't1', branchName: 'feat/x', baseBranch: 'main',
     title: 'Add cost-meter card', description: 'Adds a `CostMeterCard`.',
     status, createdAt: Date.now(), pushedAt: null, remotePrNumber: null,
-    remotePrUrl: null, mergedAt: null, closedAt: null, ...over,
+    remotePrUrl: null, mergedAt: null, closedAt: null,
+    origin: 'task', repo: null, author: null, syncedAt: null, ...over,
   };
 }
 
@@ -52,7 +53,8 @@ function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
   return {
     id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'pr', filePath: null,
     lineNumber: null, author: 'you', body: 'hi', createdAt: Date.now(),
-    resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, ...over,
+    resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null,
+    publishedAt: null, ...over,
   };
 }
 

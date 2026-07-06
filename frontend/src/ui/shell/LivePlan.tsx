@@ -19,31 +19,46 @@ import type { GuardChipData, LivePlanNode, LivePlanPhaseNode } from './livePlanM
  *  future stage that hasn't been instantiated, or a milestone pseudo-node
  *  with no PR yet). `nt-<nodeType>` carries the R26/R30 node-type styling
  *  (gates render dashed, matching stage-phase-rail.html's `.nd.gate`).
- *  `expanded`, when present (Development once it has phase data), marks the
- *  node's click as a phase-ladder toggle rather than navigation — the caller
- *  passes the right `onClick` for either case. */
-function PlanNode({ node, onClick, small, expanded }: {
+ *  `toggle`, when present (Development once it has phase data), renders a
+ *  separate small chevron button alongside the main one — the main button
+ *  always navigates, the chevron expands/collapses the phase ladder, so
+ *  neither affordance shadows the other. */
+function PlanNode({ node, onClick, small, toggle }: {
   node: LivePlanNode;
   onClick: () => void;
   small?: boolean;
-  expanded?: boolean;
+  toggle?: { expanded: boolean; onToggle: () => void };
 }) {
   const cls = [
     'plan-node', node.status, `nt-${node.nodeType}`, node.activeView ? 'active-view' : '', small ? 'sm' : '',
   ].filter(Boolean).join(' ');
-  return (
+  const button = (
     <button
       type="button"
       className={cls}
       onClick={onClick}
-      disabled={expanded === undefined && node.nav.kind === 'none'}
+      disabled={node.nav.kind === 'none'}
       title={node.label}
-      aria-expanded={expanded}
     >
       <span className="pn-glyph" aria-hidden>{node.glyph}</span>
       <span className="pn-name">{node.label}</span>
       {node.meta !== undefined && <span className="pn-meta">{node.meta}</span>}
     </button>
+  );
+  if (toggle === undefined) return button;
+  return (
+    <div className="plan-node-row">
+      {button}
+      <button
+        type="button"
+        className="plan-node-toggle"
+        onClick={toggle.onToggle}
+        aria-expanded={toggle.expanded}
+        aria-label={toggle.expanded ? `Collapse ${node.label}` : `Expand ${node.label}`}
+      >
+        {toggle.expanded ? '▾' : '▸'}
+      </button>
+    </div>
   );
 }
 
@@ -91,8 +106,9 @@ function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enab
  * with lazy `sub` rows (Review callable, live Checks/Addressing runs)
  * indented beneath their parent, plus the branch-guard chip above the rail.
  * Clicking a node navigates to its stage (or the changes / PR surface for
- * the Push / Merge milestones) — except a node with a phase ladder
- * (Development), whose click instead expands/collapses that ladder in place.
+ * the Push / Merge milestones). A node with a phase ladder (Development)
+ * additionally renders a small chevron button that expands/collapses the
+ * ladder in place, independent of navigation.
  */
 export function LivePlan({
   nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
@@ -151,11 +167,11 @@ export function LivePlan({
     }
     const hasPhases = node.phases !== undefined && node.phases.length > 0;
     const expanded = hasPhases && phasesExpanded(node);
-    const onNodeClick = hasPhases
-      ? () => setPhaseToggles(prevToggles => ({ ...prevToggles, [node.key]: !expanded }))
-      : click(node);
+    const toggle = hasPhases
+      ? { expanded, onToggle: () => setPhaseToggles(prevToggles => ({ ...prevToggles, [node.key]: !expanded })) }
+      : undefined;
     rows.push(
-      <PlanNode node={node} key={node.key} onClick={onNodeClick} expanded={hasPhases ? expanded : undefined} />,
+      <PlanNode node={node} key={node.key} onClick={click(node)} toggle={toggle} />,
     );
     prev = 'full';
     if (expanded && node.phases !== undefined) {

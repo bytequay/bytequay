@@ -880,6 +880,17 @@
    the user, so it renders dashed — matching stage-phase-rail.html's `.nd.gate`. */
 .shell .plan-node.nt-gate { border-style: dashed; }
 
+/* A node with a phase ladder (Development) pairs its main .plan-node with a
+   separate chevron so navigate and expand/collapse don't share one click. */
+.shell .plan-node-row { display: flex; align-items: stretch; gap: 4px; }
+.shell .plan-node-row .plan-node { width: auto; flex: 1; min-width: 0; }
+.shell .plan-node-toggle {
+  display: flex; align-items: center; justify-content: center; width: 22px; flex: none;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-4); font-size: 11px; cursor: pointer; transition: all 0.15s;
+}
+.shell .plan-node-toggle:hover { border-color: var(--accent); color: var(--text-2); }
+
 .shell .plan-line { width: 2px; height: 14px; background: var(--border-mid); margin-left: 18px; }
 .shell .plan-line.dim { background: var(--border); }
 .shell .plan-sub-row { display: grid; grid-template-columns: 18px 1fr; align-items: center; padding: 0 0 0 14px; margin: 4px 0 0; }

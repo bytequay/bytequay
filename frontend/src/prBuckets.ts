@@ -11,8 +11,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { HandledAction, PullRequestDto } from './types';
+import type { AttentionReason, CiStatus, HandledAction, PullRequestDto } from './types';
+import type { DashboardPR } from './types/dashboardPr';
 import { getCached, setCached } from './dataCache';
+
+/**
+ * The subset of PR fields every categorization/sort/bucket function in this
+ * file actually reads. Both `PullRequestDto` (repo/team-scoped, GitHub-live,
+ * numeric id) and `DashboardPR` (the personal dashboard, unified-`pr`-backed,
+ * string id) satisfy this shape — every function below is generic over it so
+ * one implementation serves both callers without duplicating the
+ * categorization rules. `id` is deliberately excluded: the two concrete
+ * types disagree on its type, and only `patchPr` needs it (handled there via
+ * its own generic bound).
+ */
+export type PrLike = {
+  repo: string;
+  number: number;
+  title: string;
+  author: string | null;
+  labels: string[];
+  origin: 'AUTHORED' | 'REVIEW_REQUESTED' | null;
+  handledAction: HandledAction | null;
+  snoozedUntil: string | null;
+  snoozeWakeReason: string | null;
+  viewedAt: string | null;
+  reviewedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  mergedAt: string | null;
+  closedAt: string | null;
+  state: string | null;
+  draft: boolean;
+  attentionReason: AttentionReason | null;
+  ciStatus: CiStatus | null;
+  mergeable: boolean | null;
+  mergeableState: string | null;
+  reviewerVerdicts: Record<string, string> | null;
+  requestedReviewers: string[];
+};
+
+/** {@link PrLike} plus an id — the bound every card/list component in the
+ *  kanban + bucket-view layer uses, since (unlike the pure categorization
+ *  functions above) they render `#{number}`/key by id and — for draggable
+ *  cards — carry it in the drag payload. */
+export type PrLikeWithId = PrLike & { id: number | string };
 
 // Resurface window. A PR in the Inbox jumps back to Needs-attention when
 // upstream `updatedAt` advances past `reviewedAt + RESURFACE_GRACE_MS`.
@@ -24,7 +67,11 @@ const repoPullsKey = (owner: string, repo: string) => `repo:${owner}/${repo}:pul
 
 /**
  * Propagate a PR patch into every data-cache entry that could hold the PR,
- * so other pages/tabs see the latest state on their next mount.
+ * so other pages/tabs see the latest state on their next mount. Repo/team
+ * scope only (numeric GitHub id, live `PullRequestDto` rows) — the personal
+ * dashboard's unified-PR cache has its own patch helper, {@link
+ * patchDashboardCache}, since the two caches hold structurally different
+ * rows for the same conceptual PR.
  */
 export function syncCachesAfterPrChange(
   prId: number,
@@ -42,6 +89,13 @@ export function syncCachesAfterPrChange(
   }
 }
 
+/** Same idea as {@link syncCachesAfterPrChange}, for the personal
+ *  dashboard's unified-PR cache (string id, `DashboardPR` rows). */
+export function patchDashboardCache(prId: string, patch: Partial<DashboardPR>): void {
+  const main = getCached<DashboardPR[]>(PRS_CACHE_KEY);
+  if (main) setCached(PRS_CACHE_KEY, main.map(p => (p.id === prId ? { ...p, ...patch } : p)));
+}
+
 export type Bucket = 'inbox' | 'snoozed' | 'handled';
 
 /**
@@ -54,7 +108,7 @@ export type Bucket = 'inbox' | 'snoozed' | 'handled';
  * Cleared zone until they're merged. That way the user can track what's
  * almost shipped without flipping between views.
  */
-export function isHandled(pr: PullRequestDto): boolean {
+export function isHandled(pr: PrLike): boolean {
   const a = pr.handledAction;
   return a === 'MERGED' || a === 'DISMISSED' || a === 'MANUAL';
 }
@@ -64,13 +118,13 @@ export function isHandled(pr: PullRequestDto): boolean {
  * the deadline the backend's auto-wake job clears the field on its next
  * sync, but the UI shouldn't wait — we treat expired snoozes as inbox.
  */
-export function isSnoozed(pr: PullRequestDto, now: number = Date.now()): boolean {
+export function isSnoozed(pr: PrLike, now: number = Date.now()): boolean {
   if (!pr.snoozedUntil) return false;
   return new Date(pr.snoozedUntil).getTime() > now;
 }
 
 /** Snooze takes precedence over Handled — a parked merged PR still hides. */
-export function bucketize(pr: PullRequestDto, now: number = Date.now()): Bucket {
+export function bucketize(pr: PrLike, now: number = Date.now()): Bucket {
   if (isSnoozed(pr, now)) return 'snoozed';
   return isHandled(pr) ? 'handled' : 'inbox';
 }
@@ -82,12 +136,12 @@ export function bucketize(pr: PullRequestDto, now: number = Date.now()): Bucket 
  * auto-resurface — the doc calls out only rare CI-regression / force-push
  * cases for Cleared, and those aren't detectable from list-level data.
  */
-export function isResurfaced(pr: PullRequestDto): boolean {
+export function isResurfaced(pr: PrLike): boolean {
   if (pr.reviewedAt === null) return false;
   if (isHandled(pr)) return false;
   if (pr.handledAction === 'APPROVED') return false;
   const reviewedMs = new Date(pr.reviewedAt).getTime();
-  const updatedMs = new Date(pr.updatedAt).getTime();
+  const updatedMs = pr.updatedAt ? new Date(pr.updatedAt).getTime() : 0;
   return updatedMs > reviewedMs + RESURFACE_GRACE_MS;
 }
 
@@ -133,7 +187,7 @@ export const CATEGORY_ONELINER: Record<Category, string> = {
  * returns Cleared as a safe fallback, but the PR really belongs in the
  * Handled tab.
  */
-export function categorize(pr: PullRequestDto): Category {
+export function categorize(pr: PrLike): Category {
   // Resurfaced PRs always jump back to Needs attention.
   if (isResurfaced(pr)) return 'needs_attention';
 
@@ -172,10 +226,10 @@ export function categorize(pr: PullRequestDto): Category {
 /**
  * Group a list of PRs into the four Inbox zones, preserving input order.
  * Handled PRs are filtered out — callers who want them should use
- * `splitInboxAndHandled`.
+ * `splitByBucket`.
  */
-export function groupByCategory(prs: PullRequestDto[], now: number = Date.now()): Record<Category, PullRequestDto[]> {
-  const out: Record<Category, PullRequestDto[]> = {
+export function groupByCategory<T extends PrLike>(prs: T[], now: number = Date.now()): Record<Category, T[]> {
+  const out: Record<Category, T[]> = {
     needs_attention: [],
     in_progress: [],
     awaiting_author: [],
@@ -193,14 +247,14 @@ export function groupByCategory(prs: PullRequestDto[], now: number = Date.now())
 /** Split a PR list into Inbox (active), Snoozed (parked), and Handled
  *  (terminal action) sets. Snoozed wins over Handled — a merged-but-
  *  snoozed PR stays in Snoozed until its wake time. */
-export function splitByBucket(prs: PullRequestDto[], now: number = Date.now()): {
-  inbox: PullRequestDto[];
-  snoozed: PullRequestDto[];
-  handled: PullRequestDto[];
+export function splitByBucket<T extends PrLike>(prs: T[], now: number = Date.now()): {
+  inbox: T[];
+  snoozed: T[];
+  handled: T[];
 } {
-  const inbox: PullRequestDto[] = [];
-  const snoozed: PullRequestDto[] = [];
-  const handled: PullRequestDto[] = [];
+  const inbox: T[] = [];
+  const snoozed: T[] = [];
+  const handled: T[] = [];
   for (const pr of prs) {
     const bucket = bucketize(pr, now);
     if (bucket === 'snoozed') snoozed.push(pr);
@@ -211,7 +265,7 @@ export function splitByBucket(prs: PullRequestDto[], now: number = Date.now()): 
 }
 
 /** Sort snoozed PRs by wake time ascending — soonest waking first. */
-export function sortSnoozed(prs: PullRequestDto[]): PullRequestDto[] {
+export function sortSnoozed<T extends PrLike>(prs: T[]): T[] {
   return [...prs].sort((a, b) => {
     const am = a.snoozedUntil ? new Date(a.snoozedUntil).getTime() : 0;
     const bm = b.snoozedUntil ? new Date(b.snoozedUntil).getTime() : 0;
@@ -252,22 +306,22 @@ export function formatRelative(iso: string | null, now: number = Date.now()): st
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export type HandledGroups = {
-  today: PullRequestDto[];
-  thisWeek: PullRequestDto[];
-  older: PullRequestDto[];
+export type HandledGroups<T> = {
+  today: T[];
+  thisWeek: T[];
+  older: T[];
 };
 
 /** Splits handled PRs into Today / This week / Older based on reviewedAt. */
-export function groupHandledByTime(prs: PullRequestDto[], now: number = Date.now()): HandledGroups {
+export function groupHandledByTime<T extends PrLike>(prs: T[], now: number = Date.now()): HandledGroups<T> {
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
   const todayMs = startOfToday.getTime();
   const weekAgoMs = now - 7 * 24 * 60 * 60 * 1000;
 
-  const today: PullRequestDto[] = [];
-  const thisWeek: PullRequestDto[] = [];
-  const older: PullRequestDto[] = [];
+  const today: T[] = [];
+  const thisWeek: T[] = [];
+  const older: T[] = [];
   for (const pr of prs) {
     const ms = pr.reviewedAt ? new Date(pr.reviewedAt).getTime() : 0;
     if (ms >= todayMs) today.push(pr);
@@ -278,7 +332,7 @@ export function groupHandledByTime(prs: PullRequestDto[], now: number = Date.now
 }
 
 /** Sort handled PRs newest first by reviewedAt. */
-export function sortHandled(prs: PullRequestDto[]): PullRequestDto[] {
+export function sortHandled<T extends PrLike>(prs: T[]): T[] {
   return [...prs].sort((a, b) => {
     const am = a.reviewedAt ? new Date(a.reviewedAt).getTime() : 0;
     const bm = b.reviewedAt ? new Date(b.reviewedAt).getTime() : 0;
@@ -287,11 +341,11 @@ export function sortHandled(prs: PullRequestDto[]): PullRequestDto[] {
 }
 
 /** Returns a new list with one PR replaced by applying the patch. No-op if not found. */
-export function patchPr(
-  prs: PullRequestDto[],
-  prId: number,
-  patch: Partial<PullRequestDto>,
-): PullRequestDto[] {
+export function patchPr<T extends { id: number | string }>(
+  prs: T[],
+  prId: T['id'],
+  patch: Partial<T>,
+): T[] {
   return prs.map(pr => (pr.id === prId ? { ...pr, ...patch } : pr));
 }
 
@@ -416,7 +470,7 @@ export const TO_REVIEW_COLUMN_LABEL: Record<ToReviewColumn, string> = {
  * doesn't belong to any column (e.g. closed > 7 days, or a PR that
  * isn't authored by the current user).
  */
-export function categorizeMyPr(pr: PullRequestDto, now: number = Date.now()): MyPrColumn | null {
+export function categorizeMyPr(pr: PrLike, now: number = Date.now()): MyPrColumn | null {
   if (pr.origin !== 'AUTHORED') return null;
 
   const merged = pr.mergedAt ? new Date(pr.mergedAt).getTime() : null;
@@ -491,7 +545,7 @@ export function categorizeMyPr(pr: PullRequestDto, now: number = Date.now()): My
  * participation only but treat the result as "yes" — better to show a
  * PR than to hide it because the login wasn't ready.
  */
-export function isMyReviewTurn(pr: PullRequestDto, me: string | null): boolean {
+export function isMyReviewTurn(pr: PrLike, me: string | null): boolean {
   // Local engagement is mine regardless of login — the app only records
   // viewedAt / reviewedAt for the signed-in user.
   if (pr.viewedAt !== null || pr.reviewedAt !== null) return true;
@@ -514,7 +568,7 @@ export function isMyReviewTurn(pr: PullRequestDto, me: string | null): boolean {
  * omits the user on a team request and used to drop those PRs. `me` is
  * retained for callers but no longer gates needs_attention.
  */
-export function categorizeToReview(pr: PullRequestDto, now: number = Date.now(), me: string | null = null): ToReviewColumn | null {
+export function categorizeToReview(pr: PrLike, now: number = Date.now(), me: string | null = null): ToReviewColumn | null {
   if (pr.origin !== 'REVIEW_REQUESTED') return null;
 
   // Cleared today: handled action with reviewedAt today. Anything older
@@ -556,8 +610,8 @@ export function categorizeToReview(pr: PullRequestDto, now: number = Date.now(),
   return 'needs_attention';
 }
 
-export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Record<MyPrColumn, PullRequestDto[]> {
-  const out: Record<MyPrColumn, PullRequestDto[]> = {
+export function groupMyPrs<T extends PrLike>(prs: T[], now: number = Date.now()): Record<MyPrColumn, T[]> {
+  const out: Record<MyPrColumn, T[]> = {
     drafting: [],
     waiting_on_review: [],
     needs_changes: [],
@@ -596,8 +650,8 @@ export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Rec
   return out;
 }
 
-export function groupToReview(prs: PullRequestDto[], now: number = Date.now(), me: string | null = null): Record<ToReviewColumn, PullRequestDto[]> {
-  const out: Record<ToReviewColumn, PullRequestDto[]> = {
+export function groupToReview<T extends PrLike>(prs: T[], now: number = Date.now(), me: string | null = null): Record<ToReviewColumn, T[]> {
+  const out: Record<ToReviewColumn, T[]> = {
     needs_attention: [],
     in_progress: [],
     awaiting_author: [],
@@ -621,23 +675,20 @@ export function groupToReview(prs: PullRequestDto[], now: number = Date.now(), m
   return out;
 }
 
-function byCreatedAtAsc(a: PullRequestDto, b: PullRequestDto): number {
-  const ta = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.updatedAt).getTime();
-  const tb = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.updatedAt).getTime();
-  return ta - tb;
-}
 /** Newest first by updatedAt — the kanban / repo / team list default.
  *  Most-recently-touched PR sits at the top of each group so the user
  *  sees fresh activity without scrolling. */
-export function byUpdatedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
-  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+export function byUpdatedAtDesc(a: PrLike, b: PrLike): number {
+  const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+  const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+  return tb - ta;
 }
-function byMergedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
+function byMergedAtDesc(a: PrLike, b: PrLike): number {
   const ta = a.mergedAt ? new Date(a.mergedAt).getTime() : 0;
   const tb = b.mergedAt ? new Date(b.mergedAt).getTime() : 0;
   return tb - ta;
 }
-function byReviewedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
+function byReviewedAtDesc(a: PrLike, b: PrLike): number {
   const ta = a.reviewedAt ? new Date(a.reviewedAt).getTime() : 0;
   const tb = b.reviewedAt ? new Date(b.reviewedAt).getTime() : 0;
   return tb - ta;
@@ -659,7 +710,7 @@ export type Briefing = {
   toReviewInProgress: number;
 };
 
-export function buildBriefing(prs: PullRequestDto[]): Briefing {
+export function buildBriefing<T extends PrLike>(prs: T[]): Briefing {
   const myPrs = prs.filter(p => p.origin === 'AUTHORED');
   const toReview = prs.filter(p => p.origin === 'REVIEW_REQUESTED');
   const myGroups = groupMyPrs(myPrs);

@@ -12,9 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import type { PullRequestDto } from '../types';
 import Avatar from '../Avatar';
-import { formatRelative } from '../prBuckets';
+import { formatRelative, type PrLikeWithId } from '../prBuckets';
 import { Tag, type TagColor } from '../ui/primitives';
 import type { KanbanColumnKind } from './KanbanColumn';
 
@@ -30,8 +29,8 @@ const MAX_VISIBLE_TAGS = 2;
  *  Same threshold as the stale banner. TODO(config): make configurable. */
 const STALE_DAYS = 6;
 
-type Props = {
-  pr: PullRequestDto;
+type Props<T extends PrLikeWithId> = {
+  pr: T;
   column: KanbanColumnKind;
   /** When "team", the card surfaces the repo avatar in the head and the
    *  author + their avatar in the meta line. Inbox cards omit both —
@@ -69,7 +68,7 @@ type Props = {
 export const PR_DRAG_MIME = 'application/x-bytequay-pr';
 
 export type PrDragPayload = {
-  prId: number;
+  prId: number | string;
   fromColumn: KanbanColumnKind;
   repo: string;
   number: number;
@@ -78,7 +77,8 @@ export type PrDragPayload = {
 /**
  * Rich PR card matching docs/mockups/v3/design/pr-kanban.html (unified
  * V3 card chrome, design.md #30). Reads exclusively from the
- * v26-enriched PullRequestDto — no detail fetch required. Anatomy:
+ * v26-enriched PR row (repo/team-scoped `PullRequestDto` or the personal
+ * dashboard's `DashboardPR`) — no detail fetch required. Anatomy:
  * optional info banner → ref-row (#num + repo + exceptional-state pill)
  * → two-line title → soft-tint label tags (+N overflow) → dashed
  * meta-row (author · BUILD · reviewer stack · timestamp).
@@ -87,7 +87,7 @@ export type PrDragPayload = {
  * from the mockup are intentionally not rendered yet — they need new
  * backend endpoints + a confirmation flow we'll wire in a follow-up.
  */
-function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen, onSnooze, draggable = false, disabled = false }: Props) {
+function KanbanPrCard<T extends PrLikeWithId>({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen, onSnooze, draggable = false, disabled = false }: Props<T>) {
   // Defensive — a missed prop from a non-strict caller used to crash the
   // whole UI when .replace(...) was invoked on an undefined column. Treat
   // any missing column as a generic in-progress so the card still renders.
@@ -313,7 +313,7 @@ const WAKE_BANNER_COPY: Record<string, string> = {
 /** Computes the optional info banner above the card title. Priority order:
  *  wake-up alert (always wins so the user notices) > blocking failures >
  *  stale > approval > mention. */
-function bannerFor(pr: PullRequestDto, column: KanbanColumnKind): Banner | null {
+function bannerFor(pr: PrLikeWithId, column: KanbanColumnKind): Banner | null {
   // Wake-up wins everything — the user explicitly parked this PR and
   // the auto-wake brought it back for a reason. Show that reason
   // before any other signal.
@@ -371,7 +371,7 @@ type StatusPill = { kind: 'draft' | 'changes' | 'approved' | 'stale'; label: str
  *  carries "opened", and done columns carry "merged"/"cleared". */
 const DONE_COLUMNS = new Set<KanbanColumnKind>(['recently_merged', 'cleared_today', 'handled']);
 
-function statusPillFor(pr: PullRequestDto, column: KanbanColumnKind): StatusPill | null {
+function statusPillFor(pr: PrLikeWithId, column: KanbanColumnKind): StatusPill | null {
   if (DONE_COLUMNS.has(column)) return null;
   if (pr.state === 'merged' || pr.mergedAt || pr.state === 'closed') return null;
   if (pr.draft) return { kind: 'draft', label: 'Draft' };

@@ -11,12 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDto } from '../types';
+import type { PrLikeWithId } from '../prBuckets';
 import KanbanPrCard from './KanbanPrCard';
 import type { KanbanColumnKind } from './KanbanColumn';
 
-type Props = {
-  pr: PullRequestDto;
+type Props<T extends PrLikeWithId> = {
+  pr: T;
   column: KanbanColumnKind;
   /** "team" surfaces repo avatar + author chip; "inbox" (default) hides
    *  them since the user is implicitly the author of every visible card. */
@@ -39,7 +39,7 @@ type Props = {
  * eventually layer back in column-specific actions (Mark handled, Reopen)
  * without bloating the rich-card component.
  */
-function KanbanCard({ pr, column, mode, selected, onSelect, onHandle, onReopen, onSnooze, draggable }: Props) {
+function KanbanCard<T extends PrLikeWithId>({ pr, column, mode, selected, onSelect, onHandle, onReopen, onSnooze, draggable }: Props<T>) {
   return (
     <KanbanPrCard
       pr={pr}

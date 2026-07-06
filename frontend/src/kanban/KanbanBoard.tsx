@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { MyPrColumnSlug, PullRequestDto } from '../types';
+import type { MyPrColumnSlug } from '../types';
 import {
   MY_PR_COLUMNS,
   MY_PR_COLUMNS_TEAM,
@@ -21,13 +21,13 @@ import {
   TO_REVIEW_COLUMNS,
   TO_REVIEW_COLUMN_LABEL,
   type MyPrColumn,
+  type PrLikeWithId,
   type ToReviewColumn,
   groupMyPrs,
   groupToReview,
   isSnoozed,
 } from '../prBuckets';
 import KanbanColumn, { type KanbanColumnKind } from './KanbanColumn';
-import KanbanPrCard from './KanbanPrCard';
 
 const COLLAPSED_KEY = 'settings:kanban-collapsed-v2';
 export const LANE_KEY = 'settings:kanban-lane';
@@ -68,13 +68,13 @@ function loadRepoFilter(): string {
   return localStorage.getItem(REPO_FILTER_KEY) ?? '';
 }
 
-type Props = {
-  prs: PullRequestDto[];
-  selectedId: number | null;
-  onSelect: (pr: PullRequestDto) => void;
-  onHandle: (prId: number) => void;
-  onReopen: (prId: number) => void;
-  onSnooze?: (prId: number, untilIso: string) => void;
+type Props<T extends PrLikeWithId> = {
+  prs: T[];
+  selectedId: T['id'] | null;
+  onSelect: (pr: T) => void;
+  onHandle: (prId: T['id']) => void;
+  onReopen: (prId: T['id']) => void;
+  onSnooze?: (prId: T['id'], untilIso: string) => void;
   /** Wires the "View full merge history →" CTA pinned to the bottom
    *  of the Recently Merged column. When omitted, the CTA renders
    *  disabled (the placeholder we shipped before the page existed). */
@@ -83,7 +83,7 @@ type Props = {
    *  PullRequestList (handleSetDraft). Required for drag-to-Drafting
    *  / drag-to-Waiting-on-review transitions; without it the My-PRs
    *  cards render non-draggable. */
-  onSetDraft?: (prId: number, repo: string, number: number, draft: boolean) => void;
+  onSetDraft?: (prId: T['id'], repo: string, number: number, draft: boolean) => void;
   /** Controlled lane. The page header (PullRequestList) renders the
    *  My PRs / To review tabs, owns the persistence, and tells the
    *  kanban which lane to render. Team mode ignores this prop and
@@ -111,7 +111,7 @@ type Props = {
    *  "+ N more" calls onLoadMoreColumn(col). Required when
    *  mode === 'team'. */
   teamData?: {
-    columns: Record<MyPrColumnSlug, PullRequestDto[]>;
+    columns: Record<MyPrColumnSlug, T[]>;
     totals: Record<MyPrColumnSlug, number>;
     onLoadMoreColumn: (column: MyPrColumnSlug) => Promise<void> | void;
   };
@@ -125,12 +125,12 @@ type Props = {
  * - "To review" lane (origin = REVIEW_REQUESTED): Needs attention /
  *   In progress / Awaiting author / Cleared today.
  *
- * Inputs come straight from the v26-enriched PullRequestDto — see
- * categorizeMyPr / categorizeToReview in prBuckets.ts. The morning
+ * Inputs come straight from the v26-enriched PR row (PullRequestDto or
+ * DashboardPR) — see categorizeMyPr / categorizeToReview in prBuckets.ts. The morning
  * briefing strip and per-lane filter chips are computed on the fly from
  * the current PR list.
  */
-function KanbanBoard(props: Props) {
+function KanbanBoard<T extends PrLikeWithId>(props: Props<T>) {
   const mode = props.mode ?? 'inbox';
   // In team mode the lane is forced to "mine" (the columns are the My-PRs
   // set, just labelled differently) because team PRs are PRs *authored
@@ -283,7 +283,7 @@ function KanbanBoard(props: Props) {
  *  and totals; each "+ N more" click fetches the next page from
  *  TeamDetailPage's onLoadMoreColumn callback. Does no client-side
  *  categorization (the backend already did it). */
-function TeamKanbanBoard({
+function TeamKanbanBoard<T extends PrLikeWithId>({
   teamData,
   selectedId,
   collapsed,
@@ -292,13 +292,13 @@ function TeamKanbanBoard({
   onHandle,
   onReopen,
 }: {
-  teamData: NonNullable<Props['teamData']>;
-  selectedId: number | null;
+  teamData: NonNullable<Props<T>['teamData']>;
+  selectedId: T['id'] | null;
   collapsed: CollapsedMap;
   onToggle: (kind: KanbanColumnKind) => void;
-  onSelect: (pr: PullRequestDto) => void;
-  onHandle: (prId: number) => void;
-  onReopen: (prId: number) => void;
+  onSelect: (pr: T) => void;
+  onHandle: (prId: T['id']) => void;
+  onReopen: (prId: T['id']) => void;
 }) {
   // Team kanban uses the extended column list — adds the trailing
   // "Handled" column for dismissed cards.
@@ -341,8 +341,7 @@ function TeamKanbanBoard({
 
 // ── Lane boards ────────────────────────────────────────────────────────────
 
-type BoardProps = Omit<Props, 'prs'> & {
-  prs: PullRequestDto[];
+type BoardProps<T extends PrLikeWithId> = Props<T> & {
   collapsed: CollapsedMap;
   onToggle: (kind: KanbanColumnKind) => void;
   /** Forwarded to KanbanColumn → KanbanCard so cards can decide whether
@@ -376,7 +375,7 @@ function translateMyPrsDrop(from: KanbanColumnKind, to: KanbanColumnKind): DropA
   return null;
 }
 
-function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, onShowMergeHistory, onSetDraft, cardMode }: BoardProps) {
+function MyPrsBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, onShowMergeHistory, onSetDraft, cardMode }: BoardProps<T>) {
   const groups = useMemo(() => groupMyPrs(prs), [prs]);
   const visibleCounts = MY_PR_COLUMNS.map(col =>
     col === 'recently_merged'
@@ -392,10 +391,14 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
   const acceptDropFrom = (toCol: KanbanColumnKind) =>
     (fromCol: KanbanColumnKind) => translateMyPrsDrop(fromCol, toCol) !== null;
   const onCardDrop = onSetDraft
-    ? (payload: { prId: number; fromColumn: KanbanColumnKind; repo: string; number: number }, toCol: KanbanColumnKind) => {
+    ? (payload: { prId: number | string; fromColumn: KanbanColumnKind; repo: string; number: number }, toCol: KanbanColumnKind) => {
         const action = translateMyPrsDrop(payload.fromColumn, toCol);
         if (action?.kind === 'set_draft') {
-          onSetDraft(payload.prId, payload.repo, payload.number, action.draft);
+          // The drag payload round-trips through dataTransfer's JSON
+          // serialization, so TS can't statically tie its `prId` back to
+          // this board's concrete T — safe by construction, since a drop
+          // only ever fires with a payload dragged from this same board.
+          onSetDraft(payload.prId as T['id'], payload.repo, payload.number, action.draft);
         }
       }
     : undefined;
@@ -443,7 +446,7 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
   );
 }
 
-function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, currentUserLogin }: BoardProps) {
+function ToReviewBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, currentUserLogin }: BoardProps<T>) {
   const groups = useMemo(() => groupToReview(prs, undefined, currentUserLogin ?? null), [prs, currentUserLogin]);
   const gridTemplate = TO_REVIEW_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
   // Per-column urgent count — PRs with an attentionReason set. Only
@@ -529,11 +532,11 @@ function columnSize(kind: MyPrColumn | ToReviewColumn, collapsed: boolean, count
  * the user reveal the rest with "+ N more". Within each tier, oldest
  * updatedAt wins so the most-stale card surfaces first.
  */
-export function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRequestDto[] {
+export function pickFocusCards<T extends PrLikeWithId>(prs: T[], now: number = Date.now()): T[] {
   const STALE_MS = 7 * 24 * 60 * 60 * 1000;
-  const seen = new Set<number>();
-  const out: PullRequestDto[] = [];
-  const pushUnique = (pr: PullRequestDto) => {
+  const seen = new Set<T['id']>();
+  const out: T[] = [];
+  const pushUnique = (pr: T) => {
     if (seen.has(pr.id)) return;
     seen.add(pr.id);
     out.push(pr);
@@ -552,8 +555,8 @@ export function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()):
     && pr.handledAction !== 'MANUAL'
     && !isSnoozed(pr, now));
 
-  const byUpdatedAsc = (a: PullRequestDto, b: PullRequestDto) =>
-    new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+  const byUpdatedAsc = (a: T, b: T) =>
+    (a.updatedAt ? new Date(a.updatedAt).getTime() : 0) - (b.updatedAt ? new Date(b.updatedAt).getTime() : 0);
 
   // Tier -1: Just-woke — a previously-snoozed PR the auto-wake job
   // brought back. Always pinned to the very top so the user sees the
@@ -607,75 +610,6 @@ export function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()):
     .forEach(pushUnique);
 
   return out;
-}
-
-const FOCUS_BAND_CAP = 5;
-
-/**
- * The 🔥 focus band — a curated horizontal row above the kanban that
- * answers "what should I touch first" before the user has scrolled.
- * Same card style as the kanban below; this is visual duplication on
- * purpose. Hidden when no card qualifies.
- *
- * Hard cap of 5 visible cards. When the user resolves a visible card
- * (snooze / handle / merge / approve), the optimistic patch removes
- * it from `prs` on the next render, the algorithm re-derives, and
- * the next-priority hidden card auto-pops into the freed slot.
- */
-function FocusBand({ prs, onSelect, onHandle, onSnooze }: {
-  prs: PullRequestDto[];
-  onSelect: (pr: PullRequestDto) => void;
-  onHandle?: (prId: number) => void;
-  onSnooze?: (prId: number, untilIso: string) => void;
-}) {
-  const cards = useMemo(() => pickFocusCards(prs), [prs]);
-  if (cards.length === 0) return null;
-
-  const visible = cards.slice(0, FOCUS_BAND_CAP);
-
-  return (
-    <section className="focus-band" aria-label="Needs your urgent attention">
-      <header className="focus-band__head">
-        <span className="focus-band__title">🔥 Needs your urgent attention</span>
-        {/* Show "5 of 12" when the band is capped so the user knows
-            there's more behind the queue without us surfacing a
-            load-more affordance. */}
-        <span className="focus-band__count">
-          {cards.length > FOCUS_BAND_CAP
-            ? `${visible.length} of ${cards.length}`
-            : cards.length}
-        </span>
-        <span className="focus-band__subtitle">
-          most blocking first · same cards live in the kanban below
-        </span>
-        <button
-          type="button"
-          className="focus-band__customize"
-          disabled
-          title="Coming with the snooze feature"
-        >
-          Customize…
-        </button>
-      </header>
-      <div className="focus-band__row">
-        {visible.map(pr => (
-          <KanbanPrCard
-            key={pr.id}
-            pr={pr}
-            // 'needs_attention' triggers the urgent banner styling on
-            // the card; the picking algorithm already filters to
-            // genuinely-blocking work.
-            column="needs_attention"
-            mode="inbox"
-            selected={false}
-            onSelect={() => onSelect(pr)}
-            onHandle={onHandle ? () => onHandle(pr.id) : undefined}
-            onSnooze={onSnooze ? (untilIso) => onSnooze(pr.id, untilIso) : undefined}
-          />
-        ))}
-      </div>
-    </section>
-  );
 }
 
 export default KanbanBoard;

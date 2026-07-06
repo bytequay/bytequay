@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { PullRequestDto } from './types';
 import KanbanPrCard, { SnoozeMenuButton } from './kanban/KanbanPrCard';
 import type { KanbanColumnKind } from './kanban/KanbanColumn';
 
@@ -20,21 +19,22 @@ import {
   CATEGORIES,
   CATEGORY_LABEL,
   type Category,
+  type PrLikeWithId,
   categorize,
   groupByCategory,
   isResurfaced,
   type HandledGroups,
 } from './prBuckets';
 
-type InboxCardProps = {
-  pr: PullRequestDto;
+type InboxCardProps<T extends PrLikeWithId> = {
+  pr: T;
   selected: boolean;
   onSelect: () => void;
   onHandle: () => void;
   onSnooze?: (untilIso: string) => void;
 };
 
-export function InboxCard({ pr, selected, onSelect, onHandle, onSnooze }: InboxCardProps) {
+export function InboxCard<T extends PrLikeWithId>({ pr, selected, onSelect, onHandle, onSnooze }: InboxCardProps<T>) {
   // The inbox / repo-detail / handled-timeline contexts now reuse the
   // rich kanban card. We pick a column flavour from the same signals
   // the old PrCard used for its left-edge dot — a resurfaced or
@@ -56,7 +56,7 @@ export function InboxCard({ pr, selected, onSelect, onHandle, onSnooze }: InboxC
   );
 }
 
-function pickColumnFor(pr: PullRequestDto): KanbanColumnKind {
+function pickColumnFor(pr: PrLikeWithId): KanbanColumnKind {
   if (isResurfaced(pr) || pr.attentionReason !== null) return 'needs_attention';
   if (pr.handledAction === 'CHANGES_REQUESTED' || pr.handledAction === 'COMMENTED') {
     return 'awaiting_author';
@@ -65,14 +65,14 @@ function pickColumnFor(pr: PullRequestDto): KanbanColumnKind {
 }
 
 
-type HandledCardProps = {
-  pr: PullRequestDto;
+type HandledCardProps<T extends PrLikeWithId> = {
+  pr: T;
   selected: boolean;
   onSelect: () => void;
   onReopen: () => void;
 };
 
-export function HandledCard({ pr, selected, onSelect, onReopen }: HandledCardProps) {
+export function HandledCard<T extends PrLikeWithId>({ pr, selected, onSelect, onReopen }: HandledCardProps<T>) {
   // Handled cards now reuse the rich kanban card with column='handled':
   // KanbanPrCard automatically swaps the ✓ Mark-handled corner button
   // for a ↺ Reopen one in this column. The handled-badge / reviewedAt
@@ -122,16 +122,16 @@ export function CollapsibleGroup({ title, color = 'plain', count, children, defa
   );
 }
 
-type InboxGroupProps = {
+type InboxGroupProps<T extends PrLikeWithId> = {
   title: string;
   color: 'blue' | 'orange' | 'grey';
-  prs: PullRequestDto[];
-  selectedId: number | null;
-  onSelect: (pr: PullRequestDto) => void;
-  onHandle: (prId: number) => void;
+  prs: T[];
+  selectedId: T['id'] | null;
+  onSelect: (pr: T) => void;
+  onHandle: (prId: T['id']) => void;
 };
 
-export function InboxGroup({ title, color, prs, selectedId, onSelect, onHandle }: InboxGroupProps) {
+export function InboxGroup<T extends PrLikeWithId>({ title, color, prs, selectedId, onSelect, onHandle }: InboxGroupProps<T>) {
   if (prs.length === 0) return null;
   return (
     <CollapsibleGroup title={title} color={color} count={prs.length}>
@@ -148,14 +148,14 @@ export function InboxGroup({ title, color, prs, selectedId, onSelect, onHandle }
   );
 }
 
-type HandledTimelineProps = {
-  groups: HandledGroups;
-  selectedId: number | null;
-  onSelect: (pr: PullRequestDto) => void;
-  onReopen: (prId: number) => void;
+type HandledTimelineProps<T extends PrLikeWithId> = {
+  groups: HandledGroups<T>;
+  selectedId: T['id'] | null;
+  onSelect: (pr: T) => void;
+  onReopen: (prId: T['id']) => void;
 };
 
-export function HandledTimeline({ groups, selectedId, onSelect, onReopen }: HandledTimelineProps) {
+export function HandledTimeline<T extends PrLikeWithId>({ groups, selectedId, onSelect, onReopen }: HandledTimelineProps<T>) {
   const { today, thisWeek, older } = groups;
   return (
     <>
@@ -186,13 +186,13 @@ export function HandledTimeline({ groups, selectedId, onSelect, onReopen }: Hand
 
 // ── Kanban board + categorised sidebar ──────────────────────────────────────
 
-type CategorizedListProps = {
-  prs: PullRequestDto[];
-  selectedId: number | null;
-  onSelect: (pr: PullRequestDto) => void;
-  onHandle: (prId: number) => void;
-  onReopen: (prId: number) => void;
-  onSnooze?: (prId: number, untilIso: string) => void;
+type CategorizedListProps<T extends PrLikeWithId> = {
+  prs: T[];
+  selectedId: T['id'] | null;
+  onSelect: (pr: T) => void;
+  onHandle: (prId: T['id']) => void;
+  onReopen: (prId: T['id']) => void;
+  onSnooze?: (prId: T['id'], untilIso: string) => void;
 };
 
 /**
@@ -202,7 +202,7 @@ type CategorizedListProps = {
  * the group you're currently reviewing). The user can still toggle each
  * section manually.
  */
-export function CategorizedList({ prs, selectedId, onSelect, onHandle, onReopen, onSnooze }: CategorizedListProps) {
+export function CategorizedList<T extends PrLikeWithId>({ prs, selectedId, onSelect, onHandle, onReopen, onSnooze }: CategorizedListProps<T>) {
   const groups = useMemo(() => groupByCategory(prs), [prs]);
   const selected = selectedId !== null ? prs.find(p => p.id === selectedId) : undefined;
   const activeCategory: Category | null = selected ? categorize(selected) : null;
@@ -285,18 +285,18 @@ export function CategorizedList({ prs, selectedId, onSelect, onHandle, onReopen,
 
 // ── Snoozed list ────────────────────────────────────────────────────────────
 
-type SnoozedListProps = {
-  prs: PullRequestDto[];
-  selectedId: number | null;
-  onSelect: (pr: PullRequestDto) => void;
-  onUnsnooze: (prId: number) => void;
+type SnoozedListProps<T extends PrLikeWithId> = {
+  prs: T[];
+  selectedId: T['id'] | null;
+  onSelect: (pr: T) => void;
+  onUnsnooze: (prId: T['id']) => void;
   /** Replaces an existing snooze with a new wake time (same backend
    *  endpoint as fresh snooze — `snooze()` overwrites). */
-  onEditSnooze: (prId: number, untilIso: string) => void;
+  onEditSnooze: (prId: T['id'], untilIso: string) => void;
   // onClearWakeReason kept for callsite parity; PRs in the snoozed
   // bucket can't carry a wake reason (auto-wake clears snoozedUntil
   // first), so the prop is unused here.
-  onClearWakeReason?: (prId: number) => void;
+  onClearWakeReason?: (prId: T['id']) => void;
 };
 
 /** "Tomorrow at 8:00 AM" / "Mon Sep 14 at 9:00 AM" — the absolute time
@@ -332,7 +332,7 @@ function formatWakeRelative(iso: string | null, now: number = Date.now()): strin
   return `in ${days}d`;
 }
 
-export function SnoozedList({ prs, selectedId, onSelect, onUnsnooze, onEditSnooze, onClearWakeReason: _onClearWakeReason }: SnoozedListProps) {
+export function SnoozedList<T extends PrLikeWithId>({ prs, selectedId, onSelect, onUnsnooze, onEditSnooze, onClearWakeReason: _onClearWakeReason }: SnoozedListProps<T>) {
   return (
     <>
       <p className="snoozed-explainer">

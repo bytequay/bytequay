@@ -13,13 +13,16 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PRTriageState;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.RepoRef;
@@ -48,6 +51,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -552,5 +556,84 @@ class TestPRSyncService
         service.syncList();
 
         verify(prService, never()).setWatchReason(eq("pr-old"), any());
+    }
+
+    private PR externalPr(PR.PRSyncSnapshot snapshot)
+    {
+        return new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, snapshot);
+    }
+
+    @Test
+    void syncPrSyncsGitHubCommitsForAnExternalPrDedupingKnownShas()
+    {
+        PR pr = externalPr(null);
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
+        when(prService.commits("pr-ext")).thenReturn(
+                List.of(new PRCommit("c1", "pr-ext", "aaa", "first", 0, 0, NOW, null)));
+        when(pullRequests.getPullRequestCommits("acme/widget", 99)).thenReturn(List.of(
+                new PullRequestCommit("aaa", "octocat", "Octo Cat", NOW.minusSeconds(60), "first"),
+                new PullRequestCommit("bbb", "octocat", "Octo Cat", NOW.minusSeconds(30), "second")));
+
+        service.syncPR("pr-ext");
+
+        verify(prService, never()).recordSyncedCommit(eq("pr-ext"), eq("aaa"), any(), any(), any());
+        verify(prService).recordSyncedCommit(
+                eq("pr-ext"), eq("bbb"), eq("second"), eq(NOW.minusSeconds(30)), eq("@octocat"));
+    }
+
+    @Test
+    void syncPrSyncsGitHubCheckRunsForAnExternalPrSkippingRunsWithNoStableId()
+    {
+        PR pr = externalPr(null);
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
+        when(refreshedDetail.checkRuns()).thenReturn(List.of(
+                new PullRequestDetail.CheckRun(555L, "build", "completed", "success", "https://x", null, null),
+                new PullRequestDetail.CheckRun(null, "legacy", "completed", "success", null, null, null)));
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
+        when(prService.commits("pr-ext")).thenReturn(List.of());
+        when(pullRequests.getPullRequestCommits("acme/widget", 99)).thenReturn(List.of());
+
+        service.syncPR("pr-ext");
+
+        verify(prService).recordSyncedCheck(
+                eq("pr-ext"), eq("555"), eq("build"), eq(PRCheck.STATUS_PASSED), any(), any());
+        verify(prService, times(1)).recordSyncedCheck(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void syncPrRefreshesDiffAndCiSnapshotFromDetailPreservingDashboardOnlyFields()
+    {
+        PR.PRSyncSnapshot baseline = new PR.PRSyncSnapshot(
+                PullRequest.Origin.AUTHORED, NOW, List.of("bug"), Map.of("bug", "red"), true,
+                PullRequestDetail.CiStatus.PENDING, 0, 0, 3, AttentionReason.MINE, null, null, null,
+                Map.of(), List.of());
+        PR pr = externalPr(baseline);
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
+        when(refreshedDetail.additions()).thenReturn(891);
+        when(refreshedDetail.deletions()).thenReturn(407);
+        when(refreshedDetail.ciStatus()).thenReturn(PullRequestDetail.CiStatus.PASSING);
+        when(refreshedDetail.mergeable()).thenReturn(true);
+        when(refreshedDetail.mergeableState()).thenReturn("clean");
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
+        when(prService.commits("pr-ext")).thenReturn(List.of());
+        when(pullRequests.getPullRequestCommits("acme/widget", 99)).thenReturn(List.of());
+
+        service.syncPR("pr-ext");
+
+        verify(prService).updateSyncSnapshot(eq("pr-ext"), argThat(snap ->
+                snap.additions() == 891 && snap.deletions() == 407
+                        && snap.ciStatus() == PullRequestDetail.CiStatus.PASSING
+                        && Boolean.TRUE.equals(snap.mergeable())
+                        && "clean".equals(snap.mergeableState())
+                        && snap.watchReason() == PullRequest.Origin.AUTHORED
+                        && snap.labels().equals(List.of("bug"))
+                        && snap.commentCount() == 3));
     }
 }

@@ -24,6 +24,7 @@ const PR: LocalPR = {
   createdAt: Date.now(), pushedAt: null, remotePrNumber: null, remotePrUrl: null,
   mergedAt: null, closedAt: null,
   origin: 'task', repo: null, author: null, syncedAt: null,
+  syncedAdditions: null, syncedDeletions: null,
 };
 
 function commit(additions: number, deletions: number, i: number): LocalPRCommit {

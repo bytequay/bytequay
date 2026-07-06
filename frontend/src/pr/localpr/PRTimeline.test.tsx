@@ -23,7 +23,8 @@ function pr(over: Partial<LocalPR> = {}): LocalPR {
     id: 'pr1', taskId: 't1', branchName: 'feat/x', baseBranch: 'main', title: 'T',
     description: '', status: 'local-open', createdAt: 1, pushedAt: null, remotePrNumber: null,
     remotePrUrl: null, mergedAt: null, closedAt: null,
-    origin: 'task', repo: null, author: null, syncedAt: null, ...over,
+    origin: 'task', repo: null, author: null, syncedAt: null,
+    syncedAdditions: null, syncedDeletions: null, ...over,
   };
 }
 

@@ -35,10 +35,13 @@ public record PRDto(
         String origin,
         String repo,
         String author,
-        Long syncedAt)
+        Long syncedAt,
+        Integer syncedAdditions,
+        Integer syncedDeletions)
 {
     public static PRDto from(PR pr)
     {
+        PR.PRSyncSnapshot sync = pr.githubSync();
         return new PRDto(
                 pr.id(),
                 pr.taskId(),
@@ -56,7 +59,9 @@ public record PRDto(
                 pr.origin(),
                 pr.repo(),
                 pr.author(),
-                epochOrNull(pr.syncedAt()));
+                epochOrNull(pr.syncedAt()),
+                sync == null ? null : sync.additions(),
+                sync == null ? null : sync.deletions());
     }
 
     private static Long epochOrNull(Instant instant)

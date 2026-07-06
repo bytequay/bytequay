@@ -15,10 +15,12 @@ package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.PullRequestRef;
@@ -512,6 +514,9 @@ public class PRSyncService
         }
         if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
             reconcileExternalStatus(pr, detail);
+            syncExternalCommits(pr);
+            syncExternalChecks(pr, detail);
+            refreshDiffAndCiSnapshot(pr, detail);
         }
         if (detail.recentActivity() == null) {
             return;
@@ -586,6 +591,102 @@ public class PRSyncService
             return PR.STATUS_CLOSED;
         }
         return draft ? PR.STATUS_REMOTE_DRAFTED : PR.STATUS_REMOTE_OPEN;
+    }
+
+    /** Mirrors GitHub's own commit list onto {@code pr_commit} for an
+     *  external-origin PR — the header's commit count otherwise reads as 0
+     *  forever, since nothing else ever populates that table for a PR whose
+     *  commits were never made locally. Deduped by sha, same pattern as
+     *  {@link #syncCommits}'s local-git version. */
+    private void syncExternalCommits(PR pr)
+    {
+        List<PullRequestCommit> commits;
+        try {
+            commits = pullRequests.getPullRequestCommits(pr.repo(), pr.remotePrNumber());
+        }
+        catch (RuntimeException e) {
+            log.info("fetching commits for external PR {} failed: {}", pr.id(), e.getMessage());
+            return;
+        }
+        Set<String> known = new HashSet<>();
+        for (PRCommit c : prService.commits(pr.id())) {
+            known.add(c.sha());
+        }
+        for (PullRequestCommit c : commits) {
+            if (known.contains(c.sha())) {
+                continue;
+            }
+            prService.recordSyncedCommit(pr.id(), c.sha(), c.message(), c.authoredAt(), actorLabel(c.authorLogin()));
+        }
+    }
+
+    /** Mirrors GitHub's check runs onto {@code pr_check} for an
+     *  external-origin PR — same "otherwise always reads 0" gap as {@link
+     *  #syncExternalCommits}. A run with no {@code githubId} (a legacy
+     *  cached row) is skipped: there's nothing stable to dedupe it by. */
+    private void syncExternalChecks(PR pr, PullRequestDetail detail)
+    {
+        if (detail.checkRuns() == null) {
+            return;
+        }
+        for (PullRequestDetail.CheckRun run : detail.checkRuns()) {
+            if (run.githubId() == null) {
+                continue;
+            }
+            prService.recordSyncedCheck(
+                    pr.id(), String.valueOf(run.githubId()), run.name(),
+                    mapCheckStatus(run.status(), run.conclusion()), null, null);
+        }
+    }
+
+    /** GitHub's check-run {@code status}/{@code conclusion} pair onto the
+     *  app's own 5-value vocabulary. "Failing" mirrors GitHub's own PR-merge
+     *  button semantics (see {@code AutomationCoordinator.aggregateChecks}). */
+    private static String mapCheckStatus(String status, String conclusion)
+    {
+        if (!"completed".equals(status)) {
+            return "queued".equals(status) ? PRCheck.STATUS_PENDING : PRCheck.STATUS_RUNNING;
+        }
+        if (conclusion == null) {
+            return PRCheck.STATUS_NEUTRAL;
+        }
+        return switch (conclusion) {
+            case "success" -> PRCheck.STATUS_PASSED;
+            case "failure", "timed_out", "cancelled", "action_required", "startup_failure" -> PRCheck.STATUS_FAILED;
+            default -> PRCheck.STATUS_NEUTRAL;
+        };
+    }
+
+    /** Keeps the diff totals and CI/mergeable state {@code syncRemoteTimeline}
+     *  already has on hand (from the same {@code detail} fetch) current on
+     *  every external-PR sync — not just the throttled dashboard detail pass.
+     *  The header sums this PR-level total rather than {@code pr_commit} rows,
+     *  since GitHub's commit-list API has no per-commit stats (see {@link
+     *  #syncExternalCommits}). Dashboard-only fields (watch reason, labels,
+     *  attention reason, reviewer verdicts, comment count) are left exactly as
+     *  {@code syncList}'s last pass set them — computing those needs the
+     *  current user's login and viewed-at marker, which only {@code
+     *  syncDashboardDetail} has to hand. */
+    private void refreshDiffAndCiSnapshot(PR pr, PullRequestDetail detail)
+    {
+        PR.PRSyncSnapshot baseline = pr.githubSync();
+        PR.PRSyncSnapshot next = new PR.PRSyncSnapshot(
+                baseline == null ? null : baseline.watchReason(),
+                baseline == null ? null : baseline.ghUpdatedAt(),
+                baseline == null ? List.of() : baseline.labels(),
+                baseline == null ? Map.of() : baseline.labelColors(),
+                detail.draft(),
+                detail.ciStatus(),
+                detail.additions(),
+                detail.deletions(),
+                baseline == null ? 0 : baseline.commentCount(),
+                baseline == null ? null : baseline.attentionReason(),
+                detail.mergeable(),
+                detail.mergeableState(),
+                baseline == null ? null : baseline.headPushedAt(),
+                baseline == null ? Map.of() : baseline.reviewerVerdicts(),
+                detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers());
+        prService.updateSyncSnapshot(pr.id(), next);
     }
 
     private void syncCommits(PR pr, Task task, String base)

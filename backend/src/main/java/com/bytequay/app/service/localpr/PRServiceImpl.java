@@ -27,6 +27,7 @@ import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -53,21 +54,26 @@ class PRServiceImpl
     private final DevReportService devReports;
     private final ObjectMapper mapper;
     private final StageStore stageStore;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
     @Autowired
-    PRServiceImpl(PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore)
+    PRServiceImpl(
+            PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
+            ApplicationEventPublisher events)
     {
-        this(store, devReports, mapper, stageStore, Clock.systemUTC());
+        this(store, devReports, mapper, stageStore, events, Clock.systemUTC());
     }
 
     PRServiceImpl(
-            PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore, Clock clock)
+            PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
+            ApplicationEventPublisher events, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.devReports = requireNonNull(devReports, "devReports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -124,6 +130,7 @@ class PRServiceImpl
                 UUID.randomUUID().toString(), taskId, branchName, baseBranch, title, description, now());
         PR saved = store.save(pr);
         backfillPlanSelfReview(taskId, saved.id());
+        notifyUpdated(saved.id());
         return saved;
     }
 
@@ -158,17 +165,21 @@ class PRServiceImpl
     @Override
     public void recordBrainReview(String taskId, String scope, String verdict, int iteration)
     {
-        store.findByTaskId(taskId).ifPresent(pr -> appendEvent(
-                pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
-                /* localOnly */ true, now(),
-                payload("scope", scope, "verdict", verdict, "iteration", iteration)));
+        store.findByTaskId(taskId).ifPresent(pr -> {
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
+                    /* localOnly */ true, now(),
+                    payload("scope", scope, "verdict", verdict, "iteration", iteration));
+            notifyUpdated(pr.id());
+        });
     }
 
     @Override
     public PR updateDetails(String prId, String title, String description)
     {
         PR pr = require(prId);
-        return store.save(pr.withDetails(title, description));
+        PR saved = store.save(pr.withDetails(title, description));
+        notifyUpdated(prId);
+        return saved;
     }
 
     @Override
@@ -186,6 +197,7 @@ class PRServiceImpl
         appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMIT, actor, /* localOnly */ false, when,
                 payload("sha", sha, "message", commit.message(),
                         "additions", additions, "deletions", deletions));
+        notifyUpdated(pr.id());
         return commit;
     }
 
@@ -207,6 +219,7 @@ class PRServiceImpl
                     PRCheck.KIND_LOCAL.equals(kind), when,
                     payload("kind", kind, "name", name, "status", status, "durationMs", durationMs));
         }
+        notifyUpdated(pr.id());
         return check;
     }
 
@@ -236,6 +249,7 @@ class PRServiceImpl
         PR flipped = store.save(pr.withStatus(newStatus, when));
         appendEvent(pr.id(), PRTimelineEntry.TYPE_STATUS, actor, /* localOnly */ false, when,
                 payload("from", from, "to", newStatus));
+        notifyUpdated(pr.id());
         return flipped;
     }
 
@@ -243,7 +257,9 @@ class PRServiceImpl
     public PR recordPushed(String prId, int remotePrNumber, String remotePrUrl)
     {
         PR pr = require(prId);
-        return store.save(pr.withRemote(remotePrNumber, remotePrUrl, now()));
+        PR saved = store.save(pr.withRemote(remotePrNumber, remotePrUrl, now()));
+        notifyUpdated(prId);
+        return saved;
     }
 
     @Override
@@ -314,6 +330,7 @@ class PRServiceImpl
             appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMENT, author,
                     PRComment.ORIGIN_LOCAL.equals(origin), when, payload("commentId", comment.id()));
         }
+        notifyUpdated(pr.id());
         return comment;
     }
 
@@ -335,6 +352,7 @@ class PRServiceImpl
                 /* parentCommentId */ null));
         appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMENT, author, /* localOnly */ false, createdAt,
                 payload("commentId", comment.id()), remoteCommentId);
+        notifyUpdated(pr.id());
         return comment;
     }
 
@@ -345,6 +363,7 @@ class PRServiceImpl
         PR pr = require(prId);
         appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, reviewer, /* localOnly */ false, when,
                 payload("verdict", verdict, "body", body), remoteReviewId);
+        notifyUpdated(pr.id());
     }
 
     @Override
@@ -352,7 +371,9 @@ class PRServiceImpl
     {
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
-        return store.saveComment(comment.withResolved(now()));
+        PRComment saved = store.saveComment(comment.withResolved(now()));
+        notifyUpdated(comment.prId());
+        return saved;
     }
 
     @Override
@@ -360,20 +381,29 @@ class PRServiceImpl
     {
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
-        return store.saveComment(comment.withDismissed(now()));
+        PRComment saved = store.saveComment(comment.withDismissed(now()));
+        notifyUpdated(comment.prId());
+        return saved;
     }
 
     @Override
     public PR markLocalAddressed(String prId, Instant through)
     {
         PR pr = require(prId);
-        return store.save(pr.withLocalAddressedThrough(through));
+        PR saved = store.save(pr.withLocalAddressedThrough(through));
+        notifyUpdated(prId);
+        return saved;
     }
 
     private PR require(String prId)
     {
         return store.findById(prId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown local PR: " + prId));
+    }
+
+    private void notifyUpdated(String prId)
+    {
+        events.publishEvent(new PrUpdatedEvent(prId));
     }
 
     private void appendEvent(

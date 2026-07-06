@@ -109,6 +109,15 @@ public class PRController
                 prService.pendingStripCount(pr.id()));
     }
 
+    /** Explicit user-triggered refresh — always probes GitHub (no maxAge
+     *  short-circuit), unlike the passive sync a PR-bundle fetch performs. */
+    @PostMapping("/api/prs/{prId}/sync")
+    public PRDto syncPr(@PathVariable String prId)
+    {
+        return PRDto.from(sync.syncPR(prId, 0)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
+    }
+
     /**
      * On-demand local test run (design doc slice 4 — "runs at VALIDATING and
      * on demand"): the same {@link RepoTestValidationCheck} the VALIDATING

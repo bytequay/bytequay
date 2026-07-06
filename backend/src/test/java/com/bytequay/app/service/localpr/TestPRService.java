@@ -28,6 +28,7 @@ import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -58,8 +59,9 @@ class TestPRService
     private final PRStore store = mock(PRStore.class);
     private final DevReportService devReports = mock(DevReportService.class);
     private final StageStore stageStore = mock(StageStore.class);
+    private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final PRService service = new PRServiceImpl(
-            store, devReports, new ObjectMapper(), stageStore, Clock.fixed(NOW, ZoneOffset.UTC));
+            store, devReports, new ObjectMapper(), stageStore, events, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private PR pr(String status)
     {
@@ -82,6 +84,16 @@ class TestPRService
         verify(store).addEvent(event.capture());
         assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_STATUS);
         assertThat(event.getValue().actor()).isEqualTo("you");
+    }
+
+    @Test
+    void legalTransitionPublishesPrUpdated()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+
+        service.transition("pr1", PR.STATUS_LOCAL_OPEN, "you");
+
+        verify(events).publishEvent(new PrUpdatedEvent("pr1"));
     }
 
     @Test

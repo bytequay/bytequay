@@ -196,7 +196,7 @@ class TestPRService
     {
         PRComment comment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "note", NOW, null, null, null, null);
+                "you", "note", NOW, null, null, null, null, null);
         when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
         when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -211,7 +211,7 @@ class TestPRService
     {
         PRComment comment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "note", NOW, null, null, null, null);
+                "you", "note", NOW, null, null, null, null, null);
         when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
         when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -239,7 +239,7 @@ class TestPRService
                 /* localOnly */ true, /* strippedOnPushAt */ null, NOW, null, /* remoteEventId */ null);
         PRComment localComment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "note", NOW, null, /* dismissedAt */ null, /* strippedOnPushAt */ null, null);
+                "you", "note", NOW, null, /* dismissedAt */ null, /* strippedOnPushAt */ null, null, null);
         when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(localEvent));
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(localComment));
 
@@ -285,7 +285,7 @@ class TestPRService
                 "ev1", "pr1", PRTimelineEntry.TYPE_COMMIT, "claude-code", true, null, NOW, null, null);
         PRComment c = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "n", NOW, null, null, null, null);
+                "you", "n", NOW, null, null, null, null, null);
         when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(e, e));
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(c));
 

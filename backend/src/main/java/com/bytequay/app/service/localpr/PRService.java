@@ -118,6 +118,11 @@ public interface PRService
      *  the other terminal state alongside {@code resolveComment}. */
     PRComment dismissComment(String commentId);
 
+    /** Mark a draft comment published — {@code publish-review} batched it into
+     *  one GitHub review (external PRs only; task-origin drafts are stripped
+     *  on push instead and never reach this state). */
+    PRComment markPublished(String commentId, Instant when);
+
     /** Advance the local-addressing marker to {@code through} — comments
      *  created at or before this instant are considered already accounted
      *  for by the addressing loop (see {@link PR#withLocalAddressedThrough}). */

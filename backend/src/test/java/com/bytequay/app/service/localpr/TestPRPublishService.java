@@ -283,7 +283,7 @@ class TestPRPublishService
     private static PRComment comment(Instant resolvedAt, Instant dismissedAt)
     {
         return new PRComment("cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, null);
+                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, null, null);
     }
 
     private static PRCheck check(Instant startedAt, String status)
@@ -343,5 +343,57 @@ class TestPRPublishService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("did not merge");
         verify(prService, never()).recordMerged(any());
+    }
+
+    private PR externalPr()
+    {
+        return new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+    }
+
+    private static PRComment draft(String id, String scope, String filePath, Integer lineNumber, String body)
+    {
+        return new PRComment(id, "pr-ext", PRComment.ORIGIN_LOCAL, scope,
+                filePath, lineNumber, "you", body, NOW, null, null, null, null, null);
+    }
+
+    @Test
+    void publishReviewBatchesDraftsIntoOneGitHubReviewThenMarksThemPublished()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        PRComment prLevel = draft("cm1", PRComment.SCOPE_PR, null, null, "Nice work overall.");
+        PRComment lineLevel = draft("cm2", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Fix this.");
+        when(prService.comments("pr-ext")).thenReturn(List.of(prLevel, lineLevel));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr-ext");
+
+        verify(pullRequests).createReview(eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), any());
+        verify(prService).markPublished(eq("cm1"), any());
+        verify(prService).markPublished(eq("cm2"), any());
+    }
+
+    @Test
+    void publishReviewRejectsATaskOriginPr()
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
+
+        assertThatThrownBy(() -> service.publishReview("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("only applies to external PRs");
+    }
+
+    @Test
+    void publishReviewRejectsWhenThereAreNoDraftsToPublish()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        when(prService.comments("pr-ext")).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.publishReview("pr-ext"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no draft comments");
+        verify(pullRequests, never()).createReview(any(), any(), any());
     }
 }

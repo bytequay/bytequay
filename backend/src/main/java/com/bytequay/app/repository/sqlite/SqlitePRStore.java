@@ -191,6 +191,7 @@ class SqlitePRStore
         e.setDismissedAtMs(epochOrNull(comment.dismissedAt()));
         e.setStrippedOnPushAtMs(epochOrNull(comment.strippedOnPushAt()));
         e.setParentCommentId(comment.parentCommentId());
+        e.setPublishedAtMs(epochOrNull(comment.publishedAt()));
         return toDomain(comments.save(e));
     }
 
@@ -314,7 +315,8 @@ class SqlitePRStore
                 instantOrNull(e.getResolvedAtMs()),
                 instantOrNull(e.getDismissedAtMs()),
                 instantOrNull(e.getStrippedOnPushAtMs()),
-                e.getParentCommentId());
+                e.getParentCommentId(),
+                instantOrNull(e.getPublishedAtMs()));
     }
 
     private static Long epochOrNull(Instant instant)

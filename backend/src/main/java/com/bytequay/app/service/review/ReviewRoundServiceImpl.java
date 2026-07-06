@@ -158,7 +158,6 @@ class ReviewRoundServiceImpl
         }
         String roundId = UUID.randomUUID().toString();
         List<UUID> commentIds = comments.stream().map(ReviewComment::id).toList();
-        stageStore.assignCommentsToRound(commentIds, UUID.fromString(roundId));
 
         // No caller-stage lookup — agentRuns.open reuses (wakes back up) the
         // task's existing REVIEW_ROUND_STAGE if one's already been opened
@@ -174,6 +173,11 @@ class ReviewRoundServiceImpl
                 ReviewRound.ORIGIN_EXTERNAL, /* brainVerdict */ null, /* iteration */ 0,
                 ReviewRound.DEFAULT_BRAIN_BUDGET);
         roundStore.save(round);
+        // Only now does the round row exist for review_comment.round_id's FK
+        // to reference — assigning comments any earlier throws
+        // SQLITE_CONSTRAINT_FOREIGNKEY against the real schema (invisible to
+        // a mocked StageStore, which is why this shipped broken).
+        stageStore.assignCommentsToRound(commentIds, UUID.fromString(roundId));
 
         Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
         if (threadOpt.isEmpty() || threadOpt.get().status() != ThreadStatus.IDLE) {

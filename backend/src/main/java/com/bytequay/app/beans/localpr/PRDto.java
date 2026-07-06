@@ -31,7 +31,11 @@ public record PRDto(
         Integer remotePrNumber,
         String remotePrUrl,
         Long mergedAt,
-        Long closedAt)
+        Long closedAt,
+        String origin,
+        String repo,
+        String author,
+        Long syncedAt)
 {
     public static PRDto from(PR pr)
     {
@@ -48,7 +52,11 @@ public record PRDto(
                 pr.remotePrNumber(),
                 pr.remotePrUrl(),
                 epochOrNull(pr.mergedAt()),
-                epochOrNull(pr.closedAt()));
+                epochOrNull(pr.closedAt()),
+                pr.origin(),
+                pr.repo(),
+                pr.author(),
+                epochOrNull(pr.syncedAt()));
     }
 
     private static Long epochOrNull(Instant instant)

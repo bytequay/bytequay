@@ -54,6 +54,17 @@
   --amber-border: rgba(245, 158, 11, 0.4);
   --amber-deep: #92400e;
 
+  /* GitHub-parity semantics (unified-pr-view.md U13) — the PR view's Merged
+     state and diff-line tints; everything else reuses the tokens above. */
+  --purple: #8250df;
+  --purple-soft: rgba(130, 80, 223, 0.1);
+  --purple-border: rgba(130, 80, 223, 0.28);
+
+  --diff-add: #e6ffec;
+  --diff-add-num: #ccffd8;
+  --diff-del: #ffebe9;
+  --diff-del-num: #ffd7d5;
+
   --code-border: rgba(180, 140, 80, 0.2);
   --code-bg-warm: #f9f4ec;
 

@@ -18,10 +18,10 @@ import { useAutoGrow } from '../../useAutoGrow';
 const TOOLBAR = ['H', 'B', 'I', '"', '<>', '🔗', '≡', '1.'];
 
 /**
- * The PR-level comment composer (decision #56) at the bottom of the PR view.
- * Write / Preview tabs + a formatting toolbar + a footer whose hint switches
- * on `local`: during a local phase the comment stays in ByteQuay
- * (🔒 won't post to GitHub); during a remote phase it posts as the user.
+ * The PR-level comment composer (U13f): avatar + a GitHub-styled card with
+ * Write/Preview tabs, a formatting toolbar, and a footer whose hint switches
+ * on `local` — during a local (task, pre-push) phase the comment stays in
+ * ByteQuay; otherwise it posts to GitHub as the user.
  */
 export function PRCommentComposer({
   local, username, value, onChange, onSubmit,
@@ -39,23 +39,26 @@ export function PRCommentComposer({
   };
   return (
     <div className="pr-comment-composer">
-      <div className="cc-tabs">
-        <button
-          type="button"
-          className={tab === 'write' ? 'cc-tab active' : 'cc-tab'}
-          onClick={() => setTab('write')}
-        >Write</button>
-        <button
-          type="button"
-          className={tab === 'preview' ? 'cc-tab active' : 'cc-tab'}
-          onClick={() => setTab('preview')}
-        >Preview</button>
-      </div>
-      {tab === 'write' ? (
-        <>
-          <div className="cc-toolbar">
-            {TOOLBAR.map(g => <span key={g}>{g}</span>)}
-          </div>
+      <span className="pr-avatar you s28">Y</span>
+      <div className="cc-box">
+        <div className="cc-tabs">
+          <button
+            type="button"
+            className={tab === 'write' ? 'cc-tab active' : 'cc-tab'}
+            onClick={() => setTab('write')}
+          >Write</button>
+          <button
+            type="button"
+            className={tab === 'preview' ? 'cc-tab active' : 'cc-tab'}
+            onClick={() => setTab('preview')}
+          >Preview</button>
+          {tab === 'write' && (
+            <span className="cc-toolbar">
+              {TOOLBAR.map(g => <span key={g}>{g}</span>)}
+            </span>
+          )}
+        </div>
+        {tab === 'write' ? (
           <textarea
             ref={inputRef}
             className="cc-input"
@@ -66,26 +69,26 @@ export function PRCommentComposer({
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
             }}
           />
-        </>
-      ) : (
-        <div className="cc-input" style={{ fontStyle: 'normal', color: 'var(--text-1)' }}>
-          {value.trim().length > 0
-            ? <MarkdownProse text={value} />
-            : <span style={{ color: 'var(--text-4)', fontStyle: 'italic' }}>Nothing to preview</span>}
-        </div>
-      )}
-      <div className="cc-footer">
-        {local ? (
-          <span className="local-note">🔒 local — won&apos;t be posted to GitHub</span>
         ) : (
-          <span className="local-note" style={{ color: 'var(--text-3)' }}>
-            Comment posts to GitHub{username !== undefined ? ` as @${username}` : ''}
-          </span>
+          <div className="cc-input" style={{ fontStyle: 'normal', color: 'var(--text-1)' }}>
+            {value.trim().length > 0
+              ? <MarkdownProse text={value} />
+              : <span style={{ color: 'var(--text-4)', fontStyle: 'italic' }}>Nothing to preview</span>}
+          </div>
         )}
-        <span className="grow" style={{ flex: 1 }} />
-        <button type="button" className="comment-btn" onClick={submit} disabled={onSubmit === undefined}>
-          Comment<span className="kbd">⌘↵</span>
-        </button>
+        <div className="cc-footer">
+          <span>Markdown supported</span>
+          {local ? (
+            <span className="local-note">🔒 local — won&apos;t be posted to GitHub</span>
+          ) : (
+            <span>Posts to GitHub{username !== undefined ? ` as @${username}` : ''}</span>
+          )}
+          <span className="right">
+            <button type="button" className="btn sm green" onClick={submit} disabled={onSubmit === undefined}>
+              Comment<span className="kbd">⌘↵</span>
+            </button>
+          </span>
+        </div>
       </div>
     </div>
   );

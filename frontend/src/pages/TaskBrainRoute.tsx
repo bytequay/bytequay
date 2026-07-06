@@ -64,7 +64,7 @@ export function TaskBrainRoute({
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
-    bundle: localPrBundle, localPr, prMode,
+    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, localPr, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
@@ -410,7 +410,7 @@ export function TaskBrainRoute({
         title={`Review · ${localPr.title}`}
         files={reviewFiles}
         comments={localPrBundle?.comments ?? []}
-        allowLocalComments={prMode === 'local' && !task.terminal}
+        allowLocalComments={prCapabilities?.draftLocalComments === true && !task.terminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
         onDismissComment={dismissLocalComment}
@@ -443,10 +443,10 @@ export function TaskBrainRoute({
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
       markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
       tabs={{
-        pr: localPrBundle != null ? (
+        pr: localPrBundle != null && prCapabilities !== null ? (
           <PRView
-            mode={prMode}
             bundle={localPrBundle}
+            capabilities={prCapabilities}
             commentValue={localComment}
             onCommentChange={setLocalComment}
             onAddComment={task.terminal ? undefined : submitLocalComment}
@@ -457,6 +457,11 @@ export function TaskBrainRoute({
             onReviewChanges={() => setReviewOpen(true)}
             onRunTests={runLocalTests}
             runTestsBusy={testsBusy}
+            onResolveThread={task.terminal ? undefined : resolveLocalComment}
+            onDismissThread={task.terminal ? undefined : dismissLocalComment}
+            syncedAt={localPrBundle.pr.syncedAt}
+            syncing={prSyncing}
+            onRefresh={refreshLocalPr}
           />
         ) : undefined,
       }}

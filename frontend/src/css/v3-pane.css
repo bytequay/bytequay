@@ -198,20 +198,22 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 11px;
+  padding: 8px 14px;
   background: var(--bg-elev);
   border: 1px solid var(--border-mid);
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--text-2);
   cursor: pointer;
   font-family: inherit;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 .shell .inline-chip:hover {
   border-color: var(--accent);
 }
 .shell .inline-chip.active {
-  border-color: var(--accent);
+  border-color: var(--text-2);
   color: var(--text-1);
   background: var(--accent-soft);
 }

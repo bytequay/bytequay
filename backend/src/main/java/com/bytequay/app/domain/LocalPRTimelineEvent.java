@@ -22,7 +22,10 @@ import java.time.Instant;
  * {@code comment}, {@code follow-up}. {@code localOnly} events render with a
  * lock marker and are stripped on push — {@code strippedOnPushAt} is stamped
  * (never migrated to GitHub). {@code payloadJson} is the event-specific
- * payload as raw JSON text, or null.
+ * payload as raw JSON text, or null. {@code remoteEventId} is the GitHub id
+ * of a remote-synced comment/review event (null for every locally-authored
+ * event) — it's how a repeated sync avoids re-inserting the same GitHub
+ * comment or review as a duplicate row.
  */
 public record LocalPRTimelineEvent(
         String id,
@@ -32,7 +35,8 @@ public record LocalPRTimelineEvent(
         boolean localOnly,
         Instant strippedOnPushAt,
         Instant createdAt,
-        String payloadJson)
+        String payloadJson,
+        Long remoteEventId)
 {
     public static final String TYPE_COMMIT = "commit";
     public static final String TYPE_CI = "ci";
@@ -54,6 +58,6 @@ public record LocalPRTimelineEvent(
     public LocalPRTimelineEvent withStripped(Instant when)
     {
         return new LocalPRTimelineEvent(
-                id, localPrId, eventType, actor, localOnly, when, createdAt, payloadJson);
+                id, localPrId, eventType, actor, localOnly, when, createdAt, payloadJson, remoteEventId);
     }
 }

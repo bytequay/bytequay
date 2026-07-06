@@ -72,6 +72,16 @@ public interface TaskStore
     {
     }
 
+    /** Write the task's {@code ci_state} column from the PR's live CI
+     *  status (a {@code PullRequestDetail.CiStatus} name, e.g. {@code
+     *  "PASSING"}) so the live-plan rail's CI validation node reflects
+     *  reality instead of staying permanently unknown. Entity-level
+     *  update (like {@link #linkPullRequest}). No-op default for test
+     *  stores; the SQLite store overrides. */
+    default void updateCiState(String taskId, String ciState)
+    {
+    }
+
     /** Tasks whose {@code linkedPrNumber} equals {@code prNumber}. Used
      *  to advance a shipped task to COMPLETED when its PR merges; the
      *  caller still narrows by repo (PR numbers aren't globally unique).

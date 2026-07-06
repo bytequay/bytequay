@@ -36,7 +36,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.localpr.LocalPRService;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.localpr.LocalPrPushedEvent;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -46,6 +46,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -137,7 +138,7 @@ public class PublishService
     private final ReviewPassResolver reviewPassResolver;
     private final StageStore stageStore;
     private final LocalPRService localPr;
-    private final BrainReviewService brainReview;
+    private final ApplicationEventPublisher eventPublisher;
 
     public PublishService(
             NotificationService notifications,
@@ -152,7 +153,7 @@ public class PublishService
             TaskPhaseMachine phaseMachine,
             StageStore stageStore,
             LocalPRService localPr,
-            BrainReviewService brainReview)
+            ApplicationEventPublisher eventPublisher)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -166,7 +167,7 @@ public class PublishService
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.localPr = requireNonNull(localPr, "localPr is null");
-        this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
     }
 
     /**
@@ -847,8 +848,25 @@ public class PublishService
         // show "on remote" instead of looking stuck. Best-effort: a
         // bookkeeping miss must not fail an already-applied push.
         markTaskPushed(original);
+        syncLocalPrIfAlreadyOpen(original);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Pushed " + branch + " from " + worktree + ".", push.action());
+    }
+
+    /** A plain push doesn't open a PR itself — but if the task already has
+     *  one (e.g. pushing more commits after addressing comments), sync the
+     *  LocalPR row so it doesn't keep offering "ready to push" for a push
+     *  that just landed on an already-open PR. */
+    private void syncLocalPrIfAlreadyOpen(Notification original)
+    {
+        String taskId = original == null ? null : original.taskId();
+        if (taskId == null || taskId.isBlank()) {
+            return;
+        }
+        taskStore.findTaskById(taskId).ifPresent(task -> PullRequestRef.parse(task.linkedPrRef()).ifPresent(ref ->
+                eventPublisher.publishEvent(new LocalPrPushedEvent(
+                        task.id(), ref.number(),
+                        "https://github.com/" + ref.owner() + "/" + ref.repo() + "/pull/" + ref.number()))));
     }
 
     /** Stamp the proposal's task as pushed-to-remote. Resolved by the
@@ -1117,36 +1135,10 @@ public class PublishService
                 markReady.action());
     }
 
-    /** Best-effort: keep the separate LocalPR tracking row in step with a
-     *  real push/open-PR that just ran through this gate (e.g. via
-     *  auto-approve). That row otherwise only advances when the user clicks
-     *  the local-PR panel's own Push button, so a push resolved here would
-     *  leave it stuck offering "ready to push" for a push that already
-     *  happened. Never fails the publish over a sync miss. */
-    private void syncLocalPrPushed(String taskId, int remotePrNumber, String remotePrUrl)
-    {
-        if (taskId == null || taskId.isBlank()) {
-            return;
-        }
-        try {
-            localPr.findByTask(taskId).ifPresent(pr -> {
-                LocalPR current = pr;
-                if (LocalPR.STATUS_LOCAL_DRAFTED.equals(current.status())) {
-                    current = brainReview.reviewBeforeLocalOpen(current.id(), LocalPRTimelineEvent.ACTOR_AGENT);
-                }
-                if (LocalPR.STATUS_LOCAL_OPEN.equals(current.status())) {
-                    localPr.recordPush(current.id(), remotePrNumber, remotePrUrl);
-                }
-            });
-        }
-        catch (RuntimeException e) {
-            log.warn("syncing local PR push state for task {} failed: {}", taskId, e.getMessage());
-        }
-    }
-
     /** Best-effort: flip a still-{@code remote-drafted} LocalPR row to
-     *  {@code remote-open} once mark-ready resolves through this gate —
-     *  same rationale as {@link #syncLocalPrPushed}. */
+     *  {@code remote-open} once mark-ready resolves through this gate — same
+     *  rationale as {@link LocalPrPushedEvent}, but this one has no other
+     *  path that creates it so it's kept local rather than centralized. */
     private void syncLocalPrMarkedReady(String taskId)
     {
         if (taskId == null || taskId.isBlank()) {
@@ -1274,7 +1266,7 @@ public class PublishService
                 log.warn("linking PR #{} to task {} failed: {}",
                         opened.number(), task.id(), e.getMessage());
             }
-            syncLocalPrPushed(task.id(), opened.number(), opened.htmlUrl());
+            eventPublisher.publishEvent(new LocalPrPushedEvent(task.id(), opened.number(), opened.htmlUrl()));
         }
         String prRef = opened == null ? "" : " #" + opened.number();
         return new PublishResult(true, RESOLUTION_APPROVED,

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
 import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.ReviewComment;
@@ -29,21 +30,24 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Mirrors a PR's remote review comments into the unified
- * {@code review_comment} table as {@code REMOTE_REVIEWER} rows, so the
- * {@code code} operation can read local and remote comments through one
- * machinery. Driven from {@code TaskLifecycleDriver}'s reconcile sweep,
- * which already fetches the {@link PullRequestDetail}.
+ * Mirrors a PR's remote comments into the unified {@code review_comment}
+ * table as {@code REMOTE_REVIEWER} rows, so the {@code code} operation can
+ * read local and remote comments through one machinery. Driven from
+ * {@code TaskLifecycleDriver}'s reconcile sweep, which already fetches the
+ * {@link PullRequestDetail}.
  *
- * <p>The remote source of truth is {@link PullRequestDetail#reviewThreads()}
- * (the github.com review threads), not the local {@code pr_review_draft}
- * comments. Each row is keyed by its github discussion link so re-ingestion
- * is idempotent.
+ * <p>Two remote sources feed it: {@link PullRequestDetail#reviewThreads()}
+ * (diff-anchored review comments) and {@link PullRequestDetail#recentActivity()}
+ * (plain top-level PR/Conversation-tab comments — GitHub "issue comments",
+ * carried as {@code commented} activity events since they have no thread of
+ * their own). Neither is the local {@code pr_review_draft} comments. Each row
+ * is keyed by its github link so re-ingestion is idempotent.
  */
 @Component
 public class RemoteCommentIngestor
 {
     private static final Logger log = LoggerFactory.getLogger(RemoteCommentIngestor.class);
+    private static final String COMMENTED_EVENT = "commented";
 
     private final StageStore stageStore;
 
@@ -53,11 +57,10 @@ public class RemoteCommentIngestor
     }
 
     /**
-     * Ingest every not-yet-stored remote review comment on the PR. A no-op
-     * when there's no detail or no threads. Comments without an anchored
-     * file are skipped (they aren't line review comments).
+     * Ingest every not-yet-stored remote comment on the PR — both diff review
+     * comments and plain top-level ones. A no-op when there's no detail.
      *
-     * <p>No transaction wraps the whole loop — each {@code saveReviewComment}
+     * <p>No transaction wraps either loop — each {@code saveReviewComment}
      * call gets its own (it's {@code @Transactional} itself), and a failure
      * on one message is caught and skipped rather than left to abort the
      * batch: one bad row must never block every other comment on the same PR
@@ -66,10 +69,22 @@ public class RemoteCommentIngestor
      */
     public void ingest(String taskId, String repoFullName, int prNumber, PullRequestDetail detail)
     {
-        if (detail == null || detail.reviewThreads() == null) {
+        if (detail == null) {
             return;
         }
-        for (ReviewThread thread : detail.reviewThreads()) {
+        ingestReviewThreads(taskId, repoFullName, prNumber, detail.reviewThreads());
+        ingestIssueComments(taskId, repoFullName, prNumber, detail.recentActivity());
+    }
+
+    /** Diff-anchored comments — a thread with no {@code filePath} is skipped
+     *  (it isn't a line review comment; general comments arrive separately
+     *  via {@link #ingestIssueComments}). */
+    private void ingestReviewThreads(String taskId, String repoFullName, int prNumber, List<ReviewThread> threads)
+    {
+        if (threads == null) {
+            return;
+        }
+        for (ReviewThread thread : threads) {
             if (thread.filePath() == null) {
                 continue;
             }
@@ -80,30 +95,65 @@ public class RemoteCommentIngestor
                 continue;
             }
             for (ReviewMessage message : messages) {
-                String remoteLink = discussionLink(repoFullName, prNumber, message.githubId());
-                if (stageStore.reviewCommentExistsByRemoteLink(remoteLink)) {
-                    continue;
-                }
-                try {
-                    stageStore.saveReviewComment(new ReviewComment(
+                saveIfNew(taskId, discussionLink(repoFullName, prNumber, message.githubId()),
+                        new ReviewComment(
+                                null,
+                                taskId,
+                                thread.filePath(),
+                                line,
+                                message.body() == null ? "" : message.body(),
+                                message.createdAt() == null ? Instant.now() : message.createdAt(),
+                                ReviewCommentSource.REMOTE_REVIEWER,
+                                discussionLink(repoFullName, prNumber, message.githubId()),
+                                resolved,
+                                message.githubId(),
+                                null,
+                                null,
+                                null));
+            }
+        }
+    }
+
+    /** Plain top-level PR comments — GitHub has no "resolved" concept for
+     *  these (there's no thread), so they always ingest as unresolved; the
+     *  local {@code resolve_review_comment} tool is what clears them. */
+    private void ingestIssueComments(String taskId, String repoFullName, int prNumber, List<ActivityItem> activity)
+    {
+        if (activity == null) {
+            return;
+        }
+        for (ActivityItem item : activity) {
+            if (!COMMENTED_EVENT.equals(item.eventType()) || item.githubId() == null) {
+                continue;
+            }
+            saveIfNew(taskId, issueCommentLink(repoFullName, prNumber, item.githubId()),
+                    new ReviewComment(
                             null,
                             taskId,
-                            thread.filePath(),
-                            line,
-                            message.body() == null ? "" : message.body(),
-                            message.createdAt() == null ? Instant.now() : message.createdAt(),
+                            /* file */ null,
+                            /* line */ 0,
+                            item.body() == null ? "" : item.body(),
+                            item.timestamp() == null ? Instant.now() : item.timestamp(),
                             ReviewCommentSource.REMOTE_REVIEWER,
-                            remoteLink,
-                            resolved,
-                            message.githubId(),
+                            issueCommentLink(repoFullName, prNumber, item.githubId()),
+                            /* resolved */ false,
+                            item.githubId(),
                             null,
                             null,
                             null));
-                }
-                catch (RuntimeException e) {
-                    log.warn("failed to ingest remote comment {} for task {}: {}", remoteLink, taskId, e.getMessage());
-                }
-            }
+        }
+    }
+
+    private void saveIfNew(String taskId, String remoteLink, ReviewComment comment)
+    {
+        if (stageStore.reviewCommentExistsByRemoteLink(remoteLink)) {
+            return;
+        }
+        try {
+            stageStore.saveReviewComment(comment);
+        }
+        catch (RuntimeException e) {
+            log.warn("failed to ingest remote comment {} for task {}: {}", remoteLink, taskId, e.getMessage());
         }
     }
 
@@ -111,5 +161,11 @@ public class RemoteCommentIngestor
     {
         return "https://github.com/" + repoFullName + "/pull/" + prNumber
                 + "#discussion_r" + commentGithubId;
+    }
+
+    private static String issueCommentLink(String repoFullName, int prNumber, long commentGithubId)
+    {
+        return "https://github.com/" + repoFullName + "/pull/" + prNumber
+                + "#issuecomment-" + commentGithubId;
     }
 }

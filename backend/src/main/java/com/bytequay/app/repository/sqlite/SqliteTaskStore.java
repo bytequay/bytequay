@@ -140,6 +140,13 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional
+    public void updateCiState(String taskId, String ciState)
+    {
+        mutate(taskId, entity -> entity.setCiState(ciState));
+    }
+
+    @Override
     public List<Task> findByLinkedPrNumber(int prNumber)
     {
         return tasks.findByLinkedPrNumber(prNumber).stream()

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
 import com.bytequay.app.domain.PullRequestDetail.ReviewThread;
 import com.bytequay.app.domain.ReviewComment;
@@ -84,6 +85,44 @@ class TestRemoteCommentIngestor
     }
 
     @Test
+    void ingestsTopLevelIssueCommentsAsUnanchoredRemoteReviewerRows()
+    {
+        // A plain comment left on the PR's Conversation tab — no file/line,
+        // no thread — arrives as a "commented" activity event instead of a
+        // review thread.
+        PullRequestDetail detail = detailWithActivity(List.of(
+                commented(5001L, "octocat", "Can you also handle the empty-list case?",
+                        Instant.parse("2026-06-20T10:00:00Z"))));
+        when(stageStore.reviewCommentExistsByRemoteLink(anyString())).thenReturn(false);
+
+        ingestor.ingest("task-1", "octo/repo", 7, detail);
+
+        ArgumentCaptor<ReviewComment> captor = ArgumentCaptor.forClass(ReviewComment.class);
+        verify(stageStore).saveReviewComment(captor.capture());
+        ReviewComment saved = captor.getValue();
+        assertThat(saved.source()).isEqualTo(ReviewCommentSource.REMOTE_REVIEWER);
+        assertThat(saved.file()).isNull();
+        assertThat(saved.line()).isZero();
+        assertThat(saved.body()).isEqualTo("Can you also handle the empty-list case?");
+        assertThat(saved.remoteLink())
+                .isEqualTo("https://github.com/octo/repo/pull/7#issuecomment-5001");
+    }
+
+    @Test
+    void ignoresNonCommentActivityEventsAndAlreadyStoredIssueComments()
+    {
+        PullRequestDetail detail = detailWithActivity(List.of(
+                new ActivityItem("octocat", "reviewed", Instant.parse("2026-06-20T10:00:00Z"),
+                        null, "APPROVED", null, null, null, null, "MEMBER", 9001L, null),
+                commented(5001L, "octocat", "already seen", Instant.parse("2026-06-20T10:00:00Z"))));
+        when(stageStore.reviewCommentExistsByRemoteLink(anyString())).thenReturn(true);
+
+        ingestor.ingest("task-1", "octo/repo", 7, detail);
+
+        verify(stageStore, never()).saveReviewComment(any());
+    }
+
+    @Test
     void aFailedSaveIsLoggedAndSkippedRatherThanBlockingSiblingCommentsOrPropagating()
     {
         // Two threads on the same PR: the first's save blows up (e.g. the
@@ -112,6 +151,19 @@ class TestRemoteCommentIngestor
         PullRequestDetail detail = mock(PullRequestDetail.class);
         when(detail.reviewThreads()).thenReturn(threads);
         return detail;
+    }
+
+    private static PullRequestDetail detailWithActivity(List<ActivityItem> activity)
+    {
+        PullRequestDetail detail = mock(PullRequestDetail.class);
+        when(detail.recentActivity()).thenReturn(activity);
+        return detail;
+    }
+
+    private static ActivityItem commented(long githubId, String actor, String body, Instant timestamp)
+    {
+        return new ActivityItem(actor, "commented", timestamp, body, null, null, null, null, null,
+                "MEMBER", githubId, null);
     }
 
     private static ReviewThread thread(String filePath, Integer line, boolean resolved, ReviewMessage message)

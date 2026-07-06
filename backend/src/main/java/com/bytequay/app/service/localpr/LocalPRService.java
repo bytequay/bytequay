@@ -122,4 +122,22 @@ public interface LocalPRService
      *  created at or before this instant are considered already accounted
      *  for by the addressing loop (see {@link LocalPR#withLocalAddressedThrough}). */
     LocalPR markLocalAddressed(String prId, Instant through);
+
+    // ── remote-timeline sync ─────────────────────────────────────────────
+    /** Whether a remote comment/review with this GitHub id has already been
+     *  mirrored onto the timeline — lets {@code LocalPRSyncService} stay
+     *  idempotent across repeated PR-bundle fetches. */
+    boolean hasRemoteEvent(String prId, long remoteEventId);
+
+    /** Mirror a remote GitHub PR-level (issue) comment: a comment row
+     *  ({@code origin=remote}) plus its {@code comment} timeline event,
+     *  tagged with the comment's GitHub id for {@link #hasRemoteEvent}. */
+    LocalPRComment addRemoteComment(String prId, String author, String body, Instant createdAt, long remoteCommentId);
+
+    /** Mirror a remote GitHub PR review (approved / changes requested /
+     *  commented), plus its written summary if any, as a {@code review}
+     *  timeline event, tagged with the review's GitHub id for
+     *  {@link #hasRemoteEvent}. */
+    void recordRemoteReview(
+            String prId, String reviewer, String verdict, String body, Instant when, long remoteReviewId);
 }

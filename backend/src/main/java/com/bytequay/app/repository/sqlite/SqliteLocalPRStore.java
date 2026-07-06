@@ -137,6 +137,13 @@ class SqliteLocalPRStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public boolean timelineEventExistsByRemoteId(String localPrId, long remoteEventId)
+    {
+        return events.existsByLocalPrIdAndRemoteEventId(localPrId, remoteEventId);
+    }
+
+    @Override
     @Transactional
     public LocalPRCheck addCheck(LocalPRCheck check)
     {
@@ -220,6 +227,7 @@ class SqliteLocalPRStore
         e.setStrippedOnPushAtMs(epochOrNull(event.strippedOnPushAt()));
         e.setCreatedAtMs(event.createdAt().toEpochMilli());
         e.setPayloadJson(event.payloadJson());
+        e.setRemoteEventId(event.remoteEventId());
         return e;
     }
 
@@ -265,7 +273,8 @@ class SqliteLocalPRStore
                 e.isLocalOnly(),
                 instantOrNull(e.getStrippedOnPushAtMs()),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                e.getPayloadJson());
+                e.getPayloadJson(),
+                e.getRemoteEventId());
     }
 
     private static LocalPRCheck toDomain(LocalPrCheckEntity e)

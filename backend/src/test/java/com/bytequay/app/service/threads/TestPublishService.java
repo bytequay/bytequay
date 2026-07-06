@@ -35,7 +35,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.LocalPRService;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.localpr.LocalPrPushedEvent;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.threads.PublishService.PublishResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -43,6 +43,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -87,7 +88,7 @@ class TestPublishService
     private TaskPhaseMachine phaseMachine;
     private StageStore stageStore;
     private LocalPRService localPr;
-    private BrainReviewService brainReview;
+    private ApplicationEventPublisher eventPublisher;
     private PublishService service;
 
     @BeforeEach
@@ -104,10 +105,10 @@ class TestPublishService
         phaseMachine = mock(TaskPhaseMachine.class);
         stageStore = mock(StageStore.class);
         localPr = mock(LocalPRService.class);
-        brainReview = mock(BrainReviewService.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         service = new PublishService(
                 notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
-                mock(ReviewPassResolver.class), phaseMachine, stageStore, localPr, brainReview);
+                mock(ReviewPassResolver.class), phaseMachine, stageStore, localPr, eventPublisher);
         when(notifications.claimResolution(anyString())).thenReturn(true);
         when(stageStore.findUnresolvedComments(anyString())).thenReturn(List.of());
         when(localPr.findByTask(anyString())).thenReturn(Optional.empty());
@@ -136,6 +137,39 @@ class TestPublishService
         assertAuditRowWritten(parked, "approved", "push", "Pushed feature/x");
         // The approved push advances the task onto the remote spine.
         verify(phaseMachine).observe("task-1", TaskPhase.PUSHED_AWAITING_CI, "publish_approved");
+    }
+
+    @Test
+    void approvePushOnATaskWithAnExistingPrPublishesALocalPrPushedEvent()
+    {
+        // A plain push gate never creates a PR itself — but if the task
+        // already has one (e.g. pushing more commits after addressing
+        // comments), the LocalPR row must still learn about it, or the panel
+        // keeps offering "ready to push" for a push that just landed.
+        Notification parked = parkedPush("notif-existing-pr", "task-existing-pr",
+                "feature/x", "/tmp/wt/feature-x");
+        when(notifications.find("notif-existing-pr")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-existing-pr"))
+                .thenReturn(Optional.of(taskWithLinkedPr("task-existing-pr", "acme/widget#42")));
+
+        service.approve("notif-existing-pr", null, "push");
+
+        verify(eventPublisher).publishEvent(
+                new LocalPrPushedEvent("task-existing-pr", 42, "https://github.com/acme/widget/pull/42"));
+    }
+
+    @Test
+    void approvePushOnATaskWithNoPrYetPublishesNoEvent()
+    {
+        Notification parked = parkedPush("notif-no-pr", "task-no-pr",
+                "feature/x", "/tmp/wt/feature-x");
+        when(notifications.find("notif-no-pr")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-no-pr"))
+                .thenReturn(Optional.of(taskAt("task-no-pr", TaskStatus.AWAITING_REVIEW)));
+
+        service.approve("notif-no-pr", null, "push");
+
+        verify(eventPublisher, never()).publishEvent(any(LocalPrPushedEvent.class));
     }
 
     @Test
@@ -1086,12 +1120,14 @@ class TestPublishService
     }
 
     @Test
-    void openPrAdvancesAStuckLocalPrRowSoTheStalePushPromptClears()
+    void openPrPublishesALocalPrPushedEventSoTheStalePushPromptClears()
     {
         // The LocalPR row is a separate tracking table from the task's own
         // phase — auto-approve resolving this gate must also carry it
         // forward, or PRActionBar keeps offering "Approve & push to
-        // GitHub" for a push that already happened.
+        // GitHub" for a push that already happened. PublishService's job is
+        // just to publish the event; LocalPRPublishService's listener (see
+        // TestLocalPRPublishService) is what actually advances the row.
         Notification parked = parkedOpenPr("notif-sync-local-pr", "task-sync-local-pr",
                 "acme", "widget", "Add cache layer", "feature/cache", "main", "Draft body.");
         when(notifications.find("notif-sync-local-pr")).thenReturn(Optional.of(parked));
@@ -1100,15 +1136,11 @@ class TestPublishService
         when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
         when(pullRequests.createPullRequest(any(), any(), any()))
                 .thenReturn(samplePr(42, true));
-        LocalPR stuck = LocalPR.create(
-                "local-pr-1", "task-sync-local-pr", "feature/cache", "main",
-                "Add cache layer", "", Instant.parse("2026-05-22T11:00:00Z"))
-                .withStatus(LocalPR.STATUS_LOCAL_OPEN, Instant.parse("2026-05-22T11:30:00Z"));
-        when(localPr.findByTask("task-sync-local-pr")).thenReturn(Optional.of(stuck));
 
         service.approve("notif-sync-local-pr", "", "open_pr");
 
-        verify(localPr).recordPush("local-pr-1", 42, "https://github.com/acme/widget/pull/42");
+        verify(eventPublisher).publishEvent(
+                new LocalPrPushedEvent("task-sync-local-pr", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test
@@ -1372,5 +1404,23 @@ class TestPublishService
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 now, null, null, null, null, null);
+    }
+
+    /** Same as {@link #taskAt} but with {@code linkedPrRef} set — a task
+     *  that's already opened its PR through some other path, so a plain
+     *  push here is a subsequent push to that existing PR. */
+    private static Task taskWithLinkedPr(String id, String linkedPrRef)
+    {
+        Instant now = Instant.parse("2026-05-22T12:00:00Z");
+        return new Task(
+                id, "thread-" + id, 1L, TaskStatus.AWAITING_REVIEW,
+                "feature/x", "/tmp/wt/feature-x", "main", "/tmp/repo",
+                null, null, null, null, null,
+                "DEVELOP", null, null,
+                0L, 0L, 0L,
+                /* agentSessionId */ null,
+                now, null, null, null, null, null,
+                /* pushedAt */ null, TaskPhase.IMPLEMENTING, /* agendaJson */ null,
+                /* consecutiveAutoPushes */ 0, linkedPrRef, /* openingPrompt */ null);
     }
 }

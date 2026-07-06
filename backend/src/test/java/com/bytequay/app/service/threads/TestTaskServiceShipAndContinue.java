@@ -35,6 +35,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.LocalPrPushedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -168,6 +169,46 @@ class TestTaskServiceShipAndContinue
         verify(taskStore).linkTaskToPr("task-1", "acme/widget#42");
         verify(taskPhaseMachine).observe(
                 eq("task-1"), eq(TaskPhase.PUSHED_AWAITING_CI), anyString());
+    }
+
+    @Test
+    void shipOpeningAPrPublishesALocalPrPushedEventSoItsLocalPrRowLearnsAboutIt()
+            throws Exception
+    {
+        // Ship pushes + opens the PR directly — not through a push/open_pr
+        // gate — so without this event the task's LocalPR row (a separate
+        // tracking table) never learns the push happened and keeps offering
+        // "ready to push" forever.
+        String workingDir = "/tmp/acme/widget";
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+        TaskService serviceWithMockPublisher = new TaskService(
+                threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
+                git, pullRequests, patResolver,
+                registry, workspaces, notifications, mapper,
+                eventPublisher,
+                taskPhaseMachine);
+
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
+        Task shipped = task("task-1", "thread-1", 1L, "dev/task-1-fix-the-thing",
+                "/tmp/acme/widget/.worktrees/task-1", workingDir);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(shipped));
+        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(shipped));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0,
+                        workingDir, /* upstreamRemoteName */ null, /* viewFocus */ null)));
+        when(workspaces.findDefaultBaseBranch(anyString(), anyString())).thenReturn(Optional.empty());
+        when(git.defaultBranch(any(Path.class))).thenReturn(Optional.of("main"));
+        when(git.hasUncommittedChanges(any(Path.class))).thenReturn(false);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.createPullRequest(eq("ghp_secret"), any(RepoRef.class), any()))
+                .thenReturn(prWithNumber(42));
+        when(registry.find("thread-1")).thenReturn(Optional.empty());
+
+        serviceWithMockPublisher.shipAndContinue("thread-1", "task-1",
+                new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
+
+        verify(eventPublisher).publishEvent(
+                new LocalPrPushedEvent("task-1", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test

@@ -16,6 +16,7 @@ package com.bytequay.app.service.localpr;
 import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRCheck;
 import com.bytequay.app.domain.LocalPRComment;
+import com.bytequay.app.domain.LocalPRTimelineEvent;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -26,6 +27,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.review.BrainReviewService;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -38,6 +40,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -58,8 +61,9 @@ class TestLocalPRPublishService
     private final GitRunner git = mock(GitRunner.class);
     private final PullRequestRepository pullRequests = mock(PullRequestRepository.class);
     private final PatResolver patResolver = mock(PatResolver.class);
+    private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final LocalPRPublishService service =
-            new LocalPRPublishService(localPr, taskStore, git, pullRequests, patResolver);
+            new LocalPRPublishService(localPr, taskStore, git, pullRequests, patResolver, brainReview);
 
     private LocalPR localPr(String status)
     {
@@ -144,6 +148,44 @@ class TestLocalPRPublishService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("not ready to push");
         verify(pullRequests, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void onPushedElsewhereAdvancesALocalOpenRowToRemoteDrafted()
+    {
+        // Mirrors a push/open_pr gate or the ship/next tool flow — none of
+        // which call this service's own push(), so the row would otherwise
+        // stay stuck offering "ready to push" for a push that already
+        // happened.
+        when(localPr.findByTask("task1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_OPEN)));
+
+        service.onPushedElsewhere(new LocalPrPushedEvent("task1", 145, "https://github.com/acme/widget/pull/145"));
+
+        verify(localPr).recordPush("pr1", 145, "https://github.com/acme/widget/pull/145");
+        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
+    }
+
+    @Test
+    void onPushedElsewhereRunsTheBrainReviewFirstWhenStillLocalDrafted()
+    {
+        when(localPr.findByTask("task1")).thenReturn(Optional.of(localPr(LocalPR.STATUS_LOCAL_DRAFTED)));
+        when(brainReview.reviewBeforeLocalOpen("pr1", LocalPRTimelineEvent.ACTOR_AGENT))
+                .thenReturn(localPr(LocalPR.STATUS_LOCAL_OPEN));
+
+        service.onPushedElsewhere(new LocalPrPushedEvent("task1", 145, "https://github.com/acme/widget/pull/145"));
+
+        verify(brainReview).reviewBeforeLocalOpen("pr1", LocalPRTimelineEvent.ACTOR_AGENT);
+        verify(localPr).recordPush("pr1", 145, "https://github.com/acme/widget/pull/145");
+    }
+
+    @Test
+    void onPushedElsewhereIsANoOpForATaskWithNoLocalPr()
+    {
+        when(localPr.findByTask("task-none")).thenReturn(Optional.empty());
+
+        service.onPushedElsewhere(new LocalPrPushedEvent("task-none", 145, "https://github.com/x/y/pull/145"));
+
+        verify(localPr, never()).recordPush(any(), anyInt(), any());
     }
 
     @Test

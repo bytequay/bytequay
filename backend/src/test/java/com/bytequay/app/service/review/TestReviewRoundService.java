@@ -91,15 +91,25 @@ class TestReviewRoundService
             phaseMachine, pullRequests, git, brainReview, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
-    void reconcileIsANoOpWhenARoundIsAlreadyLive()
+    void reconcileNeverOpensASecondRoundButRefreshesTheLiveOnesStats()
     {
         Task task = task();
-        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(round(ReviewRound.STATUS_ADDRESSING)));
+        ReviewRound live = round(ReviewRound.STATUS_ADDRESSING);
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(live));
+        when(roundStore.findById(live.id())).thenReturn(Optional.of(live));
+        ReviewComment stillOpen = new ReviewComment(
+                UUID.randomUUID(), TASK_ID, "src/Foo.java", 1, "nit", NOW,
+                ReviewCommentSource.REMOTE_REVIEWER, null, false, 1L, UUID.fromString(live.id()), null, null);
+        when(stageStore.findCommentsByRound(UUID.fromString(live.id()))).thenReturn(List.of(stillOpen));
 
         service.reconcile(task);
 
         verify(stageStore, never()).findUnroundedRemoteComments(anyString());
         verify(agentRuns, never()).open(any(), any(), any(), any(), any(), any());
+        // A round parked before recomputeStats existed (or one that simply
+        // fell behind) self-heals on the next reconcile sweep instead of
+        // staying stuck until its next resolve.
+        verify(roundStore).save(argThat(r -> r.stats().open() == 1));
     }
 
     @Test
@@ -138,8 +148,45 @@ class TestReviewRoundService
 
         verify(stageStore).assignCommentsToRound(eq(List.of(c1.id(), c2.id())), any());
         verify(roundStore).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())
-                && TASK_ID.equals(r.taskId()) && run.id().equals(r.runId())));
+                && TASK_ID.equals(r.taskId()) && run.id().equals(r.runId())
+                // Stats start reflecting the real batch size, not empty() —
+                // the rail's "N comments" banner must be right from round 1,
+                // not just after the first resolve.
+                && r.stats().open() == 2 && r.stats().fixed() == 0 && r.stats().replied() == 0));
         verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq(TASK_ID), eq(run.stageId()), any());
+    }
+
+    @Test
+    void recomputeStatsClassifiesEachCommentByItsResolvedAndReplyState()
+    {
+        UUID roundId = UUID.randomUUID();
+        ReviewRound round = round(ReviewRound.STATUS_ADDRESSING);
+        when(roundStore.findById(roundId.toString())).thenReturn(Optional.of(round));
+        ReviewComment fixed = new ReviewComment(
+                UUID.randomUUID(), TASK_ID, "src/Foo.java", 1, "fix this", NOW,
+                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ true, 1L, roundId, null, null);
+        ReviewComment replied = new ReviewComment(
+                UUID.randomUUID(), TASK_ID, "src/Bar.java", 2, "why?", NOW,
+                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ true, 2L, roundId, "because", NOW);
+        ReviewComment stillOpen = new ReviewComment(
+                UUID.randomUUID(), TASK_ID, "src/Baz.java", 3, "nit", NOW,
+                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ false, 3L, roundId, null, null);
+        when(stageStore.findCommentsByRound(roundId)).thenReturn(List.of(fixed, replied, stillOpen));
+
+        service.recomputeStats(roundId.toString());
+
+        verify(roundStore).save(argThat(r -> r.stats().fixed() == 1 && r.stats().replied() == 1
+                && r.stats().open() == 1 && r.stats().pushedBack() == 0));
+    }
+
+    @Test
+    void recomputeStatsIsANoOpForAnUnknownRound()
+    {
+        when(roundStore.findById("missing")).thenReturn(Optional.empty());
+
+        service.recomputeStats("missing");
+
+        verify(roundStore, never()).save(any());
     }
 
     @Test

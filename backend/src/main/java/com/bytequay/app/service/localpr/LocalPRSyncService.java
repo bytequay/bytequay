@@ -16,10 +16,15 @@ package com.bytequay.app.service.localpr;
 import com.bytequay.app.domain.LocalPR;
 import com.bytequay.app.domain.LocalPRCommit;
 import com.bytequay.app.domain.LocalPRTimelineEvent;
+import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
+import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
@@ -28,6 +33,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -61,18 +67,24 @@ public class LocalPRSyncService
     private final TaskStore taskStore;
     private final GitRunner git;
     private final BrainReviewService brainReview;
+    private final PullRequestService pullRequests;
+    private final LocalPRPublishService localPrPublish;
 
     public LocalPRSyncService(
-            LocalPRService localPr, TaskStore taskStore, GitRunner git, BrainReviewService brainReview)
+            LocalPRService localPr, TaskStore taskStore, GitRunner git, BrainReviewService brainReview,
+            PullRequestService pullRequests, LocalPRPublishService localPrPublish)
     {
         this.localPr = requireNonNull(localPr, "localPr is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.git = requireNonNull(git, "git is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.localPrPublish = requireNonNull(localPrPublish, "localPrPublish is null");
     }
 
-    /** Ensure the task's local PR exists and reflects the branch's commits.
-     *  Returns empty when the task has no branch yet (nothing to show). */
+    /** Ensure the task's local PR exists and reflects the branch's commits
+     *  and (once pushed) the remote PR's comments/reviews. Returns empty
+     *  when the task has no branch yet (nothing to show). */
     public Optional<LocalPR> syncFromTask(String taskId)
     {
         Task task = taskStore.findTaskById(taskId).orElse(null);
@@ -85,7 +97,117 @@ public class LocalPRSyncService
 
         syncCommits(pr, task, base);
         maybeFlipToOpen(pr.id(), task);
+        pr = healIfAlreadyPushedRemotely(pr, task);
+        syncRemoteTimeline(pr, task);
         return localPr.findById(pr.id());
+    }
+
+    /** Self-heals a row stuck at {@code local-drafted}/{@code local-open}
+     *  when the task's PR is already open remotely — the same recovery
+     *  {@link LocalPRPublishService#onPushedElsewhere} performs for a push
+     *  resolved via a gate, applied here too since a task pushed before that
+     *  sync existed (or through a path that missed it) would otherwise never
+     *  catch up. Runs on every PR-bundle fetch, so it's a one-time fix per
+     *  task — once flipped, the status guard in {@code onPushedElsewhere}
+     *  makes every later call a no-op. */
+    private LocalPR healIfAlreadyPushedRemotely(LocalPR pr, Task task)
+    {
+        if (!LocalPR.STATUS_LOCAL_DRAFTED.equals(pr.status()) && !LocalPR.STATUS_LOCAL_OPEN.equals(pr.status())) {
+            return pr;
+        }
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
+        if (ref.isEmpty()) {
+            return pr;
+        }
+        localPrPublish.onPushedElsewhere(new LocalPrPushedEvent(
+                task.id(), ref.get().number(),
+                "https://github.com/" + ref.get().owner() + "/" + ref.get().repo() + "/pull/" + ref.get().number()));
+        return localPr.findById(pr.id()).orElse(pr);
+    }
+
+    /** Mirror the remote PR's comments and reviews onto the unified timeline
+     *  — a no-op until the PR is actually pushed. Best-effort: a GitHub
+     *  hiccup here must never break the PR view, so failures just log. */
+    private void syncRemoteTimeline(LocalPR pr, Task task)
+    {
+        if (pr.remotePrNumber() == null) {
+            return;
+        }
+        Optional<RepoRef> repo;
+        try {
+            repo = git.remoteSlug(Path.of(task.workingDir()), "origin");
+        }
+        catch (IOException e) {
+            log.info("resolving origin remote for local PR {} failed: {}", pr.id(), e.getMessage());
+            return;
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        if (repo.isEmpty()) {
+            return;
+        }
+        PullRequestDetail detail;
+        try {
+            detail = pullRequests.getPullRequestDetail(
+                    repo.get().owner() + "/" + repo.get().repo(), pr.remotePrNumber());
+        }
+        catch (RuntimeException e) {
+            log.info("fetching remote PR detail for local PR {} failed: {}", pr.id(), e.getMessage());
+            return;
+        }
+        if (detail.recentActivity() == null) {
+            return;
+        }
+        for (ActivityItem item : detail.recentActivity()) {
+            if (item.githubId() == null) {
+                continue;
+            }
+            if ("commented".equals(item.eventType())) {
+                syncIssueComment(pr, item);
+            }
+            else if ("reviewed".equals(item.eventType())) {
+                syncReview(pr, item);
+            }
+        }
+    }
+
+    private void syncIssueComment(LocalPR pr, ActivityItem item)
+    {
+        if (localPr.hasRemoteEvent(pr.id(), item.githubId())) {
+            return;
+        }
+        try {
+            localPr.addRemoteComment(
+                    pr.id(), actorLabel(item.actor()), item.body() == null ? "" : item.body(),
+                    item.timestamp() == null ? Instant.now() : item.timestamp(), item.githubId());
+        }
+        catch (RuntimeException e) {
+            log.warn("syncing remote comment {} onto local PR {} failed: {}", item.githubId(), pr.id(),
+                    e.getMessage());
+        }
+    }
+
+    private void syncReview(LocalPR pr, ActivityItem item)
+    {
+        if (localPr.hasRemoteEvent(pr.id(), item.githubId())) {
+            return;
+        }
+        try {
+            localPr.recordRemoteReview(
+                    pr.id(), actorLabel(item.actor()), item.state(), item.body(),
+                    item.timestamp() == null ? Instant.now() : item.timestamp(), item.githubId());
+        }
+        catch (RuntimeException e) {
+            log.warn("syncing remote review {} onto local PR {} failed: {}", item.githubId(), pr.id(),
+                    e.getMessage());
+        }
+    }
+
+    private static String actorLabel(String githubLogin)
+    {
+        return githubLogin == null || githubLogin.isBlank() ? "unknown" : "@" + githubLogin;
     }
 
     private void syncCommits(LocalPR pr, Task task, String base)

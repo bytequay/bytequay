@@ -3952,10 +3952,12 @@ export type Bridge = {
    *  its commits. */
   approveRound: (roundId: string) => Promise<ReviewRoundDto>;
 
-  // ── Local PR (the PR artifact living in ByteQuay before GitHub) ──────
-  /** The task's whole local PR (row + commits + timeline + checks +
-   *  comments + strip count) in one call, or null if none exists yet. */
-  getLocalPrBundle: (taskId: string) => Promise<LocalPRBundle | null>;
+  // ── PR (unified local/external aggregate) ─────────────────────────────
+  /** Resolver — the task's PR id (as a full `PR`), or null if it has none yet. */
+  getPrForTask: (taskId: string) => Promise<LocalPR | null>;
+  /** The whole PR (row + commits + timeline + checks + comments + strip
+   *  count) in one call, keyed by PR id, or null if it doesn't exist. */
+  getLocalPrBundle: (prId: string) => Promise<LocalPRBundle | null>;
   /** User-gated push: push the branch, open a Draft PR, strip local-only
    *  history, and flip local-open → remote-drafted. */
   pushLocalPr: (prId: string) => Promise<LocalPR>;

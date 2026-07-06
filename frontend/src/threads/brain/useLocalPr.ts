@@ -11,59 +11,56 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { LocalPRBundle } from '../../types/localPr';
 import { makeIdCache } from './idCache';
+import { usePR } from '../../pr/usePR';
 
-/** Poll cadence while a task's local PR is live (matches the stage detail). */
-const POLL_MS = 5000;
-
-/** Last-known bundle per task id, so switching back paints instantly while a
- *  fresh fetch revalidates underneath — same stale-while-revalidate pattern as
- *  {@link useStageDetailData}. */
-const cache = makeIdCache<LocalPRBundle>();
+/** A task's PR id never changes once assigned, so resolving it once per
+ *  task and caching forever is safe (unlike the bundle itself, which is
+ *  re-polled by {@link usePR}). */
+const prIdCache = makeIdCache<string | null>();
 
 type LocalPrState = {
-  /** The task's local PR bundle, or null when it has none yet (the common
-   *  case until Dev records its first commit) — the host then falls back to
-   *  the remote PR view. Undefined only before the first fetch resolves. */
+  /** The task's PR bundle, or null when it has none yet (the common case
+   *  until Dev records its first commit) — the host then falls back to the
+   *  remote PR view. Undefined only before the first fetch resolves. */
   bundle: LocalPRBundle | null | undefined;
   refresh: () => void;
 };
 
 /**
- * Fetches {@code GET /api/tasks/{taskId}/local-pr/bundle} via the bridge and
- * polls it while the task is live. A 404 (no local PR yet) resolves to null,
- * not an error, so the caller can decide whether to render {@code <PRView>} or
- * fall back to the remote PR panel.
+ * Resolves a task id to its PR id via {@code GET /api/tasks/{taskId}/pr}
+ * (materialising the row on first read, same as the old task-scoped bundle
+ * fetch did), then delegates to {@link usePR} for the actual data — task
+ * surfaces stay keyed by task id, everything else routes through the one
+ * PR-id-keyed hook every surface shares (unified-pr-view.md U5).
  */
 export function useLocalPr(taskId: string): LocalPrState {
-  const [bundle, setBundle] = useState<LocalPRBundle | null | undefined>(() => cache.get(taskId) ?? undefined);
-
-  const shownIdRef = useRef(taskId);
-  if (shownIdRef.current !== taskId) {
-    shownIdRef.current = taskId;
-    setBundle(cache.get(taskId) ?? undefined);
-  }
-
-  const fetchOnce = useCallback(() => {
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (!bridge?.getLocalPrBundle) {
-      return;
-    }
-    void bridge.getLocalPrBundle(taskId)
-      .then(b => {
-        if (b !== null) cache.set(taskId, b);
-        setBundle(b);
-      })
-      .catch(() => { /* transient; the next poll retries */ });
-  }, [taskId]);
+  const [prId, setPrId] = useState<string | null | undefined>(() => prIdCache.get(taskId));
 
   useEffect(() => {
-    fetchOnce();
-    const id = window.setInterval(fetchOnce, POLL_MS);
-    return () => window.clearInterval(id);
-  }, [fetchOnce]);
+    const cached = prIdCache.get(taskId);
+    if (cached !== undefined) {
+      setPrId(cached);
+      return;
+    }
+    let cancelled = false;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (!bridge?.getPrForTask) {
+      return;
+    }
+    void bridge.getPrForTask(taskId)
+      .then(pr => {
+        if (cancelled) return;
+        const resolved = pr?.id ?? null;
+        prIdCache.set(taskId, resolved);
+        setPrId(resolved);
+      })
+      .catch(() => { /* transient; effect re-runs on next mount/taskId change */ });
+    return () => { cancelled = true; };
+  }, [taskId]);
 
-  return { bundle, refresh: fetchOnce };
+  const { bundle, refresh } = usePR(prId ?? null);
+  return { bundle: prId === null ? null : bundle, refresh };
 }

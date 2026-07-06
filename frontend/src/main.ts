@@ -938,81 +938,102 @@ function registerIpc(): void {
     return res.json();
   });
 
-  // ── Local PR ──────────────────────────────────────────────────────
-  // A task has at most one local PR; a 404 means "none yet", surfaced as
-  // null so the renderer can fall back to the remote PR view.
-  ipcMain.handle('localpr:bundle', async (_event, taskId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/local-pr/bundle`);
+  // ── PR (unified local/external aggregate) ────────────────────────────
+  // A task has at most one PR; a 404 means "none yet", surfaced as null so
+  // the renderer can fall back to the remote PR view.
+  ipcMain.handle('pr:forTask', async (_event, taskId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/pr`);
     if (res.status === 404) {
       return null;
     }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`backend local-pr bundle returned ${res.status}: ${body}`);
+      throw new Error(`backend PR-for-task returned ${res.status}: ${body}`);
     }
     return res.json();
   });
-  ipcMain.handle('localpr:push', async (_event, prId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/local-pr/${encodeURIComponent(prId)}/push`, { method: 'POST' });
+  ipcMain.handle('pr:bundle', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/bundle`);
+    if (res.status === 404) {
+      return null;
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`backend local-pr push returned ${res.status}: ${body}`);
+      throw new Error(`backend PR bundle returned ${res.status}: ${body}`);
     }
     return res.json();
   });
-  ipcMain.handle('localpr:merge', async (_event, prId: string, method: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/local-pr/${encodeURIComponent(prId)}/merge`, {
+  ipcMain.handle('pr:push', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/push`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend PR push returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('pr:merge', async (_event, prId: string, method: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/merge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`backend local-pr merge returned ${res.status}: ${body}`);
+      throw new Error(`backend PR merge returned ${res.status}: ${body}`);
     }
     return res.json();
   });
-  ipcMain.handle('localpr:addComment', async (_event, prId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/local-pr/${encodeURIComponent(prId)}/comments`, {
+  ipcMain.handle('pr:publishReview', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/publish-review`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend PR publish-review returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('pr:addComment', async (_event, prId: string, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend local-pr comment returned ${res.status}: ${text}`);
+      throw new Error(`backend PR comment returned ${res.status}: ${text}`);
     }
     return res.json();
   });
-  ipcMain.handle('localpr:resolveComment', async (_event, commentId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/local-pr/comments/${encodeURIComponent(commentId)}`, {
+  ipcMain.handle('pr:resolveComment', async (_event, commentId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}`, {
       method: 'PATCH',
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend local-pr resolve returned ${res.status}: ${text}`);
+      throw new Error(`backend PR resolve returned ${res.status}: ${text}`);
     }
     return res.json();
   });
-  ipcMain.handle('localpr:dismissComment', async (_event, commentId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/local-pr/comments/${encodeURIComponent(commentId)}/dismiss`, {
+  ipcMain.handle('pr:dismissComment', async (_event, commentId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}/dismiss`, {
       method: 'PATCH',
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend local-pr dismiss returned ${res.status}: ${text}`);
+      throw new Error(`backend PR dismiss returned ${res.status}: ${text}`);
     }
     return res.json();
   });
-  ipcMain.handle('localpr:runTests', async (_event, prId: string) => {
+  ipcMain.handle('pr:runTests', async (_event, prId: string) => {
     // A full test suite can run for minutes — no client-side timeout here;
     // the backend's own runner is what bounds the wall-clock (5 min).
-    const res = await fetch(`${BACKEND_BASE}/api/local-pr/${encodeURIComponent(prId)}/run-tests`, {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/run-tests`, {
       method: 'POST',
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend local-pr run-tests returned ${res.status}: ${text}`);
+      throw new Error(`backend PR run-tests returned ${res.status}: ${text}`);
     }
     return res.json();
   });

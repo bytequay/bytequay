@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { PullRequestDto } from './types';
+import type { DashboardPR } from './types/dashboardPr';
 import {
   clampSidebarWidth,
   getNextKeyboardSelection,
@@ -21,9 +21,9 @@ import {
   loadSidebarWidth,
 } from './pullRequestListHelpers';
 
-function pr(id: number): PullRequestDto {
+function pr(id: number): DashboardPR {
   return {
-    id,
+    id: String(id),
     repo: 'owner/repo',
     number: id,
     title: `PR ${id}`,
@@ -86,8 +86,8 @@ describe('loadLastReviewingId', () => {
     expect(loadLastReviewingId({ getItem: () => null })).toBeNull();
   });
 
-  it('returns the stored numeric id', () => {
-    expect(loadLastReviewingId({ getItem: () => '42' })).toBe(42);
+  it('returns the stored id', () => {
+    expect(loadLastReviewingId({ getItem: () => '42' })).toBe('42');
   });
 });
 
@@ -111,17 +111,17 @@ describe('getNextKeyboardSelection', () => {
   });
 
   it('moves down through the list and wraps at the end', () => {
-    expect(getNextKeyboardSelection(prs, 1, 'ArrowDown')?.id).toBe(2);
-    expect(getNextKeyboardSelection(prs, 3, 'ArrowDown')?.id).toBe(1);
+    expect(getNextKeyboardSelection(prs, '1', 'ArrowDown')?.id).toBe('2');
+    expect(getNextKeyboardSelection(prs, '3', 'ArrowDown')?.id).toBe('1');
   });
 
   it('moves up through the list and wraps at the start', () => {
-    expect(getNextKeyboardSelection(prs, 2, 'ArrowUp')?.id).toBe(1);
-    expect(getNextKeyboardSelection(prs, 1, 'ArrowUp')?.id).toBe(3);
+    expect(getNextKeyboardSelection(prs, '2', 'ArrowUp')?.id).toBe('1');
+    expect(getNextKeyboardSelection(prs, '1', 'ArrowUp')?.id).toBe('3');
   });
 
   it('starts from the first or last item when nothing is selected', () => {
-    expect(getNextKeyboardSelection(prs, null, 'ArrowDown')?.id).toBe(1);
-    expect(getNextKeyboardSelection(prs, null, 'ArrowUp')?.id).toBe(3);
+    expect(getNextKeyboardSelection(prs, null, 'ArrowDown')?.id).toBe('1');
+    expect(getNextKeyboardSelection(prs, null, 'ArrowUp')?.id).toBe('3');
   });
 });

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDto } from './types';
+import type { DashboardPR } from './types/dashboardPr';
 
 const LAST_REVIEWING_KEY = 'settings:last-reviewing-pr-id';
 const SIDEBAR_WIDTH_KEY = 'settings:pr-sidebar-width';
@@ -33,17 +33,15 @@ export function loadSidebarWidth(storage: Pick<Storage, 'getItem'> = localStorag
   return clampSidebarWidth(width);
 }
 
-export function loadLastReviewingId(storage: Pick<Storage, 'getItem'> = localStorage): number | null {
-  const raw = storage.getItem(LAST_REVIEWING_KEY);
-  const prId = raw ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(prId) ? prId : null;
+export function loadLastReviewingId(storage: Pick<Storage, 'getItem'> = localStorage): string | null {
+  return storage.getItem(LAST_REVIEWING_KEY);
 }
 
 export function persistLastReviewingId(
-  prId: number,
+  prId: string,
   storage: Pick<Storage, 'setItem'> = localStorage,
 ): void {
-  storage.setItem(LAST_REVIEWING_KEY, String(prId));
+  storage.setItem(LAST_REVIEWING_KEY, prId);
 }
 
 export function isTextEntryTarget(target: EventTarget | null): boolean {
@@ -52,10 +50,10 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
 }
 
 export function getNextKeyboardSelection(
-  prs: PullRequestDto[],
-  selectedId: number | null,
+  prs: DashboardPR[],
+  selectedId: string | null,
   key: 'ArrowDown' | 'ArrowUp',
-): PullRequestDto | null {
+): DashboardPR | null {
   if (prs.length === 0) {
     return null;
   }

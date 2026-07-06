@@ -460,27 +460,27 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
 
   const handleMarkHandled = async (prId: number) => {
     const patch = markHandledPatch('MANUAL');
-    setPulls(prev => patchPr(prev, prId, patch));
+    setPulls(prev => patchPr<PullRequestDto>(prev, prId, patch));
     syncCachesAfterPrChange(prId, patch, fullRepo);
     try {
       await window.bridge.markPrHandled(prId, 'MANUAL');
     } catch (e) {
       console.warn('markPrHandled failed; rolling back', e);
       const rollback = reopenPatch();
-      setPulls(prev => patchPr(prev, prId, rollback));
+      setPulls(prev => patchPr<PullRequestDto>(prev, prId, rollback));
       syncCachesAfterPrChange(prId, rollback, fullRepo);
     }
   };
 
   const handleApprove = async (prId: number, prRepo: string, number: number) => {
     const patch = markHandledPatch('APPROVED');
-    setPulls(prev => patchPr(prev, prId, patch));
+    setPulls(prev => patchPr<PullRequestDto>(prev, prId, patch));
     syncCachesAfterPrChange(prId, patch, prRepo);
     try {
       await window.bridge.approvePr(prId, prRepo, number);
     } catch (e) {
       const rollback = reopenPatch();
-      setPulls(prev => patchPr(prev, prId, rollback));
+      setPulls(prev => patchPr<PullRequestDto>(prev, prId, rollback));
       syncCachesAfterPrChange(prId, rollback, prRepo);
       throw e;
     }
@@ -489,7 +489,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
 
   const handleReopen = async (prId: number) => {
     const previous = pulls.find(p => p.id === prId);
-    setPulls(prev => patchPr(prev, prId, reopenPatch()));
+    setPulls(prev => patchPr<PullRequestDto>(prev, prId, reopenPatch()));
     syncCachesAfterPrChange(prId, reopenPatch(), fullRepo);
     try {
       await window.bridge.reopenPr(prId);
@@ -497,7 +497,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
       console.warn('reopenPr failed; rolling back', e);
       if (previous) {
         const rollback = { reviewedAt: previous.reviewedAt, handledAction: previous.handledAction };
-        setPulls(prev => patchPr(prev, prId, rollback));
+        setPulls(prev => patchPr<PullRequestDto>(prev, prId, rollback));
         syncCachesAfterPrChange(prId, rollback, fullRepo);
       }
     }
@@ -509,7 +509,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
   const handleSnooze = async (prId: number, untilIso: string) => {
     const previous = pulls.find(p => p.id === prId);
     const patch: Partial<PullRequestDto> = { snoozedUntil: untilIso, snoozeWakeReason: null };
-    setPulls(prev => patchPr(prev, prId, patch));
+    setPulls(prev => patchPr<PullRequestDto>(prev, prId, patch));
     syncCachesAfterPrChange(prId, patch, fullRepo);
     try {
       await window.bridge.snoozePr(prId, untilIso);
@@ -517,7 +517,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
       console.warn('snoozePr failed; rolling back', e);
       if (previous) {
         const rollback: Partial<PullRequestDto> = { snoozedUntil: previous.snoozedUntil, snoozeWakeReason: previous.snoozeWakeReason };
-        setPulls(prev => patchPr(prev, prId, rollback));
+        setPulls(prev => patchPr<PullRequestDto>(prev, prId, rollback));
         syncCachesAfterPrChange(prId, rollback, fullRepo);
       }
     }
@@ -526,7 +526,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
   const handleUnsnooze = async (prId: number) => {
     const previous = pulls.find(p => p.id === prId);
     const patch: Partial<PullRequestDto> = { snoozedUntil: null, snoozeWakeReason: null };
-    setPulls(prev => patchPr(prev, prId, patch));
+    setPulls(prev => patchPr<PullRequestDto>(prev, prId, patch));
     syncCachesAfterPrChange(prId, patch, fullRepo);
     try {
       await window.bridge.unsnoozePr(prId);
@@ -534,7 +534,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
       console.warn('unsnoozePr failed; rolling back', e);
       if (previous) {
         const rollback: Partial<PullRequestDto> = { snoozedUntil: previous.snoozedUntil, snoozeWakeReason: previous.snoozeWakeReason };
-        setPulls(prev => patchPr(prev, prId, rollback));
+        setPulls(prev => patchPr<PullRequestDto>(prev, prId, rollback));
         syncCachesAfterPrChange(prId, rollback, fullRepo);
       }
     }

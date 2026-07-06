@@ -340,47 +340,27 @@ export function sortHandled<T extends PrLike>(prs: T[]): T[] {
   });
 }
 
-/** Returns a new list with one PR replaced by applying the patch. No-op if not found. */
+/** Returns a new list with one PR replaced by applying the patch. No-op if
+ *  not found. `prId` is deliberately `number | string` rather than `T['id']`
+ *  — an indexed-access parameter type blocks TS from inferring `T` from the
+ *  `prs`/`patch` arguments at call sites that pass a `Partial<PrLike>` patch
+ *  (markHandledPatch/reopenPatch's return type). */
 export function patchPr<T extends { id: number | string }>(
   prs: T[],
-  prId: T['id'],
+  prId: number | string,
   patch: Partial<T>,
 ): T[] {
   return prs.map(pr => (pr.id === prId ? { ...pr, ...patch } : pr));
 }
 
 /** Optimistic patch when the user clicks "Handled" on a card. */
-export function markHandledPatch(action: HandledAction, now: string = new Date().toISOString()): Partial<PullRequestDto> {
+export function markHandledPatch(action: HandledAction, now: string = new Date().toISOString()): Partial<PrLike> {
   return { reviewedAt: now, handledAction: action };
 }
 
 /** Optimistic patch when the user reopens a handled PR. */
-export function reopenPatch(): Partial<PullRequestDto> {
+export function reopenPatch(): Partial<PrLike> {
   return { reviewedAt: null, handledAction: null };
-}
-
-/** Optimistic patch when a merge succeeds — same fields as
- *  markHandledPatch('MERGED') plus state + mergedAt so the OPEN pill
- *  flips to MERGED and the merge bar gates off (`!pr.mergedAt`)
- *  without waiting for the next sync. */
-export function mergedPatch(now: string = new Date().toISOString()): Partial<PullRequestDto> {
-  return {
-    reviewedAt: now,
-    handledAction: 'MERGED',
-    state: 'merged',
-    mergedAt: now,
-  };
-}
-
-/** Rollback for {@link mergedPatch} when the merge call fails — restores
- *  the snapshot taken before the optimistic patch was applied. */
-export function unmergedPatch(previousState: string | null, previousMergedAt: string | null): Partial<PullRequestDto> {
-  return {
-    reviewedAt: null,
-    handledAction: null,
-    state: previousState,
-    mergedAt: previousMergedAt,
-  };
 }
 
 // ── Phase 3 kanban refactor ────────────────────────────────────────────────

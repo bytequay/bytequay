@@ -12,10 +12,14 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { PullRequestDto } from './types';
+
+/** The embedded github.com review UI only needs enough of a PR to mount
+ *  the WebContentsView and label the toolbar — both the repo/team-scoped
+ *  `PullRequestDto` and the personal dashboard's `DashboardPR` satisfy this. */
+type ReviewScreenPr = { repo: string; number: number; title: string };
 
 type Props = {
-  pr: PullRequestDto;
+  pr: ReviewScreenPr;
   onBack: () => void;
 };
 

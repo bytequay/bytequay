@@ -350,7 +350,7 @@ class TestPRPublishService
         return new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
     }
 
     private static PRComment draft(String id, String scope, String filePath, Integer lineNumber, String body)

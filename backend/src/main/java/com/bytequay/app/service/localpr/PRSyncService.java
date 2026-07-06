@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
@@ -34,11 +36,16 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -181,6 +188,263 @@ public class PRSyncService
                 detail.baseRef() != null ? detail.baseRef() : DEFAULT_BASE,
                 light.title(), detail.body(), status, light.createdAt(), light.mergedAt(), light.closedAt());
         return syncPR(created.id(), DEFAULT_MAX_AGE_SECONDS);
+    }
+
+    /** PRs handled within this window stay on the dashboard's Handled tab
+     *  even after they fall out of the relevant-PR search — mirrors the
+     *  legacy dashboard sync's retention rule exactly. */
+    private static final int HANDLED_RETENTION_DAYS = 30;
+
+    /**
+     * The dashboard sweep (design doc U3): finds every PR the relevant-PR
+     * search surfaces (open authored / review-requested / reviewed-by, plus
+     * recently-closed-authored), upserts each into the unified {@code pr}
+     * table via the same idempotent find-or-create {@link #syncExternalPR}
+     * uses, refreshes list-level fields every call, and — for a PR whose
+     * GitHub {@code updatedAt} moved or that still looks under-enriched —
+     * runs a detail pass for the richer dashboard fields (CI, mergeable,
+     * reviewer verdicts, attention reason). Finally clears {@code
+     * watch_reason} for any previously-watched PR that fell out of the
+     * search (unless it's within the handled-retention window) and runs
+     * the snooze auto-wake check.
+     *
+     * <p>ponytail: no in-memory recheck-interval throttle for under-enriched
+     * PRs yet (legacy has one, {@code BACKFILL_RECHECK_INTERVAL}) — add one
+     * if a real deployment shows this hammering the GitHub API.
+     */
+    public void syncList()
+    {
+        List<PullRequest> fresh = pullRequests.searchRelevantForDashboard();
+        String currentLogin = pullRequests.resolveCurrentDashboardLogin();
+        Instant now = Instant.now();
+
+        Set<String> freshKeys = new HashSet<>();
+        for (PullRequest ghPr : fresh) {
+            freshKeys.add(ghPr.repo() + "#" + ghPr.number());
+            PR pr = prService.findByRepoAndNumber(ghPr.repo(), ghPr.number())
+                    .orElseGet(() -> prService.createExternal(
+                            ghPr.repo(), ghPr.number(), ghPr.htmlUrl(), actorLabel(ghPr.author()),
+                            ghPr.headRef() != null ? ghPr.headRef() : "unknown", DEFAULT_BASE,
+                            ghPr.title(), "",
+                            deriveExternalStatus(ghPr.mergedAt() != null, ghPr.state(), ghPr.draft()),
+                            ghPr.createdAt(), ghPr.mergedAt(), ghPr.closedAt()));
+            PR.PRSyncSnapshot baseline = pr.githubSync();
+            boolean needsDetail = baseline == null || baseline.ciStatus() == null
+                    || !ghPr.updatedAt().equals(baseline.ghUpdatedAt());
+            PR.PRSyncSnapshot listLevel = new PR.PRSyncSnapshot(
+                    ghPr.origin(), ghPr.updatedAt(),
+                    ghPr.labels() == null ? List.of() : ghPr.labels(),
+                    ghPr.labelColors() == null ? Map.of() : ghPr.labelColors(),
+                    ghPr.draft(),
+                    baseline == null ? null : baseline.ciStatus(),
+                    baseline == null ? 0 : baseline.additions(),
+                    baseline == null ? 0 : baseline.deletions(),
+                    baseline == null ? 0 : baseline.commentCount(),
+                    baseline == null ? null : baseline.attentionReason(),
+                    baseline == null ? null : baseline.mergeable(),
+                    baseline == null ? null : baseline.mergeableState(),
+                    baseline == null ? null : baseline.headPushedAt(),
+                    baseline == null ? Map.of() : baseline.reviewerVerdicts(),
+                    baseline == null ? List.of() : baseline.requestedReviewers());
+            PR updated = prService.updateSyncSnapshot(pr.id(), listLevel);
+            if (needsDetail) {
+                syncDashboardDetail(updated, currentLogin, now);
+            }
+        }
+
+        for (PRDashboardEntry entry : prService.dashboardEntries()) {
+            String key = entry.pr().repo() + "#" + entry.pr().remotePrNumber();
+            if (freshKeys.contains(key)) {
+                continue;
+            }
+            Instant reviewedAt = entry.triage().reviewedAt();
+            boolean withinRetention = reviewedAt != null
+                    && Duration.between(reviewedAt, now).toDays() < HANDLED_RETENTION_DAYS;
+            if (!withinRetention) {
+                prService.setWatchReason(entry.pr().id(), null);
+            }
+        }
+
+        runDashboardAutoWake(now);
+    }
+
+    /** Detail pass for the dashboard's richer fields — CI status, mergeable,
+     *  reviewer verdicts, attention reason, comment count. Runs {@link
+     *  #syncPR} first for the timeline/status side effects every other
+     *  surface relies on, then re-derives the snapshot fields from the same
+     *  detail shape {@code syncPR} itself fetches (re-fetched here since
+     *  that internal detail object isn't otherwise exposed — cheap, since
+     *  {@link PullRequestService#refreshPullRequestDetail} is ETag-cached). */
+    private void syncDashboardDetail(PR pr, String currentLogin, Instant now)
+    {
+        syncPR(pr.id(), 0);
+        PullRequestDetail detail;
+        try {
+            detail = pullRequests.refreshPullRequestDetail(pr.repo(), pr.remotePrNumber(), 0);
+        }
+        catch (RuntimeException e) {
+            log.info("dashboard detail sync for PR {} failed: {}", pr.id(), e.getMessage());
+            return;
+        }
+        PR current = prService.findById(pr.id()).orElse(pr);
+        PR.PRSyncSnapshot baseline = current.githubSync();
+        if (baseline == null) {
+            return;
+        }
+        Map<String, String> reviewerVerdicts = rolledUpReviewerVerdicts(detail.recentActivity());
+        int commentCount = countComments(detail.recentActivity());
+        AttentionReason attentionReason = promoteReason(
+                baseline, detail, currentLogin, triageViewedAt(current.id()), now);
+        prService.updateSyncSnapshot(current.id(), new PR.PRSyncSnapshot(
+                baseline.watchReason(), baseline.ghUpdatedAt(), baseline.labels(), baseline.labelColors(),
+                baseline.draft(), detail.ciStatus(), detail.additions(), detail.deletions(), commentCount,
+                attentionReason, detail.mergeable(), detail.mergeableState(), baseline.headPushedAt(),
+                reviewerVerdicts, detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers()));
+    }
+
+    private Instant triageViewedAt(String prId)
+    {
+        return prService.triage(prId).viewedAt();
+    }
+
+    /** Latest review state per actor, from the "reviewed" activity items —
+     *  mirrors the legacy dashboard's per-reviewer verdict rollup. */
+    private static Map<String, String> rolledUpReviewerVerdicts(List<ActivityItem> activity)
+    {
+        if (activity == null) {
+            return Map.of();
+        }
+        Map<String, String> verdicts = new HashMap<>();
+        for (ActivityItem item : activity) {
+            if (!"reviewed".equals(item.eventType()) || item.actor() == null || item.state() == null) {
+                continue;
+            }
+            verdicts.put(item.actor(), item.state());
+        }
+        return Map.copyOf(verdicts);
+    }
+
+    private static int countComments(List<ActivityItem> activity)
+    {
+        if (activity == null) {
+            return 0;
+        }
+        int count = 0;
+        for (ActivityItem item : activity) {
+            if ("commented".equals(item.eventType())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Adapted from {@code PrAttention.promoteReason} for the unified
+     *  {@link PullRequestDetail}/{@link ActivityItem} shapes rather than the
+     *  legacy {@code StoredPrDetail}/{@code PrTimelineEvent} — same v1 rules
+     *  and precedence order (design doc §6.5). */
+    private static AttentionReason promoteReason(
+            PR.PRSyncSnapshot snap, PullRequestDetail detail, String currentLogin, Instant viewedAt, Instant now)
+    {
+        boolean mine = snap.watchReason() == PullRequest.Origin.AUTHORED;
+        if (detail.ciStatus() == PullRequestDetail.CiStatus.FAILING) {
+            return AttentionReason.CI_FAILING;
+        }
+        if (mine && Boolean.FALSE.equals(detail.mergeable()) && "dirty".equalsIgnoreCase(detail.mergeableState())) {
+            return AttentionReason.MERGE_CONFLICT;
+        }
+        List<ActivityItem> activity = detail.recentActivity();
+        if (hasUnseenMention(activity, currentLogin, viewedAt)) {
+            return AttentionReason.MENTIONED;
+        }
+        if (mine && hasUnseenActivity(activity, currentLogin, viewedAt)) {
+            return AttentionReason.NEW_COMMENT;
+        }
+        if (snap.labels() != null && snap.labels().stream()
+                .anyMatch(l -> l != null && l.toLowerCase(Locale.ROOT).contains("block"))) {
+            return AttentionReason.BLOCKING;
+        }
+        if (snap.ghUpdatedAt() != null && Duration.between(snap.ghUpdatedAt(), now).toDays() >= 7) {
+            return AttentionReason.STALE;
+        }
+        return mine ? AttentionReason.MINE : null;
+    }
+
+    private static boolean hasUnseenActivity(List<ActivityItem> activity, String currentLogin, Instant viewedAt)
+    {
+        if (activity == null) {
+            return false;
+        }
+        for (ActivityItem item : activity) {
+            String type = item.eventType();
+            if (!"commented".equals(type) && !"reviewed".equals(type)) {
+                continue;
+            }
+            if (currentLogin != null && currentLogin.equalsIgnoreCase(item.actor())) {
+                continue;
+            }
+            if (viewedAt != null && item.timestamp() != null && !item.timestamp().isAfter(viewedAt)) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean hasUnseenMention(List<ActivityItem> activity, String currentLogin, Instant viewedAt)
+    {
+        if (currentLogin == null || currentLogin.isBlank() || activity == null) {
+            return false;
+        }
+        Pattern mention = Pattern.compile(
+                "(?i)(?<![A-Za-z0-9_-])@" + Pattern.quote(currentLogin) + "(?![A-Za-z0-9_-])");
+        for (ActivityItem item : activity) {
+            if (item.body() == null || item.body().isBlank()) {
+                continue;
+            }
+            if (item.actor() != null && currentLogin.equalsIgnoreCase(item.actor())) {
+                continue;
+            }
+            if (viewedAt != null && item.timestamp() != null && !item.timestamp().isAfter(viewedAt)) {
+                continue;
+            }
+            if (mention.matcher(item.body()).find()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Wakes a snoozed dashboard PR when its timer elapsed, or when an
+     *  urgent signal flips on: CI now failing, a reviewer requested changes,
+     *  or a merge conflict appeared (authored PRs only). Cheap — an
+     *  in-memory pass over rows already loaded for this sync tick. */
+    private void runDashboardAutoWake(Instant now)
+    {
+        for (PRDashboardEntry entry : prService.dashboardEntries()) {
+            Instant snoozedUntil = entry.triage().snoozedUntil();
+            if (snoozedUntil == null) {
+                continue;
+            }
+            PR.PRSyncSnapshot snap = entry.pr().githubSync();
+            String reason = null;
+            if (!snoozedUntil.isAfter(now)) {
+                reason = "TIME_ELAPSED";
+            }
+            else if (snap != null && snap.ciStatus() == PullRequestDetail.CiStatus.FAILING) {
+                reason = "CI_FAILING";
+            }
+            else if (snap != null && snap.watchReason() == PullRequest.Origin.AUTHORED
+                    && Boolean.FALSE.equals(snap.mergeable()) && "dirty".equalsIgnoreCase(snap.mergeableState())) {
+                reason = "MERGE_CONFLICT";
+            }
+            else if (snap != null && snap.reviewerVerdicts() != null
+                    && snap.reviewerVerdicts().containsValue("CHANGES_REQUESTED")) {
+                reason = "CHANGES_REQUESTED";
+            }
+            if (reason != null) {
+                prService.autoWake(entry.pr().id(), reason);
+            }
+        }
     }
 
     private Optional<RepoRef> resolveGitRemoteSlug(Task task)

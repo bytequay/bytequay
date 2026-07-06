@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -55,7 +56,8 @@ public record PR(
         String origin,
         String repo,
         String author,
-        Instant syncedAt)
+        Instant syncedAt,
+        PRSyncSnapshot githubSync)
 {
     public static final String STATUS_LOCAL_DRAFTED = "local-drafted";
     public static final String STATUS_LOCAL_OPEN = "local-open";
@@ -100,7 +102,7 @@ public record PR(
                 STATUS_LOCAL_DRAFTED, createdAt,
                 /* pushedAt */ null, /* remotePrNumber */ null, /* remotePrUrl */ null,
                 /* mergedAt */ null, /* closedAt */ null, /* localAddressedThroughAt */ null,
-                ORIGIN_TASK, /* repo */ null, /* author */ null, /* syncedAt */ null);
+                ORIGIN_TASK, /* repo */ null, /* author */ null, /* syncedAt */ null, /* githubSync */ null);
     }
 
     /** A PR discovered via the dashboard sync — already occupies whatever
@@ -127,7 +129,7 @@ public record PR(
                 description == null ? "" : description, status, createdAt,
                 /* pushedAt */ null, remotePrNumber, remotePrUrl, mergedAt, closedAt,
                 /* localAddressedThroughAt */ null,
-                ORIGIN_EXTERNAL, repo, author, /* syncedAt */ null);
+                ORIGIN_EXTERNAL, repo, author, /* syncedAt */ null, /* githubSync */ null);
     }
 
     /** True iff {@code target} is a legal next status from the current one. */
@@ -151,7 +153,7 @@ public record PR(
                 newTitle == null ? title : newTitle,
                 newDescription == null ? description : newDescription,
                 status, createdAt, pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt,
-                localAddressedThroughAt, origin, repo, author, syncedAt);
+                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync);
     }
 
     /**
@@ -168,7 +170,7 @@ public record PR(
                 remotePrNumber, remotePrUrl,
                 STATUS_MERGED.equals(newStatus) ? when : mergedAt,
                 STATUS_CLOSED.equals(newStatus) ? when : closedAt,
-                localAddressedThroughAt, origin, repo, author, syncedAt);
+                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync);
     }
 
     /** Copy recording the remote PR identity assigned on push. */
@@ -177,7 +179,7 @@ public record PR(
         return new PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt == null ? when : pushedAt, number, url, mergedAt, closedAt,
-                localAddressedThroughAt, origin, repo, author, syncedAt);
+                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync);
     }
 
     /** Copy with the local-addressing marker advanced to {@code through} — the
@@ -190,7 +192,7 @@ public record PR(
         return new PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, through,
-                origin, repo, author, syncedAt);
+                origin, repo, author, syncedAt, githubSync);
     }
 
     /** Copy stamping a successful GitHub sync — {@code PRSyncService} calls
@@ -201,6 +203,44 @@ public record PR(
         return new PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
-                origin, repo, author, when);
+                origin, repo, author, when, githubSync);
+    }
+
+    /** Copy with a freshly-fetched dashboard sync snapshot — {@code syncList}
+     *  calls this after every list/detail sweep. Kept as one nested field
+     *  (rather than flattening ~14 columns into this record) so the dashboard
+     *  sync surface stays isolated from every other {@code with*} caller. */
+    public PR withGithubSync(PRSyncSnapshot snapshot)
+    {
+        return new PR(
+                id, taskId, branchName, baseBranch, title, description, status, createdAt,
+                pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
+                origin, repo, author, syncedAt, snapshot);
+    }
+
+    /**
+     * The dashboard-sync-derived fields {@code syncList} maintains — GitHub
+     * search/detail data, never touched outside that pipeline. Absent
+     * ({@code githubSync == null}) for a PR that has never appeared in the
+     * dashboard's relevant-PR search (a task-origin PR still in its local
+     * phase, or an external PR the search has never surfaced).
+     */
+    public record PRSyncSnapshot(
+            PullRequest.Origin watchReason,
+            Instant ghUpdatedAt,
+            List<String> labels,
+            Map<String, String> labelColors,
+            boolean draft,
+            PullRequestDetail.CiStatus ciStatus,
+            int additions,
+            int deletions,
+            int commentCount,
+            AttentionReason attentionReason,
+            Boolean mergeable,
+            String mergeableState,
+            Instant headPushedAt,
+            Map<String, String> reviewerVerdicts,
+            List<String> requestedReviewers)
+    {
     }
 }

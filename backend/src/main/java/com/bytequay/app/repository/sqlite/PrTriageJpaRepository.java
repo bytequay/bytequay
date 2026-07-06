@@ -15,19 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.List;
-import java.util.Optional;
-
-interface PrJpaRepository
-        extends JpaRepository<PrEntity, String>
+interface PrTriageJpaRepository
+        extends JpaRepository<PrTriageEntity, String>
 {
-    /** The single local PR for a task, if one has been created. */
-    Optional<PrEntity> findByTaskId(String taskId);
-
-    /** The external PR already synced in for this (repo, remote PR number). */
-    Optional<PrEntity> findByRepoAndRemotePrNumber(String repo, Integer remotePrNumber);
-
-    /** Every PR currently on the dashboard — {@code watch_reason} is set
-     *  precisely for rows the relevant-PR search has surfaced. */
-    List<PrEntity> findByWatchReasonIsNotNull();
 }

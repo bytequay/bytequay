@@ -15,14 +15,18 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.localpr.AddPRCommentRequest;
 import com.bytequay.app.beans.localpr.CreatePRRequest;
+import com.bytequay.app.beans.localpr.MarkHandledRequest;
 import com.bytequay.app.beans.localpr.MergePRRequest;
 import com.bytequay.app.beans.localpr.PRBundleDto;
 import com.bytequay.app.beans.localpr.PRCheckDto;
 import com.bytequay.app.beans.localpr.PRCommentDto;
 import com.bytequay.app.beans.localpr.PRCommitDto;
+import com.bytequay.app.beans.localpr.PRDashboardEntryDto;
 import com.bytequay.app.beans.localpr.PRDto;
 import com.bytequay.app.beans.localpr.PRTimelineEntryDto;
+import com.bytequay.app.beans.localpr.SnoozePRRequest;
 import com.bytequay.app.beans.localpr.UpdatePRRequest;
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
@@ -43,6 +47,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 
 import static java.util.Objects.requireNonNull;
@@ -130,6 +135,70 @@ public class PRController
         String slug = owner + "/" + repo;
         return PRDto.from(sync.syncExternalPR(slug, number)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + slug + "#" + number)));
+    }
+
+    /** The dashboard list — every PR the last {@code syncList} pass watched
+     *  (authored or review-requested), flattened with its triage state. */
+    @GetMapping("/api/prs")
+    public List<PRDashboardEntryDto> dashboard()
+    {
+        return prService.dashboardEntries().stream().map(PRDashboardEntryDto::from).toList();
+    }
+
+    /** Explicit user-triggered dashboard refresh (the list's manual-refresh
+     *  button) — always sweeps GitHub, unlike the scheduled tick. */
+    @PostMapping("/api/prs/sync-list")
+    public List<PRDashboardEntryDto> syncDashboard()
+    {
+        sync.syncList();
+        return prService.dashboardEntries().stream().map(PRDashboardEntryDto::from).toList();
+    }
+
+    /** Records that the user opened this PR in the app. Idempotent. */
+    @PostMapping("/api/prs/{prId}/viewed")
+    public void markViewed(@PathVariable String prId)
+    {
+        prService.markViewed(prId);
+    }
+
+    /** Marks a PR handled with the given action, without any GitHub call —
+     *  the dashboard's hover "Handled" affordance. */
+    @PostMapping("/api/prs/{prId}/handle")
+    public void markHandled(@PathVariable String prId, @RequestBody MarkHandledRequest body)
+    {
+        prService.markHandled(prId, HandledAction.valueOf(body.action()));
+    }
+
+    /** Clears the local reviewed timestamp so the PR returns to the Inbox. */
+    @PostMapping("/api/prs/{prId}/reopen")
+    public void reopen(@PathVariable String prId)
+    {
+        prService.reopen(prId);
+    }
+
+    /** Parks a PR until the given instant. */
+    @PostMapping("/api/prs/{prId}/snooze")
+    public void snooze(@PathVariable String prId, @RequestBody SnoozePRRequest body)
+    {
+        Instant until = Instant.ofEpochMilli(body.until());
+        if (!until.isAfter(Instant.now())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Snooze target must be in the future.");
+        }
+        prService.snooze(prId, until);
+    }
+
+    /** User-initiated wake — no wake-reason banner. */
+    @PostMapping("/api/prs/{prId}/unsnooze")
+    public void unsnooze(@PathVariable String prId)
+    {
+        prService.unsnooze(prId);
+    }
+
+    /** Drops the wake-reason flag once the user has seen the "PR woke up" banner. */
+    @PostMapping("/api/prs/{prId}/clear-snooze-wake-reason")
+    public void clearSnoozeWakeReason(@PathVariable String prId)
+    {
+        prService.clearSnoozeWakeReason(prId);
     }
 
     /** The whole PR in one payload — {@code usePR} fetches this rather than

@@ -13,11 +13,16 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PR.PRSyncSnapshot;
 import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PRTriageState;
+import com.bytequay.app.domain.PullRequest;
 
 import java.time.Instant;
 import java.util.List;
@@ -65,6 +70,45 @@ public interface PRService
 
     /** Stamp a successful GitHub sync (the sync chip's "synced Xs ago"). */
     PR markSynced(String prId, Instant when);
+
+    // ── dashboard ────────────────────────────────────────────────────────
+    /** Every PR the dashboard sync currently watches, paired with its
+     *  triage state. */
+    List<PRDashboardEntry> dashboardEntries();
+
+    /** A single PR's triage state — empty (never touched) if it has none. */
+    PRTriageState triage(String prId);
+
+    /** Flip the dashboard watch flag ({@code syncList}'s "why is this PR on
+     *  my dashboard" tag) — {@code null} un-watches it. */
+    PR setWatchReason(String prId, PullRequest.Origin watchReason);
+
+    /** Overwrite the dashboard sync-derived fields ({@code syncList}'s list
+     *  and detail passes both call this). */
+    PR updateSyncSnapshot(String prId, PRSyncSnapshot snapshot);
+
+    /** Records that the user opened this PR — idempotent (only the first
+     *  view sticks). */
+    void markViewed(String prId);
+
+    /** Marks a PR handled with the given action, without any GitHub call —
+     *  the dashboard's hover "Handled" affordance. */
+    void markHandled(String prId, HandledAction action);
+
+    /** Clears the local reviewed timestamp so the PR returns to the Inbox. */
+    void reopen(String prId);
+
+    /** Park a PR until {@code until} (must be in the future). */
+    void snooze(String prId, Instant until);
+
+    /** User-initiated wake — no wake-reason banner. */
+    void unsnooze(String prId);
+
+    /** Auto-wake: unsnooze and stamp why, so the UI can show the banner. */
+    void autoWake(String prId, String wakeReason);
+
+    /** Drop the wake-reason flag once the user has seen the "PR woke up" banner. */
+    void clearSnoozeWakeReason(String prId);
 
     /** Edit title / description (a null argument leaves that field unchanged). */
     PR updateDetails(String prId, String title, String description);

@@ -16,6 +16,7 @@ import type {
   TaskBrainViewData,
 } from './types/brainView';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
+import type { DashboardPR } from './types/dashboardPr';
 
 export type HandledAction =
   | 'APPROVED'
@@ -3982,6 +3983,27 @@ export type Bridge = {
   /** On-demand local test run (design doc slice 4); returns the local PR's
    *  updated check list. */
   runLocalPrTests: (prId: string) => Promise<LocalPRCheck[]>;
+
+  // ── PR dashboard (unified pr* backing, replacing the legacy pull_requests
+  //    sweep — unified-pr-view.md U3) ─────────────────────────────────────
+  /** Every PR the last {@code syncList} pass watched, paired with its
+   *  triage state. */
+  fetchDashboardPrs: () => Promise<DashboardPR[]>;
+  /** Explicit user-triggered refresh — always sweeps GitHub. */
+  syncDashboardPrs: () => Promise<DashboardPR[]>;
+  /** Records that the user opened this PR. Idempotent. */
+  markDashboardPrViewed: (prId: string) => Promise<void>;
+  /** Marks a PR handled with the given action, without any GitHub call. */
+  markDashboardPrHandled: (prId: string, action: HandledAction) => Promise<void>;
+  /** Clears the local reviewed timestamp so the PR returns to the Inbox. */
+  reopenDashboardPr: (prId: string) => Promise<void>;
+  /** Parks a PR until {@code until} (epoch millis, must be in the future). */
+  snoozeDashboardPr: (prId: string, until: number) => Promise<void>;
+  /** User-initiated wake — no wake-reason banner. */
+  unsnoozeDashboardPr: (prId: string) => Promise<void>;
+  /** Drops the wake-reason flag once the user has seen the "PR woke up" banner. */
+  clearDashboardPrSnoozeWakeReason: (prId: string) => Promise<void>;
+
   /** Spawn a panel review as a callable sub-stage of {@code parentStageId}.
    *  Returns the opened review stage, the seated pass, and the review
    *  thread the panel page navigates to. */

@@ -974,6 +974,16 @@ const bridge: Bridge = {
   resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:resolveComment', commentId),
   dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:dismissComment', commentId),
   runLocalPrTests: (prId: string) => ipcRenderer.invoke('pr:runTests', prId),
+  fetchDashboardPrs: () => ipcRenderer.invoke('pr:dashboardList'),
+  syncDashboardPrs: () => ipcRenderer.invoke('pr:dashboardSync'),
+  markDashboardPrViewed: (prId: string) => ipcRenderer.invoke('pr:dashboardMarkViewed', prId),
+  markDashboardPrHandled: (prId: string, action: string) =>
+    ipcRenderer.invoke('pr:dashboardMarkHandled', prId, action),
+  reopenDashboardPr: (prId: string) => ipcRenderer.invoke('pr:dashboardReopen', prId),
+  snoozeDashboardPr: (prId: string, until: number) => ipcRenderer.invoke('pr:dashboardSnooze', prId, until),
+  unsnoozeDashboardPr: (prId: string) => ipcRenderer.invoke('pr:dashboardUnsnooze', prId),
+  clearDashboardPrSnoozeWakeReason: (prId: string) =>
+    ipcRenderer.invoke('pr:dashboardClearSnoozeWakeReason', prId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

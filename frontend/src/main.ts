@@ -1048,6 +1048,74 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('pr:dashboardList', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR dashboard list returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('pr:dashboardSync', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/sync-list`, { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR dashboard sync returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('pr:dashboardMarkViewed', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/viewed`, { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR mark-viewed returned ${res.status}: ${text}`);
+    }
+  });
+  ipcMain.handle('pr:dashboardMarkHandled', async (_event, prId: string, action: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/handle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR mark-handled returned ${res.status}: ${text}`);
+    }
+  });
+  ipcMain.handle('pr:dashboardReopen', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/reopen`, { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR reopen returned ${res.status}: ${text}`);
+    }
+  });
+  ipcMain.handle('pr:dashboardSnooze', async (_event, prId: string, until: number) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/snooze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ until }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR snooze returned ${res.status}: ${text}`);
+    }
+  });
+  ipcMain.handle('pr:dashboardUnsnooze', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/unsnooze`, { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR unsnooze returned ${res.status}: ${text}`);
+    }
+  });
+  ipcMain.handle('pr:dashboardClearSnoozeWakeReason', async (_event, prId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/clear-snooze-wake-reason`, { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR clear-snooze-wake-reason returned ${res.status}: ${text}`);
+    }
+  });
+
   ipcMain.handle('stages:steer', async (_event, stageId: string, text: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/steer`,

@@ -27,6 +27,7 @@ type LocalPrState = {
    *  remote PR view. Undefined only before the first fetch resolves. */
   bundle: LocalPRBundle | null | undefined;
   refresh: () => void;
+  syncing: boolean;
 };
 
 /**
@@ -61,6 +62,6 @@ export function useLocalPr(taskId: string): LocalPrState {
     return () => { cancelled = true; };
   }, [taskId]);
 
-  const { bundle, refresh } = usePR(prId ?? null);
-  return { bundle: prId === null ? null : bundle, refresh };
+  const { bundle, refresh, syncing } = usePR(prId ?? null);
+  return { bundle: prId === null ? null : bundle, refresh, syncing };
 }

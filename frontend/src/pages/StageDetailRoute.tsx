@@ -115,7 +115,7 @@ export function StageDetailRoute({
   // instead of the remote-GitHub PRTabContent. The bundle poll + the
   // user-gated push/merge/comment actions are shared with the brain page.
   const {
-    bundle: localPrBundle, refresh: refreshLocalPr, localPr, prMode,
+    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, localPr, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,
@@ -414,13 +414,13 @@ export function StageDetailRoute({
       <PaneDiff
         files={files}
         comments={localPrBundle?.comments}
-        allowLocalComments={localPr !== null && prMode === 'local' && !taskTerminal}
+        allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
         onDismissComment={dismissLocalComment}
       />
     )
-  ), [files, localPrBundle, localPr, prMode, state, addLocalLineComment, resolveLocalComment, dismissLocalComment]);
+  ), [files, localPrBundle, prCapabilities, state, addLocalLineComment, resolveLocalComment, dismissLocalComment]);
 
   // The CI-fix stage's own tab for the live CI run — separate from the Code
   // Diff tab so the stage keeps its checks focus without displacing the diff.
@@ -487,10 +487,10 @@ export function StageDetailRoute({
   // remote PRTabContent until then. Push/merge open their user-gated dialogs;
   // the action bar's secondary focuses the composer with an address-comments
   // starter (never auto-posts).
-  const localPrNode = localPrBundle !== null && localPrBundle !== undefined ? (
+  const localPrNode = localPrBundle !== null && localPrBundle !== undefined && prCapabilities !== null ? (
     <PRView
-      mode={prMode}
       bundle={localPrBundle}
+      capabilities={prCapabilities}
       commentValue={localComment}
       onCommentChange={setLocalComment}
       onAddComment={taskTerminal ? undefined : submitLocalComment}
@@ -501,6 +501,11 @@ export function StageDetailRoute({
       onReviewChanges={() => setReviewOpen(true)}
       onRunTests={runLocalTests}
       runTestsBusy={testsBusy}
+      onResolveThread={taskTerminal ? undefined : resolveLocalComment}
+      onDismissThread={taskTerminal ? undefined : dismissLocalComment}
+      syncedAt={localPrBundle.pr.syncedAt}
+      syncing={prSyncing}
+      onRefresh={refreshLocalPr}
     />
   ) : null;
 
@@ -613,7 +618,7 @@ export function StageDetailRoute({
         title={`Review · ${localPr.title}`}
         files={files}
         comments={localPrBundle?.comments ?? []}
-        allowLocalComments={prMode === 'local' && !taskTerminal}
+        allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
         onAddComment={addLocalLineComment}
         onResolveComment={resolveLocalComment}
         onDismissComment={dismissLocalComment}

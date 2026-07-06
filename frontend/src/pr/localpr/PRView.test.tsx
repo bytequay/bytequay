@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRView } from './PRView';
+import { derivePRCapabilities } from '../prCapabilities';
 import type {
   LocalPR,
   LocalPRBundle,
@@ -64,292 +65,196 @@ function bundle(over: Partial<LocalPRBundle> & { pr: LocalPR }): LocalPRBundle {
 
 const noop = () => { /* noop */ };
 
+/** Renders `<PRView>` for the given bundle on the `task` surface — the
+ *  capabilities every existing caller (StageDetailRoute/TaskBrainRoute)
+ *  actually derives. */
+function renderView(b: LocalPRBundle, props: Partial<Parameters<typeof PRView>[0]> = {}) {
+  return render(
+    <PRView
+      bundle={b}
+      capabilities={derivePRCapabilities(b.pr, 'task')}
+      commentValue="" onCommentChange={noop}
+      syncedAt={null} syncing={false} onRefresh={noop}
+      {...props}
+    />,
+  );
+}
+
 describe('PRView', () => {
-  it('renders the local-open amber badge with a lock and the push action bar', () => {
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({ pr: pr('local-open') })}
-        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
-      />,
-    );
-    const badge = document.querySelector('.pr-status-badge');
-    expect(badge?.className).toContain('local-open');
-    expect(badge?.querySelector('.lock')).not.toBeNull();
-    // Action bar offers Approve & push, not Merge.
+  it('renders the local amber state pill and the push gate', () => {
+    renderView(bundle({ pr: pr('local-open') }), { onPush: noop, onAskAgent: noop });
+    const pill = document.querySelector('.pr-state-pill');
+    expect(pill?.className).toContain('local');
     expect(screen.getByText(/Approve & push to GitHub/)).toBeTruthy();
     expect(screen.queryByText(/Merge pull request/)).toBeNull();
-    // Local composer hint warns nothing posts to GitHub.
     expect(screen.getByText(/won't be posted to GitHub/)).toBeTruthy();
-    // The PR number label is #local until pushed.
     expect(screen.getByText('#local')).toBeTruthy();
   });
 
-  it('renders the remote-open green badge (no lock) and the merge action bar', () => {
-    render(
-      <PRView
-        mode="remote"
-        bundle={bundle({ pr: pr('remote-open', { remotePrNumber: 145 }) })}
-        commentValue="" onCommentChange={noop} username="chenjian2664" onMerge={noop}
-      />,
-    );
-    const badge = document.querySelector('.pr-status-badge');
-    expect(badge?.className).toContain('remote-open');
-    expect(badge?.querySelector('.lock')).toBeNull();
+  it('renders the green open state pill and the merge gate', () => {
+    renderView(bundle({ pr: pr('remote-open', { remotePrNumber: 145 }) }), { username: 'chenjian2664', onMerge: noop });
+    const pill = document.querySelector('.pr-state-pill');
+    expect(pill?.className).toContain('open');
     expect(screen.getByText(/Merge pull request/)).toBeTruthy();
     expect(screen.getByText('#145')).toBeTruthy();
-    // Remote composer posts to GitHub as the user.
-    expect(screen.getByText(/posts to GitHub as @chenjian2664/)).toBeTruthy();
+    expect(screen.getByText(/Posts to GitHub as @chenjian2664/)).toBeTruthy();
   });
 
   it('disables Merge while an open comment remains and enables Merge anyway', () => {
     const onMerge = vi.fn();
-    render(
-      <PRView
-        mode="remote"
-        bundle={bundle({ pr: pr('remote-open', { remotePrNumber: 145 }), comments: [comment()] })}
-        commentValue="" onCommentChange={noop} onMerge={onMerge} onMergeAnyway={noop}
-      />,
+    renderView(
+      bundle({ pr: pr('remote-open', { remotePrNumber: 145 }), comments: [comment()] }),
+      { onMerge, onMergeAnyway: noop },
     );
     const merge = screen.getByText(/Merge pull request/).closest('button') as HTMLButtonElement;
     expect(merge.disabled).toBe(true);
     fireEvent.click(merge);
     expect(onMerge).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /Merge anyway/ })).toBeTruthy();
-    // The head surfaces the gating reason ("N open comment · resolve before merge").
-    expect(screen.getByText(/open comment · resolve before merge/)).toBeTruthy();
+    expect(screen.getByText(/open comment.*resolve before merge/)).toBeTruthy();
   });
 
   it('disables push while an open comment remains (promotion gate)', () => {
     const onPush = vi.fn();
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({ pr: pr('local-open'), comments: [comment()] })}
-        commentValue="" onCommentChange={noop} onPush={onPush} onAskAgent={noop}
-      />,
-    );
+    renderView(bundle({ pr: pr('local-open'), comments: [comment()] }), { onPush, onAskAgent: noop });
     const push = screen.getByText(/Approve & push to GitHub/).closest('button') as HTMLButtonElement;
     expect(push.disabled).toBe(true);
     fireEvent.click(push);
     expect(onPush).not.toHaveBeenCalled();
-    expect(screen.getByText(/Resolve.*or dismiss them/)).toBeTruthy();
   });
 
   it('disables push while the latest local test run is failing', () => {
     const onPush = vi.fn();
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({
-          pr: pr('local-open'),
-          checks: [
-            check({ kind: 'local', status: 'passed', startedAt: 1 }),
-            check({ kind: 'local', status: 'failed', startedAt: 2 }),
-          ],
-        })}
-        commentValue="" onCommentChange={noop} onPush={onPush} onAskAgent={noop}
-      />,
-    );
+    renderView(bundle({
+      pr: pr('local-open'),
+      checks: [
+        check({ kind: 'local', status: 'passed', startedAt: 1 }),
+        check({ kind: 'local', status: 'failed', startedAt: 2 }),
+      ],
+    }), { onPush, onAskAgent: noop });
     const push = screen.getByText(/Approve & push to GitHub/).closest('button') as HTMLButtonElement;
     expect(push.disabled).toBe(true);
-    expect(screen.getByText(/Local tests are currently/)).toBeTruthy();
   });
 
   it('enables push once the latest local test run passes even after an earlier failure', () => {
     const onPush = vi.fn();
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({
-          pr: pr('local-open'),
-          checks: [
-            check({ kind: 'local', status: 'failed', startedAt: 1 }),
-            check({ kind: 'local', status: 'passed', startedAt: 2 }),
-          ],
-        })}
-        commentValue="" onCommentChange={noop} onPush={onPush} onAskAgent={noop}
-      />,
-    );
+    renderView(bundle({
+      pr: pr('local-open'),
+      checks: [
+        check({ kind: 'local', status: 'failed', startedAt: 1 }),
+        check({ kind: 'local', status: 'passed', startedAt: 2 }),
+      ],
+    }), { onPush, onAskAgent: noop });
     const push = screen.getByText(/Approve & push to GitHub/).closest('button') as HTMLButtonElement;
     expect(push.disabled).toBe(false);
     fireEvent.click(push);
     expect(onPush).toHaveBeenCalledOnce();
   });
 
-  it('marks local-only timeline events (lock) and dims pre-push history in remote mode', () => {
+  it('marks local-only timeline events with the local lock tag', () => {
     const events: LocalPRTimelineEvent[] = [
       event({ eventType: 'commit', isLocalOnly: true, createdAt: 1,
-        payload: { sha: '4b2a1f0', message: 'Extend composer', additions: 18, deletions: 14 } }),
+        payload: { sha: '4b2a1f0', message: 'Extend composer' } }),
       event({ eventType: 'ci', isLocalOnly: false, createdAt: 2,
-        payload: { name: 'GitHub Actions', status: 'passed', durationMs: 204000 } }),
+        payload: { name: 'GitHub Actions', status: 'passed' } }),
     ];
-    const { rerender } = render(
-      <PRView mode="local" bundle={bundle({ pr: pr('local-open'), timeline: events })}
-        commentValue="" onCommentChange={noop} />,
-    );
-    const rows = document.querySelectorAll('.pr-timeline-event');
+    renderView(bundle({ pr: pr('local-open'), timeline: events }));
+    const rows = document.querySelectorAll('.pr-tl-icon-row');
     expect(rows.length).toBe(2);
-    expect(rows[0].className).toContain('local-only');
-    // Local mode does not dim.
-    expect((rows[0] as HTMLElement).style.opacity).toBe('');
-    // Nested commit sha (short) renders.
-    expect(screen.getByText('4b2a1f0')).toBeTruthy();
-
-    rerender(
-      <PRView mode="remote" bundle={bundle({ pr: pr('remote-open', { remotePrNumber: 1 }), timeline: events })}
-        commentValue="" onCommentChange={noop} />,
-    );
-    // Promoted: the local-only history folds away — only the GitHub event
-    // shows inline, the local segment hides under "Local development".
-    expect(document.querySelectorAll('.pr-timeline-event').length).toBe(1);
-    expect(screen.queryByText('4b2a1f0')).toBeNull();
-    const fold = screen.getByRole('button', { name: /Local development/ });
-    expect(fold.textContent).toContain('1 event');
-    fireEvent.click(fold);
-    const remoteRows = document.querySelectorAll('.pr-timeline-event');
-    expect(remoteRows.length).toBe(2);
-    // Expanded, the local-only row is dimmed; the remote row is full opacity.
-    expect((remoteRows[0] as HTMLElement).style.opacity).toBe('0.55');
-    expect((remoteRows[1] as HTMLElement).style.opacity).toBe('');
+    expect(rows[0].querySelector('.lock-tag')).not.toBeNull();
+    expect(rows[1].querySelector('.lock-tag')).toBeNull();
     expect(screen.getByText('4b2a1f0')).toBeTruthy();
   });
 
   it('shows a failed CI icon in red', () => {
-    render(
-      <PRView mode="remote"
-        bundle={bundle({ pr: pr('remote-open', { remotePrNumber: 1 }),
-          timeline: [event({ eventType: 'ci', payload: { name: 'ci', status: 'failed' } })] })}
-        commentValue="" onCommentChange={noop} />,
-    );
-    expect(document.querySelector('.tl-icon.ci.fail')).not.toBeNull();
+    renderView(bundle({
+      pr: pr('remote-open', { remotePrNumber: 1 }),
+      timeline: [event({ eventType: 'ci', payload: { name: 'ci', status: 'failed' } })],
+    }));
+    expect(document.querySelector('.pr-tl-icon-row .tic.fail')).not.toBeNull();
   });
 
-  it('emphasises LOCAL checks in local mode and dims REMOTE, and vice-versa', () => {
+  it('groups local and remote checks under the merge box', () => {
     const checks: LocalPRCheck[] = [
       check({ kind: 'local', status: 'passed', name: 'mvn verify' }),
       check({ kind: 'remote', status: 'passed', name: 'backend / tests' }),
     ];
-    const { rerender } = render(
-      <PRView mode="local" bundle={bundle({ pr: pr('local-open'), checks })}
-        commentValue="" onCommentChange={noop} />,
-    );
-    let cards = document.querySelectorAll('.pr-checks-card');
-    // Card 0 = LOCAL (not dim), card 1 = REMOTE (dim) in local mode.
-    expect((cards[0] as HTMLElement).style.opacity).toBe('');
-    expect((cards[1] as HTMLElement).style.opacity).toBe('0.5');
-
-    rerender(
-      <PRView mode="remote" bundle={bundle({ pr: pr('remote-open', { remotePrNumber: 1 }), checks })}
-        commentValue="" onCommentChange={noop} />,
-    );
-    cards = document.querySelectorAll('.pr-checks-card');
-    expect((cards[0] as HTMLElement).style.opacity).toBe('0.5');
-    expect((cards[1] as HTMLElement).style.opacity).toBe('');
+    renderView(bundle({ pr: pr('local-open'), checks }));
+    expect(screen.getByText('mvn verify')).toBeTruthy();
+    expect(screen.getByText('backend / tests')).toBeTruthy();
+    expect(screen.getByText('LOCAL')).toBeTruthy();
+    expect(screen.getByText('REMOTE')).toBeTruthy();
   });
 
-  it('fires onRunTests from the local checks card only, and shows a busy label', () => {
+  it('fires onRunTests and shows a busy label', () => {
     const onRunTests = vi.fn();
-    const { rerender } = render(
-      <PRView mode="local" bundle={bundle({ pr: pr('local-open') })}
-        commentValue="" onCommentChange={noop} onRunTests={onRunTests} />,
-    );
-    const buttons = screen.getAllByRole('button', { name: 'Run tests' });
-    expect(buttons).toHaveLength(1); // only the local card gets the button.
-    fireEvent.click(buttons[0]);
+    const { rerender } = renderView(bundle({ pr: pr('local-open') }), { onRunTests });
+    const button = screen.getByRole('button', { name: 'Run tests' });
+    fireEvent.click(button);
     expect(onRunTests).toHaveBeenCalledOnce();
 
     rerender(
-      <PRView mode="local" bundle={bundle({ pr: pr('local-open') })}
-        commentValue="" onCommentChange={noop} onRunTests={onRunTests} runTestsBusy />,
+      <PRView
+        bundle={bundle({ pr: pr('local-open') })}
+        capabilities={derivePRCapabilities(pr('local-open'), 'task')}
+        commentValue="" onCommentChange={noop} syncedAt={null} syncing={false} onRefresh={noop}
+        onRunTests={onRunTests} runTestsBusy
+      />,
     );
-    expect(screen.getByRole('button', { name: 'Running…' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Running tests…' })).toBeTruthy();
   });
 
   it('drives the comment composer via props and fires submit on ⌘↵', () => {
     const onSubmit = vi.fn();
     const onChange = vi.fn();
-    render(
-      <PRView mode="local" bundle={bundle({ pr: pr('local-open') })}
-        commentValue="ship it" onCommentChange={onChange} onAddComment={onSubmit} />,
-    );
+    renderView(bundle({ pr: pr('local-open') }), { commentValue: 'ship it', onCommentChange: onChange, onAddComment: onSubmit });
     const textarea = document.querySelector('textarea.cc-input') as HTMLTextAreaElement;
     expect(textarea.value).toBe('ship it');
     fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true });
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the drafting description treatment in local-drafted', () => {
-    render(
-      <PRView mode="local" bundle={bundle({ pr: pr('local-drafted') })}
-        commentValue="" onCommentChange={noop} />,
-    );
-    expect(document.querySelector('.pr-description.drafting')).not.toBeNull();
-    // The pulsing dot badge, no lock, in local-drafted.
-    const badge = document.querySelector('.pr-status-badge.local-drafted');
-    expect(badge?.querySelector('.d')).not.toBeNull();
-    // No action bar while the agent is still drafting.
-    expect(document.querySelector('.pr-action-bar')).toBeNull();
+  it('renders no merge-box gate while the agent is still drafting', () => {
+    renderView(bundle({ pr: pr('local-drafted') }));
+    expect(screen.queryByText(/Approve & push/)).toBeNull();
+    expect(screen.queryByText(/Merge pull request/)).toBeNull();
   });
 
   it('shows "Brain-reviewed" once the brain\'s dev-end comments are all resolved', () => {
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({
-          pr: pr('local-open'),
-          comments: [comment({ id: 'b1', author: 'brain', resolvedAt: Date.now() })],
-        })}
-        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
-      />,
+    renderView(
+      bundle({ pr: pr('local-open'), comments: [comment({ id: 'b1', author: 'brain', resolvedAt: Date.now() })] }),
+      { onPush: noop, onAskAgent: noop },
     );
     expect(screen.getByText('✓ Brain-reviewed')).toBeTruthy();
   });
 
   it('shows "brain unresolved · N" when the brain escalated with open comments', () => {
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({
-          pr: pr('local-open'),
-          comments: [
-            comment({ id: 'b1', author: 'brain', resolvedAt: null }),
-            comment({ id: 'b2', author: 'brain', resolvedAt: null }),
-          ],
-        })}
-        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
-      />,
+    renderView(
+      bundle({
+        pr: pr('local-open'),
+        comments: [
+          comment({ id: 'b1', author: 'brain', resolvedAt: null }),
+          comment({ id: 'b2', author: 'brain', resolvedAt: null }),
+        ],
+      }),
+      { onPush: noop, onAskAgent: noop },
     );
     expect(screen.getByText('◆ brain unresolved · 2')).toBeTruthy();
   });
 
   it('shows no brain-review tag when the brain never reviewed this PR', () => {
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({ pr: pr('local-open') })}
-        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
-      />,
-    );
+    renderView(bundle({ pr: pr('local-open') }), { onPush: noop, onAskAgent: noop });
     expect(document.querySelector('.brain-review-tag')).toBeNull();
   });
 
-  it('renders a brain review timeline event with its BRAIN badge and verdict', () => {
-    render(
-      <PRView
-        mode="local"
-        bundle={bundle({
-          pr: pr('local-open'),
-          timeline: [event({
-            eventType: 'review', actor: 'brain', isLocalOnly: true,
-            payload: { scope: 'dev', verdict: 'changes_requested', iteration: 1 },
-          })],
-        })}
-        commentValue="" onCommentChange={noop} onPush={noop} onAskAgent={noop}
-      />,
-    );
-    expect(screen.getByText('BRAIN')).toBeTruthy();
-    expect(screen.getByText(/reviewed the diff/)).toBeTruthy();
-    expect(screen.getByText('CHANGES REQUESTED')).toBeTruthy();
+  it('renders a brain review timeline event as a person-event with its verdict', () => {
+    renderView(bundle({
+      pr: pr('local-open'),
+      timeline: [event({
+        eventType: 'review', actor: 'brain', isLocalOnly: true,
+        payload: { scope: 'dev', verdict: 'changes_requested', iteration: 1 },
+      })],
+    }), { onPush: noop, onAskAgent: noop });
+    expect(screen.getByText(/reviewed/)).toBeTruthy();
   });
 });

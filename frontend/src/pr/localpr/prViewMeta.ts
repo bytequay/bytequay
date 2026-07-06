@@ -11,55 +11,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type {
-  LocalPRStatus,
-  LocalPRTimelineEventType,
-} from '../../types/localPr';
+import type { LocalPR } from '../../types/localPr';
 
-/** Status-badge presentation — CSS class (matches `.pr-status-badge.<cls>`),
- *  the label copy, and whether the 🔒 lock glyph prefixes it. Mirrors the
- *  locked mockup's badge color map (local-drafted purple, local-open amber,
- *  remote-drafted gray, remote-open green, merged purple). */
-export interface StatusBadgeMeta {
-  cls: string;
-  label: string;
-  lock: boolean;
-  /** local-drafted animates a pulsing dot rather than showing the lock. */
-  pulsing: boolean;
+/** Who an actor is, relative to this PR — drives bubble tinting + badges
+ *  (U15): `agent` (claude-code / brain) gets the purple tint + Agent badge,
+ *  `author` (matches `pr.author` on an external PR) gets the blue tint +
+ *  Author badge, `you` is the local user (no tint), anyone else is a
+ *  third-party reviewer/commenter (no tint, no badge — we don't have their
+ *  real GitHub role association synced). */
+export type ActorRole = 'agent' | 'author' | 'you' | 'other';
+
+const AGENT_ACTORS = new Set(['claude-code', 'brain']);
+
+export function actorRole(actor: string, pr: LocalPR): ActorRole {
+  if (AGENT_ACTORS.has(actor)) return 'agent';
+  if (actor === 'you') return 'you';
+  if (pr.origin === 'external' && pr.author !== null && actor === pr.author) return 'author';
+  return 'other';
 }
 
-const STATUS_BADGES: Record<LocalPRStatus, StatusBadgeMeta> = {
-  'local-drafted': { cls: 'local-drafted', label: 'local · drafting', lock: false, pulsing: true },
-  'local-open': { cls: 'local-open', label: 'local · open · awaiting your review', lock: true, pulsing: false },
-  'remote-drafted': { cls: 'remote-drafted', label: 'remote · draft', lock: false, pulsing: false },
-  'remote-open': { cls: 'remote-open', label: 'remote · open', lock: false, pulsing: false },
-  merged: { cls: 'merged', label: 'merged', lock: false, pulsing: false },
-  closed: { cls: 'remote-drafted', label: 'closed', lock: false, pulsing: false },
-};
-
-export function statusBadgeMeta(status: LocalPRStatus): StatusBadgeMeta {
-  return STATUS_BADGES[status];
+/** Short avatar-glyph label for an actor (2 letters max, matching the
+ *  mockup's circular avatar chips). */
+export function avatarLabel(actor: string): string {
+  if (actor === 'claude-code') return 'CC';
+  if (actor === 'brain') return 'B';
+  if (actor === 'you') return 'Y';
+  const handle = actor.startsWith('@') ? actor.slice(1) : actor;
+  return handle.slice(0, 2).toUpperCase();
 }
 
-/** Timeline-icon presentation — CSS type class (`.tl-icon.<cls>`) + glyph. */
-export interface TimelineIconMeta {
-  cls: string;
-  glyph: string;
-}
-
-const TIMELINE_ICONS: Record<LocalPRTimelineEventType, TimelineIconMeta> = {
-  commit: { cls: 'commit', glyph: '◆' },
-  ci: { cls: 'ci', glyph: '✓' },
-  amend: { cls: 'amend', glyph: '↻' },
-  branch: { cls: 'branch', glyph: '⎇' },
-  status: { cls: 'status', glyph: '◐' },
-  review: { cls: 'review', glyph: '✎' },
-  comment: { cls: 'comment', glyph: '💬' },
-  'follow-up': { cls: 'review', glyph: '⚠' },
-};
-
-export function timelineIconMeta(eventType: LocalPRTimelineEventType): TimelineIconMeta {
-  return TIMELINE_ICONS[eventType];
+/** Display name for an actor row — "you" capitalizes, a synced GitHub
+ *  `@handle` drops the `@` (the badge/tint already says who they are). */
+export function displayName(actor: string): string {
+  if (actor === 'you') return 'You';
+  return actor.startsWith('@') ? actor.slice(1) : actor;
 }
 
 /** A `ci` event whose payload status is a failure paints the icon red. */

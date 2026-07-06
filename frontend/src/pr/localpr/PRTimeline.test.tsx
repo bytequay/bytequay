@@ -14,9 +14,18 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PRTimeline } from './PRTimeline';
-import type { LocalPRTimelineEvent } from '../../types/localPr';
+import type { LocalPR, LocalPRTimelineEvent } from '../../types/localPr';
 
 afterEach(cleanup);
+
+function pr(over: Partial<LocalPR> = {}): LocalPR {
+  return {
+    id: 'pr1', taskId: 't1', branchName: 'feat/x', baseBranch: 'main', title: 'T',
+    description: '', status: 'local-open', createdAt: 1, pushedAt: null, remotePrNumber: null,
+    remotePrUrl: null, mergedAt: null, closedAt: null,
+    origin: 'task', repo: null, author: null, syncedAt: null, ...over,
+  };
+}
 
 function reviewEvent(over: Partial<LocalPRTimelineEvent> = {}): LocalPRTimelineEvent {
   return {
@@ -26,32 +35,62 @@ function reviewEvent(over: Partial<LocalPRTimelineEvent> = {}): LocalPRTimelineE
   };
 }
 
-describe('PRTimeline remote review rendering', () => {
-  it('shows the verdict and written summary for a remote GitHub review', () => {
-    render(<PRTimeline mode="remote" events={[reviewEvent({
+describe('PRTimeline review rendering', () => {
+  it('renders an approval as a person-event with the review body attached', () => {
+    render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
       payload: { verdict: 'APPROVED', body: 'Nice cleanup, LGTM.' },
     })]} />);
 
-    expect(screen.getByText('@reviewer1', { exact: false })).toBeTruthy();
-    expect(screen.getByText('APPROVED')).toBeTruthy();
+    expect(screen.getAllByText('reviewer1', { exact: false }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/approved these changes/)).toBeTruthy();
     expect(screen.getByText('Nice cleanup, LGTM.')).toBeTruthy();
   });
 
-  it('shows CHANGES REQUESTED without a body when the reviewer left no summary', () => {
-    render(<PRTimeline mode="remote" events={[reviewEvent({
+  it('renders CHANGES_REQUESTED as "reviewed", not "approved"', () => {
+    render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
       payload: { verdict: 'CHANGES_REQUESTED' },
     })]} />);
 
-    expect(screen.getByText('CHANGES REQUESTED')).toBeTruthy();
+    expect(screen.getByText(/reviewed/)).toBeTruthy();
+    expect(screen.queryByText(/approved these changes/)).toBeNull();
   });
 
-  it('still renders the brain adversarial-review branch untouched', () => {
-    render(<PRTimeline mode="local" events={[reviewEvent({
+  it('renders the brain adversarial-review branch as a person-event too', () => {
+    render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
       actor: 'brain', isLocalOnly: true,
       payload: { scope: 'plan', verdict: 'approved', iteration: 1 },
     })]} />);
 
-    expect(screen.getByText('BRAIN')).toBeTruthy();
-    expect(screen.getByText('APPROVED')).toBeTruthy();
+    expect(screen.getByText(/approved these changes/)).toBeTruthy();
+  });
+});
+
+describe('PRTimeline composition', () => {
+  it('always renders the description as the first bubble', () => {
+    render(<PRTimeline pr={pr({ description: 'Adds a cache layer.' })} comments={[]} events={[]} />);
+
+    expect(screen.getByText('Adds a cache layer.')).toBeTruthy();
+    expect(screen.getByText(/drafted the description/)).toBeTruthy();
+  });
+
+  it('groups a file-line comment thread into one review-thread card', () => {
+    render(<PRTimeline pr={pr()} events={[]} comments={[
+      {
+        id: 'c1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
+        filePath: 'src/Foo.java', lineNumber: 42, author: 'you', body: 'Fix this.',
+        createdAt: 2, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null,
+      },
+      {
+        id: 'c2', localPrId: 'pr1', origin: 'local', scope: 'file-line',
+        filePath: 'src/Foo.java', lineNumber: 42, author: 'claude-code', body: 'Fixed.',
+        createdAt: 3, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: 'c1', publishedAt: null,
+      },
+    ]} />);
+
+    expect(screen.getByText('src/Foo.java:42', { exact: false })).toBeTruthy();
+    expect(screen.getByText('Fix this.')).toBeTruthy();
+    expect(screen.getByText('Fixed.')).toBeTruthy();
   });
 });

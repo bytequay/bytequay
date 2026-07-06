@@ -11,34 +11,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { MarkdownProse } from '../../threads/MarkdownProse';
-import type { LocalPRBundle, PRViewMode } from '../../types/localPr';
+import type { ReactNode } from 'react';
+import type { LocalPRBundle } from '../../types/localPr';
 import { isLocalStatus } from '../../types/localPr';
-import { statusBadgeMeta } from './prViewMeta';
+import type { PRCapabilities } from '../prCapabilities';
+import { PRHeader } from './PRHeader';
 import { PRTimeline } from './PRTimeline';
-import { PRChecksCard } from './PRChecksCard';
-import { PRActionBar } from './PRActionBar';
+import { MergeBox } from './MergeBox';
 import { PRCommentComposer } from './PRCommentComposer';
 
 /**
- * The unified PR renderer (decision #49). ONE component, ONE `mode` prop —
- * `mode="local"` renders the private local phase, `mode="remote"` the pushed
- * phase. The visual template is identical; `mode` only switches the badge, the
- * timeline dimming, the checks emphasis, and the composer/action affordances.
- * Layout follows decision #54: fixed header + scrollable body of
- * Description → Timeline → Action bar → Checks → Composer.
+ * The unified PR renderer (U7) — ONE component driven by a `capabilities`
+ * object, not a `mode`/`allowLocalComments` prop. Layout: fixed header
+ * (`<PRHeader>`) + a scrollable rail (`<PRTimeline>`, description-first) +
+ * the merge-box gate (`<MergeBox>`, only rendered when a gate or checks
+ * exist) + the comment composer.
  *
- * Presentational: the host resolves the {@link LocalPRBundle} (via a bridge
- * hook) and supplies the user-gated callbacks. Push and merge are never
- * auto-invoked here — they open the host's dialogs.
+ * Presentational: the host resolves the {@link LocalPRBundle} (via
+ * `usePR`/`useLocalPr`) and supplies the user-gated callbacks. Push, merge,
+ * and publish-review are never auto-invoked here — they open the host's
+ * dialogs or fire the host's mutation.
  */
 export function PRView({
-  mode, bundle, commentValue, onCommentChange, username,
+  bundle, capabilities, commentValue, onCommentChange, username,
   onAddComment, onPush, onAskAgent, onMerge, onMergeAnyway, onReviewChanges,
-  onRunTests, runTestsBusy = false,
+  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread,
+  onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction,
 }: {
-  mode: PRViewMode;
   bundle: LocalPRBundle;
+  capabilities: PRCapabilities;
   commentValue: string;
   onCommentChange: (v: string) => void;
   username?: string;
@@ -51,53 +52,57 @@ export function PRView({
    *  nothing to review yet. */
   onReviewChanges?: () => void;
   /** Manually re-run the local test suite (design doc slice 4). Omitted
-   *  when there's no local PR to run tests against yet. */
+   *  when there's no PR to run tests against yet. */
   onRunTests?: () => void;
   runTestsBusy?: boolean;
+  onResolveThread?: (commentId: string) => void;
+  onDismissThread?: (commentId: string) => void;
+  onPublishReview?: () => void;
+  onDiscardDrafts?: () => void;
+  syncedAt: number | null;
+  syncing: boolean;
+  onRefresh: () => void;
+  /** e.g. the standalone details page's "Review with agent →" affordance. */
+  headerAction?: ReactNode;
 }) {
-  const { pr, timeline, checks, comments } = bundle;
-  const badge = statusBadgeMeta(pr.status);
+  const { pr, commits, timeline, checks, comments } = bundle;
   const local = isLocalStatus(pr.status);
 
   const openComments = comments.filter(c => c.resolvedAt === null && c.strippedOnPushAt === null).length;
   // The brain's dev-end review outcome (plan-rail-runs.md R21/R23) — derived
-  // from its own local_pr_comment rows (author='brain'), never a separate
-  // fetch: a brain review round always concludes before the PR flips to
-  // local-open, so by the time this renders, its story is fully told here.
+  // from its own comments (author='brain'), never a separate fetch: a brain
+  // review round always concludes before the PR flips to local-open, so by
+  // the time this renders, its story is fully told here.
   const brainComments = comments.filter(c => c.author === 'brain');
   const brainReview = brainComments.length > 0
     ? { total: brainComments.length, unresolved: brainComments.filter(c => c.resolvedAt === null && c.dismissedAt === null).length }
     : undefined;
   const localChecks = checks.filter(c => c.kind === 'local');
   const remoteChecks = checks.filter(c => c.kind === 'remote');
-  const localChecksPassed = localChecks.length > 0 && localChecks.every(c => c.status === 'passed' || c.status === 'neutral');
   // The promotion gate (design doc slice 5) only cares about the MOST RECENT
   // local run — an earlier failure that's since been fixed doesn't block.
   const latestLocalCheck = localChecks.reduce<typeof localChecks[number] | undefined>(
     (latest, c) => latest === undefined || c.startedAt > latest.startedAt ? c : latest, undefined);
   const localTestsFailing = latestLocalCheck?.status === 'failed';
-  const prNumLabel = pr.remotePrNumber !== null ? `#${pr.remotePrNumber}` : '#local';
+  const draftCount = comments.filter(
+    c => c.origin === 'local' && c.publishedAt === null && c.dismissedAt === null).length;
+  const additions = commits.reduce((sum, c) => sum + c.additions, 0);
+  const deletions = commits.reduce((sum, c) => sum + c.deletions, 0);
 
   return (
     <div className="pr-view">
-      <div className="pr-header">
-        <div className="pr-title-row">
-          <span className="pr-title">{pr.title}</span>
-          <span className="pr-num">{prNumLabel}</span>
-        </div>
-        <div className="pr-title-row">
-          <span className={`pr-status-badge ${badge.cls}`}>
-            {badge.pulsing && <span className="d" />}
-            {badge.lock && <span className="lock">🔒</span>}
-            {badge.label}
-          </span>
-        </div>
-        <div className="pr-branch-row">
-          <span className="pr-branch">{pr.baseBranch}</span>
-          <span className="pr-branch-arrow">←</span>
-          <span className="pr-branch">{pr.branchName}</span>
-        </div>
-      </div>
+      <PRHeader
+        pr={pr}
+        syncedAt={syncedAt}
+        syncing={syncing}
+        onRefresh={onRefresh}
+        commitCount={commits.length}
+        checkCount={checks.length}
+        conversationCount={comments.length + 1 /* description */}
+        additions={additions}
+        deletions={deletions}
+        headerAction={headerAction}
+      />
 
       <div className="pr-body-scroll">
         {onReviewChanges !== undefined && (
@@ -107,52 +112,51 @@ export function PRView({
             <span className="arrow" aria-hidden>→</span>
           </button>
         )}
-        <div className="pr-section-h">Description</div>
-        <div className={pr.status === 'local-drafted' ? 'pr-description drafting' : 'pr-description'}>
-          {pr.description.trim().length > 0
-            ? <MarkdownProse text={pr.description} />
-            : <span style={{ color: 'var(--text-4)' }}>No description yet.</span>}
-        </div>
 
-        <div className="pr-section-h">Timeline · {timeline.length} event{timeline.length === 1 ? '' : 's'}</div>
-        <PRTimeline events={timeline} mode={mode} />
-
-        <PRActionBar
+        <PRTimeline
           pr={pr}
+          events={timeline}
+          comments={comments}
+          onReviewChanges={onReviewChanges}
+          onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
+          onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
+        />
+
+        <MergeBox
+          pr={pr}
+          capabilities={capabilities}
+          localChecks={localChecks}
+          remoteChecks={remoteChecks}
           openComments={openComments}
-          localChecksPassed={localChecksPassed}
           localTestsFailing={localTestsFailing}
+          pendingStripCount={bundle.pendingStripCount ?? 0}
+          draftCount={draftCount}
           brainReview={brainReview}
           onPush={onPush}
           onAskAgent={onAskAgent}
           onMerge={onMerge}
           onMergeAnyway={onMergeAnyway}
+          onPublishReview={onPublishReview}
+          onDiscardDrafts={onDiscardDrafts}
         />
 
-        <div className="pr-section-h">Checks</div>
-        <PRChecksCard
-          kind="local"
-          title="Validation scripts"
-          checks={localChecks}
-          dim={mode === 'remote'}
-          onRunTests={mode === 'local' ? onRunTests : undefined}
-          runTestsBusy={runTestsBusy}
-        />
-        <PRChecksCard
-          kind="remote"
-          title="GitHub Actions"
-          checks={remoteChecks}
-          dim={mode === 'local'}
-        />
+        {onRunTests !== undefined && (
+          <div className="mb-actions" style={{ paddingLeft: 0 }}>
+            <button type="button" className="btn sm" onClick={onRunTests} disabled={runTestsBusy}>
+              {runTestsBusy ? 'Running tests…' : 'Run tests'}
+            </button>
+          </div>
+        )}
 
-        <div className="pr-section-h">Add a comment</div>
-        <PRCommentComposer
-          local={local}
-          username={username}
-          value={commentValue}
-          onChange={onCommentChange}
-          onSubmit={onAddComment}
-        />
+        {capabilities.draftLocalComments && (
+          <PRCommentComposer
+            local={local}
+            username={username}
+            value={commentValue}
+            onChange={onCommentChange}
+            onSubmit={onAddComment}
+          />
+        )}
       </div>
     </div>
   );

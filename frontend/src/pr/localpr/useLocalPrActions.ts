@@ -13,8 +13,7 @@
  */
 import { useCallback, useState } from 'react';
 import type { MergeMethod } from './MergeDialog';
-import type { PRViewMode } from '../../types/localPr';
-import { isLocalStatus } from '../../types/localPr';
+import { derivePRCapabilities } from '../prCapabilities';
 import { useLocalPr } from '../../threads/brain/useLocalPr';
 
 /**
@@ -31,10 +30,9 @@ export function useLocalPrActions(taskId: string, opts: {
   onAfterTransition?: () => void;
 } = {}) {
   const { onAfterTransition } = opts;
-  const { bundle, refresh } = useLocalPr(taskId);
+  const { bundle, refresh, syncing } = useLocalPr(taskId);
   const localPr = bundle?.pr ?? null;
-  const prMode: PRViewMode =
-    localPr !== null && !isLocalStatus(localPr.status) ? 'remote' : 'local';
+  const capabilities = localPr !== null ? derivePRCapabilities(localPr, 'task') : null;
 
   const [localComment, setLocalComment] = useState('');
   const [pushOpen, setPushOpen] = useState(false);
@@ -105,7 +103,7 @@ export function useLocalPrActions(taskId: string, opts: {
   }, [localPr, refresh]);
 
   return {
-    bundle, refresh, localPr, prMode,
+    bundle, refresh, syncing, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen, mergeOpen, setMergeOpen,

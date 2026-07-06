@@ -11,184 +11,138 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
-import type { LocalPRTimelineEvent } from '../../types/localPr';
-import type { PRViewMode } from '../../types/localPr';
-import { agoLabel, isFailedCiPayload, timelineIconMeta } from './prViewMeta';
-
-/** The unified PR timeline (decision #55). Every timeline event renders in one
- *  stream through {@link PRTimelineEvent}; a `local-only` event gets the 🔒
- *  marker (a CSS `::after` on the icon).
- *
- *  Pre-push (`mode="local"`) every event shows inline. Once the PR is promoted
- *  (`mode="remote"`), the private local-dev history collapses under one
- *  foldable `▸ Local development` group so the synced GitHub events read as
- *  current — the local segment stays one click away, never lost. */
-export function PRTimeline({ events, mode }: { events: LocalPRTimelineEvent[]; mode: PRViewMode }) {
-  const [localOpen, setLocalOpen] = useState(false);
-
-  if (mode === 'local') {
-    return (
-      <div className="pr-timeline">
-        {events.map(e => <PRTimelineEvent key={e.id} event={e} mode={mode} />)}
-      </div>
-    );
-  }
-
-  // Promoted: fold the local-only segment, show the GitHub segment inline.
-  const local = events.filter(e => e.isLocalOnly);
-  const remote = events.filter(e => !e.isLocalOnly);
-  return (
-    <div className="pr-timeline">
-      {local.length > 0 && (
-        <>
-          <button
-            type="button"
-            className="pr-timeline-fold"
-            onClick={() => setLocalOpen(o => !o)}
-            aria-expanded={localOpen}
-          >
-            <span className="caret" aria-hidden="true">{localOpen ? '▾' : '▸'}</span>
-            Local development
-            <span className="count">{local.length} event{local.length === 1 ? '' : 's'}</span>
-          </button>
-          {localOpen && local.map(e => <PRTimelineEvent key={e.id} event={e} mode={mode} />)}
-        </>
-      )}
-      {remote.map(e => <PRTimelineEvent key={e.id} event={e} mode={mode} />)}
-    </div>
-  );
-}
+import { Fragment, type ReactNode } from 'react';
+import type { LocalPR, LocalPRComment, LocalPRTimelineEvent } from '../../types/localPr';
+import { MarkdownProse } from '../../threads/MarkdownProse';
+import { actorRole } from './prViewMeta';
+import { TimelineBubble } from './TimelineBubble';
+import { TimelinePersonEvent } from './TimelinePersonEvent';
+import { TimelineIconEvent } from './TimelineIconEvent';
+import { ReviewThreadCard } from './ReviewThreadCard';
 
 function str(payload: Record<string, unknown> | null, key: string): string | null {
   const v = payload?.[key];
   return typeof v === 'string' ? v : null;
 }
 
-function num(payload: Record<string, unknown> | null, key: string): number | null {
-  const v = payload?.[key];
-  return typeof v === 'number' ? v : null;
-}
+type Row = { key: string; time: number; render: ReactNode };
 
-/** Body copy per event type, derived from the event payload. Missing fields
- *  degrade gracefully — a malformed payload still renders a sensible line. */
-function eventBody(event: LocalPRTimelineEvent): ReactNode {
-  const p = event.payload;
-  const actor = <span className="b">{event.actor}</span>;
-  switch (event.eventType) {
-    case 'commit': {
-      const sha = str(p, 'sha');
-      const message = str(p, 'message');
-      const adds = num(p, 'additions');
-      const dels = num(p, 'deletions');
-      return (
-        <>
-          {actor} committed
-          {sha !== null && (
-            <div className="tl-nested-commits">
-              <div className="nc-row">
-                <span className="sha">{sha.slice(0, 7)}</span>
-                <span className="msg">{message ?? ''}</span>
-                <span className="delta">+{adds ?? 0} −{dels ?? 0}</span>
-              </div>
-            </div>
-          )}
-        </>
-      );
-    }
-    case 'ci': {
-      const name = str(p, 'name') ?? 'Checks';
-      const status = str(p, 'status') ?? '';
-      const durationMs = num(p, 'durationMs');
-      return (
-        <>
-          {name} — {status}
-          {durationMs !== null && <span className="ts">{Math.round(durationMs / 1000)}s</span>}
-        </>
-      );
-    }
-    case 'status':
-      return (
-        <>
-          {actor} <code>{str(p, 'from') ?? '?'}</code> → <code>{str(p, 'to') ?? '?'}</code>
-        </>
-      );
-    case 'amend':
-      return (
-        <>
-          {actor} amended {str(p, 'sha') !== null && <code>{str(p, 'sha')}</code>}
-        </>
-      );
-    case 'branch':
-      return (
-        <>
-          {actor} {str(p, 'message') ?? 'updated the branch'}
-        </>
-      );
-    case 'review': {
-      if (event.actor !== 'brain') {
-        // A remote GitHub review (LocalPRSyncService) — verdict + written
-        // summary, if the reviewer left one.
-        const verdict = str(p, 'verdict');
-        const body = str(p, 'body');
-        return (
-          <>
-            {actor} submitted a review
-            {verdict !== null && (
-              <span className={`verdict-pill ${verdict === 'APPROVED' ? 'ok' : 'chg'}`}>
-                {verdict.replace('_', ' ')}
-              </span>
-            )}
-            {body !== null && body !== '' && <div className="tl-review-body">{body}</div>}
-          </>
-        );
-      }
-      // Brain adversarial review (plan-rail-runs.md R20-R24) — always
-      // local-only (never posted to GitHub); scope names which lock point.
-      const scope = str(p, 'scope');
-      const verdict = str(p, 'verdict');
-      const iteration = num(p, 'iteration');
-      const scopeLabel = scope === 'plan' ? 'the plan' : scope === 'round' ? 'the round\'s fixes' : 'the diff';
-      return (
-        <>
-          <span className="brain-badge">BRAIN</span>
-          reviewed {scopeLabel}
-          {iteration !== null && <span className="ts">iter {iteration}</span>}
-          {verdict !== null && (
-            <span className={`verdict-pill ${verdict === 'approved' ? 'ok' : 'chg'}`}>
-              {verdict === 'approved' ? 'APPROVED' : 'CHANGES REQUESTED'}
-            </span>
-          )}
-        </>
-      );
-    }
-    case 'comment':
-      return <>{actor} commented</>;
-    case 'follow-up':
-      return <>{actor} flagged a follow-up</>;
-    default:
-      return actor;
+/** Groups file-line comments into one thread per (filePath, lineNumber),
+ *  root-first — this milestone doesn't track deeper threading than a single
+ *  reply (design #47/#49), so grouping by anchor is equivalent to grouping
+ *  by root comment. */
+function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]> {
+  const threads = new Map<string, LocalPRComment[]>();
+  for (const c of comments) {
+    if (c.scope !== 'file-line' || c.filePath === null || c.lineNumber === null) continue;
+    const key = `${c.filePath}:${c.lineNumber}`;
+    const existing = threads.get(key);
+    if (existing === undefined) threads.set(key, [c]);
+    else existing.push(c);
   }
+  for (const group of threads.values()) group.sort((a, b) => a.createdAt - b.createdAt);
+  return threads;
 }
 
-function PRTimelineEvent({ event, mode }: { event: LocalPRTimelineEvent; mode: PRViewMode }) {
-  const icon = timelineIconMeta(event.eventType);
-  const iconCls = event.eventType === 'ci' && isFailedCiPayload(event.payload)
-    ? `${icon.cls} fail`
-    : icon.cls;
-  // Remote mode dims the pre-push local-only history so the remote events read
-  // as current (decision #49 timeline-rendering note).
-  const dim = mode === 'remote' && event.isLocalOnly;
-  return (
-    <div
-      className={event.isLocalOnly ? 'pr-timeline-event local-only' : 'pr-timeline-event'}
-      style={dim ? { opacity: 0.55 } : undefined}
-    >
-      <span className={`tl-icon ${iconCls}`}>{icon.glyph}</span>
-      <div className="tl-body">
-        {eventBody(event)}
-        <span className="ts">{agoLabel(event.createdAt)}</span>
-      </div>
-    </div>
-  );
+/**
+ * The unified PR timeline (U13c/U15): a rail of speech-bubble comments,
+ * person-events for reviews, one-line icon rows for compact events, and
+ * review-thread cards for file-line comments — all in one time-ordered feed.
+ * The description renders as the first bubble.
+ */
+export function PRTimeline({
+  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread,
+}: {
+  pr: LocalPR;
+  events: LocalPRTimelineEvent[];
+  comments: LocalPRComment[];
+  onReviewChanges?: () => void;
+  onResolveThread?: (rootCommentId: string) => void;
+  onDismissThread?: (rootCommentId: string) => void;
+}) {
+  const rows: Row[] = [];
+
+  const descriptionActor = pr.origin === 'external' && pr.author !== null ? pr.author : 'claude-code';
+  rows.push({
+    key: 'description',
+    time: -Infinity, // always first, regardless of createdAt
+    render: (
+      <TimelineBubble
+        key="description"
+        actor={descriptionActor}
+        role={actorRole(descriptionActor, pr)}
+        action="drafted the description"
+        time={pr.createdAt}
+      >
+        {pr.description.trim().length > 0
+          ? <MarkdownProse text={pr.description} />
+          : <span className="drafting-hint">No description yet.</span>}
+      </TimelineBubble>
+    ),
+  });
+
+  for (const event of events) {
+    if (event.eventType === 'comment') continue; // rendered from `comments` instead
+    if (event.eventType === 'review') {
+      const verdict = str(event.payload, 'verdict');
+      const body = str(event.payload, 'body');
+      rows.push({
+        key: event.id,
+        time: event.createdAt,
+        render: (
+          <Fragment key={event.id}>
+            <TimelinePersonEvent actor={event.actor} verdict={verdict} time={event.createdAt} onViewChanges={onReviewChanges} />
+            {body !== null && body.trim().length > 0 && (
+              <TimelineBubble actor={event.actor} role={actorRole(event.actor, pr)} action="left a review comment" time={event.createdAt}>
+                {body}
+              </TimelineBubble>
+            )}
+          </Fragment>
+        ),
+      });
+      continue;
+    }
+    rows.push({ key: event.id, time: event.createdAt, render: <TimelineIconEvent key={event.id} event={event} /> });
+  }
+
+  for (const comment of comments) {
+    if (comment.scope !== 'pr') continue;
+    const role = actorRole(comment.author, pr);
+    const pending = comment.origin === 'local' && comment.publishedAt === null;
+    rows.push({
+      key: comment.id,
+      time: comment.createdAt,
+      render: (
+        <TimelineBubble key={comment.id} actor={comment.author} role={role} action="commented" time={comment.createdAt} pending={pending}>
+          {comment.body}
+        </TimelineBubble>
+      ),
+    });
+  }
+
+  for (const [key, thread] of groupThreads(comments)) {
+    const root = thread[0];
+    const [filePath, lineNumberStr] = [root.filePath ?? '', root.lineNumber ?? 0];
+    const resolved = root.resolvedAt !== null || root.dismissedAt !== null;
+    rows.push({
+      key: `thread-${key}`,
+      time: root.createdAt,
+      render: (
+        <ReviewThreadCard
+          key={`thread-${key}`}
+          pr={pr}
+          filePath={filePath}
+          lineNumber={typeof lineNumberStr === 'number' ? lineNumberStr : 0}
+          comments={thread}
+          resolved={resolved}
+          onResolve={onResolveThread !== undefined ? () => onResolveThread(root.id) : undefined}
+          onDismiss={onDismissThread !== undefined ? () => onDismissThread(root.id) : undefined}
+        />
+      ),
+    });
+  }
+
+  rows.sort((a, b) => a.time - b.time);
+
+  return <div className="pr-tl-rail">{rows.map(r => <Fragment key={r.key}>{r.render}</Fragment>)}</div>;
 }

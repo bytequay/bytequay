@@ -288,16 +288,12 @@ public class PRSyncService
             log.info("dashboard detail sync for PR {} failed: {}", pr.id(), e.getMessage());
             return;
         }
+        // Branch backfill, commit/check sync, and the diff/CI snapshot
+        // refresh all already happened above inside syncPR's own
+        // syncRemoteTimeline call — this method only adds the dashboard-only
+        // fields (attention reason, reviewer verdicts, comment count) that
+        // need this current user's login and viewed-at marker.
         PR current = prService.findById(pr.id()).orElse(pr);
-        // The dashboard sweep's initial createExternal has no better guess
-        // than "unknown"/the default base — GitHub's search API never
-        // returns head.ref (GitHubClient.toPullRequest). Backfill the real
-        // names once the detail fetch resolves them. Task-origin PRs keep
-        // their git-derived branch name untouched.
-        if (PR.ORIGIN_EXTERNAL.equals(current.origin())
-                && (detail.headRef() != null || detail.baseRef() != null)) {
-            current = prService.updateBranches(current.id(), detail.headRef(), detail.baseRef());
-        }
         PR.PRSyncSnapshot baseline = current.githubSync();
         if (baseline == null) {
             return;
@@ -514,6 +510,14 @@ public class PRSyncService
         }
         if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
             reconcileExternalStatus(pr, detail);
+            // The dashboard sweep's initial createExternal has no better guess
+            // than "unknown"/the default base — GitHub's search API never
+            // returns head.ref (GitHubClient.toPullRequest). Backfill the real
+            // names here too, since a PR opened directly (never touched by a
+            // dashboard tick first) reaches this path, not syncDashboardDetail.
+            if (detail.headRef() != null || detail.baseRef() != null) {
+                prService.updateBranches(pr.id(), detail.headRef(), detail.baseRef());
+            }
             syncExternalCommits(pr);
             syncExternalChecks(pr, detail);
             refreshDiffAndCiSnapshot(pr, detail);

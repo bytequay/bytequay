@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { SidebarFooter, TrafficLights } from '../shell';
 import { useFullScreen } from '../../useFullScreen';
@@ -83,20 +83,6 @@ export function WorkspaceNavSidebar({
   onToggleCollapse?: () => void;
 }) {
   const fullScreen = useFullScreen();
-
-  // Collapsed, the rail narrows to a 48px strip but the native inset
-  // traffic lights (trafficLightPosition in main.ts) are OS-drawn — CSS
-  // can't hide them, so they'd otherwise float on top of the collapsed
-  // strip. Ask the main process to hide/show them instead. Restore on
-  // unmount so a view that hides this rail entirely (stage-detail /
-  // task-brain) never leaves the window without its buttons. Also re-fire
-  // on `fullScreen` flips — macOS resets native button visibility on its
-  // own during the fullscreen transition, so entering/leaving fullscreen
-  // while collapsed would otherwise silently bring the buttons back.
-  useEffect(() => {
-    void window.bridge?.windowControl?.(collapsed ? 'hideButtons' : 'showButtons');
-    return () => { void window.bridge?.windowControl?.('showButtons'); };
-  }, [collapsed, fullScreen]);
 
   // Drag the right edge to resize. Width is local + persisted so it sticks
   // across reloads; collapsed mode ignores it (the strip is CSS-sized).

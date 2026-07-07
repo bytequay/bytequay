@@ -79,10 +79,9 @@
 .shell.shell-rail.sidebar-collapsed .sb-traffic .sb-toggle {
   margin-left: 0;
 }
-/* Collapsed wins over fullscreen: fold hides the traffic lights (real or
-   fake) unconditionally, even though .is-fullscreen .dots below turns
-   them visible again for the non-collapsed case. */
-.shell.shell-rail.is-fullscreen.sidebar-collapsed .sb-traffic .dots {
+/* Folded hides the dots outright — no close/minimize/zoom while folded,
+   same as the rest of the chrome row. */
+.shell.shell-rail.sidebar-collapsed .sb-traffic .dots {
   visibility: hidden;
 }
 /* Folded nav column: the primary destinations stay reachable as bare
@@ -104,36 +103,22 @@
   display: none;
 }
 
-/* The window-chrome row is a drag handle; its buttons opt out. The fake
-   red/yellow/green dots stand in for the native macOS traffic lights:
-   the window is `hiddenInset`, so while windowed the OS draws the real
-   buttons over this spot and ours stay hidden (but keep their width so
-   nothing shifts). In fullscreen the OS hides its buttons, so ours
-   become visible — the user keeps the three dots in the same place and
-   they really close / minimize / restore (wired via window:control). */
+/* The window-chrome row is a drag handle; its buttons opt out. The native
+   traffic lights are permanently hidden (main.ts createWindow) — the fake
+   red/yellow/green dots are the only close/minimize/zoom controls, in
+   every window state, wired via window:control. */
 .shell.shell-rail .sb-traffic {
   -webkit-app-region: drag;
-  /* Fixed row height centring the buttons on the native traffic lights
-     (trafficLightPosition {14,14} + 12px buttons → centre line y=20). */
   height: 40px;
   padding: 0 14px;
 }
 .shell.shell-rail .sb-traffic .sb-toggle {
-  /* Breathing room after the (real or fake) green button. */
+  /* Breathing room after the green dot. */
   margin-left: 12px;
 }
-.shell.shell-rail .sb-traffic .dots {
-  visibility: hidden;
-}
-/* Unconditional no-drag: while windowed the dots are invisible and
-   inert anyway, and keeping the rule off the fullscreen class combo
-   means a missed class can't turn the buttons into drag handles. */
 .shell.shell-rail .sb-traffic .dots span {
   -webkit-app-region: no-drag;
   cursor: pointer;
-}
-.shell.shell-rail.is-fullscreen .sb-traffic .dots {
-  visibility: visible;
 }
 .shell.shell-rail .sb-traffic .sb-toggle,
 .shell.shell-rail .sb-traffic .nav-arrows {

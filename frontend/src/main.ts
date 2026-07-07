@@ -327,13 +327,12 @@ const createWindow = async () => {
     width: 1100,
     height: 720,
     backgroundColor: MAIN_BG,
-    // Hide the native macOS title bar but keep the traffic-light buttons,
-    // inset into the top-left of the window. Lets our GlobalTopbar be the
-    // single nav row instead of sitting under a redundant "ByteQuay"
-    // title strip. Y is tuned to sit roughly centered against the 44px
-    // .global-topbar height — see frontend/src/css/base.css.
+    // Hide the native macOS title bar. Lets our GlobalTopbar be the single
+    // nav row instead of sitting under a redundant "ByteQuay" title strip.
+    // The native traffic-light buttons are hidden outright below — the
+    // renderer draws its own (smaller) close/minimize/zoom dots instead —
+    // but setWindowButtonVisibility still requires 'hidden'/'hiddenInset'.
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -345,6 +344,11 @@ const createWindow = async () => {
     destroyInappView();
     mainWindow = null;
   });
+  // The native traffic lights are a fixed OS size we can't restyle — hide
+  // them permanently and let the renderer's own (smaller, always-on) dots
+  // in .sb-traffic be the only close/minimize/zoom controls, in every
+  // window state. macOS-only API; no-op elsewhere.
+  if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false);
 
   // Fullscreen state → renderer. When macOS native fullscreen hides
   // the inset traffic lights, the topbar's 78px reserve looks like an
@@ -503,20 +507,14 @@ function registerIpc(): void {
     return mainWindow ? mainWindow.isFullScreen() : false;
   });
 
-  // Window controls for the renderer's fake traffic-light dots — they
-  // stand in for the native macOS buttons in fullscreen (where the OS
-  // hides its own), so they must actually close / minimize / restore.
-  // hideButtons/showButtons drive the *native* inset traffic lights
-  // (trafficLightPosition above) — those are OS-drawn, so CSS can't hide
-  // them when the rail collapses to its 48px strip; only this Electron
-  // API can. macOS-only, no-op elsewhere.
+  // Window controls for the renderer's fake traffic-light dots — the
+  // native buttons are permanently hidden (see createWindow), so these
+  // are the only close / minimize / restore controls in any state.
   ipcMain.handle('window:control', (_event, action: string) => {
     if (!mainWindow) return;
     if (action === 'close') mainWindow.close();
     else if (action === 'minimize') mainWindow.minimize();
     else if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
-    else if (action === 'hideButtons' && process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false);
-    else if (action === 'showButtons' && process.platform === 'darwin') mainWindow.setWindowButtonVisibility(true);
   });
 
   // SSE broker for per-thread live event streams. Renderer subscribes via

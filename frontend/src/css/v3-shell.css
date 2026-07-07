@@ -51,11 +51,11 @@
 }
 .shell .sb-traffic .dots {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 .shell .sb-traffic .dots span {
-  width: 12px;
-  height: 12px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   display: inline-block;
 }
@@ -344,10 +344,10 @@
   padding: 0;
 }
 .shell.sidebar-collapsed .sb-traffic {
-  /* Extra top padding clears the native traffic-light buttons (fixed at
-     trafficLightPosition 14,14 in main.ts) — collapsed, .dots is hidden
-     and .sb-toggle would otherwise sit directly underneath them. */
-  padding: 34px 8px 9px;
+  /* The native traffic lights are hidden outright (main.ts createWindow),
+     so — unlike expanded — there's no clearance to reserve; the dots
+     below are hidden too, so it's just the toggle. */
+  padding: 11px 8px 9px;
   flex-direction: column;
   gap: 10px;
   align-items: flex-start;

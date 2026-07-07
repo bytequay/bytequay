@@ -3982,8 +3982,13 @@ export type Bridge = {
   /** User-gated push: push the branch, open a Draft PR, strip local-only
    *  history, and flip local-open → remote-drafted. */
   pushLocalPr: (prId: string) => Promise<LocalPR>;
-  /** User-gated merge of a pushed PR with the chosen method. */
+  /** User-gated merge of a pushed PR with the chosen method — enqueues via
+   *  GitHub's merge queue instead when the target branch requires one. */
   mergeLocalPr: (prId: string, method: string) => Promise<LocalPR>;
+  /** User-gated removal of a pushed PR from its repo's merge queue. */
+  dequeueLocalPr: (prId: string) => Promise<LocalPR>;
+  /** User-gated deletion of a merged PR's head branch on GitHub. */
+  deleteLocalPrBranch: (prId: string) => Promise<LocalPR>;
   /** Batch every unpublished draft comment into one GitHub review
    *  (external PRs only — see {@code PRCapabilities.publishReview}). */
   publishLocalPrReview: (prId: string) => Promise<LocalPR>;

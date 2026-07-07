@@ -993,6 +993,22 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('pr:dequeue', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/merge-queue`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend PR dequeue returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('pr:deleteBranch', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/branch`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend PR delete-branch returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('pr:publishReview', async (_event, prId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/publish-review`, {
       method: 'POST',

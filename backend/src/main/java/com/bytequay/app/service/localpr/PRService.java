@@ -160,7 +160,7 @@ public interface PRService
     PR transition(String prId, String newStatus, String actor);
 
     /** Record the remote PR identity assigned on push (before the status flip). */
-    PR recordPushed(String prId, int remotePrNumber, String remotePrUrl);
+    PR recordPushed(String prId, String repo, int remotePrNumber, String remotePrUrl);
 
     /**
      * Complete a push: strip every not-yet-stripped local-only timeline event
@@ -169,10 +169,14 @@ public interface PRService
      * (writing the status timeline event). Called by the push orchestrator
      * after the git push + draft-PR create succeed.
      */
-    PR recordPush(String prId, int remotePrNumber, String remotePrUrl);
+    PR recordPush(String prId, String repo, int remotePrNumber, String remotePrUrl);
 
     /** Flip {@code remote-open → merged} after a user-gated GitHub merge. */
     PR recordMerged(String prId);
+
+    /** Stamp {@code branchDeletedAt} after a user-gated GitHub branch
+     *  deletion — hides the merge-box's "Delete branch" affordance. */
+    PR recordBranchDeleted(String prId);
 
     /** How many local-only events + local comments a push would strip — the
      *  count the push dialog surfaces before the user confirms. */

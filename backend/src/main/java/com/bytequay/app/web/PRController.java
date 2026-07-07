@@ -39,6 +39,7 @@ import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -285,6 +286,20 @@ public class PRController
     public PRDto merge(@PathVariable String prId, @RequestBody(required = false) MergePRRequest body)
     {
         return PRDto.from(publish.merge(prId, body == null ? null : body.method()));
+    }
+
+    /** User-gated removal of a pushed PR from its repo's merge queue. */
+    @DeleteMapping("/api/prs/{prId}/merge-queue")
+    public PRDto dequeue(@PathVariable String prId)
+    {
+        return PRDto.from(publish.dequeue(prId));
+    }
+
+    /** User-gated deletion of a merged PR's head branch on GitHub. */
+    @DeleteMapping("/api/prs/{prId}/branch")
+    public PRDto deleteBranch(@PathVariable String prId)
+    {
+        return PRDto.from(publish.deleteBranch(prId));
     }
 
     /** Batch every draft comment on an {@code origin=external} PR into one

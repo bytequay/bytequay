@@ -966,6 +966,8 @@ const bridge: Bridge = {
   getLocalPrBundle: (prId: string) => ipcRenderer.invoke('pr:bundle', prId),
   pushLocalPr: (prId: string) => ipcRenderer.invoke('pr:push', prId),
   mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('pr:merge', prId, method),
+  dequeueLocalPr: (prId: string) => ipcRenderer.invoke('pr:dequeue', prId),
+  deleteLocalPrBranch: (prId: string) => ipcRenderer.invoke('pr:deleteBranch', prId),
   publishLocalPrReview: (prId: string) => ipcRenderer.invoke('pr:publishReview', prId),
   addLocalPrComment: (
     prId: string,

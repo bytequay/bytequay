@@ -15,7 +15,6 @@ import { useState } from 'react';
 import { PRView } from './PRView';
 import { LocalPrReviewScreen } from './LocalPrReviewScreen';
 import { PushDialog } from './PushDialog';
-import { MergeDialog } from './MergeDialog';
 import { useExternalPrActions } from './useExternalPrActions';
 
 /** `PrDetailsView` only ever needs a (repo, number) to bootstrap the
@@ -50,11 +49,11 @@ export function PrDetailsView<T extends DetailsPr>({
 }) {
   const [owner, repoName] = pr.repo.split('/');
   const {
-    bundle, refresh, syncing, localPr, capabilities,
+    bundle, refresh, syncing, capabilities,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, publishReview, publishBusy,
+    confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
     addLocalLineComment, resolveLocalComment, dismissLocalComment,
-    pushOpen, setPushOpen, mergeOpen, setMergeOpen,
+    pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy, reviewFiles,
     runLocalTests, testsBusy,
   } = useExternalPrActions(owner, repoName, pr.number);
@@ -134,8 +133,9 @@ export function PrDetailsView<T extends DetailsPr>({
           onCommentChange={setLocalComment}
           onAddComment={submitLocalComment}
           onPush={() => setPushOpen(true)}
-          onMerge={() => setMergeOpen(true)}
-          onMergeAnyway={() => setMergeOpen(true)}
+          onMerge={confirmMerge}
+          onDequeue={dequeuePr}
+          onDeleteBranch={deleteBranch}
           onReviewChanges={() => setReviewOpen(true)}
           onRunTests={runLocalTests}
           runTestsBusy={testsBusy}
@@ -160,15 +160,6 @@ export function PrDetailsView<T extends DetailsPr>({
           busy={prBusy}
           onPush={confirmPush}
           onCancel={() => setPushOpen(false)}
-        />
-      )}
-      {mergeOpen && localPr !== null && (
-        <MergeDialog
-          pr={localPr}
-          repoLabel={pr.repo}
-          busy={prBusy}
-          onMerge={confirmMerge}
-          onCancel={() => setMergeOpen(false)}
         />
       )}
     </div>

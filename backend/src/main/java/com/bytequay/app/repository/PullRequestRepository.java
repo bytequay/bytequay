@@ -513,6 +513,18 @@ public interface PullRequestRepository
     }
 
     /**
+     * Deletes a branch on GitHub. Maps to:
+     * DELETE /repos/{owner}/{repo}/git/refs/heads/{branch} — mirrors
+     * github.com's post-merge "Delete branch" button. Idempotent: a 404
+     * (already deleted, e.g. by someone else or via github.com directly)
+     * is treated as success, not an error.
+     */
+    default void deleteBranch(String pat, PullRequestRef pr, String branchName)
+    {
+        throw new UnsupportedOperationException("deleteBranch not implemented");
+    }
+
+    /**
      * Asks GitHub whether the PR's target branch has merge queue enabled,
      * and if so returns the PR's GraphQL node id so the caller can hand
      * it to {@link #enqueuePullRequest}. {@code Optional.empty()} means

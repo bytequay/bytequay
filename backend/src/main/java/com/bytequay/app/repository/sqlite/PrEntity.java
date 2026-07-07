@@ -131,6 +131,15 @@ class PrEntity
     @Convert(converter = StringListConverter.class)
     private List<String> requestedReviewers = List.of();
 
+    @Column(name = "merge_queue_enabled", nullable = false)
+    private boolean mergeQueueEnabled;
+
+    @Column(name = "merge_queue_state")
+    private String mergeQueueState;
+
+    @Column(name = "branch_deleted_at_ms")
+    private Long branchDeletedAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -229,4 +238,13 @@ class PrEntity
 
     List<String> getRequestedReviewers() { return requestedReviewers; }
     void setRequestedReviewers(List<String> requestedReviewers) { this.requestedReviewers = requestedReviewers; }
+
+    boolean isMergeQueueEnabled() { return mergeQueueEnabled; }
+    void setMergeQueueEnabled(boolean mergeQueueEnabled) { this.mergeQueueEnabled = mergeQueueEnabled; }
+
+    String getMergeQueueState() { return mergeQueueState; }
+    void setMergeQueueState(String mergeQueueState) { this.mergeQueueState = mergeQueueState; }
+
+    Long getBranchDeletedAtMs() { return branchDeletedAtMs; }
+    void setBranchDeletedAtMs(Long branchDeletedAtMs) { this.branchDeletedAtMs = branchDeletedAtMs; }
 }

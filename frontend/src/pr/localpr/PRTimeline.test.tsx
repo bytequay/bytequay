@@ -27,7 +27,7 @@ function pr(over: Partial<LocalPR> = {}): LocalPR {
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin: 'task', repo: null, author: null, syncedAt: null,
     syncedAdditions: null, syncedDeletions: null,
-    syncedMergeable: null, syncedMergeableState: null, ...over,
+    syncedMergeable: null, syncedMergeableState: null, syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null, ...over,
   };
 }
 

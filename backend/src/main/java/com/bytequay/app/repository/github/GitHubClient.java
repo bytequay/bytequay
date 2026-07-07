@@ -904,6 +904,25 @@ public class GitHubClient
     }
 
     @Override
+    public void deleteBranch(String pat, PullRequestRef pr, String branchName)
+    {
+        try {
+            gitHubRestClient.delete()
+                    .uri("/repos/{owner}/{repo}/git/refs/heads/{branch}", pr.owner(), pr.repo(), branchName)
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            // Already gone (deleted elsewhere, or this call raced a retry) — idempotent success.
+            if (e.getStatusCode().value() == 404) {
+                return;
+            }
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public PullRequest updatePullRequest(String pat, PullRequestRef pr, UpdatePullRequestCommand command)
     {
         Map<String, Object> body = Maps.newHashMap();

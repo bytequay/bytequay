@@ -83,6 +83,7 @@ class SqlitePRStore
         e.setRepo(pr.repo());
         e.setAuthor(pr.author());
         e.setSyncedAtMs(epochOrNull(pr.syncedAt()));
+        e.setBranchDeletedAtMs(epochOrNull(pr.branchDeletedAt()));
         applySyncSnapshot(e, pr.githubSync());
         return toDomain(prs.save(e));
     }
@@ -107,6 +108,8 @@ class SqlitePRStore
         e.setHeadPushedAtMs(epochOrNull(snap.headPushedAt()));
         e.setReviewerVerdicts(snap.reviewerVerdicts());
         e.setRequestedReviewers(snap.requestedReviewers());
+        e.setMergeQueueEnabled(snap.mergeQueueEnabled());
+        e.setMergeQueueState(snap.mergeQueueState());
     }
 
     @Override
@@ -331,7 +334,8 @@ class SqlitePRStore
                 e.getRepo(),
                 e.getAuthor(),
                 instantOrNull(e.getSyncedAtMs()),
-                toSyncSnapshot(e));
+                toSyncSnapshot(e),
+                instantOrNull(e.getBranchDeletedAtMs()));
     }
 
     /** Absent unless the row has been touched by {@code syncList} at least
@@ -358,7 +362,9 @@ class SqlitePRStore
                 e.getMergeableState(),
                 instantOrNull(e.getHeadPushedAtMs()),
                 e.getReviewerVerdicts(),
-                e.getRequestedReviewers());
+                e.getRequestedReviewers(),
+                e.isMergeQueueEnabled(),
+                e.getMergeQueueState());
     }
 
     private static PRTriageState toDomain(PrTriageEntity e)

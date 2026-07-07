@@ -34,7 +34,7 @@ function pr(status: LocalPRStatus, over: Partial<LocalPR> = {}): LocalPR {
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin: 'task', repo: null, author: null, syncedAt: null,
     syncedAdditions: null, syncedDeletions: null,
-    syncedMergeable: null, syncedMergeableState: null, ...over,
+    syncedMergeable: null, syncedMergeableState: null, syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null, ...over,
   };
 }
 
@@ -97,7 +97,7 @@ describe('PRView', () => {
     renderView(bundle({ pr: pr('remote-open', { remotePrNumber: 145 }) }), { username: 'chenjian2664', onMerge: noop });
     const pill = document.querySelector('.pr-state-pill');
     expect(pill?.className).toContain('open');
-    expect(screen.getByText(/Merge pull request/)).toBeTruthy();
+    expect(screen.getByText(/Squash and merge/)).toBeTruthy();
     expect(screen.getByText('#145')).toBeTruthy();
     expect(screen.getByText(/Posts to GitHub as @chenjian2664/)).toBeTruthy();
   });
@@ -106,9 +106,9 @@ describe('PRView', () => {
     const onMerge = vi.fn();
     renderView(
       bundle({ pr: pr('remote-open', { remotePrNumber: 145 }), comments: [comment()] }),
-      { onMerge, onMergeAnyway: noop },
+      { onMerge },
     );
-    const merge = screen.getByText(/Merge pull request/).closest('button') as HTMLButtonElement;
+    const merge = screen.getByText(/Squash and merge/).closest('button') as HTMLButtonElement;
     expect(merge.disabled).toBe(true);
     fireEvent.click(merge);
     expect(onMerge).not.toHaveBeenCalled();

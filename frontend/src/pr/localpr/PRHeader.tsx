@@ -52,7 +52,7 @@ export function PRHeader({
       <div className="pr-title-row">
         <span className="pr-title">{pr.title}</span>
         <span className="pr-num">{prNumLabel}</span>
-        {headerAction}
+        {headerAction !== undefined && <span className="pr-header-action">{headerAction}</span>}
       </div>
       <div className="pr-meta-row">
         <StatePill status={pr.status} />

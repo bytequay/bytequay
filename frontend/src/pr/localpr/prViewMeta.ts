@@ -52,11 +52,19 @@ export function isFailedCiPayload(payload: Record<string, unknown> | null): bool
   return payload !== null && payload['status'] === 'failed';
 }
 
-/** Compact relative label from an epoch-ms timestamp (the timeline `.ts`). */
+/** Compact relative label from an epoch-ms timestamp (the timeline `.ts`) —
+ *  matches github.com's own convention: relative for the first week, then
+ *  the exact date (so an 84-day-old row reads "Apr 17", not "84d ago"). */
 export function agoLabel(ms: number, now: number = Date.now()): string {
   const deltaSec = Math.round((now - ms) / 1000);
   if (deltaSec < 60) return 'just now';
   if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m ago`;
   if (deltaSec < 86400) return `${Math.round(deltaSec / 3600)}h ago`;
-  return `${Math.round(deltaSec / 86400)}d ago`;
+  const days = Math.round(deltaSec / 86400);
+  if (days < 7) return days === 1 ? '1 day ago' : `${days} days ago`;
+  const date = new Date(ms);
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  return date.toLocaleDateString('en-US', sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
 }

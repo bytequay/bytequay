@@ -36,7 +36,7 @@ export function TimelineBubble({
   const bubbleCls = role === 'agent' ? 'hl-agent' : role === 'author' ? 'hl-author' : '';
   return (
     <div className="pr-bubble-row">
-      <Avatar login={displayName(actor)} size={28} className={`pr-avatar s28 ${avatarCls}`} />
+      <Avatar login={displayName(actor)} size={40} className={`pr-avatar s40 ${avatarCls}`} />
       <div className={`pr-bubble ${bubbleCls}`}>
         <div className="bh">
           <span><span className="who">{displayName(actor)}</span> {action} · {agoLabel(time)}</span>

@@ -31,7 +31,7 @@ export function TimelinePersonEvent({
   const approved = verdict !== null && APPROVED_VERDICTS.has(verdict);
   return (
     <div className="pr-person-event">
-      <Avatar login={displayName(actor)} size={20} className={`pr-avatar s20 ${approved ? 'author' : ''}`} />
+      <Avatar login={displayName(actor)} size={40} className={`pr-avatar s40 ${approved ? 'author' : ''}`} />
       <span className={`eye${approved ? ' approved' : ''}`} aria-hidden>{approved ? '✓' : '👁'}</span>
       <span className="tb">
         <span className="who">{displayName(actor)}</span> {approved ? 'approved these changes' : 'reviewed'}

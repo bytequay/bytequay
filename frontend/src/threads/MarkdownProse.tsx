@@ -15,6 +15,7 @@ import { isValidElement, memo } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
 /**
@@ -49,7 +50,7 @@ export const MarkdownProse = memo(function MarkdownProse({ text, variant = 'card
   const components = variant === 'terminal' ? terminalComponents : cardComponents;
   return (
     <div style={styles.root}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
         {normalizeForMarkdown(text)}
       </ReactMarkdown>
     </div>
@@ -285,8 +286,8 @@ type StyleBundle = {
 const cardStyles: StyleBundle = {
   root: { color: 'var(--text-1)', lineHeight: 1.6 },
   para: { margin: '0 0 10px', lineHeight: 1.6, color: 'var(--text-1)' },
-  h1: { fontSize: 18, fontWeight: 700, margin: '14px 0 8px', color: 'var(--text-1)' },
-  h2: { fontSize: 16, fontWeight: 700, margin: '12px 0 6px', color: 'var(--text-1)' },
+  h1: { fontSize: 22, fontWeight: 700, margin: '14px 0 8px', paddingBottom: 8, borderBottom: '1px solid var(--border)', color: 'var(--text-1)' },
+  h2: { fontSize: 19, fontWeight: 700, margin: '12px 0 6px', paddingBottom: 6, borderBottom: '1px solid var(--border)', color: 'var(--text-1)' },
   h3: { fontSize: 14, fontWeight: 700, margin: '10px 0 4px', color: 'var(--text-1)' },
   h4: { fontSize: 13, fontWeight: 600, margin: '8px 0 4px', color: 'var(--text-1)' },
   list: { margin: '4px 0 10px', paddingLeft: 22, color: 'var(--text-1)' },

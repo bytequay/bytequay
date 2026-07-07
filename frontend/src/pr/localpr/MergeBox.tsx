@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import type { PRCapabilities } from '../prCapabilities';
 import type { LocalPR, LocalPRCheck } from '../../types/localPr';
+import { CheckRows } from './CheckRows';
 
 /** The brain's dev-end review verdict, once it's concluded (plan-rail-runs.md
  *  R21/R23) — derived by the caller from the PR's brain-authored comments,
@@ -28,42 +29,51 @@ function BrainReviewTag({ brainReview }: { brainReview?: BrainReviewSummary }) {
   return <span className="brain-review-tag warn">◆ brain unresolved · {brainReview.unresolved}</span>;
 }
 
+/** Mirrors github.com's own merge-box phrasing (docs/mockups/v3/design/
+ *  unified-pr-view.html line 566): "All checks have passed" / "N skipped, M
+ *  successful checks" — skipped (github.com's word for `neutral`) called
+ *  out only when there is at least one. */
 function checksSummary(checks: LocalPRCheck[]): { icon: 'green' | 'amber'; headline: string; sub: string } {
   if (checks.length === 0) {
     return { icon: 'amber', headline: 'No checks recorded yet', sub: 'nothing to gate on' };
   }
-  const passed = checks.filter(c => c.status === 'passed' || c.status === 'neutral').length;
+  const successful = checks.filter(c => c.status === 'passed').length;
+  const skipped = checks.filter(c => c.status === 'neutral').length;
   const failed = checks.some(c => c.status === 'failed');
   const running = checks.some(c => c.status === 'running' || c.status === 'pending');
+  const passed = successful + skipped;
   if (failed) return { icon: 'amber', headline: `${passed} of ${checks.length} checks have passed`, sub: 'some checks are failing' };
   if (running) return { icon: 'amber', headline: `${passed} of ${checks.length} checks have passed`, sub: 'checks still running' };
-  return { icon: 'green', headline: 'All checks have passed', sub: `${checks.length} successful check${checks.length === 1 ? '' : 's'}` };
+  const sub = skipped > 0
+    ? `${skipped} skipped, ${successful} successful check${successful === 1 ? '' : 's'}`
+    : `${successful} successful check${successful === 1 ? '' : 's'}`;
+  return { icon: 'green', headline: 'All checks have passed', sub };
 }
 
-const CHECK_GLYPH: Record<string, { cls: string; glyph: string }> = {
-  passed: { cls: 'ok', glyph: '✓' },
-  neutral: { cls: 'ok', glyph: '✓' },
-  failed: { cls: 'fail', glyph: '✗' },
-  running: { cls: 'skip', glyph: '●' },
-  pending: { cls: 'skip', glyph: '·' },
-};
-
-function CheckRows({ checks }: { checks: LocalPRCheck[] }) {
+/** github.com's "No conflicts with base branch" / conflict-warning line —
+ *  sourced from the same GitHub-reported mergeable(State) the dashboard
+ *  already syncs (`PR.PRSyncSnapshot`), null until GitHub has computed it. */
+function MergeableLine({ mergeable, mergeableState }: { mergeable: boolean | null; mergeableState: string | null }) {
+  if (mergeable === null) return null;
+  if (mergeable) {
+    return (
+      <div className="mb-sec">
+        <span className="mb-ic green">✓</span>
+        <div className="mb-t">
+          <div className="h">No conflicts with base branch</div>
+          <div className="s">Merging can be performed automatically</div>
+        </div>
+      </div>
+    );
+  }
   return (
-    <>
-      {checks.map(c => {
-        const g = CHECK_GLYPH[c.status] ?? CHECK_GLYPH.pending;
-        return (
-          <div className="check-row" key={c.id}>
-            <span className={`st ${g.cls}`}>{g.glyph}</span>
-            <span className="nm">{c.name}</span>
-            <span className="res">
-              {c.durationMs !== null ? `${Math.round(c.durationMs / 1000)}s` : c.status}
-            </span>
-          </div>
-        );
-      })}
-    </>
+    <div className="mb-sec">
+      <span className="mb-ic amber">!</span>
+      <div className="mb-t">
+        <div className="h">This branch has conflicts that must be resolved</div>
+        {mergeableState !== null && <div className="s">{mergeableState}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -95,7 +105,9 @@ export function MergeBox({
   onPublishReview?: () => void;
   onDiscardDrafts?: () => void;
 }) {
-  const [checksOpen, setChecksOpen] = useState(true);
+  // Collapsed by default, matching github.com's own merge-box — a reviewer
+  // wants the aggregate line, not 60 individual rows, at a glance.
+  const [checksOpen, setChecksOpen] = useState(false);
   const allChecks = [...localChecks, ...remoteChecks];
   const summary = checksSummary(allChecks);
 
@@ -123,6 +135,7 @@ export function MergeBox({
           <CheckRows checks={remoteChecks} />
         </div>
       )}
+      <MergeableLine mergeable={pr.syncedMergeable} mergeableState={pr.syncedMergeableState} />
 
       {showPushGate && (
         <>

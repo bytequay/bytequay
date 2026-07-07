@@ -17,17 +17,19 @@ import { StatePill } from './StatePill';
 import { SyncChip } from './SyncChip';
 import { DeltaMeter } from './DeltaMeter';
 
+export type PRHeaderTab = 'conversation' | 'commits' | 'checks';
+
 /**
  * The PR header (U13b): title + number, the solid state pill, the
  * "X wants to merge N commits into base from head" branch row, the sync
- * chip, and the tab strip with count chips + the delta meter. Only
- * Conversation is a real (always-active) view today — Commits/Checks/Files
- * changed surface inline (timeline + merge box) rather than as separate
- * panes, so their tab chips are counts only, not navigation, until the
- * Files-changed milestone gives them somewhere to go.
+ * chip, and the tab strip with count chips + the delta meter. Conversation/
+ * Commits/Checks are real, clickable tabs — Files changed still has nowhere
+ * to go (no full-page diff view lives inside this component), so it stays
+ * absent from the strip until that milestone lands.
  */
 export function PRHeader({
   pr, syncedAt, syncing, onRefresh, commitCount, checkCount, conversationCount, additions, deletions, headerAction,
+  activeTab, onTabChange,
 }: {
   pr: LocalPR;
   syncedAt: number | null;
@@ -40,6 +42,8 @@ export function PRHeader({
   deletions: number;
   /** e.g. a "Review with agent →" affordance on the standalone details page. */
   headerAction?: ReactNode;
+  activeTab: PRHeaderTab;
+  onTabChange: (tab: PRHeaderTab) => void;
 }) {
   const prNumLabel = pr.remotePrNumber !== null ? `#${pr.remotePrNumber}` : '#local';
   const author = pr.origin === 'external' ? pr.author ?? 'someone' : 'claude-code';
@@ -58,10 +62,16 @@ export function PRHeader({
         </span>
         <SyncChip pr={pr} syncedAt={syncedAt} syncing={syncing} onRefresh={onRefresh} />
       </div>
-      <div className="pr-tabs">
-        <span className="pt on">💬 Conversation <span className="cnt">{conversationCount}</span></span>
-        <span className="pt">◆ Commits <span className="cnt">{commitCount}</span></span>
-        <span className="pt">✓ Checks <span className="cnt">{checkCount}</span></span>
+      <div className="pr-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={activeTab === 'conversation'} className={`pt${activeTab === 'conversation' ? ' on' : ''}`} onClick={() => onTabChange('conversation')}>
+          💬 Conversation <span className="cnt">{conversationCount}</span>
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'commits'} className={`pt${activeTab === 'commits' ? ' on' : ''}`} onClick={() => onTabChange('commits')}>
+          ◆ Commits <span className="cnt">{commitCount}</span>
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'checks'} className={`pt${activeTab === 'checks' ? ' on' : ''}`} onClick={() => onTabChange('checks')}>
+          ✓ Checks <span className="cnt">{checkCount}</span>
+        </button>
         <DeltaMeter additions={additions} deletions={deletions} />
       </div>
     </div>

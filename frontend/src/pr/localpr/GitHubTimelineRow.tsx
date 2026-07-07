@@ -19,6 +19,7 @@ import { ReviewThreadCard } from '../ReviewThreadCard';
 import type { ReactionContent } from '../utils';
 import { MarkdownProse } from '../../threads/MarkdownProse';
 import { actorRole, agoLabel, displayName } from './prViewMeta';
+import { RailReviewThread } from './RailReviewThread';
 import { TimelineBubble } from './TimelineBubble';
 import { TimelinePersonEvent } from './TimelinePersonEvent';
 
@@ -151,17 +152,19 @@ export function GitHubTimelineRow({
   }
   if (entry.kind === 'thread') {
     return (
-      <ReviewThreadCard
-        thread={entry.thread}
-        prAuthor={threadActions.prAuthor}
-        prHtmlUrl={threadActions.prHtmlUrl}
-        currentUserLogin={threadActions.currentUserLogin}
-        onReply={body => threadActions.onReply(entry.thread.rootGithubId, body)}
-        onReact={threadActions.onReact}
-        onEditMessage={threadActions.onEditMessage}
-        onDeleteMessage={threadActions.onDeleteMessage}
-        canDeleteMessage={threadActions.canDeleteMessage}
-      />
+      <RailReviewThread>
+        <ReviewThreadCard
+          thread={entry.thread}
+          prAuthor={threadActions.prAuthor}
+          prHtmlUrl={threadActions.prHtmlUrl}
+          currentUserLogin={threadActions.currentUserLogin}
+          onReply={body => threadActions.onReply(entry.thread.rootGithubId, body)}
+          onReact={threadActions.onReact}
+          onEditMessage={threadActions.onEditMessage}
+          onDeleteMessage={threadActions.onDeleteMessage}
+          canDeleteMessage={threadActions.canDeleteMessage}
+        />
+      </RailReviewThread>
     );
   }
   const { item, attachedThreads } = entry;
@@ -185,18 +188,19 @@ export function GitHubTimelineRow({
           </TimelineBubble>
         )}
         {attachedThreads?.map(thread => (
-          <ReviewThreadCard
-            key={thread.rootGithubId}
-            thread={thread}
-            prAuthor={threadActions.prAuthor}
-            prHtmlUrl={threadActions.prHtmlUrl}
-            currentUserLogin={threadActions.currentUserLogin}
-            onReply={body => threadActions.onReply(thread.rootGithubId, body)}
-            onReact={threadActions.onReact}
-            onEditMessage={threadActions.onEditMessage}
-            onDeleteMessage={threadActions.onDeleteMessage}
-            canDeleteMessage={threadActions.canDeleteMessage}
-          />
+          <RailReviewThread key={thread.rootGithubId}>
+            <ReviewThreadCard
+              thread={thread}
+              prAuthor={threadActions.prAuthor}
+              prHtmlUrl={threadActions.prHtmlUrl}
+              currentUserLogin={threadActions.currentUserLogin}
+              onReply={body => threadActions.onReply(thread.rootGithubId, body)}
+              onReact={threadActions.onReact}
+              onEditMessage={threadActions.onEditMessage}
+              onDeleteMessage={threadActions.onDeleteMessage}
+              canDeleteMessage={threadActions.canDeleteMessage}
+            />
+          </RailReviewThread>
         ))}
       </Fragment>
     );

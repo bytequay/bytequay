@@ -59,6 +59,11 @@ export interface LocalPR {
    *  the way a task-origin PR does always reads 0. Null pre-first-sync. */
   syncedAdditions: number | null;
   syncedDeletions: number | null;
+  /** GitHub's mergeable/mergeableState for the base branch (origin=external
+   *  only) — null until GitHub has computed it (or pre-first-sync). Powers
+   *  the merge-box's "No conflicts with base branch" line. */
+  syncedMergeable: boolean | null;
+  syncedMergeableState: string | null;
 }
 
 export interface LocalPRCommit {

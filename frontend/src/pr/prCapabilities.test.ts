@@ -22,6 +22,7 @@ function pr(origin: PROrigin, status: LocalPRStatus): LocalPR {
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin, repo: origin === 'external' ? 'acme/widget' : null, author: origin === 'external' ? '@octocat' : null,
     syncedAt: null, syncedAdditions: null, syncedDeletions: null,
+    syncedMergeable: null, syncedMergeableState: null,
   };
 }
 

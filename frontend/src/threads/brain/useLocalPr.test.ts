@@ -28,6 +28,7 @@ function prFor(taskId: string): LocalPR {
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin: 'task', repo: null, author: null, syncedAt: null,
     syncedAdditions: null, syncedDeletions: null,
+  syncedMergeable: null, syncedMergeableState: null,
   };
 }
 

@@ -29,6 +29,7 @@ function bundleFor(prId: string): LocalPRBundle {
       remotePrUrl: null, mergedAt: null, closedAt: null,
       origin: 'external', repo: 'acme/widget', author: '@octocat', syncedAt: 1,
       syncedAdditions: null, syncedDeletions: null,
+      syncedMergeable: null, syncedMergeableState: null,
     },
     commits: [], timeline: [], checks: [], comments: [], pendingStripCount: 0,
   };

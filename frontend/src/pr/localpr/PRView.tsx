@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { UserProfileDto } from '../../types';
 import type { LocalPRBundle } from '../../types/localPr';
 import { isLocalStatus } from '../../types/localPr';
@@ -19,8 +19,10 @@ import { getCached } from '../../dataCache';
 import type { PRCapabilities } from '../prCapabilities';
 import { useGitHubActivityFeed } from '../useGitHubActivityFeed';
 import type { GitHubThreadActions } from './GitHubTimelineRow';
-import { PRHeader } from './PRHeader';
+import { PRHeader, type PRHeaderTab } from './PRHeader';
 import { PRTimeline } from './PRTimeline';
+import { CommitsList } from './CommitsList';
+import { CheckRows } from './CheckRows';
 import { MergeBox } from './MergeBox';
 import { PRCommentComposer } from './PRCommentComposer';
 
@@ -117,6 +119,18 @@ export function PRView({
     },
   };
 
+  const [activeTab, setActiveTab] = useState<PRHeaderTab>('conversation');
+
+  const githubFeedActive = pr.remotePrNumber !== null;
+  // Once the GitHub feed is active it's the source of truth for the
+  // Conversation tab's count too — github.com counts top-level comments
+  // plus reviews that carry a written summary (a bare approve/request-
+  // changes with no comment isn't its own conversation entry).
+  const conversationCount = githubFeedActive
+    ? activity.filter(a => a.eventType === 'commented'
+        || (a.eventType === 'reviewed' && a.body !== null && a.body.trim().length > 0)).length + 1
+    : comments.length + 1;
+
   return (
     <div className="pr-view">
       <PRHeader
@@ -126,14 +140,16 @@ export function PRView({
         onRefresh={onRefresh}
         commitCount={commits.length}
         checkCount={checks.length}
-        conversationCount={comments.length + 1 /* description */}
+        conversationCount={conversationCount}
         additions={additions}
         deletions={deletions}
         headerAction={headerAction}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
       />
 
       <div className="pr-body-scroll">
-        {onReviewChanges !== undefined && (
+        {activeTab === 'conversation' && onReviewChanges !== undefined && (
           <button type="button" className="pr-review-btn" onClick={onReviewChanges}>
             <span className="ic" aria-hidden>◧</span>
             Review changed files &amp; diff
@@ -141,17 +157,32 @@ export function PRView({
           </button>
         )}
 
-        <PRTimeline
-          pr={pr}
-          events={timeline}
-          comments={comments}
-          onReviewChanges={onReviewChanges}
-          onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
-          onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
-          activity={activity}
-          reviewThreads={reviewThreads}
-          threadActions={threadActions}
-        />
+        {activeTab === 'conversation' && (
+          <PRTimeline
+            pr={pr}
+            events={timeline}
+            comments={comments}
+            onReviewChanges={onReviewChanges}
+            onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
+            onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
+            activity={activity}
+            reviewThreads={reviewThreads}
+            threadActions={threadActions}
+          />
+        )}
+
+        {activeTab === 'commits' && <CommitsList commits={commits} author={pr.author} />}
+
+        {activeTab === 'checks' && (
+          <div className="pr-merge-box">
+            <div className="check-list">
+              {localChecks.length > 0 && <div className="check-group">LOCAL</div>}
+              <CheckRows checks={localChecks} />
+              {remoteChecks.length > 0 && <div className="check-group">REMOTE</div>}
+              <CheckRows checks={remoteChecks} />
+            </div>
+          </div>
+        )}
 
         <MergeBox
           pr={pr}

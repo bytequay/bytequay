@@ -26,7 +26,8 @@ function pr(over: Partial<LocalPR> = {}): LocalPR {
     description: '', status: 'local-open', createdAt: 1, pushedAt: null, remotePrNumber: null,
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin: 'task', repo: null, author: null, syncedAt: null,
-    syncedAdditions: null, syncedDeletions: null, ...over,
+    syncedAdditions: null, syncedDeletions: null,
+    syncedMergeable: null, syncedMergeableState: null, ...over,
   };
 }
 
@@ -150,6 +151,21 @@ describe('PRTimeline GitHub-native feed', () => {
 
     expect(screen.getByText('Please fix this.')).toBeTruthy();
     expect(screen.getByText(/outdated/i)).toBeTruthy();
+    // The thread card must be offset past the rail line, not rendered flush
+    // against it — otherwise the rail visually cuts through the card.
+    expect(document.querySelector('.rail-thread')).not.toBeNull();
+  });
+
+  it('offsets a standalone (unattached) review thread past the rail too', () => {
+    render(<PRTimeline
+      pr={pushedPr} events={[]} comments={[]}
+      activity={[]}
+      reviewThreads={[thread({ messages: [{ githubId: 602, author: 'octocat', body: 'A later reply.', createdAt: '2026-06-20T10:00:00Z', reactions: null, reviewId: null, authorAssociation: null }] })]}
+      threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText('A later reply.')).toBeTruthy();
+    expect(document.querySelector('.rail-thread')).not.toBeNull();
   });
 
   it('once the GitHub feed is active, only local checks render from the local event list', () => {

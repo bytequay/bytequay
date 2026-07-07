@@ -398,6 +398,10 @@ const bridge: Bridge = {
     model: WorkModelDto | null,
   ): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:setTaskWorkModel', { threadId, taskId, model }),
+  getStageWorkModel: (stageId: string): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:getStageWorkModel', { stageId }),
+  setStageWorkModel: (stageId: string, model: WorkModelDto | null): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:setStageWorkModel', { stageId, model }),
   getDs4Status: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:status'),
   startDs4: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:start'),
   stopDs4: (confirm = false): Promise<Ds4StopResponseDto> =>
@@ -542,7 +546,7 @@ const bridge: Bridge = {
     return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
   },
   getFullScreenState: (): Promise<boolean> => ipcRenderer.invoke('window:get-fullscreen'),
-  windowControl: (action: 'close' | 'minimize' | 'zoom'): Promise<void> =>
+  windowControl: (action: 'close' | 'minimize' | 'zoom' | 'hideButtons' | 'showButtons'): Promise<void> =>
     ipcRenderer.invoke('window:control', action),
   getGitHubOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('githubOAuth:authorizeUrl'),

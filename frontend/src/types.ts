@@ -1278,7 +1278,7 @@ export type ResolvedWorkModelDto = {
   effective: WorkModelDto;
   /** Where the effective model came from. */
   provenance: {
-    source: 'TASK' | 'THREAD' | 'WORKSPACE' | 'GLOBAL_DEFAULT';
+    source: 'STAGE' | 'TASK' | 'THREAD' | 'WORKSPACE' | 'GLOBAL_DEFAULT';
     scopeId: string | null;
     scopeLabel: string;
   };
@@ -3220,6 +3220,16 @@ export type Bridge = {
     taskId: string,
     model: WorkModelDto | null,
   ) => Promise<ResolvedWorkModelDto>;
+  /** Resolve the effective work model for a stage (cascade: stage →
+   *  task → thread → workspace → global default) — the most-specific
+   *  rung on the cascade. */
+  getStageWorkModel: (stageId: string) => Promise<ResolvedWorkModelDto>;
+  /** Set (or clear) the stage's work-model override and return the
+   *  resolved outcome. A stage's agent session is built once and
+   *  reused across every iteration within it, so this takes effect
+   *  the next time this stage builds a fresh session, not on a
+   *  session already running. */
+  setStageWorkModel: (stageId: string, model: WorkModelDto | null) => Promise<ResolvedWorkModelDto>;
   /** Local ds4 inference server lifecycle. Status is the cheap poll
    *  every page surface (widget + Settings) shares; the rest drive
    *  the management actions. */
@@ -3394,9 +3404,11 @@ export type Bridge = {
    *  queries this on mount to recover the initial state if the main
    *  process's did-finish-load push raced React's listener registration. */
   getFullScreenState: () => Promise<boolean>;
-  /** Drive the window from the renderer's fake traffic-light dots —
-   *  they stand in for the native macOS buttons in fullscreen. */
-  windowControl: (action: 'close' | 'minimize' | 'zoom') => Promise<void>;
+  /** Drive the window from the renderer's fake traffic-light dots (close/
+   *  minimize/zoom stand in for the native macOS buttons in fullscreen) or
+   *  toggle the native inset traffic lights' visibility (hideButtons/
+   *  showButtons — OS-drawn, so only this API can hide them). */
+  windowControl: (action: 'close' | 'minimize' | 'zoom' | 'hideButtons' | 'showButtons') => Promise<void>;
   /** All threads across every status, newest-updated first; the page
    *  groups by status itself. Pass {@code groupId} to restrict to a
    *  single group (drives the group detail view). */

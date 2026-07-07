@@ -506,11 +506,17 @@ function registerIpc(): void {
   // Window controls for the renderer's fake traffic-light dots — they
   // stand in for the native macOS buttons in fullscreen (where the OS
   // hides its own), so they must actually close / minimize / restore.
+  // hideButtons/showButtons drive the *native* inset traffic lights
+  // (trafficLightPosition above) — those are OS-drawn, so CSS can't hide
+  // them when the rail collapses to its 48px strip; only this Electron
+  // API can. macOS-only, no-op elsewhere.
   ipcMain.handle('window:control', (_event, action: string) => {
     if (!mainWindow) return;
     if (action === 'close') mainWindow.close();
     else if (action === 'minimize') mainWindow.minimize();
     else if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
+    else if (action === 'hideButtons' && process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false);
+    else if (action === 'showButtons' && process.platform === 'darwin') mainWindow.setWindowButtonVisibility(true);
   });
 
   // SSE broker for per-thread live event streams. Renderer subscribes via
@@ -5373,6 +5379,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       throw new Error(detail || `setTaskWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:getStageWorkModel', async (_event, args: unknown) => {
+    const { stageId } = args as { stageId: string };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/work-model`,
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `getStageWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:setStageWorkModel', async (_event, args: unknown) => {
+    const { stageId, model } = args as { stageId: string; model: unknown };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/work-model`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workModel: model }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `setStageWorkModel returned ${res.status}`);
     }
     return res.json();
   });

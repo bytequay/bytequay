@@ -24,7 +24,8 @@ const POPOVER_WIDTH = 380;
 
 type Scope =
   | { kind: 'thread'; threadId: string }
-  | { kind: 'task'; threadId: string; taskId: string };
+  | { kind: 'task'; threadId: string; taskId: string }
+  | { kind: 'stage'; stageId: string };
 
 type Props = {
   scope: Scope;
@@ -74,7 +75,9 @@ export function WorkModelPill({ scope, onChange }: Props) {
     try {
       const next = scope.kind === 'thread'
         ? await window.bridge.getThreadWorkModel(scope.threadId)
-        : await window.bridge.getTaskWorkModel(scope.threadId, scope.taskId);
+        : scope.kind === 'task'
+          ? await window.bridge.getTaskWorkModel(scope.threadId, scope.taskId)
+          : await window.bridge.getStageWorkModel(scope.stageId);
       setResolved(next);
       setError(null);
     }
@@ -129,7 +132,9 @@ export function WorkModelPill({ scope, onChange }: Props) {
     try {
       const updated = scope.kind === 'thread'
         ? await window.bridge.setThreadWorkModel(scope.threadId, next)
-        : await window.bridge.setTaskWorkModel(scope.threadId, scope.taskId, next);
+        : scope.kind === 'task'
+          ? await window.bridge.setTaskWorkModel(scope.threadId, scope.taskId, next)
+          : await window.bridge.setStageWorkModel(scope.stageId, next);
       setResolved(updated);
       onChange?.(updated);
       setOpen(false);
@@ -204,6 +209,14 @@ export function WorkModelPill({ scope, onChange }: Props) {
             value={resolved?.override ?? null}
             onChange={(next) => { void commit(next); }}
           />
+          {scope.kind === 'stage' && (
+            <div style={inheritanceHintStyle}>
+              <span aria-hidden style={inheritanceGlyphStyle}>⏳</span>
+              A stage's agent runs one session for its whole lifetime —
+              this applies next time this stage starts a new one, not to
+              a session already running.
+            </div>
+          )}
           {!isInherited && (
             <div style={footerStyle}>
               <button
@@ -236,6 +249,8 @@ function formatLabel(resolved: ResolvedWorkModelDto | null): string {
 function formatHint(resolved: ResolvedWorkModelDto | null): string | null {
   if (resolved === null) return null;
   switch (resolved.provenance.source) {
+    case 'STAGE':
+      return 'Override pinned on this stage';
     case 'TASK':
       return 'Override pinned on this task';
     case 'THREAD':

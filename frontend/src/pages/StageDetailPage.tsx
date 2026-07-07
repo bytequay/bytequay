@@ -44,7 +44,7 @@ const PILL_LABEL: Record<StageKind, string> = {
  * pill defaults to the stage's agent runtime (passed in as `modePill`).
  */
 export function StageDetailPage({
-  stageKind, stage, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
+  stageKind, stage, sidebar, conversation, collapsed = false, stageChips, workModelPill, composer, run = {},
   tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi, planReminder, onRevealPlan, markReadyReminder,
   openTabRequest,
 }: {
@@ -54,6 +54,10 @@ export function StageDetailPage({
   conversation: ReactNode;
   collapsed?: boolean;
   stageChips?: StageChip[];
+  /** The stage's work-model pill (agent/provider · model · CLI/API),
+   *  rendered next to the branch chip — same placement as the thread
+   *  trunk header's pill. Undefined hides it (e.g. no stage id yet). */
+  workModelPill?: ReactNode;
   composer: {
     value: string;
     onChange: (next: string) => void;
@@ -137,6 +141,7 @@ export function StageDetailPage({
       <Pill kind="stage">{stage.pillLabel ?? PILL_LABEL[stageKind]}</Pill>
       <TopBarTitle>{stage.title}</TopBarTitle>
       {stage.branch !== undefined && <CtxChip>{stage.branch}</CtxChip>}
+      {workModelPill}
       {stageChips !== undefined && stageChips.length > 0 && <StageChips chips={stageChips} />}
       <Grow />
       <RunMenu

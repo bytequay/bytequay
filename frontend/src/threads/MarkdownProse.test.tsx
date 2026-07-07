@@ -127,6 +127,19 @@ describe('MarkdownProse rendering', () => {
     expect(container.textContent).toContain('Fixes the flaky test.');
   });
 
+  it('renders raw <details>/<summary> HTML as a real, collapsed-by-default disclosure', () => {
+    const { container } = render(
+      <MarkdownProse text={'<details><summary>Walkthrough</summary>\n\nThe full explanation.\n\n</details>'} />,
+    );
+    const details = container.querySelector('details');
+    expect(details).toBeTruthy();
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector('summary')?.textContent).toBe('Walkthrough');
+    expect(container.textContent).not.toContain('<details>');
+    expect(container.textContent).not.toContain('<summary>');
+    expect(container.textContent).toContain('The full explanation.');
+  });
+
   it('renders a bare commit sha as a git chip but leaves code spans alone', () => {
     const { container } = render(
       <MarkdownProse text={'Commit `13370bc9491` touches `LabelEvaluator.java`.'} />,

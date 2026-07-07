@@ -114,7 +114,8 @@ export function MergeBox({
   const showPushGate = capabilities.push && pr.status === 'local-open';
   const showMergeGate = capabilities.merge && pr.status === 'remote-open';
   const showPublishGate = capabilities.publishReview && draftCount > 0;
-  if (!showPushGate && !showMergeGate && !showPublishGate && allChecks.length === 0) {
+  const hasMergeableData = pr.syncedMergeable !== null;
+  if (!showPushGate && !showMergeGate && !showPublishGate && allChecks.length === 0 && !hasMergeableData) {
     return null;
   }
 

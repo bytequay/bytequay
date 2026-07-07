@@ -528,9 +528,15 @@ public class PRSyncService
                 prService.updateDetails(pr.id(), null, detail.body());
             }
             syncExternalCommits(pr);
-            syncExternalChecks(pr, detail);
-            refreshDiffAndCiSnapshot(pr, detail);
         }
+        // Unlike the external-only backfills above (branch/description/
+        // commits — a task-origin PR already has correct values for these
+        // from its own local git/agent-authored history), remote checks and
+        // the CI/mergeable snapshot apply to any pushed PR: GitHub's real
+        // Actions runs are otherwise invisible to ByteQuay once a task PR
+        // is out for review.
+        syncRemoteChecks(pr, detail);
+        refreshDiffAndCiSnapshot(pr, detail);
         if (detail.recentActivity() == null) {
             return;
         }
@@ -633,11 +639,14 @@ public class PRSyncService
         }
     }
 
-    /** Mirrors GitHub's check runs onto {@code pr_check} for an
-     *  external-origin PR — same "otherwise always reads 0" gap as {@link
-     *  #syncExternalCommits}. A run with no {@code githubId} (a legacy
-     *  cached row) is skipped: there's nothing stable to dedupe it by. */
-    private void syncExternalChecks(PR pr, PullRequestDetail detail)
+    /** Mirrors GitHub's check runs onto {@code pr_check} for any pushed PR
+     *  — task-origin included, since once a task-origin PR is pushed,
+     *  GitHub's own Actions runs on it are real CI results ByteQuay
+     *  otherwise never sees (only local test runs reach {@code pr_check}
+     *  via {@code recordCheck}/{@code RepoTestValidationCheck}). A run with
+     *  no {@code githubId} (a legacy cached row) is skipped: there's
+     *  nothing stable to dedupe it by. */
+    private void syncRemoteChecks(PR pr, PullRequestDetail detail)
     {
         if (detail.checkRuns() == null) {
             return;
@@ -672,14 +681,19 @@ public class PRSyncService
 
     /** Keeps the diff totals and CI/mergeable state {@code syncRemoteTimeline}
      *  already has on hand (from the same {@code detail} fetch) current on
-     *  every external-PR sync — not just the throttled dashboard detail pass.
-     *  The header sums this PR-level total rather than {@code pr_commit} rows,
-     *  since GitHub's commit-list API has no per-commit stats (see {@link
-     *  #syncExternalCommits}). Dashboard-only fields (watch reason, labels,
-     *  attention reason, reviewer verdicts, comment count) are left exactly as
-     *  {@code syncList}'s last pass set them — computing those needs the
-     *  current user's login and viewed-at marker, which only {@code
-     *  syncDashboardDetail} has to hand. */
+     *  every pushed-PR sync (external or task-origin) — not just the
+     *  throttled dashboard detail pass, which only ever runs for external
+     *  PRs. For an external PR the header sums this PR-level total rather
+     *  than {@code pr_commit} rows, since GitHub's commit-list API has no
+     *  per-commit stats (see {@link #syncExternalCommits}); a task-origin
+     *  PR's header instead sums its real per-commit stats and never reads
+     *  this snapshot's additions/deletions, so populating them here is
+     *  harmless, just unused. Dashboard-only fields (watch reason, labels,
+     *  attention reason, reviewer verdicts, comment count) are left exactly
+     *  as {@code syncList}'s last pass set them (always absent for a
+     *  task-origin PR, which never goes through that dashboard sweep) —
+     *  computing those needs the current user's login and viewed-at marker,
+     *  which only {@code syncDashboardDetail} has to hand. */
     private void refreshDiffAndCiSnapshot(PR pr, PullRequestDetail detail)
     {
         PR.PRSyncSnapshot baseline = pr.githubSync();

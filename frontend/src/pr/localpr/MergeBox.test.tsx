@@ -59,6 +59,12 @@ describe('MergeBox checks summary', () => {
 });
 
 describe('MergeBox mergeable line', () => {
+  it('still renders the box for the mergeable line alone when there are no checks and no gate applies', () => {
+    render(<MergeBox pr={pr({ syncedMergeable: true, syncedMergeableState: 'clean' })} capabilities={derivePRCapabilities(pr(), 'details')} localChecks={[]} remoteChecks={[]} openComments={0} pendingStripCount={0} draftCount={0} />);
+
+    expect(screen.getByText('No conflicts with base branch')).toBeTruthy();
+  });
+
   it('shows the no-conflicts line when GitHub reports the PR mergeable', () => {
     render(<MergeBox pr={pr({ syncedMergeable: true, syncedMergeableState: 'clean' })} capabilities={derivePRCapabilities(pr(), 'details')} localChecks={[]} remoteChecks={[check('passed', 1)]} openComments={0} pendingStripCount={0} draftCount={0} />);
 

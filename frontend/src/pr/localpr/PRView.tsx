@@ -201,15 +201,9 @@ export function PRView({
             onMergeAnyway={onMergeAnyway}
             onPublishReview={onPublishReview}
             onDiscardDrafts={onDiscardDrafts}
+            onRunTests={onRunTests}
+            runTestsBusy={runTestsBusy}
           />
-        )}
-
-        {activeTab === 'conversation' && onRunTests !== undefined && (
-          <div className="mb-actions" style={{ paddingLeft: 0 }}>
-            <button type="button" className="btn sm" onClick={onRunTests} disabled={runTestsBusy}>
-              {runTestsBusy ? 'Running tests…' : 'Run tests'}
-            </button>
-          </div>
         )}
 
         {activeTab === 'conversation' && capabilities.draftLocalComments && (

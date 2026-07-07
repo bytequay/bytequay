@@ -1634,9 +1634,11 @@
 
 /* U13e — merge-box accordion (absorbs the old PRActionBar + PRChecksCard) */
 .pr-merge-box { position: relative; z-index: 1; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin: 0 0 14px 40px; overflow: hidden; }
+.pr-merge-box.ok { border-color: var(--green-border); }
 .pr-merge-box .mb-sec { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-start; }
 .pr-merge-box .mb-sec:last-child { border-bottom: none; }
 .pr-merge-box .mb-sec.clickable { cursor: pointer; }
+.pr-merge-box .mb-sec .btn.sm { align-self: center; flex-shrink: 0; font-size: 11.5px; padding: 5px 12px; }
 .pr-merge-box .mb-ic { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; font-size: 13px; }
 .pr-merge-box .mb-ic.green { background: var(--green); }
 .pr-merge-box .mb-ic.amber { background: var(--amber); }

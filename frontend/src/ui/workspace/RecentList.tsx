@@ -18,6 +18,9 @@ import { relativeTime } from '../../notificationDisplay';
 import { taskLabel } from '../../threads/taskLabel';
 
 const MAX_ROWS = 8;
+// ponytail: a flat cap per bucket rather than a "+N more" overflow affordance —
+// bump this (or add overflow UI) if a bucket routinely needs more room.
+const TODAY_BUCKET_MAX = 5;
 
 function iconFor(surfaceType: SurfaceType): IconKind {
   switch (surfaceType) {
@@ -76,6 +79,34 @@ export function todayMarkdown(b: TodayBuckets): string {
     '## Reviewed', bullets(b.reviewed), '',
     '## Merged', bullets(b.merged),
   ].join('\n');
+}
+
+/** One "Today" bucket's rows — every PR in the bucket (capped), with the
+ *  group's eyebrow label shown once on the first row rather than repeated
+ *  on every row. */
+export function TodayGroupRows({ label, prs, onOpen }: {
+  label: string;
+  prs: PullRequestDto[];
+  onOpen: (pr: PullRequestDto) => void;
+}) {
+  return (
+    <>
+      {prs.slice(0, TODAY_BUCKET_MAX).map((pr, i) => (
+        <button
+          key={`${label}-${pr.id}`}
+          type="button"
+          className="sb-recent__row"
+          onClick={() => onOpen(pr)}
+          title={`${pr.repo} #${pr.number}`}
+        >
+          <span className="sb-recent__meta">
+            {i === 0 && <span className="sb-recent__label">{label}</span>}
+            <span className="sb-recent__title">{pr.title} #{pr.number}</span>
+          </span>
+        </button>
+      ))}
+    </>
+  );
 }
 
 /**
@@ -176,9 +207,7 @@ export function RecentList({ onResume, onOpenPr }: {
   }, []);
 
   const buckets = useMemo(() => todayBuckets(prs), [prs]);
-  const workingOnPr = buckets.workingOn[0] ?? null;
-  const reviewedToday = buckets.reviewed[0] ?? null;
-  const hasToday = workingOnPr !== null || reviewedToday !== null || buckets.merged.length > 0;
+  const hasToday = buckets.workingOn.length > 0 || buckets.reviewed.length > 0 || buckets.merged.length > 0;
 
   const openPr = (pr: PullRequestDto) => {
     const slash = pr.repo.indexOf('/');
@@ -249,32 +278,9 @@ export function RecentList({ onResume, onOpenPr }: {
             </div>
           </div>
           <div className="sb-recent">
-            {workingOnPr !== null && (
-              <button
-                type="button"
-                className="sb-recent__row"
-                onClick={() => openPr(workingOnPr)}
-                title={`${workingOnPr.repo} #${workingOnPr.number}`}
-              >
-                <span className="sb-recent__meta">
-                  <span className="sb-recent__label">Working on</span>
-                  <span className="sb-recent__title">{workingOnPr.title} #{workingOnPr.number}</span>
-                </span>
-              </button>
-            )}
-            {reviewedToday !== null && (
-              <button
-                type="button"
-                className="sb-recent__row"
-                onClick={() => openPr(reviewedToday)}
-                title={`${reviewedToday.repo} #${reviewedToday.number}`}
-              >
-                <span className="sb-recent__meta">
-                  <span className="sb-recent__label">Reviewed</span>
-                  <span className="sb-recent__title">{reviewedToday.title} #{reviewedToday.number}</span>
-                </span>
-              </button>
-            )}
+            <TodayGroupRows label="Working on" prs={buckets.workingOn} onOpen={openPr} />
+            <TodayGroupRows label="Reviewed" prs={buckets.reviewed} onOpen={openPr} />
+            <TodayGroupRows label="Merged" prs={buckets.merged} onOpen={openPr} />
           </div>
         </div>
       )}

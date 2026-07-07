@@ -99,6 +99,19 @@ public class CheckpointSummariser
             the current workspace memory without a single attributable source thread, leave it \
             unmarked. Do not greet, do not editorialise, do not include timestamps.""";
 
+    private static final String TASK_TITLE_SYSTEM_PROMPT = """
+            You write short, goal-oriented task titles. Given a task description (which may \
+            be long and full of implementation detail), respond with ONLY a single-line title \
+            of 4-8 words that states the goal or outcome, not a restatement of every detail. \
+            For example, given "Remove the 3 confirmed-dead skill routes (GET /skills/by-role, \
+            GET /skills/{id}, POST /skills/{id}/set-default) and their tests", respond \
+            "Remove dead skill routes". No punctuation at the end, no quotes, no preamble.""";
+
+    /** Defensive cap in case the model ignores the "4-8 words" guidance;
+     *  matches {@code ThreadService.TASK_NAME_MAX} so a generated title
+     *  never forces a longer branch slug than a manually-typed one would. */
+    private static final int TASK_TITLE_MAX_CHARS = 60;
+
     private static final String ANTHROPIC_NAME = "anthropic";
 
     private final RestClient client;
@@ -198,6 +211,36 @@ public class CheckpointSummariser
                     .append("\n\n");
         }
         return callAnthropic(OVERALL_SYSTEM_PROMPT, sb.toString().trim());
+    }
+
+    /**
+     * Best-effort short, goal-oriented task title (e.g. "Remove dead
+     * skill routes" for a paragraph of implementation detail). Unlike
+     * the other methods on this class, failures are swallowed rather
+     * than thrown — this is a display-name nicety, not a step callers
+     * build on, so a missing credential or a network blip must fall
+     * back to mechanical truncation rather than block task creation.
+     *
+     * @return the generated title, or {@code null} on any failure or
+     *         empty response
+     */
+    public String summariseTaskTitle(String rawText)
+    {
+        requireNonNull(rawText, "rawText is null");
+        try {
+            CheckpointSummaryResult result = callAnthropic(TASK_TITLE_SYSTEM_PROMPT, rawText);
+            String title = result.summaryMd().strip();
+            if (title.isEmpty()) {
+                return null;
+            }
+            return title.length() <= TASK_TITLE_MAX_CHARS
+                    ? title
+                    : title.substring(0, TASK_TITLE_MAX_CHARS).strip();
+        }
+        catch (RuntimeException e) {
+            log.warn("Task title summarisation failed, falling back to truncation: {}", e.getMessage());
+            return null;
+        }
     }
 
     private CheckpointSummaryResult callAnthropic(String system, String user)

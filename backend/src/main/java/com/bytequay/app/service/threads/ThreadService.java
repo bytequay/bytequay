@@ -119,6 +119,7 @@ public class ThreadService
     private final RoleSkillService roleSkillService;
     private final IdGenerator idGenerator;
     private final WorkspaceDataPurger dataPurger;
+    private final CheckpointSummariser titleSummariser;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
      *  task-creation side effects (stage init) aren't under test. */
@@ -139,7 +140,8 @@ public class ThreadService
             RoleSkillService roleSkillService,
             IdGenerator idGenerator,
             @Lazy PullRequestService pullRequests,
-            WorkspaceDataPurger dataPurger)
+            WorkspaceDataPurger dataPurger,
+            CheckpointSummariser titleSummariser)
     {
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -156,6 +158,7 @@ public class ThreadService
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
+        this.titleSummariser = requireNonNull(titleSummariser, "titleSummariser is null");
     }
 
     @Override
@@ -578,11 +581,15 @@ public class ThreadService
 
     /**
      * The display name for a materialised task: the task's own title
-     * (its purpose) when present, else the thread title. Trimmed and
-     * word-capped so the task row and the branch slug derived from it
-     * stay short. Null only when neither source carries text.
+     * (its purpose) when present, else the thread title. Short titles
+     * pass through unchanged; titles long enough to need shortening are
+     * handed to the AI for a goal-oriented rewrite (e.g. "Remove dead
+     * skill routes" rather than a sentence chopped off mid-clause), and
+     * only fall back to mechanical word-boundary truncation if that
+     * call fails — task creation must never block on it. Null only
+     * when neither source carries text.
      */
-    private static String taskDisplayName(String taskTitle, String threadTitle)
+    private String taskDisplayName(String taskTitle, String threadTitle)
     {
         String source = taskTitle != null && !taskTitle.isBlank() ? taskTitle : threadTitle;
         if (source == null || source.isBlank()) {
@@ -592,6 +599,12 @@ public class ThreadService
         if (trimmed.length() <= TASK_NAME_MAX) {
             return trimmed;
         }
+        String aiTitle = titleSummariser.summariseTaskTitle(trimmed);
+        return aiTitle != null ? aiTitle : truncateAtWordBoundary(trimmed);
+    }
+
+    private static String truncateAtWordBoundary(String trimmed)
+    {
         // Cut at the last word boundary within the cap so the name never
         // ends mid-word.
         String head = trimmed.substring(0, TASK_NAME_MAX);

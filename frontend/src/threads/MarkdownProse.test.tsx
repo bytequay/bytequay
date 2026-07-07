@@ -119,6 +119,14 @@ describe('MarkdownProse rendering', () => {
     expect(screen.getByText('Done.').closest('details')).toBeNull();
   });
 
+  it('hides HTML comments instead of rendering them as literal text', () => {
+    const { container } = render(
+      <MarkdownProse text={'<!-- Thank you for improving ByteQuay. -->\n\nFixes the flaky test.'} />,
+    );
+    expect(container.textContent).not.toContain('Thank you for improving');
+    expect(container.textContent).toContain('Fixes the flaky test.');
+  });
+
   it('renders a bare commit sha as a git chip but leaves code spans alone', () => {
     const { container } = render(
       <MarkdownProse text={'Commit `13370bc9491` touches `LabelEvaluator.java`.'} />,

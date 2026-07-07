@@ -22,8 +22,12 @@ import type { SurfaceVisitInput } from '../types';
  * `surfaceId` is the renderer's navigable key — the resume handler
  * ({@link surfaceVisitToNav}) parses it back into a Nav. Title/context
  * are a best-effort label from what the nav layer knows; the task and
- * thread cases only have ids here, so their titles are generic for v1.
- * // decision pending: enrich task/thread titles from the detail pages.
+ * thread cases only have ids here, so their titles are a generic
+ * placeholder ("Task"/"Thread") at capture time. The sidebar's Recent
+ * list (ui/workspace/RecentList.tsx, `enrichTitles`) swaps in the real
+ * name at read time instead of enriching it here, since a stored
+ * footprint's title would otherwise go stale the moment a task is
+ * renamed or a thread's title changes.
  */
 export function navToSurfaceVisit(nav: Nav): SurfaceVisitInput | null {
   switch (nav.view) {

@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FootprintStopDto, PullRequestDto, SurfaceType } from '../../types';
 import { FootprintIcon, type IconKind } from '../../footprints/FootprintIcon';
 import { relativeTime } from '../../notificationDisplay';
+import { taskLabel } from '../../threads/taskLabel';
 
 const MAX_ROWS = 8;
 
@@ -78,6 +79,63 @@ export function todayMarkdown(b: TodayBuckets): string {
 }
 
 /**
+ * `navToSurfaceVisit` (footprints/surfaceVisit.ts) captures TASK/THREAD
+ * visits with a generic placeholder title ("Task"/"Thread") — the nav
+ * layer only carries ids, not names, at the moment a visit fires. This
+ * fills in the real name at *read* time instead: for each TASK/THREAD
+ * stop, look up its current name via the same calls the detail pages
+ * already use, and swap it in. A lookup failure (task/thread since
+ * deleted, offline) is non-fatal — that row just keeps its placeholder.
+ */
+export async function enrichTitles(stops: FootprintStopDto[]): Promise<FootprintStopDto[]> {
+  const taskThreadIds = new Set<string>();
+  const threadIds = new Set<string>();
+  for (const stop of stops) {
+    const slash = stop.surfaceId.indexOf('/');
+    if (stop.surfaceType === 'TASK' && slash > 0) {
+      taskThreadIds.add(stop.surfaceId.slice(0, slash));
+    }
+    else if (stop.surfaceType === 'THREAD') {
+      threadIds.add(stop.surfaceId);
+    }
+  }
+
+  const tasksByThread = new Map<string, Awaited<ReturnType<typeof window.bridge.listTasksForThread>>>();
+  await Promise.all([...taskThreadIds].map(async threadId => {
+    try {
+      tasksByThread.set(threadId, await window.bridge.listTasksForThread(threadId));
+    }
+    catch { /* non-fatal — this thread's task rows keep their placeholder */ }
+  }));
+
+  const threadTitles = new Map<string, string>();
+  await Promise.all([...threadIds].map(async threadId => {
+    try {
+      // getTask is a legacy misnomer — it actually fetches the Thread.
+      const thread = await window.bridge.getTask(threadId);
+      if (thread !== null) threadTitles.set(threadId, thread.title);
+    }
+    catch { /* non-fatal — this row keeps its placeholder */ }
+  }));
+
+  return stops.map(stop => {
+    if (stop.surfaceType === 'TASK') {
+      const slash = stop.surfaceId.indexOf('/');
+      if (slash <= 0) return stop;
+      const threadId = stop.surfaceId.slice(0, slash);
+      const taskId = stop.surfaceId.slice(slash + 1);
+      const task = tasksByThread.get(threadId)?.find(t => t.id === taskId);
+      return task === undefined ? stop : { ...stop, title: taskLabel(task) };
+    }
+    if (stop.surfaceType === 'THREAD') {
+      const title = threadTitles.get(stop.surfaceId);
+      return title === undefined ? stop : { ...stop, title };
+    }
+    return stop;
+  });
+}
+
+/**
  * The sidebar's "Recent" section, shown on the Home surface in place
  * of the workspace list: the most recently visited surfaces (PRs,
  * tasks, threads), newest first, backed by the footprints visit
@@ -100,10 +158,10 @@ export function RecentList({ onResume, onOpenPr }: {
     let cancelled = false;
     const refresh = () => {
       void window.bridge.getFootprints()
-        .then(trail => {
-          // The trail arrives oldest-first; the sidebar wants newest on top.
-          if (!cancelled) setStops(trail.stops.slice().reverse().slice(0, MAX_ROWS));
-        })
+        // The trail arrives oldest-first; the sidebar wants newest on top.
+        .then(trail => trail.stops.slice().reverse().slice(0, MAX_ROWS))
+        .then(enrichTitles)
+        .then(enriched => { if (!cancelled) setStops(enriched); })
         .catch(() => { /* non-fatal — section renders empty */ });
       void window.bridge.fetchPrs()
         .then(list => { if (!cancelled) setPrs(list); })

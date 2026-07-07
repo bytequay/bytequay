@@ -100,9 +100,10 @@ describe('WorkspaceNavSidebar', () => {
         <div data-testid="body" />
       </WorkspaceNavSidebar>,
     );
-    // Collapsed: rail flagged, nav body gone, only the toggle remains.
+    // Collapsed: rail flagged, workspace body gone, but the primary nav
+    // icons stay reachable as a bare icon column.
     expect(container.querySelector('.shell-rail.sidebar-collapsed')).toBeTruthy();
-    expect(container.querySelectorAll('.sb-nav-item').length).toBe(0);
+    expect(container.querySelectorAll('.sb-nav-item').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('body')).toBeNull();
     fireEvent.click(container.querySelector('.sb-traffic .sb-toggle') as HTMLElement);
     expect(onToggleCollapse).toHaveBeenCalledOnce();

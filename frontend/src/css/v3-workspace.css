@@ -55,9 +55,7 @@
    buttons read as sitting on the window background, but it KEEPS its
    right-hand divider so the content edge stays a clean line, not a cut. */
 .shell.shell-rail.sidebar-collapsed {
-  /* Wide enough to contain the native traffic lights (they end at
-     x≈66) so they don't spill over the divider onto the content. */
-  width: 78px;
+  width: 24px;
   flex-shrink: 0;
 }
 .shell.shell-rail.sidebar-collapsed > .sidebar {
@@ -66,25 +64,44 @@
 .shell.shell-rail.sidebar-collapsed .sb-traffic .nav-arrows {
   display: none;
 }
-/* Folded chrome column: while windowed the native buttons own the top
-   ~40px, so the expand toggle drops below them instead of underneath. */
+/* Folded chrome column: the traffic lights (real or fake) are hidden
+   outright while collapsed (native ones via the collapsed-effect in
+   WorkspaceNavSidebar.tsx; the fake .dots by the rule below), so the
+   toggle just sits at the top like any other collapsed row — no
+   clearance to reserve. */
 .shell.shell-rail.sidebar-collapsed .sb-traffic {
   flex-direction: column;
   align-items: flex-start;
   height: auto;
-  padding: 40px 14px 8px;
+  padding: 11px 4px 8px;
   gap: 8px;
 }
 .shell.shell-rail.sidebar-collapsed .sb-traffic .sb-toggle {
   margin-left: 0;
 }
-/* Fullscreen has no native buttons: our (working) dots take the top
-   row and the toggle sits beneath them. */
-.shell.shell-rail.is-fullscreen.sidebar-collapsed .sb-traffic {
-  padding-top: 14px;
-}
+/* Collapsed wins over fullscreen: fold hides the traffic lights (real or
+   fake) unconditionally, even though .is-fullscreen .dots below turns
+   them visible again for the non-collapsed case. */
 .shell.shell-rail.is-fullscreen.sidebar-collapsed .sb-traffic .dots {
+  visibility: hidden;
+}
+/* Folded nav column: the primary destinations stay reachable as bare
+   icons (label + kbd hint hidden), full-width buttons so the whole
+   strip is clickable rather than just the glyph. */
+.shell.shell-rail.sidebar-collapsed .sb-nav {
   display: flex;
+  padding: 4px;
+  gap: 2px;
+}
+.shell.shell-rail.sidebar-collapsed .sb-nav-item {
+  width: 100%;
+  justify-content: center;
+  padding: 6px 0;
+  gap: 0;
+}
+.shell.shell-rail.sidebar-collapsed .sb-nav-item .lbl,
+.shell.shell-rail.sidebar-collapsed .sb-nav-item .kbd {
+  display: none;
 }
 
 /* The window-chrome row is a drag handle; its buttons opt out. The fake

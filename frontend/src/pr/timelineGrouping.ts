@@ -21,6 +21,17 @@ import type { ActivityItemDto, ReviewThreadDto } from '../types';
  *  add-then-add gesture and should render as separate rows. */
 export const REVIEW_REQUEST_BURST_MS = 60_000;
 
+/** Time window (ms) that a same-actor `labeled`/`unlabeled` burst is allowed
+ *  to span before we stop collapsing them into one event-group — a bot
+ *  (or a person) applying a pile of labels via one action fires them
+ *  within a few seconds of each other, matching github.com's own
+ *  "added the a, b and c labels" collapsing. Deliberately much tighter
+ *  than {@link REVIEW_REQUEST_BURST_MS}: unlike reviewer picks (one slow
+ *  UI interaction), label bursts are near-instantaneous API calls, so a
+ *  wide window would risk merging two genuinely separate labeling
+ *  actions minutes apart. */
+export const LABEL_BURST_MS = 10_000;
+
 /** Event types that collapse same-actor / same-day runs into a single
  *  "pushed N commits" / "force-pushed N times" summary line. Other
  *  event types (review_requested, merged, closed, …) get their own
@@ -57,6 +68,9 @@ export type TimelineEntry =
        *  "x requested a, b, c and d for review". Absent for other
        *  event types (committed / force-pushed). */
       reviewers?: string[];
+      /** For labeled/unlabeled groups, the ordered list of labels (name +
+       *  color) so the renderer can produce "added the a, b and c labels". */
+      labels?: { name: string; color: string | null }[];
     }
   | { kind: 'thread'; thread: ReviewThreadDto };
 
@@ -74,6 +88,11 @@ export type TimelineEntry =
  *   into a single group with each event's {@code requestedReviewer}
  *   collected so the renderer can produce
  *   "x requested @a, @b and @c for review".
+ *
+ * - Same-actor + same-event-type {@code labeled} or {@code unlabeled}
+ *   events whose timestamps span ≤ {@link LABEL_BURST_MS} from the first
+ *   one collapse into a single group with each event's label collected
+ *   so the renderer can produce "x added the a, b and c labels".
  *
  * - Everything else (other event types, threads, lone events of
  *   groupable types) passes through unchanged.
@@ -146,6 +165,40 @@ export function groupTimelineEntries(raw: RawTimelineEntry[]): TimelineEntry[] {
         continue;
       }
       // Single review_requested falls through to the default activity
+      // rendering below.
+    }
+    if (r.kind === 'activity' && (r.item.eventType === 'labeled' || r.item.eventType === 'unlabeled')) {
+      const first = r.item;
+      const firstMs = first.timestamp ? new Date(first.timestamp).getTime() : null;
+      const labels: { name: string; color: string | null }[] =
+        first.labelName !== null ? [{ name: first.labelName, color: first.labelColor }] : [];
+      let lastItem = first;
+      let j = i + 1;
+      while (firstMs !== null && j < raw.length) {
+        const next = raw[j];
+        if (next.kind !== 'activity') break;
+        if (next.item.eventType !== first.eventType) break;
+        if (next.item.actor !== first.actor) break;
+        const nextMs = next.item.timestamp ? new Date(next.item.timestamp).getTime() : null;
+        if (nextMs === null) break;
+        if (Math.abs(nextMs - firstMs) > LABEL_BURST_MS) break;
+        if (next.item.labelName !== null) labels.push({ name: next.item.labelName, color: next.item.labelColor });
+        lastItem = next.item;
+        j++;
+      }
+      if (labels.length > 1) {
+        out.push({
+          kind: 'event-group',
+          actor: first.actor,
+          eventType: first.eventType,
+          count: labels.length,
+          lastItem,
+          labels,
+        });
+        i = j;
+        continue;
+      }
+      // Single labeled/unlabeled falls through to the default activity
       // rendering below.
     }
     if (r.kind === 'activity') {

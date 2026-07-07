@@ -271,4 +271,56 @@ describe('groupTimelineEntries', () => {
     expect(out).toHaveLength(1);
     expect((out[0] as { reviewers: string[] }).reviewers).toEqual(['alice', 'carol']);
   });
+
+  it('collapses a labeled burst by the same actor within 10s', () => {
+    const a = activity({
+      actor: 'github-actions[bot]', eventType: 'labeled',
+      timestamp: '2026-04-29T12:00:00.000Z', labelName: 'hive', labelColor: 'a2eeef',
+    });
+    const b = activity({
+      actor: 'github-actions[bot]', eventType: 'labeled',
+      timestamp: '2026-04-29T12:00:01.000Z', labelName: 'bigquery', labelColor: 'a2eeef',
+    });
+    const c = activity({
+      actor: 'github-actions[bot]', eventType: 'labeled',
+      timestamp: '2026-04-29T12:00:02.000Z', labelName: 'delta-lake', labelColor: 'a2eeef',
+    });
+    const out = groupTimelineEntries([rawActivity(a), rawActivity(b), rawActivity(c)]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      kind: 'event-group',
+      eventType: 'labeled',
+      count: 3,
+      labels: [
+        { name: 'hive', color: 'a2eeef' },
+        { name: 'bigquery', color: 'a2eeef' },
+        { name: 'delta-lake', color: 'a2eeef' },
+      ],
+    });
+  });
+
+  it('does not collapse labeled events more than 10s apart', () => {
+    const a = activity({ eventType: 'labeled', timestamp: '2026-04-29T12:00:00Z', labelName: 'hive' });
+    const b = activity({ eventType: 'labeled', timestamp: '2026-04-29T12:00:15Z', labelName: 'bigquery' });
+    const out = groupTimelineEntries([rawActivity(a), rawActivity(b)]);
+    expect(out).toHaveLength(2);
+    expect(out[0].kind).toBe('activity');
+    expect(out[1].kind).toBe('activity');
+  });
+
+  it('does not collapse labeled and unlabeled events together', () => {
+    const a = activity({ eventType: 'labeled', timestamp: '2026-04-29T12:00:00Z', labelName: 'hive' });
+    const b = activity({ eventType: 'unlabeled', timestamp: '2026-04-29T12:00:01Z', labelName: 'bigquery' });
+    const out = groupTimelineEntries([rawActivity(a), rawActivity(b)]);
+    expect(out).toHaveLength(2);
+    expect(out[0].kind).toBe('activity');
+    expect(out[1].kind).toBe('activity');
+  });
+
+  it('renders a lone labeled event as a plain activity, not a group', () => {
+    const a = activity({ eventType: 'labeled', timestamp: '2026-04-29T12:00:00Z', labelName: 'hive' });
+    const out = groupTimelineEntries([rawActivity(a)]);
+    expect(out).toHaveLength(1);
+    expect(out[0].kind).toBe('activity');
+  });
 });

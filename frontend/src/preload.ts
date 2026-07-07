@@ -546,7 +546,7 @@ const bridge: Bridge = {
     return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
   },
   getFullScreenState: (): Promise<boolean> => ipcRenderer.invoke('window:get-fullscreen'),
-  windowControl: (action: 'close' | 'minimize' | 'zoom' | 'hideButtons' | 'showButtons'): Promise<void> =>
+  windowControl: (action: 'close' | 'minimize' | 'zoom'): Promise<void> =>
     ipcRenderer.invoke('window:control', action),
   getGitHubOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('githubOAuth:authorizeUrl'),

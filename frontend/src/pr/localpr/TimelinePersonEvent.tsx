@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { agoLabel, avatarLabel, displayName } from './prViewMeta';
+import Avatar from '../../Avatar';
+import { agoLabel, displayName } from './prViewMeta';
 
 const APPROVED_VERDICTS = new Set(['APPROVED', 'approved']);
 
@@ -28,7 +29,7 @@ export function TimelinePersonEvent({
   const approved = verdict !== null && APPROVED_VERDICTS.has(verdict);
   return (
     <div className="pr-person-event">
-      <span className={`pr-avatar s20 ${approved ? 'author' : ''}`}>{avatarLabel(actor)}</span>
+      <Avatar login={displayName(actor)} size={20} className={`pr-avatar s20 ${approved ? 'author' : ''}`} />
       <span className="eye" aria-hidden>{approved ? '✓' : '👁'}</span>
       <span className="tb">
         <span className="who">{displayName(actor)}</span> {approved ? 'approved these changes' : 'reviewed'}

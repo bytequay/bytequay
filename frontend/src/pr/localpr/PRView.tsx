@@ -184,25 +184,27 @@ export function PRView({
           </div>
         )}
 
-        <MergeBox
-          pr={pr}
-          capabilities={capabilities}
-          localChecks={localChecks}
-          remoteChecks={remoteChecks}
-          openComments={openComments}
-          localTestsFailing={localTestsFailing}
-          pendingStripCount={bundle.pendingStripCount ?? 0}
-          draftCount={draftCount}
-          brainReview={brainReview}
-          onPush={onPush}
-          onAskAgent={onAskAgent}
-          onMerge={onMerge}
-          onMergeAnyway={onMergeAnyway}
-          onPublishReview={onPublishReview}
-          onDiscardDrafts={onDiscardDrafts}
-        />
+        {activeTab === 'conversation' && (
+          <MergeBox
+            pr={pr}
+            capabilities={capabilities}
+            localChecks={localChecks}
+            remoteChecks={remoteChecks}
+            openComments={openComments}
+            localTestsFailing={localTestsFailing}
+            pendingStripCount={bundle.pendingStripCount ?? 0}
+            draftCount={draftCount}
+            brainReview={brainReview}
+            onPush={onPush}
+            onAskAgent={onAskAgent}
+            onMerge={onMerge}
+            onMergeAnyway={onMergeAnyway}
+            onPublishReview={onPublishReview}
+            onDiscardDrafts={onDiscardDrafts}
+          />
+        )}
 
-        {onRunTests !== undefined && (
+        {activeTab === 'conversation' && onRunTests !== undefined && (
           <div className="mb-actions" style={{ paddingLeft: 0 }}>
             <button type="button" className="btn sm" onClick={onRunTests} disabled={runTestsBusy}>
               {runTestsBusy ? 'Running tests…' : 'Run tests'}
@@ -210,7 +212,7 @@ export function PRView({
           </div>
         )}
 
-        {capabilities.draftLocalComments && (
+        {activeTab === 'conversation' && capabilities.draftLocalComments && (
           <PRCommentComposer
             local={local}
             username={username}

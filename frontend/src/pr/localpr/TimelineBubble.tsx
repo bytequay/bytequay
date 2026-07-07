@@ -12,8 +12,9 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
+import Avatar from '../../Avatar';
 import type { ActorRole } from './prViewMeta';
-import { agoLabel, avatarLabel, displayName } from './prViewMeta';
+import { agoLabel, displayName } from './prViewMeta';
 
 /** A GitHub-style speech-bubble comment (U15): 32/28px avatar sitting ON the
  *  rail, a card with a caret pointing at it, a tinted header (agent-purple /
@@ -35,7 +36,7 @@ export function TimelineBubble({
   const bubbleCls = role === 'agent' ? 'hl-agent' : role === 'author' ? 'hl-author' : '';
   return (
     <div className="pr-bubble-row">
-      <span className={`pr-avatar s28 ${avatarCls}`}>{avatarLabel(actor)}</span>
+      <Avatar login={displayName(actor)} size={28} className={`pr-avatar s28 ${avatarCls}`} />
       <div className={`pr-bubble ${bubbleCls}`}>
         <div className="bh">
           <span><span className="who">{displayName(actor)}</span> {action} · {agoLabel(time)}</span>

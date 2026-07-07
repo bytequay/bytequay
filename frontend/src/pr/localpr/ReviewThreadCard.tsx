@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import type { LocalPR, LocalPRComment } from '../../types/localPr';
-import { actorRole, agoLabel, avatarLabel, displayName } from './prViewMeta';
+import Avatar from '../../Avatar';
+import { actorRole, agoLabel, displayName } from './prViewMeta';
 
 /**
  * A file-line comment thread (U13d): a mono file-header bar, the root
@@ -40,7 +41,7 @@ export function ReviewThreadCard({
         const pending = c.origin === 'local' && c.publishedAt === null;
         return (
           <div className="th-cmt" key={c.id}>
-            <span className={`pr-avatar ${role === 'other' ? '' : role}`}>{avatarLabel(c.author)}</span>
+            <Avatar login={displayName(c.author)} size={22} className={`pr-avatar ${role === 'other' ? '' : role}`} />
             <div className="m">
               <div className="mh">
                 <span className="who">{displayName(c.author)}</span> · {agoLabel(c.createdAt)}

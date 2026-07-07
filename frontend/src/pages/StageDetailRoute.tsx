@@ -39,6 +39,7 @@ import type { StageKind } from './StageDetailPage';
 import { PlanCard } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { StageChip } from '../ui/shell';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
@@ -623,6 +624,7 @@ export function StageDetailRoute({
       stageKind={stageKind}
       sidebar={sidebar}
       stageChips={stageChips}
+      workModelPill={<WorkModelPill scope={{ kind: 'stage', stageId }} />}
       openTabRequest={openTabRequest}
       stage={{ title: data?.task.title ?? 'Stage', branch: data?.task.branch }}
       conversation={conversation}

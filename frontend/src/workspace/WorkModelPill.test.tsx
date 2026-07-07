@@ -145,6 +145,31 @@ describe('WorkModelPill', () => {
 
     expect(setTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1', null);
   });
+
+  it('reads the resolved model for a stage, writes through the stage bridge, and shows the mid-stage hint', async () => {
+    const getStageWorkModel = vi.fn(async () => PINNED);
+    const setStageWorkModel = vi.fn(async () => INHERITED);
+    installBridge({ getStageWorkModel, setStageWorkModel });
+
+    render(<WorkModelPill scope={{ kind: 'stage', stageId: 'stage-1' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button').textContent).toContain('anthropic');
+    });
+    expect(getStageWorkModel).toHaveBeenCalledWith('stage-1');
+
+    await act(async () => { fireEvent.click(screen.getByRole('button')); });
+    await waitFor(() => screen.getByRole('dialog'));
+
+    // A stage's session runs for the stage's whole lifetime, so the
+    // popover must warn that a change doesn't retroactively affect it.
+    expect(screen.getByRole('dialog').textContent).toContain('applies next time this stage starts a new one');
+
+    const clearBtn = screen.getByRole('button', { name: /Clear override/i });
+    await act(async () => { fireEvent.click(clearBtn); });
+
+    expect(setStageWorkModel).toHaveBeenCalledWith('stage-1', null);
+  });
 });
 
 /** Wait until the pill has finished its async load. The first render is a
@@ -170,6 +195,8 @@ function installBridge(overrides: Partial<Bridge>) {
     setThreadWorkModel: vi.fn(async () => INHERITED),
     getTaskWorkModel: vi.fn(async () => INHERITED),
     setTaskWorkModel: vi.fn(async () => INHERITED),
+    getStageWorkModel: vi.fn(async () => INHERITED),
+    setStageWorkModel: vi.fn(async () => INHERITED),
     // The picker hits these on mount; return a minimal options
     // payload so the rendered popover doesn't crash on empty refs.
     getWorkModelOptions: vi.fn(async () => emptyOptions()),

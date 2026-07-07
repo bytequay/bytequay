@@ -518,6 +518,15 @@ public class PRSyncService
             if (detail.headRef() != null || detail.baseRef() != null) {
                 prService.updateBranches(pr.id(), detail.headRef(), detail.baseRef());
             }
+            // Same story as the branch backfill above: the dashboard sweep's
+            // initial createExternal has no PR body to hand over (ghPr is the
+            // lightweight search result), so it creates the row with an empty
+            // description. GitHub is authoritative for an external PR's
+            // description (nothing in ByteQuay ever edits one), so backfill
+            // it from the already-fetched detail on every sync.
+            if (detail.body() != null) {
+                prService.updateDetails(pr.id(), null, detail.body());
+            }
             syncExternalCommits(pr);
             syncExternalChecks(pr, detail);
             refreshDiffAndCiSnapshot(pr, detail);

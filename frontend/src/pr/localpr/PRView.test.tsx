@@ -33,7 +33,8 @@ function pr(status: LocalPRStatus, over: Partial<LocalPR> = {}): LocalPR {
     status, createdAt: Date.now(), pushedAt: null, remotePrNumber: null,
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin: 'task', repo: null, author: null, syncedAt: null,
-    syncedAdditions: null, syncedDeletions: null, ...over,
+    syncedAdditions: null, syncedDeletions: null,
+    syncedMergeable: null, syncedMergeableState: null, ...over,
   };
 }
 
@@ -181,6 +182,8 @@ describe('PRView', () => {
       check({ kind: 'remote', status: 'passed', name: 'backend / tests' }),
     ];
     renderView(bundle({ pr: pr('local-open'), checks }));
+    // The checks list is collapsed by default (matching github.com) — expand it.
+    fireEvent.click(document.querySelector('.pr-merge-box .mb-sec.clickable') as Element);
     expect(screen.getByText('mvn verify')).toBeTruthy();
     expect(screen.getByText('backend / tests')).toBeTruthy();
     expect(screen.getByText('LOCAL')).toBeTruthy();

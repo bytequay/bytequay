@@ -558,6 +558,22 @@ class TestPRSyncService
         verify(prService, never()).setWatchReason(eq("pr-old"), any());
     }
 
+    @Test
+    void syncBackfillsTheDescriptionFromGitHubForAnExternalPr()
+    {
+        PR pr = new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "The real PR body.", false, "open", false);
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
+
+        service.syncPR("pr-ext");
+
+        verify(prService).updateDetails("pr-ext", null, "The real PR body.");
+    }
+
     private PR externalPr(PR.PRSyncSnapshot snapshot)
     {
         return new PR(

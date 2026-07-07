@@ -37,7 +37,9 @@ public record PRDto(
         String author,
         Long syncedAt,
         Integer syncedAdditions,
-        Integer syncedDeletions)
+        Integer syncedDeletions,
+        Boolean syncedMergeable,
+        String syncedMergeableState)
 {
     public static PRDto from(PR pr)
     {
@@ -61,7 +63,9 @@ public record PRDto(
                 pr.author(),
                 epochOrNull(pr.syncedAt()),
                 sync == null ? null : sync.additions(),
-                sync == null ? null : sync.deletions());
+                sync == null ? null : sync.deletions(),
+                sync == null ? null : sync.mergeable(),
+                sync == null ? null : sync.mergeableState());
     }
 
     private static Long epochOrNull(Instant instant)

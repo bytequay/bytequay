@@ -25,6 +25,7 @@ const PR: LocalPR = {
   remotePrUrl: 'https://github.com/o/r/pull/145', mergedAt: null, closedAt: null,
   origin: 'task', repo: null, author: null, syncedAt: null,
   syncedAdditions: null, syncedDeletions: null,
+  syncedMergeable: null, syncedMergeableState: null,
 };
 
 describe('MergeDialog', () => {

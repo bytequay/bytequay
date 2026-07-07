@@ -18,14 +18,16 @@ import { TimelinePersonEvent } from './TimelinePersonEvent';
 afterEach(cleanup);
 
 describe('TimelinePersonEvent', () => {
-  it('nests the eye/check badge inside the avatar wrapper, not as a floating sibling', () => {
+  it('renders the avatar and the eye/check icon as separate, adjacent elements', () => {
     const { container } = render(
       <TimelinePersonEvent actor="findinpath" verdict={null} time={Date.now()} />,
     );
-    const wrapper = container.querySelector('.pr-person-avatar');
-    expect(wrapper).toBeTruthy();
-    expect(wrapper?.querySelector('img, .avatar--fallback')).toBeTruthy();
-    expect(wrapper?.querySelector('.eye')).toBeTruthy();
+    const row = container.querySelector('.pr-person-event');
+    expect(row?.querySelector('img, .avatar--fallback')).toBeTruthy();
+    const eye = row?.querySelector('.eye');
+    expect(eye).toBeTruthy();
+    // Not nested inside the avatar — a sibling on the rail, per the fix.
+    expect(row?.querySelector('img, .avatar--fallback')?.contains(eye ?? null)).toBe(false);
   });
 
   it('shows the eye glyph for a plain review, a check for an approval', () => {

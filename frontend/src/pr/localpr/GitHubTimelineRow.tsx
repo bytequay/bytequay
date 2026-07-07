@@ -15,6 +15,7 @@ import { Fragment, type ReactNode } from 'react';
 import type { ActivityItemDto } from '../../types';
 import type { LocalPR } from '../../types/localPr';
 import type { TimelineEntry } from '../timelineGrouping';
+import Avatar from '../../Avatar';
 import { ReviewThreadCard } from '../ReviewThreadCard';
 import type { ReactionContent } from '../utils';
 import { MarkdownProse } from '../../threads/MarkdownProse';
@@ -28,7 +29,12 @@ function toMs(iso: string | null): number {
 }
 
 function who(actor: string): ReactNode {
-  return <span className="who">{displayName(actor)}</span>;
+  return (
+    <>
+      <Avatar login={displayName(actor)} size={16} className="pr-tl-icon-row-avatar" />
+      <span className="who">{displayName(actor)}</span>
+    </>
+  );
 }
 
 function sha(value: string | null): ReactNode {
@@ -54,17 +60,7 @@ function activityBody(item: ActivityItemDto): ReactNode {
     case 'demilestoned':
       return <>{who(item.actor)} removed this from the {item.milestoneTitle} milestone</>;
     case 'cross-referenced':
-      return (
-        <>
-          {who(item.actor)} referenced this {item.crossRefIsPullRequest ? 'pull request' : 'issue'}
-          {item.crossRefUrl !== null && (
-            <>
-              {' — '}
-              <a href={item.crossRefUrl} target="_blank" rel="noreferrer">#{item.crossRefNumber} {item.crossRefTitle}</a>
-            </>
-          )}
-        </>
-      );
+      return <>{who(item.actor)} referenced this {item.crossRefIsPullRequest ? 'pull request' : 'issue'}</>;
     case 'review_requested':
       return <>{who(item.actor)} requested a review from {item.requestedReviewer}</>;
     case 'head_ref_force_pushed':
@@ -113,6 +109,18 @@ function IconRow({ children, time }: { children: ReactNode; time: number }) {
       <span className="tic">◐</span>
       <div className="tb">{children}</div>
       <span className="ts">{agoLabel(time)}</span>
+    </div>
+  );
+}
+
+/** The referenced issue/PR's title, on its own line below the "referenced
+ *  this X" row — matches github.com's own layout, which never inlines the
+ *  title into the same line as the actor/verb text. */
+function CrossRefCard({ item }: { item: ActivityItemDto }) {
+  if (item.crossRefUrl === null) return null;
+  return (
+    <div className="pr-tl-crossref">
+      <a href={item.crossRefUrl} target="_blank" rel="noreferrer">#{item.crossRefNumber} {item.crossRefTitle}</a>
     </div>
   );
 }
@@ -202,6 +210,14 @@ export function GitHubTimelineRow({
             />
           </RailReviewThread>
         ))}
+      </Fragment>
+    );
+  }
+  if (item.eventType === 'cross-referenced') {
+    return (
+      <Fragment>
+        <IconRow time={toMs(item.timestamp)}>{activityBody(item)}</IconRow>
+        <CrossRefCard item={item} />
       </Fragment>
     );
   }

@@ -1516,16 +1516,18 @@
 .pr-review-btn .ic { color: var(--text-3); font-size: 13px; }
 .pr-review-btn .arrow { margin-left: auto; color: var(--text-3); }
 
-/* U15 — the timeline rail: a 2px vertical line behind 22-32px avatar/icon
-   bubbles. Every rail child (bubble-row / tle / merge-box / composer) sits
-   at z-index 1 so its avatar/icon paints over the line. */
+/* U15 (revised) — the timeline rail: a 2px vertical line at x=28, clear of
+   the ~28px avatar column to its left. Only small type-icons (.tic — commit/
+   check/label/etc.) sit ON the line itself; a person avatar (comment bubble,
+   review person-event, inline review-thread) sits fully to its left instead
+   of overlapping it. */
 .pr-tl-rail { position: relative; }
-.pr-tl-rail::before { content: ''; position: absolute; left: 15px; top: 4px; bottom: 4px; width: 2px; background: var(--border-mid); }
+.pr-tl-rail::before { content: ''; position: absolute; left: 28px; top: 4px; bottom: 4px; width: 2px; background: var(--border-mid); }
 /* Inline review-thread cards (GitHub-native, see RailReviewThread.tsx) need
-   the same treatment pr-bubble-row's avatar gets — paint over the rail
-   line and clear it with a left offset — since ReviewThreadCard's own
-   styling (pr-detail.css) is scoped to a different, wider rail system. */
-.pr-tl-rail .rail-thread { position: relative; z-index: 1; margin: 0 0 12px 34px; }
+   a left offset clearing the rail line, since ReviewThreadCard's own
+   styling (pr-detail.css) is scoped to a different, wider rail system and
+   has no avatar-vs-line positioning of its own to inherit here. */
+.pr-tl-rail .rail-thread { margin: 0 0 12px 40px; }
 
 .pr-avatar { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, var(--orange), var(--amber-deep)); color: #fff; font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: 2px solid var(--bg); }
 .pr-avatar.agent { background: linear-gradient(135deg, var(--accent), var(--accent-dark)); border-radius: 6px; }
@@ -1539,7 +1541,8 @@
 .pr-badge.author { color: var(--blue); border-color: var(--blue-border); background: var(--blue-soft); }
 .pr-badge.pending { color: var(--amber-deep); border-color: var(--amber-border); background: var(--amber-soft); }
 
-/* U15 — comment bubble: avatar on the rail, caret pointing at it */
+/* U15 (revised) — comment bubble: avatar to the left of the rail, caret
+   pointing at the bubble. */
 .pr-bubble-row { position: relative; display: flex; gap: 12px; margin: 0 0 12px; }
 .pr-bubble { position: relative; flex: 1; min-width: 0; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin-top: 3px; }
 .pr-bubble::before { content: ''; position: absolute; top: 12px; left: -8px; border-style: solid; border-width: 7px 8px 7px 0; border-color: transparent var(--border-mid) transparent transparent; }
@@ -1556,7 +1559,7 @@
 
 /* U15 — compact one-line icon events (commits, checks, status, labels) */
 .pr-tl-icon-row { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; }
-.pr-tl-icon-row .tic { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
+.pr-tl-icon-row .tic { position: relative; z-index: 1; margin-left: 14px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
 .pr-tl-icon-row .tic.green { background: var(--green); color: #fff; }
 .pr-tl-icon-row .tic.fail { background: var(--red); color: #fff; }
 .pr-tl-icon-row .tb { font-size: 12px; color: var(--text-3); line-height: 1.55; padding-top: 5px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

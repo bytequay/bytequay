@@ -190,6 +190,19 @@ describe('PRView', () => {
     expect(screen.getByText('REMOTE')).toBeTruthy();
   });
 
+  it('hides the merge box, run-tests button and comment composer on the Commits/Checks tabs', () => {
+    const onRunTests = vi.fn();
+    renderView(bundle({ pr: pr('local-open'), checks: [check({ kind: 'local', status: 'passed' })] }), { onRunTests });
+    expect(document.querySelector('.pr-merge-box')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /Run tests/ })).toBeTruthy();
+    expect(document.querySelector('.pr-comment-composer, textarea')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Commits/ }));
+
+    expect(document.querySelector('.pr-merge-box')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Run tests/ })).toBeNull();
+  });
+
   it('fires onRunTests and shows a busy label', () => {
     const onRunTests = vi.fn();
     const { rerender } = renderView(bundle({ pr: pr('local-open') }), { onRunTests });

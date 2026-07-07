@@ -1517,7 +1517,7 @@
 .pr-review-btn .ic { color: var(--text-3); font-size: 13px; }
 .pr-review-btn .arrow { margin-left: auto; color: var(--text-3); }
 
-/* U15 (revised) — the timeline rail: a 2px vertical line at x=56, sitting
+/* U15 (revised) — the timeline rail: a 2px vertical line at x=64, sitting
    inside the comment bubble's own (fixed, unmoved) body rather than
    exactly at its left edge — the card's z-index:1 still covers the line
    for the card's full height, so the rail runs into the card and
@@ -1525,12 +1525,12 @@
    on-rail marker (.tic, the person-event eye) is recentered to sit on
    this line too; the avatar and the card itself are NOT moved. */
 .pr-tl-rail { position: relative; }
-.pr-tl-rail::before { content: ''; position: absolute; left: 56px; top: 4px; bottom: 4px; width: 2px; background: var(--border-mid); }
+.pr-tl-rail::before { content: ''; position: absolute; left: 64px; top: 4px; bottom: 4px; width: 2px; background: var(--border-mid); }
 /* Inline review-thread cards (GitHub-native, see RailReviewThread.tsx) need
    a left offset clearing the rail line, since ReviewThreadCard's own
    styling (pr-detail.css) is scoped to a different, wider rail system and
    has no avatar-vs-line positioning of its own to inherit here. */
-.pr-tl-rail .rail-thread { margin: 0 0 12px 80px; }
+.pr-tl-rail .rail-thread { margin: 0 0 12px 88px; }
 
 .pr-avatar { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, var(--orange), var(--amber-deep)); color: #fff; font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: 2px solid var(--bg); }
 .pr-avatar.agent { background: linear-gradient(135deg, var(--accent), var(--accent-dark)); border-radius: 6px; }
@@ -1549,7 +1549,7 @@
 /* U15 (revised) — comment bubble: avatar starts at x=0 (no left padding) so
    it lines up with .pr-person-event's avatar, which also starts at x=0 —
    the card's left edge lands at x=52 (avatar 40px + 12px gap), which
-   is all that matters for the rail (an independent, further-right x=56)
+   is all that matters for the rail (an independent, further-right x=64)
    to sit inside the card's body rather than at its edge. */
 .pr-bubble-row { position: relative; display: flex; align-items: flex-start; gap: 12px; margin: 0 0 12px; }
 .pr-bubble-row .pr-avatar { margin-top: 4px; }
@@ -1568,9 +1568,9 @@
 
 /* U15 — compact one-line icon events (commits, checks, status, labels).
    .tic is the row's first child (no gap before it), 28px wide — margin-left
-   42px centers it exactly on the x=56 rail (42 + 28/2 = 56). */
+   50px centers it exactly on the x=64 rail (50 + 28/2 = 64). */
 .pr-tl-icon-row { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; }
-.pr-tl-icon-row .tic { position: relative; z-index: 1; margin-left: 42px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
+.pr-tl-icon-row .tic { position: relative; z-index: 1; margin-left: 50px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
 .pr-tl-icon-row .tic.green { background: var(--green); color: #fff; }
 .pr-tl-icon-row .tic.fail { background: var(--red); color: #fff; }
 .pr-tl-icon-row .tb { font-size: 12px; color: var(--text-3); line-height: 1.55; padding-top: 5px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1592,14 +1592,14 @@
 .pr-tl-crossref a:hover { text-decoration: underline; }
 
 /* Copilot-redesign pass — person-event: the eye/check icon sits ON the rail
-   line (x=56, same technique as .tic above), with the 40px avatar (0-40,
+   line (x=64, same technique as .tic above), with the 40px avatar (0-40,
    same size as the comment bubble's) immediately to its left. The row's
-   8px gap plus the icon's own +0px margin lands its left edge at
-   40+8+0=48; at 16px wide it spans 48-64, centered exactly on x=56. */
+   8px gap plus the icon's own +8px margin lands its left edge at
+   40+8+8=56; at 16px wide it spans 56-72, centered exactly on x=64. */
 .pr-person-event { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; }
 .pr-person-event .pr-avatar { margin-top: -8px; }
 .pr-person-event .eye {
-  position: relative; z-index: 1; flex-shrink: 0; margin-left: 0px;
+  position: relative; z-index: 1; flex-shrink: 0; margin-left: 8px;
   width: 16px; height: 16px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 8px; color: var(--text-3);

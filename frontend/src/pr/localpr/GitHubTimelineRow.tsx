@@ -41,6 +41,25 @@ function sha(value: string | null): ReactNode {
   return value !== null ? <span className="sha">{value.slice(0, 7)}</span> : null;
 }
 
+/** "a", "a and b", "a, b and c" — github.com's own join style for a
+ *  collapsed label burst (no Oxford comma). */
+function joinWithAnd(nodes: ReactNode[]): ReactNode {
+  return nodes.map((node, i) => (
+    <Fragment key={i}>
+      {i > 0 && (i === nodes.length - 1 ? ' and ' : ', ')}
+      {node}
+    </Fragment>
+  ));
+}
+
+function labelPill(label: { name: string; color: string | null }, key: number): ReactNode {
+  return (
+    <span key={key} className="lbl" style={label.color ? { borderColor: `#${label.color}` } : undefined}>
+      {label.name}
+    </span>
+  );
+}
+
 /** Body copy for a single GitHub-native activity item — the structural
  *  event types this feed adds beyond what {@link TimelineIconEvent} already
  *  covers for local events. Unhandled/legacy types fall through to a bare
@@ -85,6 +104,14 @@ function activityBody(item: ActivityItemDto): ReactNode {
 function groupBody(entry: Extract<TimelineEntry, { kind: 'event-group' }>): ReactNode {
   if (entry.eventType === 'review_requested' && entry.reviewers !== undefined) {
     return <>{who(entry.actor)} requested review from {entry.reviewers.join(', ')}</>;
+  }
+  if ((entry.eventType === 'labeled' || entry.eventType === 'unlabeled') && entry.labels !== undefined) {
+    const verb = entry.eventType === 'labeled' ? 'added' : 'removed';
+    return (
+      <>
+        {who(entry.actor)} {verb} the {joinWithAnd(entry.labels.map((l, idx) => labelPill(l, idx)))} labels
+      </>
+    );
   }
   if (entry.eventType === 'head_ref_force_pushed') {
     return (

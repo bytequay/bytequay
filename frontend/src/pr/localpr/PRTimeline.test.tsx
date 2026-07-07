@@ -141,6 +141,23 @@ describe('PRTimeline GitHub-native feed', () => {
     expect(screen.getByText(/added the/)).toBeTruthy();
   });
 
+  it('merges a same-actor labeled burst into one row', () => {
+    render(<PRTimeline
+      pr={pushedPr} events={[]} comments={[]}
+      activity={[
+        activity({ eventType: 'labeled', actor: 'github-actions[bot]', labelName: 'hive', timestamp: '2026-06-20T10:00:00.000Z' }),
+        activity({ eventType: 'labeled', actor: 'github-actions[bot]', labelName: 'bigquery', timestamp: '2026-06-20T10:00:01.000Z' }),
+        activity({ eventType: 'labeled', actor: 'github-actions[bot]', labelName: 'delta-lake', timestamp: '2026-06-20T10:00:02.000Z' }),
+      ]}
+      reviewThreads={[]} threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getAllByText(/added the/).length).toBe(1);
+    expect(screen.getByText('hive')).toBeTruthy();
+    expect(screen.getByText('bigquery')).toBeTruthy();
+    expect(screen.getByText('delta-lake')).toBeTruthy();
+  });
+
   it('renders an attached review thread with its Outdated pill', () => {
     render(<PRTimeline
       pr={pushedPr} events={[]} comments={[]}

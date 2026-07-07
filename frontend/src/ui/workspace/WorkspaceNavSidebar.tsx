@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { SidebarFooter, TrafficLights } from '../shell';
 import { useFullScreen } from '../../useFullScreen';
@@ -84,6 +84,20 @@ export function WorkspaceNavSidebar({
 }) {
   const fullScreen = useFullScreen();
 
+  // Collapsed, the rail narrows to a 48px strip but the native inset
+  // traffic lights (trafficLightPosition in main.ts) are OS-drawn — CSS
+  // can't hide them, so they'd otherwise float on top of the collapsed
+  // strip. Ask the main process to hide/show them instead. Restore on
+  // unmount so a view that hides this rail entirely (stage-detail /
+  // task-brain) never leaves the window without its buttons. Also re-fire
+  // on `fullScreen` flips — macOS resets native button visibility on its
+  // own during the fullscreen transition, so entering/leaving fullscreen
+  // while collapsed would otherwise silently bring the buttons back.
+  useEffect(() => {
+    void window.bridge?.windowControl?.(collapsed ? 'hideButtons' : 'showButtons');
+    return () => { void window.bridge?.windowControl?.('showButtons'); };
+  }, [collapsed, fullScreen]);
+
   // Drag the right edge to resize. Width is local + persisted so it sticks
   // across reloads; collapsed mode ignores it (the strip is CSS-sized).
   const [width, setWidth] = useState(readStoredWidth);
@@ -109,10 +123,12 @@ export function WorkspaceNavSidebar({
       key={n.key}
       type="button"
       className={n.key === activeNav ? 'sb-nav-item active' : 'sb-nav-item'}
+      title={n.label}
+      aria-label={n.label}
       onClick={() => onNavigate?.(n.key)}
     >
       <span className="ic" aria-hidden>{n.ic}</span>
-      <span>{n.label}</span>
+      <span className="lbl">{n.label}</span>
       {n.key === 'workspaces' && backHint && <span className="kbd">← back</span>}
       {n.key === 'notifications' && notificationCount !== undefined && notificationCount > 0 && (
         <span className="kbd">{notificationCount > 99 ? '99+' : notificationCount}</span>
@@ -141,9 +157,12 @@ export function WorkspaceNavSidebar({
           forwardEnabled={forwardEnabled}
           onToggleCollapse={onToggleCollapse}
         />
+        {/* Folded, the primary destinations stay reachable as an icon-only
+            column (title attr carries the label as a tooltip); the
+            workspace body, secondary nav, and footer drop out. */}
+        <div className="sb-nav">{TOP_NAV.map(navItem)}</div>
         {!collapsed && (
           <>
-            <div className="sb-nav">{TOP_NAV.map(navItem)}</div>
             {children}
             <div className="sb-spacer" />
             <div className="sb-nav">{BOTTOM_NAV.map(navItem)}</div>

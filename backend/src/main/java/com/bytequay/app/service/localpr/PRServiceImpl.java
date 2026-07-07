@@ -424,21 +424,20 @@ class PRServiceImpl
         PRCheck existing = store.checksFor(pr.id()).stream()
                 .filter(c -> runId.equals(c.runId()))
                 .findFirst().orElse(null);
-        boolean wasTerminal = existing != null && TERMINAL_CHECK_STATUSES.contains(existing.status());
         boolean nowTerminal = TERMINAL_CHECK_STATUSES.contains(status);
         Instant effectiveStart = existing != null ? existing.startedAt() : startedAt != null ? startedAt : when;
         Instant effectiveFinish = !nowTerminal ? null
                 : existing != null && existing.finishedAt() != null ? existing.finishedAt()
                 : finishedAt != null ? finishedAt : when;
+        // No timeline event: unlike a local test run, a synced remote check is
+        // one of potentially dozens landing in the same sync pass (Trino
+        // #29099 has 60) — GitHub's own Conversation tab never shows one row
+        // per check either, only a compact status summary. The Checks tab
+        // already renders the full list straight from this table.
         PRCheck check = store.addCheck(new PRCheck(
                 existing == null ? UUID.randomUUID().toString() : existing.id(),
                 pr.id(), PRCheck.KIND_REMOTE, name, status, /* durationMs */ null,
                 effectiveStart, effectiveFinish, runId));
-        if (nowTerminal && !wasTerminal) {
-            appendEvent(pr.id(), PRTimelineEntry.TYPE_CI, PRTimelineEntry.ACTOR_AGENT, /* localOnly */ false,
-                    effectiveFinish, payload("kind", PRCheck.KIND_REMOTE, "name", name, "status", status,
-                            "durationMs", null));
-        }
         notifyUpdated(pr.id());
         return check;
     }

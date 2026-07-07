@@ -87,6 +87,30 @@ class PrTimelineEntity
     @Column(name = "reactions_eyes", nullable = false)
     private int reactionsEyes;
 
+    /** Label name/color on labeled/unlabeled events (V156). */
+    @Column(name = "label_name")
+    private String labelName;
+    @Column(name = "label_color")
+    private String labelColor;
+
+    /** Milestone title on milestoned/demilestoned events (V156). */
+    @Column(name = "milestone_title")
+    private String milestoneTitle;
+
+    /** Login assigned/unassigned on assigned/unassigned events (V156). */
+    @Column(name = "assignee_login")
+    private String assigneeLogin;
+
+    /** The other issue/PR referenced by a cross-referenced event (V156). */
+    @Column(name = "cross_ref_number")
+    private Integer crossRefNumber;
+    @Column(name = "cross_ref_title")
+    private String crossRefTitle;
+    @Column(name = "cross_ref_url")
+    private String crossRefUrl;
+    @Column(name = "cross_ref_is_pull_request", nullable = false)
+    private boolean crossRefIsPullRequest;
+
     protected PrTimelineEntity() {}
 
     Long getId() { return id; }
@@ -143,4 +167,24 @@ class PrTimelineEntity
     void setReactionsRocket(int v) { this.reactionsRocket = v; }
     int getReactionsEyes() { return reactionsEyes; }
     void setReactionsEyes(int v) { this.reactionsEyes = v; }
+
+    String getLabelName() { return labelName; }
+    void setLabelName(String labelName) { this.labelName = labelName; }
+    String getLabelColor() { return labelColor; }
+    void setLabelColor(String labelColor) { this.labelColor = labelColor; }
+
+    String getMilestoneTitle() { return milestoneTitle; }
+    void setMilestoneTitle(String milestoneTitle) { this.milestoneTitle = milestoneTitle; }
+
+    String getAssigneeLogin() { return assigneeLogin; }
+    void setAssigneeLogin(String assigneeLogin) { this.assigneeLogin = assigneeLogin; }
+
+    Integer getCrossRefNumber() { return crossRefNumber; }
+    void setCrossRefNumber(Integer crossRefNumber) { this.crossRefNumber = crossRefNumber; }
+    String getCrossRefTitle() { return crossRefTitle; }
+    void setCrossRefTitle(String crossRefTitle) { this.crossRefTitle = crossRefTitle; }
+    String getCrossRefUrl() { return crossRefUrl; }
+    void setCrossRefUrl(String crossRefUrl) { this.crossRefUrl = crossRefUrl; }
+    boolean isCrossRefIsPullRequest() { return crossRefIsPullRequest; }
+    void setCrossRefIsPullRequest(boolean crossRefIsPullRequest) { this.crossRefIsPullRequest = crossRefIsPullRequest; }
 }

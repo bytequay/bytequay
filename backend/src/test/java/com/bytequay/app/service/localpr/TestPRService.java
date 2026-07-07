@@ -134,6 +134,19 @@ class TestPRService
     }
 
     @Test
+    void syncedCheckNeverWritesATimelineEventEvenWhenTerminal()
+    {
+        pr(PR.STATUS_REMOTE_OPEN);
+        when(store.checksFor("pr1")).thenReturn(List.of());
+        when(store.addCheck(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.recordSyncedCheck(
+                "pr1", "555", "build-success", PRCheck.STATUS_PASSED, NOW, NOW);
+
+        verify(store, never()).addEvent(any());
+    }
+
+    @Test
     void fileLineCommentRequiresLocation()
     {
         pr(PR.STATUS_LOCAL_DRAFTED);

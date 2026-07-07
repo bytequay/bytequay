@@ -31,6 +31,15 @@ import java.time.Instant;
  * @param reviewId GitHub review id for reviewed events.
  * @param authorAssociation author's relationship to the repo.
  * @param reactions reactions tally for commented events.
+ * @param labelName label name on labeled/unlabeled events.
+ * @param labelColor label hex color on labeled/unlabeled events.
+ * @param milestoneTitle milestone title on milestoned/demilestoned events.
+ * @param assigneeLogin login assigned/unassigned on assigned/unassigned events.
+ * @param crossRefNumber the other issue/PR's number on cross-referenced events.
+ * @param crossRefTitle the other issue/PR's title on cross-referenced events.
+ * @param crossRefUrl the other issue/PR's html_url on cross-referenced events.
+ * @param crossRefIsPullRequest true iff the cross-referencing source is a pull
+ * request rather than an issue.
  */
 public record PrTimelineEvent(
         Long githubId,
@@ -44,4 +53,25 @@ public record PrTimelineEvent(
         String requestedReviewer,
         Long reviewId,
         String authorAssociation,
-        Reactions reactions) {}
+        Reactions reactions,
+        String labelName,
+        String labelColor,
+        String milestoneTitle,
+        String assigneeLogin,
+        Integer crossRefNumber,
+        String crossRefTitle,
+        String crossRefUrl,
+        boolean crossRefIsPullRequest)
+{
+    /** Compact form for the many event types that never carry label/
+     *  milestone/assignee/cross-ref data — every existing call site
+     *  keeps working unchanged, defaulting the new fields to "none". */
+    public PrTimelineEvent(
+            Long githubId, String event, String actor, String state, Instant timestamp, String body,
+            String beforeSha, String afterSha, String requestedReviewer, Long reviewId,
+            String authorAssociation, Reactions reactions)
+    {
+        this(githubId, event, actor, state, timestamp, body, beforeSha, afterSha, requestedReviewer, reviewId,
+                authorAssociation, reactions, null, null, null, null, null, null, null, false);
+    }
+}

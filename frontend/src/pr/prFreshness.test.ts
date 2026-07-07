@@ -29,6 +29,14 @@ function activity(over: Partial<ActivityItemDto> = {}): ActivityItemDto {
     authorAssociation: 'MEMBER',
     githubId: 1,
     reactions: null,
+    labelName: null,
+    labelColor: null,
+    milestoneTitle: null,
+    assigneeLogin: null,
+    crossRefNumber: null,
+    crossRefTitle: null,
+    crossRefUrl: null,
+    crossRefIsPullRequest: false,
     ...over,
   };
 }

@@ -94,6 +94,20 @@ public record PullRequestDetail(
      * that carry a comment.
      * @param githubId stable GitHub event id.
      * @param reactions reactions tally on commented events.
+     * @param labelName label name on labeled/unlabeled events.
+     * @param labelColor label hex color (no leading {@code #}) on
+     * labeled/unlabeled events.
+     * @param milestoneTitle milestone title on milestoned/demilestoned events.
+     * @param assigneeLogin login assigned/unassigned on assigned/unassigned
+     * events.
+     * @param crossRefNumber the other issue/PR's number on cross-referenced
+     * events.
+     * @param crossRefTitle the other issue/PR's title on cross-referenced
+     * events.
+     * @param crossRefUrl the other issue/PR's html_url on cross-referenced
+     * events.
+     * @param crossRefIsPullRequest true iff the cross-referencing source is a
+     * pull request rather than an issue.
      */
     public record ActivityItem(
             String actor,
@@ -107,7 +121,28 @@ public record PullRequestDetail(
             Long reviewId,
             String authorAssociation,
             Long githubId,
-            Reactions reactions) {}
+            Reactions reactions,
+            String labelName,
+            String labelColor,
+            String milestoneTitle,
+            String assigneeLogin,
+            Integer crossRefNumber,
+            String crossRefTitle,
+            String crossRefUrl,
+            boolean crossRefIsPullRequest)
+    {
+        /** Compact form for the many event types that never carry label/
+         *  milestone/assignee/cross-ref data — every existing call site
+         *  keeps working unchanged, defaulting the new fields to "none". */
+        public ActivityItem(
+                String actor, String eventType, Instant timestamp, String body, String state, String beforeSha,
+                String afterSha, String requestedReviewer, Long reviewId, String authorAssociation, Long githubId,
+                Reactions reactions)
+        {
+            this(actor, eventType, timestamp, body, state, beforeSha, afterSha, requestedReviewer, reviewId,
+                    authorAssociation, githubId, reactions, null, null, null, null, null, null, null, false);
+        }
+    }
 
     /**
      * Per-check view suitable for the UI. {@code outputTitle} +

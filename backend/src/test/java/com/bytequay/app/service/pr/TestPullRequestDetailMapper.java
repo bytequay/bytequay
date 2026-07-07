@@ -16,11 +16,15 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
+import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
+import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -90,6 +94,49 @@ class TestPullRequestDetailMapper
         assertThat(detail.ciStatus()).isEqualTo(CiStatus.PASSING);
         assertThat(detail.viewerCanWrite()).isTrue();
         assertThat(detail.baseRef()).isEqualTo("main");
+    }
+
+    @Test
+    void labeledAssignedMilestonedAndCrossReferencedEventsSurviveWithTheirFields()
+    {
+        Instant when = Instant.parse("2026-04-14T10:00:00Z");
+        List<PrTimelineEvent> timeline = List.of(
+                new PrTimelineEvent(
+                        1L, "labeled", "alice", null, when, null, null, null, null, null, null,
+                        Reactions.EMPTY, "delta-lake", "0e8a16", null, null, null, null, null, false),
+                new PrTimelineEvent(
+                        2L, "assigned", "alice", null, when, null, null, null, null, null, null,
+                        Reactions.EMPTY, null, null, null, "bob", null, null, null, false),
+                new PrTimelineEvent(
+                        3L, "milestoned", "alice", null, when, null, null, null, null, null, null,
+                        Reactions.EMPTY, null, null, "v451", null, null, null, null, false),
+                new PrTimelineEvent(
+                        4L, "cross-referenced", "carol", null, when, null, null, null, null, null, null,
+                        Reactions.EMPTY, null, null, null, null, 29064, "Improve extended stats management",
+                        "https://github.com/trinodb/trino/issues/29064", true),
+                // Not in the allowlist — dropped, same as before this change.
+                new PrTimelineEvent(
+                        5L, "subscribed", "alice", null, when, null, null, null, null, null, null,
+                        Reactions.EMPTY));
+
+        List<ActivityItem> items = PullRequestDetailMapper.toActivityItems(timeline);
+
+        assertThat(items).extracting(ActivityItem::eventType)
+                .containsExactlyInAnyOrder("labeled", "assigned", "milestoned", "cross-referenced");
+        ActivityItem labeled = items.stream().filter(i -> "labeled".equals(i.eventType())).findFirst().orElseThrow();
+        assertThat(labeled.labelName()).isEqualTo("delta-lake");
+        assertThat(labeled.labelColor()).isEqualTo("0e8a16");
+        ActivityItem assigned = items.stream().filter(i -> "assigned".equals(i.eventType())).findFirst().orElseThrow();
+        assertThat(assigned.assigneeLogin()).isEqualTo("bob");
+        ActivityItem milestoned = items.stream()
+                .filter(i -> "milestoned".equals(i.eventType())).findFirst().orElseThrow();
+        assertThat(milestoned.milestoneTitle()).isEqualTo("v451");
+        ActivityItem crossRef = items.stream()
+                .filter(i -> "cross-referenced".equals(i.eventType())).findFirst().orElseThrow();
+        assertThat(crossRef.crossRefNumber()).isEqualTo(29064);
+        assertThat(crossRef.crossRefTitle()).isEqualTo("Improve extended stats management");
+        assertThat(crossRef.crossRefUrl()).isEqualTo("https://github.com/trinodb/trino/issues/29064");
+        assertThat(crossRef.crossRefIsPullRequest()).isTrue();
     }
 
     private static PrCheckRunState check(String name, String status, String conclusion)

@@ -714,11 +714,25 @@ public class GitHubClient
                 ? Optional.ofNullable(e.requestedReviewer()).map(GitHubTimelineEvent.User::login).orElse(null)
                 : null;
         Long reviewId = "reviewed".equals(event) ? e.id() : null;
+        String labelName = Optional.ofNullable(e.label()).map(GitHubTimelineEvent.Label::name).orElse(null);
+        String labelColor = Optional.ofNullable(e.label()).map(GitHubTimelineEvent.Label::color).orElse(null);
+        String milestoneTitle = Optional.ofNullable(e.milestone())
+                .map(GitHubTimelineEvent.Milestone::title).orElse(null);
+        String assigneeLogin = Optional.ofNullable(e.assignee()).map(GitHubTimelineEvent.User::login).orElse(null);
+        GitHubTimelineEvent.SourceIssue crossRef = Optional.ofNullable(e.source())
+                .map(GitHubTimelineEvent.Source::issue).orElse(null);
+        Integer crossRefNumber = crossRef == null ? null : crossRef.number();
+        String crossRefTitle = crossRef == null ? null : crossRef.title();
+        String crossRefUrl = crossRef == null ? null : crossRef.htmlUrl();
+        boolean crossRefIsPullRequest = crossRef != null && crossRef.pullRequest() != null;
         // Timeline events don't carry reaction tallies in GitHub's
         // payload (reactions are on the issue-comment endpoint, fetched
         // separately). Use Reactions.EMPTY rather than null so the
         // store has a stable shape and the UI never NPEs.
-        return new PrTimelineEvent(e.id(), e.event(), actor, e.state(), timestamp, e.body(), beforeSha, afterSha, requestedReviewer, reviewId, e.authorAssociation(), Reactions.EMPTY);
+        return new PrTimelineEvent(
+                e.id(), e.event(), actor, e.state(), timestamp, e.body(), beforeSha, afterSha, requestedReviewer,
+                reviewId, e.authorAssociation(), Reactions.EMPTY, labelName, labelColor, milestoneTitle,
+                assigneeLogin, crossRefNumber, crossRefTitle, crossRefUrl, crossRefIsPullRequest);
     }
 
     // ── Pulls API ─────────────────────────────────────────────────────────────

@@ -404,7 +404,10 @@ class TestPullRequestService
     @Test
     void testToActivityItemsUninterestingEventsFiltered()
     {
-        PrTimelineEvent event = new PrTimelineEvent(null, "labeled", "alice", null, Instant.now(), null, null, null, null, null, null, Reactions.EMPTY);
+        // "labeled" moved to the interesting set alongside review_requested/
+        // head_ref_force_pushed/etc — "subscribed" is a real GitHub timeline
+        // event type that still has no UI story, so it stays the filtered case.
+        PrTimelineEvent event = new PrTimelineEvent(null, "subscribed", "alice", null, Instant.now(), null, null, null, null, null, null, Reactions.EMPTY);
         assertThat(PullRequestDetailMapper.toActivityItems(ImmutableList.of(event))).isEmpty();
     }
 

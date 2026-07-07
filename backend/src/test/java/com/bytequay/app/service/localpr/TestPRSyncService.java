@@ -278,6 +278,36 @@ class TestPRSyncService
     }
 
     @Test
+    void syncsRemoteChecksAndCiSnapshotForAPushedTaskOriginPr()
+            throws Exception
+    {
+        // GitHub's own Actions runs on a pushed task-origin PR are otherwise
+        // invisible to ByteQuay — only local test runs reach pr_check via
+        // recordCheck. This is the CI/Frontend, CI/Backend gap the user hit.
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.PUSHED_AWAITING_CI)));
+        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(pushedPr());
+        when(prService.commits("pr1")).thenReturn(List.of());
+        when(git.resolveCommitBase(any(), any())).thenReturn("main");
+        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
+                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        PullRequestDetail detail = detailWithActivity(List.of());
+        when(detail.checkRuns()).thenReturn(List.of(
+                new PullRequestDetail.CheckRun(555L, "CI / Backend", "completed", "success", "https://x", null, null)));
+        when(detail.mergeable()).thenReturn(true);
+        when(detail.mergeableState()).thenReturn("clean");
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(detail);
+
+        service.syncFromTask("task1");
+
+        verify(prService).recordSyncedCheck(
+                eq("pr1"), eq("555"), eq("CI / Backend"), eq(PRCheck.STATUS_PASSED), any(), any());
+        verify(prService).updateSyncSnapshot(eq("pr1"), argThat(snap ->
+                Boolean.TRUE.equals(snap.mergeable()) && "clean".equals(snap.mergeableState())));
+    }
+
+    @Test
     void doesNotSyncRemoteTimelineBeforeThePrIsPushed()
             throws Exception
     {

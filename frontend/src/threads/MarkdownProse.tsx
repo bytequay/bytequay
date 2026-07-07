@@ -15,6 +15,8 @@ import { isValidElement, memo } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
@@ -50,7 +52,11 @@ export const MarkdownProse = memo(function MarkdownProse({ text, variant = 'card
   const components = variant === 'terminal' ? terminalComponents : cardComponents;
   return (
     <div style={styles.root}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        components={components}
+      >
         {normalizeForMarkdown(text)}
       </ReactMarkdown>
     </div>
@@ -145,6 +151,15 @@ function buildComponents(styles: StyleBundle): Components {
       }
       return <pre style={styles.codeBlock}>{children}</pre>;
     },
+    // Real <details>/<summary> from raw HTML in the source (bot comments
+    // like coderabbitai's "Walkthrough"/"Pre-merge checks" sections) —
+    // collapsed by default like every other <details> the browser renders
+    // natively; this just adds spacing/typography consistent with the rest
+    // of the prose. Distinct from the `p` override above's own synthetic
+    // <details> for a "Note on tooling" aside, which is JSX we build
+    // ourselves and never runs through this component override.
+    details: ({ children }) => <details style={styles.htmlDetails}>{children}</details>,
+    summary: ({ children }) => <summary style={styles.htmlSummary}>{children}</summary>,
     blockquote: ({ children }) => <blockquote style={styles.blockquote}>{children}</blockquote>,
     table: ({ children }) => <table style={styles.table}>{children}</table>,
     th: ({ children }) => <th style={styles.tableHeader}>{children}</th>,
@@ -163,15 +178,13 @@ function buildComponents(styles: StyleBundle): Components {
  * newline list markers to blank-line-separated so each item gets
  * proper paragraph spacing inside the rendered list.
  *
- * HTML comments are stripped outright: react-markdown doesn't enable
- * raw-HTML pass-through (no {@code rehype-raw}), so without this a
- * {@code <!-- ... -->} — e.g. boilerplate left over from a PR
- * description template — would render as literal visible text instead
- * of the invisible comment a real Markdown/HTML viewer would show.
+ * HTML comments ({@code <!-- ... -->}, e.g. boilerplate left over from a
+ * PR description template) are left alone here — {@code rehype-raw}
+ * parses them as real (invisible) comment nodes now, the same way a
+ * browser or github.com would.
  */
 function normalizeForMarkdown(text: string): string {
   return text
-    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/(?<=[.!?])[ \t]+(?=\d+\.\s)/g, '\n\n')
     .replace(/(?<=[.!?])[ \t]+(?=[-*•]\s)/g, '\n\n');
 }
@@ -281,6 +294,8 @@ type StyleBundle = {
   commitChip: CSSProperties;
   metaDetails: CSSProperties;
   metaSummary: CSSProperties;
+  htmlDetails: CSSProperties;
+  htmlSummary: CSSProperties;
 };
 
 const cardStyles: StyleBundle = {
@@ -383,6 +398,11 @@ const cardStyles: StyleBundle = {
     cursor: 'pointer', color: 'var(--text-3)',
     fontSize: 12.5, fontWeight: 600, padding: '2px 0',
   },
+  htmlDetails: { margin: '6px 0' },
+  htmlSummary: {
+    cursor: 'pointer', color: 'var(--text-2)',
+    fontSize: 13, fontWeight: 600, padding: '4px 0',
+  },
 };
 
 const terminalStyles: StyleBundle = {
@@ -475,6 +495,11 @@ const terminalStyles: StyleBundle = {
   metaSummary: {
     cursor: 'pointer', color: 'var(--term-text-dim)',
     fontSize: 12.5, fontWeight: 600, padding: '2px 0',
+  },
+  htmlDetails: { margin: '6px 0' },
+  htmlSummary: {
+    cursor: 'pointer', color: 'var(--term-text)',
+    fontSize: 13, fontWeight: 600, padding: '4px 0',
   },
 };
 

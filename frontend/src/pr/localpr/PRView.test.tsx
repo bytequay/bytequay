@@ -274,4 +274,22 @@ describe('PRView', () => {
     }), { onPush: noop, onAskAgent: noop });
     expect(screen.getByText(/reviewed/)).toBeTruthy();
   });
+
+  it('force-refreshes the GitHub conversation feed alongside the local bundle on Sync', async () => {
+    const fetchPullRequestDetail = vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] });
+    const refreshPullRequestDetail = vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] });
+    window.bridge = { fetchPullRequestDetail, refreshPullRequestDetail } as unknown as typeof window.bridge;
+    const onRefresh = vi.fn();
+
+    renderView(bundle({
+      pr: pr('remote-open', { remotePrNumber: 145, repo: 'acme/widget', origin: 'external' }),
+    }), { onRefresh });
+    await vi.waitFor(() => expect(fetchPullRequestDetail).toHaveBeenCalledOnce());
+
+    fireEvent.click(document.querySelector('.pr-sync-chip') as Element);
+
+    expect(onRefresh).toHaveBeenCalledOnce();
+    expect(refreshPullRequestDetail).toHaveBeenCalledOnce();
+    expect(refreshPullRequestDetail).toHaveBeenCalledWith('acme/widget', 145);
+  });
 });

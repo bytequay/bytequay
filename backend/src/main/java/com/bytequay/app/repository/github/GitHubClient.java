@@ -71,6 +71,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1254,13 +1255,14 @@ public class GitHubClient
 
     // ── GraphQL: review-thread resolution ────────────────────────────────
 
-    /** GraphQL query for thread metadata. We page through up to 100 threads
-     *  and 50 comments per thread; that covers ~99.9% of PRs. */
+    /** GraphQL query for thread metadata, one page (100 threads, 50 comments
+     *  per thread) at a time — {@link #fetchReviewThreadResolution} follows
+     *  {@code pageInfo} to cover PRs with more than 100 threads. */
     private static final String REVIEW_THREAD_QUERY = """
-            query($owner: String!, $name: String!, $number: Int!) {
+            query($owner: String!, $name: String!, $number: Int!, $after: String) {
               repository(owner: $owner, name: $name) {
                 pullRequest(number: $number) {
-                  reviewThreads(first: 100) {
+                  reviewThreads(first: 100, after: $after) {
                     nodes {
                       id
                       isResolved
@@ -1270,36 +1272,52 @@ public class GitHubClient
                         }
                       }
                     }
+                    pageInfo {
+                      hasNextPage
+                      endCursor
+                    }
                   }
                 }
               }
             }
             """;
 
+    /** Hard cap on pages fetched per PR (100 threads/page, so 2000 threads
+     *  total) — a runaway-loop backstop far above any real PR, in case
+     *  GitHub ever returned a cursor that never terminates. */
+    private static final int MAX_REVIEW_THREAD_PAGES = 20;
+
     @Override
     public List<ReviewThreadMeta> fetchReviewThreadResolution(String pat, PullRequestRef pr)
     {
-        Map<String, Object> body = ImmutableMap.of(
-                "query", REVIEW_THREAD_QUERY,
-                "variables", ImmutableMap.of(
-                        "owner", pr.owner(),
-                        "name", pr.repo(),
-                        "number", pr.number()));
-        try {
-            ReviewThreadGqlResponse response = graphqlRestClient.post()
-                    .header("Authorization", authorization(pat))
-                    .body(body)
-                    .retrieve()
-                    .body(ReviewThreadGqlResponse.class);
+        List<ReviewThreadMeta> out = Lists.newArrayList();
+        String cursor = null;
+        for (int page = 0; page < MAX_REVIEW_THREAD_PAGES; page++) {
+            Map<String, Object> variables = new HashMap<>();
+            variables.put("owner", pr.owner());
+            variables.put("name", pr.repo());
+            variables.put("number", pr.number());
+            variables.put("after", cursor);
+            Map<String, Object> body = ImmutableMap.of("query", REVIEW_THREAD_QUERY, "variables", variables);
+            ReviewThreadGqlResponse response;
+            try {
+                response = graphqlRestClient.post()
+                        .header("Authorization", authorization(pat))
+                        .body(body)
+                        .retrieve()
+                        .body(ReviewThreadGqlResponse.class);
+            }
+            catch (RestClientResponseException e) {
+                throw toReadableException(e);
+            }
             if (response == null || response.data() == null
                     || response.data().repository() == null
                     || response.data().repository().pullRequest() == null) {
-                return ImmutableList.of();
+                break;
             }
-            List<ReviewThreadMeta> out = Lists.newArrayList();
             var threads = response.data().repository().pullRequest().reviewThreads();
             if (threads == null || threads.nodes() == null) {
-                return ImmutableList.of();
+                break;
             }
             for (var t : threads.nodes()) {
                 if (t == null || t.id() == null) continue;
@@ -1314,11 +1332,12 @@ public class GitHubClient
                 if (rootDbId == null) continue;
                 out.add(new ReviewThreadMeta(rootDbId, t.id(), Boolean.TRUE.equals(t.isResolved())));
             }
-            return ImmutableList.copyOf(out);
+            if (threads.pageInfo() == null || !threads.pageInfo().hasNextPage()) {
+                break;
+            }
+            cursor = threads.pageInfo().endCursor();
         }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        return ImmutableList.copyOf(out);
     }
 
     @Override
@@ -1372,7 +1391,10 @@ public class GitHubClient
     record GqlPr(GqlReviewThreads reviewThreads) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record GqlReviewThreads(List<GqlThread> nodes) {}
+    record GqlReviewThreads(List<GqlThread> nodes, GqlPageInfo pageInfo) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GqlPageInfo(boolean hasNextPage, String endCursor) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlThread(String id, Boolean isResolved, GqlComments comments) {}

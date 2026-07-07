@@ -108,7 +108,7 @@ export function PRView({
   // inline diff threads, …) — only fetched once the PR has a remote
   // identity; see PRTimeline's `githubFeedActive` for how it takes over
   // from the local sync tables at that point.
-  const { activity, reviewThreads } = useGitHubActivityFeed(pr.repo, pr.remotePrNumber);
+  const { activity, reviewThreads, refresh: refreshActivityFeed } = useGitHubActivityFeed(pr.repo, pr.remotePrNumber);
   const threadActions: GitHubThreadActions | undefined = pr.repo === null ? undefined : {
     repo: pr.repo,
     prAuthor: pr.author,
@@ -126,6 +126,17 @@ export function PRView({
 
   const [activeTab, setActiveTab] = useState<PRHeaderTab>('conversation');
 
+  // The header's "Sync" button previously only re-fetched the local PR
+  // bundle — the GitHub-native conversation feed (comments/review threads)
+  // fetches once on mount and otherwise never refreshes, so the tab could
+  // go stale for the entire time the page stayed open. Force-bypass the
+  // ETag-probe cache here (force=true) since an explicit user click is
+  // exactly the "I want the real current state" signal that should skip it.
+  const handleRefresh = () => {
+    onRefresh();
+    refreshActivityFeed(true);
+  };
+
   const githubFeedActive = pr.remotePrNumber !== null;
   // Once the GitHub feed is active it's the source of truth for the
   // Conversation tab's count too — github.com counts top-level comments
@@ -142,7 +153,7 @@ export function PRView({
         pr={pr}
         syncedAt={syncedAt}
         syncing={syncing}
-        onRefresh={onRefresh}
+        onRefresh={handleRefresh}
         commitCount={commits.length}
         checkCount={checks.length}
         conversationCount={conversationCount}

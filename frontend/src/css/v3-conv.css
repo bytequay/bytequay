@@ -1633,7 +1633,13 @@
 .btn .kbd { font-family: var(--mono); font-size: 9px; padding: 1px 4px; background: rgba(0,0,0,0.12); border-radius: 3px; opacity: 0.85; margin-left: 2px; }
 
 /* U13e — merge-box accordion (absorbs the old PRActionBar + PRChecksCard) */
-.pr-merge-box { position: relative; z-index: 1; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin: 0 0 14px 40px; overflow: hidden; }
+/* flex-shrink:0 matters here: .pr-body-scroll is a flex column, and a long
+   real activity feed (many comments/checks) is often taller than the pane,
+   so the flex algorithm shrinks children to fit. overflow:hidden (for the
+   rounded corners) resets this box's default min-height:auto to 0, making
+   it the item that gets crushed down to a hairline instead of the timeline
+   above it shrinking — flex-shrink:0 opts it out of that entirely. */
+.pr-merge-box { position: relative; z-index: 1; flex-shrink: 0; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin: 0 0 14px 40px; overflow: hidden; }
 .pr-merge-box.ok { border-color: var(--green-border); }
 .pr-merge-box .mb-sec { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-start; }
 .pr-merge-box .mb-sec:last-child { border-bottom: none; }

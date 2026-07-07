@@ -18,16 +18,24 @@ import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.ReviewStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -39,9 +47,10 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Endpoints for the Task stages surface and the brain view. Mostly read
- * delegators to {@link StageService}, plus the one write that spawns a
- * callable review sub-stage. No auth beyond the existing internal-API
- * sanity checks (the backend is a localhost sidecar).
+ * delegators to {@link StageService}, plus the writes that spawn a
+ * callable review sub-stage, steer a running stage, and set a stage's
+ * work-model override. No auth beyond the existing internal-API sanity
+ * checks (the backend is a localhost sidecar).
  */
 @RestController
 public class StageController
@@ -51,19 +60,28 @@ public class StageController
     private final ReviewStageService reviewStageService;
     private final StageSteeringService steeringService;
     private final PlanStageService planStageService;
+    private final StageStore stageStore;
+    private final TaskStore taskStore;
+    private final WorkModelResolver workModelResolver;
 
     public StageController(
             StageService service,
             StageDetailService detailService,
             ReviewStageService reviewStageService,
             StageSteeringService steeringService,
-            PlanStageService planStageService)
+            PlanStageService planStageService,
+            StageStore stageStore,
+            TaskStore taskStore,
+            WorkModelResolver workModelResolver)
     {
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
         this.reviewStageService = requireNonNull(reviewStageService, "reviewStageService is null");
         this.steeringService = requireNonNull(steeringService, "steeringService is null");
         this.planStageService = requireNonNull(planStageService, "planStageService is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
     }
 
     @GetMapping("/api/tasks/{taskId}/brain")
@@ -133,6 +151,56 @@ public class StageController
     {
         planStageService.resolveFollowup(
                 parseStageId(followupEventId), patch == null ? null : patch.status());
+    }
+
+    /** GET /api/stages/{stageId}/work-model — resolve the effective work
+     *  model for this stage (stage → task → thread → workspace → global),
+     *  the most-specific rung on the cascade. */
+    @GetMapping("/api/stages/{stageId}/work-model")
+    public ResolvedWorkModelResponse getWorkModel(@PathVariable String stageId)
+    {
+        UUID id = parseStageId(stageId);
+        StageInstance stage = requireStage(id);
+        Task task = requireTaskForStage(stage);
+        WorkModelResolver.Resolved resolved =
+                workModelResolver.resolveForStage(task.threadId(), task.id(), stageId);
+        return new ResolvedWorkModelResponse(stage.workModel(), resolved.choice(), resolved.provenance());
+    }
+
+    public record WorkModelBody(WorkModel workModel) {}
+
+    /** PUT /api/stages/{stageId}/work-model — set (or clear) the stage's
+     *  override. A stage's agent session is built once and reused across
+     *  every iteration within it, so this is a stage-open-time choice: it
+     *  has no effect on a session already running under this stage, only
+     *  on the next one built for it. */
+    @PutMapping("/api/stages/{stageId}/work-model")
+    public ResolvedWorkModelResponse setWorkModel(
+            @PathVariable String stageId,
+            @RequestBody(required = false) WorkModelBody body)
+    {
+        UUID id = parseStageId(stageId);
+        StageInstance stage = requireStage(id);
+        Task task = requireTaskForStage(stage);
+        stageStore.updateWorkModel(id, body == null ? null : body.workModel());
+        WorkModelResolver.Resolved resolved =
+                workModelResolver.resolveForStage(task.threadId(), task.id(), stageId);
+        return new ResolvedWorkModelResponse(
+                body == null ? null : body.workModel(), resolved.choice(), resolved.provenance());
+    }
+
+    private StageInstance requireStage(UUID stageId)
+    {
+        return stageStore.findStageById(stageId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no stage: " + stageId));
+    }
+
+    private Task requireTaskForStage(StageInstance stage)
+    {
+        return taskStore.findTaskById(stage.taskId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + stage.taskId()));
     }
 
     private static UUID parseStageId(String raw)

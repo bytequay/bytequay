@@ -475,7 +475,7 @@ public class ThreadRegistry
         }
         try {
             ThreadAgent agent = sessions.computeIfAbsent(key, k -> {
-                ThreadAgent built = buildStage(thread, task);
+                ThreadAgent built = buildStage(thread, task, stageId);
                 // Bind the agent to the stage key it's filed under so its CLI
                 // subprocess writes a per-agent MCP URL and tool calls resolve
                 // role / capability against its own running turn.
@@ -607,24 +607,28 @@ public class ThreadRegistry
         }
     }
 
-    private ThreadAgent buildStage(Thread thread, Task boundTask)
+    private ThreadAgent buildStage(Thread thread, Task boundTask, String stageId)
     {
         // The CLI agent binds to the explicit task the caller resolved for
         // this stage, rather than re-deriving it inside the agent ctor.
+        // Resolved once via the full stage → task → thread → workspace →
+        // global cascade — a stage's session is built once and reused
+        // across every iteration within it (see getOrCreate), so this is a
+        // stage-open-time decision, not re-evaluated per turn.
+        WorkModel resolved = resolveWorkModelForStage(thread, boundTask, stageId);
         return switch (thread.kind()) {
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider,
                             resolveTaskRoleSkill(boundTask),
-                            boundTask)
+                            boundTask, cliModelOverride(resolved))
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider, skillMaterializer,
                             resolveTaskRoleSkill(boundTask),
-                            boundTask);
+                            boundTask, cliModelOverride(resolved));
             case LOGIC_LOOP -> {
-                WorkModel resolved = resolveWorkModel(thread.id());
                 String workingDir = boundTask != null
                         ? boundTask.workingDir()
                         : trunkCwdResolver.apply(thread);
@@ -636,6 +640,31 @@ public class ThreadRegistry
             }
             case BRAIN_AGENT -> buildBrain(thread);
         };
+    }
+
+    /** The resolved cascade's model id, but only when it's actually a CLI
+     *  choice — a resolution that came out API-kind for a CLI_AGENT thread
+     *  means the override is inconsistent with the thread's own kind, and
+     *  passing an API model id as {@code --model}/{@code -m} would be
+     *  wrong, so this falls back to null (the CLI's own default) instead. */
+    private static String cliModelOverride(WorkModel resolved)
+    {
+        return resolved.kind() == WorkModelKind.CLI ? resolved.model() : null;
+    }
+
+    /** Resolves the effective work model for a stage's spawn: stage → task
+     *  → thread → workspace → global default. Falls back to the thread-only
+     *  cascade on the legacy 0-task path (no bound task) or when the
+     *  resolver isn't wired (test paths). */
+    private WorkModel resolveWorkModelForStage(Thread thread, Task boundTask, String stageId)
+    {
+        if (boundTask == null || workModelResolver == null) {
+            return resolveWorkModel(thread.id());
+        }
+        if (stageId != null && !stageId.isBlank()) {
+            return workModelResolver.resolveForStage(thread.id(), boundTask.id(), stageId).choice();
+        }
+        return workModelResolver.resolveForTask(thread.id(), boundTask.id()).choice();
     }
 
     private ThreadAgent buildTrunk(Thread thread)

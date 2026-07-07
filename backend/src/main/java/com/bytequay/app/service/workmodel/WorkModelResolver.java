@@ -24,7 +24,8 @@ import com.bytequay.app.domain.WorkModel;
  *
  * <p>Cascade order:
  * <ol>
- *   <li>task — {@code resolveForTask} only</li>
+ *   <li>stage — {@code resolveForStage} only</li>
+ *   <li>task — {@code resolveForStage} and {@code resolveForTask}</li>
  *   <li>thread</li>
  *   <li>workspace (the thread's owning workspace)</li>
  *   <li>global default (the first CLI agent in {@link WorkModelCatalog}
@@ -48,6 +49,11 @@ public interface WorkModelResolver
      *  belong to the named thread; a mismatch is a 404. */
     Resolved resolveForTask(String threadId, String taskId);
 
+    /** Resolve the effective work model for a stage-scope turn. Walks
+     *  stage → task → thread → workspace → global default. The stage
+     *  must belong to the named task; a mismatch is a 404. */
+    Resolved resolveForStage(String threadId, String taskId, String stageId);
+
     /** Resolved cascade outcome: which {@link WorkModel} won and where
      *  it came from. */
     record Resolved(WorkModel choice, Provenance provenance) {}
@@ -63,9 +69,11 @@ public interface WorkModelResolver
     /** Tag identifying which scope the resolver picked. */
     enum Source
     {
-        /** The task carried an override. */
+        /** The stage carried an override. */
+        STAGE,
+        /** The stage (if any) had no override; the task did. */
         TASK,
-        /** The task had no override; the thread did. */
+        /** Neither stage nor task had an override; the thread did. */
         THREAD,
         /** Neither task nor thread had an override; the workspace did. */
         WORKSPACE,

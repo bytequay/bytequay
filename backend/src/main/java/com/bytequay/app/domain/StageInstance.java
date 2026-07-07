@@ -20,7 +20,11 @@ import java.util.UUID;
 /**
  * The immutable {@link Stage} the store hands back — a straight mapping of
  * a {@code task_stage} row. {@code closedAt} and {@code callerStageId} are
- * nullable in the row and surfaced through {@link Optional}.
+ * nullable in the row and surfaced through {@link Optional}. {@code
+ * workModel} is the stage's optional override on the work-model cascade
+ * (see V159); {@code null} means "no override," matching the plain-nullable
+ * convention {@link Task#workModel()} and {@link Thread#workModel()} use
+ * rather than this record's own {@code OrNull}/{@link Optional} style.
  */
 public record StageInstance(
         UUID id,
@@ -29,7 +33,8 @@ public record StageInstance(
         StageState state,
         Instant openedAt,
         Instant closedAtOrNull,
-        UUID callerStageIdOrNull)
+        UUID callerStageIdOrNull,
+        WorkModel workModel)
         implements Stage
 {
     @Override
@@ -42,5 +47,23 @@ public record StageInstance(
     public Optional<UUID> callerStageId()
     {
         return Optional.ofNullable(callerStageIdOrNull);
+    }
+
+    /**
+     * Back-compat constructor for the 7-field shape that predates
+     * {@code workModel} (V159). Defaults it to null, correct for every
+     * call site except the store's row mapper and the work-model update
+     * path, which thread a real value through the canonical constructor.
+     */
+    public StageInstance(
+            UUID id,
+            String taskId,
+            StageType type,
+            StageState state,
+            Instant openedAt,
+            Instant closedAtOrNull,
+            UUID callerStageIdOrNull)
+    {
+        this(id, taskId, type, state, openedAt, closedAtOrNull, callerStageIdOrNull, null);
     }
 }

@@ -20,6 +20,7 @@ import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.StageStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -142,7 +143,7 @@ class SqliteStageStore
     @Override
     public Optional<StageInstance> findStageById(UUID stageId)
     {
-        return stages.findById(stageId.toString()).map(SqliteStageStore::toStage);
+        return stages.findById(stageId.toString()).map(this::toStage);
     }
 
     @Override
@@ -162,10 +163,20 @@ class SqliteStageStore
     }
 
     @Override
+    @Transactional
+    public void updateWorkModel(UUID stageId, WorkModel workModel)
+    {
+        stages.findById(stageId.toString()).ifPresent(row -> {
+            row.setWorkModelJson(WorkModelJson.serialise(objectMapper, workModel));
+            stages.save(row);
+        });
+    }
+
+    @Override
     public List<StageInstance> findStagesByTask(String taskId)
     {
         return stages.findByTaskIdOrderByOpenedAtMsAsc(taskId).stream()
-                .map(SqliteStageStore::toStage)
+                .map(this::toStage)
                 .toList();
     }
 
@@ -173,7 +184,7 @@ class SqliteStageStore
     public Optional<StageInstance> findActiveStage(String taskId)
     {
         return stages.findFirstByTaskIdAndStateInOrderByOpenedAtMsDesc(taskId, ACTIVE_STATES)
-                .map(SqliteStageStore::toStage);
+                .map(this::toStage);
     }
 
     @Override
@@ -350,7 +361,7 @@ class SqliteStageStore
         }
     }
 
-    private static StageInstance toStage(TaskStageEntity e)
+    private StageInstance toStage(TaskStageEntity e)
     {
         return new StageInstance(
                 UUID.fromString(e.getId()),
@@ -359,7 +370,8 @@ class SqliteStageStore
                 StageState.valueOf(e.getState()),
                 Instant.ofEpochMilli(e.getOpenedAtMs()),
                 Timestamps.instant(e.getClosedAtMs()),
-                e.getCallerStageId() == null ? null : UUID.fromString(e.getCallerStageId()));
+                e.getCallerStageId() == null ? null : UUID.fromString(e.getCallerStageId()),
+                WorkModelJson.deserialise(objectMapper, e.getWorkModelJson()));
     }
 
     private static StageEvent toEvent(TaskStageEventEntity e)

@@ -74,7 +74,32 @@ public class CodexCliThreadAgent
             Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null, boundTask);
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null, boundTask, (String) null);
+    }
+
+    /**
+     * Stage-scoped constructor carrying the resolved work-model cascade's
+     * model id (stage → task → thread → workspace → global), so a stage or
+     * task override reaches the {@code -m} spawn arg instead of only the
+     * thread's frozen {@link Thread#model()}. Null/blank means no override —
+     * falls back to {@code thread.model()} like the constructor above.
+     */
+    public CodexCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CodexJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String roleSkillText,
+            Task boundTask,
+            String modelOverride)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null, boundTask, modelOverride);
     }
 
     /** Trunk-mode constructor: no focused Task, cwd defaulting to {@code
@@ -94,7 +119,7 @@ public class CodexCliThreadAgent
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd, (Task) null);
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd, (Task) null, (String) null);
     }
 
     /** Marker enum disambiguating the trailing-string constructor
@@ -116,7 +141,7 @@ public class CodexCliThreadAgent
             Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, binary, (String) null, boundTask);
+                workspaceMemoryProvider, roleSkillText, binary, (String) null, boundTask, (String) null);
     }
 
     private CodexCliThreadAgent(
@@ -132,10 +157,11 @@ public class CodexCliThreadAgent
             String roleSkillText,
             String binary,
             String trunkCwd,
-            Task boundTask)
+            Task boundTask,
+            String modelOverride)
     {
         super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                binary, trunkCwd, boundTask);
+                binary, trunkCwd, boundTask, modelOverride);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.roleSkillText = roleSkillText;
     }

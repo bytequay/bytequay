@@ -161,9 +161,16 @@ function buildComponents(styles: StyleBundle): Components {
  * marker that follows a sentence terminator. We also bump single-
  * newline list markers to blank-line-separated so each item gets
  * proper paragraph spacing inside the rendered list.
+ *
+ * HTML comments are stripped outright: react-markdown doesn't enable
+ * raw-HTML pass-through (no {@code rehype-raw}), so without this a
+ * {@code <!-- ... -->} — e.g. boilerplate left over from a PR
+ * description template — would render as literal visible text instead
+ * of the invisible comment a real Markdown/HTML viewer would show.
  */
 function normalizeForMarkdown(text: string): string {
   return text
+    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/(?<=[.!?])[ \t]+(?=\d+\.\s)/g, '\n\n')
     .replace(/(?<=[.!?])[ \t]+(?=[-*•]\s)/g, '\n\n');
 }

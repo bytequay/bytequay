@@ -13,11 +13,13 @@
  */
 package com.bytequay.app.service.workmodel;
 
+import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WorkspaceStore;
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
@@ -36,15 +39,18 @@ class WorkModelResolverImpl
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
     private final WorkspaceStore workspaceStore;
+    private final StageStore stageStore;
 
     WorkModelResolverImpl(
             ThreadStore threadStore,
             TaskStore taskStore,
-            WorkspaceStore workspaceStore)
+            WorkspaceStore workspaceStore,
+            StageStore stageStore)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
     }
 
     @Override
@@ -74,6 +80,25 @@ class WorkModelResolverImpl
         Thread thread = threadStore.findThreadById(threadId)
                 .orElseThrow(() -> notFound("thread", threadId));
         return resolveFromThread(thread);
+    }
+
+    @Override
+    public Resolved resolveForStage(String threadId, String taskId, String stageId)
+    {
+        requireNonNull(threadId, "threadId is null");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(stageId, "stageId is null");
+        StageInstance stage = stageStore.findStageById(UUID.fromString(stageId))
+                .orElseThrow(() -> notFound("stage", stageId));
+        if (!stage.taskId().equals(taskId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                    "stage " + stageId + " is not on task " + taskId);
+        }
+        if (stage.workModel() != null) {
+            return new Resolved(stage.workModel(),
+                    new Provenance(Source.STAGE, stageId, "stage " + stageId));
+        }
+        return resolveForTask(threadId, taskId);
     }
 
     private Resolved resolveFromThread(Thread thread)

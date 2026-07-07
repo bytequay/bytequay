@@ -51,6 +51,9 @@ class TaskStageEntity
     @Column(name = "metrics_json")
     private String metricsJson;
 
+    @Column(name = "work_model_json")
+    private String workModelJson;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -77,4 +80,7 @@ class TaskStageEntity
 
     String getMetricsJson() { return metricsJson; }
     void setMetricsJson(String metricsJson) { this.metricsJson = metricsJson; }
+
+    String getWorkModelJson() { return workModelJson; }
+    void setWorkModelJson(String workModelJson) { this.workModelJson = workModelJson; }
 }

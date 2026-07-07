@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.workmodel;
 
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -22,6 +25,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WorkspaceStore;
@@ -30,6 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,13 +47,15 @@ class TestWorkModelResolver
     private static final String WS_ID = "ws-default";
     private static final String THREAD_ID = "t-1";
     private static final String TASK_ID = "task-1";
+    private static final UUID STAGE_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
+    private final StageStore stageStore = mock(StageStore.class);
 
     private final WorkModelResolver resolver =
-            new WorkModelResolverImpl(threadStore, taskStore, workspaceStore);
+            new WorkModelResolverImpl(threadStore, taskStore, workspaceStore, stageStore);
 
     @Test
     void resolveForTaskPicksTheTaskOverrideWhenSet()
@@ -163,6 +170,63 @@ class TestWorkModelResolver
         assertThatThrownBy(() -> resolver.resolveForThread(THREAD_ID))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no thread");
+    }
+
+    @Test
+    void resolveForStagePicksTheStageOverrideWhenSet()
+    {
+        WorkModel stagePick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
+        when(stageStore.findStageById(STAGE_ID)).thenReturn(Optional.of(stage(stagePick)));
+        // The task + thread + workspace lookups should be skipped — stage wins.
+
+        WorkModelResolver.Resolved got = resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString());
+
+        assertThat(got.choice()).isEqualTo(stagePick);
+        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.STAGE);
+        assertThat(got.provenance().scopeId()).isEqualTo(STAGE_ID.toString());
+    }
+
+    @Test
+    void resolveForStageFallsThroughToTaskWhenStageOverrideIsNull()
+    {
+        WorkModel taskPick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
+        when(stageStore.findStageById(STAGE_ID)).thenReturn(Optional.of(stage(null)));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(taskPick)));
+
+        WorkModelResolver.Resolved got = resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString());
+
+        assertThat(got.choice()).isEqualTo(taskPick);
+        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.TASK);
+    }
+
+    @Test
+    void resolveForStageRejectsStageThatBelongsToAnotherTask()
+    {
+        when(stageStore.findStageById(STAGE_ID))
+                .thenReturn(Optional.of(new StageInstance(
+                        STAGE_ID, "different-task", StageType.DEVELOPMENT_STAGE, StageState.OPEN,
+                        NOW, null, null, null)));
+
+        assertThatThrownBy(() -> resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not on task");
+    }
+
+    @Test
+    void resolveForStageRejectsUnknownStage()
+    {
+        when(stageStore.findStageById(STAGE_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no stage");
+    }
+
+    private static StageInstance stage(WorkModel workModel)
+    {
+        return new StageInstance(
+                STAGE_ID, TASK_ID, StageType.DEVELOPMENT_STAGE, StageState.OPEN,
+                NOW, null, null, workModel);
     }
 
     private static Thread thread(WorkModel workModel)

@@ -223,7 +223,8 @@ public abstract class AbstractCliThreadAgent
             CheckpointTrigger checkpointTrigger,
             String binary,
             String trunkCwd,
-            Task boundTask)
+            Task boundTask,
+            String modelOverride)
     {
         requireNonNull(thread, "thread is null");
         // CLI_AGENT is the dev/trunk case; BRAIN_AGENT is a brain thread whose
@@ -236,7 +237,13 @@ public abstract class AbstractCliThreadAgent
         this.threadId = thread.id();
         this.kind = thread.kind();
         this.provider = thread.provider();
-        this.model.set(thread.model() == null ? "" : thread.model());
+        // The resolved work-model cascade (task/stage-aware) wins over the
+        // thread's own stored model when the caller supplies one — buildStage
+        // passes the stage-resolved model here so a stage override reaches
+        // the actual --model/-m spawn arg, not just the thread's frozen value.
+        this.model.set(modelOverride != null && !modelOverride.isBlank()
+                ? modelOverride
+                : (thread.model() == null ? "" : thread.model()));
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.mapper = requireNonNull(mapper, "mapper is null");

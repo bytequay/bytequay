@@ -20,6 +20,7 @@ import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.WorkModel;
 
 import java.util.List;
 import java.util.Map;
@@ -70,6 +71,10 @@ public interface StageStore
 
     /** Overwrite a stage's {@code metrics_json} blob. No-op when unknown. */
     void updateMetricsJson(UUID stageId, String metricsJson);
+
+    /** Set (or clear, with {@code null}) the stage's override on the
+     *  work-model cascade (V159). No-op when the id is unknown. */
+    void updateWorkModel(UUID stageId, WorkModel workModel);
 
     /** A task's stages, oldest-first. */
     List<StageInstance> findStagesByTask(String taskId);

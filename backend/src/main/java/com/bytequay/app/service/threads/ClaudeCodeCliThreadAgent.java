@@ -90,7 +90,35 @@ public class ClaudeCodeCliThreadAgent
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                (String) null, boundTask);
+                (String) null, boundTask, (String) null);
+    }
+
+    /**
+     * Stage-scoped constructor carrying the resolved work-model cascade's
+     * model id (stage → task → thread → workspace → global), so a stage or
+     * task override reaches the {@code --model} spawn arg instead of only
+     * the thread's frozen {@link Thread#model()}. Null/blank means no
+     * override — falls back to {@code thread.model()} like the constructor
+     * above.
+     */
+    public ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
+            String roleSkillText,
+            Task boundTask,
+            String modelOverride)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
+                (String) null, boundTask, modelOverride);
     }
 
     /**
@@ -115,7 +143,7 @@ public class ClaudeCodeCliThreadAgent
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                trunkCwd, (Task) null);
+                trunkCwd, (Task) null, (String) null);
     }
 
     /** Marker enum disambiguating the two-argument trailing-string
@@ -139,7 +167,7 @@ public class ClaudeCodeCliThreadAgent
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, binary,
-                (String) null, boundTask);
+                (String) null, boundTask, (String) null);
     }
 
     private ClaudeCodeCliThreadAgent(
@@ -156,10 +184,11 @@ public class ClaudeCodeCliThreadAgent
             String roleSkillText,
             String binary,
             String trunkCwd,
-            Task boundTask)
+            Task boundTask,
+            String modelOverride)
     {
         super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                binary, trunkCwd, boundTask);
+                binary, trunkCwd, boundTask, modelOverride);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         // skillMaterializer is allowed to be null on legacy / test paths
         // that don't care about skill materialization; the buildCommand
@@ -185,6 +214,13 @@ public class ClaudeCodeCliThreadAgent
                 .add("--include-partial-messages")
                 .add("--mcp-config", ensureMcpConfig().toString())
                 .add("--permission-prompt-tool", "mcp__bytequay__approval_prompt");
+        // Resolved work-model cascade (or a CLI-reported model from a prior
+        // turn) — mirrors CodexCliThreadAgent's -m flag. Sent on every turn,
+        // same as --append-system-prompt below; --resume tolerates it.
+        String modelId = model();
+        if (modelId != null && !modelId.isBlank()) {
+            argv.add("--model", modelId);
+        }
         // Inject the role skill body as the system role block. Frozen at
         // session construction so the prefix stays byte-stable for the
         // lifetime of the session — that's what keeps the cache warm

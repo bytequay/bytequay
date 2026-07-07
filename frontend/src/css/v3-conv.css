@@ -1561,6 +1561,7 @@
 .pr-tl-icon-row .verdict-pill { font-size: 9.5px; font-weight: 700; border-radius: 999px; padding: 1px 8px; }
 .pr-tl-icon-row .verdict-pill.ok { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
 .pr-tl-icon-row .verdict-pill.chg { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid var(--amber-border); }
+.pr-tl-icon-row .tb .lbl { font-size: 10.5px; font-weight: 600; border: 1px solid var(--border-mid); border-radius: 999px; padding: 1px 8px; color: var(--text-2); }
 
 /* U15 — person-event: avatar-on-rail + eye icon + "reviewed" / "approved" */
 .pr-person-event { position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 0; }

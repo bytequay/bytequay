@@ -247,7 +247,9 @@ public class PRSyncService
                     baseline == null ? null : baseline.mergeableState(),
                     baseline == null ? null : baseline.headPushedAt(),
                     baseline == null ? Map.of() : baseline.reviewerVerdicts(),
-                    baseline == null ? List.of() : baseline.requestedReviewers());
+                    baseline == null ? List.of() : baseline.requestedReviewers(),
+                    baseline != null && baseline.mergeQueueEnabled(),
+                    baseline == null ? null : baseline.mergeQueueState());
             PR updated = prService.updateSyncSnapshot(pr.id(), listLevel);
             if (needsDetail) {
                 syncDashboardDetail(updated, currentLogin, now);
@@ -306,7 +308,8 @@ public class PRSyncService
                 baseline.watchReason(), baseline.ghUpdatedAt(), baseline.labels(), baseline.labelColors(),
                 baseline.draft(), detail.ciStatus(), detail.additions(), detail.deletions(), commentCount,
                 attentionReason, detail.mergeable(), detail.mergeableState(), baseline.headPushedAt(),
-                reviewerVerdicts, detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers()));
+                reviewerVerdicts, detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers(),
+                detail.mergeQueueEnabled(), detail.mergeQueueState()));
     }
 
     private Instant triageViewedAt(String prId)
@@ -487,7 +490,7 @@ public class PRSyncService
             return pr;
         }
         prPublish.onPushedElsewhere(new PrPushedEvent(
-                task.id(), ref.get().number(),
+                task.id(), ref.get().owner() + "/" + ref.get().repo(), ref.get().number(),
                 "https://github.com/" + ref.get().owner() + "/" + ref.get().repo() + "/pull/" + ref.get().number()));
         return prService.findById(pr.id()).orElse(pr);
     }
@@ -712,7 +715,8 @@ public class PRSyncService
                 detail.mergeableState(),
                 baseline == null ? null : baseline.headPushedAt(),
                 baseline == null ? Map.of() : baseline.reviewerVerdicts(),
-                detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers());
+                detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers(),
+                detail.mergeQueueEnabled(), detail.mergeQueueState());
         prService.updateSyncSnapshot(pr.id(), next);
     }
 

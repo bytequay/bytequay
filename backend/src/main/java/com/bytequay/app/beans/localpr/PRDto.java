@@ -39,7 +39,10 @@ public record PRDto(
         Integer syncedAdditions,
         Integer syncedDeletions,
         Boolean syncedMergeable,
-        String syncedMergeableState)
+        String syncedMergeableState,
+        boolean syncedMergeQueueEnabled,
+        String syncedMergeQueueState,
+        Long branchDeletedAt)
 {
     public static PRDto from(PR pr)
     {
@@ -65,7 +68,10 @@ public record PRDto(
                 sync == null ? null : sync.additions(),
                 sync == null ? null : sync.deletions(),
                 sync == null ? null : sync.mergeable(),
-                sync == null ? null : sync.mergeableState());
+                sync == null ? null : sync.mergeableState(),
+                sync != null && sync.mergeQueueEnabled(),
+                sync == null ? null : sync.mergeQueueState(),
+                epochOrNull(pr.branchDeletedAt()));
     }
 
     private static Long epochOrNull(Instant instant)

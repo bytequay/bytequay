@@ -18,7 +18,6 @@ import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { PRView } from '../pr/localpr/PRView';
 import { LocalPrReviewScreen } from '../pr/localpr/LocalPrReviewScreen';
 import { PushDialog } from '../pr/localpr/PushDialog';
-import { MergeDialog } from '../pr/localpr/MergeDialog';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
@@ -117,8 +116,8 @@ export function StageDetailRoute({
   const {
     bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, localPr, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
-    pushOpen, setPushOpen, mergeOpen, setMergeOpen,
+    confirmPush, confirmMerge, dequeuePr, deleteBranch, addLocalLineComment, resolveLocalComment, dismissLocalComment,
+    pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
@@ -390,15 +389,6 @@ export function StageDetailRoute({
           onCancel={() => setPushOpen(false)}
         />
       )}
-      {mergeOpen && localPr !== null && (
-        <MergeDialog
-          pr={localPr}
-          repoLabel={repoLabel}
-          busy={prBusy}
-          onMerge={confirmMerge}
-          onCancel={() => setMergeOpen(false)}
-        />
-      )}
     </Conv>
   );
 
@@ -496,8 +486,9 @@ export function StageDetailRoute({
       onAddComment={taskTerminal ? undefined : submitLocalComment}
       onPush={() => setPushOpen(true)}
       onAskAgent={taskTerminal ? undefined : askAgentToAddress}
-      onMerge={() => setMergeOpen(true)}
-      onMergeAnyway={() => setMergeOpen(true)}
+      onMerge={confirmMerge}
+      onDequeue={dequeuePr}
+      onDeleteBranch={deleteBranch}
       onReviewChanges={() => setReviewOpen(true)}
       onRunTests={runLocalTests}
       runTestsBusy={testsBusy}

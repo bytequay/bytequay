@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import { useCallback, useState } from 'react';
-import type { MergeMethod } from './MergeDialog';
 import { derivePRCapabilities } from '../prCapabilities';
 import { useLocalPr } from '../../threads/brain/useLocalPr';
 
@@ -36,7 +35,6 @@ export function useLocalPrActions(taskId: string, opts: {
 
   const [localComment, setLocalComment] = useState('');
   const [pushOpen, setPushOpen] = useState(false);
-  const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
   const [testsBusy, setTestsBusy] = useState(false);
@@ -60,15 +58,31 @@ export function useLocalPrActions(taskId: string, opts: {
       .finally(() => setPrBusy(false));
   }, [localPr, refresh, onAfterTransition]);
 
-  const confirmMerge = useCallback((method: MergeMethod) => {
+  const confirmMerge = useCallback((method: string) => {
     if (localPr === null) return;
     setPrBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.mergeLocalPr(localPr.id, method)
-      .then(() => { setMergeOpen(false); refresh(); onAfterTransition?.(); })
+      .then(() => { refresh(); onAfterTransition?.(); })
       .catch(() => { /* poll reconciles */ })
       .finally(() => setPrBusy(false));
   }, [localPr, refresh, onAfterTransition]);
+
+  const dequeuePr = useCallback(() => {
+    if (localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.dequeueLocalPr(localPr.id)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [localPr, refresh]);
+
+  const deleteBranch = useCallback(() => {
+    if (localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.deleteLocalPrBranch(localPr.id)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [localPr, refresh]);
 
   const addLocalLineComment = useCallback((filePath: string, lineNumber: number, body: string) => {
     if (localPr === null) return;
@@ -105,8 +119,9 @@ export function useLocalPrActions(taskId: string, opts: {
   return {
     bundle, refresh, syncing, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, addLocalLineComment, resolveLocalComment, dismissLocalComment,
-    pushOpen, setPushOpen, mergeOpen, setMergeOpen,
+    confirmPush, confirmMerge, dequeuePr, deleteBranch,
+    addLocalLineComment, resolveLocalComment, dismissLocalComment,
+    pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
   };

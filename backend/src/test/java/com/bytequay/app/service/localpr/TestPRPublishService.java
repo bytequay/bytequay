@@ -29,6 +29,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.BrainReviewService;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
@@ -74,7 +75,7 @@ class TestPRPublishService
     private PR pushedPr(String status)
     {
         return PR.create("pr1", "task1", "feature/x", "main", "Add cache", "desc", NOW)
-                .withRemote(145, "https://github.com/acme/widget/pull/145", NOW)
+                .withRemote("acme/widget", 145, "https://github.com/acme/widget/pull/145", NOW)
                 .withStatus(status, NOW);
     }
 
@@ -109,7 +110,7 @@ class TestPRPublishService
         when(pullRequests.createPullRequest(eq("ghp"), eq(new RepoRef("acme", "widget")), any()))
                 .thenReturn(opened(145));
         PR flipped = pr(PR.STATUS_REMOTE_DRAFTED);
-        when(prService.recordPush("pr1", 145, "https://github.com/acme/widget/pull/145")).thenReturn(flipped);
+        when(prService.recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145")).thenReturn(flipped);
 
         PR result = service.push("pr1");
 
@@ -117,7 +118,7 @@ class TestPRPublishService
         verify(taskStore).markPushed(eq("task1"), any());
         verify(taskStore).linkPullRequest("task1", 145, "draft");
         verify(taskStore).linkTaskToPr("task1", "acme/widget#145");
-        verify(prService).recordPush("pr1", 145, "https://github.com/acme/widget/pull/145");
+        verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
         assertThat(result).isSameAs(flipped);
     }
 
@@ -131,7 +132,7 @@ class TestPRPublishService
         when(git.refExists(Path.of("/tmp/wt/feature-x"), "origin/feature/x")).thenReturn(true);
         when(patResolver.resolve("acme/widget")).thenReturn("ghp");
         when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
 
         service.push("pr1");
 
@@ -159,9 +160,9 @@ class TestPRPublishService
         // happened.
         when(prService.findByTask("task1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
 
-        service.onPushedElsewhere(new PrPushedEvent("task1", 145, "https://github.com/acme/widget/pull/145"));
+        service.onPushedElsewhere(new PrPushedEvent("task1", "acme/widget", 145, "https://github.com/acme/widget/pull/145"));
 
-        verify(prService).recordPush("pr1", 145, "https://github.com/acme/widget/pull/145");
+        verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
         verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
     }
 
@@ -172,10 +173,10 @@ class TestPRPublishService
         when(brainReview.reviewBeforeLocalOpen("pr1", PRTimelineEntry.ACTOR_AGENT))
                 .thenReturn(pr(PR.STATUS_LOCAL_OPEN));
 
-        service.onPushedElsewhere(new PrPushedEvent("task1", 145, "https://github.com/acme/widget/pull/145"));
+        service.onPushedElsewhere(new PrPushedEvent("task1", "acme/widget", 145, "https://github.com/acme/widget/pull/145"));
 
         verify(brainReview).reviewBeforeLocalOpen("pr1", PRTimelineEntry.ACTOR_AGENT);
-        verify(prService).recordPush("pr1", 145, "https://github.com/acme/widget/pull/145");
+        verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
     }
 
     @Test
@@ -183,9 +184,9 @@ class TestPRPublishService
     {
         when(prService.findByTask("task-none")).thenReturn(Optional.empty());
 
-        service.onPushedElsewhere(new PrPushedEvent("task-none", 145, "https://github.com/x/y/pull/145"));
+        service.onPushedElsewhere(new PrPushedEvent("task-none", "x/y", 145, "https://github.com/x/y/pull/145"));
 
-        verify(prService, never()).recordPush(any(), anyInt(), any());
+        verify(prService, never()).recordPush(any(), any(), anyInt(), any());
     }
 
     @Test
@@ -221,7 +222,7 @@ class TestPRPublishService
         when(git.refExists(any(), any())).thenReturn(true);
         when(patResolver.resolve("acme/widget")).thenReturn("ghp");
         when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
 
         service.push("pr1");
 
@@ -255,7 +256,7 @@ class TestPRPublishService
         when(git.refExists(any(), any())).thenReturn(true);
         when(patResolver.resolve("acme/widget")).thenReturn("ghp");
         when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
 
         service.push("pr1");
 
@@ -273,7 +274,7 @@ class TestPRPublishService
         when(git.refExists(any(), any())).thenReturn(true);
         when(patResolver.resolve("acme/widget")).thenReturn("ghp");
         when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
 
         service.push("pr1");
 
@@ -345,12 +346,147 @@ class TestPRPublishService
         verify(prService, never()).recordMerged(any());
     }
 
+    @Test
+    void mergeEnqueuesInsteadOfMergingWhenTheBranchHasAMergeQueue()
+            throws Exception
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        PullRequestRef ref = new PullRequestRef("acme", "widget", 145);
+        when(pullRequests.probeMergeQueue("ghp", ref))
+                .thenReturn(Optional.of(new PullRequestRepository.MergeQueueProbe("PR_nodeid123")));
+        when(pullRequests.enqueuePullRequest("ghp", "PR_nodeid123"))
+                .thenReturn(MergeResult.enqueued("Queued"));
+
+        PR result = service.merge("pr1", "squash");
+
+        verify(pullRequests, never()).mergePullRequest(any(), any(), any());
+        verify(prService, never()).recordMerged(any());
+        assertThat(result.status()).isEqualTo(PR.STATUS_REMOTE_OPEN);
+    }
+
+    @Test
+    void mergeFallsBackToEnqueueOnA405RequiringTheMergeQueue()
+            throws Exception
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        PullRequestRef ref = new PullRequestRef("acme", "widget", 145);
+        // Probe sees no queue (a ruleset-driven queue GraphQL can't see), so a
+        // direct merge is attempted first and bounces with GitHub's 405.
+        when(pullRequests.mergePullRequest(eq("ghp"), eq(ref), any()))
+                .thenThrow(new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "requires merge queue"));
+        when(pullRequests.pullRequestNodeId("ghp", ref)).thenReturn(Optional.of("PR_nodeid456"));
+        when(pullRequests.enqueuePullRequest("ghp", "PR_nodeid456"))
+                .thenReturn(MergeResult.enqueued("Queued"));
+
+        PR result = service.merge("pr1", "squash");
+
+        verify(pullRequests).enqueuePullRequest("ghp", "PR_nodeid456");
+        verify(prService, never()).recordMerged(any());
+        assertThat(result.status()).isEqualTo(PR.STATUS_REMOTE_OPEN);
+    }
+
+    @Test
+    void dequeueRemovesThePrFromTheMergeQueue()
+            throws Exception
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.dequeue("pr1");
+
+        verify(pullRequests).dequeuePullRequest("ghp", new PullRequestRef("acme", "widget", 145));
+    }
+
+    @Test
+    void deleteBranchDeletesOnGitHubAndStampsBranchDeletedAt()
+            throws Exception
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_MERGED)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        PR deleted = pushedPr(PR.STATUS_MERGED);
+        when(prService.recordBranchDeleted("pr1")).thenReturn(deleted);
+
+        PR result = service.deleteBranch("pr1");
+
+        verify(pullRequests).deleteBranch("ghp", new PullRequestRef("acme", "widget", 145), "feature/x");
+        assertThat(result).isSameAs(deleted);
+    }
+
+    @Test
+    void deleteBranchRejectsAPrThatIsNotMerged()
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
+
+        assertThatThrownBy(() -> service.deleteBranch("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("is not merged");
+        verify(prService, never()).recordBranchDeleted(any());
+    }
+
+    @Test
+    void mergeResolvesTheRemoteDirectlyForAnExternalPrWithoutTouchingAnyTask()
+            throws Exception
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        PullRequestRef ref = new PullRequestRef("acme", "widget", 99);
+        when(pullRequests.mergePullRequest(eq("ghp"), eq(ref), any()))
+                .thenReturn(new MergeResult("sha123", true, "Merged"));
+        when(prService.recordMerged("pr-ext")).thenReturn(externalPr());
+
+        service.merge("pr-ext", "squash");
+
+        verify(pullRequests).mergePullRequest(eq("ghp"), eq(ref), any());
+        verify(taskStore, never()).findTaskById(any());
+    }
+
+    @Test
+    void dequeueResolvesTheRemoteDirectlyForAnExternalPr()
+            throws Exception
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.dequeue("pr-ext");
+
+        verify(pullRequests).dequeuePullRequest("ghp", new PullRequestRef("acme", "widget", 99));
+        verify(taskStore, never()).findTaskById(any());
+    }
+
+    @Test
+    void deleteBranchResolvesTheRemoteDirectlyForAnExternalPr()
+            throws Exception
+    {
+        PR merged = new PR(
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_MERGED, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, NOW, null,
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(merged));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(prService.recordBranchDeleted("pr-ext")).thenReturn(merged);
+
+        service.deleteBranch("pr-ext");
+
+        verify(pullRequests).deleteBranch("ghp", new PullRequestRef("acme", "widget", 99), "feature/y");
+        verify(taskStore, never()).findTaskById(any());
+    }
+
     private PR externalPr()
     {
         return new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
     }
 
     private static PRComment draft(String id, String scope, String filePath, Integer lineNumber, String body)

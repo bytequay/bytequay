@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { MergeMethod } from './MergeDialog';
 import type { DiffFileDto } from '../../types';
 import { derivePRCapabilities } from '../prCapabilities';
 import { useExternalPr } from '../useExternalPr';
@@ -31,7 +30,6 @@ export function useExternalPrActions(owner: string, repo: string, number: number
 
   const [localComment, setLocalComment] = useState('');
   const [pushOpen, setPushOpen] = useState(false);
-  const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
   const [testsBusy, setTestsBusy] = useState(false);
@@ -56,14 +54,30 @@ export function useExternalPrActions(owner: string, repo: string, number: number
       .finally(() => setPrBusy(false));
   }, [localPr, refresh]);
 
-  const confirmMerge = useCallback((method: MergeMethod) => {
+  const confirmMerge = useCallback((method: string) => {
     if (localPr === null) return;
     setPrBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.mergeLocalPr(localPr.id, method)
-      .then(() => { setMergeOpen(false); refresh(); })
+      .then(() => refresh())
       .catch(() => { /* poll reconciles */ })
       .finally(() => setPrBusy(false));
+  }, [localPr, refresh]);
+
+  const dequeuePr = useCallback(() => {
+    if (localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.dequeueLocalPr(localPr.id)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [localPr, refresh]);
+
+  const deleteBranch = useCallback(() => {
+    if (localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.deleteLocalPrBranch(localPr.id)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
   }, [localPr, refresh]);
 
   const publishReview = useCallback(() => {
@@ -126,9 +140,9 @@ export function useExternalPrActions(owner: string, repo: string, number: number
   return {
     bundle, refresh, syncing, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, publishReview, publishBusy,
+    confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
     addLocalLineComment, resolveLocalComment, dismissLocalComment,
-    pushOpen, setPushOpen, mergeOpen, setMergeOpen,
+    pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy, reviewFiles,
     runLocalTests, testsBusy,
   };

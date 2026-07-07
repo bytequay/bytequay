@@ -94,7 +94,7 @@ class TestPRSyncService
 
     private PR pushedPr()
     {
-        return draftPr().withRemote(42, "https://github.com/acme/widget/pull/42", NOW)
+        return draftPr().withRemote("acme/widget", 42, "https://github.com/acme/widget/pull/42", NOW)
                 .withStatus(PR.STATUS_REMOTE_DRAFTED, NOW);
     }
 
@@ -343,7 +343,7 @@ class TestPRSyncService
         service.syncFromTask("task1");
 
         verify(prPublish).onPushedElsewhere(
-                new PrPushedEvent("task1", 32, "https://github.com/acme/widget/pull/32"));
+                new PrPushedEvent("task1", "acme/widget", 32, "https://github.com/acme/widget/pull/32"));
     }
 
     @Test
@@ -383,7 +383,7 @@ class TestPRSyncService
         return new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
     }
 
     @Test
@@ -463,7 +463,7 @@ class TestPRSyncService
         PR created = new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "body text", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
         when(prService.createExternal(
                 eq("acme/widget"), eq(99), any(), eq("@octocat"), eq("feature/y"), eq("main"),
                 eq("Fix flaky test"), eq("body text"), eq(PR.STATUS_REMOTE_OPEN), eq(NOW), any(), any()))
@@ -485,7 +485,7 @@ class TestPRSyncService
         PR existing = new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
         PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
         when(prService.findByRepoAndNumber("acme/widget", 99)).thenReturn(Optional.of(existing));
         when(prService.findById("pr-ext")).thenReturn(Optional.of(existing));
@@ -504,7 +504,7 @@ class TestPRSyncService
         PR pr = new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
         PullRequestDetail refreshedDetail = detail("feature/y", "main", "", true, "closed", false);
         when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
         when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
@@ -532,11 +532,12 @@ class TestPRSyncService
     {
         PR.PRSyncSnapshot existingSnapshot = new PR.PRSyncSnapshot(
                 PullRequest.Origin.AUTHORED, NOW, List.of(), Map.of(), false,
-                PullRequestDetail.CiStatus.PASSING, 5, 1, 0, null, null, null, null, Map.of(), List.of());
+                PullRequestDetail.CiStatus.PASSING, 5, 1, 0, null, null, null, null, Map.of(), List.of(),
+                false, null);
         PR existing = new PR(
                 "pr-101", null, "feature/z", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 101, "https://github.com/acme/widget/pull/101", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, existingSnapshot);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, existingSnapshot, null);
         when(pullRequests.searchRelevantForDashboard())
                 .thenReturn(List.of(ghPr(101, "Fix flaky test", "octocat", PullRequest.Origin.AUTHORED)));
         when(pullRequests.resolveCurrentDashboardLogin()).thenReturn("octocat");
@@ -560,7 +561,7 @@ class TestPRSyncService
         PR fellOut = new PR(
                 "pr-old", null, "feature/y", "main", "Old PR", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 55, "https://github.com/acme/widget/pull/55", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
         when(prService.dashboardEntries()).thenReturn(
                 List.of(new PRDashboardEntry(fellOut, PRTriageState.empty("pr-old"))));
 
@@ -577,7 +578,7 @@ class TestPRSyncService
         PR fellOut = new PR(
                 "pr-old", null, "feature/y", "main", "Old PR", "", PR.STATUS_MERGED, NOW,
                 null, 55, "https://github.com/acme/widget/pull/55", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
         PRTriageState reviewedYesterday = new PRTriageState(
                 "pr-old", null, NOW.minus(1, ChronoUnit.DAYS), HandledAction.APPROVED, null, null, null);
         when(prService.dashboardEntries()).thenReturn(
@@ -594,7 +595,7 @@ class TestPRSyncService
         PR pr = new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
         PullRequestDetail refreshedDetail = detail("feature/y", "main", "The real PR body.", false, "open", false);
         when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
         when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
@@ -609,7 +610,7 @@ class TestPRSyncService
         return new PR(
                 "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
-                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, snapshot);
+                PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, snapshot, null);
     }
 
     @Test
@@ -658,7 +659,7 @@ class TestPRSyncService
         PR.PRSyncSnapshot baseline = new PR.PRSyncSnapshot(
                 PullRequest.Origin.AUTHORED, NOW, List.of("bug"), Map.of("bug", "red"), true,
                 PullRequestDetail.CiStatus.PENDING, 0, 0, 3, AttentionReason.MINE, null, null, null,
-                Map.of(), List.of());
+                Map.of(), List.of(), false, null);
         PR pr = externalPr(baseline);
         PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
         when(refreshedDetail.additions()).thenReturn(891);
@@ -681,5 +682,21 @@ class TestPRSyncService
                         && snap.watchReason() == PullRequest.Origin.AUTHORED
                         && snap.labels().equals(List.of("bug"))
                         && snap.commentCount() == 3));
+    }
+
+    @Test
+    void syncPrThreadsMergeQueueInfoFromTheAlreadyFetchedDetailIntoTheSnapshot()
+    {
+        PR pr = externalPr();
+        PullRequestDetail refreshedDetail = detail("feature/y", "main", "", false, "open", false);
+        when(refreshedDetail.mergeQueueEnabled()).thenReturn(true);
+        when(refreshedDetail.mergeQueueState()).thenReturn("QUEUED");
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(pr));
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 99, 20)).thenReturn(refreshedDetail);
+
+        service.syncPR("pr-ext");
+
+        verify(prService).updateSyncSnapshot(eq("pr-ext"), argThat(snap ->
+                snap.mergeQueueEnabled() && "QUEUED".equals(snap.mergeQueueState())));
     }
 }

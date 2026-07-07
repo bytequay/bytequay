@@ -22,7 +22,7 @@ function pr(origin: PROrigin, status: LocalPRStatus): LocalPR {
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin, repo: origin === 'external' ? 'acme/widget' : null, author: origin === 'external' ? '@octocat' : null,
     syncedAt: null, syncedAdditions: null, syncedDeletions: null,
-    syncedMergeable: null, syncedMergeableState: null,
+    syncedMergeable: null, syncedMergeableState: null, syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null,
   };
 }
 
@@ -33,10 +33,11 @@ describe('derivePRCapabilities', () => {
     expect(derivePRCapabilities(pr('external', 'local-open'), 'task').push).toBe(false);
   });
 
-  it('allows merge only for a task-origin PR that is remote-open', () => {
+  it('allows merge for any origin that is remote-open (merge queues live on external PRs too)', () => {
     expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').merge).toBe(true);
     expect(derivePRCapabilities(pr('task', 'remote-drafted'), 'task').merge).toBe(false);
-    expect(derivePRCapabilities(pr('external', 'remote-open'), 'task').merge).toBe(false);
+    expect(derivePRCapabilities(pr('external', 'remote-open'), 'task').merge).toBe(true);
+    expect(derivePRCapabilities(pr('external', 'remote-drafted'), 'task').merge).toBe(false);
   });
 
   it('allows publishReview only for external-origin PRs, regardless of status', () => {
@@ -81,7 +82,7 @@ describe('derivePRCapabilities', () => {
   // Whitelisted TRUE cells per capability, as `${origin}/${status}` keys
   // (chatAgent depends only on surface, handled separately below).
   const PUSH_TRUE = new Set(['task/local-open']);
-  const MERGE_TRUE = new Set(['task/remote-open']);
+  const MERGE_TRUE = new Set(['task/remote-open', 'external/remote-open']);
   const PUBLISH_REVIEW_TRUE = new Set([
     'external/remote-drafted', 'external/remote-open', 'external/merged', 'external/closed',
   ]);

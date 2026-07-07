@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -116,7 +117,7 @@ public class PRPublishService
                     current = brainReview.reviewBeforeLocalOpen(current.id(), PRTimelineEntry.ACTOR_AGENT);
                 }
                 if (PR.STATUS_LOCAL_OPEN.equals(current.status())) {
-                    prService.recordPush(current.id(), event.remotePrNumber(), event.remotePrUrl());
+                    prService.recordPush(current.id(), event.repo(), event.remotePrNumber(), event.remotePrUrl());
                 }
             });
         }
@@ -163,11 +164,23 @@ public class PRPublishService
         taskStore.markPushed(task.id(), Instant.now());
         taskStore.linkPullRequest(task.id(), opened.number(), LINKED_STATUS_DRAFT);
         taskStore.linkTaskToPr(task.id(), opened.repo() + "#" + opened.number());
-        return prService.recordPush(prId, opened.number(), opened.htmlUrl());
+        return prService.recordPush(prId, repo.owner() + "/" + repo.repo(), opened.number(), opened.htmlUrl());
     }
 
-    /** User-gated merge of a pushed PR, then flip the local PR to {@code merged}.
-     *  {@code method} is merge / squash / rebase (defaults to squash). */
+    /**
+     * User-gated merge of a pushed PR, then flip the local PR to {@code
+     * merged}. {@code method} is merge / squash / rebase (defaults to
+     * squash) — ignored when the target branch has merge queue enabled,
+     * since the queue's own configured method wins there. Mirrors {@link
+     * com.bytequay.app.service.pr.PullRequestService#mergePullRequest}'s
+     * probe-then-dispatch: a queue-enabled branch enqueues via GraphQL
+     * instead of attempting a direct REST merge; a 405 mid-merge (a
+     * ruleset-driven queue the probe couldn't see) falls back to enqueueing
+     * too. A successful enqueue is not a merge — the PR isn't flipped to
+     * {@code merged} here; the next sync picks up the fresh {@code
+     * mergeQueueState} and, once the queue actually lands the merge, the
+     * fresh {@code status=merged} from GitHub.
+     */
     public PR merge(String prId, String method)
     {
         PR pr = prService.findById(prId)
@@ -178,19 +191,112 @@ public class PRPublishService
         if (pr.isTerminal()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " is already " + pr.status());
         }
-        Task task = taskStore.findTaskById(pr.taskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "no task for local PR " + prId));
-        RepoRef repo = remoteSlug(task);
-        String pat = patResolver.resolve(repo.owner() + "/" + repo.repo());
-        MergeResult result = pullRequests.mergePullRequest(
-                pat, new PullRequestRef(repo.owner(), repo.repo(), pr.remotePrNumber()), mergeCommand(method));
+        RemoteTarget target = resolveRemoteTarget(pr);
+        String pat = target.pat();
+        PullRequestRef ref = target.ref();
+
+        Optional<PullRequestRepository.MergeQueueProbe> probe;
+        try {
+            probe = pullRequests.probeMergeQueue(pat, ref);
+        }
+        catch (RuntimeException e) {
+            log.debug("merge queue probe failed for local PR {}, falling back to direct merge: {}", prId, e.getMessage());
+            probe = Optional.empty();
+        }
+        if (probe.isPresent()) {
+            MergeResult queued = pullRequests.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
+            if (!queued.queued()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "GitHub did not queue PR #" + pr.remotePrNumber() + ": " + queued.message());
+            }
+            return prService.findById(prId).orElse(pr);
+        }
+
+        MergeResult result;
+        try {
+            result = pullRequests.mergePullRequest(pat, ref, mergeCommand(method));
+        }
+        catch (ResponseStatusException e) {
+            if (requiresMergeQueue(e)) {
+                Optional<String> nodeId = pullRequests.pullRequestNodeId(pat, ref);
+                if (nodeId.isPresent()) {
+                    MergeResult queued = pullRequests.enqueuePullRequest(pat, nodeId.get());
+                    if (queued.queued()) {
+                        return prService.findById(prId).orElse(pr);
+                    }
+                }
+            }
+            throw e;
+        }
         if (!result.merged()) {
-            // Not merged: blocked, or joined the merge queue — surface GitHub's reason.
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "GitHub did not merge PR #" + pr.remotePrNumber() + ": " + result.message());
         }
         return prService.recordMerged(prId);
     }
+
+    /** True when a direct-merge rejection is GitHub requiring the change to
+     *  go through the merge queue (HTTP 405 with a queue message) — mirrors
+     *  {@link com.bytequay.app.service.pr.PullRequestService}'s own check. */
+    private static boolean requiresMergeQueue(ResponseStatusException e)
+    {
+        return e.getStatusCode().value() == 405
+                && e.getReason() != null
+                && e.getReason().toLowerCase(Locale.ROOT).contains("merge queue");
+    }
+
+    /** User-gated removal of a pushed PR from its repo's merge queue —
+     *  mirrors github.com's "Remove from queue" button. No-op on GitHub's
+     *  side when the PR isn't queued. */
+    public PR dequeue(String prId)
+    {
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        if (pr.remotePrNumber() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " has not been pushed");
+        }
+        RemoteTarget target = resolveRemoteTarget(pr);
+        pullRequests.dequeuePullRequest(target.pat(), target.ref());
+        return prService.findById(prId).orElse(pr);
+    }
+
+    /** User-gated deletion of a merged PR's head branch on GitHub — mirrors
+     *  github.com's post-merge "Delete branch" button. Stamps {@code
+     *  branchDeletedAt} so the merge-box hides the button afterward. */
+    public PR deleteBranch(String prId)
+    {
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        if (!PR.STATUS_MERGED.equals(pr.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " is not merged");
+        }
+        RemoteTarget target = resolveRemoteTarget(pr);
+        pullRequests.deleteBranch(target.pat(), target.ref(), pr.branchName());
+        return prService.recordBranchDeleted(prId);
+    }
+
+    /** Resolves the (PAT, GraphQL/REST ref) pair for a pushed PR of either
+     *  origin — a task-origin PR's remote lives on its task's git remote,
+     *  while an external PR already carries {@code repo}/{@code
+     *  remotePrNumber} directly (mirrors {@link #publishReview}'s own
+     *  external-PR resolution). */
+    private RemoteTarget resolveRemoteTarget(PR pr)
+    {
+        if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
+            String[] ownerRepo = pr.repo().split("/", 2);
+            return new RemoteTarget(
+                    patResolver.resolve(pr.repo()),
+                    new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber()));
+        }
+        Task task = taskStore.findTaskById(pr.taskId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "no task for local PR " + pr.id()));
+        RepoRef repo = remoteSlug(task);
+        return new RemoteTarget(
+                patResolver.resolve(repo.owner() + "/" + repo.repo()),
+                new PullRequestRef(repo.owner(), repo.repo(), pr.remotePrNumber()));
+    }
+
+    private record RemoteTarget(String pat, PullRequestRef ref) {}
 
     /**
      * Batch every unpublished, unresolved-and-not-dismissed local draft on an

@@ -57,7 +57,8 @@ public record PR(
         String repo,
         String author,
         Instant syncedAt,
-        PRSyncSnapshot githubSync)
+        PRSyncSnapshot githubSync,
+        Instant branchDeletedAt)
 {
     public static final String STATUS_LOCAL_DRAFTED = "local-drafted";
     public static final String STATUS_LOCAL_OPEN = "local-open";
@@ -102,7 +103,8 @@ public record PR(
                 STATUS_LOCAL_DRAFTED, createdAt,
                 /* pushedAt */ null, /* remotePrNumber */ null, /* remotePrUrl */ null,
                 /* mergedAt */ null, /* closedAt */ null, /* localAddressedThroughAt */ null,
-                ORIGIN_TASK, /* repo */ null, /* author */ null, /* syncedAt */ null, /* githubSync */ null);
+                ORIGIN_TASK, /* repo */ null, /* author */ null, /* syncedAt */ null, /* githubSync */ null,
+                /* branchDeletedAt */ null);
     }
 
     /** A PR discovered via the dashboard sync — already occupies whatever
@@ -129,7 +131,8 @@ public record PR(
                 description == null ? "" : description, status, createdAt,
                 /* pushedAt */ null, remotePrNumber, remotePrUrl, mergedAt, closedAt,
                 /* localAddressedThroughAt */ null,
-                ORIGIN_EXTERNAL, repo, author, /* syncedAt */ null, /* githubSync */ null);
+                ORIGIN_EXTERNAL, repo, author, /* syncedAt */ null, /* githubSync */ null,
+                /* branchDeletedAt */ null);
     }
 
     /** True iff {@code target} is a legal next status from the current one. */
@@ -153,7 +156,7 @@ public record PR(
                 newTitle == null ? title : newTitle,
                 newDescription == null ? description : newDescription,
                 status, createdAt, pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt,
-                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync);
+                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync, branchDeletedAt);
     }
 
     /**
@@ -170,16 +173,18 @@ public record PR(
                 remotePrNumber, remotePrUrl,
                 STATUS_MERGED.equals(newStatus) ? when : mergedAt,
                 STATUS_CLOSED.equals(newStatus) ? when : closedAt,
-                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync);
+                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync, branchDeletedAt);
     }
 
-    /** Copy recording the remote PR identity assigned on push. */
-    public PR withRemote(int number, String url, Instant when)
+    /** Copy recording the remote PR identity assigned on push — including the
+     *  {@code owner/repo} slug, which a task-origin PR has no other way to
+     *  learn (it starts {@code null} and nothing else ever backfills it). */
+    public PR withRemote(String newRepo, int number, String url, Instant when)
     {
         return new PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt == null ? when : pushedAt, number, url, mergedAt, closedAt,
-                localAddressedThroughAt, origin, repo, author, syncedAt, githubSync);
+                localAddressedThroughAt, origin, newRepo, author, syncedAt, githubSync, branchDeletedAt);
     }
 
     /** Copy with the local-addressing marker advanced to {@code through} — the
@@ -192,7 +197,7 @@ public record PR(
         return new PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, through,
-                origin, repo, author, syncedAt, githubSync);
+                origin, repo, author, syncedAt, githubSync, branchDeletedAt);
     }
 
     /** Copy correcting the head/base branch names — {@code syncList}'s
@@ -207,7 +212,7 @@ public record PR(
                 newBaseBranch == null ? baseBranch : newBaseBranch,
                 title, description, status, createdAt,
                 pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
-                origin, repo, author, syncedAt, githubSync);
+                origin, repo, author, syncedAt, githubSync, branchDeletedAt);
     }
 
     /** Copy stamping a successful GitHub sync — {@code PRSyncService} calls
@@ -218,7 +223,7 @@ public record PR(
         return new PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
-                origin, repo, author, when, githubSync);
+                origin, repo, author, when, githubSync, branchDeletedAt);
     }
 
     /** Copy with a freshly-fetched dashboard sync snapshot — {@code syncList}
@@ -230,7 +235,18 @@ public record PR(
         return new PR(
                 id, taskId, branchName, baseBranch, title, description, status, createdAt,
                 pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
-                origin, repo, author, syncedAt, snapshot);
+                origin, repo, author, syncedAt, snapshot, branchDeletedAt);
+    }
+
+    /** Copy recording that the app deleted the head branch on GitHub after a
+     *  merge — drives the merge-box's "Delete branch" affordance (hidden
+     *  once this is stamped). */
+    public PR withBranchDeleted(Instant when)
+    {
+        return new PR(
+                id, taskId, branchName, baseBranch, title, description, status, createdAt,
+                pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
+                origin, repo, author, syncedAt, githubSync, when);
     }
 
     /**
@@ -255,7 +271,9 @@ public record PR(
             String mergeableState,
             Instant headPushedAt,
             Map<String, String> reviewerVerdicts,
-            List<String> requestedReviewers)
+            List<String> requestedReviewers,
+            boolean mergeQueueEnabled,
+            String mergeQueueState)
     {
     }
 }

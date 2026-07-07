@@ -64,6 +64,16 @@ export interface LocalPR {
    *  the merge-box's "No conflicts with base branch" line. */
   syncedMergeable: boolean | null;
   syncedMergeableState: string | null;
+  /** True when the PR's base branch has a merge queue configured — GraphQL-
+   *  sourced (REST doesn't expose this). Drives the merge-box's "Merge when
+   *  ready" button mode instead of a direct method-dropdown merge. */
+  syncedMergeQueueEnabled: boolean;
+  /** GitHub's per-PR merge-queue entry state ("QUEUED", etc.) once the PR
+   *  has joined the queue; null otherwise. */
+  syncedMergeQueueState: string | null;
+  /** Epoch ms the app deleted the head branch after a merge; null until
+   *  the user clicks "Delete branch" (or it's never been clicked). */
+  branchDeletedAt: number | null;
 }
 
 export interface LocalPRCommit {

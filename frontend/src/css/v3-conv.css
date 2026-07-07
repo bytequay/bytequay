@@ -1664,6 +1664,29 @@
 .pr-merge-box .mb-warn { margin: 0 14px 12px 50px; padding: 8px 11px; background: var(--amber-soft); border: 1px solid var(--amber-border); border-radius: 7px; font-size: 11.5px; color: var(--amber-deep); line-height: 1.5; }
 .pr-merge-box .mb-actions { display: flex; align-items: center; gap: 10px; padding: 12px 14px 14px 50px; flex-wrap: wrap; }
 .pr-merge-box .mb-actions .alt { font-size: 11.5px; color: var(--text-3); }
+.pr-merge-box .mb-cli-hint { padding: 0 14px 14px 50px; font-size: 11.5px; color: var(--text-3); }
+
+/* Merge-flow terminal states (U13e follow-up: merge queue + post-merge
+   branch cleanup) — the whole card tints amber/purple instead of the
+   checks-based green once the PR is queued or merged. */
+.pr-merge-box.queued { border-color: var(--amber-border); }
+.pr-merge-box.merged { border-color: var(--purple-border); }
+.pr-merge-box .mb-ic.purple { background: var(--purple); }
+
+/* Merge-method split button — same visual language as .shell .run-menu
+   (the top-bar run/lifecycle dropdown) but self-contained: MergeBox can
+   render outside `.shell` (the standalone PR details page), so it can't
+   rely on that rule being in scope. */
+.pr-merge-box .run-menu { position: relative; display: inline-flex; }
+.pr-merge-box .run-menu__chev { padding-left: 8px; padding-right: 8px; border-left: 1px solid rgba(255, 255, 255, 0.3); margin-left: -1px; }
+.pr-merge-box .run-menu__pop {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+  min-width: 180px; background: var(--bg-elev); border: 1px solid var(--border-mid);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px; display: flex; flex-direction: column; gap: 1px;
+}
+.pr-merge-box .run-menu__item { padding: 6px 10px; border-radius: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; border: 0; background: transparent; font-family: inherit; text-align: left; }
+.pr-merge-box .run-menu__item:hover { background: var(--bg-hover); }
 
 /* Commits tab — plain read-only list (U13/U15 follow-up: real tab content) */
 .pr-commits-tab__row { display: flex; align-items: baseline; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12.5px; }

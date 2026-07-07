@@ -40,7 +40,7 @@ import { PRCommentComposer } from './PRCommentComposer';
  */
 export function PRView({
   bundle, capabilities, commentValue, onCommentChange, username,
-  onAddComment, onPush, onAskAgent, onMerge, onMergeAnyway, onReviewChanges,
+  onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
   onRunTests, runTestsBusy = false, onResolveThread, onDismissThread,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction,
 }: {
@@ -52,8 +52,13 @@ export function PRView({
   onAddComment?: () => void;
   onPush?: () => void;
   onAskAgent?: () => void;
-  onMerge?: () => void;
-  onMergeAnyway?: () => void;
+  /** Confirms the merge (or, on a queue-enabled repo, the enqueue) with the
+   *  chosen method — the merge box's own inline confirm step calls this. */
+  onMerge?: (method: string) => void;
+  /** Removes the PR from its repo's merge queue. */
+  onDequeue?: () => void;
+  /** Deletes the merged PR's head branch on GitHub. */
+  onDeleteBranch?: () => void;
   /** Opens the full-page changed-files + diff review. Omitted when there's
    *  nothing to review yet. */
   onReviewChanges?: () => void;
@@ -198,7 +203,8 @@ export function PRView({
             onPush={onPush}
             onAskAgent={onAskAgent}
             onMerge={onMerge}
-            onMergeAnyway={onMergeAnyway}
+            onDequeue={onDequeue}
+            onDeleteBranch={onDeleteBranch}
             onPublishReview={onPublishReview}
             onDiscardDrafts={onDiscardDrafts}
             onRunTests={onRunTests}

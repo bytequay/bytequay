@@ -21,6 +21,15 @@ import { CheckRows } from './CheckRows';
  *  since a brain review round never blocks the flip forever. */
 export type BrainReviewSummary = { total: number; unresolved: number };
 
+/** Mirrors github.com's own merge-method picker, replacing the old
+ *  `MergeDialog` modal — squash stays the default (matches the backend's
+ *  own fallback in `PRPublishService.mergeCommand`). */
+const MERGE_METHODS: { key: string; label: string; verb: string }[] = [
+  { key: 'squash', label: 'Squash and merge', verb: 'squash' },
+  { key: 'merge', label: 'Create a merge commit', verb: 'merge' },
+  { key: 'rebase', label: 'Rebase and merge', verb: 'rebase' },
+];
+
 function BrainReviewTag({ brainReview }: { brainReview?: BrainReviewSummary }) {
   if (brainReview === undefined || brainReview.total === 0) return null;
   if (brainReview.unresolved === 0) {
@@ -96,17 +105,74 @@ function RunTestsRow({ onRunTests, busy }: { onRunTests?: () => void; busy: bool
   );
 }
 
+/** The merge method split-button ("Squash and merge ▾") — a main action
+ *  (starts the confirm step with the currently-picked method) plus a
+ *  chevron sub-button that opens the method picker, reusing the existing
+ *  `.run-menu` dropdown chrome ({@link CommitsDropdown}). Hidden entirely
+ *  when the repo uses a merge queue (the queue's configured method wins,
+ *  there's nothing to pick). */
+function MethodButton({ method, onChange, onConfirm, disabled }: {
+  method: string;
+  onChange: (method: string) => void;
+  onConfirm: () => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = MERGE_METHODS.find(m => m.key === method) ?? MERGE_METHODS[0];
+  return (
+    <span className="run-menu">
+      <button type="button" className="btn green" disabled={disabled} onClick={onConfirm}>
+        {current.label}<span className="kbd">⌘↵</span>
+      </button>
+      <button
+        type="button"
+        className="btn green run-menu__chev"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Choose a merge method"
+        disabled={disabled}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className="chev" aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div className="run-menu__pop" role="menu">
+          {MERGE_METHODS.map(m => (
+            <button
+              key={m.key}
+              type="button"
+              className="run-menu__item"
+              role="menuitem"
+              onClick={() => { onChange(m.key); setOpen(false); }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 /**
  * The merge-box accordion (U13e) — replaces the old `<PRActionBar>` +
  * `<PRChecksCard>` pair with one sectioned card: a checks summary that
  * expands into the local + remote check lists, then whichever gate applies
  * (push / merge / submit-review) per the surface's capabilities, plus a
  * strip-count or draft-count warning where relevant.
+ *
+ * <p>The merge gate itself is a small inline state machine (idle → confirm
+ * → queued/merged), replacing the old `MergeDialog` popup — mirrors
+ * github.com's own in-card confirm swap. A queue-enabled repo shows "Merge
+ * when ready" instead of a method picker (the queue's configured method
+ * wins); confirming either one calls {@link onMerge}, and the box then
+ * reflects whatever GitHub actually did (queued vs. merged) from the PR's
+ * own synced fields, not local optimism.
  */
 export function MergeBox({
   pr, capabilities, localChecks, remoteChecks, openComments, localTestsFailing = false,
-  pendingStripCount, draftCount, brainReview, onPush, onAskAgent, onMerge, onMergeAnyway,
-  onPublishReview, onDiscardDrafts, onRunTests, runTestsBusy = false,
+  pendingStripCount, draftCount, brainReview, onPush, onAskAgent, onMerge,
+  onDequeue, onDeleteBranch, onPublishReview, onDiscardDrafts, onRunTests, runTestsBusy = false,
 }: {
   pr: LocalPR;
   capabilities: PRCapabilities;
@@ -119,8 +185,9 @@ export function MergeBox({
   brainReview?: BrainReviewSummary;
   onPush?: () => void;
   onAskAgent?: () => void;
-  onMerge?: () => void;
-  onMergeAnyway?: () => void;
+  onMerge?: (method: string) => void;
+  onDequeue?: () => void;
+  onDeleteBranch?: () => void;
   onPublishReview?: () => void;
   onDiscardDrafts?: () => void;
   /** Manually re-run the local test suite. Omitted when there's no PR to run
@@ -131,6 +198,47 @@ export function MergeBox({
   // Collapsed by default, matching github.com's own merge-box — a reviewer
   // wants the aggregate line, not 60 individual rows, at a glance.
   const [checksOpen, setChecksOpen] = useState(false);
+  const [mergePhase, setMergePhase] = useState<'idle' | 'confirm'>('idle');
+  const [method, setMethod] = useState('squash');
+
+  // Queued/merged are the two terminal-ish outcomes of a merge attempt —
+  // github.com shows either as the box's ENTIRE content (no checks summary
+  // alongside), so these short-circuit before anything else below.
+  const queued = capabilities.merge && pr.status === 'remote-open' && pr.syncedMergeQueueState === 'QUEUED';
+  const justMerged = pr.status === 'merged' && pr.branchDeletedAt === null && onDeleteBranch !== undefined;
+
+  if (queued) {
+    return (
+      <div className="pr-merge-box queued">
+        <div className="mb-sec">
+          <span className="mb-ic amber">↻</span>
+          <div className="mb-t">
+            <div className="h">Queued to merge…</div>
+            <div className="s">This pull request is next up in the merge queue.</div>
+          </div>
+          {onDequeue !== undefined && (
+            <button type="button" className="btn sm" onClick={onDequeue}>Remove from queue</button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (justMerged) {
+    return (
+      <div className="pr-merge-box merged">
+        <div className="mb-sec">
+          <span className="mb-ic purple">⎇</span>
+          <div className="mb-t">
+            <div className="h">Pull request successfully merged and closed</div>
+            <div className="s">You're all set — the <code>{pr.branchName}</code> branch can be safely deleted.</div>
+          </div>
+          <button type="button" className="btn sm" onClick={onDeleteBranch}>Delete branch</button>
+        </div>
+      </div>
+    );
+  }
+
   const allChecks = [...localChecks, ...remoteChecks];
   const summary = checksSummary(allChecks);
 
@@ -145,6 +253,11 @@ export function MergeBox({
   // Matches github.com's fully-green card border once checks pass AND
   // there's nothing blocking a merge.
   const allGood = summary.icon === 'green' && pr.syncedMergeable === true;
+
+  const confirmMerge = () => {
+    setMergePhase('idle');
+    onMerge?.(method);
+  };
 
   return (
     <div className={`pr-merge-box${allGood ? ' ok' : ''}`}>
@@ -200,7 +313,29 @@ export function MergeBox({
         </>
       )}
 
-      {showMergeGate && (
+      {showMergeGate && mergePhase === 'confirm' && (
+        <>
+          <div className="mb-sec">
+            <div className="mb-t">
+              <div className="s">
+                {pr.syncedMergeQueueEnabled
+                  ? 'This will add this pull request to the merge queue.'
+                  : `This will ${MERGE_METHODS.find(m => m.key === method)?.verb} your changes and merge them into ${pr.baseBranch}.`}
+              </div>
+            </div>
+          </div>
+          <div className="mb-actions">
+            <button type="button" className="btn green" onClick={confirmMerge}>
+              {pr.syncedMergeQueueEnabled
+                ? 'Confirm merge when ready'
+                : `Confirm ${MERGE_METHODS.find(m => m.key === method)?.verb} and merge`}
+            </button>
+            <button type="button" className="btn" onClick={() => setMergePhase('idle')}>Cancel</button>
+          </div>
+        </>
+      )}
+
+      {showMergeGate && mergePhase === 'idle' && (
         <>
           <div className="mb-sec">
             <span className="mb-ic green">⎇</span>
@@ -210,12 +345,31 @@ export function MergeBox({
             </div>
           </div>
           <div className="mb-actions">
-            <button type="button" className="btn green" onClick={onMerge} disabled={openComments > 0}>
-              Merge pull request<span className="kbd">⌘↵</span>
-            </button>
-            {openComments > 0 && onMergeAnyway !== undefined && (
-              <button type="button" className="btn" onClick={onMergeAnyway}>Merge anyway ▾</button>
+            {pr.syncedMergeQueueEnabled ? (
+              <button
+                type="button"
+                className="btn green"
+                disabled={openComments > 0}
+                onClick={() => setMergePhase('confirm')}
+              >
+                Merge when ready<span className="kbd">⌘↵</span>
+              </button>
+            ) : (
+              <MethodButton
+                method={method}
+                onChange={setMethod}
+                onConfirm={() => setMergePhase('confirm')}
+                disabled={openComments > 0}
+              />
             )}
+            {openComments > 0 && (
+              <button type="button" className="btn" onClick={() => setMergePhase('confirm')}>Merge anyway</button>
+            )}
+          </div>
+          <div className="mb-cli-hint">
+            {pr.syncedMergeQueueEnabled
+              ? `This repository uses the merge queue for all merges into the ${pr.baseBranch} branch.`
+              : 'You can also merge this with the command line.'}
           </div>
         </>
       )}

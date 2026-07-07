@@ -24,7 +24,7 @@ function pr(): LocalPR {
     description: '', status: 'remote-open', createdAt: 1, pushedAt: null, remotePrNumber: 42,
     remotePrUrl: null, mergedAt: null, closedAt: null,
     origin: 'external', repo: 'acme/widget', author: '@octocat', syncedAt: null,
-    syncedAdditions: null, syncedDeletions: null, syncedMergeable: null, syncedMergeableState: null,
+    syncedAdditions: null, syncedDeletions: null, syncedMergeable: null, syncedMergeableState: null, syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null,
   };
 }
 

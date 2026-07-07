@@ -194,12 +194,12 @@ class PRServiceImpl
         PR.PRSyncSnapshot current = pr.githubSync();
         PR.PRSyncSnapshot updated = current == null
                 ? new PR.PRSyncSnapshot(watchReason, null, List.of(), Map.of(), false, null, 0, 0, 0, null,
-                        null, null, null, Map.of(), List.of())
+                        null, null, null, Map.of(), List.of(), false, null)
                 : new PR.PRSyncSnapshot(watchReason, current.ghUpdatedAt(), current.labels(), current.labelColors(),
                         current.draft(), current.ciStatus(), current.additions(), current.deletions(),
                         current.commentCount(), current.attentionReason(), current.mergeable(),
                         current.mergeableState(), current.headPushedAt(), current.reviewerVerdicts(),
-                        current.requestedReviewers());
+                        current.requestedReviewers(), current.mergeQueueEnabled(), current.mergeQueueState());
         PR saved = store.save(pr.withGithubSync(updated));
         notifyUpdated(prId);
         return saved;
@@ -473,16 +473,16 @@ class PRServiceImpl
     }
 
     @Override
-    public PR recordPushed(String prId, int remotePrNumber, String remotePrUrl)
+    public PR recordPushed(String prId, String repo, int remotePrNumber, String remotePrUrl)
     {
         PR pr = require(prId);
-        PR saved = store.save(pr.withRemote(remotePrNumber, remotePrUrl, now()));
+        PR saved = store.save(pr.withRemote(repo, remotePrNumber, remotePrUrl, now()));
         notifyUpdated(prId);
         return saved;
     }
 
     @Override
-    public PR recordPush(String prId, int remotePrNumber, String remotePrUrl)
+    public PR recordPush(String prId, String repo, int remotePrNumber, String remotePrUrl)
     {
         require(prId);
         Instant when = now();
@@ -495,7 +495,7 @@ class PRServiceImpl
         for (PRComment comment : store.unstrippedLocalComments(prId)) {
             store.saveComment(comment.withStripped(when));
         }
-        recordPushed(prId, remotePrNumber, remotePrUrl);
+        recordPushed(prId, repo, remotePrNumber, remotePrUrl);
         return transition(prId, PR.STATUS_REMOTE_DRAFTED, PRTimelineEntry.ACTOR_USER);
     }
 
@@ -503,6 +503,15 @@ class PRServiceImpl
     public PR recordMerged(String prId)
     {
         return transition(prId, PR.STATUS_MERGED, PRTimelineEntry.ACTOR_USER);
+    }
+
+    @Override
+    public PR recordBranchDeleted(String prId)
+    {
+        PR pr = require(prId);
+        PR saved = store.save(pr.withBranchDeleted(now()));
+        notifyUpdated(prId);
+        return saved;
     }
 
     @Override

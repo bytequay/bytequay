@@ -41,7 +41,8 @@ final class PullRequestDetailMapper
 {
     private static final Set<String> INTERESTING_EVENTS = ImmutableSet.of(
             "committed", "reviewed", "review_requested", "commented", "merged", "closed", "reopened",
-            "head_ref_force_pushed", "added_to_merge_queue", "removed_from_merge_queue");
+            "head_ref_force_pushed", "added_to_merge_queue", "removed_from_merge_queue",
+            "labeled", "unlabeled", "assigned", "unassigned", "milestoned", "demilestoned", "cross-referenced");
 
     private PullRequestDetailMapper() {}
 
@@ -236,7 +237,15 @@ final class PullRequestDetailMapper
                         event.reviewId(),
                         event.authorAssociation(),
                         event.githubId(),
-                        event.reactions() != null ? event.reactions() : Reactions.EMPTY))
+                        event.reactions() != null ? event.reactions() : Reactions.EMPTY,
+                        event.labelName(),
+                        event.labelColor(),
+                        event.milestoneTitle(),
+                        event.assigneeLogin(),
+                        event.crossRefNumber(),
+                        event.crossRefTitle(),
+                        event.crossRefUrl(),
+                        event.crossRefIsPullRequest()))
                 .collect(toImmutableList());
     }
 

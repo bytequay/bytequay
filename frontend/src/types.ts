@@ -276,6 +276,22 @@ export type ActivityItemDto = {
   /** Reactions tally for `commented` events. Always present (zero-
    *  filled for non-comment timeline events). */
   reactions: ReactionsDto | null;
+  /** Label name/color on `labeled`/`unlabeled` events. Null otherwise. */
+  labelName: string | null;
+  labelColor: string | null;
+  /** Milestone title on `milestoned`/`demilestoned` events. Null otherwise. */
+  milestoneTitle: string | null;
+  /** Login assigned/unassigned on `assigned`/`unassigned` events. Null
+   *  otherwise. */
+  assigneeLogin: string | null;
+  /** The other issue/PR referenced by a `cross-referenced` event. Null on
+   *  every other event type. */
+  crossRefNumber: number | null;
+  crossRefTitle: string | null;
+  crossRefUrl: string | null;
+  /** True iff the cross-referencing source is a pull request rather than
+   *  an issue. Always false on non-`cross-referenced` events. */
+  crossRefIsPullRequest: boolean;
 };
 
 export type CheckRunDto = {

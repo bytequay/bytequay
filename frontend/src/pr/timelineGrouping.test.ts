@@ -34,6 +34,14 @@ function activity(overrides: Partial<ActivityItemDto> = {}): ActivityItemDto {
     authorAssociation: null,
     githubId: null,
     reactions: ZERO_REACTIONS,
+    labelName: null,
+    labelColor: null,
+    milestoneTitle: null,
+    assigneeLogin: null,
+    crossRefNumber: null,
+    crossRefTitle: null,
+    crossRefUrl: null,
+    crossRefIsPullRequest: false,
     ...overrides,
   };
 }

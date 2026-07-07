@@ -137,7 +137,15 @@ public class SqlitePrDetailStore
                                 t.getReactionsConfused(),
                                 t.getReactionsHeart(),
                                 t.getReactionsRocket(),
-                                t.getReactionsEyes())))
+                                t.getReactionsEyes()),
+                        t.getLabelName(),
+                        t.getLabelColor(),
+                        t.getMilestoneTitle(),
+                        t.getAssigneeLogin(),
+                        t.getCrossRefNumber(),
+                        t.getCrossRefTitle(),
+                        t.getCrossRefUrl(),
+                        t.isCrossRefIsPullRequest()))
                 .collect(toImmutableList());
 
         List<PrCheckRunState> checkRuns = checkRunRepo.findByPrId(prId).stream()
@@ -401,6 +409,14 @@ public class SqlitePrDetailStore
         e.setReactionsHeart(r.heart());
         e.setReactionsRocket(r.rocket());
         e.setReactionsEyes(r.eyes());
+        e.setLabelName(t.labelName());
+        e.setLabelColor(t.labelColor());
+        e.setMilestoneTitle(t.milestoneTitle());
+        e.setAssigneeLogin(t.assigneeLogin());
+        e.setCrossRefNumber(t.crossRefNumber());
+        e.setCrossRefTitle(t.crossRefTitle());
+        e.setCrossRefUrl(t.crossRefUrl());
+        e.setCrossRefIsPullRequest(t.crossRefIsPullRequest());
         return e;
     }
 

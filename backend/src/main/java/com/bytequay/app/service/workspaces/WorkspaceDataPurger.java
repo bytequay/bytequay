@@ -15,7 +15,6 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.repository.DistillationSignalStore;
-import com.bytequay.app.repository.IdSequenceStore;
 import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.PermissionGrantStore;
 import com.bytequay.app.repository.SurfaceVisitStore;
@@ -36,20 +35,17 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class WorkspaceDataPurger
 {
-    private final IdSequenceStore idSequences;
     private final MemoryItemStore memoryItems;
     private final PermissionGrantStore permissionGrants;
     private final DistillationSignalStore distillationSignals;
     private final SurfaceVisitStore surfaceVisits;
 
     public WorkspaceDataPurger(
-            IdSequenceStore idSequences,
             MemoryItemStore memoryItems,
             PermissionGrantStore permissionGrants,
             DistillationSignalStore distillationSignals,
             SurfaceVisitStore surfaceVisits)
     {
-        this.idSequences = requireNonNull(idSequences, "idSequences is null");
         this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
         this.permissionGrants = requireNonNull(permissionGrants, "permissionGrants is null");
         this.distillationSignals = requireNonNull(distillationSignals, "distillationSignals is null");
@@ -76,7 +72,6 @@ public class WorkspaceDataPurger
     public void purgeWorkspaceScoped(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        idSequences.deleteByWorkspace(workspaceId);
         memoryItems.deleteByScope(MemoryItemScopeKind.WORKSPACE, workspaceId);
         permissionGrants.deleteForScope("workspace", workspaceId);
         distillationSignals.deleteByWorkspace(workspaceId);

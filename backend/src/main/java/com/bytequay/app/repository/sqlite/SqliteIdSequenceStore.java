@@ -22,7 +22,7 @@ import java.time.Instant;
 import static java.util.Objects.requireNonNull;
 
 /**
- * SQLite-backed allocator for the per-workspace-per-day thread seq.
+ * SQLite-backed allocator for the per-day thread seq.
  *
  * <p>A single UPSERT-with-RETURNING does the whole allocate atomically
  * under SQLite's file-level writer lock. No JPA entity / no read-then-
@@ -35,8 +35,8 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>The semantics:
  * <ul>
- *   <li>First call for a {@code (workspace, ymd)} pair inserts a row
- *       with {@code next_seq = 2} and returns {@code 1}.</li>
+ *   <li>First call for a {@code ymd} inserts a row with
+ *       {@code next_seq = 2} and returns {@code 1}.</li>
  *   <li>Subsequent calls conflict on the primary key, take the UPDATE
  *       branch incrementing {@code next_seq}, and return the value
  *       that was at {@code next_seq} before the increment (i.e.
@@ -49,9 +49,9 @@ public class SqliteIdSequenceStore
 {
     /**
      * The value that {@code next_seq} is seeded to on the first
-     * allocation for a {@code (workspace, ymd)} pair. Set so the
-     * RETURNING formula below yields 1 on first call (the value handed
-     * out) and the row is already primed to hand out 2 on the next.
+     * allocation for a {@code ymd}. Set so the RETURNING formula below
+     * yields 1 on first call (the value handed out) and the row is
+     * already primed to hand out 2 on the next.
      */
     private static final int INITIAL_NEXT_SEQ = 2;
 
@@ -63,10 +63,9 @@ public class SqliteIdSequenceStore
      * value just handed out.
      */
     private static final String ALLOCATE_SQL = ""
-            + "INSERT INTO workspace_thread_day_seq "
-            + "    (workspace_id, ymd, next_seq, updated_at_ms) "
-            + "VALUES (?, ?, " + INITIAL_NEXT_SEQ + ", ?) "
-            + "ON CONFLICT(workspace_id, ymd) DO UPDATE "
+            + "INSERT INTO thread_day_seq (ymd, next_seq, updated_at_ms) "
+            + "VALUES (?, " + INITIAL_NEXT_SEQ + ", ?) "
+            + "ON CONFLICT(ymd) DO UPDATE "
             + "SET next_seq = next_seq + 1, "
             + "    updated_at_ms = excluded.updated_at_ms "
             + "RETURNING next_seq - 1";
@@ -79,24 +78,14 @@ public class SqliteIdSequenceStore
     }
 
     @Override
-    public int nextThreadSeq(String workspaceId, String ymd)
+    public int nextThreadSeq(String ymd)
     {
-        requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(ymd, "ymd is null");
         long now = Instant.now().toEpochMilli();
-        Integer issued = jdbc.queryForObject(
-                ALLOCATE_SQL, Integer.class, workspaceId, ymd, now);
+        Integer issued = jdbc.queryForObject(ALLOCATE_SQL, Integer.class, ymd, now);
         if (issued == null) {
-            throw new IllegalStateException(
-                    "allocate returned no row for (" + workspaceId + ", " + ymd + ")");
+            throw new IllegalStateException("allocate returned no row for ymd " + ymd);
         }
         return issued;
-    }
-
-    @Override
-    public int deleteByWorkspace(String workspaceId)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        return jdbc.update("DELETE FROM workspace_thread_day_seq WHERE workspace_id = ?", workspaceId);
     }
 }

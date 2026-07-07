@@ -439,11 +439,10 @@ public class ThreadService
             }
         }
         Instant now = Instant.now();
-        // Human-readable id of the form ws-<slug>.t<ymd>-<seq>-<rand2>
-        // — embeds the workspace, creation day, and per-workspace-per-day
-        // counter so threads in logs and on disk identify themselves.
-        // See service/ids/IdGenerator.
-        String threadId = idGenerator.newThreadId(request.workspaceId().trim(), now);
+        // Human-readable id of the form t<ymd>-<seq>-<rand2> — embeds
+        // the creation day and a per-day counter so threads in logs
+        // and on disk identify themselves. See service/ids/IdGenerator.
+        String threadId = idGenerator.newThreadId(now);
         String title = deriveTitle(request.title(), request.initialPrompt());
         Thread thread = new Thread(
                 threadId,

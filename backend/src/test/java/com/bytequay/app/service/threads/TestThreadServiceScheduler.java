@@ -956,25 +956,18 @@ class TestThreadServiceScheduler
 
     /** IdGenerator backed by a tiny in-memory sequence store. Hand-rolled
      *  rather than mocked because we just need monotonic counters per
-     *  (workspace, ymd) — the format itself is covered by TestIdGenerator. */
+     *  ymd — the format itself is covered by TestIdGenerator. */
     private static IdGenerator stubIdGenerator()
     {
         IdSequenceStore store = new IdSequenceStore() {
             private final Map<String, Integer> next = new LinkedHashMap<>();
 
             @Override
-            public int nextThreadSeq(String workspaceId, String ymd)
+            public int nextThreadSeq(String ymd)
             {
-                String key = workspaceId + "|" + ymd;
-                int v = next.getOrDefault(key, 1);
-                next.put(key, v + 1);
+                int v = next.getOrDefault(ymd, 1);
+                next.put(ymd, v + 1);
                 return v;
-            }
-
-            @Override
-            public int deleteByWorkspace(String workspaceId)
-            {
-                return 0;
             }
         };
         return new IdGenerator(store);

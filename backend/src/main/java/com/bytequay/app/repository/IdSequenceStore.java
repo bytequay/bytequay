@@ -14,33 +14,33 @@
 package com.bytequay.app.repository;
 
 /**
- * Allocates the per-workspace-per-day counter embedded in new thread ids.
- * Atomic on a per-(workspace, ymd) basis; concurrent callers serialise
- * through the underlying database transaction.
+ * Allocates the per-day counter embedded in new thread ids. Atomic on
+ * a per-ymd basis; concurrent callers serialise through the underlying
+ * database transaction.
  *
- * <p>The counter is intentionally per-day-per-workspace so the value
- * stays small (rarely beyond two or three digits) and the resulting
- * thread id is short enough to read at a glance. The day key resets
- * the counter naturally; no truncation logic needed.
+ * <p>The counter is intentionally per-day so the value stays small
+ * (rarely beyond two or three digits) and the resulting thread id is
+ * short enough to read at a glance. The day key resets the counter
+ * naturally; no truncation logic needed.
  *
  * <p>Allocation flow:
  * <pre>
- *   nextThreadSeq("ws-bytequay", "260603")
- *                       │
- *                       ▼
- *              ┌────────────────────────┐
- *              │ row exists for         │
- *              │ (ws-bytequay, 260603)? │
- *              └────────┬──────┬────────┘
- *                    NO │      │ YES
- *                       │      │
- *                       ▼      ▼
- *                  INSERT      UPDATE
- *                  next_seq    next_seq += 1
- *                    = 2
- *                       │      │
- *                       ▼      ▼
- *                  return 1    return value before increment
+ *   nextThreadSeq("260603")
+ *              │
+ *              ▼
+ *     ┌──────────────────┐
+ *     │ row exists for   │
+ *     │ 260603?          │
+ *     └────┬──────┬──────┘
+ *       NO │      │ YES
+ *          │      │
+ *          ▼      ▼
+ *     INSERT      UPDATE
+ *     next_seq    next_seq += 1
+ *       = 2
+ *          │      │
+ *          ▼      ▼
+ *     return 1    return value before increment
  *
  *   In SQLite the whole thing runs as a single UPSERT-with-RETURNING
  *   statement under the file-level writer lock — see SqliteIdSequenceStore.
@@ -49,16 +49,13 @@ package com.bytequay.app.repository;
 public interface IdSequenceStore
 {
     /**
-     * Hand out the next thread-seq for {@code workspaceId} on date
-     * {@code ymd} (YYMMDD, UTC). First call for a (workspace, ymd)
-     * pair returns 1; subsequent calls return 2, 3, ... and so on.
+     * Hand out the next thread-seq for date {@code ymd} (YYMMDD,
+     * UTC). First call for a {@code ymd} returns 1; subsequent calls
+     * return 2, 3, ... and so on.
      *
      * <p>Restart-safe: the next-value column is durable so a crash
      * between the read and the persisted increment cannot re-issue
      * a value already handed out.
      */
-    int nextThreadSeq(String workspaceId, String ymd);
-
-    /** Remove every per-day thread-seq counter row for a workspace. */
-    int deleteByWorkspace(String workspaceId);
+    int nextThreadSeq(String ymd);
 }

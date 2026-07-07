@@ -31,37 +31,36 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>Format (see also {@code docs/mockups/workspace-thread-task-design.md}):
  * <pre>
- *   Thread   {workspaceId}.t{ymd}-{seq}-{rand2}
- *               e.g.  ws-bytequay.t260603-3-a1
+ *   Thread   t{ymd}-{seq}-{rand2}
+ *               e.g.  t260603-3-a1
  *   Task     {threadId}.k{seq}
- *               e.g.  ws-bytequay.t260603-3-a1.k2
+ *               e.g.  t260603-3-a1.k2
  * </pre>
  *
  * <p>Reading a task id segment by segment:
  * <pre>
- *   ws-bytequay.t260603-3-a1.k2
- *   └────┬────┘└┬┘└──┬─┘│ │ │ └┬┘
- *        │     │    │  │ │ │  │
- *        │     │    │  │ │ │  └─ TASK seq        per-thread (tasks.seq)
- *        │     │    │  │ │ └──── TASK marker     IdTier.TASK.marker()
- *        │     │    │  │ └────── random suffix   RAND_SUFFIX_LEN chars from
- *        │     │    │  │                         RAND_ALPHABET (32 base32
- *        │     │    │  │                         chars, no i/l/o/u)
- *        │     │    │  └─────── SEGMENT_SEP
- *        │     │    └────────── THREAD seq       per-(workspace, day) counter
- *        │     │                                 from IdSequenceStore
- *        │     └─────────────── ymd (YYMMDD UTC) day of thread creation
- *        └─────────────────── THREAD marker      IdTier.THREAD.marker()
- *   └──── workspaceId   immutable workspace slug, prefixed with
- *                       IdTier.WORKSPACE.marker() at workspace creation
+ *   t260603-3-a1.k2
+ *   │└──┬─┘│ │ │ └┬┘
+ *   │   │  │ │ │  │
+ *   │   │  │ │ │  └─ TASK seq        per-thread (tasks.seq)
+ *   │   │  │ │ └──── TASK marker     IdTier.TASK.marker()
+ *   │   │  │ └────── random suffix   RAND_SUFFIX_LEN chars from
+ *   │   │  │                         RAND_ALPHABET (32 base32
+ *   │   │  │                         chars, no i/l/o/u)
+ *   │   │  └─────── SEGMENT_SEP
+ *   │   └────────── THREAD seq       per-day counter from IdSequenceStore
+ *   └────────────── ymd (YYMMDD UTC) day of thread creation
  * </pre>
  *
- * <p>The {@code ymd} segment is YYMMDD in UTC so lexicographic sort
- * yields chronological order within a workspace. The {@code seq} after
- * the date is workspace-and-day scoped and comes from
- * {@link IdSequenceStore}; the trailing two-character random suffix is
- * belt-and-suspenders against admin restore + clock skew scenarios in
- * which the persisted counter could re-issue an already-used value.
+ * <p>The id deliberately carries no workspace slug: a thread already
+ * has its own {@code workspace_id} column, so the id only needs to
+ * encode what isn't already stored elsewhere — the creation day and a
+ * sequence number. The {@code ymd} segment is YYMMDD in UTC so
+ * lexicographic sort yields chronological order; the {@code seq} after
+ * the date is day-scoped and comes from {@link IdSequenceStore}; the
+ * trailing two-character random suffix is belt-and-suspenders against
+ * admin restore + clock skew scenarios in which the persisted counter
+ * could re-issue an already-used value.
  *
  * <p>Task ids reuse the per-thread {@code tasks.seq} the caller is
  * already incrementing in {@code ThreadService.materialiseTask}, so no
@@ -69,10 +68,9 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>Properties this layout gives the rest of the system:
  * <ul>
- *   <li>Strip a suffix and you get the parent — task → thread → workspace.</li>
- *   <li>Lexicographic sort within a workspace is chronological by day.</li>
- *   <li>{@code LIKE 'ws-bytequay.t260603-%'} enumerates one workspace's
- *       threads cut on one day.</li>
+ *   <li>Strip a suffix and you get the parent — task → thread.</li>
+ *   <li>Lexicographic sort is chronological by day.</li>
+ *   <li>{@code LIKE 't260603-%'} enumerates threads cut on one day.</li>
  *   <li>{@code .worktrees/<task-id>/} on disk encodes the full hierarchy
  *       in the directory name.</li>
  * </ul>
@@ -123,25 +121,20 @@ public class IdGenerator
 
     /**
      * Compose a new thread id of the form
-     * {@code <workspaceId>.t<ymd>-<seq>-<rand2>}, where {@code seq}
-     * is read from {@link IdSequenceStore#nextThreadSeq} and
-     * {@code rand2} is two base32 chars from {@link #RAND_ALPHABET}.
+     * {@code t<ymd>-<seq>-<rand2>}, where {@code seq} is read from
+     * {@link IdSequenceStore#nextThreadSeq} and {@code rand2} is two
+     * base32 chars from {@link #RAND_ALPHABET}.
      *
-     * @param workspaceId workspace this thread belongs to — the slug
-     *                    becomes the visible prefix of the id and is
-     *                    immutable across the thread's lifetime
-     * @param now         caller-supplied instant so tests can pin the
-     *                    {@code ymd} segment without freezing the JVM
-     *                    clock; production wires {@code Instant.now()}
+     * @param now caller-supplied instant so tests can pin the
+     *            {@code ymd} segment without freezing the JVM clock;
+     *            production wires {@code Instant.now()}
      */
-    public String newThreadId(String workspaceId, Instant now)
+    public String newThreadId(Instant now)
     {
-        requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(now, "now is null");
         String ymd = formatYmd(now);
-        int seq = seqStore.nextThreadSeq(workspaceId, ymd);
-        return workspaceId
-                + IdTier.THREAD.marker() + ymd
+        int seq = seqStore.nextThreadSeq(ymd);
+        return IdTier.THREAD.marker() + ymd
                 + SEGMENT_SEP + seq
                 + SEGMENT_SEP + randomSuffix();
     }

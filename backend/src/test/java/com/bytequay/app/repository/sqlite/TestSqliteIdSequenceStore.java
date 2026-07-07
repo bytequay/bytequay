@@ -35,10 +35,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * End-to-end exercise of {@link SqliteIdSequenceStore} against the
  * Flyway-migrated schema. Catches schema/entity drift on the primary
  * key + columns, and the concurrency case where two callers hit the
- * same {@code (workspace, ymd)} key together — the bug we'd want to
- * notice is "both threads got seq=1 because each one's read raced the
- * other's write." A clean run hands out exactly N consecutive values
- * across N concurrent callers, with no duplicates and no gaps.
+ * same {@code ymd} key together — the bug we'd want to notice is
+ * "both threads got seq=1 because each one's read raced the other's
+ * write." A clean run hands out exactly N consecutive values across N
+ * concurrent callers, with no duplicates and no gaps.
  */
 @SpringBootTest
 class TestSqliteIdSequenceStore
@@ -49,7 +49,7 @@ class TestSqliteIdSequenceStore
     @Test
     void firstCallForANewKeyReturnsOne()
     {
-        int seq = store.nextThreadSeq(uniqueWorkspace("first"), "260603");
+        int seq = store.nextThreadSeq(uniqueYmd("first"));
 
         assertThat(seq).isEqualTo(1);
     }
@@ -57,47 +57,34 @@ class TestSqliteIdSequenceStore
     @Test
     void subsequentCallsIncrementMonotonically()
     {
-        String workspace = uniqueWorkspace("incr");
+        String ymd = uniqueYmd("incr");
 
-        int first = store.nextThreadSeq(workspace, "260603");
-        int second = store.nextThreadSeq(workspace, "260603");
-        int third = store.nextThreadSeq(workspace, "260603");
+        int first = store.nextThreadSeq(ymd);
+        int second = store.nextThreadSeq(ymd);
+        int third = store.nextThreadSeq(ymd);
 
         assertThat(List.of(first, second, third)).containsExactly(1, 2, 3);
     }
 
     @Test
-    void differentWorkspacesOnTheSameDayGetIndependentCounters()
+    void differentDaysGetIndependentCounters()
     {
-        String acme = uniqueWorkspace("acme");
-        String widgets = uniqueWorkspace("widgets");
+        String day1 = uniqueYmd("day1");
+        String day2 = uniqueYmd("day2");
 
-        assertThat(store.nextThreadSeq(acme, "260603")).isEqualTo(1);
-        assertThat(store.nextThreadSeq(widgets, "260603")).isEqualTo(1);
-        assertThat(store.nextThreadSeq(acme, "260603")).isEqualTo(2);
-        assertThat(store.nextThreadSeq(widgets, "260603")).isEqualTo(2);
+        assertThat(store.nextThreadSeq(day1)).isEqualTo(1);
+        assertThat(store.nextThreadSeq(day1)).isEqualTo(2);
+        // A different day's counter starts fresh — that's the whole
+        // point of the per-day key. A 2026-06-04 thread is "thread #1
+        // today", not "thread #3 since the universe began".
+        assertThat(store.nextThreadSeq(day2)).isEqualTo(1);
+        assertThat(store.nextThreadSeq(day2)).isEqualTo(2);
     }
 
     @Test
-    void differentDaysInTheSameWorkspaceGetIndependentCounters()
+    void rejectsNullYmd()
     {
-        String workspace = uniqueWorkspace("days");
-
-        assertThat(store.nextThreadSeq(workspace, "260603")).isEqualTo(1);
-        assertThat(store.nextThreadSeq(workspace, "260603")).isEqualTo(2);
-        // Next day's counter starts fresh — that's the whole point of
-        // the per-day key. A 2026-06-04 thread is "thread #1 today",
-        // not "thread #3 since the universe began".
-        assertThat(store.nextThreadSeq(workspace, "260604")).isEqualTo(1);
-        assertThat(store.nextThreadSeq(workspace, "260604")).isEqualTo(2);
-    }
-
-    @Test
-    void rejectsNullWorkspaceOrYmd()
-    {
-        assertThatThrownBy(() -> store.nextThreadSeq(null, "260603"))
-                .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> store.nextThreadSeq("ws-x", null))
+        assertThatThrownBy(() -> store.nextThreadSeq(null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -115,8 +102,7 @@ class TestSqliteIdSequenceStore
         // — empirically the unprotected version of this test produces
         // ~3-5 duplicates per run on this hardware.
         int callers = 24;
-        String workspace = uniqueWorkspace("concurrent");
-        String ymd = "260605";
+        String ymd = uniqueYmd("concurrent");
         ExecutorService pool = Executors.newFixedThreadPool(callers);
         CountDownLatch ready = new CountDownLatch(callers);
         CountDownLatch go = new CountDownLatch(1);
@@ -126,7 +112,7 @@ class TestSqliteIdSequenceStore
                 futures.add(pool.submit(() -> {
                     ready.countDown();
                     go.await();
-                    return store.nextThreadSeq(workspace, ymd);
+                    return store.nextThreadSeq(ymd);
                 }));
             }
             // Wait for every worker to be parked at the latch, then
@@ -150,14 +136,14 @@ class TestSqliteIdSequenceStore
     }
 
     /**
-     * Each test seeds a fresh workspace id so cross-test interference
-     * (one test's seq=3 leaking into another's expectation that seq=1)
+     * Each test seeds a fresh ymd so cross-test interference (one
+     * test's seq=3 leaking into another's expectation that seq=1)
      * can't happen even when the persisted state survives across
      * tests inside the same Spring context.
      */
-    private static String uniqueWorkspace(String tag)
+    private static String uniqueYmd(String tag)
     {
-        return "ws-test-" + tag + "-" + System.nanoTime();
+        return "260603-" + tag + "-" + System.nanoTime();
     }
 
     private static List<Integer> rangeInclusive(int from, int toInclusive)

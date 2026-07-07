@@ -12,8 +12,12 @@
  * limitations under the License.
  */
 import { Fragment, type ReactNode } from 'react';
+import type { ActivityItemDto, ReviewThreadDto } from '../../types';
 import type { LocalPR, LocalPRComment, LocalPRTimelineEvent } from '../../types/localPr';
 import { MarkdownProse } from '../../threads/MarkdownProse';
+import { groupTimelineEntries } from '../timelineGrouping';
+import { buildRawTimelineEntries } from './githubActivityRows';
+import { GitHubTimelineRow, type GitHubThreadActions } from './GitHubTimelineRow';
 import { actorRole } from './prViewMeta';
 import { TimelineBubble } from './TimelineBubble';
 import { TimelinePersonEvent } from './TimelinePersonEvent';
@@ -52,6 +56,7 @@ function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]>
  */
 export function PRTimeline({
   pr, events, comments, onReviewChanges, onResolveThread, onDismissThread,
+  activity, reviewThreads, threadActions,
 }: {
   pr: LocalPR;
   events: LocalPRTimelineEvent[];
@@ -59,8 +64,19 @@ export function PRTimeline({
   onReviewChanges?: () => void;
   onResolveThread?: (rootCommentId: string) => void;
   onDismissThread?: (rootCommentId: string) => void;
+  /** GitHub's own conversation feed (labels, review-requests, force-pushes,
+   *  cross-references, comments/reviews + inline diff threads) — once the
+   *  PR has a `remotePrNumber`, this becomes the source for everything it
+   *  covers and the local `events`/`comments` below narrow to local-only
+   *  rows (local checks, unpublished drafts) so nothing double-renders.
+   *  Omitted (or `pr.remotePrNumber === null`) keeps today's all-local
+   *  rendering for the pre-push phase. */
+  activity?: ActivityItemDto[];
+  reviewThreads?: ReviewThreadDto[];
+  threadActions?: GitHubThreadActions;
 }) {
   const rows: Row[] = [];
+  const githubFeedActive = pr.remotePrNumber !== null && threadActions !== undefined;
 
   const descriptionActor = pr.origin === 'external' && pr.author !== null ? pr.author : 'claude-code';
   rows.push({
@@ -83,6 +99,11 @@ export function PRTimeline({
 
   for (const event of events) {
     if (event.eventType === 'comment') continue; // rendered from `comments` instead
+    // Once GitHub's own feed is active it's the source for commits/reviews/
+    // status changes too (it already includes "committed"/"reviewed"/
+    // merged-closed-reopened) — only local checks (never synced remotely,
+    // see PRServiceImpl.recordSyncedCheck) have no GitHub-native equivalent.
+    if (githubFeedActive && event.eventType !== 'ci') continue;
     if (event.eventType === 'review') {
       const verdict = str(event.payload, 'verdict');
       const body = str(event.payload, 'body');
@@ -105,7 +126,12 @@ export function PRTimeline({
     rows.push({ key: event.id, time: event.createdAt, render: <TimelineIconEvent key={event.id} event={event} /> });
   }
 
-  for (const comment of comments) {
+  // Remote-origin comments now come from the GitHub feed's `commented`
+  // activity instead — only local-origin ones (drafts, PR-scope or
+  // file-line) still render from the local table once that feed is active.
+  const localComments = githubFeedActive ? comments.filter(c => c.origin === 'local') : comments;
+
+  for (const comment of localComments) {
     if (comment.scope !== 'pr') continue;
     const role = actorRole(comment.author, pr);
     const pending = comment.origin === 'local' && comment.publishedAt === null;
@@ -120,7 +146,7 @@ export function PRTimeline({
     });
   }
 
-  for (const [key, thread] of groupThreads(comments)) {
+  for (const [key, thread] of groupThreads(localComments)) {
     const root = thread[0];
     const [filePath, lineNumberStr] = [root.filePath ?? '', root.lineNumber ?? 0];
     const resolved = root.resolvedAt !== null || root.dismissedAt !== null;
@@ -139,6 +165,21 @@ export function PRTimeline({
           onDismiss={onDismissThread !== undefined ? () => onDismissThread(root.id) : undefined}
         />
       ),
+    });
+  }
+
+  if (githubFeedActive && threadActions !== undefined) {
+    const grouped = groupTimelineEntries(buildRawTimelineEntries(activity ?? [], reviewThreads ?? []));
+    grouped.forEach((entry, index) => {
+      const time = entry.kind === 'event-group' ? new Date(entry.lastItem.timestamp ?? 0).getTime()
+        : entry.kind === 'activity' ? new Date(entry.item.timestamp ?? 0).getTime()
+        : entry.kind === 'thread' ? new Date(entry.thread.messages[0]?.createdAt ?? 0).getTime()
+        : 0;
+      rows.push({
+        key: `gh-${index}`,
+        time,
+        render: <GitHubTimelineRow key={`gh-${index}`} entry={entry} pr={pr} threadActions={threadActions} />,
+      });
     });
   }
 

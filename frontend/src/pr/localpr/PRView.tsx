@@ -12,9 +12,13 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
+import type { UserProfileDto } from '../../types';
 import type { LocalPRBundle } from '../../types/localPr';
 import { isLocalStatus } from '../../types/localPr';
+import { getCached } from '../../dataCache';
 import type { PRCapabilities } from '../prCapabilities';
+import { useGitHubActivityFeed } from '../useGitHubActivityFeed';
+import type { GitHubThreadActions } from './GitHubTimelineRow';
 import { PRHeader } from './PRHeader';
 import { PRTimeline } from './PRTimeline';
 import { MergeBox } from './MergeBox';
@@ -93,6 +97,26 @@ export function PRView({
   const additions = pr.origin === 'external' ? pr.syncedAdditions ?? 0 : commits.reduce((sum, c) => sum + c.additions, 0);
   const deletions = pr.origin === 'external' ? pr.syncedDeletions ?? 0 : commits.reduce((sum, c) => sum + c.deletions, 0);
 
+  // GitHub's own conversation feed (labels, review-requests, force-pushes,
+  // inline diff threads, …) — only fetched once the PR has a remote
+  // identity; see PRTimeline's `githubFeedActive` for how it takes over
+  // from the local sync tables at that point.
+  const { activity, reviewThreads } = useGitHubActivityFeed(pr.repo, pr.remotePrNumber);
+  const threadActions: GitHubThreadActions | undefined = pr.repo === null ? undefined : {
+    repo: pr.repo,
+    prAuthor: pr.author,
+    prHtmlUrl: pr.remotePrUrl ?? '',
+    currentUserLogin: getCached<UserProfileDto>('home:profile')?.login ?? null,
+    onReply: async (rootGithubId, body) => {
+      if (pr.repo === null || pr.remotePrNumber === null) return;
+      await window.bridge.replyToReviewThread(pr.repo, pr.remotePrNumber, rootGithubId, body);
+    },
+    onReact: async (commentGithubId, content) => {
+      if (pr.repo === null) return;
+      await window.bridge.addReviewCommentReaction(pr.repo, commentGithubId, content);
+    },
+  };
+
   return (
     <div className="pr-view">
       <PRHeader
@@ -124,6 +148,9 @@ export function PRView({
           onReviewChanges={onReviewChanges}
           onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
           onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
+          activity={activity}
+          reviewThreads={reviewThreads}
+          threadActions={threadActions}
         />
 
         <MergeBox

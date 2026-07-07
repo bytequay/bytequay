@@ -15,6 +15,8 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PRTimeline } from './PRTimeline';
 import type { LocalPR, LocalPRTimelineEvent } from '../../types/localPr';
+import type { ActivityItemDto, ReviewThreadDto } from '../../types';
+import type { GitHubThreadActions } from './GitHubTimelineRow';
 
 afterEach(cleanup);
 
@@ -27,6 +29,34 @@ function pr(over: Partial<LocalPR> = {}): LocalPR {
     syncedAdditions: null, syncedDeletions: null, ...over,
   };
 }
+
+function activity(over: Partial<ActivityItemDto> = {}): ActivityItemDto {
+  return {
+    actor: 'octocat', eventType: 'commented', timestamp: '2026-06-20T10:00:00Z', body: null,
+    state: null, beforeSha: null, afterSha: null, requestedReviewer: null, reviewId: null,
+    authorAssociation: null, githubId: 1, reactions: null,
+    labelName: null, labelColor: null, milestoneTitle: null, assigneeLogin: null,
+    crossRefNumber: null, crossRefTitle: null, crossRefUrl: null, crossRefIsPullRequest: false,
+    ...over,
+  };
+}
+
+function thread(over: Partial<ReviewThreadDto> = {}): ReviewThreadDto {
+  return {
+    rootGithubId: 501, filePath: 'src/Foo.java', line: 10, side: 'RIGHT', diffHunk: '@@ -1,3 +1,3 @@\n-old\n+new',
+    messages: [{
+      githubId: 601, author: 'octocat', body: 'Please fix this.', createdAt: '2026-06-20T10:00:00Z',
+      reactions: null, reviewId: null, authorAssociation: null,
+    }],
+    resolved: null, outdated: false, startLine: null, startSide: null, originalLine: null, originalStartLine: null,
+    ...over,
+  };
+}
+
+const noopThreadActions: GitHubThreadActions = {
+  repo: 'acme/widget', prAuthor: '@octocat', prHtmlUrl: 'https://github.com/acme/widget/pull/1',
+  onReply: async () => {},
+};
 
 function reviewEvent(over: Partial<LocalPRTimelineEvent> = {}): LocalPRTimelineEvent {
   return {
@@ -93,5 +123,60 @@ describe('PRTimeline composition', () => {
     expect(screen.getByText('src/Foo.java:42', { exact: false })).toBeTruthy();
     expect(screen.getByText('Fix this.')).toBeTruthy();
     expect(screen.getByText('Fixed.')).toBeTruthy();
+  });
+});
+
+describe('PRTimeline GitHub-native feed', () => {
+  const pushedPr = pr({ remotePrNumber: 42, repo: 'acme/widget', origin: 'external', author: '@octocat' });
+
+  it('renders a labeled event as a one-line row', () => {
+    render(<PRTimeline
+      pr={pushedPr} events={[]} comments={[]}
+      activity={[activity({ eventType: 'labeled', actor: 'octocat', labelName: 'bug', labelColor: 'd73a4a' })]}
+      reviewThreads={[]} threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText('bug')).toBeTruthy();
+    expect(screen.getByText(/added the/)).toBeTruthy();
+  });
+
+  it('renders an attached review thread with its Outdated pill', () => {
+    render(<PRTimeline
+      pr={pushedPr} events={[]} comments={[]}
+      activity={[activity({ eventType: 'reviewed', actor: 'octocat', state: 'commented', reviewId: 9 })]}
+      reviewThreads={[thread({ messages: [{ githubId: 601, author: 'octocat', body: 'Please fix this.', createdAt: '2026-06-20T10:00:00Z', reactions: null, reviewId: 9, authorAssociation: null }], outdated: true })]}
+      threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText('Please fix this.')).toBeTruthy();
+    expect(screen.getByText(/outdated/i)).toBeTruthy();
+  });
+
+  it('once the GitHub feed is active, only local checks render from the local event list', () => {
+    const events: LocalPRTimelineEvent[] = [
+      { id: 'ci1', localPrId: 'pr1', eventType: 'ci', actor: 'you', isLocalOnly: true, strippedOnPushAt: null,
+        createdAt: 5, payload: { kind: 'local', name: 'mvn verify', status: 'passed' } },
+      { id: 'commit1', localPrId: 'pr1', eventType: 'commit', actor: '@octocat', isLocalOnly: false, strippedOnPushAt: null,
+        createdAt: 6, payload: { sha: 'aaa1111', message: 'synced commit' } },
+    ];
+
+    render(<PRTimeline
+      pr={pushedPr} events={events} comments={[]}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText(/mvn verify/)).toBeTruthy();
+    expect(screen.queryByText(/synced commit/)).toBeNull();
+  });
+
+  it('leaves pre-push local-only PRs rendering exactly as before (no remotePrNumber)', () => {
+    const events: LocalPRTimelineEvent[] = [
+      { id: 'commit1', localPrId: 'pr1', eventType: 'commit', actor: 'you', isLocalOnly: false, strippedOnPushAt: null,
+        createdAt: 6, payload: { sha: 'aaa1111', message: 'a local commit' } },
+    ];
+
+    render(<PRTimeline pr={pr()} events={events} comments={[]} />);
+
+    expect(screen.getByText(/a local commit/)).toBeTruthy();
   });
 });

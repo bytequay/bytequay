@@ -29,8 +29,10 @@ export function TimelinePersonEvent({
   const approved = verdict !== null && APPROVED_VERDICTS.has(verdict);
   return (
     <div className="pr-person-event">
-      <Avatar login={displayName(actor)} size={20} className={`pr-avatar s20 ${approved ? 'author' : ''}`} />
-      <span className="eye" aria-hidden>{approved ? '✓' : '👁'}</span>
+      <span className="pr-person-avatar">
+        <Avatar login={displayName(actor)} size={20} className={`pr-avatar s20 ${approved ? 'author' : ''}`} />
+        <span className={`eye${approved ? ' approved' : ''}`} aria-hidden>{approved ? '✓' : '👁'}</span>
+      </span>
       <span className="tb">
         <span className="who">{displayName(actor)}</span> {approved ? 'approved these changes' : 'reviewed'}
         {' '}· {agoLabel(time)}

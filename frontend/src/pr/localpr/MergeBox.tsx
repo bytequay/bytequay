@@ -77,6 +77,25 @@ function MergeableLine({ mergeable, mergeableState }: { mergeable: boolean | nul
   );
 }
 
+/** The on-demand local-test trigger (local-pr-design.md slice 4) — lives
+ *  inside the same bordered card as the checks summary now, instead of
+ *  floating unstyled below it. */
+function RunTestsRow({ onRunTests, busy }: { onRunTests?: () => void; busy: boolean }) {
+  if (onRunTests === undefined) return null;
+  return (
+    <div className="mb-sec">
+      <span className="mb-ic amber">↻</span>
+      <div className="mb-t">
+        <div className="h">Local tests</div>
+        <div className="s">Run the test suite before pushing</div>
+      </div>
+      <button type="button" className="btn sm" onClick={onRunTests} disabled={busy}>
+        {busy ? 'Running tests…' : 'Run tests'}
+      </button>
+    </div>
+  );
+}
+
 /**
  * The merge-box accordion (U13e) — replaces the old `<PRActionBar>` +
  * `<PRChecksCard>` pair with one sectioned card: a checks summary that
@@ -87,7 +106,7 @@ function MergeableLine({ mergeable, mergeableState }: { mergeable: boolean | nul
 export function MergeBox({
   pr, capabilities, localChecks, remoteChecks, openComments, localTestsFailing = false,
   pendingStripCount, draftCount, brainReview, onPush, onAskAgent, onMerge, onMergeAnyway,
-  onPublishReview, onDiscardDrafts,
+  onPublishReview, onDiscardDrafts, onRunTests, runTestsBusy = false,
 }: {
   pr: LocalPR;
   capabilities: PRCapabilities;
@@ -104,6 +123,10 @@ export function MergeBox({
   onMergeAnyway?: () => void;
   onPublishReview?: () => void;
   onDiscardDrafts?: () => void;
+  /** Manually re-run the local test suite. Omitted when there's no PR to run
+   *  tests against yet. */
+  onRunTests?: () => void;
+  runTestsBusy?: boolean;
 }) {
   // Collapsed by default, matching github.com's own merge-box — a reviewer
   // wants the aggregate line, not 60 individual rows, at a glance.
@@ -115,12 +138,16 @@ export function MergeBox({
   const showMergeGate = capabilities.merge && pr.status === 'remote-open';
   const showPublishGate = capabilities.publishReview && draftCount > 0;
   const hasMergeableData = pr.syncedMergeable !== null;
-  if (!showPushGate && !showMergeGate && !showPublishGate && allChecks.length === 0 && !hasMergeableData) {
+  if (!showPushGate && !showMergeGate && !showPublishGate
+      && allChecks.length === 0 && !hasMergeableData && onRunTests === undefined) {
     return null;
   }
+  // Matches github.com's fully-green card border once checks pass AND
+  // there's nothing blocking a merge.
+  const allGood = summary.icon === 'green' && pr.syncedMergeable === true;
 
   return (
-    <div className="pr-merge-box">
+    <div className={`pr-merge-box${allGood ? ' ok' : ''}`}>
       <div className="mb-sec clickable" onClick={() => setChecksOpen(o => !o)}>
         <span className={`mb-ic ${summary.icon}`}>{summary.icon === 'green' ? '✓' : '●'}</span>
         <div className="mb-t">
@@ -136,6 +163,7 @@ export function MergeBox({
           <CheckRows checks={remoteChecks} />
         </div>
       )}
+      <RunTestsRow onRunTests={onRunTests} busy={runTestsBusy} />
       <MergeableLine mergeable={pr.syncedMergeable} mergeableState={pr.syncedMergeableState} />
 
       {showPushGate && (

@@ -185,6 +185,23 @@ describe('PRTimeline GitHub-native feed', () => {
     expect(screen.queryByText(/synced commit/)).toBeNull();
   });
 
+  it('filters out stale remote-kind ci rows even though eventType is still "ci"', () => {
+    // Rows written by PRServiceImpl.recordSyncedCheck before it stopped
+    // emitting a timeline event per synced check (Trino #29099 had 60 of
+    // these) — the frontend must not trust eventType alone.
+    const events: LocalPRTimelineEvent[] = [
+      { id: 'ci-remote', localPrId: 'pr1', eventType: 'ci', actor: 'claude-code', isLocalOnly: false, strippedOnPushAt: null,
+        createdAt: 5, payload: { kind: 'remote', name: 'build-success', status: 'passed' } },
+    ];
+
+    render(<PRTimeline
+      pr={pushedPr} events={events} comments={[]}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions}
+    />);
+
+    expect(screen.queryByText(/build-success/)).toBeNull();
+  });
+
   it('leaves pre-push local-only PRs rendering exactly as before (no remotePrNumber)', () => {
     const events: LocalPRTimelineEvent[] = [
       { id: 'commit1', localPrId: 'pr1', eventType: 'commit', actor: 'you', isLocalOnly: false, strippedOnPushAt: null,

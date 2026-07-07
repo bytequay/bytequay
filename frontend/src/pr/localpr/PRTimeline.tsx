@@ -101,9 +101,13 @@ export function PRTimeline({
     if (event.eventType === 'comment') continue; // rendered from `comments` instead
     // Once GitHub's own feed is active it's the source for commits/reviews/
     // status changes too (it already includes "committed"/"reviewed"/
-    // merged-closed-reopened) — only local checks (never synced remotely,
-    // see PRServiceImpl.recordSyncedCheck) have no GitHub-native equivalent.
-    if (githubFeedActive && event.eventType !== 'ci') continue;
+    // merged-closed-reopened) — only LOCAL checks (a local `mvn test` run,
+    // never synced remotely — see PRServiceImpl.recordSyncedCheck) have no
+    // GitHub-native equivalent. A remote-kind `ci` event here is a stale row
+    // written before that method stopped emitting one per synced check —
+    // still worth filtering defensively rather than trusting the write side
+    // alone, since a PR's rows can predate this fix.
+    if (githubFeedActive && (event.eventType !== 'ci' || str(event.payload, 'kind') !== 'local')) continue;
     if (event.eventType === 'review') {
       const verdict = str(event.payload, 'verdict');
       const body = str(event.payload, 'body');

@@ -73,7 +73,7 @@ class TestBrainService
         Thread devThread = mock(Thread.class);
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
 
         BrainMessageResponse out = service.sendMessage(TASK_ID, "How many pushes?");
@@ -100,7 +100,7 @@ class TestBrainService
         Thread devThread = mock(Thread.class);
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
         // Project default resolves to a claude-code CLI model.
         WorkModelResolver.Resolved resolved = mock(WorkModelResolver.Resolved.class);
@@ -145,7 +145,7 @@ class TestBrainService
         Thread devThread = mock(Thread.class);
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("plan-turn-1");
 
         service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "fix the flaky retry test", null));
@@ -176,7 +176,7 @@ class TestBrainService
         Thread devThread = mock(Thread.class);
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(threadStore.listMessages(DEV_THREAD)).thenReturn(List.of(
                 msg(1, "user", "{\"text\":\"let's tidy the AssertJ nits\"}", cut.minusSeconds(60)),
                 msg(2, "assistant", "{\"text\":\"Got it — cutting the task.\"}", cut.minusSeconds(30))));
@@ -216,7 +216,7 @@ class TestBrainService
         Thread devThread = mock(Thread.class);
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("summary-turn-1");
 
         service.onTaskCompleted(
@@ -244,7 +244,7 @@ class TestBrainService
         Thread devThread = mock(Thread.class);
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("summary-turn-1");
 
         service.onTaskCompleted(
@@ -277,7 +277,7 @@ class TestBrainService
         Thread devThread = mock(Thread.class);
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(anyString(), any())).thenReturn("ws-default.brain-1");
+        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenThrow(new RuntimeException("scheduler busy"));
 
         service.onTaskCompleted(

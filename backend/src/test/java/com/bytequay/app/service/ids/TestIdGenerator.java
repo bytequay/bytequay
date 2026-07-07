@@ -36,10 +36,11 @@ class TestIdGenerator
     {
         IdGenerator gen = new IdGenerator(constantSeq(3), seeded(1L));
 
-        String id = gen.newThreadId("ws-bytequay", JUNE_3_2026);
+        String id = gen.newThreadId(JUNE_3_2026);
 
-        // workspace prefix, .t marker, ymd, -seq-, two-char base32 suffix.
-        assertThat(id).matches("ws-bytequay\\.t260603-3-[0-9a-z]{2}");
+        // t marker, ymd, -seq-, two-char base32 suffix. No workspace
+        // prefix — a thread's workspace_id lives in its own column.
+        assertThat(id).matches("t260603-3-[0-9a-z]{2}");
     }
 
     @Test
@@ -51,23 +52,10 @@ class TestIdGenerator
         for (int seq : List.of(1, 5, 42, 999, 10_000)) {
             IdGenerator gen = new IdGenerator(constantSeq(seq), seeded(1L));
 
-            String id = gen.newThreadId("ws-bytequay", JUNE_3_2026);
+            String id = gen.newThreadId(JUNE_3_2026);
 
             assertThat(id).contains("-" + seq + "-");
         }
-    }
-
-    @Test
-    void threadIdEmbedsTheWorkspaceIdVerbatim()
-    {
-        // Generator does no validation — it composes. Whatever the
-        // workspace id is at the call site lands in the result.
-        IdGenerator gen = new IdGenerator(constantSeq(1), seeded(1L));
-
-        assertThat(gen.newThreadId("ws-bytequay", JUNE_3_2026))
-                .startsWith("ws-bytequay.t");
-        assertThat(gen.newThreadId("ws-trino-dev", JUNE_3_2026))
-                .startsWith("ws-trino-dev.t");
     }
 
     @Test
@@ -80,9 +68,9 @@ class TestIdGenerator
         Instant utcEdge = Instant.parse("2026-12-31T23:30:00Z");
 
         IdGenerator gen = new IdGenerator(constantSeq(1), seeded(1L));
-        String id = gen.newThreadId("ws-x", utcEdge);
+        String id = gen.newThreadId(utcEdge);
 
-        assertThat(id).contains(".t261231-");
+        assertThat(id).startsWith("t261231-");
     }
 
     @Test
@@ -90,11 +78,11 @@ class TestIdGenerator
     {
         IdGenerator gen = new IdGenerator(constantSeq(1), seeded(1L));
 
-        String day1 = gen.newThreadId("ws-x", Instant.parse("2026-06-03T00:00:00Z"));
-        String day2 = gen.newThreadId("ws-x", Instant.parse("2026-06-04T00:00:00Z"));
+        String day1 = gen.newThreadId(Instant.parse("2026-06-03T00:00:00Z"));
+        String day2 = gen.newThreadId(Instant.parse("2026-06-04T00:00:00Z"));
 
-        assertThat(day1).contains(".t260603-");
-        assertThat(day2).contains(".t260604-");
+        assertThat(day1).startsWith("t260603-");
+        assertThat(day2).startsWith("t260604-");
     }
 
     @Test
@@ -102,11 +90,11 @@ class TestIdGenerator
     {
         IdGenerator gen = new IdGenerator(constantSeq(1), seeded(1L));
 
-        String id = gen.newThreadId("ws-x", Instant.parse("2026-01-09T12:00:00Z"));
+        String id = gen.newThreadId(Instant.parse("2026-01-09T12:00:00Z"));
 
         // Must be 260109, not 26019 — checkstyle on the format string
         // wouldn't catch a missing %02d, so the test does.
-        assertThat(id).contains(".t260109-");
+        assertThat(id).startsWith("t260109-");
     }
 
     @Test
@@ -118,7 +106,7 @@ class TestIdGenerator
         for (long seed = 0; seed < 256; seed++) {
             IdGenerator gen = new IdGenerator(constantSeq(1), new Random(seed));
 
-            String id = gen.newThreadId("ws-x", JUNE_3_2026);
+            String id = gen.newThreadId(JUNE_3_2026);
             String suffix = id.substring(id.lastIndexOf('-') + 1);
 
             assertThat(suffix).hasSize(2);
@@ -136,8 +124,8 @@ class TestIdGenerator
     {
         IdGenerator gen = new IdGenerator(constantSeq(1), seeded(1L));
 
-        assertThat(gen.newTaskId("ws-bytequay.t260603-3-a1", 2L))
-                .isEqualTo("ws-bytequay.t260603-3-a1.k2");
+        assertThat(gen.newTaskId("t260603-3-a1", 2L))
+                .isEqualTo("t260603-3-a1.k2");
     }
 
     @Test
@@ -156,18 +144,8 @@ class TestIdGenerator
         // Task ids reuse tasks.seq from the caller — no allocation
         // through IdSequenceStore. A stub that throws on call proves
         // the generator doesn't reach into the store on this path.
-        IdSequenceStore exploding = new IdSequenceStore() {
-            @Override
-            public int nextThreadSeq(String ws, String ymd)
-            {
-                throw new AssertionError("newTaskId must not touch IdSequenceStore");
-            }
-
-            @Override
-            public int deleteByWorkspace(String workspaceId)
-            {
-                return 0;
-            }
+        IdSequenceStore exploding = ymd -> {
+            throw new AssertionError("newTaskId must not touch IdSequenceStore");
         };
         IdGenerator gen = new IdGenerator(exploding, seeded(1L));
 
@@ -177,15 +155,15 @@ class TestIdGenerator
     @Test
     void threadIdIsByteStableForFixedInputs()
     {
-        // Two generators with the same inputs (workspace id, instant,
-        // store-returned seq, RNG seed) must produce byte-identical
-        // ids. Important once the id appears anywhere cacheable —
-        // log lines, file paths, branch trailers.
+        // Two generators with the same inputs (instant, store-returned
+        // seq, RNG seed) must produce byte-identical ids. Important
+        // once the id appears anywhere cacheable — log lines, file
+        // paths, branch trailers.
         IdGenerator first = new IdGenerator(constantSeq(7), seeded(42L));
         IdGenerator second = new IdGenerator(constantSeq(7), seeded(42L));
 
-        assertThat(first.newThreadId("ws-x", JUNE_3_2026))
-                .isEqualTo(second.newThreadId("ws-x", JUNE_3_2026));
+        assertThat(first.newThreadId(JUNE_3_2026))
+                .isEqualTo(second.newThreadId(JUNE_3_2026));
     }
 
     @Test
@@ -197,23 +175,21 @@ class TestIdGenerator
         CountingStore counter = new CountingStore();
         IdGenerator gen = new IdGenerator(counter, seeded(1L));
 
-        gen.newThreadId("ws-x", JUNE_3_2026);
+        gen.newThreadId(JUNE_3_2026);
 
         assertThat(counter.calls).isEqualTo(1);
     }
 
     @Test
-    void seqStoreReceivesTheUtcYmdAndWorkspaceIdAsKey()
+    void seqStoreReceivesTheUtcYmdAsKey()
     {
-        // The store is keyed by (workspaceId, ymd). A wrong key would
-        // produce a wrong counter scope (e.g. all workspaces sharing
-        // one counter). Assert the exact arguments handed in.
+        // A wrong key would produce a wrong counter scope (e.g. all
+        // days sharing one counter). Assert the exact argument handed in.
         RecordingStore recording = new RecordingStore();
         IdGenerator gen = new IdGenerator(recording, seeded(1L));
 
-        gen.newThreadId("ws-acme", JUNE_3_2026);
+        gen.newThreadId(JUNE_3_2026);
 
-        assertThat(recording.workspaceId).isEqualTo("ws-acme");
         assertThat(recording.ymd).isEqualTo("260603");
     }
 
@@ -222,9 +198,7 @@ class TestIdGenerator
     {
         IdGenerator gen = new IdGenerator(constantSeq(1), seeded(1L));
 
-        assertThatThrownBy(() -> gen.newThreadId(null, JUNE_3_2026))
-                .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> gen.newThreadId("ws-x", null))
+        assertThatThrownBy(() -> gen.newThreadId(null))
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> gen.newTaskId(null, 1L))
                 .isInstanceOf(NullPointerException.class);
@@ -240,40 +214,20 @@ class TestIdGenerator
     /** Store stub that returns a fixed seq value on every call. */
     private static IdSequenceStore constantSeq(int value)
     {
-        return new IdSequenceStore() {
-            @Override
-            public int nextThreadSeq(String workspaceId, String ymd)
-            {
-                return value;
-            }
-
-            @Override
-            public int deleteByWorkspace(String workspaceId)
-            {
-                return 0;
-            }
-        };
+        return ymd -> value;
     }
 
-    /** Store stub that records its last call's arguments. */
+    /** Store stub that records its last call's argument. */
     private static final class RecordingStore
             implements IdSequenceStore
     {
-        String workspaceId;
         String ymd;
 
         @Override
-        public int nextThreadSeq(String workspaceId, String ymd)
+        public int nextThreadSeq(String ymd)
         {
-            this.workspaceId = workspaceId;
             this.ymd = ymd;
             return 1;
-        }
-
-        @Override
-        public int deleteByWorkspace(String workspaceId)
-        {
-            return 0;
         }
     }
 
@@ -282,22 +236,15 @@ class TestIdGenerator
             implements IdSequenceStore
     {
         int calls;
-        final Map<String, Integer> seqByKey = new HashMap<>();
+        final Map<String, Integer> seqByYmd = new HashMap<>();
 
         @Override
-        public int nextThreadSeq(String workspaceId, String ymd)
+        public int nextThreadSeq(String ymd)
         {
             calls++;
-            String key = workspaceId + "|" + ymd;
-            int next = seqByKey.getOrDefault(key, 1);
-            seqByKey.put(key, next + 1);
+            int next = seqByYmd.getOrDefault(ymd, 1);
+            seqByYmd.put(ymd, next + 1);
             return next;
-        }
-
-        @Override
-        public int deleteByWorkspace(String workspaceId)
-        {
-            return 0;
         }
     }
 }

@@ -15,7 +15,6 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.repository.DistillationSignalStore;
-import com.bytequay.app.repository.IdSequenceStore;
 import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.PermissionGrantStore;
 import com.bytequay.app.repository.SurfaceVisitStore;
@@ -31,13 +30,12 @@ import static org.mockito.Mockito.verify;
 
 class TestWorkspaceDataPurger
 {
-    private final IdSequenceStore idSequences = mock(IdSequenceStore.class);
     private final MemoryItemStore memoryItems = mock(MemoryItemStore.class);
     private final PermissionGrantStore permissionGrants = mock(PermissionGrantStore.class);
     private final DistillationSignalStore distillationSignals = mock(DistillationSignalStore.class);
     private final SurfaceVisitStore surfaceVisits = mock(SurfaceVisitStore.class);
     private final WorkspaceDataPurger purger = new WorkspaceDataPurger(
-            idSequences, memoryItems, permissionGrants, distillationSignals, surfaceVisits);
+            memoryItems, permissionGrants, distillationSignals, surfaceVisits);
 
     @Test
     void purgeThreadScopedDeletesThreadAndTaskScopedRows()
@@ -69,7 +67,6 @@ class TestWorkspaceDataPurger
     {
         purger.purgeWorkspaceScoped("ws1");
 
-        verify(idSequences).deleteByWorkspace("ws1");
         verify(memoryItems).deleteByScope(MemoryItemScopeKind.WORKSPACE, "ws1");
         verify(permissionGrants).deleteForScope("workspace", "ws1");
         verify(distillationSignals).deleteByWorkspace("ws1");

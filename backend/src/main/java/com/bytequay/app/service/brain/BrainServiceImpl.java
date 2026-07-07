@@ -218,7 +218,7 @@ public class BrainServiceImpl
         WorkModel resolved = resolveBrainWorkModel(task.threadId());
         Instant now = Instant.now();
         Thread brain = new Thread(
-                idGenerator.newThreadId(workspaceId, now),
+                idGenerator.newThreadId(now),
                 ThreadKind.BRAIN_AGENT,
                 resolved.agentOrProvider(),
                 /* agentSessionId */ null,

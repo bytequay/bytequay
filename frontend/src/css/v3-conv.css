@@ -1469,7 +1469,9 @@
 .pr-view .pr-header .pr-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pr-view .pr-header .pr-title { font-size: 15px; font-weight: 700; color: var(--text-1); line-height: 1.3; min-width: 0; }
 .pr-view .pr-header .pr-num { font-size: 15px; color: var(--text-4); font-weight: 500; }
-.pr-view .pr-header .pr-header-action { margin-left: auto; }
+.pr-view .pr-header .pr-header-action { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.pr-title-review-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; background: var(--green); color: #fff; border: none; border-radius: 6px; font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.pr-title-review-btn:hover { filter: brightness(0.93); }
 .pr-view .pr-header .pr-meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; font-size: 11.5px; color: var(--text-3); }
 .pr-view .pr-header .pr-meta-row .who { font-weight: 600; color: var(--text-2); }
 .pr-view .pr-header .pr-meta-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
@@ -1508,25 +1510,6 @@
 .pr-delta-blocks i.r { background: var(--red); }
 
 .pr-body-scroll { flex: 1; overflow-y: auto; padding: 16px 18px 22px; display: flex; flex-direction: column; gap: 0; }
-.pr-review-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 13px;
-  margin-bottom: 14px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border-mid);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-1);
-  cursor: pointer;
-}
-.pr-review-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
-.pr-review-btn .ic { color: var(--text-3); font-size: 13px; }
-.pr-review-btn .arrow { margin-left: auto; color: var(--text-3); }
 
 /* U15 (revised) — the timeline rail: a 2px vertical line at x=64, sitting
    inside the comment bubble's own (fixed, unmoved) body rather than

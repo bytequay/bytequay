@@ -21,7 +21,6 @@ import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -100,6 +99,7 @@ public class TaskService
     private final ObjectMapper mapper;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskPhaseMachine taskPhaseMachine;
+    private final TaskTerminalSealer sealer;
 
     public TaskService(
             ThreadStore threadStore,
@@ -115,7 +115,8 @@ public class TaskService
             NotificationService notificationService,
             ObjectMapper mapper,
             ApplicationEventPublisher eventPublisher,
-            TaskPhaseMachine taskPhaseMachine)
+            TaskPhaseMachine taskPhaseMachine,
+            TaskTerminalSealer sealer)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -131,6 +132,7 @@ public class TaskService
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
+        this.sealer = requireNonNull(sealer, "sealer is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -459,7 +461,7 @@ public class TaskService
                 // open_pr gate), so the PR row otherwise never learns
                 // about it and keeps offering "ready to push" forever.
                 eventPublisher.publishEvent(new PrPushedEvent(
-                        current.id(), prNumber, "https://github.com/" + repoFullName + "/pull/" + prNumber));
+                        current.id(), repoFullName, prNumber, "https://github.com/" + repoFullName + "/pull/" + prNumber));
             }
 
             // No successor is ever cut: ship / next finish the current task,
@@ -712,14 +714,10 @@ public class TaskService
         if (task.phase() != TaskPhase.COMPLETED) {
             taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
         }
-        // Seal every still-open stage (Plan / Dev / CI-fix …); otherwise the
-        // stage pages keep reporting the work as live after the task itself
-        // is CANCELED. closeStage is a no-op on already-closed stages.
-        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
-            if (stage.state() != StageState.CLOSED) {
-                stageStore.closeStage(stage.id(), "task_canceled");
-            }
-        }
+        // Seal any still-open review round or stage (Plan / Dev / CI-fix …);
+        // otherwise the rail and stage pages keep reporting work as live
+        // after the task itself is CANCELED.
+        sealer.seal(taskId, "task_canceled");
         // Drop any still-open publish gate (push / ship / merge): the worktree
         // is about to be reaped, so an un-dismissed gate would be approvable
         // against nothing and resolve into a silent no-op.

@@ -70,10 +70,11 @@ class TestTaskLifecycleDriver
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final StageStore stageStore = mock(StageStore.class);
     private final PRService prService = mock(PRService.class);
+    private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     threadStore, scheduler, notifications, mapper,
-                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService);
+                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService, sealer);
 
     @TempDir
     private Path tempDir;
@@ -173,6 +174,9 @@ class TestTaskLifecycleDriver
         verify(worktrees).reap(task);
         // The PR merged, so the remote head branch is deleted too.
         verify(worktrees).deleteRemoteBranch(task);
+        // A still-open review round (e.g. mid-"Addressing") must not keep
+        // rendering as live now that the task itself is terminal.
+        verify(sealer).seal("t1.k2", "pr_merged");
     }
 
     @Test
@@ -195,6 +199,7 @@ class TestTaskLifecycleDriver
         verify(worktrees).reap(task);
         // A close is not a merge — leave the remote branch (the PR may reopen).
         verify(worktrees, never()).deleteRemoteBranch(any());
+        verify(sealer).seal("t1.k2", "pr_closed");
     }
 
     @Test
@@ -363,7 +368,7 @@ class TestTaskLifecycleDriver
         Instant now = Instant.parse("2026-06-01T00:00:00Z");
         return new PR(id, "t1.k2", "dev/x", "main", "T", "", status, now,
                 null, null, null, null, null, localAddressedThroughAt,
-                PR.ORIGIN_TASK, null, null, null, null);
+                PR.ORIGIN_TASK, null, null, null, null, null);
     }
 
     private static PRComment localComment(

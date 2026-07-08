@@ -42,6 +42,13 @@ describe('RightPane', () => {
     fireEvent.click(screen.getByText('Backlog'));
     expect(onSelect).toHaveBeenCalledWith('backlog');
   });
+
+  it('Content drops its padding when flush, for tabs that lay out their own edge-to-edge chrome', () => {
+    const { container, rerender } = render(<RightPane.Content>body</RightPane.Content>);
+    expect(container.querySelector('.pane-content')?.className).not.toContain('pane-content--flush');
+    rerender(<RightPane.Content flush>body</RightPane.Content>);
+    expect(container.querySelector('.pane-content')?.className).toContain('pane-content--flush');
+  });
 });
 
 describe('InlineChips', () => {

@@ -101,9 +101,9 @@ export function StageDetailPage({
   // the CI Fix stage adds its own CI tab for the live run. Changes — the full
   // file-tree/diff/comments/commits review surface — trails the strip; it
   // used to be a separate page-navigation pill, now it's a tab like the
-  // others (R31), just one that fills the pane instead of sharing space with
-  // the conversation column (see `paneExpanded` below). Stages without a
-  // PR tab (Plan, or a task with no PR yet) fall back to the first present.
+  // others (R31), filling the pane exactly like every other tab — the
+  // conversation column and sidebar stay put. Stages without a PR tab (Plan,
+  // or a task with no PR yet) fall back to the first present.
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
     ...(tabs.changes !== undefined ? [{ key: 'changes' as const, label: 'Code Diff', node: tabs.changes }] : []),
@@ -114,13 +114,6 @@ export function StageDetailPage({
   // nothing to show in the side pane at all.
   const hasTabs = available.length > 0;
   const [activeTab, setActiveTab] = useState<StageTab | undefined>(available[0]?.key);
-  // Whether the current tab was reached by an explicit navigation (click, or
-  // an outside openTabRequest) rather than just being the passive initial
-  // default. Distinguishes "the user asked for Changes" from "Changes
-  // happened to be the only tab before the PR/diff had loaded yet" — the
-  // latter must NOT trigger paneExpanded below, or the conversation column
-  // (and whatever's in it, e.g. the plan-approval UI) vanishes on mount.
-  const [tabExplicit, setTabExplicit] = useState(false);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
@@ -128,7 +121,6 @@ export function StageDetailPage({
   useEffect(() => {
     if (openTabRequest === undefined) return;
     setActiveTab(openTabRequest.tab);
-    setTabExplicit(true);
     setPaneOpen(true);
   }, [openTabRequest]);
 
@@ -147,7 +139,6 @@ export function StageDetailPage({
   const openTab = (key: StageTab) => {
     if (paneOpen && active?.key === key) { setPaneOpen(false); return; }
     setActiveTab(key);
-    setTabExplicit(true);
     setPaneOpen(true);
   };
   // Force-opens a tab without the close-on-repeat-click toggle above — for
@@ -155,7 +146,6 @@ export function StageDetailPage({
   // should never close the pane out from under the user.
   const forceOpenTab = (key: StageTab) => {
     setActiveTab(key);
-    setTabExplicit(true);
     setPaneOpen(true);
   };
 
@@ -190,10 +180,6 @@ export function StageDetailPage({
   );
 
   const showPane = paneOpen && hasTabs && active !== undefined;
-  // The Changes tab hosts the full review surface (file tree, diff, inline
-  // comments, commits) — far too much for the pane's usual ~520px alongside
-  // the conversation column, so it fills the body instead (R31).
-  const paneExpanded = tabExplicit && showPane && active?.key === 'code';
 
   return (
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
@@ -202,11 +188,9 @@ export function StageDetailPage({
         <div
           ref={bodyRef}
           className={showPane ? 'body with-pane' : 'body'}
-          style={!showPane ? undefined
-            : paneExpanded ? { gridTemplateColumns: 'minmax(0, 1fr)' }
-              : { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` }}
+          style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
         >
-          <div className="conv-col" style={paneExpanded ? { display: 'none' } : undefined}>
+          <div className="conv-col">
             {conversation}
             {/* Quick-access chips float just above the composer at all times
                 (not only when the pane is closed) so Plan / Changes stay one
@@ -235,7 +219,7 @@ export function StageDetailPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {showPane && !paneExpanded && (
+          {showPane && (
             <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />
           )}
           {showPane && (

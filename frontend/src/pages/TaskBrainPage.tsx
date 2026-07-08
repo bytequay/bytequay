@@ -97,13 +97,6 @@ export function TaskBrainPage({
   // No PR yet (task hasn't opened one) means nothing to show in the pane.
   const hasTabs = available.length > 0;
   const [activeTab, setActiveTab] = useState<BrainTab | undefined>(available[0]?.key);
-  // Whether the current tab was reached by an explicit navigation (click, or
-  // an outside openTabRequest) rather than just being the passive initial
-  // default. Distinguishes "the user asked for Changes" from "Changes
-  // happened to be the only tab before the PR had loaded yet" — the latter
-  // must NOT trigger paneExpanded below, or the conversation column (and the
-  // plan-approval UI in it) vanishes on mount.
-  const [tabExplicit, setTabExplicit] = useState(false);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
@@ -111,7 +104,6 @@ export function TaskBrainPage({
   useEffect(() => {
     if (openTabRequest === undefined) return;
     setActiveTab(openTabRequest.tab);
-    setTabExplicit(true);
     setPaneOpen(true);
   }, [openTabRequest]);
 
@@ -123,7 +115,6 @@ export function TaskBrainPage({
   const openTab = (key: BrainTab) => {
     if (paneOpen && active?.key === key) { setPaneOpen(false); return; }
     setActiveTab(key);
-    setTabExplicit(true);
     setPaneOpen(true);
   };
   // Force-opens a tab without the close-on-repeat-click toggle above — for
@@ -131,7 +122,6 @@ export function TaskBrainPage({
   // should never close the pane out from under the user.
   const forceOpenTab = (key: BrainTab) => {
     setActiveTab(key);
-    setTabExplicit(true);
     setPaneOpen(true);
   };
 
@@ -179,10 +169,6 @@ export function TaskBrainPage({
   );
 
   const showPane = paneOpen && hasTabs && active !== undefined;
-  // The Changes tab hosts the full review surface (file tree, diff, inline
-  // comments, commits) — far too much for the pane's usual ~520px alongside
-  // the conversation column, so it fills the body instead (R31).
-  const paneExpanded = tabExplicit && showPane && active?.key === 'code';
 
   return (
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
@@ -191,11 +177,9 @@ export function TaskBrainPage({
         <div
           ref={bodyRef}
           className={showPane ? 'body with-pane' : 'body'}
-          style={!showPane ? undefined
-            : paneExpanded ? { gridTemplateColumns: 'minmax(0, 1fr)' }
-              : { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` }}
+          style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
         >
-          <div className="conv-col" style={paneExpanded ? { display: 'none' } : undefined}>
+          <div className="conv-col">
             {conversation}
             {/* Same row as the development stage: the plan reminder pill sits
                 on the left, the tab chips align to the right. */}
@@ -222,7 +206,7 @@ export function TaskBrainPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {showPane && !paneExpanded && (
+          {showPane && (
             <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />
           )}
           {showPane && (

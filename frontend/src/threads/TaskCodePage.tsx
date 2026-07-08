@@ -17,7 +17,7 @@ import MarkdownComposer from '../MarkdownComposer';
 import { CommitsColumn } from '../diff/CommitsColumn';
 import { DiffChatColumn } from './DiffChatColumn';
 import { ContinuousDiff, FileDiffBody } from '../diff/DiffFileList';
-import { DiffFileTreePane, type FilesPaneMode } from '../diff/DiffFileTreePane';
+import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { contiguousRange } from '../diff/commitRange';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
@@ -200,7 +200,6 @@ export default function TaskCodePage({
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [mode, setMode] = useState<FilesPaneMode>('tree');
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
   // Code / Pull request tabs inside the diff panel — Code (the diff) is the
   // default; Pull request shows the drafted PR description. They sit in the
@@ -667,34 +666,12 @@ export default function TaskCodePage({
                   {commits !== null && <span className="diff-viewer__files-count">{commits.length}</span>}
                 </button>
               </div>
-              {midTab === 'files' && (
-                <div className="diff-viewer__mode-toggle" role="tablist" aria-label="File list layout">
-                  <button
-                    type="button"
-                    role="tab"
-                    className={`diff-viewer__mode-btn${mode === 'tree' ? ' diff-viewer__mode-btn--active' : ''}`}
-                    onClick={() => setMode('tree')}
-                    aria-selected={mode === 'tree'}
-                  >
-                    Tree
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    className={`diff-viewer__mode-btn${mode === 'flat' ? ' diff-viewer__mode-btn--active' : ''}`}
-                    onClick={() => setMode('flat')}
-                    aria-selected={mode === 'flat'}
-                  >
-                    Flat
-                  </button>
-                </div>
-              )}
             </div>
             {midTab === 'files' ? (
               <DiffFileTreePane<DiffFileDto>
                 files={files}
                 error={error}
-                mode={mode}
+                mode="tree"
                 pathOf={(f) => f.filename}
                 statusBadgeOf={(f) => statusBadge(f.status)}
                 selectedPath={selectedPath}

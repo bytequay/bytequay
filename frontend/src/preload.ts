@@ -827,6 +827,17 @@ const bridge: Bridge = {
     enabled: boolean,
   ): Promise<{ enabled: boolean }> =>
     ipcRenderer.invoke('threads:tasks:autoApprove:set', { threadId, taskId, enabled }),
+  getTaskAutoMerge: (
+    threadId: string,
+    taskId: string,
+  ): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke('threads:tasks:autoMerge:get', { threadId, taskId }),
+  setTaskAutoMerge: (
+    threadId: string,
+    taskId: string,
+    enabled: boolean,
+  ): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke('threads:tasks:autoMerge:set', { threadId, taskId, enabled }),
   getTaskMinApprovals: (
     threadId: string,
     taskId: string,

@@ -20,7 +20,9 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -41,6 +43,7 @@ import com.bytequay.app.service.pr.PullRequestMergedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,8 +61,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -208,6 +213,80 @@ public class TaskService
             eventPublisher.publishEvent(new AutoApproveEnabledEvent(threadId, taskId));
         }
         return taskStore.isAutoApprove(taskId);
+    }
+
+    /** Read the task's auto-merge mode. */
+    public boolean isAutoMerge(String threadId, String taskId)
+    {
+        requireTask(threadId, taskId);
+        return taskStore.isAutoMerge(taskId);
+    }
+
+    /** Flip the task's auto-merge mode. Enabling it also turns on
+     *  auto-approve (merge can't happen before every earlier gate has
+     *  cleared anyway) and is only allowed while the task's latest recorded
+     *  plan reads risk=low and effort=small — checked once here, not
+     *  re-validated if the plan is later revised. Disabling never needs the
+     *  check. 409s if the plan doesn't (yet) qualify. */
+    public boolean setAutoMerge(String threadId, String taskId, boolean enabled)
+    {
+        requireTask(threadId, taskId);
+        if (enabled && !planQualifiesForAutoMerge(taskId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + "'s plan is not low-risk/small-effort — auto-merge is not allowed");
+        }
+        taskStore.setAutoMerge(taskId, enabled);
+        if (enabled) {
+            taskStore.setAutoApprove(taskId, true);
+            eventPublisher.publishEvent(new AutoApproveEnabledEvent(threadId, taskId));
+        }
+        return taskStore.isAutoMerge(taskId);
+    }
+
+    /** {@code estimatedComplexity} values that count as "small effort" for
+     *  auto-merge eligibility. The brain writes this field as free text, not
+     *  against a strict enum — it's drifted onto risk's low/medium/high
+     *  vocabulary as often as the doc's own small/medium/large, so both
+     *  count. ponytail: allow-list of observed synonyms, widen if another
+     *  drifted value turns up. Frontend mirrors this in TaskRootNode.tsx's
+     *  {@code autoMergeEligible}. */
+    private static final Set<String> SMALL_EFFORT = Set.of("trivial", "small", "low");
+
+    /** Whether the task's most recently recorded plan reads risk=low and
+     *  effort=small — the one signal pair the plan-card UI already surfaces
+     *  (via {@code estimatedComplexity}/{@code riskLevel}, both free-form
+     *  strings the brain writes, not a strict enum). False (ineligible) when
+     *  no plan has been recorded yet. */
+    private boolean planQualifiesForAutoMerge(String taskId)
+    {
+        StageInstance plan = stageStore.findStagesByTask(taskId).stream()
+                .filter(s -> s.type() == StageType.PLAN_STAGE)
+                .reduce((first, second) -> second)
+                .orElse(null);
+        if (plan == null) {
+            return false;
+        }
+        JsonNode latest = stageStore.findEventsByStage(plan.id()).stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_RECORDED)
+                .reduce((first, second) -> second)
+                .map(e -> parseJson(e.payloadJson()))
+                .orElse(null);
+        if (latest == null) {
+            return false;
+        }
+        JsonNode signals = latest.path("signals");
+        return "low".equalsIgnoreCase(signals.path("riskLevel").asText(""))
+                && SMALL_EFFORT.contains(signals.path("estimatedComplexity").asText("").toLowerCase(Locale.ROOT));
+    }
+
+    private JsonNode parseJson(String json)
+    {
+        try {
+            return mapper.readTree(json == null ? "{}" : json);
+        }
+        catch (JsonProcessingException e) {
+            return mapper.createObjectNode();
+        }
     }
 
     /** Single task lookup. 404s if the task is missing OR if it

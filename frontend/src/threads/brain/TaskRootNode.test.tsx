@@ -109,4 +109,35 @@ describe('TaskRootNode', () => {
     expect(container.querySelector('.review-bar')).toBeNull();
     expect(container.querySelector('.review-locked')).toBeTruthy();
   });
+
+  it('disables the auto-merge switch for a plan that is not low-risk/small-effort', () => {
+    const onToggleAutoMerge = vi.fn();
+    const { container } = render(
+      <TaskRootNode plan={plan()} onToggleAutoMerge={onToggleAutoMerge} />); // default fixture: effort=medium
+    const input = container.querySelector('.plan-auto--disabled input') as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    fireEvent.click(input);
+    expect(onToggleAutoMerge).not.toHaveBeenCalled();
+  });
+
+  it('enables the auto-merge switch for a low-risk, small-effort plan', () => {
+    const onToggleAutoMerge = vi.fn();
+    const qualifying = plan({ signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 1, expectedGain: 'High', confidence: 'high' } });
+    const { container } = render(
+      <TaskRootNode plan={qualifying} onToggleAutoMerge={onToggleAutoMerge} />);
+    const input = container.querySelector('.plan-auto:not(.plan-auto--disabled) .plan-auto__sw input') as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    fireEvent.click(input);
+    expect(onToggleAutoMerge).toHaveBeenCalled();
+  });
+
+  it('also enables auto-merge when effort is written as "low" (brain drifts onto risk vocabulary)', () => {
+    // estimatedComplexity is free text, not enforced against the declared
+    // union — cast to simulate the real drifted value seen in production.
+    const effort = 'low' as unknown as PlanCardDto['signals']['estimatedComplexity'];
+    const qualifying = plan({ signals: { riskLevel: 'low', estimatedComplexity: effort, componentsCount: 1, expectedGain: 'High', confidence: 'high' } });
+    const { container } = render(<TaskRootNode plan={qualifying} onToggleAutoMerge={vi.fn()} />);
+    const input = container.querySelector('.plan-auto:not(.plan-auto--disabled) .plan-auto__sw input') as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+  });
 });

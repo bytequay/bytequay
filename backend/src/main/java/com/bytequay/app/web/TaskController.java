@@ -190,6 +190,40 @@ public class TaskController
     {
     }
 
+    /** GET the task's auto-merge mode. */
+    @GetMapping("/{taskId}/auto-merge")
+    public AutoMergeResponse getAutoMerge(
+            @PathVariable String threadId,
+            @PathVariable String taskId)
+    {
+        return new AutoMergeResponse(taskService.isAutoMerge(threadId, taskId));
+    }
+
+    /** Set the task's auto-merge mode. Enabling it also turns on
+     *  auto-approve, and is only allowed while the task's latest plan reads
+     *  risk=low and effort=small (409 otherwise). While on, the final merge
+     *  gate auto-approves too, on top of everything auto-approve already
+     *  skips. */
+    @PutMapping("/{taskId}/auto-merge")
+    public AutoMergeResponse setAutoMerge(
+            @PathVariable String threadId,
+            @PathVariable String taskId,
+            @RequestBody AutoMergeBody body)
+    {
+        boolean enabled = body != null && body.enabled();
+        return new AutoMergeResponse(taskService.setAutoMerge(threadId, taskId, enabled));
+    }
+
+    /** Body for {@link #setAutoMerge}. */
+    public record AutoMergeBody(boolean enabled)
+    {
+    }
+
+    /** Response for the auto-merge endpoints. */
+    public record AutoMergeResponse(boolean enabled)
+    {
+    }
+
     /** GET the task's minimum-approvals gate. */
     @GetMapping("/{taskId}/min-approvals")
     public MinApprovalsResponse getMinApprovals(

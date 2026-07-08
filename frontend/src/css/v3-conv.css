@@ -1317,6 +1317,11 @@
 .shell .plan-auto__track { display: block; width: 30px; height: 17px; border-radius: 999px; background: var(--border-strong); transition: background .16s; }
 .shell .plan-auto__knob { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform .16s; }
 .shell .plan-auto__sw input:checked + .plan-auto__track { background: var(--green); }
+/* A second switch (auto-merge) following auto-approve groups with a fixed gap
+   instead of both grabbing the free space via margin-left:auto. */
+.shell .plan-auto + .plan-auto { margin-left: 12px; }
+.shell .plan-auto--disabled { cursor: not-allowed; opacity: .5; }
+.shell .plan-auto--disabled .plan-auto__lbl { color: var(--text-4); }
 /* Minimum-approvals selector in the plan-card header. Sits at the right; when
    the auto-approve switch follows it, they group with a fixed gap instead of
    both grabbing the free space. */

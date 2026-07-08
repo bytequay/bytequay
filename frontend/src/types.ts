@@ -3819,6 +3819,19 @@ export type Bridge = {
     taskId: string,
     enabled: boolean,
   ) => Promise<{ enabled: boolean }>;
+  /** Read the task's auto-merge mode (on top of auto-approve, the final PR
+   *  merge itself also approves automatically). */
+  getTaskAutoMerge: (
+    threadId: string,
+    taskId: string,
+  ) => Promise<{ enabled: boolean }>;
+  /** Flip the task's auto-merge mode; returns the persisted value. Enabling
+   *  it 409s unless the task's latest plan reads risk=low/effort=small. */
+  setTaskAutoMerge: (
+    threadId: string,
+    taskId: string,
+    enabled: boolean,
+  ) => Promise<{ enabled: boolean }>;
   /** Read the task's minimum-approvals gate — write-permission approvals a
    *  shipped PR needs before it counts as merge-ready (0/1/2). */
   getTaskMinApprovals: (

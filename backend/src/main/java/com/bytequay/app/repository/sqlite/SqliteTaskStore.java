@@ -402,6 +402,19 @@ class SqliteTaskStore
     }
 
     @Override
+    public boolean isAutoMerge(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::isAutoMerge).orElse(false);
+    }
+
+    @Override
+    @Transactional
+    public void setAutoMerge(String taskId, boolean enabled)
+    {
+        mutate(taskId, entity -> entity.setAutoMerge(enabled));
+    }
+
+    @Override
     public int minApprovals(String taskId)
     {
         return tasks.findById(taskId).map(TaskEntity::getMinApprovals).orElse(0);

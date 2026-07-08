@@ -127,6 +127,15 @@ describe('TaskCodePage', () => {
     expect(screen.queryByText('Fix typos')).toBeNull();
   });
 
+  it('embedded drops its own conversation column — the host page already shows one', async () => {
+    mockBridge();
+    const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);
+    await screen.findAllByText('src/Foo.ts');
+    expect(container.querySelector('.diff-viewer__chat')).toBeNull();
+    // Files + diff still render.
+    expect(screen.getByText('Changed files')).toBeTruthy();
+  });
+
   it('no pending proposal → no PR panel and no review actions (read-only)', async () => {
     mockBridge();
     render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
@@ -154,6 +163,18 @@ describe('TaskCodePage', () => {
     expect(await screen.findByText('Pull request description')).toBeTruthy();
     await waitFor(() =>
       expect((screen.getByLabelText('Pull request title') as HTMLInputElement).value).toBe('Fix the typos'));
+  });
+
+  it('embedded hides the open-comments/ship actions too, even in review mode', async () => {
+    mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([OPEN_COMMENT]),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);
+    await screen.findAllByText('src/Foo.ts');
+    expect(screen.queryByText(/open comment/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Approve & ship/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();
   });
 
   it('defaults to the Code tab; Pull request tab shows a placeholder with no proposal', async () => {

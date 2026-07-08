@@ -27,7 +27,7 @@ import type { ReviewVerdict } from './SubmitReviewDrawer';
 
 /** The four work stages that share this page. */
 export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
-type StageTab = 'pr' | 'changes' | 'ci' | 'code';
+type StageTab = 'pr' | 'ci' | 'code';
 
 const PILL_LABEL: Record<StageKind, string> = {
   plan: 'PLAN',
@@ -71,7 +71,7 @@ export function StageDetailPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  tabs: { pr?: ReactNode; changes?: ReactNode; ci?: ReactNode; code?: ReactNode };
+  tabs: { pr?: ReactNode; ci?: ReactNode; code?: ReactNode };
   /** Optional per-tab count badge (e.g. changed-file count, PR number). */
   tabCounts?: Partial<Record<StageTab, { count?: number; countColor?: 'red' | 'acc' | 'muted' }>>;
   /** Sub-header under the tab strip, shown on the Changes tab (frame 6). */
@@ -97,16 +97,14 @@ export function StageDetailPage({
   openTabRequest?: { tab: StageTab; token: number };
 }) {
   // PR leads the strip and opens first (decision #48) — it's the primary
-  // artifact. The Code Diff tab renders the in-pane diff on every work stage;
-  // the CI Fix stage adds its own CI tab for the live run. Changes — the full
-  // file-tree/diff/comments/commits review surface — trails the strip; it
-  // used to be a separate page-navigation pill, now it's a tab like the
-  // others (R31), filling the pane exactly like every other tab — the
-  // conversation column and sidebar stay put. Stages without a PR tab (Plan,
-  // or a task with no PR yet) fall back to the first present.
+  // artifact; the CI Fix stage adds its own CI tab for the live run. Changes
+  // — the full file-tree/diff/comments/commits review surface — trails the
+  // strip; it used to be a separate page-navigation pill, now it's a tab
+  // like the others (R31), filling the pane exactly like every other tab —
+  // the conversation column and sidebar stay put. Stages without a PR tab
+  // (Plan, or a task with no PR yet) fall back to the first present.
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
-    ...(tabs.changes !== undefined ? [{ key: 'changes' as const, label: 'Code Diff', node: tabs.changes }] : []),
     ...(tabs.ci !== undefined ? [{ key: 'ci' as const, label: 'CI', node: tabs.ci }] : []),
     ...(tabs.code !== undefined ? [{ key: 'code' as const, label: 'Changes', node: tabs.code }] : []),
   ];
@@ -229,7 +227,7 @@ export function StageDetailPage({
                 active={active.key}
                 onSelect={setActiveTab}
               />
-              {paneMeta !== undefined && (active.key === 'changes' || active.key === 'ci') && (
+              {paneMeta !== undefined && (active.key === 'code' || active.key === 'ci') && (
                 <RightPane.MetaRow left={paneMeta.left} right={paneMeta.right} />
               )}
               <RightPane.Content flush={active.key === 'code'}>{active.node}</RightPane.Content>

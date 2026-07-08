@@ -23,10 +23,6 @@ function renderBrain(overrides: Partial<Parameters<typeof TaskBrainPage>[0]> = {
       task={{ pillLabel: 'TASK #142', title: 'Add cost-meter card', branch: 'feat/cost' }}
       sidebar={<aside data-testid="sidebar" />}
       conversation={<div data-testid="conv">brain feed</div>}
-      stageChips={[
-        { label: 'Plan', dot: 'done' },
-        { label: 'Dev', dot: 'active', current: true },
-      ]}
       composer={{ value: '', onChange: () => {}, onSubmit: () => {}, modePill: <span>Dev → claude</span> }}
       tabs={{
         pr: <div data-testid="pr-tab">pr content</div>,
@@ -37,14 +33,12 @@ function renderBrain(overrides: Partial<Parameters<typeof TaskBrainPage>[0]> = {
 }
 
 describe('TaskBrainPage', () => {
-  it('renders the task pill, title, branch, stage chips, and the model pill', () => {
+  it('renders the task pill, title, branch, and the model pill', () => {
     renderBrain();
     expect(screen.getByText('TASK #142')).toBeTruthy();
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
     expect(screen.getByText('feat/cost')).toBeTruthy();
     expect(screen.getByText('Dev → claude')).toBeTruthy();
-    // Stage chip strip with the current chip.
-    expect(document.querySelector('.stage-chips .chip.current')?.textContent).toContain('Dev');
   });
 
   it('renders a clickable PR chip when the task is shipped', () => {
@@ -75,18 +69,28 @@ describe('TaskBrainPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close task' }));
     expect(onClose).toHaveBeenCalledOnce();
-    // Close the pane → an inline Changes chip joins the top-bar button.
     fireEvent.click(screen.getByRole('button', { name: 'Toggle right pane' }));
     expect(document.querySelector('.inline-chips')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Changes' }).length).toBe(2);
+    expect(screen.getAllByRole('button', { name: 'Changes' }).length).toBe(1);
   });
 
-  it('the top-bar Changes button fires onOpenChanges', () => {
+  it('the inline Changes chip fires onOpenChanges', () => {
     const onOpenChanges = vi.fn();
     renderBrain({ onOpenChanges });
-    // Two "Changes": the top-bar button and the always-visible inline chip.
-    // Either fires onOpenChanges — click the first (top-bar) one.
-    fireEvent.click(screen.getAllByRole('button', { name: 'Changes' })[0]);
+    // Two "Changes" now: the pane's nav pill and the always-visible inline
+    // chip below the composer. Either fires onOpenChanges — scope to the
+    // inline one specifically.
+    const inlineChips = document.querySelector('.inline-chips') as HTMLElement;
+    fireEvent.click(within(inlineChips).getByRole('button', { name: 'Changes' }));
+    expect(onOpenChanges).toHaveBeenCalledOnce();
+  });
+
+  it('the pane\'s Changes nav pill fires onOpenChanges', () => {
+    const onOpenChanges = vi.fn();
+    renderBrain({ onOpenChanges });
+    const navPill = document.querySelector('.pane-tab--nav') as HTMLElement;
+    expect(navPill.textContent).toContain('Changes');
+    fireEvent.click(navPill);
     expect(onOpenChanges).toHaveBeenCalledOnce();
   });
 

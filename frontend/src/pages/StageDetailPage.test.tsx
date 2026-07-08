@@ -94,10 +94,10 @@ describe('StageDetailPage', () => {
     ci: <div data-testid="ci-tab">ci run</div>,
   };
 
-  it('renders the PR · Code Diff · CI strip (PR first)', () => {
+  it('renders the PR · Code Diff · CI strip (PR first), plus the Changes nav pill', () => {
     renderStage('ci-fix', { tabs: fullTabs });
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toEqual(['PR', 'Code Diff', 'CI']);
+    expect(labels).toEqual(['PR', 'Code Diff', 'CI', '⊟Changes']);
   });
 
   it('CI Fix leads with the PR tab; the CI run has its own tab', () => {

@@ -28,7 +28,6 @@ import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { usePersistentToggle } from '../ui/shell';
-import type { StageChip } from '../ui/shell';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import { PlanOverlay } from './PlanOverlay';
@@ -353,25 +352,6 @@ export function TaskBrainRoute({
   const openTab = useCallback((tab: 'pr') => {
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
   }, []);
-  // Top-bar breadcrumb: the three 🤖 stage-typed nodes (Plan/Development/
-  // Comments, R30) — Plan is always "current" here since this IS the brain page.
-  const devStage = stages.find(s => s.type === 'DEVELOPMENT_STAGE');
-  const commentsStage = stages.find(s => s.type === 'REVIEW_MONITOR_STAGE');
-  const stageChips: StageChip[] = [
-    { label: 'Plan', dot: 'done', current: true },
-    ...(devStage !== undefined ? [{
-      label: 'Development',
-      dot: (devStage.state === 'CLOSED' ? 'done' : devStage.state === 'ACTIVE' ? 'active' : undefined) as
-        StageChip['dot'],
-      onClick: () => onOpenStage(devStage.id),
-    }] : []),
-    ...(commentsStage !== undefined ? [{
-      label: 'Comments',
-      dot: (commentsStage.state === 'CLOSED' ? 'done' : commentsStage.state === 'ACTIVE' ? 'active' : undefined) as
-        StageChip['dot'],
-      onClick: () => onOpenStage(commentsStage.id),
-    }] : []),
-  ];
   const sidebar = (
     <TaskSidebar
       task={{
@@ -414,7 +394,6 @@ export function TaskBrainRoute({
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
       pr={pr}
       sidebar={sidebar}
-      stageChips={stageChips}
       openTabRequest={openTabRequest}
       conversation={conversation}
       composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Ask the brain, or steer the task…' }}

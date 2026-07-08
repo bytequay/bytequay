@@ -47,6 +47,9 @@
 }
 .shell.shell-rail > .sidebar {
   height: 100%;
+  /* The global left rail reads as one surface with the main content pane
+     (both var(--bg)), not the darker var(--bg-sidebar) per-surface panes use. */
+  background: var(--bg);
 }
 
 /* Folded: the nav body + footer aren't rendered and the rail shrinks to a

@@ -548,10 +548,14 @@ export default function TaskCodePage({
   const handleFilesResize = useCallback((clientX: number) => {
     const rect = bodyRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const next = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, clientX - rect.left - convWidth - 5));
+    // Embedded drops the conversation column entirely (see the render below),
+    // so the files column starts flush at the body's left edge — no conv
+    // column + its resize handle to subtract first.
+    const leadingOffset = embedded ? 0 : convWidth + 5;
+    const next = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, clientX - rect.left - leadingOffset));
     setFilesWidth(next);
     try { window.localStorage.setItem(FILES_WIDTH_KEY, String(next)); } catch { /* private mode */ }
-  }, [convWidth]);
+  }, [convWidth, embedded]);
 
   return (
     // .diff-viewer is position:absolute/inset:0 — give it a positioned,

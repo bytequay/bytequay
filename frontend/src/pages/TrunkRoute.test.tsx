@@ -32,9 +32,19 @@ function mockBridge(over: Record<string, unknown> = {}) {
       ],
     }),
     cutTaskNow: vi.fn().mockResolvedValue({ id: 'task-3', seq: 3, name: 'Cut now', status: 'RUNNING', branchName: null }),
+    // Every cut task folds, including the latest one — seq just orders them.
+    // createdAt matters: it's what buildTrunkTimeline sorts on, so both get
+    // a real value bracketing the planning round below (task-2 before it,
+    // task-1 after).
     listTasksForThread: vi.fn().mockResolvedValue([
-      { id: 'task-1', seq: 1, name: 'Add meter', status: 'RUNNING', branchName: 'feat/x', workingDir: '/repo/web' },
-      { id: 'task-2', seq: 2, name: 'Later', status: 'COMPLETED', branchName: null, workingDir: '/repo/web' },
+      {
+        id: 'task-1', seq: 2, name: 'Add meter', status: 'RUNNING', branchName: 'feat/x', workingDir: '/repo/web',
+        createdAt: '2026-06-24T10:00:10Z',
+      },
+      {
+        id: 'task-2', seq: 1, name: 'Later', status: 'COMPLETED', branchName: null, workingDir: '/repo/web',
+        createdAt: '2026-06-24T09:00:00Z',
+      },
     ]),
     sendTrunkMessage: vi.fn().mockResolvedValue(undefined),
     listBacklog: vi.fn().mockResolvedValue([]),
@@ -49,16 +59,19 @@ function mockBridge(over: Record<string, unknown> = {}) {
 describe('TrunkRoute', () => {
   it('mounts the V3 trunk on live thread data', async () => {
     mockBridge();
-    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     expect(screen.getByText('THREAD')).toBeTruthy();
     // The thread title shows in both the top bar and the sidebar's
     // current-thread row.
     expect((await screen.findAllByText('Backend cleanup')).length).toBeGreaterThanOrEqual(1);
-    // Planning message rendered into the conversation.
-    expect(await screen.findByText('plan the cleanup')).toBeTruthy();
-    // Active task card shows in the conversation AND the Tasks tab;
-    // the COMPLETED task lives in the Closed folder.
-    expect((await screen.findAllByText('Add meter')).length).toBeGreaterThanOrEqual(2);
+    // Both cut tasks fold by default — open them to reach the planning
+    // message underneath.
+    await screen.findAllByText('Add meter'); // wait for the mount-time load to settle
+    container.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
+    expect(screen.getByText('plan the cleanup')).toBeTruthy();
+    // Active task card shows in the (now-open) conversation fold AND the
+    // Tasks tab; its own fold bar label is a third occurrence.
+    expect(screen.getAllByText('Add meter').length).toBeGreaterThanOrEqual(2);
     // "Closed" shows as both the sub-tab label and the folder header.
     expect(screen.getAllByText('Closed').length).toBeGreaterThanOrEqual(1);
   });
@@ -66,26 +79,18 @@ describe('TrunkRoute', () => {
   it('renders task cuts as milestone nodes carrying the task card', async () => {
     mockBridge();
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    await screen.findByText('plan the cleanup');
-    // Each cut is a milestone peak (purple ◆ + "Task cut" kicker) embedding
-    // the existing task card — the same card used in the Tasks tab.
     const conv = container.querySelector('.conv') as HTMLElement;
     expect(conv).toBeTruthy();
+    // Every cut task folds by default now — open both folds to reach the
+    // milestone peak (purple ◆ + "Task cut" kicker) embedding the existing
+    // task card, the same card used in the Tasks tab.
+    await screen.findAllByText('Add meter');
+    conv.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
     const cut = conv.querySelector('.sp-ms--purple');
     expect(cut).toBeTruthy();
     expect(cut?.textContent).toContain('Task cut');
     expect(conv.querySelector('.sp-ms .task-card')).toBeTruthy();
     expect(conv.textContent).toContain('Add meter');
-  });
-
-  it('lists each task cut in the outline strip', async () => {
-    mockBridge();
-    const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    await screen.findByText('plan the cleanup');
-    const outline = container.querySelector('.sp-outline') as HTMLElement;
-    expect(outline).toBeTruthy();
-    // One chip per cut task.
-    expect(outline.querySelectorAll('.sp-ochip--task').length).toBe(2);
   });
 
   it('posts a trunk message from the composer', async () => {
@@ -102,8 +107,14 @@ describe('TrunkRoute', () => {
     mockBridge();
     const onOpenTask = vi.fn();
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={onOpenTask} />);
-    await screen.findByText('plan the cleanup');
-    const card = container.querySelector('.sp-ms .task-card') as HTMLElement;
+    // Every cut task folds by default now — open the folds to reach the
+    // task card underneath.
+    await screen.findAllByText('Add meter');
+    container.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
+    // Both task folds are now open, each with its own card — pick task-1's
+    // by its title, since the two folds carry different cards.
+    const card = Array.from(container.querySelectorAll('.sp-ms .task-card'))
+      .find(c => c.textContent?.includes('Add meter')) as HTMLElement;
     expect(card).toBeTruthy();
     fireEvent.click(card);
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
@@ -189,12 +200,21 @@ describe('TrunkRoute', () => {
   it('folds the round work and surfaces the headline reply', async () => {
     mockBridge();
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    // The last assistant text is the headline — always visible.
-    expect(await screen.findByText('Here is the plan.')).toBeTruthy();
-    // The thinking row folds into the round's work disclosure (hidden in
-    // Focused density).
+    // The planning round now lands inside the task fold it led up to — every
+    // cut task folds by default, including the latest. Open both folds to
+    // reach it.
+    await screen.findAllByText('Add meter');
+    container.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
+    // The last assistant text is the headline — visible once its fold opens.
+    expect(screen.getByText('Here is the plan.')).toBeTruthy();
+    // The thinking row folds into the round's own work disclosure (hidden in
+    // Focused density), nested one level deeper than the task fold.
     expect(screen.queryByText('weighing the approach')).toBeNull();
-    const work = container.querySelector('.sp-work__bar') as HTMLElement;
+    // '.sp-work__bar' is shared with the task fold's own bar (a TaskFold is
+    // a '.sp-work.sp-taskfold'), so scope to the round's own — the one whose
+    // immediate parent is a plain WorkFold, not a TaskFold.
+    const bars = Array.from(container.querySelectorAll('.sp-work__bar'));
+    const work = bars.find(b => !b.parentElement?.classList.contains('sp-taskfold')) as HTMLElement;
     expect(work).toBeTruthy();
     fireEvent.click(work);
     expect(screen.getByText('weighing the approach')).toBeTruthy();

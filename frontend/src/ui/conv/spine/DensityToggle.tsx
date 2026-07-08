@@ -13,24 +13,6 @@
  */
 
 /** Conversation density: Focused = your turns + headlines (work folded);
- *  Full = every round's internals expanded. */
+ *  Full = every round's internals expanded. The toggle UI is gone (always
+ *  Focused now) but the feeds still branch on this type internally. */
 export type Density = 'focused' | 'full';
-
-/**
- * Layer-4 control: the density toggle — one segmented control spanning the
- * scannable skeleton (Focused, default) and the complete transcript (Full).
- */
-export function DensityToggle({ value, onChange }: {
-  value: Density;
-  onChange: (next: Density) => void;
-}) {
-  return (
-    <div className="sp-density" role="group" aria-label="Conversation density">
-      <span className="sp-density__lbl">Density</span>
-      <div className="sp-density__seg">
-        <button type="button" className={value === 'focused' ? 'on' : ''} onClick={() => onChange('focused')}>Focused</button>
-        <button type="button" className={value === 'full' ? 'on' : ''} onClick={() => onChange('full')}>Full</button>
-      </div>
-    </div>
-  );
-}

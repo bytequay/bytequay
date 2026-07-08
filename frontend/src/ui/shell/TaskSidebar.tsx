@@ -39,8 +39,9 @@ export function TaskSidebar({
   onOpenCode?: () => void;
   onOpenPr?: () => void;
   /** Force-switch the host page's own right-pane tab — the gate nodes
-   *  (Local review / Remote pull request / Merge-Close) use this. */
-  onOpenTab?: (tab: 'pr') => void;
+   *  (Local review / Remote pull request / Merge-Close) use this. `subTab`
+   *  additionally forces the PR tab's own Checks sub-tab (CI validation). */
+  onOpenTab?: (tab: 'pr', subTab?: 'checks') => void;
   /** Navigate to the task's brain page — the Root node in the live plan. */
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */

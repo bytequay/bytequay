@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { UserProfileDto } from '../../types';
 import type { LocalPRBundle } from '../../types/localPr';
 import { isLocalStatus } from '../../types/localPr';
@@ -42,7 +42,7 @@ export function PRView({
   bundle, capabilities, commentValue, onCommentChange, username,
   onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
   onRunTests, runTestsBusy = false, onResolveThread, onDismissThread,
-  onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction,
+  onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
 }: {
   bundle: LocalPRBundle;
   capabilities: PRCapabilities;
@@ -75,6 +75,10 @@ export function PRView({
   onRefresh: () => void;
   /** e.g. the standalone details page's "Review with agent →" affordance. */
   headerAction?: ReactNode;
+  /** Force-switches the header's own sub-tab (e.g. the live-plan rail's CI
+   *  validation node opens Checks in place) — a fresh `token` re-fires even
+   *  for a repeat click on the sub-tab that's already active. */
+  openSubTabRequest?: { subTab: PRHeaderTab; token: number };
 }) {
   const { pr, commits, timeline, checks, comments } = bundle;
   const local = isLocalStatus(pr.status);
@@ -125,6 +129,11 @@ export function PRView({
   };
 
   const [activeTab, setActiveTab] = useState<PRHeaderTab>('conversation');
+
+  useEffect(() => {
+    if (openSubTabRequest === undefined) return;
+    setActiveTab(openSubTabRequest.subTab);
+  }, [openSubTabRequest]);
 
   // The header's "Sync" button previously only re-fetched the local PR
   // bundle — the GitHub-native conversation feed (comments/review threads)

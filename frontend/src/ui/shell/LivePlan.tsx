@@ -130,8 +130,10 @@ export function LivePlan({
   onOpenCode?: () => void;
   onOpenPr?: () => void;
   /** Force-switch the host page's own right-pane tab (e.g. Local review /
-   *  Remote pull request / Merge-Close all open the PR tab in place, R27). */
-  onOpenTab?: (tab: 'pr') => void;
+   *  Remote pull request / Merge-Close all open the PR tab in place, R27).
+   *  `subTab` additionally forces the PR tab's own Checks sub-tab (CI
+   *  validation). */
+  onOpenTab?: (tab: 'pr', subTab?: 'checks') => void;
   /** Navigate to the task's brain page — the Root node uses this. */
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
@@ -144,7 +146,7 @@ export function LivePlan({
       case 'stage': onOpenStage?.(nav.stageId); break;
       case 'code': onOpenCode?.(); break;
       case 'pr': onOpenPr?.(); break;
-      case 'tab': onOpenTab?.(nav.tab); break;
+      case 'tab': onOpenTab?.(nav.tab, nav.subTab); break;
       case 'brain': onOpenBrain?.(); break;
       case 'run': onOpenRun?.(nav.runId); break;
       default: break;

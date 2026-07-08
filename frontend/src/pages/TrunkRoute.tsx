@@ -13,10 +13,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
-import { Callout, Conv, DensityToggle, EventRow, QueuedMessages, Thought, Working } from '../ui/conv';
+import { Callout, Conv, EventRow, QueuedMessages, Thought, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { useThreadStream } from '../threads/useThreadStream';
-import { usePersistentToggle } from '../ui/shell';
 import { TrunkFeed } from '../threads/TrunkFeed';
 import { parseToolCall } from '../threads/trunkTimeline';
 import { toTaskCard } from '../threads/taskCardData';
@@ -220,20 +219,12 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
     ? activity.summary
     : undefined;
 
-  // Conversation density (Focused default / Full), persisted per user and
-  // shared with the brain feed's toggle.
-  const { value: fullDensity, setValue: setFullDensity } = usePersistentToggle('bq.convDensityFull');
-  const density = fullDensity ? 'full' : 'focused';
-
   const conversation = (
     <Conv>
-      <div className="sp-controls">
-        <DensityToggle value={density} onChange={d => setFullDensity(d === 'full')} />
-      </div>
       <TrunkFeed
         messages={messages}
         tasks={tasks}
-        density={density}
+        density="focused"
         onOpenTask={onOpenTask}
         mergeReadyIds={mergeReadyIds}
         onAnswerQuestion={sendNow}

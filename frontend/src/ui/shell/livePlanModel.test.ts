@@ -210,7 +210,7 @@ describe('buildLivePlan', () => {
       task: { prNumber: 30, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
     expect(node(neverRanStillOpen, 'ci-validation').status).toBe('sleep');
-    expect(node(neverRanStillOpen, 'ci-validation').nav).toEqual({ kind: 'pr' });
+    expect(node(neverRanStillOpen, 'ci-validation').nav).toEqual({ kind: 'tab', tab: 'pr', subTab: 'checks' });
   });
 
   it('marks a live run\'s sub-row status by its own status, not the parent stage', () => {

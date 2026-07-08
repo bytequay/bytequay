@@ -80,37 +80,3 @@ export function TaskCutNode({
     </MilestoneNode>
   );
 }
-
-/** One chip in the outline strip. */
-export type OutlineChip = {
-  id: string;
-  icon?: ReactNode;
-  label: ReactNode;
-  /** A status pill on a task chip ("Foreground" / "Pending"). */
-  status?: string;
-  /** Status pill tone. */
-  statusTone?: 'fg' | 'pend';
-  tone?: 'task' | 'backlog' | 'plain';
-  onJump: () => void;
-};
-
-/**
- * Layer-4 control: the outline strip — one clickable chip per trunk output,
- * pinned under the top bar. Lets the user read the thread's *result* before
- * scrolling a message and jump to any milestone (the jump flashes it).
- */
-export function OutlineStrip({ chips }: { chips: OutlineChip[] }) {
-  if (chips.length === 0) return null;
-  return (
-    <div className="sp-outline">
-      <span className="sp-outline__lbl">Outputs</span>
-      {chips.map(c => (
-        <button type="button" key={c.id} className={`sp-ochip sp-ochip--${c.tone ?? 'plain'}`} onClick={c.onJump}>
-          {c.icon !== undefined && <span className="sp-ochip__di" aria-hidden>{c.icon}</span>}
-          <span>{c.label}</span>
-          {c.status !== undefined && <span className={`sp-ochip__st sp-ochip__st--${c.statusTone ?? 'pend'}`}>{c.status}</span>}
-        </button>
-      ))}
-    </div>
-  );
-}

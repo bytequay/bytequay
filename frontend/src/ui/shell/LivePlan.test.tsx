@@ -81,7 +81,16 @@ describe('LivePlan', () => {
     const onOpenTab = vi.fn();
     render(<LivePlan nodes={model()} onOpenTab={onOpenTab} />);
     fireEvent.click(screen.getByText('Local review'));
-    expect(onOpenTab).toHaveBeenCalledWith('pr');
+    expect(onOpenTab).toHaveBeenCalledWith('pr', undefined);
+  });
+
+  it('CI validation opens the PR tab\'s Checks sub-tab, not an external nav', () => {
+    const onOpenTab = vi.fn();
+    const onOpenPr = vi.fn();
+    render(<LivePlan nodes={model()} onOpenTab={onOpenTab} onOpenPr={onOpenPr} />);
+    fireEvent.click(screen.getByText('CI validation'));
+    expect(onOpenTab).toHaveBeenCalledWith('pr', 'checks');
+    expect(onOpenPr).not.toHaveBeenCalled();
   });
 
   it('disables future nodes that have nowhere to navigate', () => {

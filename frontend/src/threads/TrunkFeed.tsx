@@ -11,24 +11,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import {
-  ActivityStrip, Headline, OutlineStrip, Round, Spine, TaskCutNode, TaskFold, UserTurn, WorkFold,
+  ActivityStrip, Headline, Round, Spine, TaskCutNode, TaskFold, UserTurn, WorkFold,
 } from '../ui/conv';
-import type { Density, OutlineChip, ToolGroup } from '../ui/conv';
+import type { Density, TaskStatus, ToolGroup } from '../ui/conv';
 import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
 import { EventTimestamp } from '../ui/conv';
-import { taskLabel } from './taskLabel';
 import { cardStatus, toTaskCard } from './taskCardData';
+import { taskLabel } from './taskLabel';
 import {
   buildTrunkTimeline, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
 } from './trunkTimeline';
-import type { TrunkRound } from './trunkTimeline';
+import type { TrunkRound, TrunkSummary } from './trunkTimeline';
 import { PermissionCard } from './PermissionCard';
 import type { PermissionDecideHandler } from './PermissionCard';
+
+/** Short status word for a folded-but-not-done task's bar (tone 'running') —
+ *  it has no completion summary yet, so this previews *why* it's folded. */
+const FOLD_STATUS_LABEL: Record<TaskStatus, string> = {
+  shipped: 'in review', pending: 'queued', paused: 'paused',
+  errored: 'errored', foreground: 'in progress', closed: 'closed',
+};
 
 /** The raw tool-call input, for tools whose input the feed renders
  *  directly (AskUserQuestion's question/options payload). */
@@ -140,8 +146,7 @@ export function TrunkFeed({
   onDecidePermission?: PermissionDecideHandler;
 }) {
   const full = density === 'full';
-  const items = useMemo(() => buildTrunkTimeline(messages, tasks), [messages, tasks]);
-  const [flashId, setFlashId] = useState<string | null>(null);
+  const items = buildTrunkTimeline(messages, tasks);
 
   // The last AskUserQuestion with no user turn after it is still waiting
   // on the user — that one renders interactive; answered ones stay static.
@@ -156,104 +161,108 @@ export function TrunkFeed({
   }
   const ask: AskHandling = { pendingId: pendingAskId, onAnswer: onAnswerQuestion };
 
-  const jump = (id: string) => {
-    const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setFlashId(id);
-    window.setTimeout(() => setFlashId(cur => (cur === id ? null : cur)), 1200);
+  // Number autonomous rounds (R1, R2…) continuously across the whole feed,
+  // including rounds folded inside a completed-task block.
+  let autonomous = 0;
+  const renderRound = (round: TrunkRound): ReactNode => {
+    const tag = round.userTurn === null ? `R${(autonomous += 1)}` : undefined;
+    const work = trunkWork(round);
+    const headline = trunkHeadline(round);
+    // A question — or a permission prompt — awaiting the user must be
+    // visible without un-folding.
+    const holdsPendingAsk = ask.pendingId !== null && work.some(m => m.id === ask.pendingId);
+    const holdsPendingPermission = work.some(m => m.type === 'permission_request');
+    return (
+      <Round key={round.id} tag={tag}>
+        {round.userTurn !== null && (
+          <UserTurn text={extractText(round.userTurn.contentJson)} timestamp={<EventTimestamp iso={round.userTurn.ts} />} />
+        )}
+        {work.length > 0 && (
+          <WorkFold
+            meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`}
+            forceOpen={full || holdsPendingAsk || holdsPendingPermission}
+          >
+            {renderWork(work, full, ask, onDecidePermission)}
+          </WorkFold>
+        )}
+        {headline !== null && (
+          <Headline who="Agent" body={extractText(headline.contentJson)} timestamp={<EventTimestamp iso={headline.ts} />} />
+        )}
+      </Round>
+    );
+  };
+  const renderCut = (t: WorkUnitTaskDto): ReactNode => {
+    const card = toTaskCard(t, mergeReadyIds?.has(t.id) ?? false);
+    return (
+      <TaskCutNode
+        key={t.id}
+        id={`cut-${t.id}`}
+        title={card.title}
+        status={card.status}
+        branch={card.branch}
+        createdLabel={card.createdLabel}
+        prNumber={card.prNumber}
+        mergeReady={card.mergeReady}
+        pr={card.pr}
+        onOpen={() => onOpenTask(t.id)}
+      />
+    );
   };
 
-  const chips: OutlineChip[] = items
-    .filter((it): it is Extract<typeof it, { kind: 'cut' }> => it.kind === 'cut')
-    .map(({ cut }) => ({
-      id: `cut-${cut.task.id}`,
-      icon: '◆',
-      label: taskLabel(cut.task),
-      tone: 'task' as const,
-      status: cut.task.status === 'PENDING' ? 'Pending' : cardStatus(cut.task.status) === 'foreground' ? 'Foreground' : undefined,
-      statusTone: cut.task.status === 'PENDING' ? ('pend' as const) : ('fg' as const),
-      onJump: () => jump(`cut-${cut.task.id}`),
-    }));
-
-  // Memoized so a streaming trailer update doesn't rebuild the spine
-  // nodes — identical element references let React skip reconciling
-  // the whole feed on every chunk.
-  const nodes: ReactNode[] = useMemo(() => {
-    // Number autonomous rounds (R1, R2…) continuously across the whole feed,
-    // including rounds folded inside a completed-task block.
-    let autonomous = 0;
-    const renderRound = (round: TrunkRound): ReactNode => {
-      const tag = round.userTurn === null ? `R${(autonomous += 1)}` : undefined;
-      const work = trunkWork(round);
-      const headline = trunkHeadline(round);
-      // A question — or a permission prompt — awaiting the user must be
-      // visible without un-folding.
-      const holdsPendingAsk = ask.pendingId !== null && work.some(m => m.id === ask.pendingId);
-      const holdsPendingPermission = work.some(m => m.type === 'permission_request');
-      return (
-        <Round key={round.id} tag={tag}>
-          {round.userTurn !== null && (
-            <UserTurn text={extractText(round.userTurn.contentJson)} timestamp={<EventTimestamp iso={round.userTurn.ts} />} />
-          )}
-          {work.length > 0 && (
-            <WorkFold
-              meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`}
-              forceOpen={full || holdsPendingAsk || holdsPendingPermission}
-            >
-              {renderWork(work, full, ask, onDecidePermission)}
-            </WorkFold>
-          )}
-          {headline !== null && (
-            <Headline who="Agent" body={extractText(headline.contentJson)} timestamp={<EventTimestamp iso={headline.ts} />} />
-          )}
-        </Round>
-      );
-    };
-    const renderCut = (t: WorkUnitTaskDto): ReactNode => {
-      const card = toTaskCard(t, mergeReadyIds?.has(t.id) ?? false);
-      return (
-        <TaskCutNode
-          key={t.id}
-          id={`cut-${t.id}`}
-          flash={flashId === `cut-${t.id}`}
-          title={card.title}
-          status={card.status}
-          branch={card.branch}
-          createdLabel={card.createdLabel}
-          prNumber={card.prNumber}
-          mergeReady={card.mergeReady}
-          pr={card.pr}
-          onOpen={() => onOpenTask(t.id)}
-        />
-      );
-    };
-
-    // Group each maximal run of items that ENDS at a completion summary into one
-    // foldable "Task N · done" block (collapsed by default). Items after the last
-    // summary — the current, unfinished work — render ungrouped.
-    const out: ReactNode[] = [];
-    let block: ReactNode[] = [];
-    for (const item of items) {
-      if (item.kind === 'summary') {
-        const s = item.summary;
-        out.push(
-          <TaskFold key={`sum-${s.id}`} seq={s.taskSeq} summary={s.text} forceOpen={full}>
-            {block}
-            {s.text.trim().length > 0 && <Headline who="Agent" body={s.text} />}
-          </TaskFold>,
-        );
-        block = [];
-        continue;
-      }
-      block.push(item.kind === 'cut' ? renderCut(item.cut.task) : renderRound(item.round));
+  // Segment the trunk by CUT events, not by task completion: each segment is
+  // the planning conversation that led up to a cut, plus the cut card
+  // itself, and it folds the instant the cut happens — regardless of how
+  // long the resulting task takes to finish, and with no "current task stays
+  // open" exception: every cut folds immediately, including the most recent
+  // one. That's what the trunk actually does: talk until the work is clear
+  // enough to cut, cut it (the boundary), then start fresh on whatever comes
+  // next. Folding on completion timing instead (the old approach) breaks
+  // under concurrent tasks — a later task is routinely cut, and does its own
+  // work, before an earlier one's completion summary finally lands, which
+  // buried the later task's cut inside the earlier one's collapsed fold,
+  // invisible until you happened to expand exactly that one. Cut order has
+  // no such ambiguity: cuts are strictly ordered events regardless of how
+  // long each resulting task takes afterward. Only the trailing segment
+  // after the LAST cut — conversation that hasn't itself produced a cut yet
+  // — stays unfolded.
+  const summaryByTaskId = new Map<string, TrunkSummary>();
+  for (const item of items) {
+    if (item.kind === 'summary' && item.summary.taskId !== null) {
+      summaryByTaskId.set(item.summary.taskId, item.summary);
     }
-    out.push(...block);
-    return out;
-  }, [items, full, flashId, onOpenTask, mergeReadyIds, ask, onDecidePermission]);
+  }
+
+  const nodes: ReactNode[] = [];
+  let segment: ReactNode[] = [];
+  for (const item of items) {
+    if (item.kind === 'summary') continue;
+    if (item.kind === 'round') {
+      segment.push(renderRound(item.round));
+      continue;
+    }
+    const { task } = item.cut;
+    const cutCard = renderCut(task);
+    const s = summaryByTaskId.get(task.id);
+    nodes.push(
+      <TaskFold
+        key={`fold-${task.id}`}
+        title={taskLabel(task)}
+        tone={s !== undefined ? 'done' : 'running'}
+        summary={s?.text}
+        statusLabel={FOLD_STATUS_LABEL[cardStatus(task.status)]}
+        forceOpen={full}
+      >
+        {segment}
+        {cutCard}
+        {s !== undefined && s.text.trim().length > 0 && <Headline who="Agent" body={s.text} />}
+      </TaskFold>,
+    );
+    segment = [];
+  }
+  nodes.push(...segment);
 
   return (
     <>
-      <OutlineStrip chips={chips} />
       <Spine>{nodes}</Spine>
       {trailer}
     </>

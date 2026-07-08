@@ -22,12 +22,14 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -63,8 +65,9 @@ class TestPRPublishService
     private final PullRequestRepository pullRequests = mock(PullRequestRepository.class);
     private final PatResolver patResolver = mock(PatResolver.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final PRPublishService service =
-            new PRPublishService(prService, taskStore, git, pullRequests, patResolver, brainReview);
+            new PRPublishService(prService, taskStore, git, pullRequests, patResolver, brainReview, phaseMachine);
 
     private PR pr(String status)
     {
@@ -119,6 +122,7 @@ class TestPRPublishService
         verify(taskStore).linkPullRequest("task1", 145, "draft");
         verify(taskStore).linkTaskToPr("task1", "acme/widget#145");
         verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
+        verify(phaseMachine).observe("task1", TaskPhase.PUSHED_AWAITING_CI, "local_pr_pushed");
         assertThat(result).isSameAs(flipped);
     }
 

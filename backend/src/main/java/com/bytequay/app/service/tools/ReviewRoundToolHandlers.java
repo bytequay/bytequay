@@ -75,7 +75,8 @@ public class ReviewRoundToolHandlers
         stageStore.saveReviewComment(new ReviewComment(
                 comment.id(), comment.taskId(), comment.file(), comment.line(), comment.body(),
                 comment.createdAt(), comment.source(), comment.remoteLink(), comment.resolved(),
-                comment.remoteCommentId(), comment.roundId(), body, Instant.now()));
+                comment.remoteCommentId(), comment.roundId(), body, Instant.now(),
+                comment.side(), comment.startLine(), comment.startSide()));
         return ToolOutcome.Completed.ok("Drafted reply on comment " + commentId);
     }
 }

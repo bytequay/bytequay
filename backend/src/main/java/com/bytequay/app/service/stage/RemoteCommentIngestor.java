@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
 import com.bytequay.app.domain.PullRequestDetail.ReviewMessage;
@@ -94,6 +95,7 @@ public class RemoteCommentIngestor
             if (messages == null) {
                 continue;
             }
+            String side = DiffSide.normalize(thread.side());
             for (ReviewMessage message : messages) {
                 saveIfNew(taskId, discussionLink(repoFullName, prNumber, message.githubId()),
                         new ReviewComment(
@@ -109,7 +111,10 @@ public class RemoteCommentIngestor
                                 message.githubId(),
                                 null,
                                 null,
-                                null));
+                                null,
+                                side,
+                                thread.startLine(),
+                                thread.startLine() == null ? null : DiffSide.normalizeOptional(thread.startSide(), side)));
             }
         }
     }
@@ -140,7 +145,10 @@ public class RemoteCommentIngestor
                             item.githubId(),
                             null,
                             null,
-                            null));
+                            null,
+                            DiffSide.RIGHT,
+                            /* startLine */ null,
+                            /* startSide */ null));
         }
     }
 

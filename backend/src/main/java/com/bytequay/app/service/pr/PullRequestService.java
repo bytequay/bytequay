@@ -16,6 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergePullRequestCommand;
@@ -90,7 +91,6 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestService
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
-    private static final String RIGHT = "RIGHT";
     // How many V53-backfill PRs to re-fetch per sync tick. A bounded
     // batch keeps the rate-limit cost predictable — once the table is
     // backfilled the query returns 0 and this loop is free.
@@ -1059,7 +1059,7 @@ public class PullRequestService
         requireNotBlank(path, "path must not be blank");
         requireNotBlank(commitId, "commitId must not be blank");
 
-        String resolvedSide = normalizeSide(side);
+        String resolvedSide = DiffSide.normalize(side);
         // Multi-line range: validate startLine sits before line on the
         // same side. We accept null startSide and default it to the end
         // side, matching GitHub's UX.
@@ -1071,7 +1071,7 @@ public class PullRequestService
                         "startLine must be ≤ line for a multi-line comment");
             }
             resolvedStartLine = startLine;
-            resolvedStartSide = normalizeOptionalSide(startSide, resolvedSide);
+            resolvedStartSide = DiffSide.normalizeOptional(startSide, resolvedSide);
         }
         gitHub.createInlineReviewComment(pat, parseRef(repo, number),
                 body, path, line, resolvedSide, commitId,
@@ -1663,16 +1663,6 @@ public class PullRequestService
             }
         }
         return derived;
-    }
-
-    private static String normalizeSide(String side)
-    {
-        return side == null || side.isBlank() ? RIGHT : side.toUpperCase(Locale.ROOT);
-    }
-
-    private static String normalizeOptionalSide(String side, String defaultSide)
-    {
-        return side == null || side.isBlank() ? defaultSide : side.toUpperCase(Locale.ROOT);
     }
 
     private void invalidatePullRequestDetail(String repo, int number)

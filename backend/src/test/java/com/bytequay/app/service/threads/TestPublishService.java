@@ -1310,7 +1310,8 @@ class TestPublishService
     {
         return new ReviewComment(
                 UUID.randomUUID(), taskId, "src/Foo.java", 12, "fix this",
-                Instant.now(), ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null);
+                Instant.now(), ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null,
+                "RIGHT", null, null);
     }
 
     private static Notification parkedApprovePr(

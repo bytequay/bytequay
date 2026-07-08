@@ -284,7 +284,8 @@ class TestPRPublishService
     private static PRComment comment(Instant resolvedAt, Instant dismissedAt)
     {
         return new PRComment("cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, null, null);
+                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, null, null,
+                "RIGHT", null, null);
     }
 
     private static PRCheck check(Instant startedAt, String status)
@@ -492,7 +493,8 @@ class TestPRPublishService
     private static PRComment draft(String id, String scope, String filePath, Integer lineNumber, String body)
     {
         return new PRComment(id, "pr-ext", PRComment.ORIGIN_LOCAL, scope,
-                filePath, lineNumber, "you", body, NOW, null, null, null, null, null);
+                filePath, lineNumber, "you", body, NOW, null, null, null, null, null,
+                "RIGHT", null, null);
     }
 
     @Test

@@ -199,6 +199,9 @@ public class PRRecordToolHandlers
                     args.scope(),
                     args.filePath(),
                     args.lineNumber(),
+                    /* side */ null,
+                    /* startLine */ null,
+                    /* startSide */ null,
                     author,
                     args.body(),
                     /* parentCommentId */ null);

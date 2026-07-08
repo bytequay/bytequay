@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.AttentionReason;
+import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PR.PRSyncSnapshot;
@@ -269,6 +270,9 @@ class SqlitePRStore
         e.setStrippedOnPushAtMs(epochOrNull(comment.strippedOnPushAt()));
         e.setParentCommentId(comment.parentCommentId());
         e.setPublishedAtMs(epochOrNull(comment.publishedAt()));
+        e.setSide(DiffSide.normalize(comment.side()));
+        e.setStartLine(comment.startLine());
+        e.setStartSide(comment.startSide());
         return toDomain(comments.save(e));
     }
 
@@ -436,7 +440,10 @@ class SqlitePRStore
                 instantOrNull(e.getDismissedAtMs()),
                 instantOrNull(e.getStrippedOnPushAtMs()),
                 e.getParentCommentId(),
-                instantOrNull(e.getPublishedAtMs()));
+                instantOrNull(e.getPublishedAtMs()),
+                e.getSide(),
+                e.getStartLine(),
+                e.getStartSide());
     }
 
     private static Long epochOrNull(Instant instant)

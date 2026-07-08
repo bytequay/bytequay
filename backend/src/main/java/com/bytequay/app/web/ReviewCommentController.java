@@ -56,7 +56,8 @@ public class ReviewCommentController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "request body is required");
         }
         int line = body.line() == null ? 0 : body.line();
-        return ReviewCommentDto.from(reviewComments.add(taskId, body.file(), line, body.body()));
+        return ReviewCommentDto.from(reviewComments.add(
+                taskId, body.file(), line, body.side(), body.startLine(), body.startSide(), body.body()));
     }
 
     @GetMapping("/api/tasks/{taskId}/review-comments")

@@ -122,7 +122,7 @@ class TestBrainToolHandlers
         String taskId = seedTask();
         stageStore.saveReviewComment(new ReviewComment(
                 null, taskId, "src/Foo.java", 12, "nit", Instant.parse("2026-06-20T10:00:00Z"),
-                ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null));
+                ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null, "RIGHT", null, null));
 
         ToolOutcome.Completed all = completed(tools.listUnresolvedComments(
                 new UnresolvedCommentsArgs(taskId, null), CALL));

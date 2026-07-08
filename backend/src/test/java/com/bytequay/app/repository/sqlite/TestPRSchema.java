@@ -147,7 +147,7 @@ class TestPRSchema
         PRComment comment = prStore.saveComment(new PRComment(
                 UUID.randomUUID().toString(), pr.id(), PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
                 null, null, "you", "note", Instant.parse("2026-07-01T00:00:00Z"),
-                null, null, null, null, null));
+                null, null, null, null, null, "RIGHT", null, null));
 
         assertThat(prStore.commitsFor(pr.id())).containsExactly(commit);
         assertThat(prStore.timelineFor(pr.id())).containsExactly(event);

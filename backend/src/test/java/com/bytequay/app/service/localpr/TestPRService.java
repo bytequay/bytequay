@@ -153,9 +153,41 @@ class TestPRService
 
         assertThatThrownBy(() -> service.addComment(
                 "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
-                /* filePath */ null, /* lineNumber */ null, "you", "body", null))
+                /* filePath */ null, /* lineNumber */ null, null, null, null, "you", "body", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("filePath");
+    }
+
+    @Test
+    void addCommentAnchorsToTheRemovedSideAndDefaultsBlankSideToRight()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment onLeft = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 12, "left", null, null, "you", "this line was removed", null);
+        assertThat(onLeft.side()).isEqualTo("LEFT");
+
+        PRComment blank = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 12, null, null, null, "you", "no side given", null);
+        assertThat(blank.side()).isEqualTo("RIGHT");
+    }
+
+    @Test
+    void addCommentBuildsAMultiLineRangeWhenStartLineDiffers()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment range = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 15, "RIGHT", 12, null, "you", "spans a few lines", null);
+
+        assertThat(range.startLine()).isEqualTo(12);
+        // startSide defaults to the end side when omitted.
+        assertThat(range.startSide()).isEqualTo("RIGHT");
     }
 
     @Test
@@ -209,7 +241,7 @@ class TestPRService
     {
         PRComment comment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "note", NOW, null, null, null, null, null);
+                "you", "note", NOW, null, null, null, null, null, "RIGHT", null, null);
         when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
         when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -224,7 +256,7 @@ class TestPRService
     {
         PRComment comment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "note", NOW, null, null, null, null, null);
+                "you", "note", NOW, null, null, null, null, null, "RIGHT", null, null);
         when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
         when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -252,7 +284,8 @@ class TestPRService
                 /* localOnly */ true, /* strippedOnPushAt */ null, NOW, null, /* remoteEventId */ null);
         PRComment localComment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "note", NOW, null, /* dismissedAt */ null, /* strippedOnPushAt */ null, null, null);
+                "you", "note", NOW, null, /* dismissedAt */ null, /* strippedOnPushAt */ null, null, null,
+                "RIGHT", null, null);
         when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(localEvent));
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(localComment));
 
@@ -298,7 +331,7 @@ class TestPRService
                 "ev1", "pr1", PRTimelineEntry.TYPE_COMMIT, "claude-code", true, null, NOW, null, null);
         PRComment c = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
-                "you", "n", NOW, null, null, null, null, null);
+                "you", "n", NOW, null, null, null, null, null, "RIGHT", null, null);
         when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(e, e));
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(c));
 

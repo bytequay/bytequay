@@ -42,6 +42,15 @@ class PrCommentEntity
     @Column(name = "line_number")
     private Integer lineNumber;
 
+    @Column(name = "side", nullable = false)
+    private String side = "RIGHT";
+
+    @Column(name = "start_line")
+    private Integer startLine;
+
+    @Column(name = "start_side")
+    private String startSide;
+
     @Column(name = "author", nullable = false)
     private String author;
 
@@ -83,6 +92,15 @@ class PrCommentEntity
 
     Integer getLineNumber() { return lineNumber; }
     void setLineNumber(Integer lineNumber) { this.lineNumber = lineNumber; }
+
+    String getSide() { return side; }
+    void setSide(String side) { this.side = side; }
+
+    Integer getStartLine() { return startLine; }
+    void setStartLine(Integer startLine) { this.startLine = startLine; }
+
+    String getStartSide() { return startSide; }
+    void setStartSide(String startSide) { this.startSide = startSide; }
 
     String getAuthor() { return author; }
     void setAuthor(String author) { this.author = author; }

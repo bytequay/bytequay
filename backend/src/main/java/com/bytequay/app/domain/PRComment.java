@@ -24,6 +24,13 @@ import java.time.Instant;
  * {@code lineNumber} null) or {@code file-line} (inline). {@code
  * parentCommentId} self-references for a single-reply thread.
  *
+ * <p>{@code side}/{@code startLine}/{@code startSide} mirror the same
+ * fields on the remote PR review-comment path (V28): {@code side} is
+ * {@link DiffSide#LEFT} or {@link DiffSide#RIGHT}, defaulting to RIGHT for
+ * every comment that predates this concept; {@code startLine}/{@code
+ * startSide} are non-null only for a multi-line range, and null for a
+ * single-line comment.
+ *
  * <p>Overlaps the existing unified {@code review_comment} store (V116); the
  * two are reconciled when the Code Diff / PR comment UI is wired.
  */
@@ -41,7 +48,10 @@ public record PRComment(
         Instant dismissedAt,
         Instant strippedOnPushAt,
         String parentCommentId,
-        Instant publishedAt)
+        Instant publishedAt,
+        String side,
+        Integer startLine,
+        String startSide)
 {
     public static final String ORIGIN_LOCAL = "local";
     public static final String ORIGIN_REMOTE = "remote";
@@ -54,7 +64,8 @@ public record PRComment(
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, when, dismissedAt, strippedOnPushAt, parentCommentId, publishedAt);
+                createdAt, when, dismissedAt, strippedOnPushAt, parentCommentId, publishedAt,
+                side, startLine, startSide);
     }
 
     /** Copy marked dismissed at {@code when} — closed without the agent
@@ -63,7 +74,8 @@ public record PRComment(
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, resolvedAt, when, strippedOnPushAt, parentCommentId, publishedAt);
+                createdAt, resolvedAt, when, strippedOnPushAt, parentCommentId, publishedAt,
+                side, startLine, startSide);
     }
 
     /** Copy stamped stripped-on-push — a local comment never migrates to
@@ -72,7 +84,8 @@ public record PRComment(
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, resolvedAt, dismissedAt, when, parentCommentId, publishedAt);
+                createdAt, resolvedAt, dismissedAt, when, parentCommentId, publishedAt,
+                side, startLine, startSide);
     }
 
     /** Copy stamped published-at — an {@code origin=external} draft that
@@ -82,6 +95,7 @@ public record PRComment(
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
-                createdAt, resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId, when);
+                createdAt, resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId, when,
+                side, startLine, startSide);
     }
 }

@@ -38,6 +38,15 @@ class ReviewCommentEntity
     @Column(name = "line", nullable = false)
     private int line;
 
+    @Column(name = "side", nullable = false)
+    private String side = "RIGHT";
+
+    @Column(name = "start_line")
+    private Integer startLine;
+
+    @Column(name = "start_side")
+    private String startSide;
+
     @Column(name = "body", nullable = false)
     private String body;
 
@@ -76,6 +85,15 @@ class ReviewCommentEntity
 
     int getLine() { return line; }
     void setLine(int line) { this.line = line; }
+
+    String getSide() { return side; }
+    void setSide(String side) { this.side = side; }
+
+    Integer getStartLine() { return startLine; }
+    void setStartLine(Integer startLine) { this.startLine = startLine; }
+
+    String getStartSide() { return startSide; }
+    void setStartSide(String startSide) { this.startSide = startSide; }
 
     String getBody() { return body; }
     void setBody(String body) { this.body = body; }

@@ -14,7 +14,10 @@
 package com.bytequay.app.beans.review;
 
 /** Body for adding a local review comment: anchor file + 1-based line + the
- *  markdown body. */
-public record AddReviewCommentRequest(String file, Integer line, String body)
+ *  markdown body. {@code side} is {@code LEFT}/{@code RIGHT} (null defaults
+ *  to RIGHT); {@code startLine}/{@code startSide} are set only for a
+ *  multi-line range. */
+public record AddReviewCommentRequest(
+        String file, Integer line, String side, Integer startLine, String startSide, String body)
 {
 }

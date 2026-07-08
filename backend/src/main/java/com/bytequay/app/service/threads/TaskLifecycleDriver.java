@@ -19,7 +19,6 @@ import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -111,6 +110,7 @@ public class TaskLifecycleDriver
     private final ThreadRegistry registry;
     private final StageStore stageStore;
     private final PRService prService;
+    private final TaskTerminalSealer sealer;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -126,7 +126,8 @@ public class TaskLifecycleDriver
             ReviewRoundService reviewRounds,
             ThreadRegistry registry,
             StageStore stageStore,
-            PRService prService)
+            PRService prService,
+            TaskTerminalSealer sealer)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -142,6 +143,7 @@ public class TaskLifecycleDriver
         this.registry = requireNonNull(registry, "registry is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.prService = requireNonNull(prService, "prService is null");
+        this.sealer = requireNonNull(sealer, "sealer is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -469,13 +471,9 @@ public class TaskLifecycleDriver
         }
         phaseMachine.observe(
                 task.id(), TaskPhase.COMPLETED, merged ? "pr_merged_observed" : "pr_closed_observed");
-        // Seal any still-open stage so the stage pages stop reporting live work
-        // after the task itself is terminal.
-        for (StageInstance stage : stageStore.findStagesByTask(task.id())) {
-            if (stage.state() != StageState.CLOSED) {
-                stageStore.closeStage(stage.id(), merged ? "pr_merged" : "pr_closed");
-            }
-        }
+        // Seal any still-open review round or stage so neither keeps
+        // rendering as live once the task itself is terminal.
+        sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");
         worktrees.reap(task);
         // A merged PR's head branch is dead weight — delete the remote copy
         // too (mirrors GitHub's auto-delete-head-branch). Skip on a plain

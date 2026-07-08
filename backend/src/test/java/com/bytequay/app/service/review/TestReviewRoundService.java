@@ -157,6 +157,30 @@ class TestReviewRoundService
     }
 
     @Test
+    void closeOpenRoundsCancelsTheRunAndClosesTheLiveRound()
+    {
+        ReviewRound live = round(ReviewRound.STATUS_ADDRESSING);
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(live));
+
+        service.closeOpenRounds(TASK_ID, "pr_merged");
+
+        verify(agentRuns).transition(live.runId(), AgentRun.STATUS_CANCELLED, "pr_merged");
+        verify(roundStore).save(argThat(r -> ReviewRound.STATUS_CLOSED.equals(r.status())
+                && live.id().equals(r.id())));
+    }
+
+    @Test
+    void closeOpenRoundsIsANoOpWhenTheTaskHasNoLiveRound()
+    {
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.empty());
+
+        service.closeOpenRounds(TASK_ID, "pr_merged");
+
+        verify(agentRuns, never()).transition(any(), any(), any());
+        verify(roundStore, never()).save(any());
+    }
+
+    @Test
     void recomputeStatsClassifiesEachCommentByItsResolvedAndReplyState()
     {
         UUID roundId = UUID.randomUUID();

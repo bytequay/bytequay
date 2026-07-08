@@ -95,13 +95,14 @@ class TestTaskServiceShipAndContinue
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
+    private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
 
     private final TaskService service = new TaskService(
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
             NOOP_PUBLISHER,
-            taskPhaseMachine);
+            taskPhaseMachine, sealer);
 
     @Test
     void shipOpensADraftPrKeepsTheWorktreeAndCutsNoSuccessor()
@@ -186,7 +187,7 @@ class TestTaskServiceShipAndContinue
                 git, pullRequests, patResolver,
                 registry, workspaces, notifications, mapper,
                 eventPublisher,
-                taskPhaseMachine);
+                taskPhaseMachine, sealer);
 
         when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
         Task shipped = task("task-1", "thread-1", 1L, "dev/task-1-fix-the-thing",
@@ -208,7 +209,7 @@ class TestTaskServiceShipAndContinue
                 new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
 
         verify(eventPublisher).publishEvent(
-                new PrPushedEvent("task-1", 42, "https://github.com/acme/widget/pull/42"));
+                new PrPushedEvent("task-1", "acme/widget", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test

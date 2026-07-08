@@ -252,6 +252,18 @@ class ReviewRoundServiceImpl
 
     @Override
     @Transactional
+    public void closeOpenRounds(String taskId, String reason)
+    {
+        roundStore.findLiveByTask(taskId).ifPresent(round -> {
+            if (round.runId() != null) {
+                agentRuns.transition(round.runId(), AgentRun.STATUS_CANCELLED, reason);
+            }
+            roundStore.save(round.withStatus(ReviewRound.STATUS_CLOSED));
+        });
+    }
+
+    @Override
+    @Transactional
     public ReviewRound approve(String roundId)
     {
         ReviewRound round = roundStore.findById(roundId)

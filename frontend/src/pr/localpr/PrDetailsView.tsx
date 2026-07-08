@@ -54,7 +54,7 @@ export function PrDetailsView<T extends DetailsPr>({
     confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
     addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen,
-    reviewOpen, setReviewOpen, prBusy, reviewFiles,
+    reviewOpen, setReviewOpen, prBusy, reviewFiles, reviewError,
     runLocalTests, testsBusy,
   } = useExternalPrActions(owner, repoName, pr.number);
 
@@ -95,6 +95,7 @@ export function PrDetailsView<T extends DetailsPr>({
       <LocalPrReviewScreen
         title={`Review · ${bundle.pr.title}`}
         files={reviewFiles}
+        error={reviewError}
         comments={bundle.comments}
         allowLocalComments={capabilities?.draftLocalComments === true}
         onAddComment={addLocalLineComment}

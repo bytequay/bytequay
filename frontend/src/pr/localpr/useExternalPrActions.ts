@@ -126,16 +126,19 @@ export function useExternalPrActions(owner: string, repo: string, number: number
   // opens the review (same lazy-load shape as the task surface's
   // getTaskCumulativeDiff — see TaskBrainRoute).
   const [reviewFiles, setReviewFiles] = useState<DiffFileDto[] | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   useEffect(() => {
     if (!reviewOpen) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (bridge?.fetchPrDiffFiles === undefined) return;
     let cancelled = false;
-    void bridge.fetchPrDiffFiles(repo, number)
+    setReviewFiles(null);
+    setReviewError(null);
+    void bridge.fetchPrDiffFiles(`${owner}/${repo}`, number)
       .then(list => { if (!cancelled) setReviewFiles(list); })
-      .catch(() => { if (!cancelled) setReviewFiles([]); });
+      .catch(e => { if (!cancelled) setReviewError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [reviewOpen, repo, number]);
+  }, [reviewOpen, owner, repo, number]);
 
   return {
     bundle, refresh, syncing, localPr, capabilities,
@@ -143,7 +146,7 @@ export function useExternalPrActions(owner: string, repo: string, number: number
     confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
     addLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen,
-    reviewOpen, setReviewOpen, prBusy, reviewFiles,
+    reviewOpen, setReviewOpen, prBusy, reviewFiles, reviewError,
     runLocalTests, testsBusy,
   };
 }

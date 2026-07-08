@@ -216,6 +216,8 @@ export function LocalPrReviewScreen({
                 />
               )}
             />
+          ) : error !== null ? (
+            <div className="diff-viewer__error">{error}</div>
           ) : files === null ? (
             <div className="diff-viewer__loading">Loading diff…</div>
           ) : (

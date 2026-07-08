@@ -33,8 +33,11 @@ public interface ReviewCommentService
     record SubmitResult(int submitted, String turnId) {}
 
     /** Add a new {@code LOCAL_USER} review comment on {@code taskId}'s diff
-     *  at {@code file}:{@code line}; returns the persisted row. */
-    ReviewComment add(String taskId, String file, int line, String body);
+     *  at {@code file}:{@code line}; returns the persisted row. {@code side}
+     *  is {@code LEFT}/{@code RIGHT} (null defaults to RIGHT); {@code
+     *  startLine}/{@code startSide} are set only for a multi-line range. */
+    ReviewComment add(
+            String taskId, String file, int line, String side, Integer startLine, String startSide, String body);
 
     /** Every review comment on the task, oldest-first, for the diff page. */
     List<ReviewComment> list(String taskId);

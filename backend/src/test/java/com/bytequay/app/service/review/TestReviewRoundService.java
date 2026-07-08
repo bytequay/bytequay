@@ -99,7 +99,8 @@ class TestReviewRoundService
         when(roundStore.findById(live.id())).thenReturn(Optional.of(live));
         ReviewComment stillOpen = new ReviewComment(
                 UUID.randomUUID(), TASK_ID, "src/Foo.java", 1, "nit", NOW,
-                ReviewCommentSource.REMOTE_REVIEWER, null, false, 1L, UUID.fromString(live.id()), null, null);
+                ReviewCommentSource.REMOTE_REVIEWER, null, false, 1L, UUID.fromString(live.id()), null, null,
+                "RIGHT", null, null);
         when(stageStore.findCommentsByRound(UUID.fromString(live.id()))).thenReturn(List.of(stillOpen));
 
         service.reconcile(task);
@@ -188,13 +189,16 @@ class TestReviewRoundService
         when(roundStore.findById(roundId.toString())).thenReturn(Optional.of(round));
         ReviewComment fixed = new ReviewComment(
                 UUID.randomUUID(), TASK_ID, "src/Foo.java", 1, "fix this", NOW,
-                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ true, 1L, roundId, null, null);
+                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ true, 1L, roundId, null, null,
+                "RIGHT", null, null);
         ReviewComment replied = new ReviewComment(
                 UUID.randomUUID(), TASK_ID, "src/Bar.java", 2, "why?", NOW,
-                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ true, 2L, roundId, "because", NOW);
+                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ true, 2L, roundId, "because", NOW,
+                "RIGHT", null, null);
         ReviewComment stillOpen = new ReviewComment(
                 UUID.randomUUID(), TASK_ID, "src/Baz.java", 3, "nit", NOW,
-                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ false, 3L, roundId, null, null);
+                ReviewCommentSource.REMOTE_REVIEWER, null, /* resolved */ false, 3L, roundId, null, null,
+                "RIGHT", null, null);
         when(stageStore.findCommentsByRound(roundId)).thenReturn(List.of(fixed, replied, stillOpen));
 
         service.recomputeStats(roundId.toString());
@@ -371,7 +375,7 @@ class TestReviewRoundService
                 commentId(idSuffix), TASK_ID, "Foo.java", 10, "please fix", createdAt,
                 ReviewCommentSource.REMOTE_REVIEWER,
                 "https://github.com/" + REPO + "/pull/" + PR_NUMBER + "#discussion_r" + idSuffix,
-                false, 0L, null, null, null);
+                false, 0L, null, null, null, "RIGHT", null, null);
     }
 
     private static ReviewComment draftedComment(String idSuffix, long remoteCommentId, String draftBody)
@@ -380,6 +384,6 @@ class TestReviewRoundService
                 commentId(idSuffix), TASK_ID, "Foo.java", 10, "please fix", NOW,
                 ReviewCommentSource.REMOTE_REVIEWER,
                 "https://github.com/" + REPO + "/pull/" + PR_NUMBER + "#discussion_r" + idSuffix,
-                false, remoteCommentId, null, draftBody, NOW);
+                false, remoteCommentId, null, draftBody, NOW, "RIGHT", null, null);
     }
 }

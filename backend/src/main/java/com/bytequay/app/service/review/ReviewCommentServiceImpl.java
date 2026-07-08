@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageInstance;
@@ -50,7 +51,8 @@ public class ReviewCommentServiceImpl
     }
 
     @Override
-    public ReviewComment add(String taskId, String file, int line, String body)
+    public ReviewComment add(
+            String taskId, String file, int line, String side, Integer startLine, String startSide, String body)
     {
         String taskIdValue = nullToEmpty(taskId).strip();
         String fileValue = nullToEmpty(file).strip();
@@ -67,6 +69,14 @@ public class ReviewCommentServiceImpl
         if (bodyValue.isEmpty()) {
             throw status(400, "body is required");
         }
+        String resolvedSide = DiffSide.normalize(side);
+        // Multi-line range: null unless a distinct startLine was given.
+        Integer resolvedStartLine = null;
+        String resolvedStartSide = null;
+        if (startLine != null && startLine != line) {
+            resolvedStartLine = startLine;
+            resolvedStartSide = DiffSide.normalizeOptional(startSide, resolvedSide);
+        }
         ReviewComment comment = new ReviewComment(
                 UUID.randomUUID(),
                 taskIdValue,
@@ -80,7 +90,10 @@ public class ReviewCommentServiceImpl
                 null,
                 null,
                 null,
-                null);
+                null,
+                resolvedSide,
+                resolvedStartLine,
+                resolvedStartSide);
         return stageStore.saveReviewComment(comment);
     }
 

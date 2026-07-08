@@ -93,7 +93,7 @@ class TestReviewRoundReconcileRealDb
                 UUID.randomUUID(), taskId, "Foo.java", 10, "please fix",
                 Instant.now().minus(Duration.ofMinutes(15)),
                 ReviewCommentSource.REMOTE_REVIEWER, "https://github.com/acme/widgets/pull/42#discussion_r1",
-                false, 1L, null, null, null));
+                false, 1L, null, null, null, "RIGHT", null, null));
 
         Task task = taskStore.findTaskById(taskId).orElseThrow();
         assertThatCode(() -> service.reconcile(task)).doesNotThrowAnyException();

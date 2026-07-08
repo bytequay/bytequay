@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
@@ -527,6 +528,9 @@ class PRServiceImpl
             String scope,
             String filePath,
             Integer lineNumber,
+            String side,
+            Integer startLine,
+            String startSide,
             String author,
             String body,
             String parentCommentId)
@@ -547,11 +551,20 @@ class PRServiceImpl
         else {
             throw new IllegalArgumentException("scope must be 'pr' or 'file-line'");
         }
+        String resolvedSide = DiffSide.normalize(side);
+        // Multi-line range: null unless a distinct startLine was given.
+        Integer resolvedStartLine = null;
+        String resolvedStartSide = null;
+        if (startLine != null && !startLine.equals(lineNumber)) {
+            resolvedStartLine = startLine;
+            resolvedStartSide = DiffSide.normalizeOptional(startSide, resolvedSide);
+        }
         Instant when = now();
         PRComment comment = store.saveComment(new PRComment(
                 UUID.randomUUID().toString(), pr.id(), origin, scope, filePath, lineNumber,
                 author, body, when, /* resolvedAt */ null, /* dismissedAt */ null,
-                /* strippedOnPushAt */ null, parentCommentId, /* publishedAt */ null));
+                /* strippedOnPushAt */ null, parentCommentId, /* publishedAt */ null,
+                resolvedSide, resolvedStartLine, resolvedStartSide));
         // PR-level comments show on the timeline; inline comments live on the
         // diff, so only a pr-scoped comment writes a timeline event.
         if (PRComment.SCOPE_PR.equals(scope)) {
@@ -577,7 +590,8 @@ class PRServiceImpl
                 UUID.randomUUID().toString(), pr.id(), PRComment.ORIGIN_REMOTE, PRComment.SCOPE_PR,
                 /* filePath */ null, /* lineNumber */ null, author, body, createdAt,
                 /* resolvedAt */ null, /* dismissedAt */ null, /* strippedOnPushAt */ null,
-                /* parentCommentId */ null, /* publishedAt */ null));
+                /* parentCommentId */ null, /* publishedAt */ null,
+                DiffSide.RIGHT, /* startLine */ null, /* startSide */ null));
         appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMENT, author, /* localOnly */ false, createdAt,
                 payload("commentId", comment.id()), remoteCommentId);
         notifyUpdated(pr.id());

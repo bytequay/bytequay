@@ -62,7 +62,7 @@ class TestReviewCommentService
     {
         when(stageStore.saveReviewComment(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        ReviewComment saved = service.add("task-1", "src/Foo.java", 42, "fix this");
+        ReviewComment saved = service.add("task-1", "src/Foo.java", 42, null, null, null, "fix this");
 
         ArgumentCaptor<ReviewComment> captor = ArgumentCaptor.forClass(ReviewComment.class);
         verify(stageStore).saveReviewComment(captor.capture());
@@ -81,9 +81,32 @@ class TestReviewCommentService
     @Test
     void addRejectsABlankBody()
     {
-        assertThatThrownBy(() -> service.add("task-1", "src/Foo.java", 1, "  "))
+        assertThatThrownBy(() -> service.add("task-1", "src/Foo.java", 1, null, null, null, "  "))
                 .isInstanceOf(ResponseStatusException.class);
         verify(stageStore, never()).saveReviewComment(any());
+    }
+
+    @Test
+    void addAnchorsToTheRemovedSideAndDefaultsBlankSideToRight()
+    {
+        when(stageStore.saveReviewComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ReviewComment onLeft = service.add("task-1", "src/Foo.java", 42, "left", null, null, "removed line");
+        assertThat(onLeft.side()).isEqualTo("LEFT");
+
+        ReviewComment blank = service.add("task-1", "src/Foo.java", 42, null, null, null, "no side given");
+        assertThat(blank.side()).isEqualTo("RIGHT");
+    }
+
+    @Test
+    void addBuildsAMultiLineRangeWhenStartLineDiffers()
+    {
+        when(stageStore.saveReviewComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ReviewComment range = service.add("task-1", "src/Foo.java", 45, "RIGHT", 40, null, "spans a few lines");
+
+        assertThat(range.startLine()).isEqualTo(40);
+        assertThat(range.startSide()).isEqualTo("RIGHT");
     }
 
     @Test
@@ -118,7 +141,8 @@ class TestReviewCommentService
         UUID roundId = UUID.randomUUID();
         ReviewComment comment = new ReviewComment(
                 id, "task-1", "src/Foo.java", 12, "nit", NOW, ReviewCommentSource.REMOTE_REVIEWER,
-                "https://github.com/octo/repo/pull/7#discussion_r1", false, 1001L, roundId, null, null);
+                "https://github.com/octo/repo/pull/7#discussion_r1", false, 1001L, roundId, null, null,
+                "RIGHT", null, null);
         when(stageStore.findReviewCommentById(id)).thenReturn(Optional.of(comment));
 
         service.resolve(id);
@@ -132,7 +156,7 @@ class TestReviewCommentService
         UUID id = UUID.randomUUID();
         ReviewComment comment = new ReviewComment(
                 id, "task-1", "src/Foo.java", 12, "note", NOW, ReviewCommentSource.LOCAL_USER,
-                null, false, null, /* roundId */ null, null, null);
+                null, false, null, /* roundId */ null, null, null, "RIGHT", null, null);
         when(stageStore.findReviewCommentById(id)).thenReturn(Optional.of(comment));
 
         service.resolve(id);
@@ -147,7 +171,7 @@ class TestReviewCommentService
         UUID openId = UUID.randomUUID();
         ReviewComment resolved = comment(resolvedId, "task-1", true);
         ReviewComment open = new ReviewComment(openId, "task-1", "src/Foo.java", 7, "rename it",
-                NOW, ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null);
+                NOW, ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null, "RIGHT", null, null);
         when(stageStore.findCommentsBySource("task-1", ReviewCommentSource.LOCAL_USER))
                 .thenReturn(List.of(resolved, open));
         UUID devStageId = UUID.randomUUID();
@@ -206,7 +230,7 @@ class TestReviewCommentService
     private static ReviewComment comment(UUID id, String taskId, boolean resolved)
     {
         return new ReviewComment(id, taskId, "src/Foo.java", 1, "body",
-                NOW, ReviewCommentSource.LOCAL_USER, null, resolved, null, null, null, null);
+                NOW, ReviewCommentSource.LOCAL_USER, null, resolved, null, null, null, null, "RIGHT", null, null);
     }
 
     private static StageInstance stage(UUID id, StageType type, StageState state)

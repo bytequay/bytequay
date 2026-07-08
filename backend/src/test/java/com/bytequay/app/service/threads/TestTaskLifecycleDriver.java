@@ -375,7 +375,8 @@ class TestTaskLifecycleDriver
             String id, String author, String body, Instant createdAt, Instant resolvedAt, Instant dismissedAt)
     {
         return new PRComment(id, "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, author, body, createdAt, resolvedAt, dismissedAt, null, null, null);
+                null, null, author, body, createdAt, resolvedAt, dismissedAt, null, null, null,
+                "RIGHT", null, null);
     }
 
     private static PullRequestDetail detail(CiStatus ci, boolean draft)

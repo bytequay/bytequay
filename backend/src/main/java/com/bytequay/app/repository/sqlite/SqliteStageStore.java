@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageEvent;
@@ -232,6 +233,9 @@ class SqliteStageStore
         entity.setDraftReplyBody(comment.draftReplyBody());
         entity.setDraftReplyCreatedAtMs(comment.draftReplyCreatedAt() == null
                 ? null : comment.draftReplyCreatedAt().toEpochMilli());
+        entity.setSide(DiffSide.normalize(comment.side()));
+        entity.setStartLine(comment.startLine());
+        entity.setStartSide(comment.startSide());
         comments.save(entity);
         return toComment(entity);
     }
@@ -400,6 +404,9 @@ class SqliteStageStore
                 e.getRemoteCommentId(),
                 e.getRoundId() == null ? null : UUID.fromString(e.getRoundId()),
                 e.getDraftReplyBody(),
-                Timestamps.instant(e.getDraftReplyCreatedAtMs()));
+                Timestamps.instant(e.getDraftReplyCreatedAtMs()),
+                e.getSide(),
+                e.getStartLine(),
+                e.getStartSide());
     }
 }

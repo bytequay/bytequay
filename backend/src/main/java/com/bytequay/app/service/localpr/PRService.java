@@ -182,13 +182,18 @@ public interface PRService
      *  count the push dialog surfaces before the user confirms. */
     int pendingStripCount(String prId);
 
-    /** Add a comment (PR-level or inline; local or remote origin). */
+    /** Add a comment (PR-level or inline; local or remote origin). {@code side}
+     *  is {@code LEFT}/{@code RIGHT} (defaults to RIGHT); {@code startLine}/
+     *  {@code startSide} are non-null only for a multi-line range. */
     PRComment addComment(
             String prId,
             String origin,
             String scope,
             String filePath,
             Integer lineNumber,
+            String side,
+            Integer startLine,
+            String startSide,
             String author,
             String body,
             String parentCommentId);

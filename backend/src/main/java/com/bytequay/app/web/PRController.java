@@ -359,6 +359,9 @@ public class PRController
                 body.scope(),
                 body.filePath(),
                 body.lineNumber(),
+                body.side(),
+                body.startLine(),
+                body.startSide(),
                 USER_AUTHOR,
                 body.body(),
                 body.parentCommentId()));

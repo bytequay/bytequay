@@ -36,6 +36,10 @@ import java.util.UUID;
  * @param roundId the {@code ReviewRound} this comment is grouped into, if any
  * @param draftReplyBody the round agent's drafted (unposted) reply, if any
  * @param draftReplyCreatedAt when the draft reply was recorded, if any
+ * @param side {@link DiffSide#LEFT} or {@link DiffSide#RIGHT} — defaults to
+ *             RIGHT for every comment that predates this concept
+ * @param startLine first line of a multi-line range, null for single-line
+ * @param startSide diff side of {@code startLine}, null for single-line
  */
 public record ReviewComment(
         UUID id,
@@ -50,6 +54,9 @@ public record ReviewComment(
         Long remoteCommentId,
         UUID roundId,
         String draftReplyBody,
-        Instant draftReplyCreatedAt)
+        Instant draftReplyCreatedAt,
+        String side,
+        Integer startLine,
+        String startSide)
 {
 }

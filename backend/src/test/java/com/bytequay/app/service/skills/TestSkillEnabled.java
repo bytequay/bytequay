@@ -14,6 +14,7 @@
 package com.bytequay.app.service.skills;
 
 import com.bytequay.app.domain.Skill;
+import com.bytequay.app.repository.SkillStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -41,6 +42,9 @@ class TestSkillEnabled
 {
     @Autowired
     private SkillService service;
+
+    @Autowired
+    private SkillStore store;
 
     @Test
     void newSkillIsEnabledByDefault()
@@ -82,7 +86,7 @@ class TestSkillEnabled
         Skill off = service.setEnabled(row.id(), false);
         assertThat(off.enabled()).isFalse();
 
-        Skill again = service.get(row.id());
+        Skill again = store.byId(row.id()).orElseThrow();
         assertThat(again.enabled()).isFalse();
 
         Skill back = service.setEnabled(row.id(), true);

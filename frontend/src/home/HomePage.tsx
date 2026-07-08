@@ -258,13 +258,13 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
 
       {/* ── Right panel: Your recent activity + Following activity ── */}
       <aside className="home-side">
-        <section className="home-side-section">
+        <section className="home-side-section home-side-section--recent-activity">
           <h3 className="home-side-section__title">Recent activity</h3>
           {events.length === 0 ? (
             <div className="hp-empty">No recent activity yet.</div>
           ) : (
             <div className="home-following-list">
-              {events.slice(0, 6).map((e, i) => (
+              {events.slice(0, 10).map((e, i) => (
                 <ActivityRow
                   key={i}
                   event={e}

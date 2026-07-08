@@ -44,6 +44,10 @@
 
 /* Right-panel sections: flat lists under small uppercase headers —
    the 240px panel reads as one surface, not stacked cards. */
+.home-side-section--recent-activity {
+  margin-top: var(--space-3);
+}
+
 .home-side-section__title {
   font-size: 10px;
   font-weight: 600;

@@ -840,6 +840,22 @@
 .shell .plan-node:disabled:hover { transform: none; }
 .shell .plan-node.sm { padding: 5px 9px; }
 .shell .plan-node.sm .pn-name { font-size: 11.5px; }
+/* A node with a phase ladder (Development) renders its expand/collapse
+   chevron inside the same pill as the nav button, sharing one border/
+   background instead of a separate box beside it. */
+.shell .plan-node.has-toggle { display: flex; align-items: stretch; padding: 0; }
+.shell .plan-node-nav {
+  display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px;
+  padding: 7px 10px; background: none; border: none; flex: 1; min-width: 0;
+  font: inherit; text-align: left; color: inherit; cursor: pointer;
+}
+.shell .plan-node-nav:disabled { cursor: default; }
+.shell .plan-node-toggle {
+  display: flex; align-items: center; justify-content: center; width: 22px; flex: none;
+  background: none; border: none; border-left: 1px solid var(--border);
+  color: var(--text-4); font-size: 11px; cursor: pointer; transition: color 0.15s;
+}
+.shell .plan-node-toggle:hover { color: var(--text-2); }
 /* Explicit purple, not the theme's --accent — some themes define --accent
    as blue, which made this render blue instead of purple. */
 .shell .plan-node.done { background: rgba(139, 92, 246, 0.14); border-color: rgba(139, 92, 246, 0.32); }
@@ -864,6 +880,9 @@
 .shell .plan-node.awaiting .pn-meta { color: var(--orange); opacity: 0.85; }
 .shell .plan-node.sleep .pn-glyph { color: var(--text-4); }
 .shell .plan-node.sleep .pn-name { color: var(--text-3); }
+/* A sleep node that's also disabled never ran and never will (its task is
+   already done) — gray it out instead of the normal clickable card look. */
+.shell .plan-node.sleep:disabled { background: var(--bg-hover); border-color: var(--border); }
 .shell .plan-node.future { background: transparent; border-color: transparent; opacity: 0.6; }
 .shell .plan-node.future .pn-glyph { color: var(--text-4); }
 .shell .plan-node.future .pn-name { color: var(--text-4); }
@@ -879,17 +898,6 @@
 /* Node-type styling (R26/R30): a gate opens an action surface and waits on
    the user, so it renders dashed — matching stage-phase-rail.html's `.nd.gate`. */
 .shell .plan-node.nt-gate { border-style: dashed; }
-
-/* A node with a phase ladder (Development) pairs its main .plan-node with a
-   separate chevron so navigate and expand/collapse don't share one click. */
-.shell .plan-node-row { display: flex; align-items: stretch; gap: 4px; }
-.shell .plan-node-row .plan-node { width: auto; flex: 1; min-width: 0; }
-.shell .plan-node-toggle {
-  display: flex; align-items: center; justify-content: center; width: 22px; flex: none;
-  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text-4); font-size: 11px; cursor: pointer; transition: all 0.15s;
-}
-.shell .plan-node-toggle:hover { border-color: var(--accent); color: var(--text-2); }
 
 .shell .plan-line { width: 2px; height: 14px; background: var(--border-mid); margin-left: 18px; }
 .shell .plan-line.dim { background: var(--border); }

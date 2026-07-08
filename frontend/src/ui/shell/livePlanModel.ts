@@ -382,7 +382,11 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       key: 'ci-validation', label: 'CI validation', status: ciValidationStatus,
       glyph: glyphFor(ciValidationStatus), meta: ciValidationMeta,
       placement: 'full', activeView: false, nodeType: 'auto',
-      nav: task.prNumber !== null ? { kind: 'pr' } : { kind: 'none' },
+      // 'sleep' + task terminal means CI validation never ran before the
+      // task finished (e.g. merged before any check reported) — nothing to
+      // show, so don't send the user to the PR page for it.
+      nav: task.prNumber !== null && !(ciValidationStatus === 'sleep' && task.terminal)
+        ? { kind: 'pr' } : { kind: 'none' },
     },
     {
       key: 'comments', label: 'Comments', status: commentsStat, glyph: '🤖',

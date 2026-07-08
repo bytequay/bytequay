@@ -261,6 +261,11 @@ export default function TaskCodePage({
   // ready), so keep the diff read-only and the ship toolbar hidden for it.
   const markReadyMode = proposal !== null && proposalAction === 'mark_ready';
   const reviewMode = proposal !== null && !markReadyMode;
+  // Embedded drops the Code/Pull request tab strip entirely — the host
+  // page's own PR tab already covers the PR description, so there's nothing
+  // for it to switch between except the one mark-ready panel, which just
+  // takes over in place of the diff rather than living behind a tab.
+  const effectivePaneTab = embedded ? (markReadyMode ? 'pr' : 'code') : paneTab;
 
   // The task's local PR. While it's in its local phase, this page allows
   // inline local review comments on any line — commenting must not depend
@@ -719,27 +724,29 @@ export default function TaskCodePage({
               switched by tabs that live inside the pane so the conversation
               + changed-files columns stay put. */}
           <main className="diff-viewer__pane">
-            <div className="diff-viewer__pane-tabs" role="tablist" aria-label="Code or pull request">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={paneTab === 'code'}
-                className={`diff-viewer__pane-tab${paneTab === 'code' ? ' diff-viewer__pane-tab--active' : ''}`}
-                onClick={() => setPaneTab('code')}
-              >
-                Code
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={paneTab === 'pr'}
-                className={`diff-viewer__pane-tab${paneTab === 'pr' ? ' diff-viewer__pane-tab--active' : ''}`}
-                onClick={() => setPaneTab('pr')}
-              >
-                Pull request
-              </button>
-            </div>
-            {paneTab === 'pr' ? (
+            {!embedded && (
+              <div className="diff-viewer__pane-tabs" role="tablist" aria-label="Code or pull request">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={paneTab === 'code'}
+                  className={`diff-viewer__pane-tab${paneTab === 'code' ? ' diff-viewer__pane-tab--active' : ''}`}
+                  onClick={() => setPaneTab('code')}
+                >
+                  Code
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={paneTab === 'pr'}
+                  className={`diff-viewer__pane-tab${paneTab === 'pr' ? ' diff-viewer__pane-tab--active' : ''}`}
+                  onClick={() => setPaneTab('pr')}
+                >
+                  Pull request
+                </button>
+              </div>
+            )}
+            {effectivePaneTab === 'pr' ? (
               <div className="diff-viewer__pr-pane">
                 {markReadyMode && markReadyPr !== null && proposal !== null ? (
                   <MarkReadyPanel

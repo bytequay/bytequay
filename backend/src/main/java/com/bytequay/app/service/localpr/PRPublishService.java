@@ -26,11 +26,13 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -80,6 +82,7 @@ public class PRPublishService
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
     private final BrainReviewService brainReview;
+    private final TaskPhaseMachine phaseMachine;
 
     public PRPublishService(
             PRService prService,
@@ -87,7 +90,8 @@ public class PRPublishService
             GitRunner git,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
-            BrainReviewService brainReview)
+            BrainReviewService brainReview,
+            TaskPhaseMachine phaseMachine)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -95,6 +99,7 @@ public class PRPublishService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
     }
 
     /**
@@ -164,6 +169,12 @@ public class PRPublishService
         taskStore.markPushed(task.id(), Instant.now());
         taskStore.linkPullRequest(task.id(), opened.number(), LINKED_STATUS_DRAFT);
         taskStore.linkTaskToPr(task.id(), opened.repo() + "#" + opened.number());
+        // This push bypasses the gated Push/OpenPr proposal flow (the local
+        // PR already survived its own review, so nothing pauses for
+        // approval here) — advance the phase directly, or the task stays on
+        // AWAITING_PUSH's local-only polling forever and TaskLifecycleDriver
+        // never picks up CI state for it.
+        phaseMachine.observe(task.id(), TaskPhase.PUSHED_AWAITING_CI, "local_pr_pushed");
         return prService.recordPush(prId, repo.owner() + "/" + repo.repo(), opened.number(), opened.htmlUrl());
     }
 

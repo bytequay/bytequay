@@ -14,7 +14,12 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.BranchGuard;
+import com.bytequay.app.domain.BranchGuard.Health;
 import com.bytequay.app.repository.BranchGuardStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,11 +33,15 @@ import static java.util.Objects.requireNonNull;
 class SqliteBranchGuardStore
         implements BranchGuardStore
 {
-    private final BranchGuardJpaRepository guards;
+    private static final Logger log = LoggerFactory.getLogger(SqliteBranchGuardStore.class);
 
-    SqliteBranchGuardStore(BranchGuardJpaRepository guards)
+    private final BranchGuardJpaRepository guards;
+    private final ObjectMapper mapper;
+
+    SqliteBranchGuardStore(BranchGuardJpaRepository guards, ObjectMapper mapper)
     {
         this.guards = requireNonNull(guards, "guards is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Override
@@ -44,6 +53,7 @@ class SqliteBranchGuardStore
         e.setEnabled(guard.enabled());
         e.setSchedule(guard.schedule());
         e.setState(guard.state());
+        e.setHealthJson(toJson(guard.health()));
         e.setLastRunId(guard.lastRunId());
         e.setLastCheckedAtMs(epochOrNull(guard.lastCheckedAt()));
         return toDomain(guards.save(e));
@@ -53,7 +63,7 @@ class SqliteBranchGuardStore
     @Transactional(readOnly = true)
     public Optional<BranchGuard> findByTask(String taskId)
     {
-        return guards.findById(taskId).map(SqliteBranchGuardStore::toDomain);
+        return guards.findById(taskId).map(this::toDomain);
     }
 
     @Override
@@ -61,17 +71,18 @@ class SqliteBranchGuardStore
     public List<BranchGuard> findEnabled()
     {
         return guards.findByEnabledTrue().stream()
-                .map(SqliteBranchGuardStore::toDomain)
+                .map(this::toDomain)
                 .toList();
     }
 
-    private static BranchGuard toDomain(BranchGuardEntity e)
+    private BranchGuard toDomain(BranchGuardEntity e)
     {
         return new BranchGuard(
                 e.getTaskId(),
                 e.isEnabled(),
                 e.getSchedule(),
                 e.getState(),
+                fromJson(e.getHealthJson()),
                 e.getLastRunId(),
                 instantOrNull(e.getLastCheckedAtMs()));
     }
@@ -84,5 +95,32 @@ class SqliteBranchGuardStore
     private static Instant instantOrNull(Long epochMs)
     {
         return epochMs == null ? null : Instant.ofEpochMilli(epochMs);
+    }
+
+    private String toJson(Health health)
+    {
+        if (health == null) {
+            return null;
+        }
+        try {
+            return mapper.writeValueAsString(health);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("branch guard health JSON serialise failed", e);
+        }
+    }
+
+    private Health fromJson(String json)
+    {
+        if (json == null || json.isBlank()) {
+            return Health.UNKNOWN;
+        }
+        try {
+            return mapper.readValue(json, Health.class);
+        }
+        catch (JsonProcessingException e) {
+            log.warn("unparseable branch_guard health json: {}", e.getMessage());
+            return Health.UNKNOWN;
+        }
     }
 }

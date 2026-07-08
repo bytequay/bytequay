@@ -15,6 +15,7 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BranchGuard;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -36,6 +37,7 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.RebaseOutcome;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
@@ -71,6 +73,7 @@ class TestBranchGuardJob
     private final GitRunner git = mock(GitRunner.class);
     private final AgentRunService agentRuns = mock(AgentRunService.class);
     private final NotificationService notifications = mock(NotificationService.class);
+    private final PullRequestService pullRequests = mock(PullRequestService.class);
 
     @Test
     void skipsEntirelyWhenTheThreadIsNotIdle()
@@ -80,25 +83,49 @@ class TestBranchGuardJob
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread(ThreadStatus.RUNNING)));
 
-        job.checkOne(guard(BranchGuard.STATE_IN_SYNC));
+        job.checkOne(guard(BranchGuard.STATE_HEALTHY));
 
         verifyNoInteractions(git);
         verify(guards, never()).save(any());
     }
 
     @Test
-    void inSyncWhenBaseHasNotMovedBeyondTheMergeBase()
+    void healthyWhenBaseHasNotMovedBeyondTheMergeBase()
             throws Exception
     {
         BranchGuardJob job = job(List.of());
         wireIdleTask();
         when(git.resolveCommitSha(WORKTREE, "origin/main")).thenReturn(Optional.of("sha-main"));
         when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main"));
+        when(pullRequests.getPullRequestDetail("acme/widgets", 42)).thenReturn(greenDetail());
 
         job.checkOne(guard(BranchGuard.STATE_DRIFTING));
 
         verify(git, never()).rebasePreview(any(), any(), any());
-        verify(guards).save(argThatState(BranchGuard.STATE_IN_SYNC));
+        verify(guards).save(argThat(g -> BranchGuard.STATE_HEALTHY.equals(g.state())
+                && g.health().behindBy() == 0 && Boolean.TRUE.equals(g.health().mergeable())
+                && Boolean.TRUE.equals(g.health().checksGreen())));
+    }
+
+    @Test
+    void redRemoteCiOnAnUpToDateBranchNeverOpensARunOrNotifies()
+            throws Exception
+    {
+        // The boundary rule (plan-rail-runs.md R18): CI failures are exclusively
+        // AutomationCoordinator's territory. The guard only mirrors the last known
+        // CI state on the chip — it must never react by opening a run itself.
+        BranchGuardJob job = job(List.of());
+        wireIdleTask();
+        when(git.resolveCommitSha(WORKTREE, "origin/main")).thenReturn(Optional.of("sha-main"));
+        when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main"));
+        when(pullRequests.getPullRequestDetail("acme/widgets", 42)).thenReturn(redDetail());
+
+        job.checkOne(guard(BranchGuard.STATE_HEALTHY));
+
+        verifyNoInteractions(agentRuns);
+        verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
+        verify(guards).save(argThat(g -> BranchGuard.STATE_HEALTHY.equals(g.state())
+                && Boolean.FALSE.equals(g.health().checksGreen())));
     }
 
     @Test
@@ -114,12 +141,12 @@ class TestBranchGuardJob
         when(agentRuns.open(eq(TASK_ID), eq(AgentRun.KIND_BRANCH_GUARD), eq(AgentRun.SOURCE_SCHEDULED),
                 eq(null), eq(StageType.BRANCH_GUARD_STAGE), eq(null))).thenReturn(run);
 
-        job.checkOne(guard(BranchGuard.STATE_IN_SYNC));
+        job.checkOne(guard(BranchGuard.STATE_HEALTHY));
 
         verify(git).rebase(WORKTREE, "origin/main");
         verify(git).pushForceWithLease(WORKTREE);
         verify(agentRuns).transition(run.id(), AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
-        verify(guards).save(argThatState(BranchGuard.STATE_IN_SYNC));
+        verify(guards).save(argThatState(BranchGuard.STATE_HEALTHY));
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
         verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any());
     }
@@ -136,12 +163,13 @@ class TestBranchGuardJob
         AgentRun run = run(AgentRun.STATUS_RUNNING);
         when(agentRuns.open(any(), any(), any(), any(), any(), any())).thenReturn(run);
 
-        job.checkOne(guard(BranchGuard.STATE_IN_SYNC));
+        job.checkOne(guard(BranchGuard.STATE_HEALTHY));
 
         verify(git, never()).rebase(any(), any());
         verify(git, never()).pushForceWithLease(any());
         verify(scheduler).enqueueTaskTurn(any(Thread.class), anyString(), eq(TASK_ID),
                 eq(run.stageId()), any(TurnInitiator.class));
+        verify(guards).save(argThatState(BranchGuard.STATE_CONFLICTED));
         verify(guards).save(argThatState(BranchGuard.STATE_FIXING));
         verify(agentRuns, never()).transition(any(), eq(AgentRun.STATUS_FAILED), any());
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
@@ -162,7 +190,7 @@ class TestBranchGuardJob
         AgentRun run = run(AgentRun.STATUS_RUNNING);
         when(agentRuns.open(any(), any(), any(), any(), any(), any())).thenReturn(run);
 
-        job.checkOne(guard(BranchGuard.STATE_IN_SYNC));
+        job.checkOne(guard(BranchGuard.STATE_HEALTHY));
 
         verify(git).rebase(WORKTREE, "origin/main");
         verify(git, never()).pushForceWithLease(any());
@@ -189,7 +217,7 @@ class TestBranchGuardJob
 
         verify(git).pushForceWithLease(WORKTREE);
         verify(agentRuns).transition("run1", AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
-        verify(guards).save(argThatState(BranchGuard.STATE_IN_SYNC));
+        verify(guards).save(argThatState(BranchGuard.STATE_HEALTHY));
     }
 
     @Test
@@ -237,7 +265,7 @@ class TestBranchGuardJob
     private BranchGuardJob job(List<ValidationCheck> checks)
     {
         return new BranchGuardJob(guards, taskStore, threadStore, scheduler, turnStore, git, checks,
-                agentRuns, notifications, new ObjectMapper());
+                agentRuns, notifications, pullRequests, new ObjectMapper());
     }
 
     private static BranchGuard argThatState(String state)
@@ -247,7 +275,32 @@ class TestBranchGuardJob
 
     private static BranchGuard guard(String state)
     {
-        return new BranchGuard(TASK_ID, true, BranchGuard.SCHEDULE_NIGHTLY, state, null, null);
+        return new BranchGuard(
+                TASK_ID, true, BranchGuard.SCHEDULE_NIGHTLY, state, BranchGuard.Health.UNKNOWN, null, null);
+    }
+
+    private static PullRequestDetail greenDetail()
+    {
+        return new PullRequestDetail(
+                "acme/widgets", 42, null, List.of(), false,
+                null, null, 0, 0, 0, 0, 0, 0, 0, List.of(),
+                PullRequestDetail.CiStatus.PASSING, List.of(), List.of(),
+                List.of(new PullRequestDetail.CheckRun(
+                        null, "backend-tests", "completed", "success", null, null, null)),
+                List.of(), List.of(), false,
+                null, null, null, null, null, "open", false, false);
+    }
+
+    private static PullRequestDetail redDetail()
+    {
+        return new PullRequestDetail(
+                "acme/widgets", 42, null, List.of(), false,
+                null, null, 0, 0, 0, 0, 0, 0, 0, List.of(),
+                PullRequestDetail.CiStatus.FAILING, List.of(), List.of(),
+                List.of(new PullRequestDetail.CheckRun(
+                        null, "backend-tests", "completed", "failure", null, null, null)),
+                List.of(), List.of(), false,
+                null, null, null, null, null, "open", false, false);
     }
 
     private static AgentRun run(String status)

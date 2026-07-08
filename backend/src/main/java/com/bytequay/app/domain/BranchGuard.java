@@ -15,50 +15,57 @@ package com.bytequay.app.domain;
 
 import java.time.Instant;
 
-/**
- * Per-task, always-on drift maintenance against a moving {@code main}
- * (plan-rail-runs.md R18). One row per task, created disabled and armed
- * on first push. {@code schedule} is an enum-ish label — only {@link
- * #SCHEDULE_NIGHTLY} exists for v1; {@code BranchGuardJob} maps it to a
- * fixed Java {@code Duration} rather than parsing a real cron expression.
- */
+/** Per-task drift maintenance against the task's moving base branch. */
 public record BranchGuard(
         String taskId,
         boolean enabled,
         String schedule,
         String state,
+        Health health,
         String lastRunId,
         Instant lastCheckedAt)
 {
     public static final String SCHEDULE_NIGHTLY = "nightly";
 
-    public static final String STATE_IN_SYNC = "in_sync";
+    public static final String STATE_HEALTHY = "healthy";
     public static final String STATE_DRIFTING = "drifting";
+    public static final String STATE_CONFLICTED = "conflicted";
     public static final String STATE_FIXING = "fixing";
     public static final String STATE_NEEDS_ATTENTION = "needs_attention";
 
+    /** Last observed branch health. CI is display-only; the CI loop owns fixes. */
+    public record Health(Integer behindBy, Boolean mergeable, Boolean checksGreen)
+    {
+        public static final Health UNKNOWN = new Health(null, null, null);
+    }
+
     public static BranchGuard disabled(String taskId)
     {
-        return new BranchGuard(taskId, false, SCHEDULE_NIGHTLY, STATE_IN_SYNC, null, null);
+        return new BranchGuard(taskId, false, SCHEDULE_NIGHTLY, STATE_HEALTHY, Health.UNKNOWN, null, null);
     }
 
     public BranchGuard withEnabled(boolean enabled)
     {
-        return new BranchGuard(taskId, enabled, schedule, state, lastRunId, lastCheckedAt);
+        return new BranchGuard(taskId, enabled, schedule, state, health, lastRunId, lastCheckedAt);
     }
 
     public BranchGuard withSchedule(String schedule)
     {
-        return new BranchGuard(taskId, enabled, schedule, state, lastRunId, lastCheckedAt);
+        return new BranchGuard(taskId, enabled, schedule, state, health, lastRunId, lastCheckedAt);
     }
 
     public BranchGuard withState(String state)
     {
-        return new BranchGuard(taskId, enabled, schedule, state, lastRunId, lastCheckedAt);
+        return new BranchGuard(taskId, enabled, schedule, state, health, lastRunId, lastCheckedAt);
+    }
+
+    public BranchGuard withHealth(Health health)
+    {
+        return new BranchGuard(taskId, enabled, schedule, state, health, lastRunId, lastCheckedAt);
     }
 
     public BranchGuard withLastRun(String runId, Instant checkedAt)
     {
-        return new BranchGuard(taskId, enabled, schedule, state, runId, checkedAt);
+        return new BranchGuard(taskId, enabled, schedule, state, health, runId, checkedAt);
     }
 }

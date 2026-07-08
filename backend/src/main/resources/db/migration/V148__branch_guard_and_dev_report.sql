@@ -23,7 +23,8 @@ CREATE TABLE branch_guard (
     task_id            TEXT    NOT NULL PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
     enabled            INTEGER NOT NULL DEFAULT 0,
     schedule           TEXT    NOT NULL DEFAULT 'nightly',
-    state              TEXT    NOT NULL DEFAULT 'in_sync',  -- in_sync | drifting | fixing | needs_attention
+    state              TEXT    NOT NULL DEFAULT 'healthy',  -- healthy | drifting | conflicted | fixing | needs_attention
+    health_json        TEXT,                                -- jsonb: {behindBy, mergeable, checksGreen} — last probe's 3 facets
     last_run_id        TEXT,
     last_checked_at_ms INTEGER
 );

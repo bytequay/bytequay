@@ -36,6 +36,9 @@ class BranchGuardEntity
     @Column(name = "state", nullable = false)
     private String state;
 
+    @Column(name = "health_json")
+    private String healthJson;
+
     @Column(name = "last_run_id")
     private String lastRunId;
 
@@ -53,6 +56,9 @@ class BranchGuardEntity
 
     String getState() { return state; }
     void setState(String state) { this.state = state; }
+
+    String getHealthJson() { return healthJson; }
+    void setHealthJson(String healthJson) { this.healthJson = healthJson; }
 
     String getLastRunId() { return lastRunId; }
     void setLastRunId(String lastRunId) { this.lastRunId = lastRunId; }

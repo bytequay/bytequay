@@ -84,9 +84,15 @@ public record PullRequestRef(String owner, String repo, int number)
         return new RepoRef(owner, repo);
     }
 
+    /** Returns the canonical {@code "owner/repo"} repository string. */
+    public String repoFullName()
+    {
+        return owner + "/" + repo;
+    }
+
     /** Returns the canonical {@code "owner/repo#number"} string. */
     public String fullName()
     {
-        return owner + "/" + repo + "#" + number;
+        return repoFullName() + "#" + number;
     }
 }

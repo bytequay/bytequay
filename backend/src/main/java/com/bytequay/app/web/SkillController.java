@@ -85,29 +85,6 @@ public class SkillController
         return service.query(usageKind, scope, repoId, q);
     }
 
-    /** Read-only debug view: which skills resolve for a given agent
-     *  role, derived from usage (Trunk/Task → development, Reviewer/Lead
-     *  → review). Backs the Agent roles page's resolution preview. */
-    @GetMapping("/skills/by-role")
-    public List<Skill> byRole(@RequestParam("role") String role)
-    {
-        return service.byRole(role);
-    }
-
-    @GetMapping("/skills/{id}")
-    public Skill get(@PathVariable long id)
-    {
-        return service.get(id);
-    }
-
-    /** Flip the per-repo ★ default review skill (review skills only;
-     *  422 default_only_for_review_skills otherwise). */
-    @PostMapping("/skills/{id}/set-default")
-    public Skill setDefault(@PathVariable long id)
-    {
-        return service.setDefault(id);
-    }
-
     @PostMapping("/skills")
     public Skill create(@RequestBody SkillRequest req)
     {

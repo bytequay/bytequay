@@ -23,12 +23,10 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Exercises the usage-derived query / by-role view and the per-repo
- * default flip on {@link SkillService}, against the real Flyway-migrated
- * SQLite schema.
+ * Exercises the usage-derived query view on {@link SkillService}, against
+ * the real Flyway-migrated SQLite schema.
  */
 @SpringBootTest
 @TestExecutionListeners(
@@ -38,52 +36,6 @@ class TestSkillService
 {
     @Autowired
     private SkillService service;
-
-    @Test
-    void setDefaultRefusesABuildSkill()
-    {
-        Skill build = service.create(
-                "global", null, null, uniqueName("dev"),
-                "loads when editing", "body", "library", "build", null,
-                false, "authored", null);
-
-        assertThatThrownBy(() -> service.setDefault(build.id()))
-                .hasMessageContaining("default_only_for_review_skills");
-    }
-
-    @Test
-    void setDefaultFlipsThePriorDefaultInTheSameRepo()
-    {
-        String repo = "acme/" + UUID.randomUUID();
-        Skill first = reviewSkill(repo, "first");
-        Skill second = reviewSkill(repo, "second");
-
-        service.setDefault(first.id());
-        assertThat(service.get(first.id()).isDefault()).isTrue();
-
-        service.setDefault(second.id());
-        // The second wins; the first is cleared — at most one default
-        // per repo per surface.
-        assertThat(service.get(second.id()).isDefault()).isTrue();
-        assertThat(service.get(first.id()).isDefault()).isFalse();
-    }
-
-    @Test
-    void byRoleDerivesUsageFromTheRole()
-    {
-        Skill dev = service.create(
-                "global", null, null, uniqueName("byrole-dev"),
-                "loads when editing", "body", "library", "build", null,
-                false, "authored", null);
-        Skill review = reviewSkill(null, "byrole-rev");
-
-        assertThat(service.byRole("trunk")).extracting(Skill::id).contains(dev.id());
-        assertThat(service.byRole("trunk")).extracting(Skill::id).doesNotContain(review.id());
-        assertThat(service.byRole("reviewer")).extracting(Skill::id).contains(review.id());
-        assertThat(service.byRole("reviewer")).extracting(Skill::id).doesNotContain(dev.id());
-        assertThatThrownBy(() -> service.byRole("bogus"))
-                .hasMessageContaining("trunk|task|reviewer|lead");
-    }
 
     @Test
     void queryFiltersByUsageKindAndSubstring()
@@ -98,15 +50,6 @@ class TestSkillService
         // The development filter excludes review rows.
         assertThat(service.query("review", null, null, "zzq-dev"))
                 .extracting(Skill::id).doesNotContain(dev.id());
-    }
-
-    private Skill reviewSkill(String repo, String prefix)
-    {
-        String scope = repo == null ? "global" : "repo";
-        return service.create(
-                scope, repo, null, uniqueName(prefix),
-                "loads when reviewing", "voice body", "persona", "review", null,
-                false, "authored", null);
     }
 
     private static String uniqueName(String prefix)

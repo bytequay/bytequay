@@ -47,11 +47,6 @@ public class SkillService
     private static final String USAGE_KIND_DEVELOPMENT = "development";
     private static final String USAGE_BUILD = "build";
     private static final String USAGE_REVIEW = "review";
-    private static final String ROLE_TRUNK = "trunk";
-    private static final String ROLE_TASK = "task";
-    private static final String ROLE_REVIEWER = "reviewer";
-    private static final String ROLE_LEAD = "lead";
-    private static final String DEFAULT_REVIEW_SKILL_ERROR = "default_only_for_review_skills";
 
     public static final Set<String> SCOPES = ImmutableSet.of(SCOPE_GLOBAL, SCOPE_REPO, SCOPE_THREAD);
     public static final Set<String> KINDS = ImmutableSet.of(KIND_LIBRARY, KIND_PERSONA, KIND_RUBRIC);
@@ -91,51 +86,6 @@ public class SkillService
                         || s.name().toLowerCase(Locale.ROOT).contains(needle)
                         || (s.description() != null && s.description().toLowerCase(Locale.ROOT).contains(needle)))
                 .toList();
-    }
-
-    /**
-     * The skills that would resolve for an agent role — derived from
-     * usage, never stored: Trunk / Task see development (build) skills;
-     * Reviewer / Lead see review skills. Enabled rows only. Backs the
-     * read-only Agent roles preview.
-     */
-    public List<Skill> byRole(String role)
-    {
-        String r = role == null ? "" : role.toLowerCase(Locale.ROOT);
-        String usage = switch (r) {
-            case ROLE_TRUNK, ROLE_TASK -> USAGE_BUILD;
-            case ROLE_REVIEWER, ROLE_LEAD -> USAGE_REVIEW;
-            default -> throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "role must be one of trunk|task|reviewer|lead, got: " + role);
-        };
-        return store.list().stream()
-                .filter(Skill::enabled)
-                .filter(s -> usage.equals(s.usage()))
-                .toList();
-    }
-
-    /** Mark a review skill the default for its repo (clearing any prior
-     *  default in that repo). 422 when the row isn't a review skill. */
-    public Skill setDefault(long id)
-    {
-        Skill skill = get(id);
-        if (!USAGE_REVIEW.equals(skill.usage())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
-                    DEFAULT_REVIEW_SKILL_ERROR);
-        }
-        try {
-            return store.setDefault(id);
-        }
-        catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(404), e.getMessage());
-        }
-    }
-
-    public Skill get(long id)
-    {
-        return store.byId(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "skill " + id + " not found"));
     }
 
     /** Highest-priority enabled rubric for {@code repo}. The review path

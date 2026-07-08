@@ -23,15 +23,12 @@ export type PaneTab<K extends string = string> = {
 };
 
 /** The tab strip. Selecting a tab calls `onSelect`; `actions` renders the
- *  trailing header icons. `navTab` renders one more pill, styled like a
- *  tab but never "active" — clicking it navigates away (e.g. to the full
- *  Code page) instead of switching the pane's content. */
-function Tabs<K extends string>({ tabs, active, onSelect, actions, navTab }: {
+ *  trailing header icons. */
+function Tabs<K extends string>({ tabs, active, onSelect, actions }: {
   tabs: PaneTab<K>[];
   active: K;
   onSelect: (key: K) => void;
   actions?: ReactNode;
-  navTab?: { icon?: ReactNode; label: string; onClick: () => void };
 }) {
   return (
     <div className="pane-tabs">
@@ -50,12 +47,6 @@ function Tabs<K extends string>({ tabs, active, onSelect, actions, navTab }: {
           )}
         </button>
       ))}
-      {navTab !== undefined && (
-        <button type="button" className="pane-tab pane-tab--nav" onClick={navTab.onClick}>
-          {navTab.icon !== undefined && <span aria-hidden>{navTab.icon}</span>}
-          {navTab.label}
-        </button>
-      )}
       {actions !== undefined && (
         <>
           <span className="grow" />

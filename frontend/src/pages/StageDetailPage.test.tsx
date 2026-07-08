@@ -28,7 +28,6 @@ function renderStage(stageKind: StageKind, overrides: Partial<Parameters<typeof 
       tabs={{
         pr: <div data-testid="pr-tab">pr threads</div>,
       }}
-      onOpenChanges={() => {}}
       {...overrides}
     />,
   );
@@ -92,12 +91,13 @@ describe('StageDetailPage', () => {
     pr: <div data-testid="pr-tab">pr threads</div>,
     changes: <div data-testid="changes-tab">changes</div>,
     ci: <div data-testid="ci-tab">ci run</div>,
+    code: <div data-testid="code-tab">changes review</div>,
   };
 
-  it('renders the PR · Code Diff · CI strip (PR first), plus the Changes nav pill', () => {
+  it('renders the PR · Code Diff · CI · Changes strip (PR first)', () => {
     renderStage('ci-fix', { tabs: fullTabs });
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toEqual(['PR', 'Code Diff', 'CI', '⊟Changes']);
+    expect(labels).toEqual(['PR', 'Code Diff', 'CI', 'Changes']);
   });
 
   it('CI Fix leads with the PR tab; the CI run has its own tab', () => {
@@ -126,11 +126,11 @@ describe('StageDetailPage', () => {
     expect(changesTab?.querySelector('.count')?.textContent).toBe('4');
   });
 
-  it('labels the changes tab "CI" on the CI-fix stage', () => {
+  it('labels the CI-fix run tab "CI", distinct from Code Diff', () => {
     renderStage('ci-fix', { tabs: fullTabs });
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
     expect(labels).toContain('CI');
-    expect(labels).not.toContain('Changes');
+    expect(labels).toContain('Code Diff');
   });
 
   it('inline pill closes the pane when clicked on the already-active tab', () => {
@@ -149,15 +149,34 @@ describe('StageDetailPage', () => {
     expect(document.querySelector('.body.with-pane')).toBeTruthy();
   });
 
-  it('shows the mark-ready reminder pill and routes it to onOpenChanges', () => {
-    const onOpenChanges = vi.fn();
-    renderStage('dev', { markReadyReminder: true, onOpenChanges });
+  it('shows the mark-ready reminder pill and routes it to the inline Changes tab', () => {
+    renderStage('dev', {
+      markReadyReminder: true,
+      tabs: { pr: <div data-testid="pr-tab" />, code: <div data-testid="code-tab">changes review</div> },
+    });
     fireEvent.click(screen.getByText('Mark ready for review'));
-    expect(onOpenChanges).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('code-tab')).toBeTruthy();
   });
 
   it('hides the mark-ready reminder pill when not pending', () => {
     renderStage('dev', { markReadyReminder: false });
     expect(screen.queryByText('Mark ready for review')).toBeNull();
+  });
+
+  it('hides the mark-ready reminder pill when there is no Changes tab to open', () => {
+    renderStage('dev', { markReadyReminder: true });
+    expect(screen.queryByText('Mark ready for review')).toBeNull();
+  });
+
+  it('the top-bar Submit review button opens the drawer; submitting it fires onSubmitReview', () => {
+    renderStage('dev');
+    expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();
+    const onSubmitReview = vi.fn();
+    renderStage('dev', { onSubmitReview });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+    const dialog = screen.getByRole('dialog', { name: 'Submit review' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Submit review' }));
+    expect(onSubmitReview).toHaveBeenCalledWith('', 'COMMENT');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

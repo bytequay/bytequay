@@ -4447,13 +4447,22 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     });
   }
 
-  ipcMain.handle('review:submit', async (_event, taskId: unknown) => {
+  ipcMain.handle('review:submit', async (_event, taskId: unknown, payload: unknown) => {
     if (typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('taskId must be a non-empty string');
     }
+    const params = (payload ?? {}) as { body?: unknown; verdict?: unknown };
+    const body = {
+      body: typeof params.body === 'string' ? params.body : '',
+      verdict: typeof params.verdict === 'string' ? params.verdict : '',
+    };
     const res = await fetch(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/submit-review`,
-      { method: 'POST' });
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST submit-review returned ${res.status}: ${text}`);

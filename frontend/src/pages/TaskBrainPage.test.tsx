@@ -63,8 +63,10 @@ describe('TaskBrainPage', () => {
 
   it('top bar exposes Close (confirmed); toggling the pane reveals inline chips', () => {
     const onClose = vi.fn();
-    const onOpenChanges = vi.fn();
-    renderBrain({ run: { onClose, onPause: () => {} }, onOpenChanges });
+    renderBrain({
+      run: { onClose, onPause: () => {} },
+      tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
+    });
     // Close is a direct top-bar button now, with a confirm step.
     fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close task' }));
@@ -74,35 +76,43 @@ describe('TaskBrainPage', () => {
     expect(screen.getAllByRole('button', { name: 'Changes' }).length).toBe(1);
   });
 
-  it('the inline Changes chip fires onOpenChanges', () => {
-    const onOpenChanges = vi.fn();
-    renderBrain({ onOpenChanges });
-    // Two "Changes" now: the pane's nav pill and the always-visible inline
-    // chip below the composer. Either fires onOpenChanges — scope to the
-    // inline one specifically.
+  it('the inline Changes chip opens the Changes tab in the pane — no navigation', () => {
+    renderBrain({
+      tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
+    });
     const inlineChips = document.querySelector('.inline-chips') as HTMLElement;
     fireEvent.click(within(inlineChips).getByRole('button', { name: 'Changes' }));
-    expect(onOpenChanges).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('code-tab')).toBeTruthy();
   });
 
-  it('the pane\'s Changes nav pill fires onOpenChanges', () => {
-    const onOpenChanges = vi.fn();
-    renderBrain({ onOpenChanges });
-    const navPill = document.querySelector('.pane-tab--nav') as HTMLElement;
-    expect(navPill.textContent).toContain('Changes');
-    fireEvent.click(navPill);
-    expect(onOpenChanges).toHaveBeenCalledOnce();
-  });
-
-  it('shows the mark-ready reminder pill and routes it to onOpenChanges', () => {
-    const onOpenChanges = vi.fn();
-    renderBrain({ markReadyReminder: true, onOpenChanges });
+  it('shows the mark-ready reminder pill and routes it to the inline Changes tab', () => {
+    renderBrain({
+      markReadyReminder: true,
+      tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
+    });
     fireEvent.click(screen.getByText('Mark ready for review'));
-    expect(onOpenChanges).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('code-tab')).toBeTruthy();
+  });
+
+  it('hides the mark-ready reminder pill when there is no Changes tab to open', () => {
+    renderBrain({ markReadyReminder: true });
+    expect(screen.queryByText('Mark ready for review')).toBeNull();
   });
 
   it('hides the mark-ready reminder pill when not pending', () => {
     renderBrain({ markReadyReminder: false });
     expect(screen.queryByText('Mark ready for review')).toBeNull();
+  });
+
+  it('the top-bar Submit review button opens the drawer; submitting it fires onSubmitReview', () => {
+    renderBrain();
+    expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();
+    const onSubmitReview = vi.fn();
+    renderBrain({ onSubmitReview });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+    const dialog = screen.getByRole('dialog', { name: 'Submit review' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Submit review' }));
+    expect(onSubmitReview).toHaveBeenCalledWith('', 'COMMENT');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

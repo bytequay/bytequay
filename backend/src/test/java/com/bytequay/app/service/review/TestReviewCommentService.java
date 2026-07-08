@@ -156,7 +156,7 @@ class TestReviewCommentService
                 stage(devStageId, StageType.DEVELOPMENT_STAGE, StageState.ACTIVE)));
         when(steering.steer(eq(devStageId), any())).thenReturn(new StageSteeringService.SteerResult("turn-9"));
 
-        ReviewCommentService.SubmitResult result = service.submitReview("task-1");
+        ReviewCommentService.SubmitResult result = service.submitReview("task-1", null, null);
 
         assertThat(result.submitted()).isEqualTo(1);
         assertThat(result.turnId()).isEqualTo("turn-9");
@@ -164,22 +164,43 @@ class TestReviewCommentService
         verify(steering).steer(eq(devStageId), text.capture());
         assertThat(text.getValue())
                 .contains("Address these review comments before shipping")
-                .contains("`src/Foo.java:7` — rename it")
+                .contains("`src/Foo.java:7` - rename it")
                 .contains(openId.toString())
                 .doesNotContain(resolvedId.toString());
     }
 
     @Test
-    void submitReviewIsANoOpWithNoUnresolvedComments()
+    void submitReviewIsANoOpWithNoUnresolvedCommentsAndNoBody()
     {
         when(stageStore.findCommentsBySource("task-1", ReviewCommentSource.LOCAL_USER))
                 .thenReturn(List.of(comment(UUID.randomUUID(), "task-1", true)));
 
-        ReviewCommentService.SubmitResult result = service.submitReview("task-1");
+        ReviewCommentService.SubmitResult result = service.submitReview("task-1", "", null);
 
         assertThat(result.submitted()).isZero();
         assertThat(result.turnId()).isNull();
         verify(steering, never()).steer(any(), any());
+    }
+
+    @Test
+    void submitReviewFoldsInTheBodyAndVerdictEvenWithNoUnresolvedComments()
+    {
+        when(stageStore.findCommentsBySource("task-1", ReviewCommentSource.LOCAL_USER))
+                .thenReturn(List.of(comment(UUID.randomUUID(), "task-1", true)));
+        UUID devStageId = UUID.randomUUID();
+        when(stageStore.findStagesByTask("task-1")).thenReturn(List.of(
+                stage(devStageId, StageType.DEVELOPMENT_STAGE, StageState.ACTIVE)));
+        when(steering.steer(eq(devStageId), any())).thenReturn(new StageSteeringService.SteerResult("turn-10"));
+
+        ReviewCommentService.SubmitResult result = service.submitReview("task-1", "Looks great overall.", "APPROVE");
+
+        assertThat(result.turnId()).isEqualTo("turn-10");
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(steering).steer(eq(devStageId), text.capture());
+        assertThat(text.getValue())
+                .contains("Review verdict: Approve")
+                .contains("Looks great overall.")
+                .doesNotContain("Address these review comments before shipping");
     }
 
     private static ReviewComment comment(UUID id, String taskId, boolean resolved)

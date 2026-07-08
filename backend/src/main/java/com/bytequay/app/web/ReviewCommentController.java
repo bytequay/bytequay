@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.review.AddReviewCommentRequest;
 import com.bytequay.app.beans.review.ReviewCommentDto;
+import com.bytequay.app.beans.review.SubmitReviewRequest;
 import com.bytequay.app.beans.review.SubmitReviewResponse;
 import com.bytequay.app.service.review.ReviewCommentService;
 import org.springframework.http.HttpStatusCode;
@@ -77,9 +78,11 @@ public class ReviewCommentController
     }
 
     @PostMapping("/api/tasks/{taskId}/submit-review")
-    public SubmitReviewResponse submitReview(@PathVariable String taskId)
+    public SubmitReviewResponse submitReview(@PathVariable String taskId, @RequestBody(required = false) SubmitReviewRequest body)
     {
-        ReviewCommentService.SubmitResult result = reviewComments.submitReview(taskId);
+        String bodyValue = body == null ? null : body.body();
+        String verdictValue = body == null ? null : body.verdict();
+        ReviewCommentService.SubmitResult result = reviewComments.submitReview(taskId, bodyValue, verdictValue);
         return new SubmitReviewResponse(result.submitted(), result.turnId());
     }
 

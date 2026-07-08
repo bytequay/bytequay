@@ -118,23 +118,24 @@ public class ReviewCommentServiceImpl
     }
 
     @Override
-    public SubmitResult submitReview(String taskId)
+    public SubmitResult submitReview(String taskId, String body, String verdict)
     {
         String taskIdValue = nullToEmpty(taskId).strip();
         if (taskIdValue.isEmpty()) {
             throw status(400, "taskId is required");
         }
+        String bodyValue = nullToEmpty(body).strip();
         List<ReviewComment> unresolved = stageStore.findCommentsBySource(taskIdValue, ReviewCommentSource.LOCAL_USER)
                 .stream()
                 .filter(c -> !c.resolved())
                 .toList();
-        if (unresolved.isEmpty()) {
+        if (unresolved.isEmpty() && bodyValue.isEmpty()) {
             return new SubmitResult(0, null);
         }
         UUID devStageId = activeDevelopmentStage(taskIdValue)
                 .orElseThrow(() -> status(422, "no active development stage for task " + taskIdValue))
                 .id();
-        String text = formatTurn(unresolved);
+        String text = formatTurn(bodyValue, verdict, unresolved);
         StageSteeringService.SteerResult result = steering.steer(devStageId, text);
         return new SubmitResult(unresolved.size(), result.turnId());
     }
@@ -156,21 +157,40 @@ public class ReviewCommentServiceImpl
         return Optional.ofNullable(found);
     }
 
-    private static String formatTurn(List<ReviewComment> comments)
+    private static String formatTurn(String body, String verdict, List<ReviewComment> comments)
     {
-        StringBuilder sb = new StringBuilder("Address these review comments before shipping:\n");
-        for (ReviewComment c : comments) {
-            sb.append("- `").append(c.file()).append(':').append(c.line()).append("` — ")
-                    .append(c.body().strip()).append('\n');
+        StringBuilder sb = new StringBuilder();
+        String verdictValue = nullToEmpty(verdict).strip();
+        if (!verdictValue.isEmpty()) {
+            sb.append("Review verdict: ").append(verdictLabel(verdictValue)).append('\n');
         }
-        sb.append("\nMark each one resolved with the resolve_review_comment tool "
-                + "(its comment_id is the id above) once you've addressed it in the code.\n");
-        for (ReviewComment c : comments) {
-            // List the ids explicitly so the agent can pair body↔id.
-            sb.append("  · ").append(c.id()).append(" → `")
-                    .append(c.file()).append(':').append(c.line()).append("`\n");
+        if (!body.isEmpty()) {
+            sb.append(body).append('\n');
+        }
+        if (!comments.isEmpty()) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append("Address these review comments before shipping:\n");
+            for (ReviewComment c : comments) {
+                sb.append("- ").append(c.id()).append(" `")
+                        .append(c.file()).append(':').append(c.line()).append("` - ")
+                        .append(c.body().strip()).append('\n');
+            }
+            sb.append("\nMark each one resolved with the resolve_review_comment tool "
+                    + "once you've addressed it in the code.\n");
         }
         return sb.toString();
+    }
+
+    /** Maps raw verdict strings to agent-facing labels. */
+    private static String verdictLabel(String verdict)
+    {
+        return switch (verdict) {
+            case "APPROVE" -> "Approve";
+            case "REQUEST_CHANGES" -> "Request changes";
+            default -> "Comment";
+        };
     }
 
     private static ResponseStatusException status(int code, String message)

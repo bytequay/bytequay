@@ -36,6 +36,8 @@ import { stageRow } from './stageConversationRow';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
+import type { ReviewVerdict } from './SubmitReviewDrawer';
+import TaskCodePage from '../threads/TaskCodePage';
 import { PlanCard } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
@@ -120,6 +122,19 @@ export function StageDetailRoute({
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
+
+  // Bundles the Submit-review drawer's body/verdict, plus this task's
+  // unresolved diff comments, into a steering turn for the dev agent — same
+  // action as TaskCodePage's embedded "Submit review" button, surfaced here
+  // in the top bar too.
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const onSubmitReview = useCallback((body: string, verdict: ReviewVerdict) => {
+    setSubmittingReview(true);
+    window.bridge.submitReview(taskId, { body, verdict })
+      .then(() => pollFast())
+      .catch(() => { /* poll reconciles */ })
+      .finally(() => setSubmittingReview(false));
+  }, [taskId, pollFast]);
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
@@ -614,6 +629,8 @@ export function StageDetailRoute({
       tabCounts={{
         changes: files !== null && files.length > 0
           ? { count: files.length, countColor: 'acc' } : undefined,
+        code: files !== null && files.length > 0
+          ? { count: files.length, countColor: 'acc' } : undefined,
         pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
       }}
       paneMeta={stageKind === 'ci-fix' ? {
@@ -632,8 +649,13 @@ export function StageDetailRoute({
         pr: localPrNode ?? prNode ?? undefined,
         changes: hasDiff ? changesNode : undefined,
         ci: stageKind === 'ci-fix' ? ciNode : undefined,
+        // Same hasDiff gate as `changes` — otherwise on a Plan stage with no
+        // PR yet, this ends up the only tab, becomes the default, and its
+        // paneExpanded behavior hides the conversation column.
+        code: hasDiff ? <TaskCodePage embedded threadId={threadId} taskId={taskId} stageId={stageId} /> : undefined,
       }}
-      onOpenChanges={onOpenCode}
+      onSubmitReview={onSubmitReview}
+      submittingReview={submittingReview}
       planReminder={plan === null ? undefined
         : plan.state === 'awaiting' ? 'awaiting'
         : plan.state === 'locked' ? 'locked'

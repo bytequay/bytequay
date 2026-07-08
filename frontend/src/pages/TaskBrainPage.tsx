@@ -16,14 +16,16 @@ import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import { IconBtn, MergeIcon, Pill } from '../ui/primitives';
 import {
-  Composer, CtxChip, Grow, Main, RunMenu, Shell, TopBar, TopBarTitle,
+  Composer, CtxChip, Grow, Main, RunMenu, Shell, TopBar, TopBarButton, TopBarTitle,
   usePaneWidth,
 } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
 import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
+import { SubmitReviewDrawer } from './SubmitReviewDrawer';
+import type { ReviewVerdict } from './SubmitReviewDrawer';
 
-type BrainTab = 'pr';
+type BrainTab = 'pr' | 'code';
 
 /**
  * The task brain surface (frame 2): the 2-pane shell with the brain
@@ -36,7 +38,8 @@ type BrainTab = 'pr';
  */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, composer, run = {},
-  tabs, planReminder, onRevealPlan, markReadyReminder, onOpenChanges, onOpenCi, openTabRequest,
+  tabs, planReminder, onRevealPlan, markReadyReminder, onOpenCi,
+  onSubmitReview, submittingReview = false, openTabRequest,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
@@ -62,8 +65,8 @@ export function TaskBrainPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  /** Tab contents; PR is omitted when not applicable. */
-  tabs: { pr?: ReactNode };
+  /** Tab contents; PR/Changes are omitted when not applicable. */
+  tabs: { pr?: ReactNode; code?: ReactNode };
   /** Shows a reminder tab above the composer while a plan needs attention:
    *  'awaiting' → the plan is unreviewed (orange, animated flowing border);
    *  'locked' → the plan is finalized (purple, static). Undefined hides it. */
@@ -74,10 +77,14 @@ export function TaskBrainPage({
   onRevealPlan?: () => void;
   /** Shows a green, glowing reminder pill above the composer while a shipped
    *  draft's CI is green and the mark-ready gate is parked — clicking it
-   *  jumps to the Changes page via {@code onOpenChanges}. */
+   *  opens the Changes tab. */
   markReadyReminder?: boolean;
-  onOpenChanges?: () => void;
   onOpenCi?: () => void;
+  /** Submits the reviewer's comment + verdict (from the Submit-review
+   *  drawer), plus any unresolved comments on the task's diff, to the dev
+   *  agent as a steering turn. Undefined hides the top-bar button. */
+  onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
+  submittingReview?: boolean;
   /** Force-opens a tab from outside (the live-plan rail's gate nodes) — a
    *  fresh object (new `token`) re-fires even for a repeat click on the tab
    *  that's already open. */
@@ -85,16 +92,26 @@ export function TaskBrainPage({
 }) {
   const available: { key: BrainTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
+    ...(tabs.code !== undefined ? [{ key: 'code' as const, label: 'Changes', node: tabs.code }] : []),
   ];
   // No PR yet (task hasn't opened one) means nothing to show in the pane.
   const hasTabs = available.length > 0;
   const [activeTab, setActiveTab] = useState<BrainTab | undefined>(available[0]?.key);
+  // Whether the current tab was reached by an explicit navigation (click, or
+  // an outside openTabRequest) rather than just being the passive initial
+  // default. Distinguishes "the user asked for Changes" from "Changes
+  // happened to be the only tab before the PR had loaded yet" — the latter
+  // must NOT trigger paneExpanded below, or the conversation column (and the
+  // plan-approval UI in it) vanishes on mount.
+  const [tabExplicit, setTabExplicit] = useState(false);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
+  const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
 
   useEffect(() => {
     if (openTabRequest === undefined) return;
     setActiveTab(openTabRequest.tab);
+    setTabExplicit(true);
     setPaneOpen(true);
   }, [openTabRequest]);
 
@@ -106,6 +123,15 @@ export function TaskBrainPage({
   const openTab = (key: BrainTab) => {
     if (paneOpen && active?.key === key) { setPaneOpen(false); return; }
     setActiveTab(key);
+    setTabExplicit(true);
+    setPaneOpen(true);
+  };
+  // Force-opens a tab without the close-on-repeat-click toggle above — for
+  // one-shot "come look at this" actions (the mark-ready reminder) that
+  // should never close the pane out from under the user.
+  const forceOpenTab = (key: BrainTab) => {
+    setActiveTab(key);
+    setTabExplicit(true);
     setPaneOpen(true);
   };
 
@@ -137,6 +163,15 @@ export function TaskBrainPage({
         onResume={run.onResume}
         onClose={run.onClose}
       />
+      {onSubmitReview !== undefined && (
+        <TopBarButton
+          variant="submit"
+          icon="✓"
+          onClick={submittingReview ? undefined : () => setSubmitReviewOpen(true)}
+        >
+          {submittingReview ? 'Submitting…' : 'Submit review'}
+        </TopBarButton>
+      )}
       {hasTabs && (
         <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
       )}
@@ -144,6 +179,10 @@ export function TaskBrainPage({
   );
 
   const showPane = paneOpen && hasTabs && active !== undefined;
+  // The Changes tab hosts the full review surface (file tree, diff, inline
+  // comments, commits) — far too much for the pane's usual ~520px alongside
+  // the conversation column, so it fills the body instead (R31).
+  const paneExpanded = tabExplicit && showPane && active?.key === 'code';
 
   return (
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
@@ -152,22 +191,23 @@ export function TaskBrainPage({
         <div
           ref={bodyRef}
           className={showPane ? 'body with-pane' : 'body'}
-          style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+          style={!showPane ? undefined
+            : paneExpanded ? { gridTemplateColumns: 'minmax(0, 1fr)' }
+              : { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` }}
         >
-          <div className="conv-col">
+          <div className="conv-col" style={paneExpanded ? { display: 'none' } : undefined}>
             {conversation}
             {/* Same row as the development stage: the plan reminder pill sits
                 on the left, the tab chips align to the right. */}
             <div className="chip-reminder-row">
-              {markReadyReminder === true && onOpenChanges !== undefined && (
-                <MarkReadyReminderTab onClick={onOpenChanges} />
+              {markReadyReminder === true && available.some(t => t.key === 'code') && (
+                <MarkReadyReminderTab onClick={() => forceOpenTab('code')} />
               )}
               {planReminder !== undefined && (
                 <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
               )}
               <InlineChips chips={[
                 ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
-                ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
                 ...(onOpenCi !== undefined ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
               ]}
               />
@@ -182,20 +222,32 @@ export function TaskBrainPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {showPane && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
+          {showPane && !paneExpanded && (
+            <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />
+          )}
           {showPane && (
             <RightPane>
               <RightPane.Tabs<BrainTab>
                 tabs={paneTabs}
                 active={active.key}
                 onSelect={setActiveTab}
-                navTab={onOpenChanges !== undefined ? { icon: '⊟', label: 'Changes', onClick: onOpenChanges } : undefined}
               />
               <RightPane.Content>{active.node}</RightPane.Content>
             </RightPane>
           )}
         </div>
       </Main>
+      {onSubmitReview !== undefined && (
+        <SubmitReviewDrawer
+          open={submitReviewOpen}
+          submitting={submittingReview}
+          onClose={() => setSubmitReviewOpen(false)}
+          onSubmit={(body, verdict) => {
+            onSubmitReview(body, verdict);
+            setSubmitReviewOpen(false);
+          }}
+        />
+      )}
     </Shell>
   );
 }

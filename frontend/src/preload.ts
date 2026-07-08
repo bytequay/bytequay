@@ -733,8 +733,11 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:resolve', id),
   reopenReviewComment: (id: string): Promise<void> =>
     ipcRenderer.invoke('review:reopen', id),
-  submitReview: (taskId: string): Promise<{ submitted: number; turnId: string | null }> =>
-    ipcRenderer.invoke('review:submit', taskId),
+  submitReview: (
+    taskId: string,
+    payload?: { body?: string; verdict?: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' },
+  ): Promise<{ submitted: number; turnId: string | null }> =>
+    ipcRenderer.invoke('review:submit', taskId, payload),
   listBacklog: (threadId: string): Promise<BacklogItemDto[]> =>
     ipcRenderer.invoke('backlog:list', threadId),
   listWorkspaceBacklog: (

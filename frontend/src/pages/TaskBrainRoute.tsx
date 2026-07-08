@@ -30,7 +30,9 @@ import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { usePersistentToggle } from '../ui/shell';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
+import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { PlanOverlay } from './PlanOverlay';
+import TaskCodePage from '../threads/TaskCodePage';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -69,6 +71,19 @@ export function TaskBrainRoute({
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
+
+  // Bundles the Submit-review drawer's body/verdict, plus this task's
+  // unresolved diff comments, into a steering turn for the dev agent — same
+  // action as TaskCodePage's embedded "Submit review" button, surfaced here
+  // in the top bar too.
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const onSubmitReview = useCallback((body: string, verdict: ReviewVerdict) => {
+    setSubmittingReview(true);
+    window.bridge.submitReview(taskId, { body, verdict })
+      .then(() => pollFast())
+      .catch(() => { /* poll reconciles */ })
+      .finally(() => setSubmittingReview(false));
+  }, [taskId, pollFast]);
 
   const askAgentToAddress = useCallback(() => {
     setText('Please address my review comments on the PR, then I\'ll push. ');
@@ -434,8 +449,14 @@ export function TaskBrainRoute({
             onRefresh={refreshLocalPr}
           />
         ) : undefined,
+        // Gated on having a PR (like StageDetailRoute's `hasDiff`) — otherwise
+        // this is the only tab, so it becomes the default and its
+        // paneExpanded behavior hides the conversation column, burying the
+        // plan-approval UI before there's even anything to review yet.
+        code: task.prNumber !== null ? <TaskCodePage embedded threadId={threadId} taskId={taskId} /> : undefined,
       }}
-      onOpenChanges={onOpenCode}
+      onSubmitReview={onSubmitReview}
+      submittingReview={submittingReview}
     />
   );
 }

@@ -46,10 +46,12 @@ public interface ReviewCommentService
     void reopen(UUID commentId);
 
     /**
-     * Bundle the task's unresolved {@code LOCAL_USER} comments into a
-     * markdown turn and steer the task's active development stage's dev
-     * agent to address them. No-op (0 submitted, null turn) when there are
-     * no unresolved local comments.
+     * Bundle the task's unresolved {@code LOCAL_USER} comments — plus an
+     * optional top-level {@code body} and {@code verdict} label ({@code
+     * COMMENT}/{@code APPROVE}/{@code REQUEST_CHANGES}) — into a markdown
+     * turn and steer the task's active development stage's dev agent to
+     * address them. No-op (0 submitted, null turn) when there are no
+     * unresolved local comments and {@code body} is blank.
      */
-    SubmitResult submitReview(String taskId);
+    SubmitResult submitReview(String taskId, String body, String verdict);
 }

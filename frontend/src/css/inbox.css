@@ -1311,24 +1311,32 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  height: 37px;
+  padding: 0 var(--space-3);
   font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-3);
   border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
+  /* Pure white regardless of theme — var(--bg-elevated) reads as a visible
+     blue/lavender tint under the github-light and purple themes, which
+     looked like an unintended stray tint on this specific strip. Fixed
+     height matches .diff-viewer__pane-tabs below so their shared border
+     lines up cleanly with the resize-handle boundary underneath both. */
+  background: #ffffff;
   flex: 0 0 auto;
 }
 
 /* ── Code | Pull request tabs (inside the right diff pane) ───── */
 .diff-viewer__pane-tabs {
   display: flex;
+  align-items: center;
   gap: var(--space-3);
+  height: 37px;
   padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
+  background: #ffffff;
   flex: 0 0 auto;
 }
 .diff-viewer__pane-tab {
@@ -1401,7 +1409,6 @@
   min-height: 0;
   height: 100%;
   background: var(--bg-elevated);
-  border-right: 1px solid var(--border);
 }
 .diff-viewer__chat-empty {
   flex: 1;

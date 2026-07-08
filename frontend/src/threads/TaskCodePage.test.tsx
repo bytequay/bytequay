@@ -127,6 +127,24 @@ describe('TaskCodePage', () => {
     expect(screen.queryByText('Fix typos')).toBeNull();
   });
 
+  it('embedded: dragging the files resize handle resizes it (no phantom conv-column offset)', async () => {
+    mockBridge();
+    const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);
+    await screen.findAllByText('src/Foo.ts');
+    const body = container.querySelector('.diff-viewer__body') as HTMLElement;
+    vi.spyOn(body, 'getBoundingClientRect').mockReturnValue({
+      left: 0, right: 1000, top: 0, bottom: 500, width: 1000, height: 500, x: 0, y: 0, toJSON() {},
+    } as DOMRect);
+    const handle = screen.getByRole('separator', { name: 'Resize changed-files panel' });
+    fireEvent.mouseDown(handle);
+    fireEvent.mouseMove(window, { clientX: 350 });
+    fireEvent.mouseUp(window);
+    // No conversation column when embedded, so the files column starts flush
+    // at the body's left edge — dragging to clientX 350 should land ~350px,
+    // not clamp low as if a phantom ~230px conv column were subtracted first.
+    expect(body.style.gridTemplateColumns).toMatch(/^350px 5px/);
+  });
+
   it('embedded drops its own conversation column — the host page already shows one', async () => {
     mockBridge();
     const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);

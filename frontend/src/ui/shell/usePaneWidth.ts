@@ -15,7 +15,10 @@ import { useCallback, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
 const MIN = 360;
-const MAX = 1040;
+// Generous on purpose — the PR/Changes pane (esp. the embedded Changes tab's
+// file-tree + diff) benefits from real width. The drag itself is bounded by
+// the body's actual rect, so this ceiling only matters on very wide windows.
+const MAX = 1600;
 const DEFAULT = 520;
 
 /**

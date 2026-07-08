@@ -16,6 +16,12 @@ import type { PlanCardDto, PlanStepDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
 
+/** {@code estimatedComplexity} values that count as "small effort" for
+ *  auto-merge eligibility. See the same constant's doc in the backend's
+ *  TaskService for why this is a synonym allow-list, not the strict
+ *  small/medium/large the type declares. */
+const SMALL_EFFORT = new Set(['trivial', 'small', 'low']);
+
 /**
  * The task root node (M10 Part A): the planning seed + the typed plan card +
  * the review bar. The seed renders collapsed as scannable chips (raw markdown
@@ -26,13 +32,14 @@ import { extractSeedChips } from './seedChips';
  * then steps degrade to a title + detail derived from the action prose.
  */
 export function TaskRootNode({
-  plan, seed, autoApprove, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
-  onToggleAutoApprove,
+  plan, seed, autoApprove, autoMerge, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep,
+  onHoldAuto, onToggleAutoApprove, onToggleAutoMerge,
 }: {
   plan: PlanCardDto;
   /** The trunk-handoff prose, when available. Omit to hide the seed block. */
   seed?: string;
   autoApprove?: boolean;
+  autoMerge?: boolean;
   /** True when the plan's confidence is high — gates auto-approve (A4.2). */
   autoConfidenceHigh?: boolean;
   onApprove?: () => void;
@@ -41,6 +48,7 @@ export function TaskRootNode({
   onCommentStep?: (ordinal: number) => void;
   onHoldAuto?: () => void;
   onToggleAutoApprove?: () => void;
+  onToggleAutoMerge?: () => void;
 }) {
   return (
     <div className="root-node">
@@ -48,6 +56,7 @@ export function TaskRootNode({
       <PlanCard
         plan={plan}
         autoApprove={autoApprove}
+        autoMerge={autoMerge}
         autoConfidenceHigh={autoConfidenceHigh}
         onApprove={onApprove}
         onEdit={onEdit}
@@ -55,6 +64,7 @@ export function TaskRootNode({
         onCommentStep={onCommentStep}
         onHoldAuto={onHoldAuto}
         onToggleAutoApprove={onToggleAutoApprove}
+        onToggleAutoMerge={onToggleAutoMerge}
       />
     </div>
   );
@@ -99,11 +109,12 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
  *  at the bottom of the planning conversation (where the eye lands) rather
  *  than pinned above the feed. */
 export function PlanCard({
-  plan, autoApprove, autoConfidenceHigh, approvedAt, onApprove, onEdit, onRequestRevision, onCommentStep, onHoldAuto,
-  onToggleAutoApprove, minApprovals, onSetMinApprovals,
+  plan, autoApprove, autoMerge, autoConfidenceHigh, approvedAt, onApprove, onEdit, onRequestRevision, onCommentStep,
+  onHoldAuto, onToggleAutoApprove, onToggleAutoMerge, minApprovals, onSetMinApprovals,
 }: {
   plan: PlanCardDto;
   autoApprove?: boolean;
+  autoMerge?: boolean;
   autoConfidenceHigh?: boolean;
   /** ISO 8601 approval time — shown on the locked plan. */
   approvedAt?: string;
@@ -116,6 +127,12 @@ export function PlanCard({
    *  card header — a high-confidence plan then starts development without a
    *  click. Omit to hide the switch. */
   onToggleAutoApprove?: () => void;
+  /** Toggles auto-merge. When provided, an Auto-merge switch shows beside
+   *  Auto-approve — enabled only while the plan reads risk=low/effort=small;
+   *  turning it on skips every remaining gate through the final merge. The
+   *  plan itself always still waits for your explicit approval. Omit to hide
+   *  the switch. */
+  onToggleAutoMerge?: () => void;
   /** Minimum write-permission approvals a shipped PR needs before it's treated
    *  as merge-ready (0/1/2). When onSetMinApprovals is provided, a selector
    *  shows in the card header. */
@@ -126,6 +143,11 @@ export function PlanCard({
   const confidence = plan.signals.confidence ?? confidenceFromRisk(plan.signals.riskLevel);
   const locked = plan.state === 'locked';
   const awaiting = plan.state === 'awaiting';
+  // estimatedComplexity is free text the brain writes, not a strict enum — it
+  // drifts onto risk's low/medium/high vocabulary as often as small/medium/
+  // large. Mirrors the backend's TaskService.SMALL_EFFORT allow-list.
+  const autoMergeEligible = plan.signals.riskLevel === 'low'
+    && SMALL_EFFORT.has(String(plan.signals.estimatedComplexity).toLowerCase());
 
   return (
     <div className={awaiting ? 'plan-card plan-card--awaiting' : 'plan-card'}>
@@ -157,6 +179,25 @@ export function PlanCard({
             <span className="plan-auto__lbl">Auto-approve</span>
             <span className="plan-auto__sw">
               <input type="checkbox" checked={autoApprove === true} onChange={onToggleAutoApprove} />
+              <span className="plan-auto__track"><span className="plan-auto__knob" /></span>
+            </span>
+          </label>
+        )}
+        {onToggleAutoMerge !== undefined && (
+          <label
+            className={autoMergeEligible ? 'plan-auto' : 'plan-auto plan-auto--disabled'}
+            title={autoMergeEligible
+              ? 'When on, every remaining gate — including the final merge — approves automatically. The plan itself always waits for your explicit approval.'
+              : 'Only available for a low-risk, small-effort plan.'}
+          >
+            <span className="plan-auto__lbl">Auto-merge</span>
+            <span className="plan-auto__sw">
+              <input
+                type="checkbox"
+                checked={autoMerge === true}
+                disabled={!autoMergeEligible}
+                onChange={autoMergeEligible ? onToggleAutoMerge : undefined}
+              />
               <span className="plan-auto__track"><span className="plan-auto__knob" /></span>
             </span>
           </label>

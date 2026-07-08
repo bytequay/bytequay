@@ -39,13 +39,15 @@ import static java.util.Objects.requireNonNull;
 /**
  * Auto-approve mode for parked publish gates. When a gate is parked for a task
  * whose auto-approve toggle is on, this approves it on the user's behalf.
- * Two fixed exceptions carve out of the per-task toggle in either direction:
- * {@link #NEVER_AUTO_APPROVE} always stays manually gated no matter the
- * toggle — the final PR merge, and every action that publishes something
- * externally visible to another person (a comment, a review, a reviewer
- * request) — while {@link #ALWAYS_AUTO_APPROVE} always resolves regardless of
- * the toggle — marking a PR ready for review is a visibility change, not a
- * publish action, so it never needs to wait on the user.
+ * Three fixed exceptions carve out of the per-task toggle: {@link
+ * #NEVER_AUTO_APPROVE} always stays manually gated no matter the toggle —
+ * every action that publishes something externally visible to another person
+ * (a comment, a review, a reviewer request); {@link #ALWAYS_AUTO_APPROVE}
+ * always resolves regardless of the toggle — marking a PR ready for review is
+ * a visibility change, not a publish action, so it never needs to wait on the
+ * user; and {@link #MERGE_ACTION} follows the separate, stricter {@code
+ * auto_merge} toggle instead of {@code auto_approve} — the final merge is
+ * gated on its own opt-in even for a task that auto-approves everything else.
  *
  * <p>Runs {@code AFTER_COMMIT} so the approve acts on a persisted gate and the
  * GitHub side effect doesn't nest inside the parking transaction;
@@ -57,13 +59,18 @@ public class AutoApproveGateListener
 {
     private static final Logger log = LoggerFactory.getLogger(AutoApproveGateListener.class);
 
-    /** Actions that never auto-approve, regardless of the task's toggle — the
-     *  final merge, and anything that publishes content another person will
-     *  see (a comment, a review, a reviewer request). */
-    private static final Set<String> NEVER_AUTO_APPROVE = Set.of(
-            "merge_pr", "post_comment", "publish_review", "request_reviewer", "reply_review_thread");
+    /** The final PR merge — gated on {@code task.auto_merge}, not {@code
+     *  task.auto_approve}. Kept out of {@link #NEVER_AUTO_APPROVE} so it can
+     *  still auto-resolve for the narrower set of tasks opted into that. */
+    private static final String MERGE_ACTION = "merge_pr";
 
-    /** Actions that always auto-approve, regardless of the task's toggle —
+    /** Actions that never auto-approve, regardless of either toggle —
+     *  anything that publishes content another person will see (a comment, a
+     *  review, a reviewer request). */
+    private static final Set<String> NEVER_AUTO_APPROVE = Set.of(
+            "post_comment", "publish_review", "request_reviewer", "reply_review_thread");
+
+    /** Actions that always auto-approve, regardless of either toggle —
      *  visibility changes with no externally-visible publish side effect. */
     private static final Set<String> ALWAYS_AUTO_APPROVE = Set.of("mark_ready");
 
@@ -124,10 +131,7 @@ public class AutoApproveGateListener
                 continue;
             }
             String action = parseAction(n.payloadJson());
-            if (action == null || NEVER_AUTO_APPROVE.contains(action)) {
-                continue;
-            }
-            if (!ALWAYS_AUTO_APPROVE.contains(action) && !taskStore.isAutoApprove(n.taskId())) {
+            if (action == null || !isEligibleForAutoApprove(action, n.taskId())) {
                 continue;
             }
             int priorAttempts = backstopAttempts.getOrDefault(n.id(), 0);
@@ -179,9 +183,10 @@ public class AutoApproveGateListener
 
     /**
      * The toggle was switched on: sweep the task's already-parked gates and
-     * approve the non-merge ones. {@link #onGateParked} only fires at park
-     * time, so without this a gate parked while auto-approve was off would sit
-     * unresolved forever after the user turns it on.
+     * approve the eligible ones (per {@link #isEligibleForAutoApprove}).
+     * {@link #onGateParked} only fires at park time, so without this a gate
+     * parked while auto-approve was off would sit unresolved forever after
+     * the user turns it on.
      */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onAutoApproveEnabled(AutoApproveEnabledEvent event)
@@ -200,15 +205,12 @@ public class AutoApproveGateListener
 
     /** Approve one parked gate on the user's behalf. {@link #NEVER_AUTO_APPROVE}
      *  actions never resolve here; {@link #ALWAYS_AUTO_APPROVE} actions always
-     *  do, independent of the task's auto-approve toggle; every other action
-     *  still requires it. */
+     *  do; {@link #MERGE_ACTION} follows {@code auto_merge}; every other
+     *  action follows {@code auto_approve}. */
     private void approveGate(String taskId, String notificationId, String payloadJson)
     {
         String action = parseAction(payloadJson);
-        if (action == null || NEVER_AUTO_APPROVE.contains(action)) {
-            return;
-        }
-        if (!ALWAYS_AUTO_APPROVE.contains(action) && !taskStore.isAutoApprove(taskId)) {
+        if (action == null || !isEligibleForAutoApprove(action, taskId)) {
             return;
         }
         try {
@@ -220,6 +222,20 @@ public class AutoApproveGateListener
             log.warn("Auto-approve of {} gate (notification {}) failed: {}",
                     action, notificationId, e.getMessage());
         }
+    }
+
+    /** {@link #NEVER_AUTO_APPROVE} actions are never eligible; {@link
+     *  #ALWAYS_AUTO_APPROVE} actions always are; {@link #MERGE_ACTION} checks
+     *  {@code auto_merge}; everything else checks {@code auto_approve}. */
+    private boolean isEligibleForAutoApprove(String action, String taskId)
+    {
+        if (NEVER_AUTO_APPROVE.contains(action)) {
+            return false;
+        }
+        if (ALWAYS_AUTO_APPROVE.contains(action)) {
+            return true;
+        }
+        return MERGE_ACTION.equals(action) ? taskStore.isAutoMerge(taskId) : taskStore.isAutoApprove(taskId);
     }
 
     private String parseAction(String payloadJson)

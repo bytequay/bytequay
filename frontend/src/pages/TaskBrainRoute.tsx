@@ -142,6 +142,29 @@ export function TaskBrainRoute({
       .then(r => setAutoApprove(r.enabled))
       .catch(() => setAutoApprove(!next));
   };
+  // Auto-merge mode: on top of auto-approve, the final merge gate also
+  // approves automatically. Only settable while the plan reads low-risk /
+  // small-effort (backend re-checks and 409s; the UI already disables the
+  // switch via PlanCard's own eligibility check). Enabling it flips
+  // auto-approve on too, so reflect that locally rather than waiting on a
+  // second poll.
+  const [autoMerge, setAutoMerge] = useState(false);
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    bridge?.getTaskAutoMerge?.(threadId, taskId)
+      .then(r => setAutoMerge(r.enabled))
+      .catch(() => { /* poll reconciles */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, taskId]);
+  const toggleAutoMerge = () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const next = !autoMerge;
+    setAutoMerge(next);
+    if (next) setAutoApprove(true);
+    bridge?.setTaskAutoMerge?.(threadId, taskId, next)
+      .then(r => { setAutoMerge(r.enabled); if (r.enabled) setAutoApprove(true); })
+      .catch(() => setAutoMerge(!next));
+  };
   // Minimum write-permission approvals a shipped PR needs before it counts as
   // merge-ready (0/1/2). Per-task, persisted; chosen on the plan card.
   const [minApprovals, setMinApprovalsState] = useState(0);
@@ -247,6 +270,7 @@ export function TaskBrainRoute({
     <PlanCard
       plan={plan}
       autoApprove={autoApprove}
+      autoMerge={autoMerge}
       autoConfidenceHigh={planConfidenceHigh}
       approvedAt={approvedAt}
       onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
@@ -254,6 +278,7 @@ export function TaskBrainRoute({
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
       onHoldAuto={toggleAutoApprove}
       onToggleAutoApprove={toggleAutoApprove}
+      onToggleAutoMerge={toggleAutoMerge}
       minApprovals={minApprovals}
       onSetMinApprovals={setMinApprovals}
     />

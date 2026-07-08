@@ -307,6 +307,24 @@ public interface TaskStore
     {
     }
 
+    /** Whether the task is in auto-merge mode: on top of auto-approve, the
+     *  final PR merge itself is also approved automatically. Only settable
+     *  while the task's plan reads low-risk/small-effort (enforced by the
+     *  caller, not this store) — the flag is not re-validated afterward.
+     *  False for an unknown id; default off. No-op-ish default for test
+     *  stores; the SQLite store overrides with the column. */
+    default boolean isAutoMerge(String taskId)
+    {
+        return false;
+    }
+
+    /** Flip the task's auto-merge mode. Persisted like {@link
+     *  #setAutoApprove}. No-op default for test stores; the SQLite store
+     *  overrides. */
+    default void setAutoMerge(String taskId, boolean enabled)
+    {
+    }
+
     /** How many write-permission approvals a shipped PR needs before it counts
      *  as merge-ready. 0 for an unknown id; default 0. No-op-ish default for
      *  test stores; the SQLite store overrides with the column. */

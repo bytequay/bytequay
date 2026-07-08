@@ -66,7 +66,7 @@ class TestAutoApproveGateListener
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"merge_pr", "post_comment", "publish_review", "request_reviewer", "reply_review_thread"})
+    @ValueSource(strings = {"post_comment", "publish_review", "request_reviewer", "reply_review_thread"})
     void gateParkedNeverAutoApprovesPublishingActionsEvenWithAutoApproveOn(String action)
     {
         when(taskStore.isAutoApprove(TASK)).thenReturn(true);
@@ -74,6 +74,28 @@ class TestAutoApproveGateListener
         listener.onGateParked(new GateParkedEvent("n1", TASK, "{\"action\":\"" + action + "\"}"));
 
         verify(publishService, never()).approve(anyString(), any(), anyString());
+    }
+
+    @Test
+    void gateParkedNeverAutoApprovesMergeWithoutAutoMergeEvenWithAutoApproveOn()
+    {
+        when(taskStore.isAutoApprove(TASK)).thenReturn(true);
+        when(taskStore.isAutoMerge(TASK)).thenReturn(false);
+
+        listener.onGateParked(new GateParkedEvent("n1", TASK, "{\"action\":\"merge_pr\"}"));
+
+        verify(publishService, never()).approve(anyString(), any(), anyString());
+    }
+
+    @Test
+    void gateParkedAutoApprovesMergeWhenAutoMergeIsOnEvenWithAutoApproveOff()
+    {
+        when(taskStore.isAutoApprove(TASK)).thenReturn(false);
+        when(taskStore.isAutoMerge(TASK)).thenReturn(true);
+
+        listener.onGateParked(new GateParkedEvent("n1", TASK, "{\"action\":\"merge_pr\"}"));
+
+        verify(publishService).approve(eq("n1"), isNull(), eq("merge_pr"));
     }
 
     @Test
@@ -120,12 +142,14 @@ class TestAutoApproveGateListener
     {
         when(taskStore.isAutoApprove(TASK)).thenReturn(true);
         when(taskStore.isAutoApprove("ws.t1.k2")).thenReturn(false);
+        when(taskStore.isAutoMerge("ws.t1.k3")).thenReturn(true);
         when(store.listByStatus(eq(NotificationStatus.UNREAD), anyInt())).thenReturn(List.of(
                 gate("n1", TASK, NotificationStatus.UNREAD, "ship_task", Instant.EPOCH),        // stranded → approve
-                gate("n2", TASK, NotificationStatus.UNREAD, "merge_pr", Instant.EPOCH),         // merge → skip
+                gate("n2", TASK, NotificationStatus.UNREAD, "merge_pr", Instant.EPOCH),         // merge, no auto_merge → skip
                 gate("nf", TASK, NotificationStatus.UNREAD, "ship_task", Instant.now()),        // too fresh → skip
                 gate("n5", "ws.t1.k2", NotificationStatus.UNREAD, "ship_task", Instant.EPOCH),  // not auto-approve → skip
-                gate("n6", "ws.t1.k2", NotificationStatus.UNREAD, "mark_ready", Instant.EPOCH))); // mark_ready → approve despite flag off
+                gate("n6", "ws.t1.k2", NotificationStatus.UNREAD, "mark_ready", Instant.EPOCH), // mark_ready → approve despite flag off
+                gate("n7", "ws.t1.k3", NotificationStatus.UNREAD, "merge_pr", Instant.EPOCH))); // merge, auto_merge on → approve
 
         listener.reconcileStrandedGates();
 
@@ -134,6 +158,7 @@ class TestAutoApproveGateListener
         verify(publishService, never()).approve(eq("nf"), any(), any());
         verify(publishService, never()).approve(eq("n5"), any(), any());
         verify(publishService).approve(eq("n6"), isNull(), eq("mark_ready"));
+        verify(publishService).approve(eq("n7"), isNull(), eq("merge_pr"));
     }
 
     @Test

@@ -107,6 +107,9 @@ class TaskEntity
     @Column(name = "auto_approve", nullable = false)
     private boolean autoApprove;
 
+    @Column(name = "auto_merge", nullable = false)
+    private boolean autoMerge;
+
     @Column(name = "min_approvals", nullable = false)
     private int minApprovals;
 
@@ -242,6 +245,9 @@ class TaskEntity
 
     boolean isAutoApprove() { return autoApprove; }
     void setAutoApprove(boolean autoApprove) { this.autoApprove = autoApprove; }
+
+    boolean isAutoMerge() { return autoMerge; }
+    void setAutoMerge(boolean autoMerge) { this.autoMerge = autoMerge; }
 
     int getMinApprovals() { return minApprovals; }
     void setMinApprovals(int minApprovals) { this.minApprovals = minApprovals; }

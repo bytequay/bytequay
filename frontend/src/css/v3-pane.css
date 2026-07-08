@@ -62,15 +62,6 @@
   color: var(--text-1);
   font-weight: 600;
 }
-/* The nav pill (e.g. "Changes") reads as an action, not a selectable tab —
- *  bordered like a topbar button, never gets the `.active` fill. */
-.shell .pane-tab--nav {
-  border: 1px solid var(--border-mid);
-  background: var(--bg-elev);
-}
-.shell .pane-tab--nav:hover {
-  background: var(--bg-hover);
-}
 .shell .pane-tab .count {
   font-size: 11px;
   color: var(--red);
@@ -749,4 +740,130 @@
   color: var(--text-4);
   font-family: var(--mono);
   white-space: nowrap;
+}
+
+/* ── Submit-review drawer ─────────────────────────────────────
+   Right-side slide-over mirroring github.com's "Finish your review"
+   panel — a body composer, three verdict radios, Cancel/Submit footer. */
+.shell .submit-review-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(20, 16, 30, 0.24);
+  display: flex;
+  justify-content: flex-end;
+}
+.shell .submit-review-drawer {
+  width: min(420px, 92vw);
+  height: 100%;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  gap: 14px;
+  overflow-y: auto;
+}
+.shell .submit-review-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text-1);
+}
+.shell .submit-review-drawer__close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0;
+}
+.shell .submit-review-drawer__close:hover {
+  color: var(--text-1);
+}
+.shell .submit-review-drawer__body {
+  width: 100%;
+  min-height: 130px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.shell .submit-review-drawer__verdicts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shell .submit-review-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.shell .submit-review-verdict:hover {
+  background: var(--bg-hover);
+}
+.shell .submit-review-verdict input {
+  margin-top: 2px;
+}
+.shell .submit-review-verdict__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.shell .submit-review-verdict__desc {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.shell .submit-review-drawer__foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.shell .submit-review-drawer__cancel {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: 7px;
+}
+.shell .submit-review-drawer__cancel:hover {
+  background: var(--bg-hover);
+}
+.shell .submit-review-drawer__submit {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid var(--green-border, #15803d);
+  border-radius: 7px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+  cursor: pointer;
+}
+.shell .submit-review-drawer__submit:hover {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+}
+.shell .submit-review-drawer__submit:disabled,
+.shell .submit-review-drawer__cancel:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }

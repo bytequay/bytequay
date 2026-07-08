@@ -119,6 +119,14 @@ describe('TaskCodePage', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('embedded hides the Back button/title toolbar but still renders the diff', async () => {
+    mockBridge();
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);
+    expect((await screen.findAllByText('src/Foo.ts')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: '← Back' })).toBeNull();
+    expect(screen.queryByText('Fix typos')).toBeNull();
+  });
+
   it('no pending proposal → no PR panel and no review actions (read-only)', async () => {
     mockBridge();
     render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);

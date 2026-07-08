@@ -22,10 +22,12 @@ import {
 import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
 import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
+import { SubmitReviewDrawer } from './SubmitReviewDrawer';
+import type { ReviewVerdict } from './SubmitReviewDrawer';
 
 /** The four work stages that share this page. */
 export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
-type StageTab = 'pr' | 'changes' | 'ci';
+type StageTab = 'pr' | 'changes' | 'ci' | 'code';
 
 const PILL_LABEL: Record<StageKind, string> = {
   plan: 'PLAN',
@@ -44,8 +46,8 @@ const PILL_LABEL: Record<StageKind, string> = {
  */
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, collapsed = false, composer, run = {},
-  tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi, planReminder, onRevealPlan, markReadyReminder,
-  openTabRequest,
+  tabs, tabCounts, paneMeta, onOpenCi, planReminder, onRevealPlan, markReadyReminder,
+  onSubmitReview, submittingReview = false, openTabRequest,
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
@@ -69,12 +71,11 @@ export function StageDetailPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  tabs: { pr?: ReactNode; changes?: ReactNode; ci?: ReactNode };
+  tabs: { pr?: ReactNode; changes?: ReactNode; ci?: ReactNode; code?: ReactNode };
   /** Optional per-tab count badge (e.g. changed-file count, PR number). */
   tabCounts?: Partial<Record<StageTab, { count?: number; countColor?: 'red' | 'acc' | 'muted' }>>;
   /** Sub-header under the tab strip, shown on the Changes tab (frame 6). */
   paneMeta?: { left?: ReactNode; right?: ReactNode };
-  onOpenChanges?: () => void;
   onOpenCi?: () => void;
   /** Shows the plan reminder pill above the composer (same as the brain view)
    *  so the plan is one click away from any stage. Undefined hides it. */
@@ -83,8 +84,13 @@ export function StageDetailPage({
   onRevealPlan?: () => void;
   /** Shows a green, glowing reminder pill above the composer while a shipped
    *  draft's CI is green and the mark-ready gate is parked — clicking it
-   *  jumps to the Changes page via {@code onOpenChanges}. */
+   *  opens the Changes tab. */
   markReadyReminder?: boolean;
+  /** Submits the reviewer's comment + verdict (from the Submit-review
+   *  drawer), plus any unresolved comments on this stage's diff, to the dev
+   *  agent as a steering turn. Undefined hides the top-bar button. */
+  onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
+  submittingReview?: boolean;
   /** Force-opens a tab from outside (the live-plan rail's gate nodes) — a
    *  fresh object (new `token`) re-fires even for a repeat click on the tab
    *  that's already open. */
@@ -92,23 +98,37 @@ export function StageDetailPage({
 }) {
   // PR leads the strip and opens first (decision #48) — it's the primary
   // artifact. The Code Diff tab renders the in-pane diff on every work stage;
-  // the CI Fix stage adds its own CI tab for the live run. Stages without a
+  // the CI Fix stage adds its own CI tab for the live run. Changes — the full
+  // file-tree/diff/comments/commits review surface — trails the strip; it
+  // used to be a separate page-navigation pill, now it's a tab like the
+  // others (R31), just one that fills the pane instead of sharing space with
+  // the conversation column (see `paneExpanded` below). Stages without a
   // PR tab (Plan, or a task with no PR yet) fall back to the first present.
   const available: { key: StageTab; label: string; node: ReactNode }[] = [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
     ...(tabs.changes !== undefined ? [{ key: 'changes' as const, label: 'Code Diff', node: tabs.changes }] : []),
     ...(tabs.ci !== undefined ? [{ key: 'ci' as const, label: 'CI', node: tabs.ci }] : []),
+    ...(tabs.code !== undefined ? [{ key: 'code' as const, label: 'Changes', node: tabs.code }] : []),
   ];
   // A stage without a PR/diff/CI yet (e.g. Plan, before Dev opens a PR) has
   // nothing to show in the side pane at all.
   const hasTabs = available.length > 0;
   const [activeTab, setActiveTab] = useState<StageTab | undefined>(available[0]?.key);
+  // Whether the current tab was reached by an explicit navigation (click, or
+  // an outside openTabRequest) rather than just being the passive initial
+  // default. Distinguishes "the user asked for Changes" from "Changes
+  // happened to be the only tab before the PR/diff had loaded yet" — the
+  // latter must NOT trigger paneExpanded below, or the conversation column
+  // (and whatever's in it, e.g. the plan-approval UI) vanishes on mount.
+  const [tabExplicit, setTabExplicit] = useState(false);
   const [paneOpen, setPaneOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
+  const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
 
   useEffect(() => {
     if (openTabRequest === undefined) return;
     setActiveTab(openTabRequest.tab);
+    setTabExplicit(true);
     setPaneOpen(true);
   }, [openTabRequest]);
 
@@ -127,6 +147,15 @@ export function StageDetailPage({
   const openTab = (key: StageTab) => {
     if (paneOpen && active?.key === key) { setPaneOpen(false); return; }
     setActiveTab(key);
+    setTabExplicit(true);
+    setPaneOpen(true);
+  };
+  // Force-opens a tab without the close-on-repeat-click toggle above — for
+  // one-shot "come look at this" actions (the mark-ready reminder) that
+  // should never close the pane out from under the user.
+  const forceOpenTab = (key: StageTab) => {
+    setActiveTab(key);
+    setTabExplicit(true);
     setPaneOpen(true);
   };
 
@@ -145,6 +174,15 @@ export function StageDetailPage({
         onClose={run.onClose}
       />
       {showCi && <TopBarButton icon="✓" onClick={onOpenCi}>CI Status</TopBarButton>}
+      {onSubmitReview !== undefined && (
+        <TopBarButton
+          variant="submit"
+          icon="✓"
+          onClick={submittingReview ? undefined : () => setSubmitReviewOpen(true)}
+        >
+          {submittingReview ? 'Submitting…' : 'Submit review'}
+        </TopBarButton>
+      )}
       {hasTabs && (
         <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
       )}
@@ -152,6 +190,10 @@ export function StageDetailPage({
   );
 
   const showPane = paneOpen && hasTabs && active !== undefined;
+  // The Changes tab hosts the full review surface (file tree, diff, inline
+  // comments, commits) — far too much for the pane's usual ~520px alongside
+  // the conversation column, so it fills the body instead (R31).
+  const paneExpanded = tabExplicit && showPane && active?.key === 'code';
 
   return (
     <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
@@ -160,24 +202,25 @@ export function StageDetailPage({
         <div
           ref={bodyRef}
           className={showPane ? 'body with-pane' : 'body'}
-          style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+          style={!showPane ? undefined
+            : paneExpanded ? { gridTemplateColumns: 'minmax(0, 1fr)' }
+              : { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` }}
         >
-          <div className="conv-col">
+          <div className="conv-col" style={paneExpanded ? { display: 'none' } : undefined}>
             {conversation}
             {/* Quick-access chips float just above the composer at all times
                 (not only when the pane is closed) so Plan / Changes stay one
                 click away from where you're typing. The plan reminder pill sits
                 on the left of the same row; the tab chips align to the right. */}
             <div className="chip-reminder-row">
-              {markReadyReminder === true && onOpenChanges !== undefined && (
-                <MarkReadyReminderTab onClick={onOpenChanges} />
+              {markReadyReminder === true && available.some(t => t.key === 'code') && (
+                <MarkReadyReminderTab onClick={() => forceOpenTab('code')} />
               )}
               {planReminder !== undefined && onRevealPlan !== undefined && (
                 <PlanReminderTab state={planReminder} onClick={onRevealPlan} />
               )}
               <InlineChips chips={[
                 ...available.map(t => ({ label: t.label, onClick: () => openTab(t.key) })),
-                ...(onOpenChanges !== undefined ? [{ icon: '◳', label: 'Changes', onClick: onOpenChanges }] : []),
                 ...(showCi ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
               ]}
               />
@@ -192,14 +235,15 @@ export function StageDetailPage({
               placeholder={composer.placeholder}
             />
           </div>
-          {showPane && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
+          {showPane && !paneExpanded && (
+            <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />
+          )}
           {showPane && (
             <RightPane>
               <RightPane.Tabs<StageTab>
                 tabs={paneTabs}
                 active={active.key}
                 onSelect={setActiveTab}
-                navTab={onOpenChanges !== undefined ? { icon: '⊟', label: 'Changes', onClick: onOpenChanges } : undefined}
               />
               {paneMeta !== undefined && (active.key === 'changes' || active.key === 'ci') && (
                 <RightPane.MetaRow left={paneMeta.left} right={paneMeta.right} />
@@ -209,6 +253,17 @@ export function StageDetailPage({
           )}
         </div>
       </Main>
+      {onSubmitReview !== undefined && (
+        <SubmitReviewDrawer
+          open={submitReviewOpen}
+          submitting={submittingReview}
+          onClose={() => setSubmitReviewOpen(false)}
+          onSubmit={(body, verdict) => {
+            onSubmitReview(body, verdict);
+            setSubmitReviewOpen(false);
+          }}
+        />
+      )}
     </Shell>
   );
 }

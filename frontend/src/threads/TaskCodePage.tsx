@@ -147,7 +147,7 @@ const FILES_WIDTH_KEY = 'bytequay.taskCode.filesWidth';
 const COMMITS_DEFAULT = 230;
 const FILES_DEFAULT = 280;
 const WIDTH_MIN = 160;
-const WIDTH_MAX = 560;
+const WIDTH_MAX = 900;
 
 function loadWidth(key: string, fallback: number): number {
   try {
@@ -171,15 +171,21 @@ function loadWidth(key: string, fallback: number): number {
  * exactly like the PR page.
  */
 export default function TaskCodePage({
-  threadId, taskId, onBack, stageId,
+  threadId, taskId, onBack, stageId, embedded = false,
 }: {
   threadId: string;
   taskId: string;
-  onBack: () => void;
+  /** Absent when {@code embedded} — the host page's own back nav applies. */
+  onBack?: () => void;
   /** The stage the diff was opened from — drives the left conversation
    *  column (the dev-stage transcript + an inline steer composer). Absent
    *  when opened outside a stage. */
   stageId?: string;
+  /** True when mounted inline inside another page's tab pane (the brain /
+   *  stage-detail "Changes" tab) rather than as its own standalone route —
+   *  hides the toolbar (Back button, title, ship actions) since the host
+   *  page already renders its own top bar for those. */
+  embedded?: boolean;
 }) {
   const { tasks, refresh: refreshTasks } = useThreadTasks(threadId);
   const task = useMemo(() => tasks?.find(t => t.id === taskId) ?? null, [tasks, taskId]);
@@ -552,55 +558,61 @@ export default function TaskCodePage({
     // full-height host since .app-content isn't a positioning context.
     <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
       <div className="diff-viewer">
-        <div className="diff-viewer__toolbar">
-          <button className="button button--secondary" onClick={onBack} type="button">
-            ← Back
-          </button>
-          <div className="diff-viewer__title">
-            {task?.branchName != null && (
-              <span className="diff-viewer__repo">⎇ {task.branchName}</span>
+        {(!embedded || reviewMode) && (
+          <div className="diff-viewer__toolbar">
+            {!embedded && (
+              <>
+                <button className="button button--secondary" onClick={onBack} type="button">
+                  ← Back
+                </button>
+                <div className="diff-viewer__title">
+                  {task?.branchName != null && (
+                    <span className="diff-viewer__repo">⎇ {task.branchName}</span>
+                  )}
+                  <span className="diff-viewer__pr-title">{title}</span>
+                  {(task?.status === 'IN_REVIEW' || task?.status === 'COMPLETED') && (
+                    <span className="diff-viewer__shipped" title="This task has been shipped">
+                      <span aria-hidden>✓</span>
+                      {task.status === 'COMPLETED' ? 'Finalized' : 'Shipped'}
+                    </span>
+                  )}
+                </div>
+              </>
             )}
-            <span className="diff-viewer__pr-title">{title}</span>
-            {(task?.status === 'IN_REVIEW' || task?.status === 'COMPLETED') && (
-              <span className="diff-viewer__shipped" title="This task has been shipped">
-                <span aria-hidden>✓</span>
-                {task.status === 'COMPLETED' ? 'Finalized' : 'Shipped'}
-              </span>
+            {reviewMode && (
+              <div className="diff-viewer__review-actions">
+                {actionNote !== null && (
+                  <span className="diff-viewer__review-note">{actionNote}</span>
+                )}
+                <span className="diff-viewer__review-count">
+                  {openCount} open comment{openCount === 1 ? '' : 's'}
+                </span>
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={() => void submitReview()}
+                  disabled={actionBusy}
+                  title="Send unresolved review comments to the agent"
+                >
+                  Submit review
+                </button>
+                <button
+                  type="button"
+                  className="button button--submit"
+                  onClick={() => void approveShip()}
+                  disabled={actionBusy || hasUnresolved}
+                  title={hasUnresolved
+                    ? 'resolve the open review comments first'
+                    : proposalAction === 'merge_pr'
+                      ? 'Approve and merge this pull request'
+                      : 'Approve and ship this task'}
+                >
+                  {proposalAction === 'merge_pr' ? 'Approve & merge' : 'Approve & ship'}
+                </button>
+              </div>
             )}
           </div>
-          {reviewMode && (
-            <div className="diff-viewer__review-actions">
-              {actionNote !== null && (
-                <span className="diff-viewer__review-note">{actionNote}</span>
-              )}
-              <span className="diff-viewer__review-count">
-                {openCount} open comment{openCount === 1 ? '' : 's'}
-              </span>
-              <button
-                type="button"
-                className="button button--secondary"
-                onClick={() => void submitReview()}
-                disabled={actionBusy}
-                title="Send unresolved review comments to the agent"
-              >
-                Submit review
-              </button>
-              <button
-                type="button"
-                className="button button--submit"
-                onClick={() => void approveShip()}
-                disabled={actionBusy || hasUnresolved}
-                title={hasUnresolved
-                  ? 'resolve the open review comments first'
-                  : proposalAction === 'merge_pr'
-                    ? 'Approve and merge this pull request'
-                    : 'Approve and ship this task'}
-              >
-                {proposalAction === 'merge_pr' ? 'Approve & merge' : 'Approve & ship'}
-              </button>
-            </div>
-          )}
-        </div>
+        )}
 
         <div
           className="diff-viewer__body"
@@ -892,7 +904,7 @@ export default function TaskCodePage({
                   + 'comments are handled automatically from here — come back to merge once it’s ready.'}
           confirmLabel="Back to thread"
           cancelLabel="Stay here"
-          onConfirm={() => { setShipNotice(null); onBack(); }}
+          onConfirm={() => { setShipNotice(null); onBack?.(); }}
           onCancel={() => setShipNotice(null)}
         />
       )}

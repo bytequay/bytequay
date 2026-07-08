@@ -154,6 +154,28 @@ describe('TaskCodePage', () => {
     expect(screen.getByText('Changed files')).toBeTruthy();
   });
 
+  it('embedded drops the Code/Pull request tab strip too — just the diff', async () => {
+    mockBridge();
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);
+    await screen.findAllByText('src/Foo.ts');
+    expect(screen.queryByRole('tab', { name: 'Code' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Pull request' })).toBeNull();
+  });
+
+  it('embedded + mark-ready: shows the mark-ready panel in place of the diff, still no tab strip', async () => {
+    const markReadyProposal: NotificationDto = {
+      ...SHIP_PROPOSAL,
+      payloadJson: JSON.stringify({ action: 'mark_ready', pr: { owner: 'acme', repo: 'widget', number: 42 } }),
+    };
+    mockBridge({ listNotificationsForThread: vi.fn().mockResolvedValue([markReadyProposal]) });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);
+    // Mark-ready mode replaces the diff with the panel entirely — nothing to
+    // wait for except the panel itself.
+    expect(await screen.findByText('Ready for review')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'Code' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Pull request' })).toBeNull();
+  });
+
   it('no pending proposal → no PR panel and no review actions (read-only)', async () => {
     mockBridge();
     render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);

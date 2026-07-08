@@ -419,6 +419,35 @@ class TestStageBrain
     }
 
     @Test
+    void rightRailPlanCardFallsBackToTopLevelStepsWhenIntentStepsIsEmpty()
+    {
+        // Observed in production: the brain sometimes writes steps at the
+        // payload's top level (with an "intent_steps_note" pointing there)
+        // instead of nested under intent.steps as record_plan's schema says.
+        // Without the fallback this renders 0 steps -> "draft" -> an
+        // unapprovable plan despite an otherwise-complete, finalized record.
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
+                "id", "rev-1",
+                "status", "finalized",
+                "source", "brain",
+                "understanding", Map.of("summary", "bump the retry default"),
+                "intent", Map.of(
+                        "summary", "change the default and add a test",
+                        "validationStrategy", "mvn verify"),
+                "intent_steps_note", "see steps below",
+                "steps", List.of(Map.of("ordinal", 1, "action", "edit RetryConfig")),
+                "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
+
+        TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
+
+        assertThat(card.state()).isEqualTo("awaiting");
+        assertThat(card.steps()).singleElement()
+                .satisfies(s -> assertThat(s.action()).isEqualTo("edit RetryConfig"));
+    }
+
+    @Test
     void rightRailPlanCardIsLockedAfterApproval()
     {
         String taskId = seedTask();

@@ -20,6 +20,8 @@ import com.bytequay.app.repository.NotificationStore;
 import com.bytequay.app.repository.TaskStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
 import java.util.List;
@@ -51,6 +53,37 @@ class TestAutoApproveGateListener
     {
         return new Notification(id, NotificationKind.AWAITING_REVIEW, THREAD, taskId, status,
                 "{\"action\":\"" + action + "\"}", createdAt, null);
+    }
+
+    @Test
+    void gateParkedAutoApprovesMarkReadyEvenWithAutoApproveOff()
+    {
+        when(taskStore.isAutoApprove(TASK)).thenReturn(false);
+
+        listener.onGateParked(new GateParkedEvent("n1", TASK, "{\"action\":\"mark_ready\"}"));
+
+        verify(publishService).approve(eq("n1"), isNull(), eq("mark_ready"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"merge_pr", "post_comment", "publish_review", "request_reviewer", "reply_review_thread"})
+    void gateParkedNeverAutoApprovesPublishingActionsEvenWithAutoApproveOn(String action)
+    {
+        when(taskStore.isAutoApprove(TASK)).thenReturn(true);
+
+        listener.onGateParked(new GateParkedEvent("n1", TASK, "{\"action\":\"" + action + "\"}"));
+
+        verify(publishService, never()).approve(anyString(), any(), anyString());
+    }
+
+    @Test
+    void gateParkedSkipsOrdinaryActionsWhenAutoApproveIsOff()
+    {
+        when(taskStore.isAutoApprove(TASK)).thenReturn(false);
+
+        listener.onGateParked(new GateParkedEvent("n1", TASK, "{\"action\":\"ship_task\"}"));
+
+        verify(publishService, never()).approve(anyString(), any(), anyString());
     }
 
     @Test
@@ -91,7 +124,8 @@ class TestAutoApproveGateListener
                 gate("n1", TASK, NotificationStatus.UNREAD, "ship_task", Instant.EPOCH),        // stranded → approve
                 gate("n2", TASK, NotificationStatus.UNREAD, "merge_pr", Instant.EPOCH),         // merge → skip
                 gate("nf", TASK, NotificationStatus.UNREAD, "ship_task", Instant.now()),        // too fresh → skip
-                gate("n5", "ws.t1.k2", NotificationStatus.UNREAD, "ship_task", Instant.EPOCH))); // not auto-approve → skip
+                gate("n5", "ws.t1.k2", NotificationStatus.UNREAD, "ship_task", Instant.EPOCH),  // not auto-approve → skip
+                gate("n6", "ws.t1.k2", NotificationStatus.UNREAD, "mark_ready", Instant.EPOCH))); // mark_ready → approve despite flag off
 
         listener.reconcileStrandedGates();
 
@@ -99,6 +133,7 @@ class TestAutoApproveGateListener
         verify(publishService, never()).approve(eq("n2"), any(), any());
         verify(publishService, never()).approve(eq("nf"), any(), any());
         verify(publishService, never()).approve(eq("n5"), any(), any());
+        verify(publishService).approve(eq("n6"), isNull(), eq("mark_ready"));
     }
 
     @Test

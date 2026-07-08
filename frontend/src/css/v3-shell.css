@@ -782,7 +782,9 @@
 
 /* ── Task-scoped sidebar + live-plan lifecycle diagram (frames 2/6/7) ── */
 .shell .task-sidebar {
-  background: var(--bg-sidebar);
+  /* Stands in for the global left rail on Task/Stage detail pages (App.tsx
+     steps the global nav aside here) — same var(--bg) as the main pane. */
+  background: var(--bg);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;

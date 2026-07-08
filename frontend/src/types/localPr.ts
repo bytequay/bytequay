@@ -133,6 +133,13 @@ export interface LocalPRComment {
   scope: LocalPRCommentScope;
   filePath: string | null;
   lineNumber: number | null;
+  /** 'LEFT' (removed) or 'RIGHT' (added/context) — defaults to 'RIGHT' for
+   *  every comment that predates this concept. */
+  side: 'LEFT' | 'RIGHT';
+  /** First line of a multi-line range; null for a single-line comment. */
+  startLine: number | null;
+  /** Diff side of `startLine`; null for a single-line comment. */
+  startSide: 'LEFT' | 'RIGHT' | null;
   author: string;
   body: string;
   createdAt: number;

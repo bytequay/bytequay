@@ -343,6 +343,62 @@ describe('TaskCodePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     // The added line `+new line` is new-side line 2 in the patch.
-    await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith('task-1', 'src/Foo.ts', 2, 'nit: rename'));
+    await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith(
+      'task-1', 'src/Foo.ts', 2, 'nit: rename', 'RIGHT', undefined, undefined));
+  });
+
+  it('review mode: clicking a removed line anchors the comment LEFT', async () => {
+    const bridge = mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([]),
+    });
+    const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    await screen.findByRole('button', { name: /Approve & ship/ });
+    const row = await waitFor(() => {
+      const el = container.querySelector('.diff-row--del.diff-row--commentable');
+      if (!el) throw new Error('no commentable removed-line row yet');
+      return el;
+    });
+    fireEvent.click(row);
+
+    const textarea = await screen.findByPlaceholderText(/Leave a review comment/);
+    fireEvent.change(textarea, { target: { value: 'why remove this?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    // "-old line" is the hunk's 2nd old-side row (the leading "context" row
+    // takes old-side line 1) — so the removed line anchors LEFT:2.
+    await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith(
+      'task-1', 'src/Foo.ts', 2, 'why remove this?', 'LEFT', undefined, undefined));
+  });
+
+  it('review mode: shift-click extends the composer into a multi-line range', async () => {
+    const bridge = mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([]),
+    });
+    const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    await screen.findByRole('button', { name: /Approve & ship/ });
+    const rows = await waitFor(() => {
+      const els = container.querySelectorAll('.diff-row--commentable');
+      if (els.length < 2) throw new Error('not enough commentable rows yet');
+      return els;
+    });
+    // The leading "context" row is RIGHT:1; the trailing "+new line" row is
+    // RIGHT:2. Click one, shift-click the other — same side, so it extends
+    // into a range regardless of click order.
+    const added = Array.from(rows).find(r => r.classList.contains('diff-row--add'))!;
+    const contextRow = Array.from(rows).find(r => r.classList.contains('diff-row--context'))!;
+    fireEvent.click(added);
+    fireEvent.click(contextRow, { shiftKey: true });
+
+    const textarea = await screen.findByPlaceholderText(/Leave a review comment/);
+    expect(screen.getByText(/lines R1 to R2/)).toBeTruthy();
+    fireEvent.change(textarea, { target: { value: 'spans two lines' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith(
+      'task-1', 'src/Foo.ts', 2, 'spans two lines', 'RIGHT', 1, 'RIGHT'));
   });
 });

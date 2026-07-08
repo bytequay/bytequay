@@ -30,7 +30,8 @@ const FILE: DiffFileDto = {
 function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
   return {
     id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
-    filePath: 'backend/src/Composer.java', lineNumber: 181, author: 'you',
+    filePath: 'backend/src/Composer.java', lineNumber: 181, side: 'RIGHT', startLine: null, startSide: null,
+    author: 'you',
     body: 'Split this into a wrapper + memoized inner component.',
     createdAt: Date.now(), resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null,
     publishedAt: null, ...over,
@@ -65,10 +66,10 @@ describe('PaneDiff', () => {
     expect(container.querySelectorAll('.comment-anchor').length).toBe(0);
   });
 
-  it('renders comment anchors on each new-side line when allowLocalComments is on', () => {
+  it('renders comment anchors on every line, including deletions, when allowLocalComments is on', () => {
     const { container } = render(<PaneDiff files={[FILE]} allowLocalComments />);
-    // one per new-side line (1 context + 2 adds); deletions aren't commentable.
-    expect(container.querySelectorAll('.comment-anchor').length).toBe(3);
+    // 1 context + 2 adds + 1 del.
+    expect(container.querySelectorAll('.comment-anchor').length).toBe(4);
   });
 
   it('renders an existing file-line comment inline with the 🔒 LOCAL origin badge', () => {
@@ -79,6 +80,11 @@ describe('PaneDiff', () => {
     expect(screen.getByText('🔒 LOCAL')).toBeTruthy();
     // The line carrying the thread flags has-comment (orange ⚠ anchor).
     expect(container.querySelector('.diff-line.has-comment')).not.toBeNull();
+  });
+
+  it('renders a range label on a persisted multi-line comment', () => {
+    render(<PaneDiff files={[FILE]} comments={[comment({ startLine: 180, startSide: 'RIGHT' })]} />);
+    expect(screen.getByText('R180 to R181')).toBeTruthy();
   });
 
   it('renders a remote-origin comment with the REMOTE badge', () => {
@@ -100,7 +106,42 @@ describe('PaneDiff', () => {
     expect(composer).not.toBeNull();
     fireEvent.change(composer, { target: { value: 'please memoize' } });
     fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
-    expect(onAddComment).toHaveBeenCalledWith('backend/src/Composer.java', 181, 'please memoize');
+    expect(onAddComment).toHaveBeenCalledWith(
+      'backend/src/Composer.java', 'RIGHT', 181, undefined, undefined, 'please memoize',
+    );
+  });
+
+  it('opens a composer on a removed line and anchors the comment LEFT', () => {
+    const onAddComment = vi.fn();
+    const { container } = render(
+      <PaneDiff files={[FILE]} allowLocalComments onAddComment={onAddComment} />,
+    );
+    const delLine = container.querySelector('.diff-line.del') as HTMLElement;
+    fireEvent.click(delLine.querySelector('.comment-anchor') as Element);
+    const composer = container.querySelector('.ic-composer') as HTMLTextAreaElement;
+    expect(composer).not.toBeNull();
+    fireEvent.change(composer, { target: { value: 'why remove this?' } });
+    fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
+    expect(onAddComment).toHaveBeenCalledWith(
+      'backend/src/Composer.java', 'LEFT', 181, undefined, undefined, 'why remove this?',
+    );
+  });
+
+  it('shift-clicking a second line on the same side extends the composer into a range', () => {
+    const onAddComment = vi.fn();
+    const { container } = render(
+      <PaneDiff files={[FILE]} allowLocalComments onAddComment={onAddComment} />,
+    );
+    const addLines = Array.from(container.querySelectorAll('.diff-line.add')) as HTMLElement[];
+    fireEvent.click(addLines[0].querySelector('.comment-anchor') as Element);
+    fireEvent.click(addLines[1].querySelector('.comment-anchor') as Element, { shiftKey: true });
+    expect(screen.getByText(/Commenting on/)).toBeTruthy();
+    const composer = container.querySelector('.ic-composer') as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: 'range comment' } });
+    fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
+    expect(onAddComment).toHaveBeenCalledWith(
+      'backend/src/Composer.java', 'RIGHT', 182, 181, 'RIGHT', 'range comment',
+    );
   });
 
   it('fires onResolveComment from an open thread', () => {

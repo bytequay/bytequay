@@ -64,7 +64,8 @@ describe('PushDialog', () => {
   it('falls back to counting unstripped local comments when no count is supplied', () => {
     const comments: LocalPRComment[] = [
       { id: 'x1', localPrId: 'pr1', origin: 'local', scope: 'pr', filePath: null,
-        lineNumber: null, author: 'you', body: 'a', createdAt: Date.now(), resolvedAt: null,
+        lineNumber: null, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'you', body: 'a', createdAt: Date.now(), resolvedAt: null,
         dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null },
     ];
     render(<PushDialog bundle={bundle({ pendingStripCount: undefined, comments })} onPush={() => {}} onCancel={() => {}} />);

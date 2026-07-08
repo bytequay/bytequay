@@ -558,27 +558,27 @@ export default function TaskCodePage({
     // full-height host since .app-content isn't a positioning context.
     <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
       <div className="diff-viewer">
-        {(!embedded || reviewMode) && (
+        {/* The whole toolbar — Back/title, and the open-comments/ship actions
+            — is the host page's job when embedded: StageDetailPage /
+            TaskBrainPage already render their own title bar and Submit
+            review button, so this would just duplicate it. */}
+        {!embedded && (
           <div className="diff-viewer__toolbar">
-            {!embedded && (
-              <>
-                <button className="button button--secondary" onClick={onBack} type="button">
-                  ← Back
-                </button>
-                <div className="diff-viewer__title">
-                  {task?.branchName != null && (
-                    <span className="diff-viewer__repo">⎇ {task.branchName}</span>
-                  )}
-                  <span className="diff-viewer__pr-title">{title}</span>
-                  {(task?.status === 'IN_REVIEW' || task?.status === 'COMPLETED') && (
-                    <span className="diff-viewer__shipped" title="This task has been shipped">
-                      <span aria-hidden>✓</span>
-                      {task.status === 'COMPLETED' ? 'Finalized' : 'Shipped'}
-                    </span>
-                  )}
-                </div>
-              </>
-            )}
+            <button className="button button--secondary" onClick={onBack} type="button">
+              ← Back
+            </button>
+            <div className="diff-viewer__title">
+              {task?.branchName != null && (
+                <span className="diff-viewer__repo">⎇ {task.branchName}</span>
+              )}
+              <span className="diff-viewer__pr-title">{title}</span>
+              {(task?.status === 'IN_REVIEW' || task?.status === 'COMPLETED') && (
+                <span className="diff-viewer__shipped" title="This task has been shipped">
+                  <span aria-hidden>✓</span>
+                  {task.status === 'COMPLETED' ? 'Finalized' : 'Shipped'}
+                </span>
+              )}
+            </div>
             {reviewMode && (
               <div className="diff-viewer__review-actions">
                 {actionNote !== null && (
@@ -617,12 +617,21 @@ export default function TaskCodePage({
         <div
           className="diff-viewer__body"
           ref={bodyRef}
-          style={{ gridTemplateColumns: `${convWidth}px 5px ${filesWidth}px 5px minmax(0, 1fr)` }}
+          style={embedded
+            ? { gridTemplateColumns: `${filesWidth}px 5px minmax(0, 1fr)` }
+            : { gridTemplateColumns: `${convWidth}px 5px ${filesWidth}px 5px minmax(0, 1fr)` }}
         >
           {/* Conversation column — the originating stage's transcript (with an
-              inline steer), or a PR-agent chat scaffold when stageless. */}
-          <DiffChatColumn stageId={stageId} taskId={taskId} threadId={threadId} />
-          <ResizeHandle onResize={handleConvResize} ariaLabel="Resize conversation panel" />
+              inline steer), or a PR-agent chat scaffold when stageless. Dropped
+              when embedded: the host page (brain / stage-detail) already shows
+              its own conversation alongside this tab, so this would just be a
+              second, redundant copy of the same transcript. */}
+          {!embedded && (
+            <>
+              <DiffChatColumn stageId={stageId} taskId={taskId} threadId={threadId} />
+              <ResizeHandle onResize={handleConvResize} ariaLabel="Resize conversation panel" />
+            </>
+          )}
 
           {/* Middle column: Changed files + Commits folded into two tabs. */}
           <aside className="diff-viewer__files">

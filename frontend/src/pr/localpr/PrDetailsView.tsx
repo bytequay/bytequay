@@ -58,8 +58,6 @@ export function PrDetailsView<T extends DetailsPr>({
     runLocalTests, testsBusy,
   } = useExternalPrActions(owner, repoName, pr.number);
 
-  const [reviewStarting, setReviewStarting] = useState(false);
-  const [reviewStartError, setReviewStartError] = useState<string | null>(null);
   const [handledState, setHandledState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
 
   const markHandled = async () => {
@@ -71,22 +69,6 @@ export function PrDetailsView<T extends DetailsPr>({
     }
     catch {
       setHandledState('error');
-    }
-  };
-
-  const startAgentReview = async () => {
-    if (reviewStarting || onStartReview === undefined) return;
-    setReviewStarting(true);
-    setReviewStartError(null);
-    try {
-      const result = await window.bridge.startReview(pr.repo, pr.number);
-      onStartReview(result.pass.threadId);
-    }
-    catch (e) {
-      setReviewStartError(e instanceof Error ? e.message : String(e));
-    }
-    finally {
-      setReviewStarting(false);
     }
   };
 
@@ -146,14 +128,8 @@ export function PrDetailsView<T extends DetailsPr>({
           syncedAt={bundle.pr.syncedAt}
           syncing={syncing}
           onRefresh={refresh}
-          headerAction={onStartReview !== undefined ? (
-            <button type="button" className="prc-meta-link-btn" disabled={reviewStarting} onClick={startAgentReview}>
-              {reviewStarting ? 'Starting…' : 'Review with agent →'}
-            </button>
-          ) : undefined}
         />
       )}
-      {reviewStartError !== null && <div className="pr-details-view__error">{reviewStartError}</div>}
       {pushOpen && bundle != null && (
         <PushDialog
           bundle={bundle}

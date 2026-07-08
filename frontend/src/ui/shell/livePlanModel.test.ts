@@ -196,6 +196,23 @@ describe('buildLivePlan', () => {
     expect(node(noPr, 'ci-validation').nav).toEqual({ kind: 'none' });
   });
 
+  it('disables CI validation once the task is done if it never ran (no PR click into nothing)', () => {
+    const neverRanButDone = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: 30, currentPhase: 'COMPLETED' as TaskPhase, terminal: true },
+    });
+    expect(node(neverRanButDone, 'ci-validation').status).toBe('sleep');
+    expect(node(neverRanButDone, 'ci-validation').nav).toEqual({ kind: 'none' });
+
+    // Still sleeping but the task isn't done yet — stays clickable.
+    const neverRanStillOpen = buildLivePlan({
+      stages: [], subStages: [],
+      task: { prNumber: 30, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+    });
+    expect(node(neverRanStillOpen, 'ci-validation').status).toBe('sleep');
+    expect(node(neverRanStillOpen, 'ci-validation').nav).toEqual({ kind: 'pr' });
+  });
+
   it('marks a live run\'s sub-row status by its own status, not the parent stage', () => {
     const nodes = buildLivePlan({
       stages: [stage('CLEANUP_STAGE', 'CLOSED')], subStages: [],

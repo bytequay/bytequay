@@ -32,23 +32,34 @@ function PlanNode({ node, onClick, small, toggle }: {
   const cls = [
     'plan-node', node.status, `nt-${node.nodeType}`, node.activeView ? 'active-view' : '', small ? 'sm' : '',
   ].filter(Boolean).join(' ');
-  const button = (
-    <button
-      type="button"
-      className={cls}
-      onClick={onClick}
-      disabled={node.nav.kind === 'none'}
-      title={node.label}
-    >
+  const content = (
+    <>
       <span className="pn-glyph" aria-hidden>{node.glyph}</span>
       <span className="pn-name">{node.label}</span>
       {node.meta !== undefined && <span className="pn-meta">{node.meta}</span>}
-    </button>
+    </>
   );
-  if (toggle === undefined) return button;
+  if (toggle === undefined) {
+    return (
+      <button type="button" className={cls} onClick={onClick} disabled={node.nav.kind === 'none'} title={node.label}>
+        {content}
+      </button>
+    );
+  }
+  // The chevron rides inside the same pill as the nav button (one shared
+  // border/background by status) instead of a separate box beside it — the
+  // two stay independent click targets, they just no longer look like it.
   return (
-    <div className="plan-node-row">
-      {button}
+    <div className={`${cls} has-toggle`}>
+      <button
+        type="button"
+        className="plan-node-nav"
+        onClick={onClick}
+        disabled={node.nav.kind === 'none'}
+        title={node.label}
+      >
+        {content}
+      </button>
       <button
         type="button"
         className="plan-node-toggle"

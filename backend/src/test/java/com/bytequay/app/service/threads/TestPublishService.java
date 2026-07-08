@@ -155,7 +155,7 @@ class TestPublishService
         service.approve("notif-existing-pr", null, "push");
 
         verify(eventPublisher).publishEvent(
-                new PrPushedEvent("task-existing-pr", 42, "https://github.com/acme/widget/pull/42"));
+                new PrPushedEvent("task-existing-pr", "acme/widget", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test
@@ -1140,7 +1140,7 @@ class TestPublishService
         service.approve("notif-sync-local-pr", "", "open_pr");
 
         verify(eventPublisher).publishEvent(
-                new PrPushedEvent("task-sync-local-pr", 42, "https://github.com/acme/widget/pull/42"));
+                new PrPushedEvent("task-sync-local-pr", "acme/widget", 42, "https://github.com/acme/widget/pull/42"));
     }
 
     @Test

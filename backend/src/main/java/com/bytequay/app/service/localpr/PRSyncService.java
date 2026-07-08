@@ -489,9 +489,7 @@ public class PRSyncService
         if (ref.isEmpty()) {
             return pr;
         }
-        prPublish.onPushedElsewhere(new PrPushedEvent(
-                task.id(), ref.get().owner() + "/" + ref.get().repo(), ref.get().number(),
-                "https://github.com/" + ref.get().owner() + "/" + ref.get().repo() + "/pull/" + ref.get().number()));
+        prPublish.onPushedElsewhere(PrPushedEvent.of(task.id(), ref.get()));
         return prService.findById(pr.id()).orElse(pr);
     }
 

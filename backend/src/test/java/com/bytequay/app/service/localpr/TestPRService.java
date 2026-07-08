@@ -256,7 +256,7 @@ class TestPRService
         when(store.unstrippedLocalOnlyEvents("pr1")).thenReturn(List.of(localEvent));
         when(store.unstrippedLocalComments("pr1")).thenReturn(List.of(localComment));
 
-        PR pushed = service.recordPush("pr1", 145, "https://github.com/o/r/pull/145");
+        PR pushed = service.recordPush("pr1", "o/r", 145, "https://github.com/o/r/pull/145");
 
         // The local event is stamped stripped (never migrates to GitHub).
         ArgumentCaptor<PRTimelineEntry> events = ArgumentCaptor.forClass(PRTimelineEntry.class);

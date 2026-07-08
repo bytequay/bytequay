@@ -15,6 +15,9 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BranchGuard;
+import com.bytequay.app.domain.BranchGuard.Health;
+import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
@@ -29,7 +32,9 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.RebaseOutcome;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.threads.AutomationCoordinator;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
@@ -49,27 +54,7 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/**
- * The branch guard's scheduled tick (plan-rail-runs.md R18): for every
- * enabled {@link BranchGuard} on an idle thread, fetch the task's base
- * branch, and if it drifted ahead, rebase, run the registered {@link
- * ValidationCheck}s, and push — pre-authorized the same way an armed
- * {@code ci_fix} run's per-iteration push is (R9).
- *
- * <p>A dry-run conflict preview or a real rebase failure hands off to a
- * single bounded agent turn to resolve it (the agent edits/commits/
- * continues the rebase; this job verifies the result and does the
- * checks+push afterward, the same split {@code CiFixRunExecutor} uses).
- * If the thread isn't idle, or the agent's one attempt doesn't leave the
- * branch caught up, the guard parks at {@code needs_attention} and
- * notifies — there's still no unbounded retry loop or check-fixing here.
- * A check failure after a clean rebase also parks directly (unchanged) —
- * that's shipped-CI-fix territory, not this job's.
- *
- * <p>One sweep == the "nightly" schedule for every guard (the only
- * schedule value v1 supports); {@code lastCheckedAt} is observability,
- * not a per-guard due-check gate.
- */
+/** Keeps enabled task branches caught up with their base branch. */
 @Component
 public class BranchGuardJob
 {
@@ -86,6 +71,7 @@ public class BranchGuardJob
     private final List<ValidationCheck> checks;
     private final AgentRunService agentRuns;
     private final NotificationService notifications;
+    private final PullRequestService pullRequests;
     private final ObjectMapper mapper;
 
     public BranchGuardJob(
@@ -98,6 +84,7 @@ public class BranchGuardJob
             List<ValidationCheck> checks,
             AgentRunService agentRuns,
             NotificationService notifications,
+            PullRequestService pullRequests,
             ObjectMapper mapper)
     {
         this.guards = requireNonNull(guards, "guards is null");
@@ -109,6 +96,7 @@ public class BranchGuardJob
         this.checks = requireNonNull(checks, "checks is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -125,9 +113,7 @@ public class BranchGuardJob
         }
     }
 
-    /** Visible for the unit test: run one guard's check. A no-op (retried
-     *  next sweep) if the task's thread isn't idle — the mechanical rebase
-     *  below mutates the same worktree a live turn might be mid-edit in. */
+    /** Visible for tests: run one guard's check. Skips busy threads. */
     void checkOne(BranchGuard guard)
     {
         Task task = taskStore.findTaskById(guard.taskId()).orElse(null);
@@ -149,11 +135,17 @@ public class BranchGuardJob
                 return; // base ref unresolvable — nothing to compare against yet.
             }
             Optional<String> mergeBase = git.mergeBase(worktree, "HEAD", baseRef);
+            Boolean checksGreen = probeChecksGreen(task);
             if (mergeBase.isPresent() && mergeBase.get().equals(baseTip.get())) {
-                guards.save(guard.withState(BranchGuard.STATE_IN_SYNC).withLastRun(null, Instant.now()));
+                Health health = new Health(0, true, checksGreen);
+                guards.save(guard.withState(BranchGuard.STATE_HEALTHY)
+                        .withHealth(health).withLastRun(null, Instant.now()));
                 return;
             }
-            driveDrift(task, thread, guard, worktree, baseRef);
+            Integer behindBy = git.commitCountUniqueTo(worktree, baseRef, "HEAD");
+            RebaseOutcome outcome = git.rebasePreview(worktree, "HEAD", baseRef);
+            Health health = new Health(behindBy, outcome == RebaseOutcome.CLEAN, checksGreen);
+            driveDrift(task, thread, guard.withHealth(health), worktree, baseRef, outcome);
         }
         catch (Exception e) {
             log.warn("branch guard git operation failed for task {}: {}", task.id(), e.getMessage());
@@ -161,13 +153,38 @@ public class BranchGuardJob
         }
     }
 
-    private void driveDrift(Task task, Thread thread, BranchGuard guard, Path worktree, String baseRef)
+    /** Mirrors cached CI health for the chip. It never starts CI repair. */
+    private Boolean probeChecksGreen(Task task)
+    {
+        if (task.linkedPrRef() == null) {
+            return null;
+        }
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
+        if (ref.isEmpty()) {
+            return null;
+        }
+        try {
+            PullRequestDetail detail = pullRequests.getPullRequestDetail(
+                    ref.get().repoFullName(), ref.get().number());
+            if (detail == null) {
+                return null;
+            }
+            return !AutomationCoordinator.aggregateChecks(
+                    AutomationCoordinator.toCheckRunStates(detail.checkRuns())).isFailing();
+        }
+        catch (RuntimeException e) {
+            log.warn("branch guard: reading cached CI state failed for task {}: {}", task.id(), e.getMessage());
+            return null;
+        }
+    }
+
+    private void driveDrift(
+            Task task, Thread thread, BranchGuard guard, Path worktree, String baseRef, RebaseOutcome outcome)
             throws Exception
     {
         AgentRun run = agentRuns.open(
                 task.id(), AgentRun.KIND_BRANCH_GUARD, AgentRun.SOURCE_SCHEDULED,
                 /* parentStageId */ null, StageType.BRANCH_GUARD_STAGE, /* budget */ null);
-        RebaseOutcome outcome = git.rebasePreview(worktree, "HEAD", baseRef);
         if (outcome != RebaseOutcome.CLEAN) {
             askAgentToResolve(task, thread, guard, run, baseRef,
                     "main drifted and would conflict on rebase");
@@ -183,9 +200,7 @@ public class BranchGuardJob
         finishClean(task, guard, run, worktree, baseRef);
     }
 
-    /** Runs checks + pushes a mechanically-clean rebase (or, after a fix
-     *  turn, one the agent left caught up). Shared by both entry points so
-     *  the check/push rule is identical either way. */
+    /** Runs checks and pushes a caught-up branch. */
     private void finishClean(Task task, BranchGuard guard, AgentRun run, Path worktree, String baseRef)
             throws Exception
     {
@@ -201,20 +216,16 @@ public class BranchGuardJob
         // even though this is a plain drift-catchup, not a rewritten fix.
         git.pushForceWithLease(worktree);
         agentRuns.transition(run.id(), AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
-        guards.save(guard.withState(BranchGuard.STATE_IN_SYNC).withLastRun(run.id(), Instant.now()));
+        guards.save(guard.withState(BranchGuard.STATE_HEALTHY).withLastRun(run.id(), Instant.now()));
         log.info("branch guard rebased + pushed task {} onto {}", task.id(), baseRef);
     }
 
-    /** One bounded agent turn to resolve a conflict the mechanical path
-     *  can't: the agent edits/commits/continues the rebase with its normal
-     *  shell access; {@link #onFixTurnFinished} verifies the result and
-     *  runs checks+push itself (mirrors how {@code CiFixRunExecutor}
-     *  splits "agent edits" from "executor pushes"). Parks immediately,
-     *  same as before, if the thread isn't idle after all (a race) or the
-     *  turn can't be enqueued. */
+    /** Starts one bounded agent turn when the mechanical rebase cannot finish. */
     private void askAgentToResolve(
             Task task, Thread thread, BranchGuard guard, AgentRun run, String baseRef, String reason)
     {
+        guard = guard.withState(BranchGuard.STATE_CONFLICTED).withLastRun(run.id(), Instant.now());
+        guards.save(guard);
         if (thread.status() != ThreadStatus.IDLE) {
             agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "unresolvable_conflict");
             parkNeedsAttention(task, guard, run.id(), reason);
@@ -236,11 +247,7 @@ public class BranchGuardJob
         }
     }
 
-    /** The fix turn finishing means the agent is done trying (or ran out of
-     *  turn) — re-check whether the branch actually caught up with base. If
-     *  so, finish exactly like the mechanical path (checks + push); if not,
-     *  park for the human, leaving whatever state the agent left so they
-     *  can pick up where it stopped rather than silently aborting it. */
+    /** Verifies the fix turn, then either pushes or parks for a human. */
     @EventListener
     public void onFixTurnFinished(TaskTurnFinishedEvent event)
     {

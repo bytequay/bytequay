@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.PullRequestRef;
+
 /**
  * Published whenever a task's branch is pushed and/or its PR opened through
  * any path other than {@link PRPublishService#push} itself — a push /
@@ -21,9 +23,15 @@ package com.bytequay.app.service.localpr;
  * offering "ready to push" for a push that already happened elsewhere.
  *
  * @param taskId the task whose PR row to sync
+ * @param repo the {@code owner/repo} slug the PR was opened against
  * @param remotePrNumber the PR now open on the remote
  * @param remotePrUrl the PR's github.com URL
  */
-public record PrPushedEvent(String taskId, int remotePrNumber, String remotePrUrl)
+public record PrPushedEvent(String taskId, String repo, int remotePrNumber, String remotePrUrl)
 {
+    public static PrPushedEvent of(String taskId, PullRequestRef ref)
+    {
+        String repo = ref.repoFullName();
+        return new PrPushedEvent(taskId, repo, ref.number(), "https://github.com/" + repo + "/pull/" + ref.number());
+    }
 }

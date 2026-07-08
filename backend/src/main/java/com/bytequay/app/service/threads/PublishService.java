@@ -864,9 +864,7 @@ public class PublishService
             return;
         }
         taskStore.findTaskById(taskId).ifPresent(task -> PullRequestRef.parse(task.linkedPrRef()).ifPresent(ref ->
-                eventPublisher.publishEvent(new PrPushedEvent(
-                        task.id(), ref.number(),
-                        "https://github.com/" + ref.owner() + "/" + ref.repo() + "/pull/" + ref.number()))));
+                eventPublisher.publishEvent(PrPushedEvent.of(task.id(), ref))));
     }
 
     /** Stamp the proposal's task as pushed-to-remote. Resolved by the
@@ -1266,7 +1264,7 @@ public class PublishService
                 log.warn("linking PR #{} to task {} failed: {}",
                         opened.number(), task.id(), e.getMessage());
             }
-            eventPublisher.publishEvent(new PrPushedEvent(task.id(), opened.number(), opened.htmlUrl()));
+            eventPublisher.publishEvent(new PrPushedEvent(task.id(), owner + "/" + repoName, opened.number(), opened.htmlUrl()));
         }
         String prRef = opened == null ? "" : " #" + opened.number();
         return new PublishResult(true, RESOLUTION_APPROVED,

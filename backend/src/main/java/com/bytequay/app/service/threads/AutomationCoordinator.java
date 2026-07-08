@@ -273,20 +273,17 @@ public class AutomationCoordinator
         return ciFixRunExecutor.driveShippedCiFix(task, repoFullName, ci);
     }
 
-    /** Adapt the live detail's check runs to the aggregator's input shape —
-     *  the two records carry identical fields. */
-    private static List<PrCheckRunState> toCheckRunStates(List<PullRequestDetail.CheckRun> runs)
+    /** Adapt live detail check runs to the aggregator's input shape. */
+    public static List<PrCheckRunState> toCheckRunStates(List<PullRequestDetail.CheckRun> runs)
     {
         if (runs == null || runs.isEmpty()) {
             return List.of();
         }
-        List<PrCheckRunState> out = new ArrayList<>(runs.size());
-        for (PullRequestDetail.CheckRun r : runs) {
-            out.add(new PrCheckRunState(
-                    r.githubId(), r.name(), r.status(), r.conclusion(),
-                    r.htmlUrl(), r.outputTitle(), r.outputSummary()));
-        }
-        return out;
+        return runs.stream()
+                .map(r -> new PrCheckRunState(
+                        r.githubId(), r.name(), r.status(), r.conclusion(),
+                        r.htmlUrl(), r.outputTitle(), r.outputSummary()))
+                .toList();
     }
 
     private Optional<WatchedRepo> findRepoForWorkingDir(String workingDir)
@@ -352,7 +349,7 @@ public class AutomationCoordinator
      *  GitHub PR-merge button logic: ANY check whose conclusion is
      *  failure / timed_out / cancelled / action_required counts as
      *  failing; in-progress checks don't tip the scale either way. */
-    static CiAggregate aggregateChecks(List<PrCheckRunState> checks)
+    public static CiAggregate aggregateChecks(List<PrCheckRunState> checks)
     {
         if (checks == null || checks.isEmpty()) {
             return new CiAggregate(false, List.of(), List.of(), 0);
@@ -373,7 +370,7 @@ public class AutomationCoordinator
                 !failingNames.isEmpty(), List.copyOf(failingNames), List.copyOf(failingRuns), checks.size());
     }
 
-    record CiAggregate(boolean isFailing, List<String> failingNames,
+    public record CiAggregate(boolean isFailing, List<String> failingNames,
             List<PrCheckRunState> failingRuns, int total) {}
 
     /** Wire shape for the NEEDS_ATTENTION payload emitted when a task's

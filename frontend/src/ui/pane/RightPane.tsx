@@ -67,9 +67,12 @@ function MetaRow({ left, right }: { left?: ReactNode; right?: ReactNode }) {
   );
 }
 
-/** The scrollable content area holding the selected tab's content. */
-function Content({ children }: { children: ReactNode }) {
-  return <div className="pane-content">{children}</div>;
+/** The scrollable content area holding the selected tab's content. `flush`
+ *  drops the default padding/gap for a tab (like the embedded Changes diff
+ *  viewer) that lays out its own edge-to-edge chrome and would otherwise
+ *  show a visible gap around it. */
+function Content({ children, flush }: { children: ReactNode; flush?: boolean }) {
+  return <div className={flush === true ? 'pane-content pane-content--flush' : 'pane-content'}>{children}</div>;
 }
 
 /**

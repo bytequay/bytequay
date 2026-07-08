@@ -216,7 +216,7 @@ export function TaskBrainPage({
                 active={active.key}
                 onSelect={setActiveTab}
               />
-              <RightPane.Content>{active.node}</RightPane.Content>
+              <RightPane.Content flush={active.key === 'code'}>{active.node}</RightPane.Content>
             </RightPane>
           )}
         </div>

@@ -232,7 +232,7 @@ export function StageDetailPage({
               {paneMeta !== undefined && (active.key === 'changes' || active.key === 'ci') && (
                 <RightPane.MetaRow left={paneMeta.left} right={paneMeta.right} />
               )}
-              <RightPane.Content>{active.node}</RightPane.Content>
+              <RightPane.Content flush={active.key === 'code'}>{active.node}</RightPane.Content>
             </RightPane>
           )}
         </div>

@@ -116,6 +116,14 @@
   flex-direction: column;
   gap: 14px;
 }
+/* A tab that lays out its own edge-to-edge chrome (the embedded Changes diff
+   viewer, which is itself position:absolute/inset:0) — drop the padding/gap
+   so it actually reaches the pane's edges instead of floating inside them. */
+.shell .pane-content--flush {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
 
 /* Empty / loading placeholder inside a right-pane tab (Changes, Files). */
 .shell .pane-empty {

@@ -23,7 +23,6 @@ import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import { CiStatusPanel } from './CiStatusPanel';
-import { PaneDiff } from '../diff/PaneDiff';
 import { PRTabContent } from '../ui/pane/tabs';
 import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
 import type { DiffFileDto } from '../types';
@@ -74,10 +73,10 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * detail data. Maps the stage transcript → conversation (agent turns,
  * tool blocks, your steering, iteration markers) and wires the composer to
  * the stage's agent via {@code steerStage}. The right pane carries the full
- * PR · Code Diff · CI strip: PR renders the unified local/remote
- * PR view (falling back to the remote panel until the task has a local
- * PR), Code Diff renders the task's cumulative diff with local inline
- * comments, and the CI tab (CI-fix stage only) shows the live check run.
+ * PR · Changes · CI strip: PR renders the unified local/remote PR view
+ * (falling back to the remote panel until the task has a local PR), Changes
+ * renders the task's cumulative diff with local inline comments, and the CI
+ * tab (CI-fix stage only) shows the live check run.
  */
 export function StageDetailRoute({
   threadId, taskId, stageId, onOpenCode, onOpenStage, onOpenRun, onBack, onOpenBrain,
@@ -185,7 +184,7 @@ export function StageDetailRoute({
   const branch = data?.task.branch;
   const repoFullName = data?.task.repoFullName;
 
-  // Code Diff / PR tabs only apply to the work stages — the Plan stage is a
+  // Changes / PR tabs only apply to the work stages — the Plan stage is a
   // read-only conversation artifact with no diff of its own.
   const hasDiff = stageKind !== 'plan';
 
@@ -410,27 +409,9 @@ export function StageDetailRoute({
   );
 
   // ── Right-pane tab nodes ────────────────────────────────────────────────
-  // Memoized on their own data so a keystroke (or a streaming token) can't
-  // re-render the diff — PaneDiff over a large change set is expensive.
-  const changesNode = useMemo(() => (
-    files === null ? (
-      <div className="pane-empty">Loading diff…</div>
-    ) : files.length === 0 ? (
-      <div className="pane-empty">No changes in this task yet.</div>
-    ) : (
-      <PaneDiff
-        files={files}
-        comments={localPrBundle?.comments}
-        allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
-        onAddComment={addLocalLineComment}
-        onResolveComment={resolveLocalComment}
-        onDismissComment={dismissLocalComment}
-      />
-    )
-  ), [files, localPrBundle, prCapabilities, state, addLocalLineComment, resolveLocalComment, dismissLocalComment]);
-
-  // The CI-fix stage's own tab for the live CI run — separate from the Code
-  // Diff tab so the stage keeps its checks focus without displacing the diff.
+  // The CI-fix stage's own tab for the live CI run — separate from the
+  // Changes tab so the stage keeps its checks focus without displacing the
+  // diff.
   const ciNode = useMemo(() => (
     realtimeCi !== null
       ? <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
@@ -564,7 +545,7 @@ export function StageDetailRoute({
   // Force-opens the right-pane PR tab from the rail's gate nodes (Local
   // review / Remote pull request / Merge-Close, R27) — a fresh token
   // re-fires even for a repeat click on the tab that's already open.
-  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'changes' | 'ci'; token: number } | undefined>(
+  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'ci'; token: number } | undefined>(
     undefined);
   const openTab = useCallback((tab: 'pr', subTab?: 'checks') => {
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
@@ -634,8 +615,6 @@ export function StageDetailRoute({
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
       tabCounts={{
-        changes: files !== null && files.length > 0
-          ? { count: files.length, countColor: 'acc' } : undefined,
         code: files !== null && files.length > 0
           ? { count: files.length, countColor: 'acc' } : undefined,
         pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
@@ -654,11 +633,10 @@ export function StageDetailRoute({
       } : undefined}
       tabs={{
         pr: localPrNode ?? prNode ?? undefined,
-        changes: hasDiff ? changesNode : undefined,
         ci: stageKind === 'ci-fix' ? ciNode : undefined,
-        // Same hasDiff gate as `changes` — otherwise on a Plan stage with no
-        // PR yet, this ends up the only tab, becomes the default, and its
-        // paneExpanded behavior hides the conversation column.
+        // Gated on hasDiff — otherwise on a Plan stage with no PR yet, this
+        // ends up the only tab, becomes the default, and its paneExpanded
+        // behavior hides the conversation column.
         code: hasDiff ? <TaskCodePage embedded threadId={threadId} taskId={taskId} stageId={stageId} /> : undefined,
       }}
       onSubmitReview={onSubmitReview}

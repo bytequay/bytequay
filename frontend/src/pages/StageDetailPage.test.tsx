@@ -42,18 +42,18 @@ describe('StageDetailPage', () => {
 
   it('Dev leads with the PR tab (PR is the primary artifact)', () => {
     renderStage('dev', { tabs: {
-      changes: <div data-testid="changes-tab">changes</div>,
+      code: <div data-testid="code-tab">changes</div>,
       pr: <div data-testid="pr-tab">pr</div>,
     } });
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(screen.queryByTestId('changes-tab')).toBeNull();
+    expect(screen.queryByTestId('code-tab')).toBeNull();
   });
 
-  it('Dev falls back to Code Diff when no PR tab is present', () => {
+  it('Dev falls back to Changes when no PR tab is present', () => {
     renderStage('dev', { tabs: {
-      changes: <div data-testid="changes-tab">changes</div>,
+      code: <div data-testid="code-tab">changes</div>,
     } });
-    expect(screen.getByTestId('changes-tab')).toBeTruthy();
+    expect(screen.getByTestId('code-tab')).toBeTruthy();
   });
 
   it('Comments leads with the PR tab', () => {
@@ -89,15 +89,14 @@ describe('StageDetailPage', () => {
 
   const fullTabs = {
     pr: <div data-testid="pr-tab">pr threads</div>,
-    changes: <div data-testid="changes-tab">changes</div>,
     ci: <div data-testid="ci-tab">ci run</div>,
     code: <div data-testid="code-tab">changes review</div>,
   };
 
-  it('renders the PR · Code Diff · CI · Changes strip (PR first)', () => {
+  it('renders the PR · CI · Changes strip (PR first)', () => {
     renderStage('ci-fix', { tabs: fullTabs });
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toEqual(['PR', 'Code Diff', 'CI', 'Changes']);
+    expect(labels).toEqual(['PR', 'CI', 'Changes']);
   });
 
   it('CI Fix leads with the PR tab; the CI run has its own tab', () => {
@@ -108,7 +107,7 @@ describe('StageDetailPage', () => {
     expect(screen.getByTestId('ci-tab')).toBeTruthy();
   });
 
-  it('shows the pane meta-row on the Code Diff and CI tabs only', () => {
+  it('shows the pane meta-row on the Changes and CI tabs only', () => {
     renderStage('ci-fix', { tabs: fullTabs, paneMeta: { left: 'CI fix · iter 2', right: 'View on GitHub' } });
     // Starts on PR — no meta row there.
     expect(screen.queryByText('CI fix · iter 2')).toBeNull();
@@ -121,16 +120,16 @@ describe('StageDetailPage', () => {
   });
 
   it('renders per-tab count badges', () => {
-    renderStage('dev', { tabs: fullTabs, tabCounts: { changes: { count: 4, countColor: 'acc' }, pr: { count: 145, countColor: 'muted' } } });
-    const changesTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith('Code Diff'));
-    expect(changesTab?.querySelector('.count')?.textContent).toBe('4');
+    renderStage('dev', { tabs: fullTabs, tabCounts: { code: { count: 4, countColor: 'acc' }, pr: { count: 145, countColor: 'muted' } } });
+    const codeTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith('Changes'));
+    expect(codeTab?.querySelector('.count')?.textContent).toBe('4');
   });
 
-  it('labels the CI-fix run tab "CI", distinct from Code Diff', () => {
+  it('labels the CI-fix run tab "CI", distinct from Changes', () => {
     renderStage('ci-fix', { tabs: fullTabs });
     const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
     expect(labels).toContain('CI');
-    expect(labels).toContain('Code Diff');
+    expect(labels).toContain('Changes');
   });
 
   it('inline pill closes the pane when clicked on the already-active tab', () => {

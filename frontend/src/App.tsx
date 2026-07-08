@@ -32,6 +32,8 @@ import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
 import TaskCodePage from './threads/TaskCodePage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
+import NewThreadDialog from './workspace/NewThreadDialog';
+import { useWorkspaceNav } from './pages/useWorkspaceNav';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import type {
   StatusFilter as ThreadsStatusFilter,
@@ -375,6 +377,9 @@ function App() {
    *  routes a typed payload back here into setNav. Keeps the bar
    *  free of nav state knowledge. */
   const [controlBarOpen, setControlBarOpen] = useState(false);
+  // Left-rail "+ New thread" — opens the same modal as the workspace
+  // top bar's button instead of routing to the standalone create page.
+  const [newThreadDialogOpen, setNewThreadDialogOpen] = useState(false);
   // ⌘F / Ctrl+F opens the in-page find bar (Electron ships no browser find).
   const [findOpen, setFindOpen] = useState(false);
   // URL of the in-app browser overlay, or null when closed. Set by the
@@ -573,6 +578,19 @@ function App() {
     void check();
   }, []);
 
+  // Computed (and its hook) unconditionally, ahead of the early returns
+  // below — calling useWorkspaceNav after a conditional return would
+  // change the hook count between renders and crash the whole app.
+  const inWorkspaceFlow = nav.view === 'workspace'
+    || nav.view === 'thread-detail' || nav.view === 'task-brain'
+    || nav.view === 'stage-detail' || nav.view === 'task-code';
+  // The viewed thread's own workspace wins once resolved (e.g. by
+  // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
+  // linked-task chip, footprint resume) shows ITS workspace's rail instead
+  // of whatever workspace the landing grid was last pointed at.
+  const sidebarWorkspaceId = inWorkspaceFlow ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
+  const { activeWorkspace: sidebarWorkspace } = useWorkspaceNav(sidebarWorkspaceId);
+
   if (fatal) {
     return (
       <div style={{ padding: '2rem', color: '#b00020' }}>
@@ -604,14 +622,6 @@ function App() {
   }
 
   // Ready: global app shell with the workspace-model left nav.
-  const inWorkspaceFlow = nav.view === 'workspace'
-    || nav.view === 'thread-detail' || nav.view === 'task-brain'
-    || nav.view === 'stage-detail' || nav.view === 'task-code';
-  // The viewed thread's own workspace wins once resolved (e.g. by
-  // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
-  // linked-task chip, footprint resume) shows ITS workspace's rail instead
-  // of whatever workspace the landing grid was last pointed at.
-  const sidebarWorkspaceId = inWorkspaceFlow ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
   const selectedThreadId = currentThreadId;
   const sidebarActiveNav: WsNavKey | undefined = (() => {
     switch (nav.view) {
@@ -696,7 +706,7 @@ function App() {
           // thread/task it returns to its surface; on it, a no-op).
           // Switching workspaces happens on the Workspaces landing page.
           onSwitchWorkspace={() => setNav({ view: 'workspace', section: 'threads' })}
-          onNewThread={() => setNav({ view: 'thread-create' })}
+          onNewThread={() => setNewThreadDialogOpen(true)}
         />
       )}
       <div className="app-content">
@@ -1031,6 +1041,17 @@ function App() {
       </div>
       {inAppUrl && (
         <InAppBrowser url={inAppUrl} onClose={() => setInAppUrl(null)} fullScreen={fullScreen} />
+      )}
+      {newThreadDialogOpen && sidebarWorkspaceId !== null && (
+        <NewThreadDialog
+          workspaceId={sidebarWorkspaceId}
+          workspaceName={sidebarWorkspace?.name ?? 'Workspace'}
+          onClose={() => setNewThreadDialogOpen(false)}
+          onCreated={(threadId) => {
+            setNewThreadDialogOpen(false);
+            openThread(threadId);
+          }}
+        />
       )}
       <ControlBar
         open={controlBarOpen}

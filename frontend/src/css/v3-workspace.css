@@ -417,6 +417,17 @@
 .shell .ws-topbar .head-row .grow {
   flex: 1;
 }
+/* "+ New thread" is the top bar's primary action — solid blue so it
+ * pulls the eye in against the plain-text tabs beside it. */
+.shell .ws-topbar .head-row .btn {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+.shell .ws-topbar .head-row .btn:hover {
+  background: var(--blue-deep);
+  border-color: var(--blue-deep);
+}
 .shell .ws-tabs {
   display: flex;
   align-items: center;

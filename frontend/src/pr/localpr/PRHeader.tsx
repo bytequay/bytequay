@@ -29,7 +29,7 @@ export type PRHeaderTab = 'conversation' | 'commits' | 'checks';
  */
 export function PRHeader({
   pr, syncedAt, syncing, onRefresh, commitCount, checkCount, conversationCount, additions, deletions, headerAction,
-  activeTab, onTabChange,
+  onReviewChanges, activeTab, onTabChange,
 }: {
   pr: LocalPR;
   syncedAt: number | null;
@@ -42,6 +42,10 @@ export function PRHeader({
   deletions: number;
   /** e.g. a "Review with agent →" affordance on the standalone details page. */
   headerAction?: ReactNode;
+  /** Opens the full-page changed-files + diff review — surfaces as the
+   *  green "Review" button beside the title. Omitted when there's
+   *  nothing to review yet. */
+  onReviewChanges?: () => void;
   activeTab: PRHeaderTab;
   onTabChange: (tab: PRHeaderTab) => void;
 }) {
@@ -52,7 +56,16 @@ export function PRHeader({
       <div className="pr-title-row">
         <span className="pr-title">{pr.title}</span>
         <span className="pr-num">{prNumLabel}</span>
-        {headerAction !== undefined && <span className="pr-header-action">{headerAction}</span>}
+        {(headerAction !== undefined || onReviewChanges !== undefined) && (
+          <span className="pr-header-action">
+            {headerAction}
+            {onReviewChanges !== undefined && (
+              <button type="button" className="pr-title-review-btn" onClick={onReviewChanges}>
+                Review
+              </button>
+            )}
+          </span>
+        )}
       </div>
       <div className="pr-meta-row">
         <StatePill status={pr.status} />

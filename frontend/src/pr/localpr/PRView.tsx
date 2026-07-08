@@ -169,19 +169,12 @@ export function PRView({
         additions={additions}
         deletions={deletions}
         headerAction={headerAction}
+        onReviewChanges={onReviewChanges}
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
 
       <div className="pr-body-scroll">
-        {activeTab === 'conversation' && onReviewChanges !== undefined && (
-          <button type="button" className="pr-review-btn" onClick={onReviewChanges}>
-            <span className="ic" aria-hidden>◧</span>
-            Review changed files &amp; diff
-            <span className="arrow" aria-hidden>→</span>
-          </button>
-        )}
-
         {activeTab === 'conversation' && (
           <PRTimeline
             pr={pr}

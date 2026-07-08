@@ -800,7 +800,15 @@ public class StageServiceImpl
         String status = latest.path("status").asText("suggested");
 
         List<TaskBrainViewData.PlanStep> steps = new ArrayList<>();
+        // record_plan's own schema says steps nest under intent.steps, but the
+        // brain sometimes writes them at the payload's top level instead
+        // (occasionally alongside an "intent_steps_note" pointing there) — fall
+        // back rather than render a 0-step, unapprovable "draft" card for an
+        // otherwise-complete plan.
         JsonNode stepNodes = latest.path("intent").path("steps");
+        if (!stepNodes.isArray() || stepNodes.isEmpty()) {
+            stepNodes = latest.path("steps");
+        }
         if (stepNodes.isArray()) {
             int index = 0;
             for (JsonNode s : stepNodes) {

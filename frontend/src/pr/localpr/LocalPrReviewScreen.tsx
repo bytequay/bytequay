@@ -16,14 +16,11 @@ import ResizeHandle from '../../ResizeHandle';
 import { ContinuousDiff, FileDiffBody } from '../../diff/DiffFileList';
 import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
 import { DiffFileTreePane } from '../../diff/DiffFileTreePane';
-import type { FilesPaneMode } from '../../diff/DiffFileTreePane';
 import { DiffInlineComments } from '../../diff/DiffInlineComments';
 import { statusBadge } from '../../diffStatusBadge';
 import { treeOrderedFiles } from '../../fileTree';
 import type { DiffFileDto } from '../../types';
 import type { LocalPRComment } from '../../types/localPr';
-
-const MODE_KEY = 'bq.localPrReview.filesMode';
 
 function lineKey(filename: string, ln: number): string {
   return `${filename}:${ln}`;
@@ -118,10 +115,6 @@ export function LocalPrReviewScreen({
   error?: string | null;
 }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [mode, setMode] = useState<FilesPaneMode>(() => {
-    try { return localStorage.getItem(MODE_KEY) === 'flat' ? 'flat' : 'tree'; }
-    catch { return 'tree'; }
-  });
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
   const [filesWidth, setFilesWidth] = useState(260);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -131,11 +124,6 @@ export function LocalPrReviewScreen({
   const orderedFiles = useMemo(
     () => (files ? treeOrderedFiles(files, f => f.filename) : []), [files]);
 
-  const switchMode = (next: FilesPaneMode) => {
-    setMode(next);
-    try { localStorage.setItem(MODE_KEY, next); }
-    catch { /* storage unavailable */ }
-  };
   const toggleDir = (path: string) => setCollapsedDirs(prev => {
     const next = new Set(prev);
     if (next.has(path)) next.delete(path);
@@ -165,29 +153,11 @@ export function LocalPrReviewScreen({
           <div className="diff-viewer__files-header">
             <span>Changed files</span>
             {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
-            <div className="diff-viewer__mode-toggle" role="tablist" aria-label="File list layout">
-              <button
-                type="button"
-                role="tab"
-                className={`diff-viewer__mode-btn${mode === 'tree' ? ' diff-viewer__mode-btn--active' : ''}`}
-                onClick={() => switchMode('tree')}
-                aria-selected={mode === 'tree'}
-                title="Tree — group by directory"
-              >Tree</button>
-              <button
-                type="button"
-                role="tab"
-                className={`diff-viewer__mode-btn${mode === 'flat' ? ' diff-viewer__mode-btn--active' : ''}`}
-                onClick={() => switchMode('flat')}
-                aria-selected={mode === 'flat'}
-                title="Flat — one row per file"
-              >Flat</button>
-            </div>
           </div>
           <DiffFileTreePane
             files={files}
             error={error}
-            mode={mode}
+            mode="tree"
             pathOf={f => f.filename}
             statusBadgeOf={f => statusBadge(f.status)}
             selectedPath={selectedPath}

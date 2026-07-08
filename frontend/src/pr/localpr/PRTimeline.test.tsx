@@ -109,13 +109,15 @@ describe('PRTimeline composition', () => {
     render(<PRTimeline pr={pr()} events={[]} comments={[
       {
         id: 'c1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
-        filePath: 'src/Foo.java', lineNumber: 42, author: 'you', body: 'Fix this.',
+        filePath: 'src/Foo.java', lineNumber: 42, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'you', body: 'Fix this.',
         createdAt: 2, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
         parentCommentId: null, publishedAt: null,
       },
       {
         id: 'c2', localPrId: 'pr1', origin: 'local', scope: 'file-line',
-        filePath: 'src/Foo.java', lineNumber: 42, author: 'claude-code', body: 'Fixed.',
+        filePath: 'src/Foo.java', lineNumber: 42, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'claude-code', body: 'Fixed.',
         createdAt: 3, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
         parentCommentId: 'c1', publishedAt: null,
       },

@@ -725,8 +725,9 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:prSummaries', threadIds),
   addReviewComment: (
     taskId: string, file: string, line: number, body: string,
+    side?: 'LEFT' | 'RIGHT', startLine?: number, startSide?: 'LEFT' | 'RIGHT',
   ): Promise<ReviewCommentDto> =>
-    ipcRenderer.invoke('review:add', { taskId, file, line, body }),
+    ipcRenderer.invoke('review:add', { taskId, file, line, body, side, startLine, startSide }),
   listReviewComments: (taskId: string): Promise<ReviewCommentDto[]> =>
     ipcRenderer.invoke('review:list', taskId),
   resolveReviewComment: (id: string): Promise<void> =>
@@ -978,7 +979,16 @@ const bridge: Bridge = {
   publishLocalPrReview: (prId: string) => ipcRenderer.invoke('pr:publishReview', prId),
   addLocalPrComment: (
     prId: string,
-    body: { scope: 'pr' | 'file-line'; filePath?: string | null; lineNumber?: number | null; body: string; parentCommentId?: string | null },
+    body: {
+      scope: 'pr' | 'file-line';
+      filePath?: string | null;
+      lineNumber?: number | null;
+      side?: 'LEFT' | 'RIGHT';
+      startLine?: number | null;
+      startSide?: 'LEFT' | 'RIGHT' | null;
+      body: string;
+      parentCommentId?: string | null;
+    },
   ) => ipcRenderer.invoke('pr:addComment', prId, body),
   resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:resolveComment', commentId),
   dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:dismissComment', commentId),

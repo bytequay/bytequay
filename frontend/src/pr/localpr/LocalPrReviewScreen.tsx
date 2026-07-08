@@ -11,19 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ResizeHandle from '../../ResizeHandle';
 import { ContinuousDiff, FileDiffBody } from '../../diff/DiffFileList';
 import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
 import { DiffFileTreePane } from '../../diff/DiffFileTreePane';
-import { DiffInlineComments } from '../../diff/DiffInlineComments';
+import { DiffInlineComments, rangeLabel } from '../../diff/DiffInlineComments';
 import { statusBadge } from '../../diffStatusBadge';
 import { treeOrderedFiles } from '../../fileTree';
 import type { DiffFileDto } from '../../types';
 import type { LocalPRComment } from '../../types/localPr';
 
-function lineKey(filename: string, ln: number): string {
-  return `${filename}:${ln}`;
+/** The (side, line) the inline composer is open on, or null when closed.
+ *  `startLine`/`startSide` are set only for a multi-line range. */
+type ComposerSlot = { side: AnchorSide; line: number; startLine?: number; startSide?: AnchorSide } | null;
+
+function lineKey(filename: string, side: AnchorSide, ln: number): string {
+  return `${filename}:${side}:${ln}`;
 }
 
 /**
@@ -32,60 +36,139 @@ function lineKey(filename: string, ln: number): string {
  * highlighting, gutters) and injects the local {@code file-line} comments via
  * FileDiffBody's {@code renderAfterRow} / {@code rowDecoration} hooks — the
  * remote review page wires GitHub review threads through the very same hooks.
+ * Shift-click / drag-select builds a multi-line range, mirroring
+ * DiffViewerScreen's composer (see TaskCodePage's embedded Changes tab for
+ * the identical pattern applied to the task-in-progress diff).
  */
 function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onResolveComment, onDismissComment }: {
   file: DiffFileDto;
   comments: LocalPRComment[];
   allowLocalComments: boolean;
-  onAddComment?: (filePath: string, lineNumber: number, body: string) => void;
+  onAddComment?: (
+    filePath: string, side: AnchorSide, line: number,
+    startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
+  ) => void;
   onResolveComment?: (commentId: string) => void;
   onDismissComment?: (commentId: string) => void;
 }) {
-  // Which new-side line has its composer open. Existing threads always show;
-  // the composer only appears when the user clicks a line to add a comment.
-  const [openLine, setOpenLine] = useState<string | null>(null);
+  const [composer, setComposer] = useState<ComposerSlot>(null);
 
   const byLine = useMemo(() => {
     const m = new Map<string, LocalPRComment[]>();
     for (const c of comments) {
       if (c.scope !== 'file-line' || c.filePath !== file.filename || c.lineNumber === null) continue;
-      const k = lineKey(file.filename, c.lineNumber);
+      const k = lineKey(file.filename, c.side, c.lineNumber);
       (m.get(k) ?? m.set(k, []).get(k)!).push(c);
     }
     return m;
   }, [comments, file.filename]);
 
-  // Comments anchor to new-side lines only (additions + context) — the same
-  // rule the remote review threads follow.
+  const closeComposer = () => setComposer(null);
+
+  // Plain click → single-line composer. Shift-click on a second row of the
+  // same side while a composer is open → extends the range.
+  const openComposer = (side: AnchorSide, line: number, shiftKey: boolean) => {
+    setComposer(prev => {
+      if (shiftKey && prev !== null && prev.side === side) {
+        const anchor = prev.line;
+        const start = Math.min(anchor, line);
+        const end = Math.max(anchor, line);
+        return start === end ? { side, line: end } : { side, line: end, startLine: start, startSide: side };
+      }
+      return { side, line };
+    });
+  };
+
+  // Drag-select: pointerdown starts the range, pointerenter on later rows
+  // (same side only) extends it, a window-level pointerup commits it.
+  const [dragRange, setDragRange] = useState<{ side: AnchorSide; start: number; end: number } | null>(null);
+  const dragRangeRef = useRef<typeof dragRange>(null);
+  const suppressNextClickRef = useRef(false);
+
+  const onRowPointerDown = (side: AnchorSide, line: number) => {
+    const range = { side, start: line, end: line };
+    dragRangeRef.current = range;
+    setDragRange(range);
+  };
+  const onRowPointerEnter = (side: AnchorSide, line: number) => {
+    const cur = dragRangeRef.current;
+    if (!cur || cur.side !== side || cur.end === line) return;
+    const next = { ...cur, end: line };
+    dragRangeRef.current = next;
+    setDragRange(next);
+  };
+  useEffect(() => {
+    const onUp = () => {
+      const drag = dragRangeRef.current;
+      if (!drag) return;
+      dragRangeRef.current = null;
+      setDragRange(null);
+      const start = Math.min(drag.start, drag.end);
+      const end = Math.max(drag.start, drag.end);
+      if (end === start) return;
+      suppressNextClickRef.current = true;
+      setComposer({ side: drag.side, line: end, startLine: start, startSide: drag.side });
+    };
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, []);
+
+  const isInRange = (side: AnchorSide, line: number): boolean => {
+    if (dragRange && dragRange.side === side) {
+      const lo = Math.min(dragRange.start, dragRange.end);
+      const hi = Math.max(dragRange.start, dragRange.end);
+      return line >= lo && line <= hi;
+    }
+    if (composer === null || composer.side !== side) return false;
+    if (composer.startLine == null) return composer.line === line;
+    return line >= composer.startLine && line <= composer.line;
+  };
+
   const renderAfterRow = (side: AnchorSide, line: number) => {
-    if (side !== 'RIGHT') return null;
-    const key = lineKey(file.filename, line);
+    const key = lineKey(file.filename, side, line);
     const lineComments = byLine.get(key) ?? [];
-    if (lineComments.length === 0 && openLine !== key) return null;
+    const composerHere = composer !== null && composer.side === side && composer.line === line;
+    if (lineComments.length === 0 && !composerHere) return null;
     return (
       <DiffInlineComments
         comments={lineComments}
         allowLocalComments={allowLocalComments}
-        onAdd={onAddComment !== undefined
-          ? body => { onAddComment(file.filename, line, body); setOpenLine(null); }
+        onAdd={onAddComment !== undefined && composerHere
+          ? body => {
+            onAddComment(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body);
+            closeComposer();
+          }
           : undefined}
         onResolve={onResolveComment}
         onDismiss={onDismissComment}
-        onCancel={() => setOpenLine(null)}
+        onCancel={closeComposer}
+        composingOn={composerHere
+          ? rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)
+          : undefined}
       />
     );
   };
 
   const rowDecoration = (side: AnchorSide, line: number): RowDecoration | null => {
-    if (side !== 'RIGHT' || !allowLocalComments) return null;
-    const key = lineKey(file.filename, line);
-    const hasComment = (byLine.get(key)?.length ?? 0) > 0;
+    if (!allowLocalComments) return null;
+    const hasComment = (byLine.get(lineKey(file.filename, side, line))?.length ?? 0) > 0;
+    const composerHere = composer !== null && composer.side === side && composer.line === line;
     return {
-      className: hasComment ? ' has-comment' : '',
+      className: (hasComment ? ' has-comment' : '') + (isInRange(side, line) ? ' diff-row--in-range' : ''),
       addCommentAffordance: true,
       role: 'button',
-      title: 'Comment on this line',
-      onClick: () => setOpenLine(prev => (prev === key ? null : key)),
+      title: 'Comment on this line — shift-click or drag to select a range',
+      onClick: (e) => {
+        if (suppressNextClickRef.current) { suppressNextClickRef.current = false; return; }
+        if (composerHere && !e.shiftKey) { closeComposer(); return; }
+        openComposer(side, line, e.shiftKey);
+      },
+      onPointerDown: () => onRowPointerDown(side, line),
+      onPointerEnter: () => onRowPointerEnter(side, line),
     };
   };
 
@@ -108,7 +191,10 @@ export function LocalPrReviewScreen({
   files: DiffFileDto[] | null;
   comments: LocalPRComment[];
   allowLocalComments?: boolean;
-  onAddComment?: (filePath: string, lineNumber: number, body: string) => void;
+  onAddComment?: (
+    filePath: string, side: AnchorSide, line: number,
+    startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
+  ) => void;
   onResolveComment?: (commentId: string) => void;
   onDismissComment?: (commentId: string) => void;
   onBack: () => void;

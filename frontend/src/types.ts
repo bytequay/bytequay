@@ -2020,6 +2020,13 @@ export type ReviewCommentDto = {
   taskId: string;
   file: string;
   line: number;
+  /** 'LEFT' (removed) or 'RIGHT' (added/context) — defaults to 'RIGHT' for
+   *  every comment that predates this concept. */
+  side: 'LEFT' | 'RIGHT';
+  /** First line of a multi-line range; null for a single-line comment. */
+  startLine: number | null;
+  /** Diff side of `startLine`; null for a single-line comment. */
+  startSide: 'LEFT' | 'RIGHT' | null;
   body: string;
   createdAt: number;
   source: string;
@@ -3640,12 +3647,17 @@ export type Bridge = {
     message: string,
   ) => Promise<ReviewPassDetailDto>;
   /** Add a local pre-push inline review comment on a task's diff at
-   *  file:line (1-based). Returns the persisted comment. */
+   *  file:line (1-based). `side` is 'LEFT'/'RIGHT' (undefined defaults to
+   *  RIGHT); `startLine`/`startSide` are set only for a multi-line range.
+   *  Returns the persisted comment. */
   addReviewComment: (
     taskId: string,
     file: string,
     line: number,
     body: string,
+    side?: 'LEFT' | 'RIGHT',
+    startLine?: number,
+    startSide?: 'LEFT' | 'RIGHT',
   ) => Promise<ReviewCommentDto>;
   /** Every review comment on the task, oldest-first, for the diff page. */
   listReviewComments: (taskId: string) => Promise<ReviewCommentDto[]>;
@@ -4007,10 +4019,21 @@ export type Bridge = {
   /** Batch every unpublished draft comment into one GitHub review
    *  (external PRs only — see {@code PRCapabilities.publishReview}). */
   publishLocalPrReview: (prId: string) => Promise<LocalPR>;
-  /** Add a user comment to the local PR (PR-level or inline file-line). */
+  /** Add a user comment to the local PR (PR-level or inline file-line).
+   *  `side` is 'LEFT'/'RIGHT' (undefined defaults to RIGHT); `startLine`/
+   *  `startSide` are set only for a multi-line range. */
   addLocalPrComment: (
     prId: string,
-    body: { scope: 'pr' | 'file-line'; filePath?: string | null; lineNumber?: number | null; body: string; parentCommentId?: string | null },
+    body: {
+      scope: 'pr' | 'file-line';
+      filePath?: string | null;
+      lineNumber?: number | null;
+      side?: 'LEFT' | 'RIGHT';
+      startLine?: number | null;
+      startSide?: 'LEFT' | 'RIGHT' | null;
+      body: string;
+      parentCommentId?: string | null;
+    },
   ) => Promise<LocalPRComment>;
   /** Mark a local PR comment resolved. */
   resolveLocalPrComment: (commentId: string) => Promise<LocalPRComment>;

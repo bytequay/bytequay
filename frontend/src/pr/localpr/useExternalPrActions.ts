@@ -90,10 +90,15 @@ export function useExternalPrActions(owner: string, repo: string, number: number
       .finally(() => setPublishBusy(false));
   }, [localPr, refresh]);
 
-  const addLocalLineComment = useCallback((filePath: string, lineNumber: number, body: string) => {
+  const addLocalLineComment = useCallback((
+    filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
+    startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string,
+  ) => {
     if (localPr === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.addLocalPrComment(localPr.id, { scope: 'file-line', filePath, lineNumber, body })
+    void bridge?.addLocalPrComment(
+      localPr.id, { scope: 'file-line', filePath, lineNumber, side, startLine, startSide, body },
+    )
       .then(() => refresh())
       .catch(() => { /* poll reconciles */ });
   }, [localPr, refresh]);

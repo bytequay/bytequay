@@ -22,6 +22,16 @@ function initials(author: string): string {
   return letters.toUpperCase();
 }
 
+/** "R42" for a single line, or "L40 to R42" for a multi-line range — shared
+ *  by every diff-comment composer so the copy reads identically everywhere. */
+export function rangeLabel(
+  side: 'LEFT' | 'RIGHT', line: number, startLine?: number | null, startSide?: 'LEFT' | 'RIGHT' | null,
+): string {
+  const prefix = (s: 'LEFT' | 'RIGHT') => (s === 'LEFT' ? 'L' : 'R');
+  if (startLine == null || startLine === line) return `${prefix(side)}${line}`;
+  return `${prefix(startSide ?? side)}${startLine} to ${prefix(side)}${line}`;
+}
+
 /**
  * The inline comment thread(s) on a single diff line (mockup Frame 15). Each
  * comment carries an origin badge — 🔒 LOCAL (purple, never migrates) or
@@ -30,7 +40,7 @@ function initials(author: string): string {
  * offers Reply / Mark resolved.
  */
 export function DiffInlineComments({
-  comments, allowLocalComments, onAdd, onResolve, onDismiss, onCancel,
+  comments, allowLocalComments, onAdd, onResolve, onDismiss, onCancel, composingOn,
 }: {
   comments: LocalPRComment[];
   allowLocalComments: boolean;
@@ -41,6 +51,11 @@ export function DiffInlineComments({
   onDismiss?: (commentId: string) => void;
   /** Discard the open composer (Esc or the Cancel button). */
   onCancel?: () => void;
+  /** {@link rangeLabel} of the line/range the open composer is anchored to
+   *  (e.g. "R42" or "L40 to R42") — shown as a small header above the
+   *  composer so a multi-line range is visible while typing. Omit for a
+   *  plain single-line composer with no range to call out. */
+  composingOn?: string;
 }) {
   const [draft, setDraft] = useState('');
   const draftRef = useAutoGrow(draft);
@@ -60,6 +75,9 @@ export function DiffInlineComments({
             </span>
             {c.resolvedAt !== null && <span className="resolved-badge">resolved</span>}
             {c.dismissedAt !== null && <span className="dismissed-badge">dismissed</span>}
+            {c.startLine !== null && c.startLine !== c.lineNumber && c.lineNumber !== null && (
+              <span className="ic-range">{rangeLabel(c.side, c.lineNumber, c.startLine, c.startSide)}</span>
+            )}
           </div>
           <div className="ic-body">{c.body}</div>
           {allowLocalComments && c.resolvedAt === null && c.dismissedAt === null && (
@@ -81,6 +99,9 @@ export function DiffInlineComments({
       ))}
       {allowLocalComments && onAdd !== undefined && (
         <div className="cd-inline-comment">
+          {composingOn !== undefined && (
+            <div className="ic-composer-range">Commenting on {composingOn}</div>
+          )}
           <textarea
             ref={draftRef}
             className="ic-composer"

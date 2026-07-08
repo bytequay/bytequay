@@ -11,13 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { truncatePathMiddle } from './DiffFileTreePane';
-import { DiffInlineComments } from './DiffInlineComments';
+import { DiffInlineComments, rangeLabel } from './DiffInlineComments';
 import type { DiffFileDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 
+type Side = 'LEFT' | 'RIGHT';
 type Row = { kind: 'add' | 'del' | 'ctx' | 'hunk'; ln: number | null; mark: string; content: string };
+type ComposerSlot = { file: string; side: Side; line: number; startLine?: number; startSide?: Side } | null;
 
 /** Parse a unified-diff patch into compact display rows, tracking new-side
  *  line numbers (old-side for deletions). File headers are dropped. */
@@ -55,9 +57,11 @@ function parsePatch(patch: string): Row[] {
   return rows;
 }
 
-/** Key a comment to a diff line — one filename + new-side line number. */
-function lineKey(filename: string, ln: number): string {
-  return `${filename}:${ln}`;
+/** Key a comment to a diff line — filename + side + line number, so a
+ *  deletion's old-side number never collides with an addition's new-side
+ *  number on the same hunk. */
+function lineKey(filename: string, side: Side, ln: number): string {
+  return `${filename}:${side}:${ln}`;
 }
 
 /**
@@ -77,20 +81,89 @@ export function PaneDiff({
   files: DiffFileDto[];
   comments?: LocalPRComment[];
   allowLocalComments?: boolean;
-  onAddComment?: (filePath: string, lineNumber: number, body: string) => void;
+  onAddComment?: (
+    filePath: string, side: Side, line: number,
+    startLine: number | undefined, startSide: Side | undefined, body: string,
+  ) => void;
   onResolveComment?: (commentId: string) => void;
   onDismissComment?: (commentId: string) => void;
 }) {
-  // Which (file:line) has its composer expanded. Existing threads always show;
-  // the composer only appears when the user clicks a line's anchor.
-  const [openLine, setOpenLine] = useState<string | null>(null);
+  // Which (file, side, line) has its composer expanded. Existing threads
+  // always show; the composer only appears once a line's anchor is clicked.
+  const [composer, setComposer] = useState<ComposerSlot>(null);
 
   const byLine = new Map<string, LocalPRComment[]>();
   for (const c of comments) {
     if (c.scope !== 'file-line' || c.filePath === null || c.lineNumber === null) continue;
-    const key = lineKey(c.filePath, c.lineNumber);
+    const key = lineKey(c.filePath, c.side, c.lineNumber);
     (byLine.get(key) ?? byLine.set(key, []).get(key)!).push(c);
   }
+
+  const closeComposer = () => setComposer(null);
+
+  // Plain click → single-line composer. Shift-click on a second row of the
+  // same file+side while a composer is open → extends the range.
+  const openComposer = (file: string, side: Side, line: number, shiftKey: boolean) => {
+    setComposer(prev => {
+      if (shiftKey && prev !== null && prev.file === file && prev.side === side) {
+        const start = Math.min(prev.line, line);
+        const end = Math.max(prev.line, line);
+        return start === end
+          ? { file, side, line: end }
+          : { file, side, line: end, startLine: start, startSide: side };
+      }
+      return { file, side, line };
+    });
+  };
+
+  // Drag-select: pointerdown starts the range, pointerenter on later rows of
+  // the same file+side extends it, a window-level pointerup commits it.
+  const [dragRange, setDragRange] = useState<{ file: string; side: Side; start: number; end: number } | null>(null);
+  const dragRangeRef = useRef<typeof dragRange>(null);
+  const suppressNextClickRef = useRef(false);
+
+  const onRowPointerDown = (file: string, side: Side, line: number) => {
+    const range = { file, side, start: line, end: line };
+    dragRangeRef.current = range;
+    setDragRange(range);
+  };
+  const onRowPointerEnter = (file: string, side: Side, line: number) => {
+    const cur = dragRangeRef.current;
+    if (!cur || cur.file !== file || cur.side !== side || cur.end === line) return;
+    const next = { ...cur, end: line };
+    dragRangeRef.current = next;
+    setDragRange(next);
+  };
+  useEffect(() => {
+    const onUp = () => {
+      const drag = dragRangeRef.current;
+      if (!drag) return;
+      dragRangeRef.current = null;
+      setDragRange(null);
+      const start = Math.min(drag.start, drag.end);
+      const end = Math.max(drag.start, drag.end);
+      if (end === start) return;
+      suppressNextClickRef.current = true;
+      setComposer({ file: drag.file, side: drag.side, line: end, startLine: start, startSide: drag.side });
+    };
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, []);
+
+  const isInRange = (file: string, side: Side, line: number): boolean => {
+    if (dragRange && dragRange.file === file && dragRange.side === side) {
+      const lo = Math.min(dragRange.start, dragRange.end);
+      const hi = Math.max(dragRange.start, dragRange.end);
+      return line >= lo && line <= hi;
+    }
+    if (composer === null || composer.file !== file || composer.side !== side) return false;
+    if (composer.startLine == null) return composer.line === line;
+    return line >= composer.startLine && line <= composer.line;
+  };
 
   return (
     <>
@@ -112,17 +185,21 @@ export function PaneDiff({
             {file.patch !== null && file.patch.length > 0 && (
               <div className="diff-lines">
                 {parsePatch(file.patch).map((r, i) => {
-                  // Comments anchor to new-side lines only (added / context) —
-                  // a deletion's old-side number would otherwise collide with an
-                  // addition's new-side number on the same hunk.
-                  const newSide = (r.kind === 'add' || r.kind === 'ctx') && r.ln !== null;
-                  const key = newSide ? lineKey(file.filename, r.ln!) : null;
+                  const side: Side | null = r.kind === 'hunk' || r.ln === null ? null : r.kind === 'del' ? 'LEFT' : 'RIGHT';
+                  const key = side !== null ? lineKey(file.filename, side, r.ln!) : null;
                   const lineComments = key !== null ? byLine.get(key) ?? [] : [];
-                  const commentable = allowLocalComments && newSide;
-                  const hasThread = lineComments.length > 0 || (key !== null && openLine === key);
+                  const composerHere = side !== null
+                    && composer !== null && composer.file === file.filename && composer.side === side && composer.line === r.ln;
+                  const commentable = allowLocalComments && side !== null;
+                  const hasThread = lineComments.length > 0 || composerHere;
+                  const inRange = side !== null && isInRange(file.filename, side, r.ln!);
                   return (
                     <div key={i}>
-                      <div className={`diff-line${r.kind === 'del' ? ' del' : r.kind === 'add' ? ' add' : r.kind === 'hunk' ? ' hunk' : ''}${lineComments.length > 0 ? ' has-comment' : ''}`}>
+                      <div
+                        className={`diff-line${r.kind === 'del' ? ' del' : r.kind === 'add' ? ' add' : r.kind === 'hunk' ? ' hunk' : ''}${lineComments.length > 0 ? ' has-comment' : ''}${inRange ? ' diff-row--in-range' : ''}`}
+                        onPointerDown={commentable ? () => onRowPointerDown(file.filename, side!, r.ln!) : undefined}
+                        onPointerEnter={commentable ? () => onRowPointerEnter(file.filename, side!, r.ln!) : undefined}
+                      >
                         <span className="ln">{r.ln ?? ''}</span>
                         <span className="mark">{r.mark}</span>
                         <span className="content">{r.content.length > 0 ? r.content : ' '}</span>
@@ -131,20 +208,30 @@ export function PaneDiff({
                             className="comment-anchor"
                             role="button"
                             aria-label={`Comment on line ${r.ln}`}
-                            onClick={() => setOpenLine(prev => (prev === key ? null : key))}
+                            onClick={(e) => {
+                              if (suppressNextClickRef.current) { suppressNextClickRef.current = false; return; }
+                              if (composerHere && !e.shiftKey) { closeComposer(); return; }
+                              openComposer(file.filename, side!, r.ln!, e.shiftKey);
+                            }}
                           >{lineComments.length > 0 ? '⚠' : '+'}</span>
                         )}
                       </div>
-                      {hasThread && key !== null && r.ln !== null && (
+                      {hasThread && key !== null && side !== null && r.ln !== null && (
                         <DiffInlineComments
                           comments={lineComments}
                           allowLocalComments={allowLocalComments}
-                          onAdd={onAddComment !== undefined
-                            ? body => { onAddComment(file.filename, r.ln!, body); setOpenLine(null); }
+                          onAdd={onAddComment !== undefined && composerHere
+                            ? body => {
+                              onAddComment(file.filename, composer!.side, composer!.line, composer!.startLine, composer!.startSide, body);
+                              closeComposer();
+                            }
                             : undefined}
                           onResolve={onResolveComment}
                           onDismiss={onDismissComment}
-                          onCancel={openLine === key ? () => setOpenLine(null) : undefined}
+                          onCancel={composerHere ? closeComposer : undefined}
+                          composingOn={composerHere
+                            ? rangeLabel(composer!.side, composer!.line, composer!.startLine, composer!.startSide)
+                            : undefined}
                         />
                       )}
                     </div>

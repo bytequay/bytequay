@@ -30,7 +30,8 @@ const FILE: DiffFileDto = {
 function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
   return {
     id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
-    filePath: 'backend/src/Composer.java', lineNumber: 181, author: 'you',
+    filePath: 'backend/src/Composer.java', lineNumber: 181, side: 'RIGHT', startLine: null, startSide: null,
+    author: 'you',
     body: 'Split this into a wrapper + memoized inner component.',
     createdAt: Date.now(), resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null,
     publishedAt: null, ...over,
@@ -85,7 +86,48 @@ describe('LocalPrReviewScreen', () => {
     expect(composer).not.toBeNull();
     fireEvent.change(composer, { target: { value: 'please memoize' } });
     fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
-    expect(onAddComment).toHaveBeenCalledWith('backend/src/Composer.java', 182, 'please memoize');
+    expect(onAddComment).toHaveBeenCalledWith(
+      'backend/src/Composer.java', 'RIGHT', 182, undefined, undefined, 'please memoize',
+    );
+  });
+
+  it('opens a composer on a removed line and anchors the comment LEFT', () => {
+    const onAddComment = vi.fn();
+    const { container } = render(
+      <LocalPrReviewScreen
+        title="Review" files={[FILE]} comments={[]} allowLocalComments
+        onAddComment={onAddComment} onBack={() => {}}
+      />,
+    );
+    const row = container.querySelector('.diff-row--del') as HTMLElement;
+    fireEvent.click(row);
+    const composer = container.querySelector('.ic-composer') as HTMLTextAreaElement;
+    expect(composer).not.toBeNull();
+    fireEvent.change(composer, { target: { value: 'why remove this?' } });
+    fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
+    expect(onAddComment).toHaveBeenCalledWith(
+      'backend/src/Composer.java', 'LEFT', 181, undefined, undefined, 'why remove this?',
+    );
+  });
+
+  it('shift-clicking a second add row extends the composer into a multi-line range', () => {
+    const onAddComment = vi.fn();
+    const { container } = render(
+      <LocalPrReviewScreen
+        title="Review" files={[FILE]} comments={[]} allowLocalComments
+        onAddComment={onAddComment} onBack={() => {}}
+      />,
+    );
+    const addRows = Array.from(container.querySelectorAll('.diff-row--add')) as HTMLElement[];
+    fireEvent.click(addRows[0]);
+    fireEvent.click(addRows[1], { shiftKey: true });
+    expect(screen.getByText(/Commenting on/)).toBeTruthy();
+    const composer = container.querySelector('.ic-composer') as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: 'range comment' } });
+    fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
+    expect(onAddComment).toHaveBeenCalledWith(
+      'backend/src/Composer.java', 'RIGHT', 182, 181, 'RIGHT', 'range comment',
+    );
   });
 
   it('closes the open composer on Esc without adding a comment', () => {

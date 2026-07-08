@@ -4394,7 +4394,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('review:add', async (_event, args: unknown) => {
-    const params = args as { taskId?: unknown; file?: unknown; line?: unknown; body?: unknown };
+    const params = args as {
+      taskId?: unknown; file?: unknown; line?: unknown; body?: unknown;
+      side?: unknown; startLine?: unknown; startSide?: unknown;
+    };
     const taskId = params?.taskId;
     if (typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('taskId must be a non-empty string');
@@ -4402,6 +4405,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const body = {
       file: typeof params.file === 'string' ? params.file : '',
       line: typeof params.line === 'number' ? params.line : 0,
+      side: typeof params.side === 'string' ? params.side : undefined,
+      startLine: typeof params.startLine === 'number' ? params.startLine : undefined,
+      startSide: typeof params.startSide === 'string' ? params.startSide : undefined,
       body: typeof params.body === 'string' ? params.body : '',
     };
     const res = await fetch(

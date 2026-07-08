@@ -55,7 +55,8 @@ function check(over: Partial<LocalPRCheck> & Pick<LocalPRCheck, 'kind' | 'status
 function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
   return {
     id: 'cm1', localPrId: 'pr1', origin: 'local', scope: 'pr', filePath: null,
-    lineNumber: null, author: 'you', body: 'hi', createdAt: Date.now(),
+    lineNumber: null, side: 'RIGHT', startLine: null, startSide: null,
+    author: 'you', body: 'hi', createdAt: Date.now(),
     resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null,
     publishedAt: null, ...over,
   };
@@ -201,6 +202,14 @@ describe('PRView', () => {
 
     expect(document.querySelector('.pr-merge-box')).toBeNull();
     expect(screen.queryByRole('button', { name: /Run tests/ })).toBeNull();
+  });
+
+  it('openSubTabRequest force-switches to the Checks tab (the CI validation node)', () => {
+    renderView(
+      bundle({ pr: pr('local-open'), checks: [check({ kind: 'local', status: 'passed' })] }),
+      { openSubTabRequest: { subTab: 'checks', token: 1 } },
+    );
+    expect(screen.getByRole('tab', { name: /Checks/ }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('fires onRunTests and shows a busy label', () => {

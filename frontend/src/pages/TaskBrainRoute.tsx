@@ -23,11 +23,10 @@ import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import type { TaskPhase } from '../types/brainView';
-import { Conv, DecisionNode, DensityToggle, QueuedMessages, Working } from '../ui/conv';
+import { Conv, DecisionNode, QueuedMessages, Working } from '../ui/conv';
 import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
-import { usePersistentToggle } from '../ui/shell';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
@@ -61,6 +60,10 @@ export function TaskBrainRoute({
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Force-opens the PR tab's own Checks sub-tab — the CI validation node's
+  // click target. Declared ahead of the <PRView> construction below, which
+  // reads it.
+  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks'; token: number } | undefined>(undefined);
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
@@ -256,22 +259,15 @@ export function TaskBrainRoute({
     />
   ) : null;
 
-  // Conversation density (Focused default / Full), persisted per user.
-  const { value: fullDensity, setValue: setFullDensity } = usePersistentToggle('bq.convDensityFull');
-  const density = fullDensity ? 'full' : 'focused';
-
   const conversation = (
     <Conv>
-      <div className="sp-controls">
-        <DensityToggle value={density} onChange={d => setFullDensity(d === 'full')} />
-      </div>
       {showRoot && seed !== undefined && seed.trim().length > 0 && (
         <PlanningSeed seed={seed} />
       )}
       <BrainFeed
         feed={brainFeed}
         stages={stages}
-        density={density}
+        density="focused"
         onOpenStage={onOpenStage}
         trailer={(
           <>
@@ -364,8 +360,11 @@ export function TaskBrainRoute({
   // review / Remote pull request / Merge-Close, R27) — a fresh token
   // re-fires even for a repeat click on the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr'; token: number } | undefined>(undefined);
-  const openTab = useCallback((tab: 'pr') => {
+  const openTab = useCallback((tab: 'pr', subTab?: 'checks') => {
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
+    if (subTab !== undefined) {
+      setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
+    }
   }, []);
   const sidebar = (
     <TaskSidebar
@@ -447,6 +446,7 @@ export function TaskBrainRoute({
             syncedAt={localPrBundle.pr.syncedAt}
             syncing={prSyncing}
             onRefresh={refreshLocalPr}
+            openSubTabRequest={prSubTabRequest}
           />
         ) : undefined,
         // Gated on having a PR (like StageDetailRoute's `hasDiff`) — otherwise

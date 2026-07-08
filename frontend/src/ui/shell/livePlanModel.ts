@@ -38,7 +38,9 @@ export type LivePlanNav =
   | { kind: 'run'; runId: string }
   | { kind: 'code' }
   | { kind: 'pr' }
-  | { kind: 'tab'; tab: 'pr' }
+  /** `subTab: 'checks'` also forces the PR tab's own Checks sub-tab open
+   *  (the CI validation node) — see PRView's `openSubTabRequest`. */
+  | { kind: 'tab'; tab: 'pr'; subTab?: 'checks' }
   | { kind: 'brain' }
   | { kind: 'none' };
 
@@ -384,9 +386,10 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       placement: 'full', activeView: false, nodeType: 'auto',
       // 'sleep' + task terminal means CI validation never ran before the
       // task finished (e.g. merged before any check reported) — nothing to
-      // show, so don't send the user to the PR page for it.
+      // show, so don't send the user to the PR tab for it. Opens the PR
+      // tab's own Checks sub-tab in place, rather than leaving the app.
       nav: task.prNumber !== null && !(ciValidationStatus === 'sleep' && task.terminal)
-        ? { kind: 'pr' } : { kind: 'none' },
+        ? { kind: 'tab', tab: 'pr', subTab: 'checks' } : { kind: 'none' },
     },
     {
       key: 'comments', label: 'Comments', status: commentsStat, glyph: '🤖',

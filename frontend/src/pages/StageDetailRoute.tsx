@@ -110,6 +110,9 @@ export function StageDetailRoute({
   // comment is handed to the dev agent to post — it parks the publish for the
   // user's approval through the normal gate rather than posting directly.
   const [prComment, setPrComment] = useState('');
+  // Force-opens the PR tab's own Checks sub-tab — the CI validation node's
+  // click target. Declared ahead of `localPrNode` below, which reads it.
+  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks'; token: number } | undefined>(undefined);
   // The task's local PR — the primary artifact this milestone renders. Null
   // until Dev records its first commit; then the PR tab shows <PRView>
   // instead of the remote-GitHub PRTabContent. The bundle poll + the
@@ -511,6 +514,7 @@ export function StageDetailRoute({
       syncedAt={localPrBundle.pr.syncedAt}
       syncing={prSyncing}
       onRefresh={refreshLocalPr}
+      openSubTabRequest={prSubTabRequest}
     />
   ) : null;
 
@@ -562,8 +566,11 @@ export function StageDetailRoute({
   // re-fires even for a repeat click on the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'changes' | 'ci'; token: number } | undefined>(
     undefined);
-  const openTab = useCallback((tab: 'pr') => {
+  const openTab = useCallback((tab: 'pr', subTab?: 'checks') => {
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
+    if (subTab !== undefined) {
+      setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
+    }
   }, []);
   // Render once we have any stage data — the stage detail, or the task-level
   // brain stages — so the rail persists across stage switches.

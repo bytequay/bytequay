@@ -36,7 +36,5 @@ export type { ApprovalDecision } from './gates';
 
 // Layer 4 — domain milestone nodes + controls.
 export { StageBoundaryNode } from './StageBoundaryNode';
-export { MilestoneNode, TaskCutNode, OutlineStrip } from './milestones';
-export type { OutlineChip } from './milestones';
-export { DensityToggle } from './DensityToggle';
+export { MilestoneNode, TaskCutNode } from './milestones';
 export type { Density } from './DensityToggle';

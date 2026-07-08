@@ -16,10 +16,9 @@ import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import { IconBtn, MergeIcon, Pill } from '../ui/primitives';
 import {
-  Composer, CtxChip, Grow, Main, RunMenu, Shell, StageChips, TopBar, TopBarButton, TopBarTitle,
+  Composer, CtxChip, Grow, Main, RunMenu, Shell, TopBar, TopBarTitle,
   usePaneWidth,
 } from '../ui/shell';
-import type { StageChip } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
 import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
@@ -36,7 +35,7 @@ type BrainTab = 'pr';
  * the Run menu.
  */
 export function TaskBrainPage({
-  task, pr, sidebar, conversation, collapsed = false, stageChips, composer, run = {},
+  task, pr, sidebar, conversation, collapsed = false, composer, run = {},
   tabs, planReminder, onRevealPlan, markReadyReminder, onOpenChanges, onOpenCi, openTabRequest,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
@@ -46,7 +45,6 @@ export function TaskBrainPage({
   sidebar?: ReactNode;
   conversation: ReactNode;
   collapsed?: boolean;
-  stageChips?: StageChip[];
   composer: {
     value: string;
     onChange: (next: string) => void;
@@ -129,7 +127,6 @@ export function TaskBrainPage({
           <span className="pr-chip__status">{pr.status}</span>
         </button>
       )}
-      {stageChips !== undefined && stageChips.length > 0 && <StageChips chips={stageChips} />}
       <Grow />
       <RunMenu
         hideStatus
@@ -140,9 +137,6 @@ export function TaskBrainPage({
         onResume={run.onResume}
         onClose={run.onClose}
       />
-      {onOpenChanges !== undefined && (
-        <TopBarButton icon="▢" onClick={onOpenChanges}>Changes</TopBarButton>
-      )}
       {hasTabs && (
         <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
       )}
@@ -191,7 +185,12 @@ export function TaskBrainPage({
           {showPane && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
           {showPane && (
             <RightPane>
-              <RightPane.Tabs<BrainTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />
+              <RightPane.Tabs<BrainTab>
+                tabs={paneTabs}
+                active={active.key}
+                onSelect={setActiveTab}
+                navTab={onOpenChanges !== undefined ? { icon: '⊟', label: 'Changes', onClick: onOpenChanges } : undefined}
+              />
               <RightPane.Content>{active.node}</RightPane.Content>
             </RightPane>
           )}

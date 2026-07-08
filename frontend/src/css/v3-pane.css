@@ -62,6 +62,15 @@
   color: var(--text-1);
   font-weight: 600;
 }
+/* The nav pill (e.g. "Changes") reads as an action, not a selectable tab —
+ *  bordered like a topbar button, never gets the `.active` fill. */
+.shell .pane-tab--nav {
+  border: 1px solid var(--border-mid);
+  background: var(--bg-elev);
+}
+.shell .pane-tab--nav:hover {
+  background: var(--bg-hover);
+}
 .shell .pane-tab .count {
   font-size: 11px;
   color: var(--red);

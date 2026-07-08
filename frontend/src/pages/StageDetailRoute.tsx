@@ -39,8 +39,6 @@ import type { StageKind } from './StageDetailPage';
 import { PlanCard } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
-import { WorkModelPill } from '../workspace/WorkModelPill';
-import type { StageChip } from '../ui/shell';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
 import type { TaskPhase } from '../types/brainView';
@@ -552,28 +550,6 @@ export function StageDetailRoute({
   const openTab = useCallback((tab: 'pr') => {
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
   }, []);
-  // Top-bar breadcrumb: the three 🤖 stage-typed nodes (Plan/Development/
-  // Comments, R30) — whichever one is currently viewed reads "current".
-  const devStageForChips = planStages.find(s => s.type === 'DEVELOPMENT_STAGE');
-  const commentsStageForChips = planStages.find(s => s.type === 'REVIEW_MONITOR_STAGE');
-  const stageChips: StageChip[] = [
-    { label: 'Plan', dot: 'done', onClick: onOpenBrain },
-    ...(devStageForChips !== undefined ? [{
-      label: 'Development',
-      dot: (devStageForChips.state === 'CLOSED' ? 'done' : devStageForChips.state === 'ACTIVE' ? 'active' : undefined) as
-        StageChip['dot'],
-      current: devStageForChips.id === stageId,
-      onClick: () => onOpenStage?.(devStageForChips.id),
-    }] : []),
-    ...(commentsStageForChips !== undefined ? [{
-      label: 'Comments',
-      dot: (commentsStageForChips.state === 'CLOSED' ? 'done'
-        : commentsStageForChips.state === 'ACTIVE' ? 'active' : undefined) as StageChip['dot'],
-      current: commentsStageForChips.id === stageId,
-      onClick: () => onOpenStage?.(commentsStageForChips.id),
-    }] : []),
-  ];
-
   // Render once we have any stage data — the stage detail, or the task-level
   // brain stages — so the rail persists across stage switches.
   const sidebar = planStages.length === 0 ? undefined : (
@@ -623,8 +599,6 @@ export function StageDetailRoute({
     <StageDetailPage
       stageKind={stageKind}
       sidebar={sidebar}
-      stageChips={stageChips}
-      workModelPill={<WorkModelPill scope={{ kind: 'stage', stageId }} />}
       openTabRequest={openTabRequest}
       stage={{ title: data?.task.title ?? 'Stage', branch: data?.task.branch }}
       conversation={conversation}

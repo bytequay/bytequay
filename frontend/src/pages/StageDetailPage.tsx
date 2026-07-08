@@ -16,10 +16,9 @@ import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import { IconBtn, Pill } from '../ui/primitives';
 import {
-  Composer, CtxChip, Grow, Main, RunMenu, Shell, StageChips, TopBar, TopBarButton, TopBarTitle,
+  Composer, CtxChip, Grow, Main, RunMenu, Shell, TopBar, TopBarButton, TopBarTitle,
   usePaneWidth,
 } from '../ui/shell';
-import type { StageChip } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
 import type { PaneTab } from '../ui/pane';
 import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
@@ -44,7 +43,7 @@ const PILL_LABEL: Record<StageKind, string> = {
  * pill defaults to the stage's agent runtime (passed in as `modePill`).
  */
 export function StageDetailPage({
-  stageKind, stage, sidebar, conversation, collapsed = false, stageChips, workModelPill, composer, run = {},
+  stageKind, stage, sidebar, conversation, collapsed = false, composer, run = {},
   tabs, tabCounts, paneMeta, onOpenChanges, onOpenCi, planReminder, onRevealPlan, markReadyReminder,
   openTabRequest,
 }: {
@@ -53,11 +52,6 @@ export function StageDetailPage({
   sidebar?: ReactNode;
   conversation: ReactNode;
   collapsed?: boolean;
-  stageChips?: StageChip[];
-  /** The stage's work-model pill (agent/provider · model · CLI/API),
-   *  rendered next to the branch chip — same placement as the thread
-   *  trunk header's pill. Undefined hides it (e.g. no stage id yet). */
-  workModelPill?: ReactNode;
   composer: {
     value: string;
     onChange: (next: string) => void;
@@ -141,8 +135,6 @@ export function StageDetailPage({
       <Pill kind="stage">{stage.pillLabel ?? PILL_LABEL[stageKind]}</Pill>
       <TopBarTitle>{stage.title}</TopBarTitle>
       {stage.branch !== undefined && <CtxChip>{stage.branch}</CtxChip>}
-      {workModelPill}
-      {stageChips !== undefined && stageChips.length > 0 && <StageChips chips={stageChips} />}
       <Grow />
       <RunMenu
         statusLabel={run.statusLabel}
@@ -153,7 +145,6 @@ export function StageDetailPage({
         onClose={run.onClose}
       />
       {showCi && <TopBarButton icon="✓" onClick={onOpenCi}>CI Status</TopBarButton>}
-      {onOpenChanges !== undefined && <TopBarButton icon="▢" onClick={onOpenChanges}>Changes</TopBarButton>}
       {hasTabs && (
         <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
       )}
@@ -204,7 +195,12 @@ export function StageDetailPage({
           {showPane && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}
           {showPane && (
             <RightPane>
-              <RightPane.Tabs<StageTab> tabs={paneTabs} active={active.key} onSelect={setActiveTab} />
+              <RightPane.Tabs<StageTab>
+                tabs={paneTabs}
+                active={active.key}
+                onSelect={setActiveTab}
+                navTab={onOpenChanges !== undefined ? { icon: '⊟', label: 'Changes', onClick: onOpenChanges } : undefined}
+              />
               {paneMeta !== undefined && (active.key === 'changes' || active.key === 'ci') && (
                 <RightPane.MetaRow left={paneMeta.left} right={paneMeta.right} />
               )}

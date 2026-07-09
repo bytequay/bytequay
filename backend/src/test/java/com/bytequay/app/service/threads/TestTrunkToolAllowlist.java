@@ -47,4 +47,15 @@ class TestTrunkToolAllowlist
         // prompt said to ask, the runtime didn't let it.
         assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST).contains("ask_user_question");
     }
+
+    @Test
+    void brainCanUseOnlyItsLocalReviewWriters()
+    {
+        assertThat(LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST)
+                .contains("record_plan", "record_pr_comment", "record_review_verdict")
+                .doesNotContain("push", "merge_pr", "post_comment");
+        assertThat(LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT)
+                .contains("record_pr_comment")
+                .doesNotContain("no comments");
+    }
 }

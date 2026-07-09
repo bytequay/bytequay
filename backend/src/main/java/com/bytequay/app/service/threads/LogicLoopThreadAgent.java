@@ -40,6 +40,7 @@ import com.bytequay.app.service.threads.tools.AgentTool;
 import com.bytequay.app.service.threads.tools.AgentToolContext;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.bytequay.app.service.threads.tools.ToolPermissionMediator;
+import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.Gating;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -297,8 +298,11 @@ public class LogicLoopThreadAgent
     static final String BRAIN_SYSTEM_PROMPT = """
             You are the read-only brain agent for a developer task. You can \
             introspect the task's stages, iterations, phases, commits, and PR \
-            state via the provided tools. You cannot modify anything — no \
-            pushes, no edits, no comments.
+            state via the provided tools. You cannot edit files, run commands, \
+            push, or post to GitHub. During a stage-scoped planning or \
+            adversarial-review turn, you may use only the local planning/review \
+            write tools that the turn explicitly asks for, such as record_plan, \
+            record_pr_comment, or record_review_verdict.
 
             Answer the user's question concisely (target 6 sentences or fewer). \
             When you reference a stage or iteration, mention it by full name \
@@ -589,13 +593,12 @@ public class LogicLoopThreadAgent
 
         String system = composeSystemPrompt();
         ArrayNode messages = buildMessageHistory(userInput);
-        // Trunk turns get a narrow allowlist; task turns get the full
-        // catalog. Saves ~3 K input tokens per trunk round (publish + shell
-        // schemas are by far the heaviest). See TRUNK_TOOL_ALLOWLIST.
+        // Trunk/brain turns get narrow allowlists; ordinary task turns get the
+        // task-role catalog, still filtered by thread kind.
         Set<String> toolFilter = toolNameFilter();
         ArrayNode toolsArray = toolRegistry == null
                 ? null
-                : toolRegistry.renderAsAnthropicTools(mapper, toolFilter);
+                : toolRegistry.renderAsAnthropicTools(mapper, toolFilter, activeAgentRole(), kind);
 
         TurnResult result = turnRunner.runTurn(
                 new TurnSpec(
@@ -670,7 +673,7 @@ public class LogicLoopThreadAgent
         Set<String> toolFilter = toolNameFilter();
         ArrayNode toolsArray = toolRegistry == null
                 ? null
-                : toolRegistry.renderAsOpenAiTools(mapper, toolFilter);
+                : toolRegistry.renderAsOpenAiTools(mapper, toolFilter, activeAgentRole(), kind);
 
         boolean isLocalDs4 = DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)
                 && DEEPSEEK_LOCAL_MODEL_ID.equals(modelId);
@@ -820,6 +823,11 @@ public class LogicLoopThreadAgent
             return AgentTool.Result.error(
                     "No tool registry wired for this session — text-only mode.");
         }
+        Set<String> allowedNames = toolNameFilter();
+        if (allowedNames != null && !allowedNames.contains(name)) {
+            return AgentTool.Result.error(
+                    "Tool '" + name + "' is not available to this turn.");
+        }
         Optional<AgentTool> tool = toolRegistry.find(name);
         if (tool.isEmpty()) {
             return AgentTool.Result.error(
@@ -830,7 +838,7 @@ public class LogicLoopThreadAgent
         String taskId = activeTaskId();
         try {
             return tool.get().invoke(input, new AgentToolContext(
-                    threadId, taskId, cwd, permissionMediator));
+                    threadId, taskId, cwd, permissionMediator, activeStageId, kind));
         }
         catch (RuntimeException e) {
             log.warn("Tool {} threw on thread {}: {}", name, threadId, e.getMessage());
@@ -901,14 +909,19 @@ public class LogicLoopThreadAgent
     }
 
     /** The tool-name allowlist for this turn: brain agents get the
-     *  read-only brain surface, trunk turns get the narrow trunk allowlist,
-     *  task turns get the full catalog (null = no filter). */
+     *  brain review surface, trunk turns get the narrow trunk allowlist,
+     *  task turns rely on role/kind filtering only (null = no name filter). */
     private Set<String> toolNameFilter()
     {
         if (kind == ThreadKind.BRAIN_AGENT) {
             return BRAIN_TOOL_ALLOWLIST;
         }
         return isTrunkTurn() ? TRUNK_TOOL_ALLOWLIST : null;
+    }
+
+    private AgentRole activeAgentRole()
+    {
+        return activeTaskId() == null ? AgentRole.TRUNK : AgentRole.TASK;
     }
 
     /** Build the Anthropic message history array (no system message —

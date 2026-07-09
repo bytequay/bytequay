@@ -87,6 +87,16 @@ class TestAgentToolRegistry
     }
 
     @Test
+    void localPrCommentSchemaExposesParentCommentIdForReplies()
+    {
+        String schema = AgentToolRegistry.generateSchema(
+                PRRecordToolHandlers.RecordPrCommentArgs.class, NO_CONCEPTS);
+
+        assertThat(schema).contains("\"parent_comment_id\"");
+        assertThat(schema).doesNotContain("\"parentCommentId\"");
+    }
+
+    @Test
     void schemaForJsonNodeFieldMapsToObject()
     {
         String schema = AgentToolRegistry.generateSchema(JsonFieldArgs.class, NO_CONCEPTS);

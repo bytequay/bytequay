@@ -180,7 +180,9 @@ public class PRRecordToolHandlers
                     wireName = "file_path") String filePath,
             @ToolParam(description = "Line number — required for a file-line comment.",
                     wireName = "line_number") Integer lineNumber,
-            @ToolParam(description = "Comment body (markdown).", required = true) String body) {}
+            @ToolParam(description = "Comment body (markdown).", required = true) String body,
+            @ToolParam(description = "Optional id of the local PR comment this replies to.",
+                    wireName = "parent_comment_id") String parentCommentId) {}
 
     @AgentTool(
             name = "record_pr_comment",
@@ -204,9 +206,14 @@ public class PRRecordToolHandlers
                     /* startSide */ null,
                     author,
                     args.body(),
-                    /* parentCommentId */ null);
+                    parentCommentId(args.parentCommentId()));
             return ToolOutcome.Completed.ok("recorded PR comment");
         });
+    }
+
+    private static String parentCommentId(String value)
+    {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     /** True while the calling turn is a brain adversarial-review pass (its

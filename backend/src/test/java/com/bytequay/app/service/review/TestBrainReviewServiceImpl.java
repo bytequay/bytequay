@@ -15,6 +15,8 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
@@ -279,11 +281,23 @@ class TestBrainReviewServiceImpl
         when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
         Thread taskThread = idleTaskThread();
         when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(taskThread));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+        when(prService.comments("pr1")).thenReturn(List.of(brainComment(
+                "c1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Guard the null branch")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-5", false));
 
         verify(scheduler).enqueueTaskTurn(
-                eq(taskThread), anyString(), eq(TASK_ID), eq("run-stage"),
+                eq(taskThread),
+                argThat(prompt -> prompt.contains("[id: c1]")
+                        && prompt.contains("src/Foo.java:42")
+                          && prompt.contains("Guard the null branch")
+                          && prompt.contains("parent_comment_id")
+                          && prompt.contains("push back if you disagree")
+                          && prompt.contains("resolution='dismissed'")
+                          && !prompt.contains("record_round_reply")),
+                eq(TASK_ID), eq("run-stage"),
                 argThat(i -> "brain-review-fix".equals(i.source())));
         verify(roundStore).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())));
     }
@@ -568,5 +582,16 @@ class TestBrainReviewServiceImpl
                 ReviewRound.ReviewRoundStats.empty(), "run-id-1", NOW.minusSeconds(60),
                 null, null,
                 ReviewRound.ORIGIN_BRAIN, null, 0, ReviewRound.DEFAULT_BRAIN_BUDGET);
+    }
+
+    private static PRComment brainComment(
+            String id, String scope, String filePath, Integer lineNumber, String body)
+    {
+        return new PRComment(
+                id, "pr1", PRComment.ORIGIN_LOCAL, scope, filePath, lineNumber,
+                PRTimelineEntry.ACTOR_BRAIN, body, NOW, /* resolvedAt */ null,
+                /* dismissedAt */ null, /* strippedOnPushAt */ null,
+                /* parentCommentId */ null, /* publishedAt */ null,
+                "RIGHT", /* startLine */ null, /* startSide */ null);
     }
 }

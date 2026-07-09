@@ -15,6 +15,8 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
@@ -417,7 +419,7 @@ public class BrainReviewServiceImpl
         }
         try {
             scheduler.enqueueTaskTurn(
-                    taskThread.get(), BRAIN_FIX_PROMPT, task.id(), run.stageId(),
+                    taskThread.get(), brainFixPrompt(task), task.id(), run.stageId(),
                     TurnInitiator.unattended(SOURCE_BRAIN_FIX));
             roundStore.save(round.withStatus(ReviewRound.STATUS_ADDRESSING));
         }
@@ -538,6 +540,41 @@ public class BrainReviewServiceImpl
         return Instant.now(clock);
     }
 
+    private String brainFixPrompt(Task task)
+    {
+        StringBuilder out = new StringBuilder(BRAIN_FIX_PROMPT)
+                .append("\n\nOpen brain comments:\n");
+        List<PRComment> comments = prService.findByTask(task.id())
+                .map(pr -> prService.comments(pr.id()).stream()
+                        .filter(BrainReviewServiceImpl::isOpenBrainComment)
+                        .toList())
+                .orElse(List.of());
+        if (comments.isEmpty()) {
+            out.append("- No open brain comments are currently recorded. Re-read the diff and continue if needed.\n");
+            return out.toString();
+        }
+        int i = 1;
+        for (PRComment comment : comments) {
+            out.append(i++).append(". [id: ").append(comment.id()).append("] ");
+            if (comment.filePath() != null) {
+                out.append(comment.filePath());
+                if (comment.lineNumber() != null) {
+                    out.append(':').append(comment.lineNumber());
+                }
+                out.append(' ');
+            }
+            out.append(comment.body() == null ? "" : comment.body().strip()).append('\n');
+        }
+        return out.toString();
+    }
+
+    private static boolean isOpenBrainComment(PRComment comment)
+    {
+        return PRTimelineEntry.ACTOR_BRAIN.equals(comment.author())
+                && comment.resolvedAt() == null
+                && comment.dismissedAt() == null;
+    }
+
     private static final String PLAN_SELF_REVIEW_PROMPT =
             "Critique your own plan adversarially — wrong decomposition, a missing constraint, a "
             + "simpler alternative, understated risk. If you find something worth fixing, call "
@@ -554,6 +591,9 @@ public class BrainReviewServiceImpl
 
     private static final String BRAIN_FIX_PROMPT =
             "The brain left review comments on this diff (local only — see the PR's open comments). "
-            + "Address each: make the fix and commit it, or reply via record_round_reply if it's a "
-            + "question, then resolve_pr_comment. Do not push.";
+            + "For each comment, decide deliberately: make the fix and commit it, reply via "
+            + "record_pr_comment with parent_comment_id if it's a question or explanation, or "
+            + "push back if you disagree by replying with your reasoning. Then call "
+            + "resolve_pr_comment with resolution='addressed' for handled comments or "
+            + "resolution='dismissed' for justified pushback. Do not push.";
 }

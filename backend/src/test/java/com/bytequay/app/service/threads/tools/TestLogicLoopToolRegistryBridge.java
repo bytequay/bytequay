@@ -13,14 +13,19 @@
  */
 package com.bytequay.app.service.threads.tools;
 
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.service.threads.LogicLoopThreadAgent;
+import com.bytequay.app.service.tools.AgentRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -107,11 +112,63 @@ class TestLogicLoopToolRegistryBridge
     }
 
     @Test
+    void taskLogicLoopCatalogFiltersRoleAndThreadKind()
+    {
+        ArrayNode taskTools = registry.renderAsAnthropicTools(
+                mapper, null, AgentRole.TASK, ThreadKind.LOGIC_LOOP);
+
+        List<String> names = anthropicNames(taskTools);
+        assertThat(names).contains("record_pr_comment", "resolve_pr_comment");
+        assertThat(names).doesNotContain("create_task", "record_plan", "record_review_verdict");
+    }
+
+    @Test
+    void brainCatalogUsesAllowlistOnTopOfRoleAndKindFilters()
+    {
+        ArrayNode brainTools = registry.renderAsAnthropicTools(
+                mapper, LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST,
+                AgentRole.TASK, ThreadKind.BRAIN_AGENT);
+
+        List<String> names = anthropicNames(brainTools);
+        assertThat(names).contains("record_plan", "record_pr_comment", "record_review_verdict");
+        assertThat(names).doesNotContain(
+                "create_task", "record_round_reply", "resolve_pr_comment", "push", "merge_pr");
+    }
+
+    @Test
+    void bridgedInvocationRefusesWrongThreadKindBeforeCallingHandler()
+    {
+        var input = mapper.createObjectNode();
+        input.put("scope", "dev");
+        input.put("verdict", "approved");
+
+        var result = registry.find("record_review_verdict").orElseThrow().invoke(
+                input,
+                new AgentToolContext(
+                        "thread-1", "task-1", Path.of("."), null,
+                        "stage-1", ThreadKind.LOGIC_LOOP));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.text())
+                .contains("not available to the current thread kind")
+                .contains("LOGIC_LOOP");
+    }
+
+    @Test
     void findsRecallMemoryByNameAndReportsTheBridgedSchema()
     {
         var tool = registry.find("recall_memory").orElseThrow();
         assertThat(tool.name()).isEqualTo("recall_memory");
         assertThat(tool.description()).isNotBlank();
         assertThat(tool.inputSchema()).isNotNull();
+    }
+
+    private static List<String> anthropicNames(ArrayNode tools)
+    {
+        ImmutableList.Builder<String> names = ImmutableList.builder();
+        for (int i = 0; i < tools.size(); i++) {
+            names.add(tools.get(i).get("name").asText());
+        }
+        return names.build();
     }
 }

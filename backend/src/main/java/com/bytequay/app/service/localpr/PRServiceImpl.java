@@ -551,6 +551,7 @@ class PRServiceImpl
         else {
             throw new IllegalArgumentException("scope must be 'pr' or 'file-line'");
         }
+        parentCommentId = normaliseParentComment(pr, parentCommentId);
         String resolvedSide = DiffSide.normalize(side);
         // Multi-line range: null unless a distinct startLine was given.
         Integer resolvedStartLine = null;
@@ -573,6 +574,20 @@ class PRServiceImpl
         }
         notifyUpdated(pr.id());
         return comment;
+    }
+
+    private String normaliseParentComment(PR pr, String parentCommentId)
+    {
+        if (parentCommentId == null || parentCommentId.isBlank()) {
+            return null;
+        }
+        String id = parentCommentId.strip();
+        PRComment parent = store.findCommentById(id)
+                .orElseThrow(() -> new IllegalArgumentException("unknown parent comment: " + id));
+        if (!pr.id().equals(parent.prId())) {
+            throw new IllegalArgumentException("parent comment " + id + " belongs to another PR");
+        }
+        return id;
     }
 
     @Override

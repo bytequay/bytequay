@@ -30,6 +30,10 @@ type Props = {
   initialTab?: 'write' | 'preview';
   /** Logins offered as @mention autocomplete. Omit/empty to disable. */
   mentionCandidates?: string[];
+  /** Optional Cmd/Ctrl+Enter handler for comment composers. */
+  onSubmitShortcut?: () => void;
+  /** Optional Esc handler for cancellable inline composers. */
+  onCancelShortcut?: () => void;
 };
 
 /**
@@ -53,6 +57,8 @@ function MarkdownComposer({
   textareaClassName,
   initialTab = 'write',
   mentionCandidates,
+  onSubmitShortcut,
+  onCancelShortcut,
 }: Props) {
   const [tab, setTab] = useState<'write' | 'preview'>(initialTab);
   const taRef = useAutoGrow(value);
@@ -90,12 +96,22 @@ function MarkdownComposer({
             className={textareaClassName ?? 'md-composer__textarea'}
             value={value}
             onChange={mentions.onChange}
-            onKeyDown={mentions.onKeyDown}
             onClick={mentions.onClick}
             placeholder={placeholder}
             rows={rows}
             disabled={disabled}
             autoFocus={autoFocus}
+            onKeyDown={(e) => {
+              if (mentions.onKeyDown(e)) return;
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && onSubmitShortcut !== undefined) {
+                e.preventDefault();
+                onSubmitShortcut();
+              }
+              else if (e.key === 'Escape' && onCancelShortcut !== undefined) {
+                e.preventDefault();
+                onCancelShortcut();
+              }
+            }}
           />
           {mentions.dropdown}
         </div>

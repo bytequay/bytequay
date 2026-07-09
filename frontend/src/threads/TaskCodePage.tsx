@@ -25,7 +25,12 @@ import type { DiffFileDto, NotificationDto, ReviewCommentDto, ThreadCommitDto } 
 import type { LocalPRComment } from '../types/localPr';
 import { isLocalStatus } from '../types/localPr';
 import { useLocalPr } from './brain/useLocalPr';
-import { DiffInlineComments, rangeLabel } from '../diff/DiffInlineComments';
+import {
+  DiffInlineComments,
+  diffInlineCommentFromLocalPr,
+  diffInlineCommentFromReviewDto,
+  rangeLabel,
+} from '../diff/DiffInlineComments';
 import { useThreadTasks } from './useThreadTasks';
 import { MarkReadyPanel, type MarkReadyPrRef } from './MarkReadyPanel';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
@@ -42,53 +47,6 @@ type ComposerSlot = {
   startLine?: number;
   startSide?: 'LEFT' | 'RIGHT';
 } | null;
-
-/** One persisted local review comment rendered under its diff row, with a
- *  Resolve / Reopen toggle. Mirrors the inline-finding card visual. */
-function ReviewCommentCard({ comment, onChanged }: {
-  comment: ReviewCommentDto;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const toggle = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      if (comment.resolved) await window.bridge.reopenReviewComment(comment.id);
-      else await window.bridge.resolveReviewComment(comment.id);
-      onChanged();
-    }
-    catch (e) { console.error('toggle review comment failed', e); }
-    finally { setBusy(false); }
-  };
-  return (
-    <div className={`diff-row diff-row--inline-finding${comment.resolved ? ' diff-row--inline-finding--dismissed' : ' diff-row--inline-finding--human'}`}>
-      <div className="inline-finding">
-        <span className="inline-finding__sev inline-finding__sev--human">✎</span>
-        <div className="inline-finding__body">
-          <div className="inline-finding__head">
-            <span className="inline-finding__source">
-              {comment.resolved ? '✓ Resolved review comment' : '⏱ Review comment'}
-            </span>
-            <span className="inline-finding__loc">
-              {comment.file}:{rangeLabel(comment.side, comment.line, comment.startLine, comment.startSide)}
-            </span>
-            <button
-              type="button"
-              className="inline-finding__edit-btn"
-              onClick={() => void toggle()}
-              disabled={busy}
-              title={comment.resolved ? 'Reopen this comment' : 'Mark this comment resolved'}
-            >
-              {busy ? '…' : comment.resolved ? '↺ Reopen' : '✓ Resolve'}
-            </button>
-          </div>
-          <div className="inline-finding__text">{comment.body}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Editable PR title + body panel shown above the diff in review mode.
  *  The text lives in the parent (so Approve can read the live value);
@@ -230,8 +188,6 @@ export default function TaskCodePage({
   const [proposal, setProposal] = useState<NotificationDto | null>(null);
   const [reviewComments, setReviewComments] = useState<ReviewCommentDto[]>([]);
   const [composer, setComposer] = useState<ComposerSlot>(null);
-  const [composerBody, setComposerBody] = useState('');
-  const [composerPending, setComposerPending] = useState(false);
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   // After a successful approve, a confirmation dialog: 'shipped' (first push +
@@ -302,6 +258,21 @@ export default function TaskCodePage({
     if (localPhasePr === null) return;
     void window.bridge.addLocalPrComment(localPhasePr.id, {
       scope: 'file-line', filePath, lineNumber, side, startLine, startSide, body,
+    })
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ });
+  }, [localPhasePr, refreshLocalPr]);
+  const replyLocalComment = useCallback((parent: LocalPRComment, body: string) => {
+    if (localPhasePr === null || parent.filePath === null || parent.lineNumber === null) return;
+    void window.bridge.addLocalPrComment(localPhasePr.id, {
+      scope: 'file-line',
+      filePath: parent.filePath,
+      lineNumber: parent.lineNumber,
+      side: parent.side,
+      startLine: parent.startLine,
+      startSide: parent.startSide,
+      body,
+      parentCommentId: parent.id,
     })
       .then(() => refreshLocalPr())
       .catch(() => { /* poll reconciles */ });
@@ -392,7 +363,6 @@ export default function TaskCodePage({
 
   const closeComposer = useCallback(() => {
     setComposer(null);
-    setComposerBody('');
   }, []);
 
   // Plain click → single-line composer. Shift-click on a second row of the
@@ -408,7 +378,6 @@ export default function TaskCodePage({
       }
       return { file, side, line };
     });
-    setComposerBody('');
   }, []);
 
   // Drag-select: pointerdown starts the range, pointerenter on later rows
@@ -448,7 +417,6 @@ export default function TaskCodePage({
       // the pointerdown row so it doesn't reset the composer to single-line.
       suppressNextClickRef.current = true;
       setComposer({ file: drag.file, side: drag.side, line: end, startLine: start, startSide: drag.side });
-      setComposerBody('');
     };
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
@@ -472,11 +440,10 @@ export default function TaskCodePage({
     return line >= composer.startLine && line <= composer.line;
   }, [dragRange, composer]);
 
-  const saveComment = useCallback(async () => {
+  const saveComment = useCallback(async (body: string) => {
     if (composer === null) return;
-    const trimmed = composerBody.trim();
+    const trimmed = body.trim();
     if (trimmed.length === 0) return;
-    setComposerPending(true);
     try {
       await window.bridge.addReviewComment(
         taskId, composer.file, composer.line, trimmed, composer.side, composer.startLine, composer.startSide);
@@ -484,8 +451,19 @@ export default function TaskCodePage({
       closeComposer();
     }
     catch (e) { console.error('add review comment failed', e); }
-    finally { setComposerPending(false); }
-  }, [composer, composerBody, taskId, refreshComments, closeComposer]);
+  }, [composer, taskId, refreshComments, closeComposer]);
+
+  const resolveReviewComment = useCallback((commentId: string) => {
+    void window.bridge.resolveReviewComment(commentId)
+      .then(() => refreshComments())
+      .catch(e => console.error('resolve review comment failed', e));
+  }, [refreshComments]);
+
+  const reopenReviewComment = useCallback((commentId: string) => {
+    void window.bridge.reopenReviewComment(commentId)
+      .then(() => refreshComments())
+      .catch(e => console.error('reopen review comment failed', e));
+  }, [refreshComments]);
 
   const openCount = useMemo(() => reviewComments.filter(c => !c.resolved).length, [reviewComments]);
   const hasUnresolved = openCount > 0;
@@ -875,49 +853,18 @@ export default function TaskCodePage({
                         && composer.line === anchorLine;
                       if ((here === undefined || here.length === 0) && !composerHere) return null;
                       return (
-                        <>
-                          {here?.map(c => (
-                            <ReviewCommentCard key={c.id} comment={c} onChanged={() => void refreshComments()} />
-                          ))}
-                          {composerHere && (
-                            <div className="diff-inline-composer">
-                              <div className="diff-inline-composer__header">
-                                Adding a review comment on {composer.startLine != null ? 'lines' : 'line'}{' '}
-                                {rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)}
-                                <span className="diff-inline-composer__hint">
-                                  Shift-click another line to extend the range.
-                                </span>
-                              </div>
-                              <MarkdownComposer
-                                value={composerBody}
-                                onChange={setComposerBody}
-                                placeholder="Leave a review comment — markdown supported."
-                                rows={3}
-                                disabled={composerPending}
-                                autoFocus
-                                textareaClassName="diff-inline-composer__input"
-                              />
-                              <div className="diff-inline-composer__actions">
-                                <button
-                                  type="button"
-                                  className="button button--primary"
-                                  onClick={() => void saveComment()}
-                                  disabled={composerPending || composerBody.trim().length === 0}
-                                >
-                                  {composerPending ? 'Saving…' : 'Save'}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="pr-comment-box__cancel"
-                                  onClick={closeComposer}
-                                  disabled={composerPending}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </>
+                        <DiffInlineComments
+                          comments={(here ?? []).map(diffInlineCommentFromReviewDto)}
+                          allowLocalComments
+                          onAdd={composerHere ? body => { void saveComment(body); } : undefined}
+                          onResolve={resolveReviewComment}
+                          onReopen={reopenReviewComment}
+                          onCancel={composerHere ? closeComposer : undefined}
+                          composingOn={composerHere
+                            ? rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)
+                            : undefined}
+                          placeholder="Leave a comment — markdown supported."
+                        />
                       );
                     }}
                   />
@@ -958,7 +905,7 @@ export default function TaskCodePage({
                       if (here.length === 0 && !composerHere) return null;
                       return (
                         <DiffInlineComments
-                          comments={here}
+                          comments={here.map(diffInlineCommentFromLocalPr)}
                           allowLocalComments
                           onAdd={composerHere
                             ? body => {
@@ -968,6 +915,10 @@ export default function TaskCodePage({
                               closeComposer();
                             }
                             : undefined}
+                          onReply={(comment, body) => {
+                            const parent = here.find(c => c.id === comment.id);
+                            if (parent !== undefined) replyLocalComment(parent, body);
+                          }}
                           onResolve={resolveLocalComment}
                           onDismiss={dismissLocalComment}
                           onCancel={composerHere ? closeComposer : undefined}

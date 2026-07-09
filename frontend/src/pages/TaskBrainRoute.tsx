@@ -69,7 +69,8 @@ export function TaskBrainRoute({
   const {
     bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, localPr, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, dequeuePr, deleteBranch, addLocalLineComment, resolveLocalComment, dismissLocalComment,
+    confirmPush, confirmMerge, dequeuePr, deleteBranch,
+    addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
@@ -421,6 +422,7 @@ export function TaskBrainRoute({
         comments={localPrBundle?.comments ?? []}
         allowLocalComments={prCapabilities?.draftLocalComments === true && !task.terminal}
         onAddComment={addLocalLineComment}
+        onReplyComment={replyLocalLineComment}
         onResolveComment={resolveLocalComment}
         onDismissComment={dismissLocalComment}
         onBack={() => setReviewOpen(false)}

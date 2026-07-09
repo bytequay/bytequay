@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { truncatePathMiddle } from './DiffFileTreePane';
-import { DiffInlineComments, rangeLabel } from './DiffInlineComments';
+import { DiffInlineComments, diffInlineCommentFromLocalPr, rangeLabel } from './DiffInlineComments';
 import type { DiffFileDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 
@@ -76,13 +76,17 @@ function lineKey(filename: string, side: Side, ln: number): string {
  * comments arrive through their own path once the PR is pushed.
  */
 export function PaneDiff({
-  files, comments = [], allowLocalComments = false, onAddComment, onResolveComment, onDismissComment,
+  files, comments = [], allowLocalComments = false, onAddComment, onReplyComment, onResolveComment, onDismissComment,
 }: {
   files: DiffFileDto[];
   comments?: LocalPRComment[];
   allowLocalComments?: boolean;
   onAddComment?: (
     filePath: string, side: Side, line: number,
+    startLine: number | undefined, startSide: Side | undefined, body: string,
+  ) => void;
+  onReplyComment?: (
+    parentCommentId: string, filePath: string, side: Side, line: number,
     startLine: number | undefined, startSide: Side | undefined, body: string,
   ) => void;
   onResolveComment?: (commentId: string) => void;
@@ -218,12 +222,25 @@ export function PaneDiff({
                       </div>
                       {hasThread && key !== null && side !== null && r.ln !== null && (
                         <DiffInlineComments
-                          comments={lineComments}
+                          comments={lineComments.map(diffInlineCommentFromLocalPr)}
                           allowLocalComments={allowLocalComments}
                           onAdd={onAddComment !== undefined && composerHere
                             ? body => {
                               onAddComment(file.filename, composer!.side, composer!.line, composer!.startLine, composer!.startSide, body);
                               closeComposer();
+                            }
+                            : undefined}
+                          onReply={onReplyComment !== undefined
+                            ? (comment, body) => {
+                              if (comment.filePath === null || comment.lineNumber === null) return;
+                              onReplyComment(
+                                comment.id,
+                                comment.filePath,
+                                comment.side,
+                                comment.lineNumber,
+                                comment.startLine ?? undefined,
+                                comment.startSide ?? undefined,
+                                body);
                             }
                             : undefined}
                           onResolve={onResolveComment}

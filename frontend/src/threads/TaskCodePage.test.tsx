@@ -338,9 +338,9 @@ describe('TaskCodePage', () => {
     fireEvent.click(row);
 
     // Composer opens; type a body and save.
-    const textarea = await screen.findByPlaceholderText(/Leave a review comment/);
+    const textarea = await screen.findByPlaceholderText(/Leave a comment/);
     fireEvent.change(textarea, { target: { value: 'nit: rename' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
 
     // The added line `+new line` is new-side line 2 in the patch.
     await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith(
@@ -362,9 +362,9 @@ describe('TaskCodePage', () => {
     });
     fireEvent.click(row);
 
-    const textarea = await screen.findByPlaceholderText(/Leave a review comment/);
+    const textarea = await screen.findByPlaceholderText(/Leave a comment/);
     fireEvent.change(textarea, { target: { value: 'why remove this?' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
 
     // "-old line" is the hunk's 2nd old-side row (the leading "context" row
     // takes old-side line 1) — so the removed line anchors LEFT:2.
@@ -393,10 +393,10 @@ describe('TaskCodePage', () => {
     fireEvent.click(added);
     fireEvent.click(contextRow, { shiftKey: true });
 
-    const textarea = await screen.findByPlaceholderText(/Leave a review comment/);
-    expect(screen.getByText(/lines R1 to R2/)).toBeTruthy();
+    const textarea = await screen.findByPlaceholderText(/Leave a comment/);
+    expect(screen.getByText(/Commenting on R1 to R2/)).toBeTruthy();
     fireEvent.change(textarea, { target: { value: 'spans two lines' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
 
     await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith(
       'task-1', 'src/Foo.ts', 2, 'spans two lines', 'RIGHT', 1, 'RIGHT'));

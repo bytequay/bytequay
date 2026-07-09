@@ -148,6 +148,8 @@ public class LogicLoopThreadAgent
     /** Stage of the in-flight turn, set by the scheduler before each send;
      *  emitted messages inherit it as their explicit stage_id. */
     private volatile String activeStageId;
+    /** AgentRun episode of the in-flight turn, when this turn belongs to one. */
+    private volatile String activeAgentRunId;
     private final ObjectMapper mapper;
     private final ExecutorService executor;
     private final CredentialService credentialService;
@@ -838,7 +840,8 @@ public class LogicLoopThreadAgent
         String taskId = activeTaskId();
         try {
             return tool.get().invoke(input, new AgentToolContext(
-                    threadId, taskId, cwd, permissionMediator, activeStageId, kind));
+                    threadId, taskId, cwd, permissionMediator,
+                    activeStageId, activeAgentRunId, kind));
         }
         catch (RuntimeException e) {
             log.warn("Tool {} threw on thread {}: {}", name, threadId, e.getMessage());
@@ -1088,6 +1091,12 @@ public class LogicLoopThreadAgent
     public void setActiveStage(String stageId)
     {
         this.activeStageId = stageId;
+    }
+
+    @Override
+    public void setActiveAgentRun(String agentRunId)
+    {
+        this.activeAgentRunId = agentRunId;
     }
 
     /** Persist a message stamped with the turn's explicit stage + scope. A

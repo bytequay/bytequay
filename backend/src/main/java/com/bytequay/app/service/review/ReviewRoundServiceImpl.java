@@ -18,12 +18,13 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewRound;
-import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
@@ -33,6 +34,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
@@ -78,6 +80,7 @@ class ReviewRoundServiceImpl
     private final PullRequestService pullRequests;
     private final GitRunner git;
     private final BrainReviewService brainReview;
+    private final RemoteDevelopmentStageService remoteStages;
     private final Clock clock;
 
     @Autowired
@@ -92,10 +95,11 @@ class ReviewRoundServiceImpl
             TaskPhaseMachine phaseMachine,
             PullRequestService pullRequests,
             GitRunner git,
-            BrainReviewService brainReview)
+            BrainReviewService brainReview,
+            RemoteDevelopmentStageService remoteStages)
     {
         this(taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore,
-                phaseMachine, pullRequests, git, brainReview, Clock.systemUTC());
+                phaseMachine, pullRequests, git, brainReview, remoteStages, Clock.systemUTC());
     }
 
     ReviewRoundServiceImpl(
@@ -110,6 +114,7 @@ class ReviewRoundServiceImpl
             PullRequestService pullRequests,
             GitRunner git,
             BrainReviewService brainReview,
+            RemoteDevelopmentStageService remoteStages,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -123,6 +128,7 @@ class ReviewRoundServiceImpl
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.git = requireNonNull(git, "git is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -139,6 +145,7 @@ class ReviewRoundServiceImpl
             // fell behind (e.g. opened before recomputeStats existed) heals
             // on its own rather than staying stuck until its next resolve.
             recomputeStats(live.get().id());
+            enqueueRoundKickoffIfDeferred(task, live.get());
             return;
         }
         List<ReviewComment> unrounded = stageStore.findUnroundedRemoteComments(task.id());
@@ -164,12 +171,10 @@ class ReviewRoundServiceImpl
         String roundId = UUID.randomUUID().toString();
         List<UUID> commentIds = comments.stream().map(ReviewComment::id).toList();
 
-        // No caller-stage lookup — agentRuns.open reuses (wakes back up) the
-        // task's existing REVIEW_ROUND_STAGE if one's already been opened
-        // before, rather than us threading a parent pointer through.
-        AgentRun run = agentRuns.open(
+        StageInstance remoteStage = remoteStages.ensureOpen(task.id());
+        AgentRun run = agentRuns.openInStage(
                 task.id(), AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
-                /* parentStageId */ null, StageType.REVIEW_ROUND_STAGE, /* budget */ null);
+                remoteStage.id().toString(), /* budget */ null);
 
         ReviewRound round = new ReviewRound(
                 roundId, task.id(), roundStore.nextIndex(task.id()), List.of(),
@@ -184,24 +189,7 @@ class ReviewRoundServiceImpl
         // a mocked StageStore, which is why this shipped broken).
         stageStore.assignCommentsToRound(commentIds, UUID.fromString(roundId));
 
-        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
-        if (threadOpt.isEmpty() || threadOpt.get().status() != ThreadStatus.IDLE) {
-            log.info("review-round: thread not idle for task {}; round {} opened, turn deferred",
-                    task.id(), roundId);
-            return;
-        }
-        String prompt = buildRoundPrompt(ref.get(), comments);
-        try {
-            scheduler.enqueueTaskTurn(
-                    threadOpt.get(), prompt, task.id(), run.stageId(),
-                    TurnInitiator.unattended("review-round"));
-            log.info("review-round: round {} (#{}) opened for task {}",
-                    round.idx(), roundId, task.id());
-        }
-        catch (RuntimeException e) {
-            log.warn("review-round: enqueue failed for task {} round {}: {}",
-                    task.id(), roundId, e.getMessage());
-        }
+        enqueueRoundKickoffIfReady(task, round, run, comments);
     }
 
     /** A round's kickoff turn finishing means the agent's triage + fixes +
@@ -216,7 +204,7 @@ class ReviewRoundServiceImpl
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {
         ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
-        if (turn == null || turn.stageId() == null) {
+        if (turn == null) {
             return;
         }
         Optional<ReviewRound> live = roundStore.findLiveByTask(event.taskId())
@@ -227,8 +215,7 @@ class ReviewRoundServiceImpl
             return;
         }
         ReviewRound round = live.get();
-        AgentRun run = agentRuns.findById(round.runId()).orElse(null);
-        if (run == null || !turn.stageId().equals(run.stageId())) {
+        if (!matchesRunTurn(round, turn)) {
             return;
         }
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
@@ -236,6 +223,88 @@ class ReviewRoundServiceImpl
             return;
         }
         brainReview.reviewBeforeRoundGate(round, task);
+    }
+
+    private boolean matchesRunTurn(ReviewRound round, ThreadTurn turn)
+    {
+        if (round.runId() == null || turn == null) {
+            return false;
+        }
+        String agentRunId = turn.agentRunId();
+        if (agentRunId != null && !agentRunId.isBlank()) {
+            return round.runId().equals(agentRunId);
+        }
+        if (!"review-round".equals(turn.initiator().source())) {
+            return false;
+        }
+        return turn.stageId() != null
+                && agentRuns.findById(round.runId())
+                        .map(run -> turn.stageId().equals(run.stageId()))
+                        .orElse(false);
+    }
+
+    private void enqueueRoundKickoffIfDeferred(Task task, ReviewRound round)
+    {
+        if (!ReviewRound.ORIGIN_EXTERNAL.equals(round.origin())
+                || !ReviewRound.STATUS_ADDRESSING.equals(round.status())
+                || round.iteration() != 0
+                || round.brainVerdict() != null
+                || round.runId() == null) {
+            return;
+        }
+        AgentRun run = agentRuns.findById(round.runId()).orElse(null);
+        if (run == null || hasQueuedOrRunningTurn(task.threadId(), run)) {
+            return;
+        }
+        enqueueRoundKickoffIfReady(task, round, run, stageStore.findCommentsByRound(UUID.fromString(round.id())));
+    }
+
+    private void enqueueRoundKickoffIfReady(Task task, ReviewRound round, AgentRun run, List<ReviewComment> comments)
+    {
+        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
+        if (threadOpt.isEmpty() || threadOpt.get().status() != ThreadStatus.IDLE) {
+            log.info("review-round: thread not idle for task {}; round {} turn deferred",
+                    task.id(), round.id());
+            return;
+        }
+        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
+        if (ref.isEmpty()) {
+            return;
+        }
+        String prompt = buildRoundPrompt(ref.get(), comments);
+        try {
+            scheduler.enqueueTaskTurn(
+                    threadOpt.get(), prompt, task.id(), run.stageId(),
+                    TurnInitiator.unattended("review-round"), run.id());
+            log.info("review-round: round {} ({}) queued for task {}",
+                    round.idx(), round.id(), task.id());
+        }
+        catch (RuntimeException e) {
+            log.warn("review-round: enqueue failed for task {} round {}: {}",
+                    task.id(), round.id(), e.getMessage());
+        }
+    }
+
+    private boolean hasQueuedOrRunningTurn(String threadId, AgentRun run)
+    {
+        return turnStore.listTurnsByTaskId(threadId, 100).stream()
+                .filter(t -> matchesRunTurn(run, t))
+                .anyMatch(t -> t.status() == ThreadTurnStatus.QUEUED
+                        || t.status() == ThreadTurnStatus.RUNNING);
+    }
+
+    private boolean matchesRunTurn(AgentRun run, ThreadTurn turn)
+    {
+        if (run == null || turn == null) {
+            return false;
+        }
+        String agentRunId = turn.agentRunId();
+        if (agentRunId != null && !agentRunId.isBlank()) {
+            return run.id().equals(agentRunId);
+        }
+        return "review-round".equals(turn.initiator().source())
+                && turn.stageId() != null
+                && turn.stageId().equals(run.stageId());
     }
 
     @Override

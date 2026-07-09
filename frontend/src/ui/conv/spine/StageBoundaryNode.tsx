@@ -19,6 +19,7 @@ import type { SpineColor } from './Spine';
 const VISUAL: Record<StageType, { color: SpineColor; mark: string; name: string }> = {
   PLAN_STAGE: { color: 'purple', mark: '◆', name: 'Planning' },
   DEVELOPMENT_STAGE: { color: 'blue', mark: '▶', name: 'Development' },
+  REMOTE_DEVELOPMENT_STAGE: { color: 'teal', mark: '◇', name: 'Remote Development' },
   CI_FIXING_STAGE: { color: 'amber', mark: '✦', name: 'CI Fix' },
   REVIEW_MONITOR_STAGE: { color: 'teal', mark: '◇', name: 'Review Monitor' },
   CLEANUP_STAGE: { color: 'gray', mark: '◆', name: 'Cleanup' },

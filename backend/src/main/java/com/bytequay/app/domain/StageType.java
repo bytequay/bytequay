@@ -25,7 +25,7 @@ import java.util.Set;
  * ({@link #forPhase}).
  *
  * <p>{@code PLAN_STAGE} is the mandatory planning stage every Task opens
- * with; {@code DEVELOPMENT_STAGE} / {@code REVIEW_MONITOR_STAGE} are
+ * with; {@code DEVELOPMENT_STAGE} / {@code REMOTE_DEVELOPMENT_STAGE} are
  * looping work stages driven by phase transitions, {@code CLEANUP_STAGE}
  * is the terminal stage, and {@code REVIEW_STAGE} / {@code CI_FIXING_STAGE} /
  * {@code REVIEW_ROUND_STAGE} are pure containers with no phases of their
@@ -50,18 +50,23 @@ public enum StageType
             TaskPhase.AWAITING_PUSH,
             TaskPhase.ADDRESSING_LOCAL_COMMENTS)),
 
+    /** Remote PR work after the first push: CI, mark-ready, reviewer
+     *  comments, branch-guard catchups, and merge-readiness checks. */
+    REMOTE_DEVELOPMENT_STAGE(Set.of(
+            TaskPhase.PUSHED_AWAITING_CI,
+            TaskPhase.AWAITING_READY,
+            TaskPhase.AWAITING_REMOTE_REVIEW)),
+
     /** Pure container for {@code ci_fix} {@link AgentRun}s — never opened via
      *  a phase transition; {@link AgentRun} opens one directly as a run's
      *  backing stage. Empty {@code allowedPhases} mirrors {@code
      *  REVIEW_STAGE}. */
     CI_FIXING_STAGE(Set.of()),
 
-    /** Arms as soon as the PR is out for review ({@code
-     *  AWAITING_REMOTE_REVIEW}) and stays active for the rest of the
-     *  task's remote-review life — the phase no longer moves while
-     *  {@code review_round} runs address comment batches beside it,
-     *  mirroring how {@code CI_FIXING_STAGE} relates to {@code ci_fix}. */
-    REVIEW_MONITOR_STAGE(Set.of(TaskPhase.AWAITING_REMOTE_REVIEW)),
+    /** Legacy remote-review monitor. New tasks use
+     *  {@link #REMOTE_DEVELOPMENT_STAGE}; this remains readable for old
+     *  stage rows and historical detail screens. */
+    REVIEW_MONITOR_STAGE(Set.of()),
 
     /** Terminal stage; runs once the PR closes. */
     CLEANUP_STAGE(Set.of(TaskPhase.COMPLETED)),
@@ -110,6 +115,7 @@ public enum StageType
         return switch (this) {
             case PLAN_STAGE -> "PlanStage";
             case DEVELOPMENT_STAGE -> "DevelopmentStage";
+            case REMOTE_DEVELOPMENT_STAGE -> "RemoteDevelopmentStage";
             case CI_FIXING_STAGE -> "CiFixingStage";
             case REVIEW_MONITOR_STAGE -> "ReviewMonitorStage";
             case CLEANUP_STAGE -> "CleanupStage";
@@ -123,10 +129,7 @@ public enum StageType
      * The stage a phase resolves to, or empty for a cross-cutting phase that
      * isn't bound to any single stage. {@link TaskPhase#QUEUED} and
      * {@link TaskPhase#NEEDS_ATTENTION} are cross-cutting by design — they
-     * attach to whatever stage is already active. {@link TaskPhase#AWAITING_READY}
-     * and {@link TaskPhase#PUSHED_AWAITING_CI} are post-push idle waits that
-     * stay unmapped; they keep the current stage (a live {@code ci_fix} run
-     * works beside it via its own directly-opened backing stage instead).
+     * attach to whatever stage is already active.
      *
      * <p>Returning empty (rather than throwing) is deliberate: the lifecycle
      * hook runs inside the phase-transition's transaction, so a throw here

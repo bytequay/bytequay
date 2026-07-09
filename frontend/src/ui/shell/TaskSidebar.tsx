@@ -42,7 +42,7 @@ export function TaskSidebar({
    *  (Local review / Remote pull request / Merge-Close) use this. `subTab`
    *  additionally forces the PR tab's own Checks sub-tab (CI validation). */
   onOpenTab?: (tab: 'pr', subTab?: 'checks') => void;
-  /** Navigate to the task's brain page — the Root node in the live plan. */
+  /** Navigate to the task's brain page — the Plan node in the live plan. */
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
   onOpenRun?: (runId: string) => void;

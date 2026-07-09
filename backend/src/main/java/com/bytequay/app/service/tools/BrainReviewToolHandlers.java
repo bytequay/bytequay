@@ -74,7 +74,8 @@ public class BrainReviewToolHandlers
                 && !ReviewRound.VERDICT_CHANGES_REQUESTED.equals(args.verdict())) {
             return ToolOutcome.Completed.error("verdict must be 'approved' or 'changes_requested'");
         }
-        brainReview.recordVerdict(taskId, call.stageId(), args.scope(), args.verdict());
+        brainReview.recordVerdict(
+                taskId, call.stageId(), call.agentRunId(), args.scope(), args.verdict());
         return ToolOutcome.Completed.ok("recorded " + args.verdict() + " (" + args.scope() + ")");
     }
 }

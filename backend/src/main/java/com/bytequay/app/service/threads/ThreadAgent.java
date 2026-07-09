@@ -132,6 +132,12 @@ public interface ThreadAgent
     {
     }
 
+    /** Set the AgentRun episode the next {@link #send} belongs to. Null
+     *  clears it for ordinary task/stage turns. */
+    default void setActiveAgentRun(String agentRunId)
+    {
+    }
+
     /** Bind this agent to the registry stage key it connects to the MCP
      *  server under, so a CLI agent writes a per-agent MCP URL
      *  ({@code .../agents/{agentKey}/mcp}) and its tool calls resolve role /

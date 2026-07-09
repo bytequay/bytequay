@@ -193,15 +193,14 @@ public class IterationService
     }
 
     /**
-     * The recorded iteration summaries of the task's most recent
-     * CI-fixing stage, oldest-first — the cross-stage context the
-     * Comments-addressing stage seeds its first prompt with so the agent
-     * knows what the CI-fix loop just did. Empty when the task never ran a
-     * CI-fixing stage or that stage recorded no summaries.
+     * The recorded iteration summaries of the task's most recent remote
+     * monitor stage, oldest-first — context the comment-addressing prompt
+     * can use to know what the preceding remote loop did. Empty when the
+     * task never ran such a stage or it recorded no summaries.
      */
     public List<String> latestCiFixingSummaries(String taskId)
     {
-        StageInstance latest = latestCiFixingStage(taskId);
+        StageInstance latest = latestRemoteMonitorStage(taskId);
         if (latest == null) {
             return List.of();
         }
@@ -220,15 +219,15 @@ public class IterationService
     public record CiFixingSummaryEntry(int iterationNumber, String text, Instant summarizedAt) {}
 
     /**
-     * The recorded iteration summaries of the task's most recent CI-fixing
-     * stage, oldest-first, each with its recorded-at timestamp. The
+     * The recorded iteration summaries of the task's most recent remote
+     * monitor stage, oldest-first, each with its recorded-at timestamp. The
      * {@code get_new_updated_ci_fixing_log} tool filters these against its
      * per-task last-query marker. Empty when no CI-fixing stage ran or it
      * recorded no summaries.
      */
     public List<CiFixingSummaryEntry> latestCiFixingSummaryEntries(String taskId)
     {
-        StageInstance latest = latestCiFixingStage(taskId);
+        StageInstance latest = latestRemoteMonitorStage(taskId);
         if (latest == null) {
             return List.of();
         }
@@ -242,11 +241,11 @@ public class IterationService
         return out;
     }
 
-    private StageInstance latestCiFixingStage(String taskId)
+    private StageInstance latestRemoteMonitorStage(String taskId)
     {
         StageInstance latest = null;
         for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
-            if (stage.type() != StageType.CI_FIXING_STAGE) {
+            if (!isMonitorStage(stage)) {
                 continue;
             }
             if (latest == null || stage.openedAt().isAfter(latest.openedAt())) {
@@ -319,6 +318,7 @@ public class IterationService
     private static boolean isMonitorStage(StageInstance stage)
     {
         return stage.type() == StageType.CI_FIXING_STAGE
+                || stage.type() == StageType.REMOTE_DEVELOPMENT_STAGE
                 || stage.type() == StageType.REVIEW_MONITOR_STAGE;
     }
 

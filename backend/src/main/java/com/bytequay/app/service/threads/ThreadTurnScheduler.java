@@ -77,6 +77,16 @@ public interface ThreadTurnScheduler
         return enqueueTaskTurn(thread, input, taskId, initiator);
     }
 
+    /** As the explicit-stage overload, plus an AgentRun correlation id. The
+     *  turn still executes on {@code stageId}; {@code agentRunId} identifies
+     *  the episode whose completion handler should advance. */
+    default String enqueueTaskTurn(
+            Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId)
+    {
+        return enqueueTaskTurn(thread, input, taskId, stageId, initiator);
+    }
+
     /** Cancel queued turns for one thread and return the number cancelled. */
     int cancelQueuedTurns(String threadId);
 }

@@ -16,6 +16,8 @@ package com.bytequay.app.service.review;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -39,6 +41,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.RebaseOutcome;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
@@ -49,6 +52,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -64,6 +68,7 @@ class TestBranchGuardJob
 {
     private static final String TASK_ID = "t1.k1";
     private static final Path WORKTREE = Path.of("/tmp/wt");
+    private static final UUID REMOTE_STAGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
 
     private final BranchGuardStore guards = mock(BranchGuardStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
@@ -74,6 +79,7 @@ class TestBranchGuardJob
     private final AgentRunService agentRuns = mock(AgentRunService.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
+    private final RemoteDevelopmentStageService remoteStages = mock(RemoteDevelopmentStageService.class);
 
     @Test
     void skipsEntirelyWhenTheThreadIsNotIdle()
@@ -138,8 +144,8 @@ class TestBranchGuardJob
         when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main-old"));
         when(git.rebasePreview(WORKTREE, "HEAD", "origin/main")).thenReturn(RebaseOutcome.CLEAN);
         AgentRun run = run(AgentRun.STATUS_RUNNING);
-        when(agentRuns.open(eq(TASK_ID), eq(AgentRun.KIND_BRANCH_GUARD), eq(AgentRun.SOURCE_SCHEDULED),
-                eq(null), eq(StageType.BRANCH_GUARD_STAGE), eq(null))).thenReturn(run);
+        when(agentRuns.openInStage(eq(TASK_ID), eq(AgentRun.KIND_BRANCH_GUARD),
+                eq(AgentRun.SOURCE_SCHEDULED), eq(REMOTE_STAGE_ID.toString()), eq(null))).thenReturn(run);
 
         job.checkOne(guard(BranchGuard.STATE_HEALTHY));
 
@@ -148,7 +154,7 @@ class TestBranchGuardJob
         verify(agentRuns).transition(run.id(), AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
         verify(guards).save(argThatState(BranchGuard.STATE_HEALTHY));
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -161,14 +167,14 @@ class TestBranchGuardJob
         when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main-old"));
         when(git.rebasePreview(WORKTREE, "HEAD", "origin/main")).thenReturn(RebaseOutcome.CONFLICTS);
         AgentRun run = run(AgentRun.STATUS_RUNNING);
-        when(agentRuns.open(any(), any(), any(), any(), any(), any())).thenReturn(run);
+        when(agentRuns.openInStage(any(), any(), any(), any(), any())).thenReturn(run);
 
         job.checkOne(guard(BranchGuard.STATE_HEALTHY));
 
         verify(git, never()).rebase(any(), any());
         verify(git, never()).pushForceWithLease(any());
         verify(scheduler).enqueueTaskTurn(any(Thread.class), anyString(), eq(TASK_ID),
-                eq(run.stageId()), any(TurnInitiator.class));
+                eq(run.stageId()), any(TurnInitiator.class), eq(run.id()));
         verify(guards).save(argThatState(BranchGuard.STATE_CONFLICTED));
         verify(guards).save(argThatState(BranchGuard.STATE_FIXING));
         verify(agentRuns, never()).transition(any(), eq(AgentRun.STATUS_FAILED), any());
@@ -208,7 +214,7 @@ class TestBranchGuardJob
         when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(fixing));
         AgentRun run = run(AgentRun.STATUS_RUNNING);
         when(agentRuns.findById("run1")).thenReturn(Optional.of(run));
-        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn("stage1")));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(REMOTE_STAGE_ID.toString(), "run1")));
         when(git.hasUncommittedChanges(WORKTREE)).thenReturn(false);
         when(git.resolveCommitSha(WORKTREE, "origin/main")).thenReturn(Optional.of("sha-main-new"));
         when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main-new"));
@@ -230,7 +236,7 @@ class TestBranchGuardJob
         when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(fixing));
         AgentRun run = run(AgentRun.STATUS_RUNNING);
         when(agentRuns.findById("run1")).thenReturn(Optional.of(run));
-        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn("stage1")));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(REMOTE_STAGE_ID.toString(), "run1")));
         when(git.hasUncommittedChanges(WORKTREE)).thenReturn(true);
 
         job.onFixTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
@@ -241,14 +247,14 @@ class TestBranchGuardJob
     }
 
     @Test
-    void fixTurnFinishedIgnoresATurnFromAnUnrelatedStage()
+    void fixTurnFinishedIgnoresATurnFromAnUnrelatedRun()
     {
         BranchGuardJob job = job(List.of());
         BranchGuard fixing = guard(BranchGuard.STATE_FIXING).withLastRun("run1", Instant.now());
         when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(fixing));
         AgentRun run = run(AgentRun.STATUS_RUNNING);
         when(agentRuns.findById("run1")).thenReturn(Optional.of(run));
-        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn("some-other-stage")));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(REMOTE_STAGE_ID.toString(), "other-run")));
 
         job.onFixTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
@@ -260,12 +266,13 @@ class TestBranchGuardJob
     {
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread(ThreadStatus.IDLE)));
+        when(remoteStages.ensureOpen(TASK_ID)).thenReturn(remoteStage());
     }
 
     private BranchGuardJob job(List<ValidationCheck> checks)
     {
         return new BranchGuardJob(guards, taskStore, threadStore, scheduler, turnStore, git, checks,
-                agentRuns, notifications, pullRequests, new ObjectMapper());
+                agentRuns, notifications, pullRequests, new ObjectMapper(), remoteStages);
     }
 
     private static BranchGuard argThatState(String state)
@@ -306,16 +313,29 @@ class TestBranchGuardJob
     private static AgentRun run(String status)
     {
         return new AgentRun(
-                "run1", TASK_ID, AgentRun.KIND_BRANCH_GUARD, AgentRun.SOURCE_SCHEDULED, null, null,
-                "stage1", status, 0, null, null, null, Instant.now(), null);
+                "run1", TASK_ID, AgentRun.KIND_BRANCH_GUARD, AgentRun.SOURCE_SCHEDULED,
+                REMOTE_STAGE_ID.toString(), null,
+                REMOTE_STAGE_ID.toString(), status, 0, null, null, null, Instant.now(), null);
     }
 
     private static ThreadTurn turn(String stageId)
     {
+        return turn(stageId, null);
+    }
+
+    private static ThreadTurn turn(String stageId, String runId)
+    {
         return new ThreadTurn(
                 "turn-1", "t1", TASK_ID, ThreadResourceLane.CLI, ThreadTurnStatus.COMPLETED, "prompt",
                 Instant.now(), Instant.now(), Instant.now(), Instant.now(), null,
-                TurnInitiator.unattended("branch-guard-fix"), stageId, ThreadScope.TASK);
+                TurnInitiator.unattended("branch-guard-fix"), stageId, ThreadScope.TASK, runId);
+    }
+
+    private static StageInstance remoteStage()
+    {
+        return new StageInstance(
+                REMOTE_STAGE_ID, TASK_ID, StageType.REMOTE_DEVELOPMENT_STAGE,
+                StageState.OPEN, Instant.now(), null, null);
     }
 
     private static Thread thread(ThreadStatus status)

@@ -334,7 +334,9 @@ public class LogicLoopToolRegistry
                 }
             }
 
-            ToolCall call = new ToolCall(ctx.threadId(), args, role, ctx.taskId(), ctx.stageId());
+            ToolCall call = new ToolCall(
+                    ctx.threadId(), args, role,
+                    ctx.taskId(), ctx.stageId(), ctx.agentRunId());
             try {
                 Optional<ToolOutcome> outcome = cliLaneTools.invoke(spec.name(), call);
                 if (outcome.isEmpty()) {

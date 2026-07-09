@@ -35,14 +35,22 @@ import com.fasterxml.jackson.databind.JsonNode;
  *                   which is null for a shipped (IN_REVIEW) task.
  * @param stageId    the stage the in-flight turn is scoped to, or null for
  *                   a task-level / trunk turn
+ * @param agentRunId the AgentRun episode the in-flight turn belongs to, or
+ *                   null for ordinary task/stage turns
  */
 public record ToolCall(
-        String threadId, JsonNode arguments, AgentRole role, String taskId, String stageId)
+        String threadId, JsonNode arguments, AgentRole role,
+        String taskId, String stageId, String agentRunId)
 {
+    public ToolCall(String threadId, JsonNode arguments, AgentRole role, String taskId, String stageId)
+    {
+        this(threadId, arguments, role, taskId, stageId, null);
+    }
+
     /** Convenience for callers (and tests) that don't carry the running
      *  turn's scope — task/stage default to null, matching a trunk turn. */
     public ToolCall(String threadId, JsonNode arguments, AgentRole role)
     {
-        this(threadId, arguments, role, null, null);
+        this(threadId, arguments, role, null, null, null);
     }
 }

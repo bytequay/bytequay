@@ -1180,6 +1180,7 @@ public class StageServiceImpl
         return switch (type) {
             case PLAN_STAGE -> "Planning";
             case DEVELOPMENT_STAGE -> "Development";
+            case REMOTE_DEVELOPMENT_STAGE -> "Remote development";
             case CI_FIXING_STAGE -> "CI fixing";
             case REVIEW_MONITOR_STAGE -> "Review monitor";
             case CLEANUP_STAGE -> "Cleanup";

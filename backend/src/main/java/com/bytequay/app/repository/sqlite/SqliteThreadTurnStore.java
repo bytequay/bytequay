@@ -63,6 +63,7 @@ class SqliteThreadTurnStore
         entity.setInitiatorSource(initiator.source());
         entity.setStageId(turn.stageId());
         entity.setScope(turn.scope() == null ? null : turn.scope().name());
+        entity.setAgentRunId(turn.agentRunId());
         turns.save(entity);
     }
 
@@ -155,6 +156,7 @@ class SqliteThreadTurnStore
                 e.getStageId(),
                 e.getScope() == null
                         ? ThreadScope.of(e.getTaskId(), e.getStageId())
-                        : ThreadScope.valueOf(e.getScope()));
+                        : ThreadScope.valueOf(e.getScope()),
+                e.getAgentRunId());
     }
 }

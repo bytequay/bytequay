@@ -762,7 +762,8 @@ public class StageDetailServiceImpl
     private List<CiFixHistoryEntry> buildCiFixHistory(
             StageInstance stage, List<TaskStageIteration> iters, List<StageEvent> events)
     {
-        if (stage.type() != StageType.CI_FIXING_STAGE) {
+        if (stage.type() != StageType.CI_FIXING_STAGE
+                && stage.type() != StageType.REMOTE_DEVELOPMENT_STAGE) {
             return List.of();
         }
         // The per-fix detail (failing check + error + Actions URL) rides the

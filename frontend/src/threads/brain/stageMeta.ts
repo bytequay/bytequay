@@ -21,6 +21,7 @@ export type Persona = 'dev' | 'cifix' | 'revmon' | 'review' | 'neutral';
 export function personaForStageType(type: StageType | null): Persona {
   switch (type) {
     case 'DEVELOPMENT_STAGE': return 'dev';
+    case 'REMOTE_DEVELOPMENT_STAGE': return 'revmon';
     case 'CI_FIXING_STAGE': return 'cifix';
     case 'REVIEW_MONITOR_STAGE': return 'revmon';
     case 'REVIEW_STAGE': return 'review';
@@ -34,6 +35,7 @@ export function stageDisplayName(type: StageType): string {
   switch (type) {
     case 'PLAN_STAGE': return 'PlanStage';
     case 'DEVELOPMENT_STAGE': return 'DevelopmentStage';
+    case 'REMOTE_DEVELOPMENT_STAGE': return 'RemoteDevelopmentStage';
     case 'CI_FIXING_STAGE': return 'CiFixingStage';
     case 'REVIEW_MONITOR_STAGE': return 'ReviewMonitorStage';
     case 'CLEANUP_STAGE': return 'CleanupStage';

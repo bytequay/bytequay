@@ -924,6 +924,9 @@
   font-size: 8px; font-weight: 800; background: rgba(194, 99, 42, 0.12); color: var(--orange);
   border: 1px solid rgba(194, 99, 42, 0.30); border-radius: 999px; padding: 0 5px; white-space: nowrap;
 }
+/* Explicit purple, matching .plan-node.done — a finished phase reads the
+   same "settled" color as a finished top-level stage, not a plain white row. */
+.shell .plan-phase-row.done { background: rgba(139, 92, 246, 0.14); border-color: rgba(139, 92, 246, 0.32); }
 .shell .plan-phase-row.done .ph-glyph { color: #16a34a; }
 .shell .plan-phase-row.running { background: rgba(139, 92, 246, 0.10); border-left-color: var(--accent); }
 .shell .plan-phase-row.running .ph-glyph { color: var(--accent); animation: working-pulse 1.4s infinite; }

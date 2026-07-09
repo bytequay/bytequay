@@ -314,7 +314,9 @@ public class McpServiceImpl
         // map so the per-tool flow takes over.
         PermissionResolver.RunningScope scope = permissions.runningScope(threadId, agentKey);
         Optional<ToolOutcome> outcome = registry.invoke(
-                name, new ToolCall(threadId, params.arguments(), role, scope.taskId(), scope.stageId()));
+                name, new ToolCall(
+                        threadId, params.arguments(), role,
+                        scope.taskId(), scope.stageId(), scope.agentRunId()));
         if (outcome.isPresent()) {
             deferred.setResult(adaptOutcome(id, outcome.get()));
             return;

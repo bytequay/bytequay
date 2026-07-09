@@ -63,6 +63,7 @@ function epochOrNull(ts: string | undefined): number | null {
 const KIND: Partial<Record<StageType, StageKind>> = {
   PLAN_STAGE: 'plan',
   DEVELOPMENT_STAGE: 'dev',
+  REMOTE_DEVELOPMENT_STAGE: 'remote-dev',
   CI_FIXING_STAGE: 'ci-fix',
   REVIEW_MONITOR_STAGE: 'comments',
   CLEANUP_STAGE: 'cleanup',
@@ -89,12 +90,12 @@ export function StageDetailRoute({
    *  this Plan stage and opens the Development stage, and by the live-plan
    *  diagram in the task sidebar. */
   onOpenStage?: (stageId: string) => void;
-  /** Navigate to a live run's own log — the rail's Checks/Addressing
-   *  sub-rows and the Dev/Comments feed's run/round episodes use this. */
+  /** Navigate to a live run's own log — the rail's Remote CI / comments rows
+   *  and the stage feed's run/round episodes use this. */
   onOpenRun?: (runId: string) => void;
   /** Navigate back to the thread trunk (the task sidebar's back button). */
   onBack?: () => void;
-  /** Navigate to this task's brain page — the live plan's Root node. */
+  /** Navigate to this task's brain page — the live plan's Plan node. */
   onOpenBrain?: () => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
@@ -109,7 +110,7 @@ export function StageDetailRoute({
   // comment is handed to the dev agent to post — it parks the publish for the
   // user's approval through the normal gate rather than posting directly.
   const [prComment, setPrComment] = useState('');
-  // Force-opens the PR tab's own Checks sub-tab — the CI validation node's
+  // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of `localPrNode` below, which reads it.
   const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks'; token: number } | undefined>(undefined);
   // The task's local PR — the primary artifact this milestone renders. Null

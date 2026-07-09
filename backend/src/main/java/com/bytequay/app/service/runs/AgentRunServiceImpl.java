@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -99,6 +100,25 @@ class AgentRunServiceImpl
     }
 
     @Override
+    public AgentRun openInStage(
+            String taskId, String kind, String source, String stageId, Integer budget)
+    {
+        requireText(taskId, "taskId");
+        requireText(kind, "kind");
+        requireText(stageId, "stageId");
+        Optional<AgentRun> existing = store.findLiveByTaskAndKind(taskId, kind);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        AgentRun run = new AgentRun(
+                UUID.randomUUID().toString(), taskId, kind, source,
+                stageId, /* reviewRoundId */ null, stageId, AgentRun.STATUS_RUNNING,
+                /* iterations */ 0, budget, /* headline */ null, /* metricsJson */ null,
+                now(), /* finishedAt */ null);
+        return store.save(run);
+    }
+
+    @Override
     public AgentRun recordIteration(String runId, String headlineOrNull)
     {
         AgentRun run = require(runId);
@@ -124,7 +144,7 @@ class AgentRunServiceImpl
     {
         AgentRun run = require(runId);
         AgentRun updated = store.save(run.withStatus(status, now()));
-        if (updated.finishedAt() != null) {
+        if (updated.finishedAt() != null && !Objects.equals(updated.parentStageId(), updated.stageId())) {
             stageStore.closeStage(UUID.fromString(updated.stageId()), reason);
         }
         return updated;

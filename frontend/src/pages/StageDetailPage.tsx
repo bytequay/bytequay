@@ -25,24 +25,25 @@ import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
 import { SubmitReviewDrawer } from './SubmitReviewDrawer';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 
-/** The four work stages that share this page. */
-export type StageKind = 'plan' | 'dev' | 'ci-fix' | 'comments' | 'cleanup';
+/** Work-stage variants that share this page, including legacy run containers. */
+export type StageKind = 'plan' | 'dev' | 'remote-dev' | 'ci-fix' | 'comments' | 'cleanup';
 type StageTab = 'pr' | 'ci' | 'code';
 
 const PILL_LABEL: Record<StageKind, string> = {
   plan: 'PLAN',
   dev: 'DEV',
+  'remote-dev': 'REMOTE DEV',
   'ci-fix': 'CI FIX',
   comments: 'COMMENTS',
   cleanup: 'CLEANUP',
 };
 
 /**
- * The generic work-stage surface — Dev / CI Fix / Comments / Cleanup all
- * compose this one page (frames 3, 6, 7). They differ only in the stage
- * pill, the default right-pane tab, the CI-Status entry (CI Fix only), and
- * the conversation + composer agent the host supplies. The composer mode
- * pill defaults to the stage's agent runtime (passed in as `modePill`).
+ * The generic work-stage surface — Local Development, Remote Development,
+ * legacy run containers, and Cleanup all compose this one page. They differ
+ * only in the stage pill, the default right-pane tab, the CI-Status entry
+ * (legacy CI Fix only), and the conversation + composer agent the host
+ * supplies. The composer mode pill defaults to the stage's agent runtime.
  */
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, collapsed = false, composer, run = {},

@@ -39,6 +39,8 @@ import java.nio.file.Path;
  *                           denied, which is the conservative default.
  * @param stageId            the focused stage id, or {@code null} for
  *                           task-level / trunk turns.
+ * @param agentRunId         the focused AgentRun episode id, or
+ *                           {@code null} for ordinary turns.
  * @param threadKind         the thread kind executing the tool call;
  *                           used by bridged tools to enforce kind gates.
  */
@@ -48,13 +50,25 @@ public record AgentToolContext(
         Path workingDir,
         ToolPermissionMediator permissionMediator,
         String stageId,
+        String agentRunId,
         ThreadKind threadKind)
 {
+    public AgentToolContext(
+            String threadId,
+            String taskId,
+            Path workingDir,
+            ToolPermissionMediator permissionMediator,
+            String stageId,
+            ThreadKind threadKind)
+    {
+        this(threadId, taskId, workingDir, permissionMediator, stageId, null, threadKind);
+    }
+
     public AgentToolContext(String threadId, String taskId, Path workingDir,
             ToolPermissionMediator permissionMediator)
     {
         this(threadId, taskId, workingDir, permissionMediator,
-                /* stageId */ null, /* threadKind */ null);
+                /* stageId */ null, /* agentRunId */ null, /* threadKind */ null);
     }
 
     /** Legacy 3-arg constructor for call sites that don't care about
@@ -64,6 +78,6 @@ public record AgentToolContext(
     public AgentToolContext(String threadId, String taskId, Path workingDir)
     {
         this(threadId, taskId, workingDir, /* permissionMediator */ null,
-                /* stageId */ null, /* threadKind */ null);
+                /* stageId */ null, /* agentRunId */ null, /* threadKind */ null);
     }
 }

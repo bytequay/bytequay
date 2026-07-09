@@ -161,6 +161,19 @@ class TestCodexCliThreadAgent
     }
 
     @Test
+    void reasoningEffortOverrideIsPassedToFreshAndResumedTrunkTurns()
+    {
+        List<String> fresh = trunkAgent(/* sessionId */ null, "high")
+                .buildCommand("plan").command();
+        List<String> resumed = trunkAgent("sess-abc", "high")
+                .buildCommand("continue").command();
+
+        assertThat(fresh).containsSubsequence("-c", "model_reasoning_effort=\"high\"", "exec");
+        assertThat(resumed).containsSubsequence("-c", "model_reasoning_effort=\"high\"",
+                "exec", "resume");
+    }
+
+    @Test
     void metricsReportTheTasksOwnUsageNotTheThreadLifetime()
     {
         // A focused task agent must report the TASK's own spend, not the
@@ -265,5 +278,21 @@ class TestCodexCliThreadAgent
                 thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
                 mock(CheckpointTrigger.class), () -> memory, roleSkillText, "codex", active);
+    }
+
+    private CodexCliThreadAgent trunkAgent(String sessionId, String reasoningEffort)
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        Thread thread = new Thread(
+                "thread-1", ThreadKind.CLI_AGENT, "codex", sessionId,
+                "Codex trunk test", ThreadStatus.IDLE, "gpt-5",
+                0L, 0L, 0L,
+                NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
+        return new CodexCliThreadAgent(
+                thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
+                mock(McpPermissionGate.class), mock(ExecutorService.class),
+                mock(CheckpointTrigger.class), () -> "", null, CWD,
+                CodexCliThreadAgent.TrunkMode.ENABLED, reasoningEffort);
     }
 }

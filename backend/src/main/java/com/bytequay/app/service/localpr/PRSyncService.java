@@ -230,6 +230,7 @@ public class PRSyncService
                             ghPr.title(), "",
                             deriveExternalStatus(ghPr.mergedAt() != null, ghPr.state(), ghPr.draft()),
                             ghPr.createdAt(), ghPr.mergedAt(), ghPr.closedAt()));
+            pr = prService.updateAuthor(pr.id(), actorLabel(ghPr.author()));
             PR.PRSyncSnapshot baseline = pr.githubSync();
             boolean needsDetail = baseline == null || baseline.ciStatus() == null
                     || !ghPr.updatedAt().equals(baseline.ghUpdatedAt());

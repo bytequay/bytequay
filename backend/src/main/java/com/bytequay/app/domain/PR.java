@@ -187,6 +187,18 @@ public record PR(
                 localAddressedThroughAt, origin, newRepo, author, syncedAt, githubSync, branchDeletedAt);
     }
 
+    /** Copy with the GitHub login that owns the remote PR. Task-origin PRs
+     *  learn this once they are pushed, so the remote conversation can render
+     *  the description as authored by the GitHub account rather than the local
+     *  dev agent. */
+    public PR withAuthor(String newAuthor)
+    {
+        return new PR(
+                id, taskId, branchName, baseBranch, title, description, status, createdAt,
+                pushedAt, remotePrNumber, remotePrUrl, mergedAt, closedAt, localAddressedThroughAt,
+                origin, repo, newAuthor == null ? author : newAuthor, syncedAt, githubSync, branchDeletedAt);
+    }
+
     /** Copy with the local-addressing marker advanced to {@code through} — the
      *  high-water mark past which every {@code pr_comment} has already
      *  triggered (or been folded into) an addressing turn. Mirrors {@code

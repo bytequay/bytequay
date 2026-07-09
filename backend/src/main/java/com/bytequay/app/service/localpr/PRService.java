@@ -117,6 +117,9 @@ public interface PRService
      *  real ones (a null argument leaves that field unchanged). */
     PR updateBranches(String prId, String branchName, String baseBranch);
 
+    /** Backfill the GitHub login that owns the remote PR once known. */
+    PR updateAuthor(String prId, String author);
+
     /** Append a commit + a {@code commit} timeline event. */
     PRCommit recordCommit(
             String prId, String sha, String message, int additions, int deletions, String actor);

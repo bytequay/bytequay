@@ -23,10 +23,15 @@ export type ActorRole = 'agent' | 'author' | 'you' | 'other';
 
 const AGENT_ACTORS = new Set(['claude-code', 'brain']);
 
+function sameActor(a: string, b: string): boolean {
+  const normalise = (value: string) => value.startsWith('@') ? value.slice(1).toLowerCase() : value.toLowerCase();
+  return normalise(a) === normalise(b);
+}
+
 export function actorRole(actor: string, pr: LocalPR): ActorRole {
   if (AGENT_ACTORS.has(actor)) return 'agent';
   if (actor === 'you') return 'you';
-  if (pr.origin === 'external' && pr.author !== null && actor === pr.author) return 'author';
+  if (pr.author !== null && sameActor(actor, pr.author)) return 'author';
   return 'other';
 }
 

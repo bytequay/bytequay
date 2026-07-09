@@ -14,8 +14,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PRTimeline } from './PRTimeline';
-import type { LocalPR, LocalPRTimelineEvent } from '../../types/localPr';
-import type { ActivityItemDto, ReviewThreadDto } from '../../types';
+import type { LocalPR, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
+import type { ActivityItemDto, PullRequestDetailDto, ReviewThreadDto } from '../../types';
 import type { GitHubThreadActions } from './GitHubTimelineRow';
 
 afterEach(cleanup);
@@ -50,6 +50,42 @@ function thread(over: Partial<ReviewThreadDto> = {}): ReviewThreadDto {
       reactions: null, reviewId: null, authorAssociation: null,
     }],
     resolved: null, outdated: false, startLine: null, startSide: null, originalLine: null, originalStartLine: null,
+    ...over,
+  };
+}
+
+function detail(over: Partial<PullRequestDetailDto> = {}): PullRequestDetailDto {
+  return {
+    repo: 'acme/widget',
+    number: 42,
+    body: null,
+    labels: [],
+    draft: false,
+    mergeable: null,
+    mergeableState: null,
+    additions: 31,
+    deletions: 4,
+    changedFiles: 2,
+    approvalCount: 0,
+    changesRequestedCount: 0,
+    pendingReviewerCount: 0,
+    requestedReviewers: [],
+    ciStatus: 'NONE',
+    files: [
+      { filename: 'frontend/src/pr/localpr/PRTimeline.tsx', additions: 20, deletions: 2, status: 'modified' },
+      { filename: 'backend/src/main/java/com/bytequay/app/service/localpr/PRServiceImpl.java', additions: 11, deletions: 2, status: 'modified' },
+    ],
+    recentActivity: [],
+    checkRuns: [],
+    reviewThreads: [],
+    linkedIssues: [],
+    viewerCanWrite: true,
+    headRef: 'feat/x',
+    headRepo: 'acme/widget',
+    baseRef: 'main',
+    baseRepo: 'acme/widget',
+    mergeQueueState: null,
+    mergeQueueEnabled: false,
     ...over,
   };
 }
@@ -230,5 +266,49 @@ describe('PRTimeline GitHub-native feed', () => {
     render(<PRTimeline pr={pr()} events={events} comments={[]} />);
 
     expect(screen.getByText(/a local commit/)).toBeTruthy();
+  });
+
+  it('uses the remote PR author for a pushed task-origin description', () => {
+    render(<PRTimeline
+      pr={pr({ remotePrNumber: 42, repo: 'acme/widget', status: 'remote-open', author: '@chenjian2664', description: 'Remote description.' })}
+      events={[]} comments={[]}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText('chenjian2664')).toBeTruthy();
+    expect(screen.queryByText('claude-code')).toBeNull();
+  });
+
+  it('folds task-local activity above the GitHub timeline once pushed', () => {
+    const events: LocalPRTimelineEvent[] = [
+      { id: 'ci1', localPrId: 'pr1', eventType: 'ci', actor: 'claude-code', isLocalOnly: true, strippedOnPushAt: null,
+        createdAt: 5, payload: { kind: 'local', name: 'mvn verify', status: 'passed' } },
+      { id: 'commit1', localPrId: 'pr1', eventType: 'commit', actor: 'claude-code', isLocalOnly: false, strippedOnPushAt: null,
+        createdAt: 6, payload: { sha: 'aaa1111', message: 'local commit that should fold' } },
+    ];
+    const commits: LocalPRCommit[] = [
+      { id: 'c1', localPrId: 'pr1', sha: 'aaa1111', message: 'First', additions: 10, deletions: 1, authoredAt: 1, pushedAt: null },
+      { id: 'c2', localPrId: 'pr1', sha: 'bbb2222', message: 'Second', additions: 20, deletions: 2, authoredAt: 2, pushedAt: null },
+      { id: 'c3', localPrId: 'pr1', sha: 'ccc3333', message: 'Third', additions: 1, deletions: 1, authoredAt: 3, pushedAt: null },
+    ];
+
+    render(<PRTimeline
+      pr={pr({ remotePrNumber: 42, repo: 'acme/widget', status: 'remote-open', author: '@chenjian2664' })}
+      events={events}
+      comments={[]}
+      commits={commits}
+      remoteDetail={detail()}
+      activity={[activity({ eventType: 'labeled', actor: 'octocat', labelName: 'ready', labelColor: '0e8a16' })]}
+      reviewThreads={[]}
+      threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText('Local work before push')).toBeTruthy();
+    expect(screen.getByText(/2 changed files/)).toBeTruthy();
+    expect(screen.getByText(/3 commits/)).toBeTruthy();
+    expect(screen.getByText('frontend/pr')).toBeTruthy();
+    expect(screen.getByText('backend/service')).toBeTruthy();
+    expect(screen.queryByText(/local commit that should fold/)).toBeNull();
+    expect(screen.getByText('ready')).toBeTruthy();
   });
 });

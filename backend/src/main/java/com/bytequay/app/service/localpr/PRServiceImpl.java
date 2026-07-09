@@ -358,6 +358,18 @@ class PRServiceImpl
     }
 
     @Override
+    public PR updateAuthor(String prId, String author)
+    {
+        PR pr = require(prId);
+        if (author == null || author.isBlank() || author.equals(pr.author())) {
+            return pr;
+        }
+        PR saved = store.save(pr.withAuthor(author));
+        notifyUpdated(prId);
+        return saved;
+    }
+
+    @Override
     public PRCommit recordCommit(
             String prId, String sha, String message, int additions, int deletions, String actor)
     {

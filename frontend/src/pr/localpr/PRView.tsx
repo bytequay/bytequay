@@ -112,12 +112,13 @@ export function PRView({
   // inline diff threads, …) — only fetched once the PR has a remote
   // identity; see PRTimeline's `githubFeedActive` for how it takes over
   // from the local sync tables at that point.
-  const { activity, reviewThreads, refresh: refreshActivityFeed } = useGitHubActivityFeed(pr.repo, pr.remotePrNumber);
+  const { activity, reviewThreads, detail: remoteDetail, refresh: refreshActivityFeed } = useGitHubActivityFeed(pr.repo, pr.remotePrNumber);
+  const currentUserLogin = getCached<UserProfileDto>('home:profile')?.login ?? null;
   const threadActions: GitHubThreadActions | undefined = pr.repo === null ? undefined : {
     repo: pr.repo,
     prAuthor: pr.author,
     prHtmlUrl: pr.remotePrUrl ?? '',
-    currentUserLogin: getCached<UserProfileDto>('home:profile')?.login ?? null,
+    currentUserLogin,
     onReply: async (rootGithubId, body) => {
       if (pr.repo === null || pr.remotePrNumber === null) return;
       await window.bridge.replyToReviewThread(pr.repo, pr.remotePrNumber, rootGithubId, body);
@@ -180,12 +181,15 @@ export function PRView({
             pr={pr}
             events={timeline}
             comments={comments}
+            commits={commits}
             onReviewChanges={onReviewChanges}
             onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
             onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
             activity={activity}
             reviewThreads={reviewThreads}
+            remoteDetail={remoteDetail}
             threadActions={threadActions}
+            currentUserLogin={currentUserLogin}
           />
         )}
 

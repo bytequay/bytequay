@@ -307,16 +307,19 @@
   align-items: center;
   width: 100%;
   margin-left: 19px;
-  padding: 5px 9px;
+  padding: 7px 9px;
   border: 0;
   background: transparent;
   font-family: inherit;
   text-align: left;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 400;
   color: var(--text-2);
   cursor: pointer;
   border-radius: 6px;
+}
+.shell .task-subhead + .task-subhead {
+  margin-top: 4px;
 }
 .shell .task-subhead:hover { background: var(--bg-hover); color: var(--text-1); }
 .shell .task-subhead.active {

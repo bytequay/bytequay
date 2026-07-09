@@ -70,6 +70,8 @@ public class ClaudeCodeCliThreadAgent
      *  these files are ephemeral and re-derived every fresh session. */
     private final SkillMaterializer skillMaterializer;
     private final AtomicReference<Path> skillsDir = new AtomicReference<>();
+    /** Optional Claude Code effort level for planning-heavy sessions. */
+    private final String reasoningEffort;
     /** Lazily-written MCP config file Claude reads via {@code
      *  --mcp-config}. Same path for the lifetime of one session. */
     private final AtomicReference<Path> mcpConfigPath = new AtomicReference<>();
@@ -90,7 +92,7 @@ public class ClaudeCodeCliThreadAgent
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                (String) null, boundTask, (String) null);
+                (String) null, boundTask, (String) null, (String) null);
     }
 
     /**
@@ -118,7 +120,7 @@ public class ClaudeCodeCliThreadAgent
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                (String) null, boundTask, modelOverride);
+                (String) null, boundTask, modelOverride, (String) null);
     }
 
     /**
@@ -143,7 +145,29 @@ public class ClaudeCodeCliThreadAgent
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                trunkCwd, (Task) null, (String) null);
+                trunkCwd, (Task) null, (String) null, (String) null);
+    }
+
+    /** Trunk / brain constructor with an explicit provider-native effort. */
+    public ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
+            String roleSkillText,
+            String trunkCwd,
+            @SuppressWarnings("unused") TrunkMode trunkMode,
+            String reasoningEffort)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
+                trunkCwd, (Task) null, (String) null, reasoningEffort);
     }
 
     /** Marker enum disambiguating the two-argument trailing-string
@@ -167,7 +191,7 @@ public class ClaudeCodeCliThreadAgent
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, binary,
-                (String) null, boundTask, (String) null);
+                (String) null, boundTask, (String) null, (String) null);
     }
 
     private ClaudeCodeCliThreadAgent(
@@ -185,7 +209,8 @@ public class ClaudeCodeCliThreadAgent
             String binary,
             String trunkCwd,
             Task boundTask,
-            String modelOverride)
+            String modelOverride,
+            String reasoningEffort)
     {
         super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 binary, trunkCwd, boundTask, modelOverride);
@@ -195,6 +220,7 @@ public class ClaudeCodeCliThreadAgent
         // hook gates I/O behind a null check.
         this.skillMaterializer = skillMaterializer;
         this.roleSkillText = roleSkillText;
+        this.reasoningEffort = reasoningEffort;
     }
 
     @Override
@@ -220,6 +246,9 @@ public class ClaudeCodeCliThreadAgent
         String modelId = model();
         if (modelId != null && !modelId.isBlank()) {
             argv.add("--model", modelId);
+        }
+        if (reasoningEffort != null && !reasoningEffort.isBlank()) {
+            argv.add("--effort", reasoningEffort);
         }
         // Inject the role skill body as the system role block. Frozen at
         // session construction so the prefix stays byte-stable for the

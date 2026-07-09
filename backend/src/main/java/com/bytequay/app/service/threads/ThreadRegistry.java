@@ -83,6 +83,7 @@ import static java.util.Objects.requireNonNull;
 public class ThreadRegistry
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadRegistry.class);
+    private static final String PLANNING_REASONING_EFFORT = "high";
 
     private final ThreadStore store;
     private final TaskStore taskStore;
@@ -680,13 +681,15 @@ public class ThreadRegistry
                                 workspaceMemoryProvider,
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                                 trunkCwdResolver.apply(thread),
-                                CodexCliThreadAgent.TrunkMode.ENABLED)
+                                CodexCliThreadAgent.TrunkMode.ENABLED,
+                                PLANNING_REASONING_EFFORT)
                         : new ClaudeCodeCliThreadAgent(
                                 thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemoryProvider, skillMaterializer,
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                                 trunkCwdResolver.apply(thread),
-                                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
+                                PLANNING_REASONING_EFFORT);
                 agent.setPreTurnHook(() -> {
                     String synced = trunkCwdResolver.apply(thread);
                     log.debug("trunk {} planning base synced at {}", thread.id(), synced);
@@ -732,7 +735,8 @@ public class ThreadRegistry
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                     workspaceMemoryProvider, skillMaterializer,
                     brainSystemPrompt(thread), workingDir,
-                    ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                    ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
+                    PLANNING_REASONING_EFFORT);
         }
         return new LogicLoopThreadAgent(
                 thread, store, mapper, executor,

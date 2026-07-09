@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -143,6 +144,37 @@ class TestThreadRegistryWorkModel
         verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-2");
     }
 
+    @Test
+    void codexTrunkStartsWithPlanningReasoningEffort()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        ThreadRegistry registry = newRegistry();
+        Thread trunk = cliThread("codex", "gpt-5", /* sessionId */ null);
+
+        CodexCliThreadAgent agent = (CodexCliThreadAgent) registry.getOrCreateTrunk(trunk);
+
+        assertThat(agent.buildCommand("plan the next task").command())
+                .containsSubsequence("-c", "model_reasoning_effort=\"high\"");
+    }
+
+    @Test
+    void claudeBrainStartsWithPlanningReasoningEffort()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
+        WorkModel brainPick = new WorkModel(WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null);
+        when(workModelResolver.resolveForThread("brain-1"))
+                .thenReturn(new WorkModelResolver.Resolved(brainPick,
+                        new WorkModelResolver.Provenance(WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
+        ThreadRegistry registry = newRegistry();
+
+        ClaudeCodeCliThreadAgent agent = (ClaudeCodeCliThreadAgent)
+                registry.getOrCreate(brainThread(), null, null);
+
+        assertThat(agent.buildCommand("review this iteration").command())
+                .containsSubsequence("--effort", "high");
+    }
+
     private ThreadRegistry newRegistry()
     {
         ObjectMapper mapper = new ObjectMapper();
@@ -174,6 +206,24 @@ class TestThreadRegistryWorkModel
                 "Work-model wiring test", ThreadStatus.IDLE, "claude-sonnet-4-6",
                 0L, 0L, 0L, NOW, NOW, null, null,
                 ThreadFlow.BUILD, "ws-default", null, null);
+    }
+
+    private static Thread cliThread(String provider, String model, String sessionId)
+    {
+        return new Thread(
+                THREAD_ID, ThreadKind.CLI_AGENT, provider, sessionId,
+                "Work-model wiring test", ThreadStatus.IDLE, model,
+                0L, 0L, 0L, NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
+    }
+
+    private static Thread brainThread()
+    {
+        return new Thread(
+                "brain-1", ThreadKind.BRAIN_AGENT, "claude-code", /* agentSessionId */ null,
+                "Brain wiring test", ThreadStatus.IDLE, "claude-sonnet-4-6",
+                0L, 0L, 0L, NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null, 1, TASK_ID);
     }
 
     private static Task task(String id)

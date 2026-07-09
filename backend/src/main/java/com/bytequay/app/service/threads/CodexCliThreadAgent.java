@@ -59,6 +59,8 @@ public class CodexCliThreadAgent
 
     private final Supplier<String> workspaceMemoryProvider;
     private final String roleSkillText;
+    /** Optional Codex reasoning-effort override for planning-heavy sessions. */
+    private final String reasoningEffort;
 
     public CodexCliThreadAgent(
             Thread thread,
@@ -74,7 +76,8 @@ public class CodexCliThreadAgent
             Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null, boundTask, (String) null);
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null,
+                boundTask, (String) null, (String) null);
     }
 
     /**
@@ -99,7 +102,8 @@ public class CodexCliThreadAgent
             String modelOverride)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null, boundTask, modelOverride);
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null,
+                boundTask, modelOverride, (String) null);
     }
 
     /** Trunk-mode constructor: no focused Task, cwd defaulting to {@code
@@ -119,7 +123,29 @@ public class CodexCliThreadAgent
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd, (Task) null, (String) null);
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd,
+                (Task) null, (String) null, (String) null);
+    }
+
+    /** Trunk-mode constructor with an explicit provider-native effort. */
+    public CodexCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CodexJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String roleSkillText,
+            String trunkCwd,
+            @SuppressWarnings("unused") TrunkMode trunkMode,
+            String reasoningEffort)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd,
+                (Task) null, (String) null, reasoningEffort);
     }
 
     /** Marker enum disambiguating the trailing-string constructor
@@ -141,7 +167,8 @@ public class CodexCliThreadAgent
             Task boundTask)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, binary, (String) null, boundTask, (String) null);
+                workspaceMemoryProvider, roleSkillText, binary, (String) null,
+                boundTask, (String) null, (String) null);
     }
 
     private CodexCliThreadAgent(
@@ -158,12 +185,14 @@ public class CodexCliThreadAgent
             String binary,
             String trunkCwd,
             Task boundTask,
-            String modelOverride)
+            String modelOverride,
+            String reasoningEffort)
     {
         super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 binary, trunkCwd, boundTask, modelOverride);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.roleSkillText = roleSkillText;
+        this.reasoningEffort = reasoningEffort;
     }
 
     @Override
@@ -199,8 +228,11 @@ public class CodexCliThreadAgent
                 // tools (no `tools/list`), so the model never sees create_task
                 // and improvises with its built-in multi_agent spawn. The rmcp
                 // client does the streamable-HTTP tool discovery.
-                .add("-c", "experimental_use_rmcp_client=true")
-                .add("exec");
+                .add("-c", "experimental_use_rmcp_client=true");
+        if (reasoningEffort != null && !reasoningEffort.isBlank()) {
+            argv.add("-c", "model_reasoning_effort=\"" + reasoningEffort + "\"");
+        }
+        argv.add("exec");
         String resume = resumeSessionId();
         boolean firstTurn = resume == null || resume.isBlank();
         if (firstTurn) {

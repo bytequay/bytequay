@@ -202,7 +202,13 @@ public class PRPublishService
         // AWAITING_PUSH's local-only polling forever and TaskLifecycleDriver
         // never picks up CI state for it.
         phaseMachine.observe(task.id(), TaskPhase.PUSHED_AWAITING_CI, "local_pr_pushed");
-        return prService.recordPush(prId, repo.owner() + "/" + repo.repo(), opened.number(), opened.htmlUrl());
+        PR pushed = prService.recordPush(prId, repo.owner() + "/" + repo.repo(), opened.number(), opened.htmlUrl());
+        return prService.updateAuthor(pushed.id(), actorLabel(opened.author()));
+    }
+
+    private static String actorLabel(String githubLogin)
+    {
+        return githubLogin == null || githubLogin.isBlank() ? null : "@" + githubLogin;
     }
 
     /**

@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { Fragment, type ReactNode } from 'react';
-import type { ActivityItemDto, ReviewThreadDto } from '../../types';
-import type { LocalPR, LocalPRComment, LocalPRTimelineEvent } from '../../types/localPr';
+import type { ActivityItemDto, ChangedFileDto, PullRequestDetailDto, ReviewThreadDto } from '../../types';
+import type { LocalPR, LocalPRComment, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
 import { MarkdownProse } from '../../threads/MarkdownProse';
 import { groupTimelineEntries } from '../timelineGrouping';
 import { buildRawTimelineEntries } from './githubActivityRows';
@@ -30,6 +30,115 @@ function str(payload: Record<string, unknown> | null, key: string): string | nul
 }
 
 type Row = { key: string; time: number; render: ReactNode };
+
+function plural(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+function actorFromLogin(login: string | null): string | null {
+  if (login === null || login.trim().length === 0) return null;
+  return login.startsWith('@') ? login : `@${login}`;
+}
+
+function descriptionActor(pr: LocalPR, githubFeedActive: boolean, currentUserLogin?: string | null): string {
+  if (githubFeedActive) {
+    return pr.author ?? actorFromLogin(currentUserLogin ?? null) ?? 'you';
+  }
+  return pr.origin === 'external' && pr.author !== null ? pr.author : 'claude-code';
+}
+
+function componentOf(path: string): string {
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length === 0) return path;
+  if (parts[0] === 'frontend' && parts[1] === 'src' && parts[2] !== undefined) return `frontend/${parts[2]}`;
+  if (parts[0] === 'backend') {
+    const app = parts.indexOf('app');
+    if (app >= 0 && parts[app + 1] !== undefined) return `backend/${parts[app + 1]}`;
+    return 'backend';
+  }
+  if (parts[0] === 'docs' && parts[1] !== undefined) return `docs/${parts[1]}`;
+  return parts.length > 1 ? `${parts[0]}/${parts[1]}` : parts[0];
+}
+
+function topComponents(files: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    counts.set(componentOf(file), (counts.get(componentOf(file)) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 4)
+    .map(([name]) => name);
+}
+
+function statusSummary(files: ChangedFileDto[]): string | null {
+  if (files.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const file of files) counts.set(file.status, (counts.get(file.status) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([status, count]) => plural(count, status === 'removed' ? 'removed file' : `${status} file`))
+    .join(' · ');
+}
+
+function LocalActivityFold({
+  detail, commits, events, comments,
+}: {
+  detail?: PullRequestDetailDto | null;
+  commits: LocalPRCommit[];
+  events: LocalPRTimelineEvent[];
+  comments: LocalPRComment[];
+}) {
+  const changedFiles = detail?.changedFiles ?? detail?.files.length ?? 0;
+  const additions = detail?.additions ?? commits.reduce((sum, commit) => sum + commit.additions, 0);
+  const deletions = detail?.deletions ?? commits.reduce((sum, commit) => sum + commit.deletions, 0);
+  const files = detail?.files ?? [];
+  const fallbackFiles = comments
+    .map(comment => comment.filePath)
+    .filter((path): path is string => path !== null);
+  const componentNames = topComponents(files.length > 0 ? files.map(file => file.filename) : fallbackFiles);
+  const localReviewCount = comments.filter(comment => comment.origin === 'local').length;
+  const brainReviewCount = events.filter(event => event.eventType === 'review' && event.actor === 'brain').length;
+  const localCheckCount = events.filter(event => event.eventType === 'ci' && str(event.payload, 'kind') === 'local').length;
+  const fileStatus = statusSummary(files);
+
+  return (
+    <details className="pr-local-fold">
+      <summary>
+        <span className="tic">◆</span>
+        <span className="pr-local-fold__body">
+          <span className="pr-local-fold__title">Local work before push</span>
+          <span className="pr-local-fold__meta">
+            {plural(changedFiles, 'changed file')} · {plural(commits.length, 'commit')} · +{additions} -{deletions}
+          </span>
+          {componentNames.length > 0 && (
+            <span className="pr-local-fold__components">
+              {componentNames.map(name => <span key={name}>{name}</span>)}
+            </span>
+          )}
+        </span>
+      </summary>
+      <div className="pr-local-fold__details">
+        {fileStatus !== null && <div>{fileStatus}</div>}
+        {(localReviewCount > 0 || brainReviewCount > 0 || localCheckCount > 0) && (
+          <div>
+            {brainReviewCount > 0 && <span>{plural(brainReviewCount, 'brain review')}</span>}
+            {localReviewCount > 0 && <span>{plural(localReviewCount, 'local comment')}</span>}
+            {localCheckCount > 0 && <span>{plural(localCheckCount, 'local check')}</span>}
+          </div>
+        )}
+        {files.length > 0 && (
+          <div className="pr-local-fold__files">
+            {files.slice(0, 5).map(file => (
+              <span key={file.filename}>{file.filename}</span>
+            ))}
+            {files.length > 5 && <span>+{files.length - 5} more</span>}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
 
 /** Groups file-line comments into one thread per (filePath, lineNumber),
  *  root-first — this milestone doesn't track deeper threading than a single
@@ -56,11 +165,12 @@ function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]>
  */
 export function PRTimeline({
   pr, events, comments, onReviewChanges, onResolveThread, onDismissThread,
-  activity, reviewThreads, threadActions,
+  commits = [], activity, reviewThreads, remoteDetail, threadActions, currentUserLogin,
 }: {
   pr: LocalPR;
   events: LocalPRTimelineEvent[];
   comments: LocalPRComment[];
+  commits?: LocalPRCommit[];
   onReviewChanges?: () => void;
   onResolveThread?: (rootCommentId: string) => void;
   onDismissThread?: (rootCommentId: string) => void;
@@ -73,20 +183,23 @@ export function PRTimeline({
    *  rendering for the pre-push phase. */
   activity?: ActivityItemDto[];
   reviewThreads?: ReviewThreadDto[];
+  remoteDetail?: PullRequestDetailDto | null;
   threadActions?: GitHubThreadActions;
+  currentUserLogin?: string | null;
 }) {
   const rows: Row[] = [];
   const githubFeedActive = pr.remotePrNumber !== null && threadActions !== undefined;
+  const foldTaskLocalActivity = githubFeedActive && pr.origin === 'task';
 
-  const descriptionActor = pr.origin === 'external' && pr.author !== null ? pr.author : 'claude-code';
+  const descriptionActorName = descriptionActor(pr, githubFeedActive, currentUserLogin);
   rows.push({
     key: 'description',
     time: -Infinity, // always first, regardless of createdAt
     render: (
       <TimelineBubble
         key="description"
-        actor={descriptionActor}
-        role={actorRole(descriptionActor, pr)}
+        actor={descriptionActorName}
+        role={githubFeedActive ? 'author' : actorRole(descriptionActorName, pr)}
         action="drafted the description"
         time={pr.createdAt}
       >
@@ -97,7 +210,24 @@ export function PRTimeline({
     ),
   });
 
+  if (foldTaskLocalActivity) {
+    rows.push({
+      key: 'local-work-fold',
+      time: Number.MIN_SAFE_INTEGER + 1,
+      render: (
+        <LocalActivityFold
+          key="local-work-fold"
+          detail={remoteDetail}
+          commits={commits}
+          events={events}
+          comments={comments}
+        />
+      ),
+    });
+  }
+
   for (const event of events) {
+    if (foldTaskLocalActivity) continue;
     if (event.eventType === 'comment') continue; // rendered from `comments` instead
     // Once GitHub's own feed is active it's the source for commits/reviews/
     // status changes too (it already includes "committed"/"reviewed"/
@@ -131,9 +261,9 @@ export function PRTimeline({
   }
 
   // Remote-origin comments now come from the GitHub feed's `commented`
-  // activity instead — only local-origin ones (drafts, PR-scope or
-  // file-line) still render from the local table once that feed is active.
-  const localComments = githubFeedActive ? comments.filter(c => c.origin === 'local') : comments;
+  // activity instead. Task-origin pushed PRs fold their local-only history
+  // into the summary above; external PRs still render local draft comments.
+  const localComments = foldTaskLocalActivity ? [] : githubFeedActive ? comments.filter(c => c.origin === 'local') : comments;
 
   for (const comment of localComments) {
     if (comment.scope !== 'pr') continue;

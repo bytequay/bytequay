@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { ActivityItemDto, ReviewThreadDto } from '../types';
+import type { ActivityItemDto, PullRequestDetailDto, ReviewThreadDto } from '../types';
 
 /**
  * GitHub's own conversation feed for a pushed PR (task-origin once pushed,
@@ -25,6 +25,7 @@ import type { ActivityItemDto, ReviewThreadDto } from '../types';
 export function useGitHubActivityFeed(repo: string | null, number: number | null) {
   const [activity, setActivity] = useState<ActivityItemDto[]>([]);
   const [reviewThreads, setReviewThreads] = useState<ReviewThreadDto[]>([]);
+  const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
 
   const refresh = useCallback((force = false) => {
     if (repo === null || number === null) return;
@@ -35,11 +36,12 @@ export function useGitHubActivityFeed(repo: string | null, number: number | null
       .then(detail => {
         setActivity(detail.recentActivity ?? []);
         setReviewThreads(detail.reviewThreads ?? []);
+        setDetail(detail);
       })
       .catch(() => { /* best-effort — the local feed still renders */ });
   }, [repo, number]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  return { activity, reviewThreads, refresh };
+  return { activity, reviewThreads, detail, refresh };
 }

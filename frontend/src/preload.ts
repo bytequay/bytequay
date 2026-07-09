@@ -889,7 +889,7 @@ const bridge: Bridge = {
     callId: string,
     decision: 'ALLOW' | 'DENY',
     preApprove?: { toolName: string; count: number },
-  ): Promise<void> =>
+  ): Promise<{ status: 'recorded' | 'already_resolved' }> =>
     ipcRenderer.invoke('threads:decide', { id, callId, decision, preApprove }),
   interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),

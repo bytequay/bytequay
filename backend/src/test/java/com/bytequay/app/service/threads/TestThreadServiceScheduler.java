@@ -1381,7 +1381,10 @@ class TestThreadServiceScheduler
         public void notifyPermissionRequested(String callId, String toolName, String summary) {}
 
         @Override
-        public void decide(String callId, PermissionDecision decision) {}
+        public boolean decide(String callId, PermissionDecision decision)
+        {
+            return false;
+        }
 
         @Override
         public void grantToolBudget(String toolName, int count) {}

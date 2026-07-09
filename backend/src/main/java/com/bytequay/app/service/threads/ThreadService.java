@@ -1281,12 +1281,17 @@ public class ThreadService
         sessionForAgent(threadId, agentKey).notifyPermissionRequested(callId, toolName, summary);
     }
 
-    public void decide(String threadId, String callId, PermissionDecision decision)
+    /** Applies the user's decision to a pending permission prompt.
+     *
+     *  @return whether the decision actually resolved a pending prompt —
+     *  false means it already timed out or was already decided, so the
+     *  caller should tell the user their click had no effect. */
+    public boolean decide(String threadId, String callId, PermissionDecision decision)
     {
         // The UI sends only the callId; resolve the agent that raised the
         // prompt from the gate so the decision event lands in that stage's
         // feed (not a thread-level "active session" guess).
-        sessionForAgent(threadId, gate.agentKeyFor(callId)).decide(callId, decision);
+        return sessionForAgent(threadId, gate.agentKeyFor(callId)).decide(callId, decision);
     }
 
     /** Pre-authorise the next {@code count} invocations of {@code toolName}

@@ -160,9 +160,11 @@ public interface ThreadAgent
     void notifyPermissionRequested(String callId, String toolName, String summary);
 
     /** User's response to a {@link StreamEvent.PermissionRequested}.
-     *  Idempotent for the same {@code callId}; later calls are
-     *  ignored. */
-    void decide(String callId, PermissionDecision decision);
+     *  Idempotent for the same {@code callId}; later calls are ignored and
+     *  return false — the request already timed out or was already decided,
+     *  so the caller had no effect and should say so rather than pretend
+     *  success. */
+    boolean decide(String callId, PermissionDecision decision);
 
     /** Pre-authorise the next {@code count} invocations of
      *  {@code toolName} so the MCP gate auto-allows them without

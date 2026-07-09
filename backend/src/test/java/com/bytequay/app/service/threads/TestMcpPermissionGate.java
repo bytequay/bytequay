@@ -34,8 +34,9 @@ class TestMcpPermissionGate
 
         assertThat(future.isDone()).isFalse();
 
-        gate.decide("call-1", PermissionDecision.ALLOW);
+        boolean resolved = gate.decide("call-1", PermissionDecision.ALLOW);
 
+        assertThat(resolved).isTrue();
         assertThat(future.get(1, TimeUnit.SECONDS)).isEqualTo(PermissionDecision.ALLOW);
     }
 
@@ -50,26 +51,33 @@ class TestMcpPermissionGate
     }
 
     @Test
-    void decideAfterCancelIsANoOp()
+    void decideAfterCancelIsANoOpAndReportsItWasNotResolved()
     {
+        // The real-world case: the 2-minute DECISION_TIMEOUT_MS fires
+        // (which cancels the gate entry) before a human's late click
+        // lands — the caller must be able to tell the click did nothing.
         McpPermissionGate gate = new McpPermissionGate();
         CompletableFuture<PermissionDecision> future = gate.register("call-3");
 
         gate.cancel("call-3");
-        gate.decide("call-3", PermissionDecision.ALLOW);
+        boolean resolved = gate.decide("call-3", PermissionDecision.ALLOW);
 
+        assertThat(resolved).isFalse();
         assertThat(future.isCancelled()).isTrue();
         assertThatThrownBy(future::join).isInstanceOf(CancellationException.class);
     }
 
     @Test
-    void decideForUnknownCallIdIsSilentlyDropped()
+    void decideForUnknownCallIdIsSilentlyDroppedAndReportsItWasNotResolved()
     {
         McpPermissionGate gate = new McpPermissionGate();
 
-        // Should not throw — replays / out-of-order resolution
-        // happen in practice and shouldn't crash the controller.
-        gate.decide("never-registered", PermissionDecision.DENY);
+        // Should not throw — replays / out-of-order resolution happen in
+        // practice and shouldn't crash the controller — but the caller
+        // still needs to know nothing was actually resolved.
+        boolean resolved = gate.decide("never-registered", PermissionDecision.DENY);
+
+        assertThat(resolved).isFalse();
     }
 
     @Test

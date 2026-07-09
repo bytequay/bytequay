@@ -1248,11 +1248,9 @@ public class LogicLoopThreadAgent
     }
 
     @Override
-    public void decide(String callId, PermissionDecision decision)
+    public boolean decide(String callId, PermissionDecision decision)
     {
-        if (permissionGate != null) {
-            permissionGate.decide(callId, decision);
-        }
+        return permissionGate != null && permissionGate.decide(callId, decision);
     }
 
     @Override

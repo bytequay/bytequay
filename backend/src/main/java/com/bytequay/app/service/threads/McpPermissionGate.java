@@ -128,9 +128,15 @@ public class McpPermissionGate
         return out.build();
     }
 
-    /** Resolve a pending request. Idempotent — only the first call
-     *  for a given {@code callId} wins; later calls are dropped. */
-    public void decide(String callId, PermissionDecision decision)
+    /** Resolve a pending request. Idempotent — only the first call for a
+     *  given {@code callId} wins; later calls are dropped. Returns whether
+     *  this call actually resolved a pending future — false means the
+     *  request was already gone (already decided, or timed out and
+     *  cancelled — {@code McpServiceImpl}'s 2-minute
+     *  {@code DECISION_TIMEOUT_MS} is a plausible race against a human
+     *  clicking Approve a few minutes late), so the caller can tell the
+     *  user their click had no effect instead of silently doing nothing. */
+    public boolean decide(String callId, PermissionDecision decision)
     {
         requireNonNull(callId, "callId is null");
         requireNonNull(decision, "decision is null");
@@ -139,7 +145,9 @@ public class McpPermissionGate
         agentByCall.remove(callId);
         if (future != null) {
             future.complete(decision);
+            return true;
         }
+        return false;
     }
 
     /** Drop a pending request without resolving it — used when the

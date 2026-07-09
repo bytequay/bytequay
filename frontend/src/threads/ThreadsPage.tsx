@@ -475,7 +475,10 @@ export default function ThreadsPage({
       preApprove?: { toolName: string; count: number },
     ) => {
       try {
-        await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
+        const result = await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
+        if (result.status === 'already_resolved') {
+          setError('This prompt already timed out before your click landed — it was not applied.');
+        }
       }
       catch (e) {
         setError(e instanceof Error ? e.message : String(e));

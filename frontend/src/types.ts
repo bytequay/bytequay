@@ -3901,13 +3901,17 @@ export type Bridge = {
    *  is supplied, the backend records the per-call decision and then
    *  grants an auto-approval budget for future invocations of the same
    *  tool — {@code count} positive sets a finite quota, {@code -1}
-   *  means "always for this tool" until the session ends. */
+   *  means "always for this tool" until the session ends.
+   *  {@code status: 'already_resolved'} means this specific prompt had
+   *  already timed out (or was already decided) before the click landed —
+   *  the backend's decision-timeout window is 2 minutes, so a prompt a
+   *  user notices late can resolve itself before they act on it. */
   decideTaskPermission: (
     id: string,
     callId: string,
     decision: 'ALLOW' | 'DENY',
     preApprove?: { toolName: string; count: number },
-  ) => Promise<void>;
+  ) => Promise<{ status: 'recorded' | 'already_resolved' }>;
   /** Cancel the in-flight turn (Ctrl+C semantics). The session
    *  itself stays alive — the user can send another turn. */
   interruptTask: (id: string) => Promise<void>;

@@ -121,8 +121,18 @@ class TestBacklogService
         BacklogService.StartResult result = service.startDevelopment("b1");
 
         // The item content is posted into the trunk as a planning prompt; no
-        // task is cut here.
-        verify(threadService).sendTrunk(eq("thread-1"), any());
+        // task is cut here. The prompt carries the backlog id plus the
+        // confidence-or-confirm contract the trunk must follow before cutting.
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(threadService).sendTrunk(eq("thread-1"), prompt.capture());
+        assertThat(prompt.getValue())
+                .contains("(backlog item b1")
+                .contains("backlog_item_id=b1")
+                .contains("If the direction is clear and you are confident")
+                .contains("If any important direction is uncertain")
+                .contains("ask_user_question")
+                .contains("confirm/approve the task direction")
+                .contains("Title\n\nBody");
         verify(threadService, never()).materialiseTask(any(), any());
         assertThat(result.taskId()).isNull();
         assertThat(result.item().status()).isEqualTo("in-progress");

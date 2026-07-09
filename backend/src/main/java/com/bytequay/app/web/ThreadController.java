@@ -600,13 +600,6 @@ public class ThreadController
         return threads.jumpIn(id);
     }
 
-    @PostMapping("/{id}/pause")
-    public Map<String, String> pause(@PathVariable String id)
-    {
-        threads.pause(id);
-        return ImmutableMap.of("status", "paused");
-    }
-
     @PostMapping("/{id}/resume")
     public Map<String, String> resume(@PathVariable String id)
     {

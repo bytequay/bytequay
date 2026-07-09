@@ -16,7 +16,7 @@ import { PrStateIcon, Tag } from '../primitives';
 import type { PrGlyphState, TagColor } from '../primitives';
 
 /** Task queue state — drives the uppercase status pill colour. */
-export type TaskStatus = 'foreground' | 'shipped' | 'pending' | 'paused' | 'errored' | 'closed';
+export type TaskStatus = 'foreground' | 'shipped' | 'pending' | 'review' | 'paused' | 'errored' | 'closed';
 
 /** A backlog tag chip. */
 export type CardTag = { label: string; color?: TagColor };
@@ -54,6 +54,8 @@ type BacklogProps = CommonProps & {
   onStartDevelopment?: () => void;
   /** Started items are demoted with a faded "Started →" + a link badge. */
   started?: boolean;
+  /** Label for a progressed item, e.g. "In progress" or "Task cut". */
+  progressLabel?: string;
   linkedTaskLabel?: string;
   onOpenLinked?: () => void;
   /** Marks the item not-to-proceed ("handled, don't work on it"). Shown as a
@@ -134,7 +136,7 @@ function TaskMeta({ branch, createdLabel, prNumber, status, statusText, mergeRea
 
 function BacklogMeta(
   { tags, createdLabel, onStartDevelopment, started, dropped, onReopen,
-    linkedTaskLabel, onOpenLinked, onDrop }: BacklogProps) {
+    progressLabel, linkedTaskLabel, onOpenLinked, onDrop }: BacklogProps) {
   const stop = (fn?: () => void) => (e: { stopPropagation: () => void }) => { e.stopPropagation(); fn?.(); };
   // A dropped (not-to-proceed) item can't be started — offer Reopen, not a
   // dead Start button.
@@ -161,7 +163,7 @@ function BacklogMeta(
         <button type="button" className="backlog-drop-btn" onClick={stop(onDrop)}>Drop</button>
       )}
       {started === true
-        ? <span className="start-dev-btn started">Started <span className="arrow" aria-hidden>→</span></span>
+        ? <span className="start-dev-btn started">{progressLabel ?? 'Started'} <span className="arrow" aria-hidden>→</span></span>
         : (
           <button type="button" className="start-dev-btn" onClick={stop(onStartDevelopment)}>
             Start development <span className="arrow" aria-hidden>→</span>

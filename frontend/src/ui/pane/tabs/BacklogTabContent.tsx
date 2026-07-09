@@ -21,8 +21,10 @@ export type BacklogItemData = {
   body?: string;
   tags?: CardTag[];
   createdLabel?: string;
-  /** Set once "Start development" has cut a task from this item. */
+  /** Set once "Start development" has moved this item out of the ready queue. */
   started?: boolean;
+  /** Label shown for a progressed item, such as "In progress". */
+  progressLabel?: string;
   /** Item is not-to-proceed (Dropped): shows a Reopen action, not Start. */
   dropped?: boolean;
   linkedTaskLabel?: string;
@@ -31,12 +33,14 @@ export type BacklogItemData = {
 /**
  * The Backlog tab (trunk only) — a JIRA-like parking lot. Each item is
  * the unified {@link Card} in its backlog variant (tags + bright-orange
- * "Start development →" CTA); started items stay listed, faded, with a
- * link to the task they cut. A dashed "add item" dropzone sits on top.
+ * "Start development →" CTA); the caller decides which lifecycle slice to
+ * show. A dashed "add item" dropzone sits on top.
  */
 export function BacklogTabContent(
-  { items, onAddItem, onStartDevelopment, onDrop, onReopen, onOpenItem, onOpenLinked }: {
+  { items, emptyLabel = 'No backlog items match.', onAddItem, onStartDevelopment, onDrop, onReopen,
+    onOpenItem, onOpenLinked }: {
   items: BacklogItemData[];
+  emptyLabel?: string;
   onAddItem?: () => void;
   onStartDevelopment?: (id: string) => void;
   /** Marks an item not-to-proceed — the per-item Drop button. */
@@ -62,6 +66,7 @@ export function BacklogTabContent(
           tags={item.tags}
           createdLabel={item.createdLabel}
           started={item.started}
+          progressLabel={item.progressLabel}
           dropped={item.dropped}
           linkedTaskLabel={item.linkedTaskLabel}
           onClick={onOpenItem !== undefined ? () => onOpenItem(item.id) : undefined}
@@ -71,6 +76,7 @@ export function BacklogTabContent(
           onOpenLinked={onOpenLinked !== undefined ? () => onOpenLinked(item.id) : undefined}
         />
       ))}
+      {items.length === 0 && <div className="pane-empty-note">{emptyLabel}</div>}
     </>
   );
 }

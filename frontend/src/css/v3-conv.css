@@ -730,6 +730,11 @@
   color: var(--text-3);
   border: 1px solid var(--border-mid);
 }
+.shell .task-card .status-pill.review {
+  background: rgba(124, 58, 237, 0.10);
+  color: var(--accent-deep);
+  border: 1px solid var(--accent-border);
+}
 .shell .task-card .status-pill.closed {
   background: var(--bg-hover);
   color: var(--text-3);

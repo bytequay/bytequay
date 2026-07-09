@@ -23,6 +23,7 @@ export type TaskCardData = {
   title: string;
   body?: string;
   status: TaskStatus;
+  statusText?: string;
   branch?: string;
   createdLabel?: string;
   prNumber?: number;
@@ -58,6 +59,7 @@ export function TasksTabContent({ active, closed = [], onOpenTask }: {
           title={t.title}
           body={t.body}
           status={t.status}
+          statusText={t.statusText}
           branch={t.branch}
           createdLabel={t.createdLabel}
           prNumber={t.prNumber}
@@ -82,6 +84,7 @@ export function TasksTabContent({ active, closed = [], onOpenTask }: {
               title={t.title}
               body={t.body}
               status={t.status}
+              statusText={t.statusText}
               branch={t.branch}
               createdLabel={t.createdLabel}
               prNumber={t.prNumber}

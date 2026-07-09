@@ -72,10 +72,12 @@ describe('TrunkPage', () => {
     expect(screen.getByTestId('conv')).toBeTruthy();
     expect(screen.getByText('THREAD')).toBeTruthy();
     expect(screen.getByText('Backend cleanup')).toBeTruthy();
-    // Tasks tab active by default: active card + Closed folder.
+    // Tasks tab active by default: Active sub-tab only shows unfinished work.
     expect(await screen.findByText('Active task')).toBeTruthy();
-    // "Closed" shows as both the sub-tab label and the folder header.
-    expect(screen.getAllByText('Closed').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('Closed task')).toBeNull();
+    expect(screen.getByRole('button', { name: /Active/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Closed/ }));
+    expect(await screen.findByText('Closed task')).toBeTruthy();
   });
 
   it('loads backlog + signals from the bridge and shows them in their tabs', async () => {

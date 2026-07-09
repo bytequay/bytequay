@@ -28,8 +28,8 @@ import type { BacklogItemDto, ThreadSignalDto } from '../types';
 import { useTrunkPane } from './useTrunkPane';
 
 type TrunkTab = 'tasks' | 'backlog' | 'notifications';
-/** Sub-tabs under Tasks: every task, the mergeable subset, the closed ones. */
-type TaskSubTab = 'all' | 'mergeable' | 'closed';
+/** Sub-tabs under Tasks: active work, mergeable work, and the closed ones. */
+type TaskSubTab = 'active' | 'mergeable' | 'closed';
 /** Sub-tabs under Backlog: runnable queue, active trunk explorations, archive. */
 type BacklogSubTab = 'ready' | 'in-progress' | 'done';
 
@@ -136,7 +136,7 @@ export function TrunkPage({
     catch { /* storage unavailable */ }
     setPromptIgnored(true);
   };
-  const [taskSub, setTaskSub] = useState<TaskSubTab>('all');
+  const [taskSub, setTaskSub] = useState<TaskSubTab>('active');
   const [backlogSub, setBacklogSub] = useState<BacklogSubTab>('ready');
   const [paneOpen, setPaneOpen] = useState(true);
   // Trunk keeps its own pane width, independent of the brain/stage surfaces.
@@ -147,12 +147,12 @@ export function TrunkPage({
   const doneBacklog = pane.backlog.filter(i => backlogSubTab(i) === 'done');
 
   const unreadCount = pane.signals.filter(s => s.readAt === null).length;
-  // The Tasks tab's "All" sub-tab renders active cards + the Closed folder,
-  // so the top badge counts every task.
+  // The top badge counts every task; the Active sub-tab below shows only
+  // unfinished work.
   const taskCount = tasks.active.length + tasks.closed.length;
   // Tasks whose PR is ready to merge (CI green, no unresolved comments,
-  // mergeable) — surfaced in the "Ready to merge" sub-tab + tinted in All.
-  const mergeable = [...tasks.active, ...tasks.closed].filter(t => t.mergeReady === true);
+  // mergeable) — surfaced in the "Ready to merge" sub-tab + tinted in Active.
+  const mergeable = tasks.active.filter(t => t.mergeReady === true);
   const topBacklog = pickTopBacklog(readyBacklog, tasks.active.length > 0, promptIgnored);
 
   // Clicking a chip opens its tab; clicking the chip of the tab already shown
@@ -184,15 +184,10 @@ export function TrunkPage({
 
   const tasksTabContent = (() => {
     switch (taskSub) {
-      case 'all':
-        // "All" lists every task flat — active then closed — with no Closed
-        // folder; the dedicated Closed sub-tab is the place to fold them away.
-        return (
-          <TasksTabContent
-            active={[...tasks.active, ...tasks.closed]}
-            onOpenTask={onOpenTask}
-          />
-        );
+      case 'active':
+        return tasks.active.length === 0
+          ? <div className="pane-empty-note">No active tasks right now.</div>
+          : <TasksTabContent active={tasks.active} onOpenTask={onOpenTask} />;
       case 'mergeable':
         return mergeable.length === 0
           ? <div className="pane-empty-note">No tasks are ready to merge right now.</div>
@@ -314,7 +309,7 @@ export function TrunkPage({
                 <div className="pane-subtabs">
                   <RightPane.Tabs<TaskSubTab>
                     tabs={[
-                      { key: 'all', label: 'All', count: taskCount, countColor: 'acc' },
+                      { key: 'active', label: 'Active', count: tasks.active.length, countColor: 'acc' },
                       { key: 'mergeable', label: 'Ready to merge', count: mergeable.length, countColor: 'acc' },
                       { key: 'closed', label: 'Closed', count: tasks.closed.length, countColor: 'muted' },
                     ]}

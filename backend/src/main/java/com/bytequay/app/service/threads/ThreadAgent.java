@@ -59,9 +59,9 @@ import java.util.function.Consumer;
  *             the next turn     RUNNING  ──turn done──────▶ IDLE
  *  RUNNING    subprocess        RUNNING  ──{@link #interrupt interrupt()}─▶ IDLE   ☆
  *             alive; one shot
- *             per turn          IDLE     ──{@link #pause pause()}────▶ AWAITING
- *  AWAITING   paused; refuses   AWAITING ──{@link #resume resume()}──▶ IDLE
- *             new turns         ANY      ──{@link #stop stop()}──────▶ STOPPED
+ *             per turn          AWAITING ──{@link #resume resume()}──▶ IDLE
+ *  AWAITING   parked; refuses   ANY      ──{@link #stop stop()}──────▶ STOPPED
+ *             new turns
  *  STOPPED    terminal
  *
  *  ☆ interrupt sets the userInterrupted flag BEFORE destroy() so the
@@ -69,12 +69,6 @@ import java.util.function.Consumer;
  *    IDLE — without it the destroy() path is otherwise scored as
  *    ERRORED, forcing the user to click Resume just to keep typing.
  * </pre>
- *
- * <p>Pause vs interrupt are not interchangeable: pause blocks
- * <em>future</em> turns (the "stepping away" case), interrupt kills
- * the <em>current</em> subprocess (the "this agent is going the wrong
- * way" case). Pause leaves the agent at IDLE; interrupt brings RUNNING
- * back to IDLE.
  *
  * <p>Side-effect tools (push, post_comment, ship) don't transition the
  * thread directly; they park the active <em>task</em> at
@@ -151,10 +145,6 @@ public interface ThreadAgent
      *  session moves to {@link ThreadStatus#IDLE} once the loop
      *  acknowledges. Equivalent to ESC in {@code claude code}. */
     void interrupt();
-
-    /** Stop the loop without killing the underlying process /
-     *  context — {@link #resume} can pick back up. */
-    void pause();
 
     void resume();
 

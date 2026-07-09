@@ -521,17 +521,6 @@ public abstract class AbstractCliThreadAgent
     }
 
     @Override
-    public final void pause()
-    {
-        // The CLI runs one shot per turn; there is no persistent loop to
-        // suspend. "Pause" for the CLI kind means: stop accepting new
-        // turns until resume. Model that as AWAITING; resume() → IDLE.
-        if (status.compareAndSet(ThreadStatus.IDLE, ThreadStatus.AWAITING)) {
-            persistThreadSnapshot(null);
-        }
-    }
-
-    @Override
     public final void resume()
     {
         if (status.compareAndSet(ThreadStatus.AWAITING, ThreadStatus.IDLE)) {

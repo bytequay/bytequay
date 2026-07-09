@@ -211,17 +211,25 @@ public class BacklogServiceImpl
         if (!BacklogItem.STATUS_CREATED.equals(item.status())) {
             throw status(409, "backlog item is not in created (can't start exploration)");
         }
-        // Hand the item to the trunk as a fresh planning prompt: the trunk
-        // agent reads the code, asks clarifying questions, drafts a plan, and
-        // eventually cuts a task — none of which happens here. We only post
-        // the prompt and flip the item to in-progress. The id prefix is the
-        // only way the trunk can later tell create_task which item to
-        // resolve — nothing else carries it into that conversation.
+        // Hand the item to the trunk as a fresh planning prompt. The trunk
+        // either cuts the task when its understanding is solid or asks the
+        // user to confirm the direction first; none of that happens here. The
+        // id prefix is the only way the trunk can later tell create_task which
+        // item to resolve — nothing else carries it into that conversation.
         String content = item.body().isBlank()
                 ? item.title()
                 : item.title() + "\n\n" + item.body();
         String prompt = "(backlog item " + item.id() + " — pass this as backlog_item_id if you cut a "
-                + "task from it)\n\n" + content;
+                + "task from it)\n\n"
+                + "Before cutting a task from this backlog item, read enough code/context to state "
+                + "the goal, intended direction, and effort/risk.\n\n"
+                + "If the direction is clear and you are confident, call create_task with backlog_item_id="
+                + item.id() + " and include the plan you would hand to the task.\n\n"
+                + "If any important direction is uncertain, do not cut the task yet. Use "
+                + "ask_user_question to ask the user to confirm/approve the task direction with "
+                + "your understanding, intended approach, risk/effort, and the specific "
+                + "uncertainty.\n\n"
+                + content;
         threadService.sendTrunk(item.threadId(), prompt);
 
         BacklogItem updated = store.save(item.markInProgress(Instant.now()));

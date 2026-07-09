@@ -13,16 +13,18 @@
  */
 package com.bytequay.app.service.threads.tools;
 
+import com.bytequay.app.domain.ThreadKind;
+
 import java.nio.file.Path;
 
 /**
  * Per-invocation context handed to an {@link AgentTool}. Carries the
  * resolved working dir (so tools can sandbox path access to it), the
- * owning thread id (for tracing), the active task id when one is
- * focused, and an optional permission mediator the bridged-CLI
+ * owning thread id (for tracing), the active task/stage scope, the
+ * thread kind, and an optional permission mediator the bridged-CLI
  * catalog uses to enforce gating. Future fields land here without
- * changing the tool ABI — adding a field to a record updates all
- * impls in one place.
+ * changing the tool ABI — adding a field to a record updates all impls
+ * in one place.
  *
  * @param threadId           the owning thread's id.
  * @param taskId             the focused task id, or {@code null} for
@@ -35,19 +37,33 @@ import java.nio.file.Path;
  *                           on the legacy ctor — bridged tools then
  *                           treat any non-{@code AUTO} gating as
  *                           denied, which is the conservative default.
+ * @param stageId            the focused stage id, or {@code null} for
+ *                           task-level / trunk turns.
+ * @param threadKind         the thread kind executing the tool call;
+ *                           used by bridged tools to enforce kind gates.
  */
 public record AgentToolContext(
         String threadId,
         String taskId,
         Path workingDir,
-        ToolPermissionMediator permissionMediator)
+        ToolPermissionMediator permissionMediator,
+        String stageId,
+        ThreadKind threadKind)
 {
+    public AgentToolContext(String threadId, String taskId, Path workingDir,
+            ToolPermissionMediator permissionMediator)
+    {
+        this(threadId, taskId, workingDir, permissionMediator,
+                /* stageId */ null, /* threadKind */ null);
+    }
+
     /** Legacy 3-arg constructor for call sites that don't care about
      *  the permission mediator (tests, native read-only tools). Null
      *  here forces bridged GATED / PARKED tools to refuse — the
      *  agent is expected to pass the 4-arg form in production. */
     public AgentToolContext(String threadId, String taskId, Path workingDir)
     {
-        this(threadId, taskId, workingDir, /* permissionMediator */ null);
+        this(threadId, taskId, workingDir, /* permissionMediator */ null,
+                /* stageId */ null, /* threadKind */ null);
     }
 }

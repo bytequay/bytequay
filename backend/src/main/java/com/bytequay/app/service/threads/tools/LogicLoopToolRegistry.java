@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads.tools;
 
 import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.Gating;
@@ -128,9 +129,18 @@ public class LogicLoopToolRegistry
      *  into the rendered array. Null = no filter (legacy behaviour). */
     public ArrayNode renderAsAnthropicTools(ObjectMapper mapper, Set<String> allowedNames)
     {
+        return renderAsAnthropicTools(mapper, allowedNames, /* role */ null, /* kind */ null);
+    }
+
+    /** Role/kind-filtered variant for production API-lane turns. When
+     *  {@code allowedNames} is non-null it is applied in addition to the
+     *  {@link ToolSpec} role + kind contract. */
+    public ArrayNode renderAsAnthropicTools(
+            ObjectMapper mapper, Set<String> allowedNames, AgentRole role, ThreadKind kind)
+    {
         ArrayNode arr = mapper.createArrayNode();
         for (AgentTool tool : combinedView()) {
-            if (allowedNames != null && !allowedNames.contains(tool.name())) {
+            if (!isVisible(tool, allowedNames, role, kind)) {
                 continue;
             }
             ObjectNode node = mapper.createObjectNode();
@@ -155,9 +165,17 @@ public class LogicLoopToolRegistry
      *  {@link #renderAsAnthropicTools(ObjectMapper, Set)}. */
     public ArrayNode renderAsOpenAiTools(ObjectMapper mapper, Set<String> allowedNames)
     {
+        return renderAsOpenAiTools(mapper, allowedNames, /* role */ null, /* kind */ null);
+    }
+
+    /** Role/kind-filtered variant for OpenAI / DeepSeek. Mirrors
+     *  {@link #renderAsAnthropicTools(ObjectMapper, Set, AgentRole, ThreadKind)}. */
+    public ArrayNode renderAsOpenAiTools(
+            ObjectMapper mapper, Set<String> allowedNames, AgentRole role, ThreadKind kind)
+    {
         ArrayNode arr = mapper.createArrayNode();
         for (AgentTool tool : combinedView()) {
-            if (allowedNames != null && !allowedNames.contains(tool.name())) {
+            if (!isVisible(tool, allowedNames, role, kind)) {
                 continue;
             }
             ObjectNode wrapper = mapper.createObjectNode();
@@ -170,6 +188,18 @@ public class LogicLoopToolRegistry
             arr.add(wrapper);
         }
         return arr;
+    }
+
+    private static boolean isVisible(
+            AgentTool tool, Set<String> allowedNames, AgentRole role, ThreadKind kind)
+    {
+        if (allowedNames != null && !allowedNames.contains(tool.name())) {
+            return false;
+        }
+        if (tool instanceof BridgedTool bridged) {
+            return bridged.visibleTo(role, kind);
+        }
+        return true;
     }
 
     private List<AgentTool> combinedView()
@@ -266,6 +296,15 @@ public class LogicLoopToolRegistry
         public Result invoke(JsonNode input, AgentToolContext ctx)
         {
             AgentRole role = ctx.taskId() == null ? AgentRole.TRUNK : AgentRole.TASK;
+            if (!spec.availableTo(role)) {
+                return Result.error("Tool '" + spec.name()
+                        + "' is not available to the current role (" + role + ").");
+            }
+            if (!availableToKind(ctx.threadKind())) {
+                return Result.error("Tool '" + spec.name()
+                        + "' is not available to the current thread kind ("
+                        + ctx.threadKind() + ").");
+            }
             JsonNode args = input == null ? mapper.createObjectNode() : input;
             String callId = "tool-" + UUID.randomUUID();
 
@@ -295,7 +334,7 @@ public class LogicLoopToolRegistry
                 }
             }
 
-            ToolCall call = new ToolCall(ctx.threadId(), args, role);
+            ToolCall call = new ToolCall(ctx.threadId(), args, role, ctx.taskId(), ctx.stageId());
             try {
                 Optional<ToolOutcome> outcome = cliLaneTools.invoke(spec.name(), call);
                 if (outcome.isEmpty()) {
@@ -331,6 +370,18 @@ public class LogicLoopToolRegistry
                 preview = preview.substring(0, 200) + "…";
             }
             return toolName + " " + preview;
+        }
+
+        boolean visibleTo(AgentRole role, ThreadKind kind)
+        {
+            boolean roleOk = role == null || spec.availableTo(role);
+            boolean kindOk = kind == null || availableToKind(kind);
+            return roleOk && kindOk;
+        }
+
+        private boolean availableToKind(ThreadKind kind)
+        {
+            return kind == null ? spec.kinds().isEmpty() : spec.availableToKind(kind);
         }
     }
 

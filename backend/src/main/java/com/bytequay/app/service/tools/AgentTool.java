@@ -63,7 +63,7 @@ public @interface AgentTool
      *  ({@code BRAIN_AGENT}) or dev-only tools (the CLI/logic-loop task
      *  agents) where {@link AgentRole} can't tell them apart — both a
      *  brain thread and a dev thread on the same task resolve to the same
-     *  role. The in-JVM lane filters by its own name allowlist, not this. */
+     *  role. Both MCP and in-JVM lanes enforce this at discovery and call time. */
     ThreadKind[] kinds() default {};
 
     /** Optional usage-pattern hint surfaced to the model alongside

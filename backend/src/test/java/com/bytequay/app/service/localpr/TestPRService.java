@@ -191,6 +191,39 @@ class TestPRService
     }
 
     @Test
+    void addCommentKeepsAValidParentCommentId()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        PRComment parent = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "brain", "question", NOW, null, null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(parent));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment reply = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, "claude-code", "answer", " cm1 ");
+
+        assertThat(reply.parentCommentId()).isEqualTo("cm1");
+    }
+
+    @Test
+    void addCommentRejectsAParentFromAnotherPr()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        PRComment parent = new PRComment(
+                "cm-other", "pr2", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "brain", "question", NOW, null, null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm-other")).thenReturn(Optional.of(parent));
+
+        assertThatThrownBy(() -> service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, "claude-code", "answer", "cm-other"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("another PR");
+    }
+
+    @Test
     void addRemoteCommentSavesAnOriginRemoteCommentAndATaggedTimelineEvent()
     {
         pr(PR.STATUS_REMOTE_DRAFTED);

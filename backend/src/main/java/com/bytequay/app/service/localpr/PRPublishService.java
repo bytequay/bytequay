@@ -394,6 +394,7 @@ public class PRPublishService
     private long openCommentCount(String prId)
     {
         return prService.comments(prId).stream()
+                .filter(c -> c.parentCommentId() == null)
                 .filter(c -> c.resolvedAt() == null && c.dismissedAt() == null)
                 .count();
     }

@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.beans.review;
 
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
 
-/** Wire shape of a {@link ReviewComment} for the diff page. {@code createdAt}
- *  is epoch-millis; {@code source} is the enum name. */
+/** Wire shape of a review comment for the diff page. {@code createdAt}
+ *  is epoch-millis; {@code source} is kept for the legacy renderer contract. */
 public record ReviewCommentDto(
         String id,
         String taskId,
@@ -44,5 +46,32 @@ public record ReviewCommentDto(
                 c.createdAt().toEpochMilli(),
                 c.source().name(),
                 c.resolved());
+    }
+
+    public static ReviewCommentDto from(PRComment c, String taskId)
+    {
+        return new ReviewCommentDto(
+                c.id(),
+                taskId,
+                c.filePath(),
+                c.lineNumber() == null ? 0 : c.lineNumber(),
+                c.side(),
+                c.startLine(),
+                c.startSide(),
+                c.body(),
+                c.createdAt().toEpochMilli(),
+                source(c),
+                c.resolvedAt() != null || c.dismissedAt() != null);
+    }
+
+    private static String source(PRComment c)
+    {
+        if (PRComment.ORIGIN_REMOTE.equals(c.origin())) {
+            return "REMOTE_REVIEWER";
+        }
+        return PRTimelineEntry.ACTOR_AGENT.equals(c.author())
+                || PRTimelineEntry.ACTOR_BRAIN.equals(c.author())
+                ? "LOCAL_AGENT"
+                : "LOCAL_USER";
     }
 }

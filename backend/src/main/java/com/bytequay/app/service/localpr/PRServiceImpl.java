@@ -646,6 +646,16 @@ class PRServiceImpl
     }
 
     @Override
+    public PRComment reopenComment(String commentId)
+    {
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        PRComment saved = store.saveComment(comment.withReopened());
+        notifyUpdated(comment.prId());
+        return saved;
+    }
+
+    @Override
     public PRComment dismissComment(String commentId)
     {
         PRComment comment = store.findCommentById(commentId)

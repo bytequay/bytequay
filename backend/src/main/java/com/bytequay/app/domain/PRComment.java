@@ -31,8 +31,8 @@ import java.time.Instant;
  * startSide} are non-null only for a multi-line range, and null for a
  * single-line comment.
  *
- * <p>Overlaps the existing unified {@code review_comment} store (V116); the
- * two are reconciled when the Code Diff / PR comment UI is wired.
+ * <p>This is the canonical comment shape for the local PR timeline; legacy
+ * review-round comments are read alongside it only for older records.
  */
 public record PRComment(
         String id,
@@ -65,6 +65,16 @@ public record PRComment(
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, when, dismissedAt, strippedOnPushAt, parentCommentId, publishedAt,
+                side, startLine, startSide);
+    }
+
+    /** Copy marked open again after a user reopens the thread. */
+    public PRComment withReopened()
+    {
+        return new PRComment(
+                id, prId, origin, scope, filePath, lineNumber, author, body,
+                createdAt, /* resolvedAt */ null, /* dismissedAt */ null,
+                strippedOnPushAt, parentCommentId, publishedAt,
                 side, startLine, startSide);
     }
 

@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -634,7 +635,7 @@ public class PublishService
         // the user still has open local review comments on the task. This
         // runs before the claim and any remote side effect, so a reject
         // leaves the proposal parked and re-approvable once they're resolved.
-        int openComments = stageStore.findUnresolvedComments(parked.id()).size();
+        int openComments = openReviewCommentCount(parked.id());
         if (openComments > 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "resolve the " + openComments + " open review comment(s) before shipping");
@@ -648,6 +649,20 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has an invalid baseMode");
         }
+    }
+
+    private int openReviewCommentCount(String taskId)
+    {
+        int legacyCount = stageStore.findUnresolvedComments(taskId).size();
+        Optional<PR> prOpt = prService.findByTask(taskId);
+        int prCount = (prOpt == null ? Optional.<PR>empty() : prOpt)
+                .map(pr -> (int) prService.comments(pr.id()).stream()
+                        .filter(c -> PRComment.ORIGIN_LOCAL.equals(c.origin()))
+                        .filter(c -> c.parentCommentId() == null)
+                        .filter(c -> c.resolvedAt() == null && c.dismissedAt() == null)
+                        .count())
+                .orElse(0);
+        return legacyCount + prCount;
     }
 
     private PublishResult finishInterruptedApproval(Notification original, String action)

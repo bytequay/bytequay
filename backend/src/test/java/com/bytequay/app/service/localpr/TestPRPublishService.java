@@ -194,6 +194,60 @@ class TestPRPublishService
     }
 
     @Test
+    void onLocalReviewClearedPushesWithoutWaitingOnTheManualButtonWhenAutoMergeIsOn()
+            throws Exception
+    {
+        when(taskStore.isAutoMerge("task1")).thenReturn(true);
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(git.refExists(any(), any())).thenReturn(true);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
+        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+
+        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
+
+        verify(pullRequests).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void onLocalReviewClearedDoesNothingOnAnEscalationEvenWithAutoMergeOn()
+    {
+        when(taskStore.isAutoMerge("task1")).thenReturn(true);
+
+        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", false));
+
+        verify(prService, never()).findById(any());
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void onLocalReviewClearedDoesNothingWithoutAutoMerge()
+    {
+        when(taskStore.isAutoMerge("task1")).thenReturn(false);
+
+        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
+
+        verify(prService, never()).findById(any());
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void onLocalReviewClearedSwallowsAPushFailureLeavingTheManualButtonAsTheFallback()
+    {
+        // E.g. an open local comment thread — push()'s own precondition
+        // check throws; auto-merge just leaves it for the user to push
+        // manually rather than propagating the failure.
+        when(taskStore.isAutoMerge("task1")).thenReturn(true);
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_DRAFTED)));
+
+        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
+
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
     void pushRejectsAnUnknownPr()
     {
         when(prService.findById("pr1")).thenReturn(Optional.empty());

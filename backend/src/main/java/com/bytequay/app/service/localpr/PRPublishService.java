@@ -131,6 +131,33 @@ public class PRPublishService
         }
     }
 
+    /**
+     * Auto-merge's answer to the Local Review page's manual Push button: once
+     * the dev-end brain review clears (the PR just reached {@code
+     * local-open}), push straight to remote instead of waiting on that click
+     * — but only for a clean approval (not a budget-exhaustion escalation,
+     * R23) on a task opted into {@code auto_merge}. Best-effort and silent on
+     * {@link #push}'s ordinary preconditions (an open comment thread, a
+     * failing local check) — those just mean the manual button stays
+     * available, same as for any other task.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onLocalReviewCleared(LocalReviewClearedEvent event)
+    {
+        if (!event.approved() || !taskStore.isAutoMerge(event.taskId())) {
+            return;
+        }
+        try {
+            push(event.prId());
+            log.info("auto-merge: pushed local PR {} for task {} without waiting on the manual button",
+                    event.prId(), event.taskId());
+        }
+        catch (RuntimeException e) {
+            log.warn("auto-merge: push of local PR {} for task {} failed: {}",
+                    event.prId(), event.taskId(), e.getMessage());
+        }
+    }
+
     /** Push {@code prId}'s branch and open a Draft PR, then strip locals + flip
      *  {@code local-open → remote-drafted}. */
     public PR push(String prId)

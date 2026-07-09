@@ -97,6 +97,16 @@ class SqliteReviewRoundStore
 
     @Override
     @Transactional(readOnly = true)
+    public List<ReviewRound> findAllLive()
+    {
+        return rounds.findAll().stream()
+                .map(this::toDomain)
+                .filter(r -> LIVE_STATUSES.contains(r.status()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public int nextIndex(String taskId)
     {
         return rounds.findByTaskIdOrderByOpenedAtMsDesc(taskId).stream()

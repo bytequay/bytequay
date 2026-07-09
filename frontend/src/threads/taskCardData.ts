@@ -24,9 +24,19 @@ export function cardStatus(status: string): TaskStatus {
     case 'COMPLETED': case 'IN_REVIEW': return 'shipped';
     case 'CANCELED': case 'ARCHIVED': return 'closed';
     case 'ERRORED': return 'errored';
+    case 'AWAITING_REVIEW': return 'review';
     case 'PAUSED': return 'paused';
+    case 'NEEDS_ATTENTION': return 'paused';
     case 'PENDING': return 'pending';
     default: return 'foreground';
+  }
+}
+
+function cardStatusText(status: string): string | undefined {
+  switch (status) {
+    case 'AWAITING_REVIEW': return 'Awaiting review';
+    case 'NEEDS_ATTENTION': return 'Needs attention';
+    default: return undefined;
   }
 }
 
@@ -51,6 +61,7 @@ export function toTaskCard(t: WorkUnitTaskDto, mergeReady: boolean): TaskCardDat
     id: t.id,
     title: taskLabel(t),
     status: cardStatus(t.status),
+    statusText: cardStatusText(t.status),
     branch: t.branchName ?? undefined,
     createdLabel: t.createdAt !== null ? relativeTime(t.createdAt) : undefined,
     prNumber: t.prNumber ?? undefined,

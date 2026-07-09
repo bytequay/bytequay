@@ -44,4 +44,10 @@ describe('toTaskCard', () => {
     expect(c.prNumber).toBeUndefined();
     expect(c.pr).toBeUndefined();
   });
+
+  it('renders parked review tasks as awaiting review, not errored', () => {
+    const c = toTaskCard(task({ prNumber: null, prState: null, status: 'AWAITING_REVIEW' }), false);
+    expect(c.status).toBe('review');
+    expect(c.statusText).toBe('Awaiting review');
+  });
 });

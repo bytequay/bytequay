@@ -30,16 +30,45 @@ import { useTrunkPane } from './useTrunkPane';
 type TrunkTab = 'tasks' | 'backlog' | 'notifications';
 /** Sub-tabs under Tasks: every task, the mergeable subset, the closed ones. */
 type TaskSubTab = 'all' | 'mergeable' | 'closed';
+/** Sub-tabs under Backlog: runnable queue, active trunk explorations, archive. */
+type BacklogSubTab = 'ready' | 'in-progress' | 'done';
+
+function backlogSubTab(item: BacklogItemDto): BacklogSubTab {
+  if (item.status === 'created') return 'ready';
+  if (item.status === 'in-progress') return 'in-progress';
+  return 'done';
+}
+
+function backlogProgressLabel(item: BacklogItemDto): string | undefined {
+  switch (item.status) {
+    case 'in-progress':
+      return 'In progress';
+    case 'resolved':
+      return 'Task cut';
+    case 'created':
+    case 'not-to-proceed':
+      return undefined;
+    default:
+      return item.status
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+  }
+}
 
 function backlogToCard(item: BacklogItemDto, formatTime: (ms: number) => string) {
+  const dropped = item.status === 'not-to-proceed';
+  const progressed = item.status !== 'created' && !dropped;
   return {
     id: item.id,
     title: item.title,
     body: item.body.length > 0 ? item.body : undefined,
     tags: item.tags.map(label => ({ label })),
     createdLabel: formatTime(item.createdAt),
-    started: item.startedAt !== null,
-    dropped: item.status === 'not-to-proceed',
+    started: progressed || item.startedAt !== null,
+    progressLabel: backlogProgressLabel(item),
+    dropped,
     linkedTaskLabel: item.linkedTaskId !== null ? '→ Task' : undefined,
   };
 }
@@ -107,11 +136,15 @@ export function TrunkPage({
     catch { /* storage unavailable */ }
     setPromptIgnored(true);
   };
-  const topBacklog = pickTopBacklog(pane.backlog, tasks.active.length > 0, promptIgnored);
   const [taskSub, setTaskSub] = useState<TaskSubTab>('all');
+  const [backlogSub, setBacklogSub] = useState<BacklogSubTab>('ready');
   const [paneOpen, setPaneOpen] = useState(true);
   // Trunk keeps its own pane width, independent of the brain/stage surfaces.
   const { paneWidth, bodyRef, onResize } = usePaneWidth('bq.trunkPaneWidth');
+
+  const readyBacklog = pane.backlog.filter(i => backlogSubTab(i) === 'ready');
+  const inProgressBacklog = pane.backlog.filter(i => backlogSubTab(i) === 'in-progress');
+  const doneBacklog = pane.backlog.filter(i => backlogSubTab(i) === 'done');
 
   const unreadCount = pane.signals.filter(s => s.readAt === null).length;
   // The Tasks tab's "All" sub-tab renders active cards + the Closed folder,
@@ -120,6 +153,7 @@ export function TrunkPage({
   // Tasks whose PR is ready to merge (CI green, no unresolved comments,
   // mergeable) — surfaced in the "Ready to merge" sub-tab + tinted in All.
   const mergeable = [...tasks.active, ...tasks.closed].filter(t => t.mergeReady === true);
+  const topBacklog = pickTopBacklog(readyBacklog, tasks.active.length > 0, promptIgnored);
 
   // Clicking a chip opens its tab; clicking the chip of the tab already shown
   // collapses the pane. The chip row stays pinned above the composer either
@@ -174,16 +208,27 @@ export function TrunkPage({
     switch (activeTab) {
       case 'tasks':
         return tasksTabContent;
-      case 'backlog':
+      case 'backlog': {
+        const backlogItems = backlogSub === 'ready'
+          ? readyBacklog
+          : backlogSub === 'in-progress'
+            ? inProgressBacklog
+            : doneBacklog;
         return (
           <BacklogTabContent
-            items={pane.backlog.map(i => backlogToCard(i, formatTime))}
+            items={backlogItems.map(i => backlogToCard(i, formatTime))}
+            emptyLabel={backlogSub === 'ready'
+              ? 'No ready backlog items.'
+              : backlogSub === 'in-progress'
+                ? 'No backlog items are in progress.'
+                : 'No finished or stopped backlog items yet.'}
             onAddItem={() => setAddBacklogOpen(true)}
-            onStartDevelopment={id => setStartCandidate(pane.backlog.find(i => i.id === id) ?? null)}
+            onStartDevelopment={id => setStartCandidate(readyBacklog.find(i => i.id === id) ?? null)}
             onDrop={id => { void pane.skip(id); }}
             onReopen={id => { void pane.revive(id); }}
           />
         );
+      }
       case 'notifications':
         return (
           <NotificationsTabContent
@@ -235,7 +280,7 @@ export function TrunkPage({
             )}
             <InlineChips chips={[
               { icon: '◳', label: 'Tasks', count: taskCount, countColor: 'acc', active: paneOpen && activeTab === 'tasks', onClick: () => onChipClick('tasks') },
-              { icon: '☷', label: 'Backlog', count: pane.backlog.length, active: paneOpen && activeTab === 'backlog', onClick: () => onChipClick('backlog') },
+              { icon: '☷', label: 'Backlog', count: readyBacklog.length, active: paneOpen && activeTab === 'backlog', onClick: () => onChipClick('backlog') },
               { icon: '🔔', label: 'Notifications', count: unreadCount, countColor: 'red', active: paneOpen && activeTab === 'notifications', onClick: () => onChipClick('notifications') },
             ]}
             />
@@ -259,7 +304,7 @@ export function TrunkPage({
               <RightPane.Tabs<TrunkTab>
                 tabs={[
                   { key: 'tasks', label: 'Tasks', count: taskCount, countColor: 'acc' },
-                  { key: 'backlog', label: 'Backlog', count: pane.backlog.length },
+                  { key: 'backlog', label: 'Backlog', count: readyBacklog.length },
                   { key: 'notifications', label: 'Notifications', count: unreadCount, countColor: 'red' },
                 ]}
                 active={activeTab}
@@ -275,6 +320,19 @@ export function TrunkPage({
                     ]}
                     active={taskSub}
                     onSelect={setTaskSub}
+                  />
+                </div>
+              )}
+              {activeTab === 'backlog' && (
+                <div className="pane-subtabs">
+                  <RightPane.Tabs<BacklogSubTab>
+                    tabs={[
+                      { key: 'ready', label: 'Ready', count: readyBacklog.length, countColor: 'acc' },
+                      { key: 'in-progress', label: 'In progress', count: inProgressBacklog.length, countColor: 'muted' },
+                      { key: 'done', label: 'Done / stopped', count: doneBacklog.length, countColor: 'muted' },
+                    ]}
+                    active={backlogSub}
+                    onSelect={setBacklogSub}
                   />
                 </div>
               )}

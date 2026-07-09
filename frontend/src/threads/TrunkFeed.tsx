@@ -32,7 +32,7 @@ import type { PermissionDecideHandler } from './PermissionCard';
 /** Short status word for a folded-but-not-done task's bar (tone 'running') —
  *  it has no completion summary yet, so this previews *why* it's folded. */
 const FOLD_STATUS_LABEL: Record<TaskStatus, string> = {
-  shipped: 'in review', pending: 'queued', paused: 'paused',
+  shipped: 'in review', pending: 'queued', review: 'awaiting review', paused: 'paused',
   errored: 'errored', foreground: 'in progress', closed: 'closed',
 };
 
@@ -199,6 +199,7 @@ export function TrunkFeed({
         id={`cut-${t.id}`}
         title={card.title}
         status={card.status}
+        statusText={card.statusText}
         branch={card.branch}
         createdLabel={card.createdLabel}
         prNumber={card.prNumber}

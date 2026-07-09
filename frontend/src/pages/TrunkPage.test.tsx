@@ -16,14 +16,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TrunkPage } from './TrunkPage';
 import type { BacklogItemDto, ThreadSignalDto } from '../types';
 
-const BACKLOG: BacklogItemDto[] = [
-  {
+function backlog(overrides: Partial<BacklogItemDto> = {}): BacklogItemDto {
+  return {
     id: 'b1', threadId: 't1', workspaceId: 'ws-1', title: 'Parked idea', body: 'do the thing',
     tags: ['ui'], priority: 'medium', source: 'manual', status: 'created', createdBy: 'user',
     createdAt: 1, inProgressAt: null, startedAt: null, resolvedAt: null, rejectedAt: null,
     rejectionReason: null, linkedTaskId: null, relatedBacklogIds: [],
-  },
-];
+    ...overrides,
+  };
+}
+
+const BACKLOG: BacklogItemDto[] = [backlog()];
 const SIGNALS: ThreadSignalDto[] = [
   { id: 's1', threadId: 't1', taskId: null, sourceKind: 'system', iconKind: 'success', title: 'Pushed branch', body: null, sourceUrl: null, createdAt: 2, readAt: null },
 ];
@@ -95,6 +98,40 @@ describe('TrunkPage', () => {
     // Start development now opens a confirmation dialog; confirm to dispatch.
     fireEvent.click(await screen.findByRole('button', { name: /Send to trunk/ }));
     await waitFor(() => expect(bridge.startBacklogDevelopment).toHaveBeenCalledWith('b1'));
+  });
+
+  it('shows only ready backlog by default and keeps progressed items behind lifecycle subtabs', async () => {
+    mockBridge({
+      listBacklog: vi.fn().mockResolvedValue([
+        backlog({ id: 'ready', title: 'Ready idea', status: 'created' }),
+        backlog({
+          id: 'running', title: 'Trunk is exploring', status: 'in-progress',
+          inProgressAt: 5, startedAt: 5,
+        }),
+        backlog({
+          id: 'resolved', title: 'Task was cut', status: 'resolved',
+          inProgressAt: 4, startedAt: 4, resolvedAt: 6, linkedTaskId: 'task-1',
+        }),
+        backlog({
+          id: 'stopped', title: 'Rejected idea', status: 'not-to-proceed',
+          rejectedAt: 7, rejectionReason: 'not now',
+        }),
+      ]),
+    });
+    renderTrunk();
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Backlog/ })[0]);
+    expect(await screen.findByText('Ready idea')).toBeTruthy();
+    expect(screen.queryByText('Trunk is exploring')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /In progress/ }));
+    expect(await screen.findByText('Trunk is exploring')).toBeTruthy();
+    expect(screen.queryByText('Dropped')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Done \/ stopped/ }));
+    expect(await screen.findByText('Task was cut')).toBeTruthy();
+    expect(screen.getByText('Rejected idea')).toBeTruthy();
+    expect(screen.getByText('Dropped')).toBeTruthy();
   });
 
   it('opening a notification marks it read', async () => {

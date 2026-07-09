@@ -97,6 +97,19 @@ export function useLocalPrActions(taskId: string, opts: {
       .catch(() => { /* poll reconciles */ });
   }, [localPr, refresh]);
 
+  const replyLocalLineComment = useCallback((
+    parentCommentId: string, filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
+    startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string,
+  ) => {
+    if (localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.addLocalPrComment(
+      localPr.id, { scope: 'file-line', filePath, lineNumber, side, startLine, startSide, body, parentCommentId },
+    )
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [localPr, refresh]);
+
   const resolveLocalComment = useCallback((commentId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.resolveLocalPrComment(commentId)
@@ -125,7 +138,7 @@ export function useLocalPrActions(taskId: string, opts: {
     bundle, refresh, syncing, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, resolveLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,

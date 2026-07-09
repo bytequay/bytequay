@@ -52,7 +52,7 @@ export function PrDetailsView<T extends DetailsPr>({
     bundle, refresh, syncing, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
-    addLocalLineComment, resolveLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy, reviewFiles, reviewError,
     runLocalTests, testsBusy,
@@ -81,6 +81,7 @@ export function PrDetailsView<T extends DetailsPr>({
         comments={bundle.comments}
         allowLocalComments={capabilities?.draftLocalComments === true}
         onAddComment={addLocalLineComment}
+        onReplyComment={replyLocalLineComment}
         onResolveComment={resolveLocalComment}
         onDismissComment={dismissLocalComment}
         onBack={() => setReviewOpen(false)}

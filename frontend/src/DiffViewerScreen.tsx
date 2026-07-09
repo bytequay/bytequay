@@ -36,6 +36,7 @@ import { contiguousRange } from './diff/commitRange';
 import { unionCommitFiles } from './diff/unionCommitFiles';
 import { MarkdownProse } from './threads/MarkdownProse';
 import AssignReviewTaskDialog from './workspace/AssignReviewTaskDialog';
+import { DiffInlineCommentComposer, rangeLabel } from './diff/DiffInlineComments';
 
 type FilesMode = 'tree' | 'flat';
 type ReviewVerdict = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
@@ -1635,64 +1636,65 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                 />
               ))}
               {composerHere && (
-                <div className="diff-inline-composer">
-                  {/* Header — single line vs. multi-line range. Mirrors
-                      github.com's "Comment on lines L455 to R467". */}
-                  <div className="diff-inline-composer__header">
-                    {composerSlot!.startLine != null && composerSlot!.startLine !== composerSlot!.line
-                      ? `Adding a comment on lines ${(composerSlot!.startSide ?? composerSlot!.side) === 'LEFT' ? 'L' : 'R'}${composerSlot!.startLine} to ${composerSlot!.side === 'LEFT' ? 'L' : 'R'}${composerSlot!.line}`
-                      : `Adding a comment on line ${composerSlot!.side === 'LEFT' ? 'L' : 'R'}${composerSlot!.line}`}
-                    <span className="diff-inline-composer__hint">
+                <DiffInlineCommentComposer
+                  value={composerBody}
+                  onChange={setComposerBody}
+                  onSubmit={stageComposer}
+                  onCancel={closeComposer}
+                  range={rangeLabel(
+                    composerSlot!.side,
+                    composerSlot!.line,
+                    composerSlot!.startLine,
+                    composerSlot!.startSide)}
+                  placeholder="Leave a comment — markdown supported."
+                  disabled={composerPending}
+                  className="diff-inline-composer"
+                  headerClassName="diff-inline-composer__header"
+                  actionsClassName="diff-inline-composer__actions"
+                  textareaClassName="diff-inline-composer__input"
+                  actions={(
+                    <div className="diff-inline-composer__actions">
+                      <span className="diff-inline-composer__hint">
                       Shift-click another line to extend the range.
-                    </span>
-                  </div>
-                  <MarkdownComposer
-                    value={composerBody}
-                    onChange={setComposerBody}
-                    placeholder="Leave a comment on this line — markdown supported."
-                    rows={3}
-                    disabled={composerPending}
-                    autoFocus
-                    textareaClassName="diff-inline-composer__input"
-                  />
-                  <div className="diff-inline-composer__actions">
-                    <button
-                      type="button"
-                      className="button button--primary"
-                      onClick={stageComposer}
-                      disabled={composerPending || !composerBody.trim()}
-                      title="Stage this comment into your review — submit them all together when you're done."
-                    >
-                      {composerPending ? 'Staging…' : 'Start a review'}
-                    </button>
-                    <button
-                      type="button"
-                      className="button button--secondary"
-                      onClick={submitComposer}
-                      disabled={composerPending || !composerBody.trim()}
-                      title="Post this comment now without starting a batched review."
-                    >
-                      {composerPending ? 'Posting…' : 'Add single comment'}
-                    </button>
-                    <PolishButtons
-                      value={composerBody}
-                      onChange={setComposerBody}
-                      onError={setComposerError}
-                      disabled={composerPending}
-                    />
-                    <button
-                      type="button"
-                      className="pr-comment-box__cancel"
-                      onClick={closeComposer}
-                      disabled={composerPending}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  {composerError && (
+                      </span>
+                      <button
+                        type="button"
+                        className="button button--primary"
+                        onClick={stageComposer}
+                        disabled={composerPending || !composerBody.trim()}
+                        title="Stage this comment into your review — submit them all together when you're done."
+                      >
+                        {composerPending ? 'Staging…' : 'Start a review'}
+                      </button>
+                      <button
+                        type="button"
+                        className="button button--secondary"
+                        onClick={submitComposer}
+                        disabled={composerPending || !composerBody.trim()}
+                        title="Post this comment now without starting a batched review."
+                      >
+                        {composerPending ? 'Posting…' : 'Add single comment'}
+                      </button>
+                      <PolishButtons
+                        value={composerBody}
+                        onChange={setComposerBody}
+                        onError={setComposerError}
+                        disabled={composerPending}
+                      />
+                      <button
+                        type="button"
+                        className="pr-comment-box__cancel"
+                        onClick={closeComposer}
+                        disabled={composerPending}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  error={composerError && (
                     <div className="diff-inline-composer__error">{composerError}</div>
                   )}
-                </div>
+                />
               )}
               {justPostedHere && !composerHere && (
                 <div className="diff-inline-composer__posted">

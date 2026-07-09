@@ -16,7 +16,7 @@ import ResizeHandle from '../../ResizeHandle';
 import { ContinuousDiff, FileDiffBody } from '../../diff/DiffFileList';
 import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
 import { DiffFileTreePane } from '../../diff/DiffFileTreePane';
-import { DiffInlineComments, rangeLabel } from '../../diff/DiffInlineComments';
+import { DiffInlineComments, diffInlineCommentFromLocalPr, rangeLabel } from '../../diff/DiffInlineComments';
 import { statusBadge } from '../../diffStatusBadge';
 import { treeOrderedFiles } from '../../fileTree';
 import type { DiffFileDto } from '../../types';
@@ -40,12 +40,18 @@ function lineKey(filename: string, side: AnchorSide, ln: number): string {
  * DiffViewerScreen's composer (see TaskCodePage's embedded Changes tab for
  * the identical pattern applied to the task-in-progress diff).
  */
-function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onResolveComment, onDismissComment }: {
+function LocalFileDiff({
+  file, comments, allowLocalComments, onAddComment, onReplyComment, onResolveComment, onDismissComment,
+}: {
   file: DiffFileDto;
   comments: LocalPRComment[];
   allowLocalComments: boolean;
   onAddComment?: (
     filePath: string, side: AnchorSide, line: number,
+    startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
+  ) => void;
+  onReplyComment?: (
+    parentCommentId: string, filePath: string, side: AnchorSide, line: number,
     startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
   ) => void;
   onResolveComment?: (commentId: string) => void;
@@ -135,12 +141,25 @@ function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onRes
     if (lineComments.length === 0 && !composerHere) return null;
     return (
       <DiffInlineComments
-        comments={lineComments}
+        comments={lineComments.map(diffInlineCommentFromLocalPr)}
         allowLocalComments={allowLocalComments}
         onAdd={onAddComment !== undefined && composerHere
           ? body => {
             onAddComment(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body);
             closeComposer();
+          }
+          : undefined}
+        onReply={onReplyComment !== undefined
+          ? (comment, body) => {
+            if (comment.filePath === null || comment.lineNumber === null) return;
+            onReplyComment(
+              comment.id,
+              comment.filePath,
+              comment.side,
+              comment.lineNumber,
+              comment.startLine ?? undefined,
+              comment.startSide ?? undefined,
+              body);
           }
           : undefined}
         onResolve={onResolveComment}
@@ -183,7 +202,7 @@ function LocalFileDiff({ file, comments, allowLocalComments, onAddComment, onRes
  * write path is the local {@code file-line} comments.
  */
 export function LocalPrReviewScreen({
-  title, files, comments, allowLocalComments = false, onAddComment, onResolveComment, onDismissComment,
+  title, files, comments, allowLocalComments = false, onAddComment, onReplyComment, onResolveComment, onDismissComment,
   onBack, error = null,
 }: {
   title: string;
@@ -193,6 +212,10 @@ export function LocalPrReviewScreen({
   allowLocalComments?: boolean;
   onAddComment?: (
     filePath: string, side: AnchorSide, line: number,
+    startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
+  ) => void;
+  onReplyComment?: (
+    parentCommentId: string, filePath: string, side: AnchorSide, line: number,
     startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
   ) => void;
   onResolveComment?: (commentId: string) => void;
@@ -264,12 +287,13 @@ export function LocalPrReviewScreen({
               renderFileBody={file => (
                 <LocalFileDiff
                   file={file}
-                  comments={comments}
-                  allowLocalComments={allowLocalComments}
-                  onAddComment={onAddComment}
-                  onResolveComment={onResolveComment}
-                  onDismissComment={onDismissComment}
-                />
+                    comments={comments}
+                    allowLocalComments={allowLocalComments}
+                    onAddComment={onAddComment}
+                    onReplyComment={onReplyComment}
+                    onResolveComment={onResolveComment}
+                    onDismissComment={onDismissComment}
+                  />
               )}
             />
           ) : error !== null ? (

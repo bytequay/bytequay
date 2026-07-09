@@ -149,7 +149,7 @@ describe('PaneDiff', () => {
     render(
       <PaneDiff files={[FILE]} allowLocalComments comments={[comment()]} onResolveComment={onResolveComment} />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Mark resolved' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
     expect(onResolveComment).toHaveBeenCalledWith('cm1');
   });
 
@@ -158,13 +158,34 @@ describe('PaneDiff', () => {
     render(
       <PaneDiff files={[FILE]} allowLocalComments comments={[comment()]} onDismissComment={onDismissComment} />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
     expect(onDismissComment).toHaveBeenCalledWith('cm1');
+  });
+
+  it('submits a reply through the existing file-line thread', () => {
+    const onReplyComment = vi.fn();
+    const { container } = render(
+      <PaneDiff files={[FILE]} allowLocalComments comments={[comment()]} onReplyComment={onReplyComment} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    const composer = container.querySelector('.ic-composer') as HTMLTextAreaElement;
+    expect(composer).not.toBeNull();
+    fireEvent.change(composer, { target: { value: 'done in the next commit' } });
+    fireEvent.keyDown(composer, { key: 'Enter', metaKey: true });
+    expect(onReplyComment).toHaveBeenCalledWith(
+      'cm1',
+      'backend/src/Composer.java',
+      'RIGHT',
+      181,
+      undefined,
+      undefined,
+      'done in the next commit',
+    );
   });
 
   it('hides actions and shows the dismissed badge once dismissed', () => {
     render(<PaneDiff files={[FILE]} allowLocalComments comments={[comment({ dismissedAt: Date.now() })]} />);
     expect(screen.getByText('dismissed')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Mark resolved' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resolve conversation' })).toBeNull();
   });
 });

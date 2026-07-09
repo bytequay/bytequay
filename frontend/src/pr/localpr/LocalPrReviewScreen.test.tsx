@@ -168,8 +168,8 @@ describe('LocalPrReviewScreen', () => {
         onResolveComment={onResolveComment} onDismissComment={onDismissComment} onBack={() => {}}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Mark resolved' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
     expect(onResolveComment).toHaveBeenCalledWith('cm1');
     expect(onDismissComment).toHaveBeenCalledWith('cm1');
   });

@@ -1182,15 +1182,6 @@ public class LogicLoopThreadAgent
     }
 
     @Override
-    public void pause()
-    {
-        ThreadStatus current = status.get();
-        if (current == ThreadStatus.RUNNING || current == ThreadStatus.IDLE) {
-            status.set(ThreadStatus.AWAITING);
-        }
-    }
-
-    @Override
     public void resume()
     {
         // AWAITING (paused) and ARCHIVED (auto-archived for inactivity)

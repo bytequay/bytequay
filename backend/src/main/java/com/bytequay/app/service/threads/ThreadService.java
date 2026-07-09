@@ -769,11 +769,6 @@ public class ThreadService
         return store.findThreadById(threadId).orElse(thread);
     }
 
-    public void pause(String threadId)
-    {
-        sessionOrThrow(threadId).pause();
-    }
-
     public void resume(String threadId)
     {
         sessionOrThrow(threadId).resume();

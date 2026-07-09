@@ -38,6 +38,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.NotificationService;
@@ -46,6 +47,7 @@ import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -89,9 +91,10 @@ class TestBrainReviewServiceImpl
     private final PRService prService = mock(PRService.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
+    private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final BrainReviewServiceImpl service = new BrainReviewServiceImpl(
             taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore, prService,
-            notifications, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+            notifications, mapper, Clock.fixed(NOW, ZoneOffset.UTC), events);
 
     // ── R20: plan self-review ────────────────────────────────────────────
 
@@ -307,6 +310,9 @@ class TestBrainReviewServiceImpl
         verify(agentRuns).transition(triaging.runId(), AgentRun.STATUS_SUCCEEDED, "brain_review_concluded");
         verify(prService).requestUserReview("pr1", "brain");
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
+        // auto_merge's push trigger listens for this instead of the manual
+        // Local Review button.
+        verify(events).publishEvent(new LocalReviewClearedEvent(TASK_ID, "pr1", true));
     }
 
     @Test
@@ -333,6 +339,9 @@ class TestBrainReviewServiceImpl
         assertThat(lastIteration.brainBudgetExhausted()).isTrue();
         verify(notifications).notifyNeedsAttention(eq(task().threadId()), eq(TASK_ID), anyString());
         verify(prService).requestUserReview("pr1", "brain");
+        // approved=false on an escalation — auto_merge must not push unreviewed
+        // concerns straight to remote.
+        verify(events).publishEvent(new LocalReviewClearedEvent(TASK_ID, "pr1", false));
     }
 
     @Test
@@ -384,6 +393,97 @@ class TestBrainReviewServiceImpl
                 argThat(i -> "brain-review".equals(i.source())));
     }
 
+    // ── reconcileStalledRounds: the intra-thread-multi-tasking backstop ───
+
+    @Test
+    void reconcileStalledRoundsAdvancesATriagingRoundOnceItsThreadIsIdle()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING);
+        when(roundStore.findAllLive()).thenReturn(List.of(triaging));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(idleTaskThread()));
+
+        service.reconcileStalledRounds();
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("run-stage"),
+                argThat(i -> "brain-review-fix".equals(i.source())));
+        verify(roundStore).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())));
+    }
+
+    @Test
+    void reconcileStalledRoundsSkipsATriagingRoundWhoseThreadIsStillBusy()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING);
+        when(roundStore.findAllLive()).thenReturn(List.of(triaging));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(busyTaskThread()));
+
+        service.reconcileStalledRounds();
+
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any());
+        verify(roundStore, never()).save(any());
+    }
+
+    @Test
+    void reconcileStalledRoundsAdvancesAnAddressingRoundOnceItsThreadIsIdle()
+    {
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        when(roundStore.findAllLive()).thenReturn(List.of(addressing));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(idleTaskThread()));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+
+        service.reconcileStalledRounds();
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("run-stage"),
+                argThat(i -> "brain-review".equals(i.source())));
+        verify(roundStore).save(argThat(
+                r -> ReviewRound.STATUS_TRIAGING.equals(r.status()) && r.iteration() == 2));
+    }
+
+    @Test
+    void reconcileStalledRoundsNeverTouchesAnAddressingRoundWhoseFixTurnIsStillRunning()
+    {
+        // The exact bug this backstop must not introduce: re-driving a round
+        // whose fix turn hasn't actually finished (advanceAfterFixTurn has no
+        // idle check of its own — the sweep is the only guard).
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        when(roundStore.findAllLive()).thenReturn(List.of(addressing));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(busyTaskThread()));
+
+        service.reconcileStalledRounds();
+
+        verify(agentRuns, never()).findById(any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any());
+        verify(roundStore, never()).save(any());
+    }
+
+    @Test
+    void reconcileStalledRoundsIgnoresExternalOriginRounds()
+    {
+        ReviewRound external = round(ReviewRound.STATUS_TRIAGING);
+        when(roundStore.findAllLive()).thenReturn(List.of(external));
+
+        service.reconcileStalledRounds();
+
+        verify(taskStore, never()).findTaskById(any());
+    }
+
     // ── fixtures ─────────────────────────────────────────────────────────
 
     private static Task task()
@@ -429,6 +529,17 @@ class TestBrainReviewServiceImpl
         return new Thread(
                 "thread-1", ThreadKind.CLI_AGENT, "claude-code", null, "Task",
                 ThreadStatus.IDLE, "claude-sonnet-4.6", 0L, 0L, 0L, NOW, NOW,
+                null, null, ThreadFlow.BUILD, "ws-default", null, null);
+    }
+
+    /** A thread with another turn genuinely still running on it — the
+     *  intra-thread-multi-tasking case reconcileStalledRounds must not
+     *  disturb. */
+    private static Thread busyTaskThread()
+    {
+        return new Thread(
+                "thread-1", ThreadKind.CLI_AGENT, "claude-code", null, "Task",
+                ThreadStatus.RUNNING, "claude-sonnet-4.6", 0L, 0L, 0L, NOW, NOW,
                 null, null, ThreadFlow.BUILD, "ws-default", null, null);
     }
 

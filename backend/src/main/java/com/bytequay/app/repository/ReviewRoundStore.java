@@ -32,6 +32,11 @@ public interface ReviewRoundStore
      *  idempotent "already collecting" check before opening a new one. */
     Optional<ReviewRound> findLiveByTask(String taskId);
 
+    /** Every currently live round across all tasks — the backstop sweep's
+     *  input (see {@code BrainReviewServiceImpl.reconcileStalledRounds}).
+     *  Small table; an unfiltered scan is fine at this scale. */
+    List<ReviewRound> findAllLive();
+
     /** Next 1-based round index for a task (highest existing + 1, or 1). */
     int nextIndex(String taskId);
 }

@@ -31,6 +31,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.NotificationService;
@@ -43,7 +44,9 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -113,6 +116,7 @@ public class BrainReviewServiceImpl
     private final NotificationService notifications;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     @Autowired
     public BrainReviewServiceImpl(
@@ -125,10 +129,11 @@ public class BrainReviewServiceImpl
             ThreadTurnStore turnStore,
             PRService prService,
             NotificationService notifications,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            ApplicationEventPublisher events)
     {
         this(taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore, prService,
-                notifications, mapper, Clock.systemUTC());
+                notifications, mapper, Clock.systemUTC(), events);
     }
 
     BrainReviewServiceImpl(
@@ -142,7 +147,8 @@ public class BrainReviewServiceImpl
             PRService prService,
             NotificationService notifications,
             ObjectMapper mapper,
-            Clock clock)
+            Clock clock,
+            ApplicationEventPublisher events)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
@@ -155,6 +161,7 @@ public class BrainReviewServiceImpl
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.events = requireNonNull(events, "events is null");
     }
 
     @Override
@@ -401,7 +408,12 @@ public class BrainReviewServiceImpl
         }
         Optional<Thread> taskThread = threadStore.findThreadById(task.threadId());
         if (taskThread.isEmpty() || taskThread.get().status() != ThreadStatus.IDLE) {
-            return; // thread busy; the next turn-finished event on it re-drives this.
+            // Thread busy; reconcileStalledRounds() re-checks once it's idle
+            // rather than counting on a same-task turn to finish here — with
+            // intra-thread multi-tasking a DIFFERENT task's turn can be what
+            // finishes on this thread next, and that turn's onTurnFinished is
+            // scoped to its own task, never this round.
+            return;
         }
         try {
             scheduler.enqueueTaskTurn(
@@ -425,6 +437,49 @@ public class BrainReviewServiceImpl
         }
         enqueueReviewTurn(task, run.stageId());
         roundStore.save(round.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped());
+    }
+
+    /**
+     * Backstop for the review-fix-review loop. {@link #advanceAfterReviewTurn}
+     * skips re-driving a round when its task's thread is busy, on the
+     * assumption that "the next turn-finished event on it re-drives this" —
+     * true when one thread ran exactly one task, false since intra-thread
+     * multi-tasking landed: a DIFFERENT task's turn finishing on a shared
+     * thread fires {@link #onTurnFinished} scoped to ITS OWN task only, and
+     * never rechecks a sibling task's round left waiting on that same thread.
+     * This sweep re-checks every live brain round once its thread is idle, so
+     * a round skipped only for busyness converges instead of wedging forever.
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
+    @Transactional
+    public void reconcileStalledRounds()
+    {
+        for (ReviewRound round : roundStore.findAllLive()) {
+            if (!ReviewRound.ORIGIN_BRAIN.equals(round.origin())) {
+                continue; // external rounds wait on a human gate, not this loop.
+            }
+            Task task = taskStore.findTaskById(round.taskId()).orElse(null);
+            if (task == null) {
+                continue;
+            }
+            if (ReviewRound.STATUS_TRIAGING.equals(round.status())) {
+                // advanceAfterReviewTurn checks the task thread's own
+                // idleness before acting, so a genuinely live fix turn is
+                // left alone.
+                advanceAfterReviewTurn(round, task);
+            }
+            else if (ReviewRound.STATUS_ADDRESSING.equals(round.status()) && round.iteration() > 0) {
+                // advanceAfterFixTurn has no such check of its own (the
+                // normal EventListener path only ever calls it once the fix
+                // turn has already finished) — the sweep must verify that
+                // itself, or it would enqueue a review turn over a fix turn
+                // that's still actually running.
+                Optional<Thread> taskThread = threadStore.findThreadById(task.threadId());
+                if (taskThread.isPresent() && taskThread.get().status() == ThreadStatus.IDLE) {
+                    advanceAfterFixTurn(round, task);
+                }
+            }
+        }
     }
 
     private void enqueueReviewTurn(Task task, String stageId)
@@ -459,7 +514,13 @@ public class BrainReviewServiceImpl
                     "{\"reason\":\"brain review budget exhausted\",\"roundId\":\"" + round.id() + "\"}");
         }
         if (ReviewRound.ORIGIN_BRAIN.equals(round.origin())) {
-            prService.findByTask(task.id()).ifPresent(pr -> prService.requestUserReview(pr.id(), "brain"));
+            prService.findByTask(task.id()).ifPresent(pr -> {
+                prService.requestUserReview(pr.id(), "brain");
+                // Let auto_merge push automatically instead of waiting on the
+                // Local Review page's manual button — the PR just reached
+                // local-open, exactly the moment that button would appear.
+                events.publishEvent(new LocalReviewClearedEvent(task.id(), pr.id(), approved));
+            });
         }
         log.info("brain-review: round {} concluded ({}), approved={}", round.id(), round.origin(), approved);
     }

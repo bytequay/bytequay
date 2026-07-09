@@ -324,7 +324,10 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     preApprove?: { toolName: string; count: number },
   ) => {
     try {
-      await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
+      const result = await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
+      if (result.status === 'already_resolved') {
+        setSendError('This prompt already timed out before your click landed — it was not applied.');
+      }
       // Pull the decision row back so the card clears and the unblocked
       // turn's output resumes streaming.
       await Promise.all([refreshMessages(), loadThread()]);

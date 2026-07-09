@@ -5231,6 +5231,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST /api/threads/${id}/decisions returned ${res.status}: ${text}`);
     }
+    return res.json();
   });
 
   // ── Credentials ─────────────────────────────────────────────────────────

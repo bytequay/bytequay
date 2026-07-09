@@ -610,15 +610,21 @@ public abstract class AbstractCliThreadAgent
     }
 
     @Override
-    public final void decide(String callId, PermissionDecision decision)
+    public final boolean decide(String callId, PermissionDecision decision)
     {
         requireNonNull(callId, "callId is null");
         requireNonNull(decision, "decision is null");
         // Hand the decision to the MCP gate first — that unblocks the
-        // subprocess waiting on its tools/call response. Then route the
-        // event through handle() so it persists for replay.
-        gate.decide(callId, decision);
-        handle(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
+        // subprocess waiting on its tools/call response. Only persist the
+        // "decided" event when the gate actually resolved something — a
+        // false here means the prompt already timed out (or was already
+        // decided), so recording a fresh event would misrepresent a no-op
+        // click as having done something.
+        boolean resolved = gate.decide(callId, decision);
+        if (resolved) {
+            handle(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
+        }
+        return resolved;
     }
 
     @Override

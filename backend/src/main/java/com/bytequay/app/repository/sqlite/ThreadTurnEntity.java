@@ -67,6 +67,19 @@ class ThreadTurnEntity
     @Column(name = "scope")
     private String scope;
 
+    @Column(name = "agent_run_id")
+    private String agentRunId;
+
+    String getAgentRunId()
+    {
+        return agentRunId;
+    }
+
+    void setAgentRunId(String agentRunId)
+    {
+        this.agentRunId = agentRunId;
+    }
+
     String getStageId()
     {
         return stageId;

@@ -42,13 +42,13 @@ export type TaskPhase =
   | 'COMPLETED' | 'NEEDS_ATTENTION' | 'QUEUED';
 
 /** {@code CI_FIXING_STAGE} / {@code REVIEW_ROUND_STAGE} / {@code
- *  BRANCH_GUARD_STAGE} are pure run containers now (plan-rail-runs.md R7 /
- *  R3) — never opened via a phase transition, so they never appear as a
- *  spine node; the rail instead derives run sub-rows from {@link
- *  AgentRunDto}. They still appear in {@code stages}/{@code subStages} for
- *  historical stage-detail drill-in. */
+ *  BRANCH_GUARD_STAGE} are pure run containers now — never opened via a
+ *  phase transition, so they never appear as a spine node; the rail instead
+ *  derives run rows from {@link AgentRunDto}. They still appear in
+ *  {@code stages}/{@code subStages} for historical stage-detail drill-in. */
 export type StageType =
-  | 'PLAN_STAGE' | 'DEVELOPMENT_STAGE' | 'CI_FIXING_STAGE' | 'REVIEW_MONITOR_STAGE'
+  | 'PLAN_STAGE' | 'DEVELOPMENT_STAGE' | 'REMOTE_DEVELOPMENT_STAGE'
+  | 'CI_FIXING_STAGE' | 'REVIEW_MONITOR_STAGE'
   | 'CLEANUP_STAGE' | 'REVIEW_STAGE' | 'REVIEW_ROUND_STAGE' | 'BRANCH_GUARD_STAGE';
 
 /** Mirrors the backend AgentRun.kind — an isolated agent session attached
@@ -344,7 +344,7 @@ export type TaskBrainViewData = {
   liveRuns: AgentRunDto[];
   guard: BranchGuardDto;
   /** The task's currently-open review round (not yet posted/closed), or
-   *  null — drives the Comments node's "round N · M open" rail meta. */
+   *  null — drives the Remote Development comments row's rail meta. */
   liveRound: ReviewRoundDto | null;
   /** Development's in-stage phase ladder (Implementing/Validation/Brain
    *  review, plan-rail-runs.md R29) — empty until a Development stage

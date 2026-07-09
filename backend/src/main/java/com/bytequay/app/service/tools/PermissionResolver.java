@@ -94,10 +94,10 @@ public interface PermissionResolver
         return TRUNK_AGENT_KEY;
     }
 
-    /** The stamped task/stage of a thread's running turn. */
-    record RunningScope(String taskId, String stageId)
+    /** The stamped task/stage/run of a thread's running turn. */
+    record RunningScope(String taskId, String stageId, String agentRunId)
     {
         /** No running turn, or a trunk turn — both ids null. */
-        public static final RunningScope NONE = new RunningScope(null, null);
+        public static final RunningScope NONE = new RunningScope(null, null, null);
     }
 }

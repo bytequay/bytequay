@@ -212,7 +212,7 @@ public class BrainReviewServiceImpl
                 ReviewRound.ORIGIN_BRAIN, /* brainVerdict */ null, /* iteration */ 1,
                 ReviewRound.DEFAULT_BRAIN_BUDGET);
         roundStore.save(round);
-        enqueueReviewTurn(task, run.stageId());
+        enqueueReviewTurn(task, run);
         log.info("brain-review: opened dev-end round {} for task {} (PR {})", round.id(), task.id(), prId);
     }
 
@@ -227,13 +227,13 @@ public class BrainReviewServiceImpl
             armGate(triaging); // no run to review against — arm as before rather than stall.
             return;
         }
-        enqueueReviewTurn(task, run.stageId());
+        enqueueReviewTurn(task, run);
         log.info("brain-review: verification pass started for round {} (task {})", round.id(), task.id());
     }
 
     @Override
     @Transactional
-    public void recordVerdict(String taskId, String stageId, String scope, String verdict)
+    public void recordVerdict(String taskId, String stageId, String agentRunId, String scope, String verdict)
     {
         if ("plan".equals(scope)) {
             stageStore.recordEvent(
@@ -242,7 +242,7 @@ public class BrainReviewServiceImpl
             return;
         }
         Optional<ReviewRound> live = roundStore.findLiveByTask(taskId)
-                .filter(r -> matchesRunStage(r, stageId));
+                .filter(r -> matchesRunScope(r, stageId, agentRunId));
         if (live.isEmpty()) {
             log.warn("brain-review: record_review_verdict scope={} for task {} matched no live round",
                     scope, taskId);
@@ -261,6 +261,31 @@ public class BrainReviewServiceImpl
         return agentRuns.findById(round.runId())
                 .map(r -> stageId.equals(r.stageId()))
                 .orElse(false);
+    }
+
+    private boolean matchesRunScope(ReviewRound round, String stageId, String agentRunId)
+    {
+        if (round.runId() == null) {
+            return false;
+        }
+        if (agentRunId != null && !agentRunId.isBlank()) {
+            return round.runId().equals(agentRunId);
+        }
+        return matchesRunStage(round, stageId);
+    }
+
+    private boolean matchesRunTurn(ReviewRound round, ThreadTurn turn)
+    {
+        if (round.runId() == null || turn == null) {
+            return false;
+        }
+        if (round.runId().equals(turn.agentRunId())) {
+            return true;
+        }
+        String source = turn.initiator().source();
+        return (SOURCE_BRAIN_REVIEW.equals(source) || SOURCE_BRAIN_FIX.equals(source))
+                && turn.stageId() != null
+                && matchesRunStage(round, turn.stageId());
     }
 
     /**
@@ -375,7 +400,7 @@ public class BrainReviewServiceImpl
     private void advanceRoundLoop(String taskId, ThreadTurn turn)
     {
         Optional<ReviewRound> liveOpt = roundStore.findLiveByTask(taskId)
-                .filter(r -> matchesRunStage(r, turn.stageId()));
+                .filter(r -> matchesRunTurn(r, turn));
         if (liveOpt.isEmpty()) {
             return;
         }
@@ -420,7 +445,7 @@ public class BrainReviewServiceImpl
         try {
             scheduler.enqueueTaskTurn(
                     taskThread.get(), brainFixPrompt(task), task.id(), run.stageId(),
-                    TurnInitiator.unattended(SOURCE_BRAIN_FIX));
+                    TurnInitiator.unattended(SOURCE_BRAIN_FIX), run.id());
             roundStore.save(round.withStatus(ReviewRound.STATUS_ADDRESSING));
         }
         catch (RuntimeException e) {
@@ -437,7 +462,7 @@ public class BrainReviewServiceImpl
             conclude(round, task, false);
             return;
         }
-        enqueueReviewTurn(task, run.stageId());
+        enqueueReviewTurn(task, run);
         roundStore.save(round.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped());
     }
 
@@ -484,7 +509,7 @@ public class BrainReviewServiceImpl
         }
     }
 
-    private void enqueueReviewTurn(Task task, String stageId)
+    private void enqueueReviewTurn(Task task, AgentRun run)
     {
         Optional<Thread> brainThread = threadStore.findBrainThreadByTask(task.id());
         if (brainThread.isEmpty()) {
@@ -492,8 +517,8 @@ public class BrainReviewServiceImpl
         }
         try {
             scheduler.enqueueTaskTurn(
-                    brainThread.get(), BRAIN_REVIEW_PROMPT, task.id(), stageId,
-                    TurnInitiator.unattended(SOURCE_BRAIN_REVIEW));
+                    brainThread.get(), BRAIN_REVIEW_PROMPT, task.id(), run.stageId(),
+                    TurnInitiator.unattended(SOURCE_BRAIN_REVIEW), run.id());
         }
         catch (RuntimeException e) {
             log.warn("brain-review: review-turn enqueue failed for task {}: {}", task.id(), e.getMessage());

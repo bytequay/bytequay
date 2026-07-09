@@ -56,5 +56,10 @@ public interface BrainReviewService
      * resolved via the live {@link ReviewRound} whose backing run owns
      * the calling turn's stage id).
      */
-    void recordVerdict(String taskId, String stageId, String scope, String verdict);
+    default void recordVerdict(String taskId, String stageId, String scope, String verdict)
+    {
+        recordVerdict(taskId, stageId, null, scope, verdict);
+    }
+
+    void recordVerdict(String taskId, String stageId, String agentRunId, String scope, String verdict);
 }

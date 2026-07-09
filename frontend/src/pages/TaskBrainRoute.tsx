@@ -47,7 +47,7 @@ export function TaskBrainRoute({
   taskId: string;
   onOpenStage: (stageId: string) => void;
   onOpenCode: () => void;
-  /** Navigate to a live run's own log — the rail's Checks/Addressing sub-rows use this. */
+  /** Navigate to a live run's own log — the rail's Remote CI / comments rows use this. */
   onOpenRun?: (runId: string) => void;
   /** Closing a task seals it terminal + reaps its worktree, so the page is
    *  a dead end afterwards — navigate away (back to the thread trunk). */
@@ -60,7 +60,7 @@ export function TaskBrainRoute({
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  // Force-opens the PR tab's own Checks sub-tab — the CI validation node's
+  // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of the <PRView> construction below, which
   // reads it.
   const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks'; token: number } | undefined>(undefined);
@@ -371,9 +371,9 @@ export function TaskBrainRoute({
     prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
     mergeReady: proposalAction(shipProposal) === 'merge_pr',
     viewedStageId: null,
-    // This IS the brain page, so the Root node is the active view.
+    // This IS the brain page, so the Plan node is the active view.
     viewingBrain: true,
-    // Pulse the Root node while the brain is thinking.
+    // Pulse the Plan node while the brain is thinking.
     working,
     // Light the parked stage orange when a gate is awaiting the user's approval.
     awaitingApprovalStageId: data.rightRail.approval?.stageId ?? null,

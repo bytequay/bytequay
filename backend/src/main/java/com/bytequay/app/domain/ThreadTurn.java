@@ -49,8 +49,33 @@ public record ThreadTurn(
          *  trunk-level turns. */
         String stageId,
         /** Explicit TRUNK | TASK | STAGE discriminator (see {@link ThreadScope}). */
-        ThreadScope scope)
+        ThreadScope scope,
+        /** Optional AgentRun episode this turn belongs to; stageId remains
+         *  the execution/session stage. */
+        String agentRunId)
 {
+    /** Constructor for stage-scoped rows that predate run correlation. */
+    public ThreadTurn(
+            String id,
+            String threadId,
+            String taskId,
+            ThreadResourceLane lane,
+            ThreadTurnStatus status,
+            String input,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant startedAt,
+            Instant finishedAt,
+            String errorMessage,
+            TurnInitiator initiator,
+            String stageId,
+            ThreadScope scope)
+    {
+        this(id, threadId, taskId, lane, status, input, createdAt, updatedAt,
+                startedAt, finishedAt, errorMessage, initiator, stageId, scope,
+                /* agentRunId */ null);
+    }
+
     /** Legacy constructor for callers (and rows) that predate the explicit
      *  scope/stage_id fields — derives the scope from the ids and leaves the
      *  stage null. New enqueue paths use the full constructor. */
@@ -70,6 +95,7 @@ public record ThreadTurn(
     {
         this(id, threadId, taskId, lane, status, input, createdAt, updatedAt,
                 startedAt, finishedAt, errorMessage, initiator,
-                /* stageId */ null, ThreadScope.of(taskId, null));
+                /* stageId */ null, ThreadScope.of(taskId, null),
+                /* agentRunId */ null);
     }
 }

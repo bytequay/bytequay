@@ -51,6 +51,15 @@ public interface AgentRunService
             String taskId, String kind, String source, String parentStageId,
             StageType backingStageType, Integer budget);
 
+    /**
+     * Idempotent open for an episode that executes inside an existing stage.
+     * The run's {@code stageId} and {@code parentStageId} both point at
+     * {@code stageId}; terminal run transitions must not close that owning
+     * stage.
+     */
+    AgentRun openInStage(
+            String taskId, String kind, String source, String stageId, Integer budget);
+
     /** Record one more iteration, optionally updating the fold-bar headline. */
     AgentRun recordIteration(String runId, String headlineOrNull);
 

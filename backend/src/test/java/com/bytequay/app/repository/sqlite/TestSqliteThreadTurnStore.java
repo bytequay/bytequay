@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
@@ -97,6 +98,23 @@ class TestSqliteThreadTurnStore
         ThreadTurn reloadedAuto = turns.findTurnById(id(threadId, "auto")).orElseThrow();
         assertThat(reloadedAuto.initiator().attended()).isFalse();
         assertThat(reloadedAuto.initiator().source()).isEqualTo("auto-fix-ci-fail");
+    }
+
+    @Test
+    void agentRunIdRoundTripsThroughTheStore()
+    {
+        String threadId = newTask();
+        Instant now = Instant.parse("2026-05-19T12:00:00Z");
+        ThreadTurn turn = new ThreadTurn(
+                id(threadId, "episode"), threadId, null,
+                ThreadResourceLane.CLI, QUEUED, "input", now, now,
+                null, null, null, TurnInitiator.unattended("review-round"),
+                null, ThreadScope.TRUNK, "run-1");
+
+        turns.saveTurn(turn);
+
+        ThreadTurn reloaded = turns.findTurnById(id(threadId, "episode")).orElseThrow();
+        assertThat(reloaded.agentRunId()).isEqualTo("run-1");
     }
 
     @Test

@@ -223,14 +223,15 @@ public class PRRecordToolHandlers
     {
         String taskId = call.taskId();
         String stageId = call.stageId();
-        if (taskId == null || stageId == null) {
+        if (taskId == null) {
             return false;
         }
         return roundStore.findLiveByTask(taskId)
                 .filter(r -> ReviewRound.STATUS_TRIAGING.equals(r.status()))
                 .filter(r -> r.runId() != null)
+                .filter(r -> call.agentRunId() == null || r.runId().equals(call.agentRunId()))
                 .flatMap(r -> agentRuns.findById(r.runId()))
-                .map(run -> stageId.equals(run.stageId()))
+                .map(run -> stageId != null && stageId.equals(run.stageId()))
                 .orElse(false);
     }
 

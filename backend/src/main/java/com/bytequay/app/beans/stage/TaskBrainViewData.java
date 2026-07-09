@@ -26,16 +26,15 @@ import java.util.List;
  * loop, conversation, and cost machinery land.
  *
  * @param liveRuns the task's live-or-gated {@link AgentRun}s — what the
- *                 plan rail renders sub-rows from (R5: rail data never
- *                 drifts from the run table; folded into this existing
- *                 payload rather than a separate endpoint, since nothing
- *                 else consumes the rail standalone)
+ *                 plan rail renders CI/comment rows from (folded into this
+ *                 existing payload rather than a separate endpoint, since
+ *                 nothing else consumes the rail standalone)
  * @param guard the task's branch guard state, always present (a disabled
  *              row is created lazily)
  * @param liveRound the task's currently-open {@link ReviewRound} (not yet
- *                  posted/closed), or null — drives the Comments node's
- *                  "round N · M open" rail meta, same folded-in-payload
- *                  rationale as {@code liveRuns}/{@code guard}
+ *                  posted/closed), or null — drives the Remote Development
+ *                  comments row, same folded-in-payload rationale as
+ *                  {@code liveRuns}/{@code guard}
  * @param devPhases Development's in-stage phase ladder (Implementing /
  *                  Validation / Brain review, plan-rail-runs.md R29) — empty
  *                  until a Development stage exists

@@ -18,7 +18,7 @@ import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.domain.BranchGuard.Health;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
@@ -34,6 +34,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.RebaseOutcome;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.AutomationCoordinator;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
@@ -73,6 +74,7 @@ public class BranchGuardJob
     private final NotificationService notifications;
     private final PullRequestService pullRequests;
     private final ObjectMapper mapper;
+    private final RemoteDevelopmentStageService remoteStages;
 
     public BranchGuardJob(
             BranchGuardStore guards,
@@ -85,7 +87,8 @@ public class BranchGuardJob
             AgentRunService agentRuns,
             NotificationService notifications,
             PullRequestService pullRequests,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            RemoteDevelopmentStageService remoteStages)
     {
         this.guards = requireNonNull(guards, "guards is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -98,6 +101,7 @@ public class BranchGuardJob
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
     }
 
     @Scheduled(fixedDelay = NIGHTLY_MS, initialDelay = NIGHTLY_MS)
@@ -182,9 +186,10 @@ public class BranchGuardJob
             Task task, Thread thread, BranchGuard guard, Path worktree, String baseRef, RebaseOutcome outcome)
             throws Exception
     {
-        AgentRun run = agentRuns.open(
+        StageInstance remoteStage = remoteStages.ensureOpen(task.id());
+        AgentRun run = agentRuns.openInStage(
                 task.id(), AgentRun.KIND_BRANCH_GUARD, AgentRun.SOURCE_SCHEDULED,
-                /* parentStageId */ null, StageType.BRANCH_GUARD_STAGE, /* budget */ null);
+                remoteStage.id().toString(), /* budget */ null);
         if (outcome != RebaseOutcome.CLEAN) {
             askAgentToResolve(task, thread, guard, run, baseRef,
                     "main drifted and would conflict on rebase");
@@ -238,7 +243,8 @@ public class BranchGuardJob
                 + "you're done.";
         try {
             scheduler.enqueueTaskTurn(
-                    thread, prompt, task.id(), run.stageId(), TurnInitiator.unattended("branch-guard-fix"));
+                    thread, prompt, task.id(), run.stageId(),
+                    TurnInitiator.unattended("branch-guard-fix"), run.id());
             guards.save(guard.withState(BranchGuard.STATE_FIXING).withLastRun(run.id(), Instant.now()));
         }
         catch (RuntimeException e) {
@@ -256,7 +262,7 @@ public class BranchGuardJob
             return;
         }
         ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
-        if (turn == null || turn.stageId() == null || !isRunsBackingStage(guard.lastRunId(), turn.stageId())) {
+        if (turn == null || !matchesRunTurn(guard.lastRunId(), turn)) {
             return;
         }
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
@@ -287,9 +293,22 @@ public class BranchGuardJob
         }
     }
 
-    private boolean isRunsBackingStage(String runId, String stageId)
+    private boolean matchesRunTurn(String runId, ThreadTurn turn)
     {
-        return agentRuns.findById(runId).map(AgentRun::stageId).map(stageId::equals).orElse(false);
+        if (runId == null || turn == null) {
+            return false;
+        }
+        String agentRunId = turn.agentRunId();
+        if (agentRunId != null && !agentRunId.isBlank()) {
+            return runId.equals(agentRunId);
+        }
+        if (!"branch-guard-fix".equals(turn.initiator().source())) {
+            return false;
+        }
+        return turn.stageId() != null
+                && agentRuns.findById(runId)
+                        .map(run -> turn.stageId().equals(run.stageId()))
+                        .orElse(false);
     }
 
     private void parkNeedsAttention(Task task, BranchGuard guard, String runId, String reason)

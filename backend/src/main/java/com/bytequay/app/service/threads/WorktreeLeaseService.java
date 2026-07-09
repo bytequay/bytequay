@@ -173,6 +173,16 @@ public class WorktreeLeaseService
         return find(worktreePath).isPresent();
     }
 
+    /** True when the worktree is leased by a different task. Same-task
+     *  remote wakeups are reentrant: the stage session may already hold
+     *  the lease between CI/comment/guard turns. */
+    public boolean isHeldByAnotherTask(String worktreePath, String taskId)
+    {
+        return find(worktreePath)
+                .filter(lease -> taskId == null || !taskId.equals(lease.taskId()))
+                .isPresent();
+    }
+
     /** All currently-recorded leases. The automation coordinator's
      *  reaper sweeps this list and releases any whose holder process
      *  no longer exists. */

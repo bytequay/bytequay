@@ -80,7 +80,7 @@ public class StageBudgetService
 
     /**
      * Seed a freshly-opened monitor stage's metrics: ci-fixing gets a
-     * budget and autonomous pushes; review-monitor gates every push. A
+     * budget and autonomous pushes; remote development gates every push. A
      * no-op for every other stage type.
      */
     @Transactional
@@ -89,7 +89,7 @@ public class StageBudgetService
         switch (stage.type()) {
             case CI_FIXING_STAGE -> writeMetrics(stage.id(),
                     StageMetrics.empty().withBudget(AutoPushBudget.fresh(DEFAULT_AUTO_PUSH_BUDGET)));
-            case REVIEW_MONITOR_STAGE -> writeMetrics(stage.id(),
+            case REMOTE_DEVELOPMENT_STAGE, REVIEW_MONITOR_STAGE -> writeMetrics(stage.id(),
                     StageMetrics.empty().withInternalReviewEnabled(true));
             default -> {
                 // No metrics seeded for non-monitor stages.

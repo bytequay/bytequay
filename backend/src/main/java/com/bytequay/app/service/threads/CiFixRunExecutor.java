@@ -18,7 +18,7 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
@@ -32,6 +32,7 @@ import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,9 +56,9 @@ import static java.util.Objects.requireNonNull;
  * The CI-fixing loop — lifted from {@link AutomationCoordinator} unchanged
  * (plan-rail-runs.md R7): watch checks (detection stays in AC, which calls
  * in here), read the failing log, fix, commit, re-run, budgeted iterations.
- * Only the bookkeeping moved — attempts/iterations and the run's isolated
- * message home now live on an {@link AgentRun} row instead of an in-memory
- * map + a phase-driven {@code CI_FIXING_STAGE} side effect.
+ * Only the bookkeeping moved — attempts/iterations live on an {@link
+ * AgentRun} row and the turn runs inside Remote Development, instead of an
+ * in-memory map + a phase-driven {@code CI_FIXING_STAGE} side effect.
  *
  * <p>{@link #autoFixTriggered} and {@link #ciFixCooldown} stay in-memory,
  * non-durable maps exactly as they were on {@code AutomationCoordinator} —
@@ -97,6 +98,7 @@ public class CiFixRunExecutor
     private final ObjectMapper mapper;
     private final ThreadTurnStore turnStore;
     private final AgentRunService agentRuns;
+    private final RemoteDevelopmentStageService remoteStages;
 
     /** Tracks tasks that already had an auto-fix turn queued during this
      *  process's lifetime — the dashboard/opt-in path's dedup, moved as-is
@@ -118,7 +120,8 @@ public class CiFixRunExecutor
             GitRunner git,
             ObjectMapper mapper,
             ThreadTurnStore turnStore,
-            AgentRunService agentRuns)
+            AgentRunService agentRuns,
+            RemoteDevelopmentStageService remoteStages)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -131,6 +134,7 @@ public class CiFixRunExecutor
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
     }
 
     /**
@@ -214,7 +218,7 @@ public class CiFixRunExecutor
                     repoFullName, task.id());
             return;
         }
-        if (leaseService.isHeld(task.worktreePath())) {
+        if (leaseService.isHeldByAnotherTask(task.worktreePath(), task.id())) {
             log.info("auto-fix deferred: worktree {} is held (task {}, PR #{})",
                     task.worktreePath(), task.id(), task.linkedPrNumber());
             return;
@@ -244,9 +248,10 @@ public class CiFixRunExecutor
                     thread.id(), thread.status(), task.id(), task.linkedPrNumber());
             return;
         }
-        AgentRun run = agentRuns.open(
-                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null,
-                StageType.CI_FIXING_STAGE, MAX_CI_FIX_ATTEMPTS);
+        StageInstance remoteStage = remoteStages.ensureOpen(task.id());
+        AgentRun run = agentRuns.openInStage(
+                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                remoteStage.id().toString(), MAX_CI_FIX_ATTEMPTS);
         String prompt = buildAutoFixPrompt(task, repoFullName, failingChecks);
         try {
             // Bind the task id + the run's own stage so the turn runs on the
@@ -254,8 +259,8 @@ public class CiFixRunExecutor
             // stage_messages — never the read-only trunk planner, never the
             // thread slice.
             String turnId = scheduler.enqueueTaskTurn(
-                    thread, prompt, task.id(), run.stageId(),
-                    TurnInitiator.unattended("auto-fix-ci-fail"));
+                    thread, prompt, task.id(), remoteStage.id().toString(),
+                    TurnInitiator.unattended("auto-fix-ci-fail"), run.id());
             agentRuns.recordIteration(run.id(), headlineFor(failingRuns));
             log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
                     task.id(), repoFullName, task.worktreePath(),
@@ -322,9 +327,10 @@ public class CiFixRunExecutor
             // Last action's CI run hasn't had time to report back yet.
             return false;
         }
-        AgentRun run = agentRuns.open(
-                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null,
-                StageType.CI_FIXING_STAGE, MAX_CI_FIX_ATTEMPTS);
+        StageInstance remoteStage = remoteStages.ensureOpen(task.id());
+        AgentRun run = agentRuns.openInStage(
+                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                remoteStage.id().toString(), MAX_CI_FIX_ATTEMPTS);
         if (run.iterations() >= MAX_CI_FIX_ATTEMPTS) {
             return escalateShippedCiFix(run, task, repoFullName, ci);
         }
@@ -383,7 +389,7 @@ public class CiFixRunExecutor
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return;
         }
-        if (leaseService.isHeld(task.worktreePath())) {
+        if (leaseService.isHeldByAnotherTask(task.worktreePath(), task.id())) {
             log.info("shipped CI-fix deferred: worktree {} held (task {}, PR #{})",
                     task.worktreePath(), task.id(), task.linkedPrNumber());
             return;
@@ -409,7 +415,7 @@ public class CiFixRunExecutor
             // the fix's messages in stage_messages instead of the thread slice.
             String turnId = scheduler.enqueueTaskTurn(
                     thread, prompt, task.id(), run.stageId(),
-                    TurnInitiator.unattended("ci-fix-shipped"));
+                    TurnInitiator.unattended("ci-fix-shipped"), run.id());
             AgentRun updated = agentRuns.recordIteration(run.id(), headlineFor(failingRuns));
             ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
             log.info("shipped CI-fix queued: task {} on {} PR #{} → turn {} (iteration {})",

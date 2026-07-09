@@ -18,6 +18,8 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.ReviewRound;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -39,6 +41,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
@@ -73,7 +76,7 @@ class TestReviewRoundService
     private static final String TASK_ID = "t1.k1";
     private static final String REPO = "acme/widgets";
     private static final int PR_NUMBER = 42;
-    private static final UUID BACKING_STAGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+    private static final UUID REMOTE_STAGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
 
     private final TaskStore taskStore = mock(TaskStore.class);
     private final StageStore stageStore = mock(StageStore.class);
@@ -86,9 +89,10 @@ class TestReviewRoundService
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final GitRunner git = mock(GitRunner.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final RemoteDevelopmentStageService remoteStages = mock(RemoteDevelopmentStageService.class);
     private final ReviewRoundServiceImpl service = new ReviewRoundServiceImpl(
             taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore,
-            phaseMachine, pullRequests, git, brainReview, Clock.fixed(NOW, ZoneOffset.UTC));
+            phaseMachine, pullRequests, git, brainReview, remoteStages, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void reconcileNeverOpensASecondRoundButRefreshesTheLiveOnesStats()
@@ -124,6 +128,7 @@ class TestReviewRoundService
         service.reconcile(task);
 
         verify(agentRuns, never()).open(any(), any(), any(), any(), any(), any());
+        verify(agentRuns, never()).openInStage(any(), any(), any(), any(), any());
         verify(roundStore, never()).save(any());
     }
 
@@ -136,14 +141,17 @@ class TestReviewRoundService
         ReviewComment c2 = comment("c2", NOW.minus(Duration.ofMinutes(12)));
         when(stageStore.findUnroundedRemoteComments(TASK_ID)).thenReturn(List.of(c1, c2));
         when(roundStore.nextIndex(TASK_ID)).thenReturn(1);
+        when(remoteStages.ensureOpen(TASK_ID)).thenReturn(remoteStage());
         AgentRun run = new AgentRun(
-                "run1", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
-                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
-        when(agentRuns.open(eq(TASK_ID), eq(AgentRun.KIND_REVIEW_ROUND), eq(AgentRun.SOURCE_REMOTE),
-                any(), eq(StageType.REVIEW_ROUND_STAGE), eq(null))).thenReturn(run);
+                "run1", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID.toString(), null,
+                REMOTE_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.openInStage(eq(TASK_ID), eq(AgentRun.KIND_REVIEW_ROUND), eq(AgentRun.SOURCE_REMOTE),
+                eq(REMOTE_STAGE_ID.toString()), eq(null))).thenReturn(run);
         Thread thread = idleThread();
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any())).thenReturn("turn-1");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("turn-1");
 
         service.reconcile(task);
 
@@ -154,7 +162,8 @@ class TestReviewRoundService
                 // the rail's "N comments" banner must be right from round 1,
                 // not just after the first resolve.
                 && r.stats().open() == 2 && r.stats().fixed() == 0 && r.stats().replied() == 0));
-        verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq(TASK_ID), eq(run.stageId()), any());
+        verify(scheduler).enqueueTaskTurn(
+                eq(thread), anyString(), eq(TASK_ID), eq(run.stageId()), any(), eq(run.id()));
     }
 
     @Test
@@ -223,12 +232,8 @@ class TestReviewRoundService
         ReviewRound live = round(ReviewRound.STATUS_ADDRESSING);
         Task task = task();
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(live));
-        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(BACKING_STAGE_ID.toString())));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(REMOTE_STAGE_ID.toString(), live.runId())));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        AgentRun run = new AgentRun(
-                live.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
-                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, null, null, null, NOW, null);
-        when(agentRuns.findById(live.runId())).thenReturn(Optional.of(run));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
@@ -247,7 +252,8 @@ class TestReviewRoundService
         ReviewRound alreadyLooping = round(ReviewRound.STATUS_ADDRESSING).withBrainVerdict(
                 ReviewRound.VERDICT_CHANGES_REQUESTED);
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(alreadyLooping));
-        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(BACKING_STAGE_ID.toString())));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(REMOTE_STAGE_ID.toString(),
+                alreadyLooping.runId())));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
@@ -255,15 +261,12 @@ class TestReviewRoundService
     }
 
     @Test
-    void onTurnFinishedIgnoresATurnFromADifferentStage()
+    void onTurnFinishedIgnoresATurnFromADifferentRun()
     {
         ReviewRound live = round(ReviewRound.STATUS_ADDRESSING);
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(live));
-        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn("some-other-stage")));
-        AgentRun run = new AgentRun(
-                live.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
-                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, null, null, null, NOW, null);
-        when(agentRuns.findById(live.runId())).thenReturn(Optional.of(run));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(REMOTE_STAGE_ID.toString(),
+                "some-other-run")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
@@ -291,10 +294,12 @@ class TestReviewRoundService
         when(stageStore.findUnroundedRemoteComments(TASK_ID)).thenReturn(
                 List.of(comment("c1", NOW.minus(Duration.ofMinutes(15)))));
         when(roundStore.nextIndex(TASK_ID)).thenReturn(1);
+        when(remoteStages.ensureOpen(TASK_ID)).thenReturn(remoteStage());
         AgentRun run = new AgentRun(
-                "run1", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
-                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
-        when(agentRuns.open(any(), any(), any(), any(), any(), any())).thenReturn(run);
+                "run1", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID.toString(), null,
+                REMOTE_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.openInStage(any(), any(), any(), any(), any())).thenReturn(run);
 
         service.reconcile(task);
 
@@ -346,11 +351,23 @@ class TestReviewRoundService
 
     private static ThreadTurn turn(String stageId)
     {
+        return turn(stageId, null);
+    }
+
+    private static ThreadTurn turn(String stageId, String runId)
+    {
         return new ThreadTurn(
                 "turn-1", "t1", TASK_ID, ThreadResourceLane.CLI,
                 ThreadTurnStatus.COMPLETED, "prompt", NOW, NOW, NOW, NOW,
                 null, TurnInitiator.unattended("review-round"),
-                stageId, ThreadScope.TASK);
+                stageId, ThreadScope.TASK, runId);
+    }
+
+    private static StageInstance remoteStage()
+    {
+        return new StageInstance(
+                REMOTE_STAGE_ID, TASK_ID, StageType.REMOTE_DEVELOPMENT_STAGE,
+                StageState.OPEN, NOW, null, null);
     }
 
     private static ReviewRound round(String status)

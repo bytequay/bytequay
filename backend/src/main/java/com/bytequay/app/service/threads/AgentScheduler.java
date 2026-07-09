@@ -168,7 +168,9 @@ public class AgentScheduler
     public String enqueueTrunkTurn(Thread thread, String input)
     {
         // Trunk turn: no task, no stage — planning altitude.
-        return enqueueTurnInternal(thread, input, /* taskId */ null, /* stageId */ null, TurnInitiator.user());
+        return enqueueTurnInternal(
+                thread, input, /* taskId */ null, /* stageId */ null,
+                TurnInitiator.user(), /* agentRunId */ null);
     }
 
     /**
@@ -196,7 +198,7 @@ public class AgentScheduler
         String stageId = taskId == null || taskId.isBlank()
                 ? null
                 : stages.findActiveStage(taskId).map(s -> s.id().toString()).orElse(null);
-        return enqueueTurnInternal(thread, input, taskId, stageId, initiator);
+        return enqueueTurnInternal(thread, input, taskId, stageId, initiator, null);
     }
 
     @Override
@@ -207,11 +209,20 @@ public class AgentScheduler
         // stage is known) — bypass findActiveStage so the turn is stage-scoped
         // even if the active-stage projection is momentarily empty. A turn that
         // carries a stage_id writes to stage_messages, never the thread slice.
-        return enqueueTurnInternal(thread, input, taskId, stageId, initiator);
+        return enqueueTurnInternal(thread, input, taskId, stageId, initiator, null);
+    }
+
+    @Override
+    public String enqueueTaskTurn(
+            Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId)
+    {
+        return enqueueTurnInternal(thread, input, taskId, stageId, initiator, agentRunId);
     }
 
     private String enqueueTurnInternal(
-            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator)
+            Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId)
     {
         requireNonNull(thread, "thread is null");
         requireNonNull(input, "input is null");
@@ -234,7 +245,8 @@ public class AgentScheduler
                 /* errorMessage */ null,
                 initiator,
                 stageId,
-                ThreadScope.of(taskId, stageId));
+                ThreadScope.of(taskId, stageId),
+                agentRunId);
         turns.saveTurn(turn);
         appendEvent(turn, TURN_QUEUED, null);
         enqueuePersistedTurn(turn);
@@ -536,6 +548,7 @@ public class AgentScheduler
             // Tell the session which stage this turn runs under so the
             // messages it emits inherit an explicit stage_id.
             session.setActiveStage(runningTurn.stageId());
+            session.setActiveAgentRun(runningTurn.agentRunId());
             completion = requireNonNull(
                     session.send(runningTurn.input()),
                     "session send returned null");
@@ -691,7 +704,8 @@ public class AgentScheduler
                 // running turn's stage id, and the running row must keep the
                 // scope so the permission resolver reads the right role.
                 turn.stageId(),
-                turn.scope());
+                turn.scope(),
+                turn.agentRunId());
     }
 
     private static Throwable unwrap(Throwable failure)

@@ -19,7 +19,7 @@ import type { GuardChipData, LivePlanNode, LivePlanPhaseNode } from './livePlanM
  *  future stage that hasn't been instantiated, or a milestone pseudo-node
  *  with no PR yet). `nt-<nodeType>` carries the R26/R30 node-type styling
  *  (gates render dashed, matching stage-phase-rail.html's `.nd.gate`).
- *  `toggle`, when present (Development once it has phase data), renders a
+ *  `toggle`, when present (a lifecycle node with phase rows), renders a
  *  separate small chevron button alongside the main one — the main button
  *  always navigates, the chevron expands/collapses the phase ladder, so
  *  neither affordance shadows the other. */
@@ -73,9 +73,9 @@ function PlanNode({ node, onClick, small, toggle }: {
   );
 }
 
-/** One row of Development's in-stage phase ladder (R29) — nested beneath the
- *  `dev` node with a left accent border, matching stage-phase-rail.html's
- *  `.ph` treatment. */
+/** One row of a lifecycle node's phase ladder — nested beneath its parent
+ *  with a left accent border, matching stage-phase-rail.html's `.ph`
+ *  treatment. */
 function PhaseRow({ phase, onClick }: { phase: LivePlanPhaseNode; onClick: () => void }) {
   const cls = ['plan-phase-row', phase.status].filter(Boolean).join(' ');
   return (
@@ -116,10 +116,10 @@ function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enab
  * Renders the {@link buildLivePlan} node list as a flat spine of full nodes
  * with lazy `sub` rows (Review callable, live Checks/Addressing runs)
  * indented beneath their parent, plus the branch-guard chip above the rail.
- * Clicking a node navigates to its stage (or the changes / PR surface for
- * the Push / Merge milestones). A node with a phase ladder (Development)
- * additionally renders a small chevron button that expands/collapses the
- * ladder in place, independent of navigation.
+ * Clicking a node navigates to its stage (or the PR surface for milestone
+ * rows). A node with a phase ladder additionally renders a small chevron
+ * button that expands/collapses the ladder in place, independent of
+ * navigation.
  */
 export function LivePlan({
   nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
@@ -134,7 +134,7 @@ export function LivePlan({
    *  `subTab` additionally forces the PR tab's own Checks sub-tab (CI
    *  validation). */
   onOpenTab?: (tab: 'pr', subTab?: 'checks') => void;
-  /** Navigate to the task's brain page — the Root node uses this. */
+  /** Navigate to the task's brain page — the Plan node uses this. */
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */
   onOpenRun?: (runId: string) => void;
@@ -156,7 +156,7 @@ export function LivePlan({
 
   // Explicit user toggles for a node's phase ladder, keyed by node key.
   // Absent = default to expanded while the node is still live, collapsed
-  // once it's done (e.g. Development, after it closes).
+  // once it's done (e.g. Local Development, after it closes).
   const [phaseToggles, setPhaseToggles] = useState<Record<string, boolean>>({});
   const phasesExpanded = (node: LivePlanNode): boolean =>
     phaseToggles[node.key] ?? node.status !== 'done';

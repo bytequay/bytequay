@@ -165,30 +165,30 @@ class TestStageLifecycle
         assertActive(taskId, StageType.DEVELOPMENT_STAGE);
         assertThat(stagesOfType(taskId, StageType.DEVELOPMENT_STAGE)).hasSize(1);
 
-        // First push is an unmapped idle wait — DevelopmentStage stays
-        // active. A red check no longer opens a CiFixing stage via the
-        // phase transition; a ci_fix AgentRun opens its own backing stage
-        // directly instead (see AgentRunService), bypassing this lifecycle.
+        // First push leaves local development and opens RemoteDevelopmentStage;
+        // CI-fix runs now work as episodes inside that stage.
         machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
+        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
 
-        // PR merges: DevelopmentStage closes, and the terminal Cleanup stage
+        // PR merges: RemoteDevelopmentStage closes, and the terminal Cleanup stage
         // opens then immediately closes (it's a marker, not live work) — so a
         // finished task leaves nothing "running".
         machine.transition(taskId, TaskPhase.COMPLETED, "merged", Actor.HUMAN);
         assertThat(stageStore.findActiveStage(taskId)).isEmpty();
         assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
+        assertThat(only(taskId, StageType.REMOTE_DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
         assertThat(only(taskId, StageType.CLEANUP_STAGE).state()).isEqualTo(StageState.CLOSED);
 
         List<StageInstance> stages = stageStore.findStagesByTask(taskId);
         assertThat(stages).extracting(StageInstance::type).containsExactlyInAnyOrder(
-                StageType.PLAN_STAGE, StageType.DEVELOPMENT_STAGE, StageType.CLEANUP_STAGE);
+                StageType.PLAN_STAGE, StageType.DEVELOPMENT_STAGE,
+                StageType.REMOTE_DEVELOPMENT_STAGE, StageType.CLEANUP_STAGE);
         // Every stage closed — a finished task has nothing running.
-        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(3);
+        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(4);
     }
 
     @Test
-    void reviewMonitorStageArmsAndStaysThroughRoundActivity()
+    void remoteDevelopmentStageArmsAndStaysThroughRoundActivity()
     {
         String taskId = seedTask();
         events.publishEvent(new TaskCreatedEvent(taskId));
@@ -197,26 +197,23 @@ class TestStageLifecycle
         machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
         machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
         machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "push", Actor.HUMAN);
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
+        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
 
-        // PR out for remote review → review-monitor arms, development closes.
+        // PR out for remote review stays inside RemoteDevelopmentStage.
         machine.transition(taskId, TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green", Actor.WEBHOOK);
-        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
+        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
         assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
 
-        // A review_round AgentRun works beside this phase (its own backing
-        // stage, opened directly — not through a phase transition), so
-        // review-monitor stays the active stage for the task's whole time
-        // on the remote-review spine.
-        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
-        assertThat(stagesOfType(taskId, StageType.REVIEW_MONITOR_STAGE)).hasSize(1);
+        // A review_round AgentRun works as an episode inside this stage, so
+        // RemoteDevelopmentStage stays active for the task's whole time on
+        // the remote-review spine.
+        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
+        assertThat(stagesOfType(taskId, StageType.REMOTE_DEVELOPMENT_STAGE)).hasSize(1);
 
         // The round's gate approval pushes straight to PUSHED_AWAITING_CI —
-        // an unmapped idle wait, same as after any other push, so
-        // review-monitor stays active (mirrors how DevelopmentStage stays
-        // active through the same phase after the first push).
+        // still part of RemoteDevelopmentStage.
         machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "round_approved", Actor.HUMAN);
-        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
+        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
     }
 
     @Test
@@ -252,12 +249,12 @@ class TestStageLifecycle
         machine.transition(taskId, TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green", Actor.WEBHOOK);
         assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
 
-        // Parked (a universal escape, cross-cutting — ReviewMonitor stays
+        // Parked (a universal escape, cross-cutting — RemoteDevelopment stays
         // active through it), then a human recovers it straight back to
         // IMPLEMENTING — a legal edge that re-enters DevelopmentStage's
         // phase set from a LATER stage's active window.
         machine.transition(taskId, TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
-        assertActive(taskId, StageType.REVIEW_MONITOR_STAGE);
+        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
 
         machine.transition(taskId, TaskPhase.IMPLEMENTING, "recovered", Actor.HUMAN);
 

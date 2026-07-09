@@ -59,7 +59,7 @@ public class WorktreeEditStep
             Set.of("Edit", "Write", "MultiEdit", "NotebookEdit");
 
     /** The autonomous work stages whose whole job is editing the worktree —
-     *  Development, Addressing-comments (the review monitor) and Cleanup.
+     *  Development, Remote Development and Cleanup.
      *  In-worktree edits during these stages are always allowed, with no
      *  prompt and regardless of the manual accept-edits toggle; the
      *  read-only PlanStage is deliberately excluded. CI-fixing is no longer
@@ -67,7 +67,7 @@ public class WorktreeEditStep
      *  covers it instead. */
     private static final Set<StageType> ALWAYS_EDIT_STAGES = Set.of(
             StageType.DEVELOPMENT_STAGE,
-            StageType.REVIEW_MONITOR_STAGE,
+            StageType.REMOTE_DEVELOPMENT_STAGE,
             StageType.CLEANUP_STAGE);
 
     /** Input keys the file-edit tools carry their target path under. */

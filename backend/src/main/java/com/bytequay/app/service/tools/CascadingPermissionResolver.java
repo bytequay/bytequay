@@ -89,7 +89,7 @@ public class CascadingPermissionResolver
     public RunningScope runningScope(String threadId, String agentKey)
     {
         return runningTurn(threadId, agentKey)
-                .map(turn -> new RunningScope(turn.taskId(), turn.stageId()))
+                .map(turn -> new RunningScope(turn.taskId(), turn.stageId(), turn.agentRunId()))
                 .orElse(RunningScope.NONE);
     }
 

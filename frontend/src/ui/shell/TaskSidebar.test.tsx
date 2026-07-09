@@ -35,8 +35,8 @@ describe('TaskSidebar', () => {
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
     expect(screen.getByText('feat/cost-meter')).toBeTruthy();
     expect(screen.getByText('Live plan')).toBeTruthy();
-    // The live plan leads with the Root node (brain/root conversation).
-    expect(screen.getByText('Root')).toBeTruthy();
+    expect(screen.getByText('Plan')).toBeTruthy();
+    expect(screen.getByText('Remote Development')).toBeTruthy();
     expect(screen.getByText('Cleanup')).toBeTruthy();
   });
 
@@ -71,7 +71,7 @@ describe('TaskSidebar', () => {
         onOpenStage={onOpenStage}
       />,
     );
-    fireEvent.click(screen.getByText('Development'));
+    fireEvent.click(screen.getByText('Local Development'));
     expect(onOpenStage).toHaveBeenCalledWith('dev-1');
   });
 });

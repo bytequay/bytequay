@@ -14,6 +14,9 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageType;
@@ -27,6 +30,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.tools.BrainToolHandlers.CheckCoverageArgs;
@@ -70,6 +74,8 @@ class TestBrainToolHandlers
     private PlanStageService planStageService;
     @Autowired
     private StageStore stageStore;
+    @Autowired
+    private PRService prService;
     @Autowired
     private TaskStore taskStore;
     @Autowired
@@ -123,15 +129,38 @@ class TestBrainToolHandlers
         stageStore.saveReviewComment(new ReviewComment(
                 null, taskId, "src/Foo.java", 12, "nit", Instant.parse("2026-06-20T10:00:00Z"),
                 ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null, "RIGHT", null, null));
+        PR pr = prService.createForTask(taskId, "dev/" + taskId, "main", "Brain tools PR", "");
+        prService.addComment(
+                pr.id(),
+                PRComment.ORIGIN_LOCAL,
+                PRComment.SCOPE_FILE_LINE,
+                "src/Bar.java",
+                14,
+                "RIGHT",
+                null,
+                null,
+                PRTimelineEntry.ACTOR_AGENT,
+                "agent note",
+                null);
 
         ToolOutcome.Completed all = completed(tools.listUnresolvedComments(
                 new UnresolvedCommentsArgs(taskId, null), CALL));
         assertThat(all.isError()).isFalse();
-        assertThat(all.text()).contains("src/Foo.java").contains("LOCAL_USER");
+        assertThat(all.text())
+                .contains("src/Foo.java").contains("LOCAL_USER")
+                .contains("src/Bar.java").contains("LOCAL_AGENT");
+
+        ToolOutcome.Completed localUser = completed(tools.listUnresolvedComments(
+                new UnresolvedCommentsArgs(taskId, "LOCAL_USER"), CALL));
+        assertThat(localUser.text()).contains("src/Foo.java").doesNotContain("src/Bar.java");
+
+        ToolOutcome.Completed localAgent = completed(tools.listUnresolvedComments(
+                new UnresolvedCommentsArgs(taskId, "LOCAL_AGENT"), CALL));
+        assertThat(localAgent.text()).contains("src/Bar.java").doesNotContain("src/Foo.java");
 
         ToolOutcome.Completed remote = completed(tools.listUnresolvedComments(
                 new UnresolvedCommentsArgs(taskId, "REMOTE_REVIEWER"), CALL));
-        assertThat(remote.text()).doesNotContain("src/Foo.java");
+        assertThat(remote.text()).doesNotContain("src/Foo.java").doesNotContain("src/Bar.java");
 
         ToolOutcome.Completed bad = completed(tools.listUnresolvedComments(
                 new UnresolvedCommentsArgs(taskId, "NONSENSE"), CALL));

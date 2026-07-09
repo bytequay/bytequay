@@ -15,6 +15,9 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.LocalCommitDetail;
 import com.bytequay.app.domain.LocalCommitFile;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewComment;
@@ -26,6 +29,7 @@ import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.LocalRepoService;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -73,6 +77,7 @@ public class BrainToolHandlers
     private final StageStore stageStore;
     private final PullRequestService pullRequests;
     private final LocalRepoService localRepos;
+    private final PRService prService;
     private final ObjectMapper mapper;
 
     public BrainToolHandlers(
@@ -80,12 +85,14 @@ public class BrainToolHandlers
             StageStore stageStore,
             PullRequestService pullRequests,
             LocalRepoService localRepos,
+            PRService prService,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.localRepos = requireNonNull(localRepos, "localRepos is null");
+        this.prService = requireNonNull(prService, "prService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -390,10 +397,19 @@ public class BrainToolHandlers
         if (args.source() != null && source == null) {
             return ToolOutcome.Completed.error("unknown source: " + args.source());
         }
-        List<CommentRow> rows = stageStore.findUnresolvedComments(args.taskId()).stream()
+        List<CommentRow> rows = new ArrayList<>(stageStore.findUnresolvedComments(args.taskId()).stream()
                 .filter(c -> source == null || c.source() == source)
                 .map(BrainToolHandlers::commentRow)
-                .toList();
+                .toList());
+        prService.findByTask(args.taskId())
+                .map(PR::id)
+                .map(prService::comments)
+                .orElse(List.of())
+                .stream()
+                .filter(BrainToolHandlers::isOpenRootComment)
+                .filter(c -> source == null || source.name().equals(source(c)))
+                .map(BrainToolHandlers::commentRow)
+                .forEach(rows::add);
         return ok(rows);
     }
 
@@ -491,6 +507,34 @@ public class BrainToolHandlers
     private static CommentRow commentRow(ReviewComment c)
     {
         return new CommentRow(c.file(), c.line(), c.body(), c.source().name(), c.remoteLink());
+    }
+
+    private static CommentRow commentRow(PRComment c)
+    {
+        return new CommentRow(
+                c.filePath(),
+                c.lineNumber() == null ? 0 : c.lineNumber(),
+                c.body(),
+                source(c),
+                null);
+    }
+
+    private static boolean isOpenRootComment(PRComment c)
+    {
+        return c.parentCommentId() == null
+                && c.resolvedAt() == null
+                && c.dismissedAt() == null;
+    }
+
+    private static String source(PRComment c)
+    {
+        if (PRComment.ORIGIN_REMOTE.equals(c.origin())) {
+            return ReviewCommentSource.REMOTE_REVIEWER.name();
+        }
+        return PRTimelineEntry.ACTOR_AGENT.equals(c.author())
+                || PRTimelineEntry.ACTOR_BRAIN.equals(c.author())
+                ? ReviewCommentSource.LOCAL_AGENT.name()
+                : ReviewCommentSource.LOCAL_USER.name();
     }
 
     private static ReviewCommentSource parseSource(String raw)

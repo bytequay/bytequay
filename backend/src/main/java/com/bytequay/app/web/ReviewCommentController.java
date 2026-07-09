@@ -57,13 +57,13 @@ public class ReviewCommentController
         }
         int line = body.line() == null ? 0 : body.line();
         return ReviewCommentDto.from(reviewComments.add(
-                taskId, body.file(), line, body.side(), body.startLine(), body.startSide(), body.body()));
+                taskId, body.file(), line, body.side(), body.startLine(), body.startSide(), body.body()), taskId);
     }
 
     @GetMapping("/api/tasks/{taskId}/review-comments")
     public List<ReviewCommentDto> list(@PathVariable String taskId)
     {
-        return reviewComments.list(taskId).stream().map(ReviewCommentDto::from).toList();
+        return reviewComments.list(taskId).stream().map(c -> ReviewCommentDto.from(c, taskId)).toList();
     }
 
     @PostMapping("/api/review-comments/{id}/resolve")

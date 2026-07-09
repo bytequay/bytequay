@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -538,6 +539,33 @@ class TestPublishService
 
         // The gate runs in preflight, before any claim or remote side effect.
         verify(notifications, never()).claimResolution("notif-ship-gate");
+        verify(taskService, never()).shipApprovedParkedTask(anyString(), anyString(), any());
+    }
+
+    @Test
+    void approveShipTaskRejectedWhenTaskHasUnresolvedPrComments()
+    {
+        Notification parked = parkedShipTask("notif-ship-pr-gate", "task-ship-pr-gate");
+        when(notifications.find("notif-ship-pr-gate")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-ship-pr-gate"))
+                .thenReturn(Optional.of(taskAt("task-ship-pr-gate", TaskStatus.AWAITING_REVIEW)));
+        PR pr = PR.create(
+                "pr-ship-pr-gate",
+                "task-ship-pr-gate",
+                "dev/task-ship-pr-gate",
+                "main",
+                "Task",
+                "",
+                Instant.now());
+        when(prService.findByTask("task-ship-pr-gate")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr-ship-pr-gate"))
+                .thenReturn(List.of(openPrComment("pr-ship-pr-gate")));
+
+        assertThatThrownBy(() -> service.approve("notif-ship-pr-gate", null, "ship_task"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("open review comment");
+
+        verify(notifications, never()).claimResolution("notif-ship-pr-gate");
         verify(taskService, never()).shipApprovedParkedTask(anyString(), anyString(), any());
     }
 
@@ -1312,6 +1340,28 @@ class TestPublishService
                 UUID.randomUUID(), taskId, "src/Foo.java", 12, "fix this",
                 Instant.now(), ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null,
                 "RIGHT", null, null);
+    }
+
+    private static PRComment openPrComment(String prId)
+    {
+        return new PRComment(
+                UUID.randomUUID().toString(),
+                prId,
+                PRComment.ORIGIN_LOCAL,
+                PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java",
+                12,
+                PRTimelineEntry.ACTOR_USER,
+                "fix this",
+                Instant.now(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                "RIGHT",
+                null,
+                null);
     }
 
     private static Notification parkedApprovePr(

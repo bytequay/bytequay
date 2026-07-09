@@ -13,12 +13,19 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +40,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -42,10 +50,13 @@ import static org.mockito.Mockito.when;
 class TestReviewCommentService
 {
     private static final Instant NOW = Instant.parse("2026-06-24T09:00:00Z");
+    private static final PR TASK_PR = PR.create("pr-1", "task-1", "dev/task-1", "main", "Task", "", NOW);
 
     private StageStore stageStore;
     private StageSteeringService steering;
     private ReviewRoundService reviewRounds;
+    private PRService prService;
+    private TaskStore taskStore;
     private ReviewCommentServiceImpl service;
 
     @BeforeEach
@@ -54,28 +65,37 @@ class TestReviewCommentService
         stageStore = mock(StageStore.class);
         steering = mock(StageSteeringService.class);
         reviewRounds = mock(ReviewRoundService.class);
-        service = new ReviewCommentServiceImpl(stageStore, steering, reviewRounds);
+        prService = mock(PRService.class);
+        taskStore = mock(TaskStore.class);
+        service = new ReviewCommentServiceImpl(stageStore, steering, reviewRounds, prService, taskStore);
     }
 
     @Test
-    void addPersistsALocalUserComment()
+    void addPersistsALocalUserCommentOnTheTaskPr()
     {
-        when(stageStore.saveReviewComment(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task("task-1")));
+        when(prService.findByTask("task-1")).thenReturn(Optional.empty());
+        when(prService.createForTask("task-1", "dev/task-1", "main", "Task 1", "")).thenReturn(TASK_PR);
+        PRComment saved = prComment("c1", false);
+        when(prService.addComment(eq("pr-1"), anyString(), anyString(), anyString(), any(), any(), any(), any(),
+                anyString(), anyString(), any())).thenReturn(saved);
 
-        ReviewComment saved = service.add("task-1", "src/Foo.java", 42, null, null, null, "fix this");
+        PRComment result = service.add("task-1", "src/Foo.java", 42, null, null, null, "fix this");
 
-        ArgumentCaptor<ReviewComment> captor = ArgumentCaptor.forClass(ReviewComment.class);
-        verify(stageStore).saveReviewComment(captor.capture());
-        ReviewComment persisted = captor.getValue();
-        assertThat(persisted.taskId()).isEqualTo("task-1");
-        assertThat(persisted.file()).isEqualTo("src/Foo.java");
-        assertThat(persisted.line()).isEqualTo(42);
-        assertThat(persisted.body()).isEqualTo("fix this");
-        assertThat(persisted.source()).isEqualTo(ReviewCommentSource.LOCAL_USER);
-        assertThat(persisted.resolved()).isFalse();
-        assertThat(persisted.remoteLink()).isNull();
-        assertThat(persisted.id()).isNotNull();
-        assertThat(saved).isSameAs(persisted);
+        assertThat(result).isSameAs(saved);
+        verify(prService).addComment(
+                "pr-1",
+                PRComment.ORIGIN_LOCAL,
+                PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java",
+                42,
+                null,
+                null,
+                null,
+                PRTimelineEntry.ACTOR_USER,
+                "fix this",
+                null);
+        verify(stageStore, never()).saveReviewComment(any());
     }
 
     @Test
@@ -83,55 +103,67 @@ class TestReviewCommentService
     {
         assertThatThrownBy(() -> service.add("task-1", "src/Foo.java", 1, null, null, null, "  "))
                 .isInstanceOf(ResponseStatusException.class);
-        verify(stageStore, never()).saveReviewComment(any());
+        verify(prService, never()).addComment(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    void addAnchorsToTheRemovedSideAndDefaultsBlankSideToRight()
+    void addKeepsSideAndRangeOnThePrComment()
     {
-        when(stageStore.saveReviewComment(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(TASK_PR));
+        when(prService.addComment(eq("pr-1"), anyString(), anyString(), anyString(), any(), any(), any(), any(),
+                anyString(), anyString(), any()))
+                .thenReturn(prComment("c1", false));
 
-        ReviewComment onLeft = service.add("task-1", "src/Foo.java", 42, "left", null, null, "removed line");
-        assertThat(onLeft.side()).isEqualTo("LEFT");
+        service.add("task-1", "src/Foo.java", 45, "LEFT", 40, "LEFT", "spans a few lines");
 
-        ReviewComment blank = service.add("task-1", "src/Foo.java", 42, null, null, null, "no side given");
-        assertThat(blank.side()).isEqualTo("RIGHT");
+        verify(prService).addComment(
+                "pr-1",
+                PRComment.ORIGIN_LOCAL,
+                PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java",
+                45,
+                "LEFT",
+                40,
+                "LEFT",
+                PRTimelineEntry.ACTOR_USER,
+                "spans a few lines",
+                null);
     }
 
     @Test
-    void addBuildsAMultiLineRangeWhenStartLineDiffers()
+    void listReturnsInlineCommentsForTheTaskPr()
     {
-        when(stageStore.saveReviewComment(any())).thenAnswer(inv -> inv.getArgument(0));
+        PRComment inline = prComment("inline", false);
+        PRComment prLevel = new PRComment(
+                "pr-level", "pr-1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, PRTimelineEntry.ACTOR_USER, "general", NOW, null, null,
+                null, null, null, "RIGHT", null, null);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(TASK_PR));
+        when(prService.comments("pr-1")).thenReturn(List.of(prLevel, inline));
 
-        ReviewComment range = service.add("task-1", "src/Foo.java", 45, "RIGHT", 40, null, "spans a few lines");
-
-        assertThat(range.startLine()).isEqualTo(40);
-        assertThat(range.startSide()).isEqualTo("RIGHT");
+        assertThat(service.list("task-1")).containsExactly(inline);
     }
 
     @Test
-    void listReturnsAllForTheTask()
-    {
-        ReviewComment c = comment(UUID.randomUUID(), "task-1", false);
-        when(stageStore.findCommentsByTask("task-1")).thenReturn(List.of(c));
-
-        assertThat(service.list("task-1")).containsExactly(c);
-    }
-
-    @Test
-    void resolveFlipsTheFlag()
+    void resolveFlipsAPrCommentWhenItIsNotALegacyRoundComment()
     {
         UUID id = UUID.randomUUID();
+        when(stageStore.findReviewCommentById(id)).thenReturn(Optional.empty());
+
         service.resolve(id);
-        verify(stageStore).setReviewCommentResolved(id, true);
+
+        verify(prService).resolveComment(id.toString());
     }
 
     @Test
-    void reopenFlipsTheFlagBack()
+    void reopenFlipsAPrCommentBackWhenItIsNotALegacyRoundComment()
     {
         UUID id = UUID.randomUUID();
+        when(stageStore.findReviewCommentById(id)).thenReturn(Optional.empty());
+
         service.reopen(id);
-        verify(stageStore).setReviewCommentResolved(id, false);
+
+        verify(prService).reopenComment(id.toString());
     }
 
     @Test
@@ -147,11 +179,13 @@ class TestReviewCommentService
 
         service.resolve(id);
 
+        verify(stageStore).setReviewCommentResolved(id, true);
         verify(reviewRounds).recomputeStats(roundId.toString());
+        verify(prService, never()).resolveComment(anyString());
     }
 
     @Test
-    void resolvingALocalUserCommentWithNoRoundNeverTouchesReviewRounds()
+    void resolvingALegacyLocalCommentWithNoRoundNeverTouchesReviewRounds()
     {
         UUID id = UUID.randomUUID();
         ReviewComment comment = new ReviewComment(
@@ -161,19 +195,18 @@ class TestReviewCommentService
 
         service.resolve(id);
 
+        verify(stageStore).setReviewCommentResolved(id, true);
         verify(reviewRounds, never()).recomputeStats(any());
+        verify(prService, never()).resolveComment(anyString());
     }
 
     @Test
-    void submitReviewSteersTheActiveDevStageWithUnresolvedComments()
+    void submitReviewSteersTheActiveDevStageWithUnresolvedPrComments()
     {
-        UUID resolvedId = UUID.randomUUID();
-        UUID openId = UUID.randomUUID();
-        ReviewComment resolved = comment(resolvedId, "task-1", true);
-        ReviewComment open = new ReviewComment(openId, "task-1", "src/Foo.java", 7, "rename it",
-                NOW, ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null, "RIGHT", null, null);
-        when(stageStore.findCommentsBySource("task-1", ReviewCommentSource.LOCAL_USER))
-                .thenReturn(List.of(resolved, open));
+        PRComment resolved = prComment("resolved-id", true);
+        PRComment open = prComment("open-id", false);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(TASK_PR));
+        when(prService.comments("pr-1")).thenReturn(List.of(resolved, open));
         UUID devStageId = UUID.randomUUID();
         when(stageStore.findStagesByTask("task-1")).thenReturn(List.of(
                 stage(UUID.randomUUID(), StageType.PLAN_STAGE, StageState.CLOSED),
@@ -189,15 +222,16 @@ class TestReviewCommentService
         assertThat(text.getValue())
                 .contains("Address these review comments before shipping")
                 .contains("`src/Foo.java:7` - rename it")
-                .contains(openId.toString())
-                .doesNotContain(resolvedId.toString());
+                .contains("open-id")
+                .doesNotContain("resolved-id");
+        verify(prService).markLocalAddressed("pr-1", open.createdAt());
     }
 
     @Test
     void submitReviewIsANoOpWithNoUnresolvedCommentsAndNoBody()
     {
-        when(stageStore.findCommentsBySource("task-1", ReviewCommentSource.LOCAL_USER))
-                .thenReturn(List.of(comment(UUID.randomUUID(), "task-1", true)));
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(TASK_PR));
+        when(prService.comments("pr-1")).thenReturn(List.of(prComment("resolved-id", true)));
 
         ReviewCommentService.SubmitResult result = service.submitReview("task-1", "", null);
 
@@ -209,8 +243,8 @@ class TestReviewCommentService
     @Test
     void submitReviewFoldsInTheBodyAndVerdictEvenWithNoUnresolvedComments()
     {
-        when(stageStore.findCommentsBySource("task-1", ReviewCommentSource.LOCAL_USER))
-                .thenReturn(List.of(comment(UUID.randomUUID(), "task-1", true)));
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(TASK_PR));
+        when(prService.comments("pr-1")).thenReturn(List.of(prComment("resolved-id", true)));
         UUID devStageId = UUID.randomUUID();
         when(stageStore.findStagesByTask("task-1")).thenReturn(List.of(
                 stage(devStageId, StageType.DEVELOPMENT_STAGE, StageState.ACTIVE)));
@@ -225,16 +259,30 @@ class TestReviewCommentService
                 .contains("Review verdict: Approve")
                 .contains("Looks great overall.")
                 .doesNotContain("Address these review comments before shipping");
+        verify(prService, never()).markLocalAddressed(anyString(), any());
     }
 
-    private static ReviewComment comment(UUID id, String taskId, boolean resolved)
+    private static PRComment prComment(String id, boolean resolved)
     {
-        return new ReviewComment(id, taskId, "src/Foo.java", 1, "body",
-                NOW, ReviewCommentSource.LOCAL_USER, null, resolved, null, null, null, null, "RIGHT", null, null);
+        return new PRComment(id, "pr-1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 7, PRTimelineEntry.ACTOR_USER, "rename it",
+                NOW, resolved ? NOW : null, null, null, null, null, "RIGHT", null, null);
     }
 
     private static StageInstance stage(UUID id, StageType type, StageState state)
     {
         return new StageInstance(id, "task-1", type, state, NOW, null, null);
+    }
+
+    private static Task task(String id)
+    {
+        return new Task(
+                id, "thread-" + id, 1L, TaskStatus.RUNNING,
+                "dev/" + id, "/tmp/wt/" + id, "main", "/tmp/repo",
+                null, null, null, null, null,
+                "DEVELOP", null, null,
+                0L, 0L, 0L,
+                /* agentSessionId */ null,
+                NOW, null, null, "Task 1", null, null);
     }
 }

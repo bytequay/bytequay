@@ -204,6 +204,9 @@ public interface PRService
     /** Resolve a comment (marks {@code resolvedAt}) — the agent addressed it. */
     PRComment resolveComment(String commentId);
 
+    /** Reopen a previously resolved/dismissed comment thread. */
+    PRComment reopenComment(String commentId);
+
     /** Dismiss a comment (marks {@code dismissedAt}) — closed without action,
      *  the other terminal state alongside {@code resolveComment}. */
     PRComment dismissComment(String commentId);

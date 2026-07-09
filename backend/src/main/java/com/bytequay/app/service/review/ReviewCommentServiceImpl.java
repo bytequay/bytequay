@@ -13,13 +13,17 @@
  */
 package com.bytequay.app.service.review;
 
-import com.bytequay.app.domain.DiffSide;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
-import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -41,17 +45,25 @@ public class ReviewCommentServiceImpl
     private final StageStore stageStore;
     private final StageSteeringService steering;
     private final ReviewRoundService reviewRounds;
+    private final PRService prService;
+    private final TaskStore taskStore;
 
     public ReviewCommentServiceImpl(
-            StageStore stageStore, StageSteeringService steering, ReviewRoundService reviewRounds)
+            StageStore stageStore,
+            StageSteeringService steering,
+            ReviewRoundService reviewRounds,
+            PRService prService,
+            TaskStore taskStore)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.steering = requireNonNull(steering, "steering is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
+        this.prService = requireNonNull(prService, "prService is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
     @Override
-    public ReviewComment add(
+    public PRComment add(
             String taskId, String file, int line, String side, Integer startLine, String startSide, String body)
     {
         String taskIdValue = nullToEmpty(taskId).strip();
@@ -69,65 +81,75 @@ public class ReviewCommentServiceImpl
         if (bodyValue.isEmpty()) {
             throw status(400, "body is required");
         }
-        String resolvedSide = DiffSide.normalize(side);
-        // Multi-line range: null unless a distinct startLine was given.
-        Integer resolvedStartLine = null;
-        String resolvedStartSide = null;
-        if (startLine != null && startLine != line) {
-            resolvedStartLine = startLine;
-            resolvedStartSide = DiffSide.normalizeOptional(startSide, resolvedSide);
-        }
-        ReviewComment comment = new ReviewComment(
-                UUID.randomUUID(),
-                taskIdValue,
+        PR pr = localPrForTask(taskIdValue);
+        return prService.addComment(
+                pr.id(),
+                PRComment.ORIGIN_LOCAL,
+                PRComment.SCOPE_FILE_LINE,
                 fileValue,
                 line,
+                side,
+                startLine,
+                startSide,
+                PRTimelineEntry.ACTOR_USER,
                 bodyValue,
-                Instant.now(),
-                ReviewCommentSource.LOCAL_USER,
-                null,
-                false,
-                null,
-                null,
-                null,
-                null,
-                resolvedSide,
-                resolvedStartLine,
-                resolvedStartSide);
-        return stageStore.saveReviewComment(comment);
+                /* parentCommentId */ null);
     }
 
     @Override
-    public List<ReviewComment> list(String taskId)
+    public List<PRComment> list(String taskId)
     {
-        return stageStore.findCommentsByTask(nullToEmpty(taskId).strip());
+        return prService.findByTask(nullToEmpty(taskId).strip())
+                .map(pr -> prService.comments(pr.id()).stream()
+                        .filter(c -> PRComment.SCOPE_FILE_LINE.equals(c.scope()))
+                        .toList())
+                .orElse(List.of());
     }
 
     @Override
     public void resolve(UUID commentId)
     {
         requireNonNull(commentId, "commentId is null");
-        stageStore.setReviewCommentResolved(commentId, true);
-        recomputeOwningRoundStats(commentId);
+        if (resolveLegacyReviewComment(commentId, true)) {
+            return;
+        }
+        try {
+            prService.resolveComment(commentId.toString());
+        }
+        catch (IllegalArgumentException ignored) {
+            // Preserve the legacy review_comment behaviour: resolving an
+            // unknown id is a no-op, so stale UI/tool calls do not fail a turn.
+        }
     }
 
     @Override
     public void reopen(UUID commentId)
     {
         requireNonNull(commentId, "commentId is null");
-        stageStore.setReviewCommentResolved(commentId, false);
-        recomputeOwningRoundStats(commentId);
+        if (resolveLegacyReviewComment(commentId, false)) {
+            return;
+        }
+        try {
+            prService.reopenComment(commentId.toString());
+        }
+        catch (IllegalArgumentException ignored) {
+            // See resolve(UUID).
+        }
     }
 
-    /** A resolve/reopen on a round-attached comment (the remote-reviewer
+    /** A resolve/reopen on a legacy round-attached comment (the remote-reviewer
      *  batch a review_round is addressing) moves it between the round's
      *  open/fixed/replied buckets — keep the round's stored stats in step. */
-    private void recomputeOwningRoundStats(UUID commentId)
+    private boolean resolveLegacyReviewComment(UUID commentId, boolean resolved)
     {
-        stageStore.findReviewCommentById(commentId)
-                .map(ReviewComment::roundId)
-                .filter(Objects::nonNull)
+        Optional<ReviewComment> existing = stageStore.findReviewCommentById(commentId);
+        if (existing.isEmpty()) {
+            return false;
+        }
+        stageStore.setReviewCommentResolved(commentId, resolved);
+        Optional.ofNullable(existing.get().roundId())
                 .ifPresent(roundId -> reviewRounds.recomputeStats(roundId.toString()));
+        return true;
     }
 
     @Override
@@ -138,9 +160,9 @@ public class ReviewCommentServiceImpl
             throw status(400, "taskId is required");
         }
         String bodyValue = nullToEmpty(body).strip();
-        List<ReviewComment> unresolved = stageStore.findCommentsBySource(taskIdValue, ReviewCommentSource.LOCAL_USER)
-                .stream()
-                .filter(c -> !c.resolved())
+        PR pr = prService.findByTask(taskIdValue).orElse(null);
+        List<PRComment> unresolved = pr == null ? List.of() : prService.comments(pr.id()).stream()
+                .filter(ReviewCommentServiceImpl::isOpenUserComment)
                 .toList();
         if (unresolved.isEmpty() && bodyValue.isEmpty()) {
             return new SubmitResult(0, null);
@@ -150,6 +172,7 @@ public class ReviewCommentServiceImpl
                 .id();
         String text = formatTurn(bodyValue, verdict, unresolved);
         StageSteeringService.SteerResult result = steering.steer(devStageId, text);
+        newestCreatedAt(unresolved).ifPresent(through -> prService.markLocalAddressed(pr.id(), through));
         return new SubmitResult(unresolved.size(), result.turnId());
     }
 
@@ -170,7 +193,40 @@ public class ReviewCommentServiceImpl
         return Optional.ofNullable(found);
     }
 
-    private static String formatTurn(String body, String verdict, List<ReviewComment> comments)
+    private PR localPrForTask(String taskId)
+    {
+        Optional<PR> existing = prService.findByTask(taskId);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> status(404, "no task " + taskId));
+        if (task.branchName() == null || task.branchName().isBlank()) {
+            throw status(422, "task " + taskId + " has no branch yet");
+        }
+        String base = task.baseBranch() == null || task.baseBranch().isBlank() ? "main" : task.baseBranch();
+        String title = task.name() == null || task.name().isBlank() ? task.branchName() : task.name();
+        return prService.createForTask(task.id(), task.branchName(), base, title, "");
+    }
+
+    private static boolean isOpenUserComment(PRComment comment)
+    {
+        return PRComment.ORIGIN_LOCAL.equals(comment.origin())
+                && PRTimelineEntry.ACTOR_USER.equals(comment.author())
+                && comment.parentCommentId() == null
+                && comment.resolvedAt() == null
+                && comment.dismissedAt() == null;
+    }
+
+    private static Optional<Instant> newestCreatedAt(List<PRComment> comments)
+    {
+        return comments.stream()
+                .map(PRComment::createdAt)
+                .filter(Objects::nonNull)
+                .max(Instant::compareTo);
+    }
+
+    private static String formatTurn(String body, String verdict, List<PRComment> comments)
     {
         StringBuilder sb = new StringBuilder();
         String verdictValue = nullToEmpty(verdict).strip();
@@ -185,9 +241,9 @@ public class ReviewCommentServiceImpl
                 sb.append('\n');
             }
             sb.append("Address these review comments before shipping:\n");
-            for (ReviewComment c : comments) {
+            for (PRComment c : comments) {
                 sb.append("- ").append(c.id()).append(" `")
-                        .append(c.file()).append(':').append(c.line()).append("` - ")
+                        .append(c.filePath()).append(':').append(c.lineNumber()).append("` - ")
                         .append(c.body().strip()).append('\n');
             }
             sb.append("\nMark each one resolved with the resolve_review_comment tool "

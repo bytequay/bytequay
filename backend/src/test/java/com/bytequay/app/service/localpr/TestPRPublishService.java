@@ -44,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -68,6 +69,10 @@ class TestPRPublishService
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final PRPublishService service =
             new PRPublishService(prService, taskStore, git, pullRequests, patResolver, brainReview, phaseMachine);
+
+    {
+        when(prService.comments(anyString())).thenReturn(List.of());
+    }
 
     private PR pr(String status)
     {
@@ -114,6 +119,7 @@ class TestPRPublishService
                 .thenReturn(opened(145));
         PR flipped = pr(PR.STATUS_REMOTE_DRAFTED);
         when(prService.recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145")).thenReturn(flipped);
+        when(prService.updateAuthor("pr1", "@you")).thenReturn(flipped);
 
         PR result = service.push("pr1");
 
@@ -339,10 +345,35 @@ class TestPRPublishService
         verify(pullRequests).createPullRequest(any(), any(), any());
     }
 
+    @Test
+    void pushAllowsOpenRepliesWhenTheirRootThreadIsClosed()
+            throws Exception
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
+        when(prService.comments("pr1")).thenReturn(List.of(
+                comment("root", NOW, null, null),
+                comment("reply", null, null, "root")));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(git.refExists(any(), any())).thenReturn(true);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
+        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+
+        service.push("pr1");
+
+        verify(pullRequests).createPullRequest(any(), any(), any());
+    }
+
     private static PRComment comment(Instant resolvedAt, Instant dismissedAt)
     {
-        return new PRComment("cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, null, null,
+        return comment("cm1", resolvedAt, dismissedAt, null);
+    }
+
+    private static PRComment comment(String id, Instant resolvedAt, Instant dismissedAt, String parentCommentId)
+    {
+        return new PRComment(id, "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, parentCommentId, null,
                 "RIGHT", null, null);
     }
 

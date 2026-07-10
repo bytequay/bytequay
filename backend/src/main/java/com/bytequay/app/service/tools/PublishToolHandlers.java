@@ -1110,6 +1110,10 @@ public class PublishToolHandlers
                 if (git.refExists(worktree, remoteBase)) {
                     return remoteBase;
                 }
+                String upstreamBase = "upstream/" + task.baseBranch();
+                if (git.refExists(worktree, upstreamBase)) {
+                    return upstreamBase;
+                }
                 if (git.refExists(worktree, task.baseBranch())) {
                     return task.baseBranch();
                 }

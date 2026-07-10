@@ -50,9 +50,10 @@ describe('TaskBrainPage', () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it('shows the PR tab', () => {
+  it('shows the PR pane without a tab strip', () => {
     renderBrain();
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
+    expect(document.querySelector('.pane-tab')).toBeNull();
   });
 
   it('shows no side pane when no PR tab is provided', () => {
@@ -61,7 +62,7 @@ describe('TaskBrainPage', () => {
     expect(document.querySelector('.pane-tab')).toBeNull();
   });
 
-  it('top bar exposes Close (confirmed); toggling the pane reveals inline chips', () => {
+  it('top bar exposes Close (confirmed); toggling the pane leaves only the PR toggle chip', () => {
     const onClose = vi.fn();
     renderBrain({
       run: { onClose, onPause: () => {} },
@@ -73,25 +74,20 @@ describe('TaskBrainPage', () => {
     expect(onClose).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'Toggle right pane' }));
     expect(document.querySelector('.inline-chips')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Changes' }).length).toBe(1);
+    expect(screen.getByRole('button', { name: 'PR' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Changes' })).toBeNull();
   });
 
-  it('the inline Changes chip opens the Changes tab in the pane — no navigation', () => {
+  it('the inline PR chip folds and unfolds the right pane', () => {
     renderBrain({
       tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
     });
     const inlineChips = document.querySelector('.inline-chips') as HTMLElement;
-    fireEvent.click(within(inlineChips).getByRole('button', { name: 'Changes' }));
-    expect(screen.getByTestId('code-tab')).toBeTruthy();
-  });
-
-  it('shows the mark-ready reminder pill and routes it to the inline Changes tab', () => {
-    renderBrain({
-      markReadyReminder: true,
-      tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
-    });
-    fireEvent.click(screen.getByText('Mark ready for review'));
-    expect(screen.getByTestId('code-tab')).toBeTruthy();
+    fireEvent.click(within(inlineChips).getByRole('button', { name: 'PR' }));
+    expect(document.querySelector('.body.with-pane')).toBeNull();
+    expect(screen.queryByTestId('pr-tab')).toBeNull();
+    fireEvent.click(within(inlineChips).getByRole('button', { name: 'PR' }));
+    expect(screen.getByTestId('pr-tab')).toBeTruthy();
   });
 
   it('hides the mark-ready reminder pill when there is no Changes tab to open', () => {

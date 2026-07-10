@@ -1843,20 +1843,6 @@
   font-weight: 500;
 }
 
-/* "Open on Remote" — secondary action that hops to the embedded github.com
-   window. Muted gray to step back behind the primary Review button. */
-.button--remote {
-  background: var(--bg-card);
-  color: var(--text-2);
-  border: 1px solid var(--border);
-}
-.button--remote:hover {
-  background: var(--bg-elevated);
-  color: var(--text-1);
-}
-
-/* Spacer that pushes the rightmost button to the far edge of the toolbar. */
-.preview__actions-spacer { flex: 1 1 auto; min-width: 0; }
 
 [data-theme="atom-one-dark"] .button--approve {
   background: rgba(46, 160, 67, 0.15);

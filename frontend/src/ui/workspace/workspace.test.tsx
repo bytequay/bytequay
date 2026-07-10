@@ -188,6 +188,29 @@ describe('ThreadList', () => {
     );
     expect(container.querySelector('.task-subhead')).toBeNull();
   });
+
+  it('clicking the already-active trunk folds its task list, and clicking again unfolds it', () => {
+    const onOpen = vi.fn();
+    const { container } = render(
+      <ThreadList
+        threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
+        selectedId="t1"
+        tasks={[{ id: 'k1', label: 'Task' }]}
+        onOpen={onOpen}
+      />,
+    );
+    const trunkRow = screen.getByText('A').closest('.thread-item') as HTMLElement;
+    expect(container.querySelector('.task-subhead')).toBeTruthy();
+
+    // First click on the already-open trunk folds the list — no re-navigation.
+    fireEvent.click(trunkRow);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(container.querySelector('.task-subhead')).toBeNull();
+
+    // Second click unfolds it again.
+    fireEvent.click(trunkRow);
+    expect(container.querySelector('.task-subhead')).toBeTruthy();
+  });
 });
 
 describe('WorkspaceTopBar', () => {

@@ -171,7 +171,7 @@ public class ReviewCommentServiceImpl
                 .orElseThrow(() -> status(422, "no active development stage for task " + taskIdValue))
                 .id();
         String text = formatTurn(bodyValue, verdict, unresolved);
-        StageSteeringService.SteerResult result = steering.steer(devStageId, text);
+        StageSteeringService.SteerResult result = steering.steer(devStageId, text, null);
         newestCreatedAt(unresolved).ifPresent(through -> prService.markLocalAddressed(pr.id(), through));
         return new SubmitResult(unresolved.size(), result.turnId());
     }

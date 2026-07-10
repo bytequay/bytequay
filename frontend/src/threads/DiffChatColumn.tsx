@@ -97,7 +97,7 @@ function StageChat({ stageId, threadId }: { stageId: string; threadId?: string }
   return (
     <>
       <Conv>
-        {data?.conversation.map(r => stageRow(r, threadId !== undefined ? onDecide : undefined))}
+        {data?.conversation.map(r => stageRow(r, threadId !== undefined ? onDecide : undefined, threadId))}
         {(busy || data?.stage.state === 'ACTIVE') && <Working label="Agent is working…" />}
       </Conv>
       <StageChatComposer

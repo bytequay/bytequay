@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.stage;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -35,7 +36,9 @@ public interface StageSteeringService
      *
      * @param stageId the stage being steered
      * @param text    the user's steering message (non-blank)
+     * @param images  pasted-screenshot data URLs, saved and folded into the
+     *                turn the same way trunk/task-brain sends do; may be null/empty
      * @return the enqueued turn's id
      */
-    SteerResult steer(UUID stageId, String text);
+    SteerResult steer(UUID stageId, String text, List<String> images);
 }

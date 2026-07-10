@@ -21,13 +21,17 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.ChatAttachmentStore;
+import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -50,26 +54,32 @@ public class StageSteeringServiceImpl
     private final ThreadStore threadStore;
     private final ThreadTurnScheduler scheduler;
     private final IterationService iterationService;
+    private final ChatAttachmentStore attachmentStore;
+    private final ObjectMapper mapper;
 
     public StageSteeringServiceImpl(
             StageStore stageStore,
             TaskStore taskStore,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
-            IterationService iterationService)
+            IterationService iterationService,
+            ChatAttachmentStore attachmentStore,
+            ObjectMapper mapper)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.iterationService = requireNonNull(iterationService, "iterationService is null");
+        this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Override
-    public SteerResult steer(UUID stageId, String text)
+    public SteerResult steer(UUID stageId, String text, List<String> images)
     {
         String trimmed = text == null ? "" : text.strip();
-        if (trimmed.isEmpty()) {
+        if (trimmed.isEmpty() && (images == null || images.isEmpty())) {
             throw status(400, "steering message is empty");
         }
         StageInstance stage = stageStore.findStageById(stageId)
@@ -82,13 +92,20 @@ public class StageSteeringServiceImpl
         Thread devThread = threadStore.findThreadById(task.threadId())
                 .orElseThrow(() -> status(404, "no dev thread: " + task.threadId()));
 
+        // Fold any pasted screenshots into the turn text the same way
+        // ThreadController.encodeWithImages does for trunk/task-brain sends,
+        // keyed on the dev thread's id (the same id space the attachment
+        // GET endpoint already serves from).
+        List<String> paths = attachmentStore.save(devThread.id(), images);
+        String input = MessageAttachments.encode(mapper, trimmed, paths);
+
         // Bind the turn to the task explicitly. A task parked at
         // AWAITING_REVIEW (the review gate) is no longer in the thread's
         // active set, so the active-task-derived enqueueTurn would stamp task_id = null
         // and misroute the steer to the trunk planner instead of the dev
         // agent — leaving review comments unaddressed.
         String turnId = scheduler.enqueueTaskTurn(
-                devThread, trimmed, task.id(), TurnInitiator.attended("steering"));
+                devThread, input, task.id(), TurnInitiator.attended("steering"));
         // 1 turn = 1 iteration: open a user_steering iteration so the steer
         // shows up as its own band on the stage detail page. A no-op unless
         // the stage is a monitor stage (the only loop stages with iterations).

@@ -4091,8 +4091,10 @@ export type Bridge = {
    *  thread the panel page navigates to. */
   spawnReview: (parentStageId: string) => Promise<SpawnReviewResult>;
   /** Steer a stage's dev agent: enqueue the user's message as a turn on the
-   *  task's dev thread. Returns the enqueued turn id. */
-  steerStage: (stageId: string, text: string) => Promise<{ turnId: string }>;
+   *  task's dev thread. `images` are pasted-screenshot data URLs, saved and
+   *  folded into the turn the same way trunk/task-brain sends do. Returns
+   *  the enqueued turn id. */
+  steerStage: (stageId: string, text: string, images?: string[]) => Promise<{ turnId: string }>;
   /** Approve the task's plan: closes the PlanStage, opens the
    *  DevelopmentStage, and returns its id (+ redirect path) so the view can
    *  auto-navigate to the dev stage detail page. */

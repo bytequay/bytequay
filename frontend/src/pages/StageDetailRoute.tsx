@@ -80,7 +80,8 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  * tab (CI-fix stage only) shows the live check run.
  */
 export function StageDetailRoute({
-  threadId, taskId, stageId, onOpenCode, onOpenStage, onOpenRun, onBack, onOpenBrain,
+  threadId, taskId, stageId, onOpenCode, onOpenStage, onOpenRun,
+  onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
 }: {
   threadId: string;
   taskId: string;
@@ -93,8 +94,13 @@ export function StageDetailRoute({
   /** Navigate to a live run's own log — the rail's Remote CI / comments rows
    *  and the stage feed's run/round episodes use this. */
   onOpenRun?: (runId: string) => void;
-  /** Navigate back to the thread trunk (the task sidebar's back button). */
+  /** Global nav-history back/forward, forwarded to the task sidebar's
+   *  TrafficLights — same as the main Sidebar uses. */
   onBack?: () => void;
+  onForward?: () => void;
+  backEnabled?: boolean;
+  forwardEnabled?: boolean;
+  onToggleCollapse?: () => void;
   /** Navigate to this task's brain page — the live plan's Plan node. */
   onOpenBrain?: () => void;
 }) {
@@ -105,6 +111,7 @@ export function StageDetailRoute({
   // zoomed overlay (the plan no longer sits in the stage's tab strip).
   const plan = brain.rightRail.plan;
   const [text, setText] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // The PR-tab Add-comment box (frame 7). Per the no-auto-post rule, a typed
   // comment is handed to the dev agent to post — it parks the publish for the
@@ -253,10 +260,10 @@ export function StageDetailRoute({
       .catch(() => { /* poll reconciles */ });
   }, [prComment, stageId, refresh]);
 
-  const sendNow = useCallback((body: string) => {
+  const sendNow = useCallback((body: string, sendImages: string[] = []) => {
     setBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    bridge?.steerStage(stageId, body)
+    bridge?.steerStage(stageId, body, sendImages)
       .then(() => refresh())
       .catch(() => { /* poll reconciles */ })
       .finally(() => setBusy(false));
@@ -311,10 +318,17 @@ export function StageDetailRoute({
   const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
   const submit = () => {
     const body = text.trim();
-    if (body.length === 0) return;
+    if (body.length === 0 && images.length === 0) return;
+    // Queued (while-busy) sends are text-only, same tradeoff as the trunk
+    // composer — an image attachment just waits for the composer to free up
+    // instead of queueing.
+    if (working && images.length > 0) return;
     setText('');
     if (working) enqueue(body);
-    else sendNow(body);
+    else {
+      sendNow(body, images);
+      setImages([]);
+    }
   };
 
   // Surface the CLI agent's current activity — the latest tool call and (for
@@ -350,8 +364,8 @@ export function StageDetailRoute({
   // `liveText`. Without this, every keystroke re-maps + re-renders the whole
   // feed, which makes typing crawl on a long conversation.
   const transcriptRows = useMemo(
-    () => data?.conversation.map(r => stageRow(r, onDecide)),
-    [data?.conversation, onDecide],
+    () => data?.conversation.map(r => stageRow(r, onDecide, threadId)),
+    [data?.conversation, onDecide, threadId],
   );
   // Dev feed: the flat transcript, with any ci_fix runs folded in as episodes
   // (a live one flashes). Comments feed: the round list replaces the flat
@@ -569,6 +583,10 @@ export function StageDetailRoute({
       nodes={livePlanNodes}
       guard={buildGuardChip(planGuard)}
       onBack={onBack}
+      onForward={onForward}
+      backEnabled={backEnabled}
+      forwardEnabled={forwardEnabled}
+      onToggleCollapse={onToggleCollapse}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr !== null ? openPr : undefined}
@@ -617,6 +635,8 @@ export function StageDetailRoute({
         busy: working,
         queueWhenBusy: true,
         placeholder: state === 'CLOSED' ? 'This stage is closed.' : 'Steer this stage…',
+        images,
+        onImagesChange: setImages,
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
       tabCounts={{

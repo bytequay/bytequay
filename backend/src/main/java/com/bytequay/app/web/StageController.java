@@ -120,13 +120,14 @@ public class StageController
         return reviewStageService.spawnReview(parseStageId(parentStageId));
     }
 
-    public record SteerRequest(String text) {}
+    public record SteerRequest(String text, List<String> images) {}
 
     @PostMapping("/api/stages/{stageId}/steer")
     public StageSteeringService.SteerResult steer(
             @PathVariable String stageId, @RequestBody SteerRequest req)
     {
-        return steeringService.steer(parseStageId(stageId), req == null ? null : req.text());
+        return steeringService.steer(
+                parseStageId(stageId), req == null ? null : req.text(), req == null ? null : req.images());
     }
 
     @PostMapping("/api/stages/{planStageId}/approve")

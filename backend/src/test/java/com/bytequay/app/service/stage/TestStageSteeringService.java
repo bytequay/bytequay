@@ -27,18 +27,22 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -54,6 +58,7 @@ class TestStageSteeringService
     private ThreadStore threadStore;
     private ThreadTurnScheduler scheduler;
     private IterationService iterationService;
+    private ChatAttachmentStore attachmentStore;
     private StageSteeringServiceImpl service;
 
     @BeforeEach
@@ -64,8 +69,10 @@ class TestStageSteeringService
         threadStore = mock(ThreadStore.class);
         scheduler = mock(ThreadTurnScheduler.class);
         iterationService = mock(IterationService.class);
+        attachmentStore = mock(ChatAttachmentStore.class);
+        when(attachmentStore.save(any(), any())).thenReturn(List.of());
         service = new StageSteeringServiceImpl(
-                stageStore, taskStore, threadStore, scheduler, iterationService);
+                stageStore, taskStore, threadStore, scheduler, iterationService, attachmentStore, new ObjectMapper());
     }
 
     @Test
@@ -81,12 +88,31 @@ class TestStageSteeringService
         when(scheduler.enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), any()))
                 .thenReturn("turn-3");
 
-        StageSteeringService.SteerResult result = service.steer(stageId, "  Fix the retry default  ");
+        StageSteeringService.SteerResult result = service.steer(stageId, "  Fix the retry default  ", null);
 
         assertThat(result.turnId()).isEqualTo("turn-3");
         verify(scheduler).enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), any(TurnInitiator.class));
         verify(scheduler, never()).enqueueTurn(any(), any(), any());
         verify(iterationService).begin("task-7", "turn-3", IterationService.TRIGGER_USER_STEERING);
+    }
+
+    @Test
+    void foldsPastedImagesIntoTheTurnInput()
+    {
+        UUID stageId = UUID.randomUUID();
+        when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
+                stage(stageId, "task-7", StageState.ACTIVE)));
+        when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(task("task-7", "thread-9")));
+        when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
+        when(attachmentStore.save(eq("thread-9"), eq(List.of("data:image/png;base64,abc"))))
+                .thenReturn(List.of("/tmp/attachments/thread-9/img.png"));
+        when(scheduler.enqueueTaskTurn(any(), any(), eq("task-7"), any())).thenReturn("turn-4");
+
+        service.steer(stageId, "see this", List.of("data:image/png;base64,abc"));
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), argThat(input -> input.contains("/tmp/attachments/thread-9/img.png")),
+                eq("task-7"), any(TurnInitiator.class));
     }
 
     @Test
@@ -96,7 +122,7 @@ class TestStageSteeringService
         when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
                 stage(stageId, "task-7", StageState.CLOSED)));
 
-        assertThatThrownBy(() -> service.steer(stageId, "go"))
+        assertThatThrownBy(() -> service.steer(stageId, "go", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(422));
@@ -108,7 +134,7 @@ class TestStageSteeringService
     {
         UUID stageId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.steer(stageId, "   "))
+        assertThatThrownBy(() -> service.steer(stageId, "   ", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(400));

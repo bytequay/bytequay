@@ -93,4 +93,14 @@ class TestMessageAttachments
 
         assertThat(json).contains("\"text\":\"see attached\"").contains("\"images\":[\"/tmp/a.png\"]");
     }
+
+    @Test
+    void encodeMessageIncludesManagedSkillsWhenPresent()
+    {
+        String json = MessageAttachments.encodeMessage(mapper, "plan this", List.of(), List.of("trunk-planner"));
+
+        assertThat(json)
+                .contains("\"text\":\"plan this\"")
+                .contains("\"managedSkills\":[\"trunk-planner\"]");
+    }
 }

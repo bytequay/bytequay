@@ -1147,7 +1147,7 @@ public class LogicLoopThreadAgent
     private void persistUserMessage(String text, Instant ts, List<String> images)
     {
         long seq = nextSeq.getAndIncrement();
-        String contentJson = MessageAttachments.encodeMessage(mapper, text, images);
+        String contentJson = MessageAttachments.encodeMessage(mapper, text, images, activeManagedSkillNames());
         appendStamped(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "user", "text", contentJson,
@@ -1197,6 +1197,13 @@ public class LogicLoopThreadAgent
     public void setActiveManagedSkillNames(List<String> names)
     {
         this.activeManagedSkills = managedSkillBundle.select(names);
+    }
+
+    private List<String> activeManagedSkillNames()
+    {
+        return activeManagedSkills.stream()
+                .map(ManagedSkill::name)
+                .toList();
     }
 
     /** Persist a message stamped with the turn's explicit stage + scope. A

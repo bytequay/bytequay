@@ -32,6 +32,27 @@ function task(
 }
 
 describe('TrunkFeed', () => {
+  it('shows managed skills only behind a runtime disclosure', () => {
+    const { container } = render(
+      <TrunkFeed
+        messages={[
+          msg('u', 'user', 'text',
+            { text: 'go ahead', managedSkills: ['trunk-planner'] },
+            '2026-01-01T00:00:00Z'),
+        ]}
+        tasks={[]}
+        density="focused"
+        onOpenTask={() => {}}
+      />,
+    );
+
+    const details = container.querySelector('details');
+    expect(details?.open).toBe(false);
+    fireEvent.click(screen.getByText('runtime'));
+    expect(details?.open).toBe(true);
+    expect(screen.getByText('Managed skills: trunk-planner')).toBeTruthy();
+  });
+
   it('renders a pending permission_request as a clickable card and answers it', () => {
     const onDecidePermission = vi.fn();
     const messages = [

@@ -1062,7 +1062,7 @@ public abstract class AbstractCliThreadAgent
                     null, null, null, null, ts);
             case StreamEvent.UserMessage e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "user", "text",
-                    MessageAttachments.encodeMessage(mapper, e.text(), e.images()),
+                    MessageAttachments.encodeMessage(mapper, e.text(), e.images(), activeManagedSkillNames()),
                     null, null, null, null, ts);
             case StreamEvent.AssistantText e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "assistant", "text",
@@ -1138,6 +1138,13 @@ public abstract class AbstractCliThreadAgent
         return built == null
                 ? null
                 : built.withStageScope(activeStageId, ThreadScope.of(activeTaskId, activeStageId));
+    }
+
+    private List<String> activeManagedSkillNames()
+    {
+        return activeManagedSkills.stream()
+                .map(ManagedSkill::name)
+                .toList();
     }
 
     private void publish(StreamEvent event)

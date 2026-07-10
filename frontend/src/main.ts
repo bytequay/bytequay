@@ -4787,10 +4787,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           || typeof taskId !== 'string' || taskId.trim().length === 0) {
         throw new Error('threadId and taskId must be non-empty strings');
       }
-      const res = await fetch(
-        `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
-          + `/tasks/${encodeURIComponent(taskId)}/${action}`,
-        { method: 'POST' });
+      const url = action === 'resume'
+        ? `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/resume`
+        : `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
+          + `/tasks/${encodeURIComponent(taskId)}/${action}`;
+      const res = await fetch(url, { method: 'POST' });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`backend POST /tasks/${taskId}/${action} returned ${res.status}: ${text}`);

@@ -20,6 +20,9 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -49,6 +52,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -422,6 +426,10 @@ class TestTaskServiceShipAndContinue
     {
         Task paused = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
+        when(stageStore.findActiveStage("t1.k1")).thenReturn(Optional.empty());
+        StageAgent agent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
 
         Task resumed = service.resumeTask("t1", "t1.k1");
 
@@ -431,6 +439,7 @@ class TestTaskServiceShipAndContinue
         assertThat(saved.getValue().status()).isEqualTo(TaskStatus.IDLE);
         // Worktree preserved through the pause→resume round-trip.
         assertThat(saved.getValue().worktreePath()).isEqualTo("/wt");
+        verify(agent).resume();
     }
 
     @Test
@@ -440,11 +449,84 @@ class TestTaskServiceShipAndContinue
         // no longer requires the others to be idle.
         Task paused = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
+        when(stageStore.findActiveStage("t1.k1")).thenReturn(Optional.empty());
+        StageAgent agent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
 
         Task resumed = service.resumeTask("t1", "t1.k1");
 
         assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
         verify(taskStore).saveTask(any());
+        verify(agent).resume();
+    }
+
+    @Test
+    void resumeRevivesAnErroredExactTaskAndThread()
+    {
+        Instant ended = Instant.parse("2026-05-15T12:00:00Z");
+        Task errored = new Task(
+                "t1.k1", "t1", 1L, TaskStatus.ERRORED,
+                "dev/x", "/wt", "main", "/clone",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, "task-session",
+                ended.minusSeconds(60), ended, "limit hit",
+                null, null, null);
+        Thread thread = new Thread(
+                "t1", ThreadKind.CLI_AGENT, "claude-code", "trunk-session",
+                "Errored thread", ThreadStatus.ERRORED, "test",
+                0L, 0L, 0L,
+                ended.minusSeconds(60), ended, ended, "limit hit",
+                ThreadFlow.BUILD, "ws-default", null, null);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(errored));
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+        when(stageStore.findActiveStage("t1.k1")).thenReturn(Optional.empty());
+        StageAgent agent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+
+        Task resumed = service.resumeTask("t1.k1");
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        assertThat(resumed.endedAt()).isNull();
+        assertThat(resumed.errorMessage()).isNull();
+        ArgumentCaptor<Thread> savedThread = ArgumentCaptor.forClass(Thread.class);
+        verify(threadStore).saveThread(savedThread.capture());
+        assertThat(savedThread.getValue().status()).isEqualTo(ThreadStatus.IDLE);
+        assertThat(savedThread.getValue().endedAt()).isNull();
+        assertThat(savedThread.getValue().errorMessage()).isNull();
+        verify(registry).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTrunkAgent(any());
+        verify(agent).resume();
+    }
+
+    @Test
+    void resumePlanStageUsesTheTaskBrainAgent()
+    {
+        Task paused = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
+        Thread parent = thread("t1");
+        Thread brain = new Thread(
+                "brain-1", ThreadKind.BRAIN_AGENT, "claude-code", null,
+                "Brain", ThreadStatus.IDLE, "claude-sonnet-4.6",
+                0L, 0L, 0L,
+                paused.createdAt(), paused.createdAt(), null, null,
+                ThreadFlow.BUILD, "ws-default", null, null, 1, "t1.k1");
+        UUID planStageId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        StageInstance planStage = new StageInstance(
+                planStageId, "t1.k1", StageType.PLAN_STAGE, StageState.OPEN,
+                paused.createdAt(), null, null);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(parent));
+        when(threadStore.findBrainThreadByTask("t1.k1")).thenReturn(Optional.of(brain));
+        when(stageStore.findActiveStage("t1.k1")).thenReturn(Optional.of(planStage));
+        TaskBrainAgent agent = mock(TaskBrainAgent.class);
+        when(registry.getOrCreateTaskBrainAgent(brain)).thenReturn(agent);
+
+        Task resumed = service.resumeTask("t1.k1");
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        verify(registry).getOrCreateTaskBrainAgent(brain);
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(agent).resume();
     }
 
     private static Thread thread(String id)

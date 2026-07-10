@@ -881,23 +881,99 @@ public class TaskService
         return paused;
     }
 
-    /**
-     * Revive a {@link TaskStatus#PAUSED} task back to {@link TaskStatus#IDLE}
-     * so the thread runs it again (the next turn re-spawns the agent in its
-     * worktree via {@code --resume}). A thread may run several tasks at once,
-     * so reviving a paused task doesn't require the others to be idle.
-     */
+    /** Compatibility wrapper for the nested task URL. */
     @Transactional
     public Task resumeTask(String threadId, String taskId)
     {
-        Task task = requireTask(threadId, taskId);
-        if (task.status() != TaskStatus.PAUSED) {
+        requireTask(threadId, taskId);
+        return resumeTask(taskId);
+    }
+
+    /**
+     * Revive an exact task runtime. This owns task-scoped resume; thread
+     * resume is trunk-only.
+     */
+    @Transactional
+    public Task resumeTask(String taskId)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (!isResumable(task)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " is not paused");
+                    "task " + taskId + " cannot be resumed");
         }
-        Task resumed = task.withStatus(TaskStatus.IDLE);
+        Thread thread = threadStore.findThreadById(task.threadId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no thread: " + task.threadId()));
+        Task resumed = revivedTask(task);
         taskStore.saveTask(resumed);
+        Thread resumedThread = revivedThread(thread);
+        if (resumedThread != thread) {
+            threadStore.saveThread(resumedThread);
+        }
+        Optional<StageInstance> activeStage = stageStore.findActiveStage(taskId);
+        resumeRuntime(resumedThread, resumed, activeStage);
         return resumed;
+    }
+
+    private static boolean isResumable(Task task)
+    {
+        if (task.phase() == TaskPhase.COMPLETED) {
+            return false;
+        }
+        return switch (task.status()) {
+            case IDLE, AWAITING, PAUSED, ERRORED, ARCHIVED -> true;
+            default -> false;
+        };
+    }
+
+    private static Task revivedTask(Task task)
+    {
+        return new Task(
+                task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
+                task.branchName(), task.worktreePath(), task.baseBranch(),
+                task.workingDir(), task.processPid(), task.logPath(),
+                task.prNumber(), task.prState(), task.ciState(),
+                task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
+                task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
+                task.agentSessionId(), task.createdAt(),
+                /* endedAt */ null, /* errorMessage */ null,
+                task.name(), task.roleSkill(), task.workModel(),
+                task.pushedAt(), task.phase(), task.agendaJson(),
+                task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt());
+    }
+
+    private static Thread revivedThread(Thread thread)
+    {
+        return switch (thread.status()) {
+            case AWAITING, ERRORED, COMPLETED, ARCHIVED -> new Thread(
+                    thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
+                    thread.title(), ThreadStatus.IDLE, thread.model(),
+                    thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
+                    thread.createdAt(), Instant.now(),
+                    /* endedAt */ null, /* errorMessage */ null,
+                    thread.flow(), thread.workspaceId(), thread.workModel(),
+                    thread.parentReviewPassId(), thread.parallelSlots(), thread.parentTaskId());
+            default -> thread;
+        };
+    }
+
+    private void resumeRuntime(Thread parentThread, Task task, Optional<StageInstance> activeStage)
+    {
+        if (activeStage.map(StageInstance::type).filter(StageType.PLAN_STAGE::equals).isPresent()) {
+            Thread brainThread = threadStore.findBrainThreadByTask(task.id())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(409), "no task brain thread for task: " + task.id()));
+            Thread resumedBrain = revivedThread(brainThread);
+            if (resumedBrain != brainThread) {
+                threadStore.saveThread(resumedBrain);
+            }
+            registry.getOrCreateTaskBrainAgent(resumedBrain).resume();
+            return;
+        }
+        String stageId = activeStage.map(stage -> stage.id().toString()).orElse(null);
+        registry.getOrCreateStageAgent(parentThread, task, stageId).resume();
     }
 
     /** A task can be paused only while it's live, non-terminal work — not

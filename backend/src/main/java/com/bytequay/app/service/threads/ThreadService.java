@@ -814,7 +814,9 @@ public class ThreadService
 
     public void resume(String threadId)
     {
-        sessionOrThrow(threadId).resume();
+        Thread thread = store.findThreadById(threadId)
+                .orElseThrow(() -> new NoSuchElementException("no thread: " + threadId));
+        registry.getOrCreateTrunkAgent(thread).resume();
     }
 
     public void stop(String threadId)

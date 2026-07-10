@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +47,8 @@ class TestThreadServiceTrunkSession
     @Autowired
     private ThreadStore threadStore;
     @Autowired
+    private TaskStore taskStore;
+    @Autowired
     private ThreadRegistry registry;
 
     @Test
@@ -62,6 +67,53 @@ class TestThreadServiceTrunkSession
         assertThat(registry.find(threadId)).isEmpty();
 
         unsubscribe.run();
+        registry.evictTrunk(threadId);
+    }
+
+    @Test
+    void resumeErroredThreadBuildsTheTrunkAgentAndDoesNotResumeLatestTask()
+    {
+        String threadId = UUID.randomUUID().toString();
+        String taskId = threadId + ".task";
+        Instant now = Instant.now();
+        threadStore.saveThread(new Thread(
+                threadId,
+                ThreadKind.CLI_AGENT,
+                /* provider */ "claude-code",
+                /* agentSessionId */ "trunk-session",
+                "Errored task resume fixture",
+                ThreadStatus.ERRORED,
+                /* model */ "test",
+                0L, 0L, 0L,
+                now, now, now, "limit hit",
+                ThreadFlow.BUILD,
+                /* workspaceId */ "ws-default",
+                /* workModel */ null,
+                /* activeTask */ null));
+        taskStore.saveTask(new Task(
+                taskId, threadId, 1L, TaskStatus.ERRORED,
+                "dev/resume-latest-task", /* worktreePath */ null,
+                /* baseBranch */ "main", System.getProperty("java.io.tmpdir"),
+                /* processPid */ null, /* logPath */ null,
+                /* prNumber */ null, /* prState */ null, /* ciState */ null,
+                "DEVELOP", /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
+                0L, 0L, 0L, "task-session",
+                now, now, "limit hit",
+                /* name */ null, /* roleSkill */ null, /* workModel */ null));
+
+        threads.resume(threadId);
+
+        Thread resumedThread = threadStore.findThreadById(threadId).orElseThrow();
+        Task untouchedTask = taskStore.findTaskById(taskId).orElseThrow();
+        assertThat(resumedThread.status()).isEqualTo(ThreadStatus.IDLE);
+        assertThat(resumedThread.endedAt()).isNull();
+        assertThat(resumedThread.errorMessage()).isNull();
+        assertThat(untouchedTask.status()).isEqualTo(TaskStatus.ERRORED);
+        assertThat(untouchedTask.endedAt()).isNotNull();
+        assertThat(untouchedTask.errorMessage()).isEqualTo("limit hit");
+        assertThat(registry.find(threadId)).isEmpty();
+        assertThat(registry.findTrunk(threadId)).isPresent();
+
         registry.evictTrunk(threadId);
     }
 

@@ -56,11 +56,16 @@ function model(viewedStageId?: string) {
 }
 
 describe('LivePlan', () => {
-  it('renders every lifecycle node with its status class, plus the nested phase ladder', () => {
+  it('renders every lifecycle node with its status class, plus the nested phase ladder once expanded', () => {
     const { container } = render(<LivePlan nodes={model()} />);
     expect(screen.getByText('Plan').closest('.plan-node')?.className).toContain('done');
-    expect(screen.getByText('Validation').closest('.plan-phase-row')?.className).toContain('running');
     expect(screen.getByText('Remote Development').closest('.plan-node')?.className).toContain('future');
+    // No ladder auto-opens — every node starts collapsed regardless of status.
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
+
+    fireEvent.click(screen.getByLabelText('Expand Local Development'));
+    fireEvent.click(screen.getByLabelText('Expand Remote Development'));
+    expect(screen.getByText('Validation').closest('.plan-phase-row')?.className).toContain('running');
     // A live run badges its phase row inline.
     expect(screen.getByText('iter 2')).toBeTruthy();
     // The phase ladders render as nested rows; no separate run sub-rows.
@@ -78,6 +83,7 @@ describe('LivePlan', () => {
   it('force-opens the PR tab for a gate node click', () => {
     const onOpenTab = vi.fn();
     render(<LivePlan nodes={model()} onOpenTab={onOpenTab} />);
+    fireEvent.click(screen.getByLabelText('Expand Local Development'));
     fireEvent.click(screen.getByText('Local review'));
     expect(onOpenTab).toHaveBeenCalledWith('pr', undefined);
   });
@@ -90,6 +96,7 @@ describe('LivePlan', () => {
       task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
     render(<LivePlan nodes={nodes} onOpenTab={onOpenTab} onOpenPr={onOpenPr} />);
+    fireEvent.click(screen.getByLabelText('Expand Remote Development'));
     fireEvent.click(screen.getByText('Remote CI'));
     expect(onOpenTab).toHaveBeenCalledWith('pr', 'checks');
     expect(onOpenPr).not.toHaveBeenCalled();
@@ -105,7 +112,7 @@ describe('LivePlan', () => {
     expect(screen.getByText('Local Development').closest('.plan-node')?.className).toContain('active-view');
   });
 
-  it("collapses Local Development's phase ladder by default once closed, and expands/collapses it via its chevron without blocking navigation", () => {
+  it("keeps every node's phase ladder collapsed by default — live or done — and expands/collapses it via its chevron without blocking navigation", () => {
     const onOpenStage = vi.fn();
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
@@ -117,17 +124,17 @@ describe('LivePlan', () => {
       task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
     const { container } = render(<LivePlan nodes={nodes} onOpenStage={onOpenStage} />);
-    // Local Development is done and collapsed; Remote Development is still
-    // open/monitoring, so its phase rows remain expanded.
-    expect(container.querySelectorAll('.plan-phase-row').length).toBe(4);
+    // Local Development is done, Remote Development is still open/monitoring
+    // — neither auto-opens; both start collapsed.
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
 
     // The chevron toggles the ladder, independent of navigation.
     fireEvent.click(screen.getByLabelText('Expand Local Development'));
-    expect(container.querySelectorAll('.plan-phase-row').length).toBe(9);
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(5);
     expect(onOpenStage).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText('Collapse Local Development'));
-    expect(container.querySelectorAll('.plan-phase-row').length).toBe(4);
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
     expect(onOpenStage).not.toHaveBeenCalled();
 
     // Clicking the node itself still navigates to the Local Development stage.

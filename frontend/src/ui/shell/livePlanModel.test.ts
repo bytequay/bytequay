@@ -151,6 +151,26 @@ describe('buildLivePlan', () => {
       .toEqual({ kind: 'run', runId: 'review_round-run' });
   });
 
+  it('ignores stale live runs once the task is terminal', () => {
+    const nodes = buildLivePlan({
+      stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
+      liveRuns: [run('review_round')],
+      liveRound: {
+        id: 'round-1', taskId: 't', idx: 1, reviewers: ['reviewer'], status: 'addressing',
+        stats: { fixed: 0, replied: 0, pushedBack: 0, open: 1 },
+        runId: 'review_round-run', openedAt: '2026-01-01T00:00:00Z', gatedAt: null, postedAt: null,
+        origin: 'external', brainVerdict: null, iteration: 1, budget: 3,
+      },
+      task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, terminal: true },
+    });
+
+    expect(node(nodes, 'remote-development').status).toBe('done');
+    expect(phase(nodes, 'remote-development', 'comments').status).toBe('done');
+    expect(phase(nodes, 'remote-development', 'comments').nav).toEqual({
+      kind: 'stage', stageId: 'REMOTE_DEVELOPMENT_STAGE-id',
+    });
+  });
+
   it('derives remote CI status from the linked PR when no run is live', () => {
     const green = buildLivePlan({
       stages: [], subStages: [],
@@ -284,6 +304,10 @@ describe('buildGuardChip', () => {
   it('returns null only when no guard row exists yet', () => {
     expect(buildGuardChip(null)).toBeNull();
     expect(buildGuardChip(undefined)).toBeNull();
+  });
+
+  it('hides guard rows for terminal tasks', () => {
+    expect(buildGuardChip(guard(), true)).toBeNull();
   });
 
   it('shows a disabled row as "off" so it can be armed', () => {

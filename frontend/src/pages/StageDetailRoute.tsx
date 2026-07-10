@@ -545,7 +545,7 @@ export function StageDetailRoute({
     task: {
       prNumber,
       currentPhase: sidebarPhase,
-      terminal: state === 'CLOSED' || (data === null && brain.task.terminal),
+      terminal: taskTerminal,
     },
     prStatus: pr?.status ?? null,
     mergeReady: proposalAction(shipProposal) === 'merge_pr',
@@ -581,7 +581,7 @@ export function StageDetailRoute({
         finished: sidebarFinished,
       }}
       nodes={livePlanNodes}
-      guard={buildGuardChip(planGuard)}
+      guard={buildGuardChip(planGuard, taskTerminal)}
       onBack={onBack}
       onForward={onForward}
       backEnabled={backEnabled}

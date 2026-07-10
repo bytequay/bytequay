@@ -45,6 +45,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStageIteration;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
@@ -169,7 +170,9 @@ public class StageDetailServiceImpl
         // One PR fetch (cached) feeds both the realtime-CI snapshot and the
         // PR tab — pass it to both so the detail call isn't made twice.
         PullRequestDetail prDetail = fetchPrDetail(task);
-        List<AgentRun> liveRuns = agentRuns.liveRunsByTask(task.id());
+        boolean terminal = isTerminal(task.status());
+        List<AgentRun> liveRuns = terminal ? List.of() : agentRuns.liveRunsByTask(task.id());
+        ReviewRound liveRound = terminal ? null : liveRound(task.id());
         StageInstance dev = allStages.stream()
                 .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
                 .findFirst()
@@ -189,8 +192,16 @@ public class StageDetailServiceImpl
                 new Scrubber(List.<ScrubberDash>of()),
                 liveRuns,
                 branchGuards.get(task.id()),
-                liveRound(task.id()),
+                liveRound,
                 buildDevPhases(task.phase(), dev, liveRuns, reviewRounds.findByTask(task.id())));
+    }
+
+    private static boolean isTerminal(TaskStatus status)
+    {
+        return switch (status) {
+            case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
     }
 
     /** Development's in-stage phase ladder (plan-rail-runs.md R29) — same

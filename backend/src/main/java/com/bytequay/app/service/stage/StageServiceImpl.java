@@ -146,8 +146,10 @@ public class StageServiceImpl
         // Index of stage display names → id for resolving drill-in chips.
         Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
+        boolean terminal = isTerminal(task.status());
         TaskBrainViewData.CostBreakdown cost = buildCostBreakdown(task, allStages, brainMessages);
-        List<AgentRun> liveRuns = agentRuns.liveRunsByTask(taskId);
+        List<AgentRun> liveRuns = terminal ? List.of() : agentRuns.liveRunsByTask(taskId);
+        ReviewRound liveRound = terminal ? null : liveRound(taskId);
         StageInstance dev = allStages.stream()
                 .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
                 .findFirst()
@@ -164,7 +166,7 @@ public class StageServiceImpl
                 buildScrubbers(allEvents, brainMessages),
                 liveRuns,
                 branchGuards.get(taskId),
-                liveRound(taskId),
+                liveRound,
                 buildDevPhases(task.phase(), dev, liveRuns, reviewRounds.findByTask(taskId)));
     }
 

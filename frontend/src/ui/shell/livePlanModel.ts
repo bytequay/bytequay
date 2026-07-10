@@ -294,8 +294,8 @@ const GUARD_LABELS: Record<BranchGuardDto['state'], string> = {
  *  task hasn't pushed yet (no row exists). Shown — with a toggle — even
  *  while disabled, so the user can see it's off and turn it on; hiding it
  *  outright left no way to arm a guard that never enabled itself. */
-export function buildGuardChip(guard: BranchGuardDto | null | undefined): GuardChipData | null {
-  if (guard === null || guard === undefined) return null;
+export function buildGuardChip(guard: BranchGuardDto | null | undefined, taskTerminal = false): GuardChipData | null {
+  if (taskTerminal || guard === null || guard === undefined) return null;
   return {
     state: guard.state,
     label: guard.enabled ? GUARD_LABELS[guard.state] : 'guard off',
@@ -314,10 +314,12 @@ export function buildGuardChip(guard: BranchGuardDto | null | undefined): GuardC
  */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
-    stages, liveRuns = [], liveRound = null, task, prStatus = null, mergeReady = false,
+    stages, liveRuns: inputLiveRuns = [], liveRound: inputLiveRound = null, task, prStatus = null, mergeReady = false,
     viewedStageId = null, viewingBrain = false, working = false,
     awaitingApprovalStageId = null, devPhases = [], ciStatus = null, ciSummary = null,
   } = input;
+  const liveRuns = task.terminal ? [] : inputLiveRuns;
+  const liveRound = task.terminal ? null : inputLiveRound;
   const byType = (type: StageType): StageDto | undefined => stages.find(s => s.type === type);
   const isViewed = (stage: StageDto | undefined): boolean =>
     stage !== undefined && stage.id === viewedStageId;

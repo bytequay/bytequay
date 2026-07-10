@@ -96,6 +96,19 @@ class TestBranchGuardJob
     }
 
     @Test
+    void skipsTerminalTasks()
+            throws Exception
+    {
+        BranchGuardJob job = job(List.of());
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TaskStatus.COMPLETED)));
+
+        job.checkOne(guard(BranchGuard.STATE_HEALTHY));
+
+        verifyNoInteractions(git);
+        verify(guards, never()).save(any());
+    }
+
+    @Test
     void healthyWhenBaseHasNotMovedBeyondTheMergeBase()
             throws Exception
     {
@@ -194,7 +207,7 @@ class TestBranchGuardJob
         when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main-old"));
         when(git.rebasePreview(WORKTREE, "HEAD", "origin/main")).thenReturn(RebaseOutcome.CLEAN);
         AgentRun run = run(AgentRun.STATUS_RUNNING);
-        when(agentRuns.open(any(), any(), any(), any(), any(), any())).thenReturn(run);
+        when(agentRuns.openInStage(any(), any(), any(), any(), any())).thenReturn(run);
 
         job.checkOne(guard(BranchGuard.STATE_HEALTHY));
 
@@ -348,10 +361,16 @@ class TestBranchGuardJob
 
     private static Task task()
     {
+        return task(TaskStatus.IN_REVIEW);
+    }
+
+    private static Task task(TaskStatus status)
+    {
         return new Task(
-                TASK_ID, "t1", 1L, TaskStatus.IN_REVIEW, "dev/x", WORKTREE.toString(), "main", "/tmp/clone",
+                TASK_ID, "t1", 1L, status, "dev/x", WORKTREE.toString(), "main", "/tmp/clone",
                 null, null, null, null, null, "DEVELOP", 42, null,
                 0L, 0L, 0L, null, Instant.now(), null, null, null, null, null,
-                null, TaskPhase.AWAITING_REMOTE_REVIEW, null, 0, "acme/widgets#42");
+                null, status == TaskStatus.COMPLETED ? TaskPhase.COMPLETED : TaskPhase.AWAITING_REMOTE_REVIEW,
+                null, 0, "acme/widgets#42");
     }
 }

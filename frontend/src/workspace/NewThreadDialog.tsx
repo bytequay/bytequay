@@ -13,6 +13,8 @@
  */
 import { useEffect, useState } from 'react';
 import type { WatchedRepoDto, WorkModelDto } from '../types';
+import { logoColorFor, monogram } from '../pages/useWorkspaceNav';
+import { Logo } from '../ui/primitives';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
 import { WorkModelPicker } from './WorkModelPicker';
 
@@ -40,8 +42,7 @@ type Props = {
  * Workspace-scoped new-thread modal per
  * docs/mockups/design/tasks/create-thread.png — a free-form prompt
  * at the top, a chip row for Add files / Reference a PR / Skills, a
- * "Lands on the thread's trunk — plan here; a task begins when work
- * turns branch-worthy" hint with the word "trunk" picked out, and an
+ * "Plan here, steer your wild horse" trunk hint, and an
  * ADVANCED · INHERITS BYTEQUAY DEFAULTS section that exposes the
  * repo + agent picks as inline chips with the workspace defaults
  * pre-filled. The Discussion / Start-a-task picker is removed — the
@@ -50,7 +51,6 @@ type Props = {
  */
 function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, workspaceName }: Props) {
   const wsLabel = workspaceName.length > 0 ? workspaceName : 'Workspace';
-  const wsInitial = wsLabel.slice(0, 1).toUpperCase();
   const [prompt, setPrompt] = useState('');
   const [repos, setRepos] = useState<WatchedRepoDto[] | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<WatchedRepoDto | null>(null);
@@ -143,9 +143,9 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
       >
         <header style={dialogStyles.header}>
           <h2 id="new-thread-title" style={dialogStyles.title}>
-            New thread
-            <span style={dialogStyles.workspaceChip}>
-              <span style={brandSquareStyle} aria-hidden>{wsInitial}</span>
+            New Trunk Threads
+            <span style={{ ...dialogStyles.workspaceChip, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Logo initials={monogram(wsLabel).toUpperCase()} color={logoColorFor(wsLabel)} size="sm" />
               {wsLabel}
             </span>
           </h2>
@@ -176,9 +176,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
         <div style={trunkHintRowStyle}>
           <span style={trunkHintBulletStyle} aria-hidden>●</span>
           <span style={trunkHintTextStyle}>
-            Lands on the thread's <span style={trunkLinkStyle}>trunk</span> —
-            plan here; a task begins when work turns branch-worthy.
-            Auto-titled from your first message.
+            Plan here, steer your wild horse.
           </span>
         </div>
 
@@ -249,10 +247,10 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
               </>
             )}
           </div>
+        </div>
 
-          <div style={pickerWrapStyle}>
-            <WorkModelPicker value={selectedModel} onChange={setSelectedModel} />
-          </div>
+        <div style={workModelSectionStyle}>
+          <WorkModelPicker value={selectedModel} onChange={setSelectedModel} />
         </div>
 
         {error !== null && (
@@ -273,7 +271,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
               onClick={() => { void handleSubmit(); }}
               disabled={submitDisabled}
             >
-              {submitting ? 'Starting…' : 'Start thread'} <span style={{ marginLeft: 4 }}>⏎</span>
+              {submitting ? 'Starting…' : "Let's ride"} <span style={{ marginLeft: 4 }}>⏎</span>
             </button>
           </div>
         </footer>
@@ -397,20 +395,6 @@ const errorBannerStyle: React.CSSProperties = {
   borderRadius: 8,
 };
 
-const brandSquareStyle: React.CSSProperties = {
-  width: 16,
-  height: 16,
-  borderRadius: 4,
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
-  color: '#fff',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: 10,
-  fontWeight: 700,
-  marginRight: 6,
-};
-
 const trunkHintRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
@@ -430,13 +414,6 @@ const trunkHintBulletStyle: React.CSSProperties = {
 
 const trunkHintTextStyle: React.CSSProperties = {
   flex: 1,
-};
-
-const trunkLinkStyle: React.CSSProperties = {
-  color: '#7c3aed',
-  fontWeight: 600,
-  borderBottom: '1px dotted rgba(124,58,237,0.5)',
-  cursor: 'help',
 };
 
 const advancedHeaderStyle: React.CSSProperties = {
@@ -466,6 +443,15 @@ const advancedRowStyle: React.CSSProperties = {
   gap: 8,
   marginTop: 8,
   flexWrap: 'wrap',
+};
+
+// WorkModelPicker renders its own header row, current-pick card, and
+// full agent list — a block-level panel, not a small chip like the
+// repo picker above. It needs the dialog's full width, so it gets its
+// own row instead of squeezing into advancedRowStyle's inline-block
+// flex slot (where it rendered squashed to content width).
+const workModelSectionStyle: React.CSSProperties = {
+  marginTop: 14,
 };
 
 const advancedChipStyle: React.CSSProperties = {

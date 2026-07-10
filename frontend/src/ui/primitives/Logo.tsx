@@ -18,10 +18,15 @@ export type LogoColor = 'purple' | 'teal' | 'orange' | 'blue' | 'pink' | 'slate'
 export type LogoSize = 'sm' | 'md' | 'lg';
 
 /**
- * The square gradient repo/workspace logo — a 2-letter monogram. Used in
- * front of every thread (its repo), in the workspace list, and in the
- * workspace header. The single logo primitive; do not introduce a second
- * avatar for repos.
+ * The square gradient repo/workspace logo — a branch-mark glyph on a
+ * gradient tile. Used in front of every thread (its repo), in the
+ * workspace list, and in the workspace header. The single logo
+ * primitive; do not introduce a second avatar for repos.
+ *
+ * <p>{@code initials} no longer renders as visible text (a 2-letter
+ * monogram read as "ugly English characters" next to the glyph-style
+ * icons the rest of the shell uses) — it's kept as the accessible
+ * name so screen readers still get the repo/workspace identity.
  */
 export function Logo({ initials, color = 'purple', size = 'md', title }: {
   initials: string;
@@ -30,8 +35,33 @@ export function Logo({ initials, color = 'purple', size = 'md', title }: {
   title?: string;
 }) {
   return (
-    <span className={`v3-logo v3-logo--${size} v3-logo--${color}`} title={title} aria-hidden={title === undefined}>
-      {initials}
+    <span
+      className={`v3-logo v3-logo--${size} v3-logo--${color}`}
+      title={title}
+      aria-label={title ?? initials}
+    >
+      <BranchGlyph />
     </span>
+  );
+}
+
+/** Minimal three-node branch mark — reads as "repo" without spelling
+ *  anything out, in the same spirit as GitHub Copilot's flat glyph
+ *  badges. `currentColor` picks up `.v3-logo`'s white text color. */
+function BranchGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="58%" height="58%" aria-hidden="true">
+      <circle cx="4" cy="3.2" r="1.5" fill="currentColor" />
+      <circle cx="4" cy="12.8" r="1.5" fill="currentColor" />
+      <circle cx="12" cy="7.8" r="1.5" fill="currentColor" />
+      <path d="M4 4.7V11.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      <path
+        d="M4 8.2C4 9.1 4.7 9.6 6.1 9.6H10C11.2 9.6 12 9 12 7.8"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
   );
 }

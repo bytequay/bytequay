@@ -142,12 +142,6 @@ export function WorkModelPicker({ value, onChange }: Props) {
         </div>
       )}
 
-      <p style={footnoteStyle}>
-        Pick an agent to use its <strong>Default</strong> model, or
-        expand to choose another. API rows use the provider's ★
-        default account unless you pin a name. CLI agents log in
-        outside ByteQuay — install + login, then refresh.
-      </p>
     </div>
   );
 }
@@ -595,13 +589,6 @@ function accountBtnStyle(active: boolean): React.CSSProperties {
 const mutedStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   fontSize: 12,
-};
-
-const footnoteStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text-3)',
-  lineHeight: 1.55,
-  margin: '4px 0 0',
 };
 
 function otherRowStyle(active: boolean): React.CSSProperties {

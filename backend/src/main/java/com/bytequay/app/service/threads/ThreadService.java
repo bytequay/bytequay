@@ -60,11 +60,13 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -360,7 +362,7 @@ public class ThreadService
 
         String nextTitle = current.title();
         if (patch.title() != null && !patch.title().isBlank()) {
-            nextTitle = patch.title().trim();
+            nextTitle = uniqueTitleInWorkspace(current.workspaceId(), patch.title().trim(), threadId);
         }
 
         Thread next = new Thread(
@@ -446,7 +448,8 @@ public class ThreadService
         // the creation day and a per-day counter so threads in logs
         // and on disk identify themselves. See service/ids/IdGenerator.
         String threadId = idGenerator.newThreadId(now);
-        String title = deriveTitle(request.title(), request.initialPrompt());
+        String title = uniqueTitleInWorkspace(
+                request.workspaceId().trim(), deriveTitle(request.title(), request.initialPrompt()), null);
         Thread thread = new Thread(
                 threadId,
                 request.kind(),
@@ -632,6 +635,30 @@ public class ThreadService
             summary = summary.substring(0, 57) + "…";
         }
         return Character.toUpperCase(summary.charAt(0)) + summary.substring(1);
+    }
+
+    /** Disambiguate {@code candidate} against every other thread title in
+     *  {@code workspaceId} by appending " (2)", " (3)", ... until it's
+     *  unique. {@code excludeThreadId} is skipped so a no-op rename (or
+     *  the thread being created) doesn't collide with itself. */
+    private String uniqueTitleInWorkspace(String workspaceId, String candidate, String excludeThreadId)
+    {
+        Set<String> existing = new HashSet<>();
+        for (Thread t : store.listThreadsByWorkspace(workspaceId)) {
+            if (excludeThreadId == null || !t.id().equals(excludeThreadId)) {
+                existing.add(t.title());
+            }
+        }
+        if (!existing.contains(candidate)) {
+            return candidate;
+        }
+        int suffix = 2;
+        String next;
+        do {
+            next = candidate + " (" + suffix + ")";
+            suffix++;
+        } while (existing.contains(next));
+        return next;
     }
 
     public Optional<Thread> find(String threadId)

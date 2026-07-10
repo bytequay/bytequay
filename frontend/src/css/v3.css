@@ -151,7 +151,7 @@
   transform: rotate(90deg);
 }
 
-/* ── Logo — square gradient repo/workspace monogram ──────────── */
+/* ── Logo — square gradient repo/workspace branch-mark badge ──── */
 .v3-logo {
   display: inline-flex;
   align-items: center;
@@ -160,22 +160,17 @@
   width: 20px;
   height: 20px;
   border-radius: 6px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
   color: #fff;
 }
 .v3-logo--sm {
   width: 17px;
   height: 17px;
   border-radius: 5px;
-  font-size: 8.5px;
 }
 .v3-logo--lg {
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  font-size: 12px;
 }
 .v3-logo--purple {
   background: linear-gradient(135deg, #a78bfa, #8b5cf6);

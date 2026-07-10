@@ -575,7 +575,7 @@ export default function ThreadsPage({
       <ThreadsListKeyframes />
       <div style={mainStyle}>
         <header className="threads-pageheader">
-          <h1 className="threads-pageheader__title">Threads</h1>
+          <h1 className="threads-pageheader__title">Trunks</h1>
           <ThreadsViewToggle value={view} onChange={setView} />
           <div className="threads-pageheader__spacer" />
           {view === 'group' && (
@@ -655,7 +655,7 @@ export default function ThreadsPage({
           <div style={emptyStateStyle}>
             <div style={emptyTitleStyle}>No threads yet</div>
             <div style={mutedTextStyle}>
-              Threads are agent runs you delegate from the app. Use{' '}
+              Trunks are agent runs you delegate from the app. Use{' '}
               <strong>+ New thread</strong> on the left to start one.
             </div>
           </div>
@@ -739,7 +739,7 @@ function filterLabel(filter: StatusFilter): string {
 function subtitleFor(filter: StatusFilter): string {
   switch (filter) {
     case 'ALL':       return 'Delegated AI coding runs · pick a status on the left to focus.';
-    case 'RUNNING':   return 'Threads currently executing in the background · sessions stay alive across app restarts.';
+    case 'RUNNING':   return 'Trunks currently executing in the background · sessions stay alive across app restarts.';
     case 'AWAITING':  return "Paused for your approval or input · the agent's waiting on a yes/no.";
     case 'PENDING':   return 'Queued to start — usually a few seconds before the agent picks them up.';
     case 'IDLE':      return 'Open but no recent activity · waiting on your next reply.';

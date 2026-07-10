@@ -24,7 +24,8 @@ describe('Logo', () => {
   it('applies the size + colour modifiers', () => {
     const { container } = render(<Logo initials="TR" color="pink" size="sm" />);
     expect(container.querySelector('.v3-logo')?.className).toBe('v3-logo v3-logo--sm v3-logo--pink');
-    expect(container.querySelector('.v3-logo')?.textContent).toBe('TR');
+    expect(container.querySelector('.v3-logo')?.getAttribute('aria-label')).toBe('TR');
+    expect(container.querySelector('.v3-logo svg')).not.toBeNull();
   });
 });
 
@@ -201,7 +202,7 @@ describe('WorkspaceTopBar', () => {
         onSelectTab={onSelectTab}
       />,
     );
-    expect(container.querySelector('.ws-tab.active')?.textContent).toContain('Threads');
+    expect(container.querySelector('.ws-tab.active')?.textContent).toContain('Trunks');
     expect(screen.getByText('5')).toBeTruthy();
     fireEvent.click(screen.getByText('Memory'));
     expect(onSelectTab).toHaveBeenCalledWith('memory');

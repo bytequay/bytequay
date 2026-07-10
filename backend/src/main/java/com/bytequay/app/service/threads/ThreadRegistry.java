@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
@@ -22,6 +23,7 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.domain.WorktreeLease;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -49,6 +51,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
@@ -59,7 +62,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Single source of truth for which threads have a live in-memory
- * {@link ThreadAgent}. Controllers go through here to look up,
+ * {@link Agent}. Controllers go through here to look up,
  * create, or replace sessions; they never instantiate a session
  * directly.
  *
@@ -84,9 +87,20 @@ public class ThreadRegistry
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadRegistry.class);
     private static final String PLANNING_REASONING_EFFORT = "high";
+    private static final String CODING_STAGE_PONYTAIL_ROLE = """
+            Ponytail mode is active for this coding stage. Prefer the simplest working change,
+            reuse existing code, avoid speculative abstractions, and leave one focused runnable
+            check for non-trivial logic.
+            """.strip();
+    private static final Set<StageType> PONYTAIL_STAGE_TYPES = Set.of(
+            StageType.DEVELOPMENT_STAGE,
+            StageType.REMOTE_DEVELOPMENT_STAGE,
+            StageType.CI_FIXING_STAGE,
+            StageType.BRANCH_GUARD_STAGE);
 
     private final ThreadStore store;
     private final TaskStore taskStore;
+    private final StageStore stageStore;
     private final StreamJsonParser parser;
     /** Codex's JSONL stdout parser, derived from the same mapper. The
      *  {@code codex} work model dispatches to it instead of {@link
@@ -158,6 +172,7 @@ public class ThreadRegistry
     public ThreadRegistry(
             ThreadStore store,
             TaskStore taskStore,
+            StageStore stageStore,
             ObjectMapper mapper,
             McpPermissionGate gate,
             CheckpointTrigger checkpointTrigger,
@@ -174,7 +189,7 @@ public class ThreadRegistry
             Ds4Instrumentation ds4Instrumentation,
             AgentContextDigest contextDigest)
     {
-        this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
+        this(store, taskStore, stageStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
                 leaseService,
@@ -275,7 +290,7 @@ public class ThreadRegistry
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService)
     {
-        this(store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+        this(store, taskStore, null, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, leaseService,
                 thread -> System.getProperty("java.io.tmpdir"),
                 null,
@@ -291,6 +306,7 @@ public class ThreadRegistry
     ThreadRegistry(
             ThreadStore store,
             TaskStore taskStore,
+            StageStore stageStore,
             StreamJsonParser parser,
             ObjectMapper mapper,
             McpPermissionGate gate,
@@ -310,6 +326,7 @@ public class ThreadRegistry
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.stageStore = stageStore;
         this.parser = requireNonNull(parser, "parser is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.codexParser = new CodexJsonParser(mapper);
@@ -389,6 +406,11 @@ public class ThreadRegistry
         return Optional.ofNullable(trunkSessions.get(threadId));
     }
 
+    public Optional<TrunkAgent> findTrunkAgent(String threadId)
+    {
+        return findTrunk(threadId).map(AgentViews::trunk);
+    }
+
     /**
      * Build (or return) the trunk-scope agent for this thread. Unlike
      * {@link #getOrCreate} no worktree lease is acquired — the trunk
@@ -399,6 +421,20 @@ public class ThreadRegistry
     {
         requireNonNull(thread, "thread is null");
         return trunkSessions.computeIfAbsent(thread.id(), id -> buildTrunk(thread));
+    }
+
+    public TrunkAgent getOrCreateTrunkAgent(Thread thread)
+    {
+        return AgentViews.trunk(getOrCreateTrunk(thread));
+    }
+
+    public TaskBrainAgent getOrCreateTaskBrainAgent(Thread thread)
+    {
+        requireNonNull(thread, "thread is null");
+        if (thread.kind() != ThreadKind.BRAIN_AGENT) {
+            throw new IllegalArgumentException("thread " + thread.id() + " is not a task brain thread");
+        }
+        return AgentViews.taskBrain(getOrCreateTrunk(thread));
     }
 
     public void evictTrunk(String threadId)
@@ -449,6 +485,7 @@ public class ThreadRegistry
     public ThreadAgent getOrCreate(Thread thread, Task task, String stageId)
     {
         requireNonNull(thread, "thread is null");
+        requireAgentBackedStage(stageId);
         String key = stageKey(thread.id(), task, stageId);
         ThreadAgent existing = sessions.get(key);
         if (existing != null) {
@@ -495,6 +532,11 @@ public class ThreadRegistry
             }
             throw e;
         }
+    }
+
+    public StageAgent getOrCreateStageAgent(Thread thread, Task task, String stageId)
+    {
+        return AgentViews.stage(getOrCreate(thread, task, stageId));
     }
 
     /** Evict and release every stage-agent for the given thread. The
@@ -622,12 +664,12 @@ public class ThreadRegistry
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider,
-                            resolveTaskRoleSkill(boundTask),
+                            resolveStageRoleSkill(boundTask, stageId),
                             boundTask, cliModelOverride(resolved))
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider, skillMaterializer,
-                            resolveTaskRoleSkill(boundTask),
+                            resolveStageRoleSkill(boundTask, stageId),
                             boundTask, cliModelOverride(resolved));
             case LOGIC_LOOP -> {
                 String workingDir = boundTask != null
@@ -636,7 +678,7 @@ public class ThreadRegistry
                 yield new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
                         credentialService, resolved, workingDir,
-                        resolveTaskRoleSkill(boundTask), toolRegistry,
+                        resolveStageRoleSkill(boundTask, stageId), toolRegistry,
                         ds4, ds4Instrumentation, gate);
             }
             case BRAIN_AGENT -> buildBrain(thread);
@@ -704,8 +746,8 @@ public class ThreadRegistry
                         roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                         toolRegistry, ds4, ds4Instrumentation, gate);
             }
-            // Brain turns carry no task id, so they route through the trunk
-            // path — build the same brain agent either way.
+            // Brain turns carry no task id in the turn row, but the thread
+            // kind still builds the task-brain runtime, not a trunk planner.
             case BRAIN_AGENT -> buildBrain(thread);
         };
     }
@@ -785,6 +827,50 @@ public class ThreadRegistry
     private static String resolveTaskRoleSkill(Task boundTask)
     {
         return boundTask == null ? null : boundTask.roleSkill();
+    }
+
+    private String resolveStageRoleSkill(Task boundTask, String stageId)
+    {
+        String base = resolveTaskRoleSkill(boundTask);
+        if (!shouldApplyPonytail(stageId)) {
+            return base;
+        }
+        if (base == null || base.isBlank()) {
+            return CODING_STAGE_PONYTAIL_ROLE;
+        }
+        return base.stripTrailing() + "\n\n" + CODING_STAGE_PONYTAIL_ROLE;
+    }
+
+    private boolean shouldApplyPonytail(String stageId)
+    {
+        return agentStageType(stageId)
+                .map(PONYTAIL_STAGE_TYPES::contains)
+                .orElse(false);
+    }
+
+    private void requireAgentBackedStage(String stageId)
+    {
+        agentStageType(stageId).ifPresent(type -> {
+            if (type == StageType.PLAN_STAGE) {
+                throw new IllegalArgumentException("PlanStage is backed by TaskBrainAgent");
+            }
+            if (type == StageType.CLEANUP_STAGE) {
+                throw new IllegalArgumentException("CleanupStage does not have an agent runtime");
+            }
+        });
+    }
+
+    private Optional<StageType> agentStageType(String stageId)
+    {
+        if (stageStore == null || stageId == null || stageId.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return stageStore.findStageById(UUID.fromString(stageId)).map(stage -> stage.type());
+        }
+        catch (IllegalArgumentException ignored) {
+            return Optional.empty();
+        }
     }
 
     @PreDestroy

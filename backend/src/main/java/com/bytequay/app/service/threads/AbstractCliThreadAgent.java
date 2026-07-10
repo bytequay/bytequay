@@ -552,28 +552,30 @@ public abstract class AbstractCliThreadAgent
             if (current == null) {
                 return;
             }
-            // Flip the latest task back to IDLE first so the thread-side
-            // saveThread cascade sees a non-terminal active task and the
-            // two stay in sync. Revive any task that isn't genuinely
-            // COMPLETED — ARCHIVED (idle-archived), ERRORED, or otherwise
-            // unfinished work can be picked back up; a COMPLETED (shipped)
-            // task stays done.
-            taskStore.findLatestTaskForThread(threadId).ifPresent(task -> {
-                if (task.status() != TaskStatus.COMPLETED
-                        && task.status() != TaskStatus.REMOTE_CLOSED) {
-                    taskStore.saveTask(new Task(
-                            task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
-                            task.branchName(), task.worktreePath(), task.baseBranch(),
-                            task.workingDir(), task.processPid(), task.logPath(),
-                            task.prNumber(), task.prState(), task.ciState(),
-                            task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
-                            task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
-                            agentSessionId.get(),
-                            task.createdAt(), /* endedAt */ null,
-                            /* errorMessage */ null,
-                            task.name(), task.roleSkill(), task.workModel()));
-                }
-            });
+            // Flip the bound task back to IDLE first so the thread-side
+            // saveThread cascade sees a non-terminal active task and the two
+            // stay in sync. Trunk agents have no bound task and must not
+            // revive task work as a side effect.
+            if (activeTaskId != null) {
+                taskStore.findTaskById(activeTaskId).ifPresent(task -> {
+                    if (task.status() != TaskStatus.COMPLETED
+                            && task.status() != TaskStatus.REMOTE_CLOSED) {
+                        taskStore.saveTask(new Task(
+                                task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
+                                task.branchName(), task.worktreePath(), task.baseBranch(),
+                                task.workingDir(), task.processPid(), task.logPath(),
+                                task.prNumber(), task.prState(), task.ciState(),
+                                task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
+                                task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
+                                agentSessionId.get(),
+                                task.createdAt(), /* endedAt */ null,
+                                /* errorMessage */ null,
+                                task.name(), task.roleSkill(), task.workModel(),
+                                task.pushedAt(), task.phase(), task.agendaJson(),
+                                task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt()));
+                    }
+                });
+            }
             store.saveThread(new Thread(
                     current.id(), current.kind(), current.provider(), current.agentSessionId(),
                     current.title(), ThreadStatus.IDLE,

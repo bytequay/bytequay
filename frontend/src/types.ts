@@ -3787,7 +3787,7 @@ export type Bridge = {
    *  worktree + session intact so it can be resumed. The thread won't run a
    *  paused task, freeing the user to work on something else. */
   pauseTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
-  /** Resume a paused task back to IDLE so the thread runs it again.
+  /** Resume a paused, errored, or archived task back to IDLE so it can run again.
    *  ({@link resumeTask} is the thread-level revive; this is per-task.) */
   resumePausedTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
   /** Next → park the current task at AWAITING_REVIEW (worktree

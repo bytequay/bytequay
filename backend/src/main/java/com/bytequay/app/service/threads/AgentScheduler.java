@@ -531,11 +531,13 @@ public class AgentScheduler
             // with no stage falls back to keying by task id inside the
             // registry.
             if (runningTurn.taskId() == null) {
-                session = sessions.getOrCreateTrunk(thread);
+                session = thread.kind() == ThreadKind.BRAIN_AGENT
+                        ? sessions.getOrCreateTaskBrainAgent(thread)
+                        : sessions.getOrCreateTrunkAgent(thread);
             }
             else {
                 Task task = tasks.findTaskById(runningTurn.taskId()).orElse(null);
-                session = sessions.getOrCreate(thread, task, runningTurn.stageId());
+                session = sessions.getOrCreateStageAgent(thread, task, runningTurn.stageId());
             }
         }
         catch (RuntimeException e) {

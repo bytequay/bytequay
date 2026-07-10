@@ -42,6 +42,9 @@ class TestPonytailBundleService
         assertThat(bundle.select(List.of("ponytail-review")))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).contains("over-engineering"));
+        assertThat(bundle.select(List.of("trunk-planner")))
+                .singleElement()
+                .satisfies(skill -> assertThat(skill.body()).contains("Trunk Planner"));
     }
 
     @Test
@@ -64,5 +67,8 @@ class TestPonytailBundleService
         assertThat(after.select(List.of("ponytail")))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).isEqualTo("cached ponytail"));
+        assertThat(after.select(List.of("trunk-planner")))
+                .singleElement()
+                .satisfies(skill -> assertThat(skill.body()).contains("Trunk Planner"));
     }
 }

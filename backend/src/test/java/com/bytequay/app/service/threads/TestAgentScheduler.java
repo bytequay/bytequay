@@ -160,6 +160,19 @@ class TestAgentScheduler
     }
 
     @Test
+    void trunkPlanningTurnActivatesTrunkPlannerWithoutChangingUserInput()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        harness.scheduler.enqueueTrunkTurn(thread, "go ahead and implement this");
+
+        assertThat(session.inputs).containsExactly("go ahead and implement this");
+        assertThat(session.skillNames).containsExactly(List.of("trunk-planner"));
+    }
+
+    @Test
     void apiLaneRunsWhileCliLaneIsFull()
     {
         TestHarness harness = new TestHarness(1, 1);

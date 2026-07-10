@@ -47,10 +47,35 @@ class TestManagedSkillPolicy
     }
 
     @Test
-    void trunkAndNormalBrainDoNotGetPonytail()
+    void trunkPlanningTurnGetsTrunkPlanner()
+    {
+        assertThat(policy.skillNames(
+                ThreadKind.CLI_AGENT, turn("user", "go ahead and implement this"), null))
+                .containsExactly("trunk-planner");
+    }
+
+    @Test
+    void explicitTrunkPlanningSourceGetsTrunkPlanner()
+    {
+        assertThat(policy.skillNames(
+                ThreadKind.LOGIC_LOOP, turn("backlog-start", "please review this"), null))
+                .containsExactly("trunk-planner");
+    }
+
+    @Test
+    void normalTrunkAndNormalBrainDoNotGetManagedSkills()
     {
         assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), null)).isEmpty();
-        assertThat(policy.skillNames(ThreadKind.BRAIN_AGENT, turn("user"), null)).isEmpty();
+        assertThat(policy.skillNames(
+                ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this"), null)).isEmpty();
+    }
+
+    @Test
+    void taskTurnWithoutStageDoesNotGetTrunkPlanner()
+    {
+        assertThat(policy.skillNames(
+                ThreadKind.CLI_AGENT, turn("user", "go ahead and implement this", "task-1"), null))
+                .isEmpty();
     }
 
     @Test
@@ -65,10 +90,20 @@ class TestManagedSkillPolicy
 
     private static ThreadTurn turn(String source)
     {
+        return turn(source, "input");
+    }
+
+    private static ThreadTurn turn(String source, String input)
+    {
+        return turn(source, input, null);
+    }
+
+    private static ThreadTurn turn(String source, String input, String taskId)
+    {
         Instant now = Instant.parse("2026-07-10T00:00:00Z");
         return new ThreadTurn(
-                "turn-1", "thread-1", null, ThreadResourceLane.CLI,
-                ThreadTurnStatus.QUEUED, "input", now, now, null, null, null,
-                TurnInitiator.unattended(source), null, ThreadScope.TRUNK);
+                "turn-1", "thread-1", taskId, ThreadResourceLane.CLI,
+                ThreadTurnStatus.QUEUED, input, now, now, null, null, null,
+                TurnInitiator.unattended(source), null, ThreadScope.of(taskId, null));
     }
 }

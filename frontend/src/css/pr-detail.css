@@ -1421,14 +1421,13 @@ button.prc-branches__ref--clickable:hover {
 
 /* Fold chevron at the start of the thread header. The whole header stays
    clickable via the chevron — keeping the row tight so a folded thread
-   reads as a one-liner ("foo.ts:42 · 3 comments · last by alice"). The
-   filled triangle glyphs (▸/▾) read as a button on their own; the
-   subtle border just keeps the click target visible against the header
-   bar's elevated background. */
+   reads as a one-liner ("foo.ts:42 · 3 comments · last by alice"). GitHub
+   style: no border/fill at rest, just the glyph; hover shows a soft
+   background so the click target still reads as interactive. */
 .prc-review-thread__fold {
   appearance: none;
-  background: var(--bg-card);
-  border: 1px solid var(--border-hairline);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   padding: 0;
   margin-right: 4px;
@@ -1445,7 +1444,6 @@ button.prc-branches__ref--clickable:hover {
 }
 .prc-review-thread__fold:hover {
   color: var(--accent);
-  border-color: var(--accent);
   background: var(--accent-a7);
 }
 .prc-review-thread__summary {

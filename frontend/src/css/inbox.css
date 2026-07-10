@@ -30,8 +30,8 @@
   width: 22px;
   height: 22px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-2);
   cursor: pointer;
   display: inline-flex;
@@ -43,7 +43,6 @@
 .v2-sidebar__collapse-btn:hover {
   color: var(--accent);
   background: var(--accent-a7);
-  border-color: var(--accent-a40);
 }
 
 /* Slim-rail variant of the sidebar: a 36px column with a single ▶ button
@@ -58,8 +57,8 @@
   width: 22px;
   height: 22px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-2);
   cursor: pointer;
   font-size: var(--font-size-xs);
@@ -70,7 +69,6 @@
 .v2-sidebar__rail-toggle:hover {
   color: var(--accent);
   background: var(--accent-a7);
-  border-color: var(--accent-a40);
 }
 .v2-sidebar__rail-label {
   margin-top: 8px;

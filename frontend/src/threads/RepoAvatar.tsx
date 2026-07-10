@@ -187,6 +187,21 @@ export async function resolveRepoRef(
   return pathToRepoCache.get(normalisePath(workingDir)) ?? null;
 }
 
+/** Resolve a bare repo name (no owner, e.g. from a workspace card's
+ *  repo chip) to its cached GitHub owner-avatar URL, by scanning the
+ *  tracked local-repo list for a name match. Distinct from
+ *  {@code resolveRepoRef}, which keys off a working-directory path.
+ *  Null when no tracked repo matches or it has no avatar. */
+export async function resolveAvatarByRepoName(repoName: string): Promise<string | null> {
+  await ensurePathCache();
+  for (const ref of pathToRepoCache.values()) {
+    if (ref && ref.repo === repoName) {
+      return fetchAvatar(ref.owner, ref.repo);
+    }
+  }
+  return null;
+}
+
 async function resolveAvatar(workingDir: string): Promise<Resolved> {
   await ensurePathCache();
   const ref = pathToRepoCache.get(normalisePath(workingDir));

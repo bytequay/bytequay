@@ -11,7 +11,55 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useEffect, useState } from 'react';
+import { Logo } from '../ui/primitives';
+import type { LogoColor } from '../ui/primitives';
+import { logoColorFor, monogram } from '../pages/useWorkspaceNav';
+import { resolveAvatarByRepoName } from '../threads/RepoAvatar';
 import type { WorkspaceCardDto } from '../types';
+
+/** Soft chip tint per logo colour, so a repo's pill chip matches its
+ *  Logo badge. Reuses base.css's semantic soft/border tokens where one
+ *  already exists (teal/orange/blue); the rest are the same hue as the
+ *  matching .v3-logo--* gradient's dark stop (see css/v3.css). */
+const CHIP_STYLE: Record<LogoColor, React.CSSProperties> = {
+  purple: { background: 'rgba(139, 92, 246, 0.1)', color: '#7c3aed', border: '1px solid rgba(139, 92, 246, 0.22)' },
+  teal: { background: 'var(--teal-soft)', color: 'var(--teal)', border: '1px solid var(--teal-border)' },
+  orange: { background: 'var(--orange-soft)', color: 'var(--orange)', border: '1px solid var(--orange-border)' },
+  blue: { background: 'var(--blue-soft)', color: 'var(--blue)', border: '1px solid var(--blue-border)' },
+  pink: { background: 'rgba(219, 39, 119, 0.1)', color: '#db2777', border: '1px solid rgba(219, 39, 119, 0.24)' },
+  slate: { background: 'rgba(71, 85, 105, 0.1)', color: '#475569', border: '1px solid rgba(71, 85, 105, 0.22)' },
+};
+
+/** The card's primary-repo icon: the repo's real GitHub owner avatar
+ *  when one's resolvable from the tracked local-repo list, falling
+ *  back to the generic Logo badge (same as every other repo icon in
+ *  the app) while it resolves or when there's no match. */
+function RepoLogo({ repo }: { repo: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUrl(null);
+    let cancelled = false;
+    void resolveAvatarByRepoName(repo).then(u => {
+      if (!cancelled) setUrl(u);
+    });
+    return () => { cancelled = true; };
+  }, [repo]);
+
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt=""
+        title={repo}
+        className="workspace-landing-card__repo-avatar"
+        onError={() => setUrl(null)}
+      />
+    );
+  }
+  return <Logo initials={monogram(repo)} color={logoColorFor(repo)} size="lg" title={repo} />;
+}
 
 type Props = {
   card: WorkspaceCardDto;
@@ -24,12 +72,13 @@ type Props = {
   onDelete?: (workspaceId: string) => void;
 };
 
-/** One tile in the Workspaces landing grid. Mirrors the structure of
- *  the design mockup: avatar + name + CURRENT chip in the
- *  header, repo chips, a three-stat row, a memory strip with a budget
- *  bar, and a footer that surfaces the "N needs you" amber chip,
- *  last-edited time, and the Enter affordance. The whole tile is a
- *  button so the keyboard hits it as one focusable affordance. */
+/** One tile in the Workspaces landing grid. Mirrors the claude_design
+ *  mockup (docs/mockups/design/claude_design_v1): the primary repo's
+ *  Logo badge + name + CURRENT chip in the header, an activity status
+ *  line, repo chips, a three-stat row, and a footer that surfaces
+ *  last-edited time, the "N needs you" amber chip, and the Enter
+ *  affordance. The whole tile is a button so the keyboard hits it as
+ *  one focusable affordance. */
 function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
   if (card.isScratch) {
     return <ScratchCard card={card} onEnter={onEnter} />;
@@ -42,29 +91,23 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
       onClick={() => onEnter(card.id)}
       aria-label={`Enter workspace ${card.name}`}
     >
+      {isCurrent && <span className="workspace-landing-card__strip" aria-hidden />}
       <header className="workspace-landing-card__head">
-        <span
-          className="workspace-landing-card__avatar"
-          aria-hidden
-          style={avatarGradient(card.color)}
-        >
-          {initialOf(card.name)}
-        </span>
+        <RepoLogo repo={card.repos[0] ?? card.name} />
         <div className="workspace-landing-card__heading">
           <div className="workspace-landing-card__name-row">
-            <span className="workspace-landing-card__name">{card.name}</span>
-            <span className="workspace-landing-card__id" title={card.id}>
-              {card.id}
-            </span>
+            <span className="workspace-landing-card__name" title={card.id}>{card.name}</span>
             {isCurrent && (
               <span className="workspace-landing-card__chip">CURRENT</span>
             )}
           </div>
           <div className="workspace-landing-card__meta">
-            <span className="workspace-landing-card__live-dot" aria-hidden />
+            <span
+              className={`workspace-landing-card__live-dot${
+                card.activeThreadCount === 0 ? ' workspace-landing-card__live-dot--idle' : ''}`}
+              aria-hidden
+            />
             <span>{activeSummary(card.activeThreadCount)}</span>
-            <span aria-hidden>·</span>
-            <span>{relativeTime(card.lastActivityMs)}</span>
           </div>
         </div>
       </header>
@@ -72,7 +115,11 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
       {card.repos.length > 0 && (
         <div className="workspace-landing-card__repos" aria-label="Repos">
           {card.repos.map(repo => (
-            <span key={repo} className="workspace-landing-card__repo">
+            <span
+              key={repo}
+              className="workspace-landing-card__repo"
+              style={CHIP_STYLE[logoColorFor(repo)]}
+            >
               {repo}
             </span>
           ))}
@@ -81,7 +128,7 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
 
       <div className="workspace-landing-card__stats">
         <Stat label="threads" value={String(card.activeThreadCount)} />
-        <Stat label="tasks in flight" value={String(card.tasksInFlight)} />
+        <Stat label="in flight" value={String(card.tasksInFlight)} />
         <Stat
           label="today"
           value={formatSpend(card.spendTodayMilliUsd)}
@@ -89,42 +136,13 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
         />
       </div>
 
-      <div className="workspace-landing-card__memory">
-        <span className="workspace-landing-card__memory-diamond" aria-hidden>◆</span>
-        <span className="workspace-landing-card__memory-text">
-          {card.memory.decisionCount} {pluralize('decision', card.memory.decisionCount)}
-          {card.memory.blockerCount > 0 && (
-            <>
-              {' · '}
-              <span className="workspace-landing-card__memory-blocker">
-                {card.memory.blockerCount} {pluralize('blocker', card.memory.blockerCount)}
-              </span>
-            </>
-          )}
-        </span>
-        <div
-          className="workspace-landing-card__budget"
-          role="img"
-          aria-label={`Memory ${tokenLabel(card.memory.tokensUsed)} of ${tokenLabel(card.memory.tokensCap)} used`}
-        >
-          <div
-            className="workspace-landing-card__budget-fill"
-            style={{ width: `${budgetPercent(card.memory)}%` }}
-          />
-        </div>
-        <span className="workspace-landing-card__budget-text">
-          {tokenLabel(card.memory.tokensUsed)} / {tokenLabel(card.memory.tokensCap)}
-        </span>
-      </div>
-
       <footer className="workspace-landing-card__foot">
-        {card.needsAttentionCount > 0 ? (
+        <span className="workspace-landing-card__edited">
+          edited {relativeTime(card.lastActivityMs)}
+        </span>
+        {card.needsAttentionCount > 0 && (
           <span className="workspace-landing-card__attention">
             {card.needsAttentionCount} {pluralize('needs', card.needsAttentionCount)} you
-          </span>
-        ) : (
-          <span className="workspace-landing-card__edited">
-            edited {relativeTime(card.lastActivityMs)}
           </span>
         )}
         <span className="workspace-landing-card__enter">Enter →</span>
@@ -159,10 +177,7 @@ function ScratchCard({
       aria-label={`Enter scratch workspace ${card.name}`}
     >
       <header className="workspace-landing-card__head">
-        <span
-          className="workspace-landing-card__avatar workspace-landing-card__avatar--scratch"
-          aria-hidden
-        >
+        <span className="workspace-landing-card__avatar--scratch" aria-hidden>
           —
         </span>
         <div className="workspace-landing-card__heading">
@@ -206,42 +221,6 @@ function Stat({
   );
 }
 
-function initialOf(name: string): string {
-  if (!name) {
-    return '?';
-  }
-  const codePoint = name.codePointAt(0);
-  return codePoint === undefined ? '?' : String.fromCodePoint(codePoint).toUpperCase();
-}
-
-function avatarGradient(color: string): React.CSSProperties {
-  // The avatar reads as a soft gradient pill in the mockup; we layer a
-  // lighter tint over the workspace's hash-derived colour so the start
-  // and stop differ even when the colour is otherwise a single hue.
-  return {
-    background: `linear-gradient(135deg, ${color} 0%, ${lighten(color, 12)} 100%)`,
-  };
-}
-
-/** Crude per-channel lighten used by the avatar gradient. The colours
- *  in the palette are dense enough that adding a few percent in HSL is
- *  overkill — additive R/G/B shifts read fine and have no perceptual
- *  surprises in this palette. */
-function lighten(hex: string, amount: number): string {
-  const trimmed = hex.startsWith('#') ? hex.slice(1) : hex;
-  if (trimmed.length !== 6) {
-    return hex;
-  }
-  const num = Number.parseInt(trimmed, 16);
-  if (Number.isNaN(num)) {
-    return hex;
-  }
-  const r = Math.min(255, ((num >> 16) & 0xff) + amount);
-  const g = Math.min(255, ((num >> 8) & 0xff) + amount);
-  const b = Math.min(255, (num & 0xff) + amount);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
-}
-
 function activeSummary(count: number): string {
   if (count === 0) {
     return 'no active threads · idle';
@@ -266,21 +245,6 @@ function formatSpend(milliUsd: number): string {
     return `$${usd.toFixed(0)}`;
   }
   return `$${usd.toFixed(2)}`;
-}
-
-function tokenLabel(tokens: number): string {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
-  }
-  return String(tokens);
-}
-
-function budgetPercent(memory: WorkspaceCardDto['memory']): number {
-  if (memory.tokensCap <= 0) {
-    return 0;
-  }
-  const pct = (memory.tokensUsed / memory.tokensCap) * 100;
-  return Math.max(0, Math.min(100, pct));
 }
 
 /** Short relative-time renderer for the card's last-activity line.

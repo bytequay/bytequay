@@ -108,7 +108,7 @@
   background: transparent;
 }
 .shell .ev .tx {
-  font-size: 13.5px;
+  font-size: 15px;
   color: var(--text-1);
   line-height: 1.65;
 }
@@ -629,11 +629,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-}
-/* Backlog cards keep their bold title — only task cards (trunk/task/
-   stage pages) dropped the bold weight. */
-.shell .task-card.backlog .header .title {
-  font-weight: 700;
 }
 .shell .task-card .body {
   font-size: 12.5px;

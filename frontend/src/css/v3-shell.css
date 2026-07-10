@@ -819,7 +819,7 @@
   background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-border);
   border-radius: 5px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
 }
-.shell .task-identity .ti-title { font-size: 13.5px; font-weight: 700; color: var(--text-1); line-height: 1.35; }
+.shell .task-identity .ti-title { font-size: 13.5px; color: var(--text-1); line-height: 1.35; }
 .shell .task-identity .ti-branch { font-family: var(--mono); font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell .task-identity .ti-meta { font-size: 10.5px; color: var(--text-4); display: flex; align-items: center; gap: 8px; padding-top: 2px; }
 .shell .task-identity .ti-meta .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-4); }

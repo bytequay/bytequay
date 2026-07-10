@@ -11,7 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
 import { PRView } from './PRView';
 import { LocalPrReviewScreen } from './LocalPrReviewScreen';
 import { PushDialog } from './PushDialog';
@@ -31,6 +30,10 @@ type DetailsPr = { id: number | string; repo: string; number: number };
  * point is the dashboard card's "Open" — `pr` carries the (repo, number)
  * this component resolves to a unified PR id.
  */
+// ponytail: onOpenReview/onMarkHandled/onBack/backLabel are still accepted
+// (callers still pass them) but no longer rendered — the top action bar
+// they drove was removed. Re-wire them into the UI if/when those actions
+// need a new home; drop them from the type if they end up genuinely dead.
 export function PrDetailsView<T extends DetailsPr>({
   pr, onStartReview, onOpenReview, onMarkHandled, onBack, backLabel,
 }: {
@@ -58,20 +61,6 @@ export function PrDetailsView<T extends DetailsPr>({
     runLocalTests, testsBusy,
   } = useExternalPrActions(owner, repoName, pr.number);
 
-  const [handledState, setHandledState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-
-  const markHandled = async () => {
-    if (onMarkHandled === undefined || handledState === 'running') return;
-    setHandledState('running');
-    try {
-      await onMarkHandled(pr.id);
-      setHandledState('done');
-    }
-    catch {
-      setHandledState('error');
-    }
-  };
-
   if (reviewOpen && bundle != null) {
     return (
       <LocalPrReviewScreen
@@ -91,24 +80,6 @@ export function PrDetailsView<T extends DetailsPr>({
 
   return (
     <div className="pr-details-view">
-      <div className="pr-details-view__actions">
-        {onBack && (
-          <button type="button" className="button button--secondary" onClick={onBack}>
-            ← {backLabel ?? 'Back'}
-          </button>
-        )}
-        <span className="preview__actions-spacer" aria-hidden="true" />
-        {onMarkHandled && (
-          <button type="button" className="button button--secondary" disabled={handledState === 'running'} onClick={markHandled}>
-            {handledState === 'running' ? 'Marking…' : handledState === 'done' ? '✓ Handled' : 'Mark as handled'}
-          </button>
-        )}
-        {onOpenReview && (
-          <button type="button" className="button button--remote" onClick={onOpenReview}>
-            Open on Remote
-          </button>
-        )}
-      </div>
       {bundle != null && capabilities !== null && (
         <PRView
           bundle={bundle}

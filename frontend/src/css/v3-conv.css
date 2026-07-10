@@ -1484,7 +1484,6 @@
 @keyframes pulse { 50% { opacity: 0.45; } }
 
 .pr-details-view { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.pr-details-view__actions { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .pr-details-view__error { padding: 8px 16px; color: var(--red, #c0392b); font-size: 12.5px; flex-shrink: 0; }
 .pr-view { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow: hidden; }
 .pr-view .pr-header { padding: 12px 16px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; background: var(--bg); flex-shrink: 0; }
@@ -1492,8 +1491,6 @@
 .pr-view .pr-header .pr-title { font-size: 15px; font-weight: 700; color: var(--text-1); line-height: 1.3; min-width: 0; }
 .pr-view .pr-header .pr-num { font-size: 15px; color: var(--text-4); font-weight: 500; }
 .pr-view .pr-header .pr-header-action { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
-.pr-title-review-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; background: var(--green); color: #fff; border: none; border-radius: 6px; font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
-.pr-title-review-btn:hover { filter: brightness(0.93); }
 .pr-view .pr-header .pr-meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; font-size: 11.5px; color: var(--text-3); }
 .pr-view .pr-header .pr-meta-row .who { font-weight: 600; color: var(--text-2); }
 .pr-view .pr-header .pr-meta-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
@@ -1514,9 +1511,10 @@
 .pr-sync-chip .spin { display: inline-block; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* U13b — tab strip + delta meter (visual chrome; Conversation is the only
-   wired tab today — Commits/Checks surface inline via the timeline / merge
-   box, and Files-changed doesn't exist until the Code Diff milestone). */
+/* U13b — tab strip + delta meter. Conversation/Commits/Checks are real,
+   in-place tabs (.pt.on tracks `activeTab`); Changes sits alongside them but
+   navigates straight to the full-page diff review instead, so it never
+   carries the `.on` state. */
 .pr-tabs { display: flex; align-items: center; gap: 2px; padding-top: 4px; }
 .pr-tabs .pt { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); padding: 7px 12px 9px; border-bottom: 2px solid transparent;
   /* reset from <span> to <button> so real tab-switching doesn't change the look */

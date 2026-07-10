@@ -23,9 +23,10 @@ export type PRHeaderTab = 'conversation' | 'commits' | 'checks';
  * The PR header (U13b): title + number, the solid state pill, the
  * "X wants to merge N commits into base from head" branch row, the sync
  * chip, and the tab strip with count chips + the delta meter. Conversation/
- * Commits/Checks are real, clickable tabs — Files changed still has nowhere
- * to go (no full-page diff view lives inside this component), so it stays
- * absent from the strip until that milestone lands.
+ * Commits/Checks are real, clickable tabs, tracked by {@link PRHeaderTab};
+ * "Changes" sits alongside them but isn't one — it navigates straight to the
+ * full-page changed-files + diff review ({@code onReviewChanges}) instead of
+ * swapping in-place content, so it carries no `activeTab` state of its own.
  */
 export function PRHeader({
   pr, syncedAt, syncing, onRefresh, commitCount, checkCount, conversationCount, additions, deletions, headerAction,
@@ -56,15 +57,8 @@ export function PRHeader({
       <div className="pr-title-row">
         <span className="pr-title">{pr.title}</span>
         <span className="pr-num">{prNumLabel}</span>
-        {(headerAction !== undefined || onReviewChanges !== undefined) && (
-          <span className="pr-header-action">
-            {headerAction}
-            {onReviewChanges !== undefined && (
-              <button type="button" className="pr-title-review-btn" onClick={onReviewChanges}>
-                Review
-              </button>
-            )}
-          </span>
+        {headerAction !== undefined && (
+          <span className="pr-header-action">{headerAction}</span>
         )}
       </div>
       <div className="pr-meta-row">
@@ -85,6 +79,11 @@ export function PRHeader({
         <button type="button" role="tab" aria-selected={activeTab === 'checks'} className={`pt${activeTab === 'checks' ? ' on' : ''}`} onClick={() => onTabChange('checks')}>
           ✓ Checks <span className="cnt">{checkCount}</span>
         </button>
+        {onReviewChanges !== undefined && (
+          <button type="button" className="pt" onClick={onReviewChanges}>
+            ⇄ Changes
+          </button>
+        )}
         <DeltaMeter additions={additions} deletions={deletions} />
       </div>
     </div>

@@ -16,6 +16,7 @@ package com.bytequay.app.service.skills;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -43,6 +44,7 @@ public class PonytailBundleService
     private final ObjectMapper mapper;
     private final Path cacheRoot;
 
+    @Autowired
     public PonytailBundleService(ObjectMapper mapper)
     {
         this(mapper, defaultCacheRoot());

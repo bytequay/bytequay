@@ -44,6 +44,20 @@ const TOP_NAV: { key: WsNavKey; ic: string; label: string }[] = [
   { key: 'automations', ic: '⚙', label: 'Automations' },
 ];
 
+/** The Workspaces nav row's icon, as a crisp SVG — the ▦ glyph above
+ *  renders as a near-solid blob at 15px in this font, so it's swapped
+ *  in here (and reused as the Workspaces page's own title icon) rather
+ *  than relying on the font glyph. */
+export const WORKSPACES_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.6" />
+    <rect x="14" y="3" width="7" height="7" rx="1.6" />
+    <rect x="3" y="14" width="7" height="7" rx="1.6" />
+    <rect x="14" y="14" width="7" height="7" rx="1.6" />
+  </svg>
+);
+
 const BOTTOM_NAV: { key: WsNavKey; ic: string; label: string }[] = [
   { key: 'repos', ic: '⎇', label: 'Repos' },
   { key: 'email', ic: '✉', label: 'Email' },
@@ -113,7 +127,7 @@ export function WorkspaceNavSidebar({
       aria-label={n.label}
       onClick={() => onNavigate?.(n.key)}
     >
-      <span className="ic" aria-hidden>{n.ic}</span>
+      <span className="ic" aria-hidden>{n.key === 'workspaces' ? WORKSPACES_ICON : n.ic}</span>
       <span className="lbl">{n.label}</span>
       {n.key === 'workspaces' && backHint && <span className="kbd">← back</span>}
       {n.key === 'notifications' && notificationCount !== undefined && notificationCount > 0 && (

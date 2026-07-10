@@ -16,12 +16,6 @@ import type { PlanCardDto, PlanStepDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
 
-/** {@code estimatedComplexity} values that count as "small effort" for
- *  auto-merge eligibility. See the same constant's doc in the backend's
- *  TaskService for why this is a synonym allow-list, not the strict
- *  small/medium/large the type declares. */
-const SMALL_EFFORT = new Set(['trivial', 'small', 'low']);
-
 /**
  * The task root node (M10 Part A): the planning seed + the typed plan card +
  * the review bar. The seed renders collapsed as scannable chips (raw markdown
@@ -143,11 +137,6 @@ export function PlanCard({
   const confidence = plan.signals.confidence ?? confidenceFromRisk(plan.signals.riskLevel);
   const locked = plan.state === 'locked';
   const awaiting = plan.state === 'awaiting';
-  // estimatedComplexity is free text the brain writes, not a strict enum — it
-  // drifts onto risk's low/medium/high vocabulary as often as small/medium/
-  // large. Mirrors the backend's TaskService.SMALL_EFFORT allow-list.
-  const autoMergeEligible = plan.signals.riskLevel === 'low'
-    && SMALL_EFFORT.has(String(plan.signals.estimatedComplexity).toLowerCase());
 
   return (
     <div className={awaiting ? 'plan-card plan-card--awaiting' : 'plan-card'}>
@@ -184,20 +173,10 @@ export function PlanCard({
           </label>
         )}
         {onToggleAutoMerge !== undefined && (
-          <label
-            className={autoMergeEligible ? 'plan-auto' : 'plan-auto plan-auto--disabled'}
-            title={autoMergeEligible
-              ? 'When on, every remaining gate — including the final merge — approves automatically. The plan itself always waits for your explicit approval.'
-              : 'Only available for a low-risk, small-effort plan.'}
-          >
+          <label className="plan-auto" title="When on, every remaining gate — including the final merge — approves automatically. The plan itself always waits for your explicit approval. Best suited to a low-risk, small-effort plan, but the call is yours.">
             <span className="plan-auto__lbl">Auto-merge</span>
             <span className="plan-auto__sw">
-              <input
-                type="checkbox"
-                checked={autoMerge === true}
-                disabled={!autoMergeEligible}
-                onChange={autoMergeEligible ? onToggleAutoMerge : undefined}
-              />
+              <input type="checkbox" checked={autoMerge === true} onChange={onToggleAutoMerge} />
               <span className="plan-auto__track"><span className="plan-auto__knob" /></span>
             </span>
           </label>

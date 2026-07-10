@@ -1059,17 +1059,17 @@ button.prc-branches__ref--clickable:hover {
   margin-left: 72px;
 }
 .prc-review-thread__head {
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
 }
 .prc-review-thread__loc code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   color: var(--text-1);
 }
 .prc-review-thread__side {
@@ -1435,8 +1435,8 @@ button.prc-branches__ref--clickable:hover {
   color: var(--text-2);
   cursor: pointer;
   line-height: 1;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

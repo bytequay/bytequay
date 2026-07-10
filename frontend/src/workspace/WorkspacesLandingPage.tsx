@@ -27,6 +27,8 @@ type Props = {
   onEnterWorkspace: (workspaceId: string) => void;
 };
 
+type SortKey = 'recent' | 'active' | 'name';
+
 /** Top-level Workspaces page. Lives "above" any workspace — no
  *  workspace nav rail — and answers the "which project brain do I
  *  enter?" question. Renders the grid of WorkspaceCards plus a
@@ -36,6 +38,7 @@ function WorkspacesLandingPage({
 }: Props) {
   const { cards, loading, error, reload } = useWorkspaces();
   const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState<SortKey>('recent');
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   // Id of the workspace the delete-confirm dialog is asking about, or
   // null when closed; `deleting` disables the button while the request
@@ -53,11 +56,23 @@ function WorkspacesLandingPage({
       return [];
     }
     const needle = filter.trim().toLowerCase();
-    if (!needle) {
-      return cards;
+    const matched = needle
+      ? cards.filter(c => c.name.toLowerCase().includes(needle))
+      : cards;
+    // "recent" trusts the backend's own recency ordering; the other two
+    // sort client-side over the already-filtered list.
+    if (sort === 'name') {
+      return [...matched].sort((a, b) => a.name.localeCompare(b.name));
     }
-    return cards.filter(c => c.name.toLowerCase().includes(needle));
-  }, [cards, filter]);
+    if (sort === 'active') {
+      return [...matched].sort((a, b) => (
+        (b.activeThreadCount > 0 ? 1 : 0) - (a.activeThreadCount > 0 ? 1 : 0)
+      ) || b.activeThreadCount - a.activeThreadCount);
+    }
+    return matched;
+  }, [cards, filter, sort]);
+
+  const activeCount = cards?.filter(c => c.activeThreadCount > 0).length ?? 0;
 
   // Delete a workspace from its card — opens the in-app confirm dialog.
   // The backend cascades (purges every thread and its tasks, history,
@@ -90,18 +105,47 @@ function WorkspacesLandingPage({
   return (
     <section className="workspace-landing">
       <header className="workspace-landing__appbar">
-        <span className="workspace-landing__brand">
-          <span className="workspace-landing__brand-badge" aria-hidden>B</span>
-          <span className="workspace-landing__brand-name">ByteQuay</span>
+        <span className="workspace-landing__title-group">
+          <svg
+            className="workspace-landing__title-icon"
+            aria-hidden
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="3" width="7" height="7" rx="1.6" />
+            <rect x="14" y="3" width="7" height="7" rx="1.6" />
+            <rect x="3" y="14" width="7" height="7" rx="1.6" />
+            <rect x="14" y="14" width="7" height="7" rx="1.6" />
+          </svg>
+          Workspaces
+          <span className="workspace-landing__title-count">· {activeCount} active</span>
         </span>
-        <input
-          type="search"
-          className="workspace-landing__search"
-          placeholder="Search workspaces or jump to…"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          aria-label="Filter workspaces"
-        />
+        <span className="workspace-landing__appbar-spacer" />
+        <div className="workspace-landing__search-box">
+          <span className="workspace-landing__search-icon" aria-hidden>⌕</span>
+          <input
+            type="search"
+            className="workspace-landing__search"
+            placeholder="Search workspaces or jump to…"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            aria-label="Filter workspaces"
+          />
+          <span className="workspace-landing__search-kbd" aria-hidden>⌘K</span>
+        </div>
+        <button
+          type="button"
+          className="workspace-landing__new-btn"
+          onClick={() => setNewWorkspaceOpen(true)}
+        >
+          + New workspace
+        </button>
       </header>
 
       <div className="workspace-landing__hero">
@@ -110,6 +154,22 @@ function WorkspacesLandingPage({
           Each workspace is a long-lived project brain — its own repos, memory,
           and threads. Pick one to drop into.
         </p>
+        <div className="workspace-landing__sort">
+          <span className="workspace-landing__sort-label">Sort</span>
+          <div className="workspace-landing__sort-track">
+            {(['recent', 'active', 'name'] as const).map(key => (
+              <button
+                key={key}
+                type="button"
+                className={`workspace-landing__sort-btn${
+                  sort === key ? ' workspace-landing__sort-btn--active' : ''}`}
+                onClick={() => setSort(key)}
+              >
+                {key === 'recent' ? 'Recent' : key === 'active' ? 'Active' : 'Name'}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="workspace-landing__grid">

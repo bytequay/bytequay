@@ -628,36 +628,20 @@
 /* ── Workspaces landing page ───────────────────────────────────────────
  *
  * Top-level "which project brain do I enter?" surface. Lives above any
- * workspace — no left rail, no workspace nav — but reuses the same
- * calm visual language (mesh background, noise overlay, glass cards,
- * 140ms micro-interactions) so the eye doesn't need to recalibrate
- * between landing and the workspace dashboards.
+ * workspace — no left rail, no workspace nav. Flat V3 surface built on
+ * base.css's tokens (--bg-base, --accent-soft, --border-input, …),
+ * matching docs/mockups/design/claude_design_v1 exactly — no mesh
+ * gradient / glass here, that belongs to the older workspace-shell
+ * dashboards only.
  */
 
 .workspace-landing {
   min-height: 100%;
-  position: relative;
-  background:
-    radial-gradient(at 18% 12%, var(--ws-mesh-purple, rgba(196, 181, 253, 0.55)) 0%, transparent 55%),
-    radial-gradient(at 82% 14%, var(--ws-mesh-sky,    rgba(186, 230, 253, 0.55)) 0%, transparent 60%),
-    radial-gradient(at 22% 88%, var(--ws-mesh-pink,   rgba(252, 207, 232, 0.55)) 0%, transparent 55%),
-    radial-gradient(at 86% 80%, var(--ws-mesh-mint,   rgba(187, 247, 208, 0.50)) 0%, transparent 60%),
-    var(--ws-bg-base, #fafafe);
-  color: var(--ws-text-1);
-  padding: 24px 32px 64px;
+  background: var(--bg-base);
+  color: var(--text-1);
+  padding: 24px 28px 64px;
   box-sizing: border-box;
   overflow-y: auto;
-}
-
-.workspace-landing::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  mix-blend-mode: overlay;
-  opacity: 0.045;
-  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
-  background-size: 240px 240px;
 }
 
 .workspace-landing__appbar {
@@ -665,104 +649,181 @@
   align-items: center;
   gap: 16px;
   margin-bottom: 32px;
-  position: relative;
-  z-index: 1;
 }
 
-.workspace-landing__brand {
+.workspace-landing__title-group {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   font-weight: 600;
   font-size: 14px;
-  color: var(--ws-text-1);
+  color: var(--text-1);
+  white-space: nowrap;
 }
 
-.workspace-landing__brand-badge {
+.workspace-landing__title-icon {
+  color: var(--accent);
   display: inline-flex;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--ws-accent) 0%, #a78bfa 100%);
-  color: #fff;
+}
+
+.workspace-landing__title-count {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.workspace-landing__appbar-spacer {
+  flex: 1;
+}
+
+.workspace-landing__search-box {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  font-weight: 700;
+  gap: 7px;
+  width: 280px;
+  padding: 6px 11px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+}
+
+.workspace-landing__search-icon {
+  color: var(--text-4);
   font-size: 13px;
-  letter-spacing: -0.02em;
 }
 
 .workspace-landing__search {
   flex: 1;
-  max-width: 360px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--ws-card-border);
-  background: rgba(255, 255, 255, 0.66);
-  backdrop-filter: blur(10px);
-  font: inherit;
-  color: var(--ws-text-1);
+  min-width: 0;
+  border: 0;
   outline: none;
-  transition: border-color var(--ws-fast), box-shadow var(--ws-fast);
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-1);
 }
 
 .workspace-landing__search::placeholder {
-  color: var(--ws-text-3);
+  color: var(--text-4);
 }
 
-.workspace-landing__search:focus {
-  border-color: var(--ws-accent);
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.18);
+.workspace-landing__search-kbd {
+  font-size: 10px;
+  color: var(--text-4);
+  font-family: var(--mono);
+}
+
+.workspace-landing__new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.workspace-landing__new-btn:hover {
+  background: var(--accent-a40);
+  border-color: var(--accent);
 }
 
 .workspace-landing__hero {
-  position: relative;
-  z-index: 1;
   margin-bottom: 24px;
 }
 
 .workspace-landing__title {
-  font-size: 36px;
+  font-size: 26px;
   font-weight: 700;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.02em;
   margin: 0 0 8px;
-  color: var(--ws-text-1);
+  color: var(--text-1);
 }
 
 .workspace-landing__subtitle {
   margin: 0;
-  color: var(--ws-text-2);
-  font-size: 14px;
+  color: var(--text-2);
+  font-size: 13.5px;
   max-width: 640px;
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+.workspace-landing__sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.workspace-landing__sort-label {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.workspace-landing__sort-track {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-hover);
+  border-radius: 8px;
+}
+
+.workspace-landing__sort-btn {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+  background: transparent;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.workspace-landing__sort-btn--active {
+  color: var(--text-1);
+  background: var(--bg-card);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
 .workspace-landing__grid {
-  position: relative;
-  z-index: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  /* No align-items override — grid's default `stretch` equalizes every
+   * card's height to the tallest one in its row (including the "+ New
+   * workspace" tile), so a short idle card doesn't sit next to a much
+   * taller neighbour. Each card's footer uses margin-top: auto to
+   * absorb the extra height gracefully. */
 }
 
 .workspace-landing__placeholder {
   grid-column: 1 / -1;
   padding: 32px;
   text-align: center;
-  color: var(--ws-text-3);
+  color: var(--text-3);
   font-size: 14px;
-  background: var(--ws-glass);
-  border: 1px dashed var(--ws-card-border);
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
   border-radius: 12px;
 }
 
 .workspace-landing__error {
   grid-column: 1 / -1;
   padding: 20px;
-  background: var(--ws-glass);
-  border: 1px solid #fca5a5;
+  background: var(--bg-card);
+  border: 1px solid var(--red-border);
   border-radius: 12px;
-  color: #b91c1c;
+  color: var(--red);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -773,9 +834,9 @@
   font: inherit;
   padding: 6px 12px;
   border-radius: 6px;
-  border: 1px solid #fca5a5;
-  background: #fff;
-  color: #b91c1c;
+  border: 1px solid var(--red-border);
+  background: var(--bg-card);
+  color: var(--red);
   cursor: pointer;
 }
 
@@ -784,30 +845,27 @@
 .workspace-landing-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px;
-  background: rgba(255, 255, 255, 0.66);
-  backdrop-filter: blur(14px) saturate(125%);
-  border: 1px solid var(--ws-card-border);
-  border-radius: 18px;
-  box-shadow: var(--ws-card-shadow);
+  gap: 11px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
   text-align: left;
   cursor: pointer;
   color: inherit;
   font: inherit;
-  transition: transform var(--ws-fast), box-shadow var(--ws-fast),
-              border-color var(--ws-fast);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
 }
 
 .workspace-landing-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 2px 4px rgba(67, 56, 202, 0.08),
-              0 10px 28px rgba(124, 58, 237, 0.12);
-  border-color: rgba(124, 58, 237, 0.18);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .workspace-landing-card:focus-visible {
-  outline: 2px solid var(--ws-accent);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
@@ -832,9 +890,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 7px;
-  border: 1px solid var(--ws-card-border);
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--ws-text-3);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-3);
   font: inherit;
   font-size: 13px;
   line-height: 1;
@@ -842,49 +900,58 @@
   /* Visible-but-subtle by default so the affordance is discoverable without a
      hover hunt; the card hover / focus brings it to full strength. */
   opacity: 0.5;
-  transition: opacity var(--ws-fast), color var(--ws-fast),
-              border-color var(--ws-fast), background var(--ws-fast);
+  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease, background 140ms ease;
 }
 .workspace-landing-card-wrap:hover .workspace-landing-card__delete,
 .workspace-landing-card__delete:focus-visible {
   opacity: 1;
 }
 .workspace-landing-card__delete:hover {
-  color: #b91c1c;
-  border-color: #fca5a5;
-  background: #fff;
+  color: var(--red);
+  border-color: var(--red-border);
 }
 
 .workspace-landing-card--current {
-  box-shadow:
-    0 0 0 2px var(--ws-accent),
-    0 1px 2px rgba(67, 56, 202, 0.05),
-    0 6px 22px rgba(124, 58, 237, 0.10);
+  border-color: var(--accent-a40);
+}
+
+/* Top accent strip on the current card, per the claude_design mockup. */
+.workspace-landing-card__strip {
+  display: block;
+  height: 3px;
+  margin: -16px -16px 13px;
+  background: var(--accent);
 }
 
 .workspace-landing-card__head {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 11px;
 }
 
-.workspace-landing-card__avatar {
+/* Real GitHub owner-avatar variant of the card's repo icon — same
+ * footprint as Logo's "lg" size (v3.css .v3-logo--lg) so the slot
+ * doesn't jump when it swaps in. */
+.workspace-landing-card__repo-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.workspace-landing-card__avatar--scratch {
   display: inline-flex;
   width: 40px;
   height: 40px;
   border-radius: 12px;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-weight: 700;
-  font-size: 18px;
-  letter-spacing: -0.02em;
   flex-shrink: 0;
-}
-
-.workspace-landing-card__avatar--scratch {
   background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
   color: #4b5563;
+  font-weight: 700;
+  font-size: 18px;
 }
 
 .workspace-landing-card__heading {
@@ -892,61 +959,44 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .workspace-landing-card__name-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
 .workspace-landing-card__name {
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--ws-text-1);
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .workspace-landing-card__chip {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--ws-accent-soft);
-  color: var(--ws-accent-deep);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
   text-transform: uppercase;
   flex-shrink: 0;
-}
-
-/* Mono workspace id chip on the landing card — the immutable handle
- * the user can scan against the rail's brand id and the thread/task
- * ids in worktree paths / logs. Sits between the renameable name and
- * the CURRENT chip so the visual order is name → id → state. */
-.workspace-landing-card__id {
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  color: var(--ws-text-3);
-  background: var(--ws-accent-soft);
-  padding: 2px 6px;
-  border-radius: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 50%;
-  flex-shrink: 1;
 }
 
 .workspace-landing-card__meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 12px;
-  color: var(--ws-text-3);
+  color: var(--text-2);
 }
 
 .workspace-landing-card__live-dot {
@@ -954,8 +1004,12 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.45);
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+.workspace-landing-card__live-dot--idle {
+  background: var(--text-4);
 }
 
 .workspace-landing-card__repos {
@@ -964,144 +1018,104 @@
   gap: 6px;
 }
 
+/* Base repo-chip look; WorkspaceCard sets the per-repo hue inline
+ * (background/color/border) so each repo reads as a consistent colour
+ * across every card it appears on. */
 .workspace-landing-card__repo {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(124, 58, 237, 0.06);
-  color: var(--ws-accent-deep);
-  border: 1px solid rgba(124, 58, 237, 0.10);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 6px;
 }
 
 .workspace-landing-card__stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.50);
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  padding-top: 11px;
+  border-top: 1px dashed var(--border);
 }
 
 .workspace-landing-card__stat {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
+.workspace-landing-card__stat:not(:last-child) {
+  border-right: 1px solid var(--border);
+  margin-right: 14px;
+  padding-right: 14px;
+}
+
 .workspace-landing-card__stat-value {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--ws-text-1);
-  letter-spacing: -0.02em;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
 }
 
 .workspace-landing-card__stat-label {
-  font-size: 11px;
-  color: var(--ws-text-3);
+  font-size: 10px;
+  color: var(--text-3);
 }
 
 .workspace-landing-card__stat--dim .workspace-landing-card__stat-value {
-  color: var(--ws-text-3);
-}
-
-.workspace-landing-card__memory {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: rgba(16, 185, 129, 0.06);
-  border-radius: 10px;
-  font-size: 12px;
-  color: var(--ws-text-2);
-}
-
-.workspace-landing-card__memory-diamond {
-  color: #10b981;
-}
-
-.workspace-landing-card__memory-text {
-  font-weight: 500;
-  color: var(--ws-text-2);
-}
-
-.workspace-landing-card__memory-blocker {
-  color: #d97706;
-}
-
-.workspace-landing-card__budget {
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(124, 58, 237, 0.12);
-  overflow: hidden;
-  min-width: 40px;
-  max-width: 120px;
-}
-
-.workspace-landing-card__budget-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--ws-accent) 0%, #a78bfa 100%);
-  transition: width var(--ws-fast);
-}
-
-.workspace-landing-card__budget-text {
-  font-size: 10px;
-  color: var(--ws-text-3);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  color: var(--text-3);
 }
 
 .workspace-landing-card__foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   margin-top: auto;
-  padding-top: 4px;
-  font-size: 12px;
-  color: var(--ws-text-3);
+  padding-top: 11px;
+  border-top: 1px solid var(--border-light);
+  font-size: 11px;
+  color: var(--text-4);
 }
 
 .workspace-landing-card__attention {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(245, 158, 11, 0.14);
-  color: #b45309;
-  font-weight: 600;
-  font-size: 11px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  border: 1px solid var(--orange-border);
+  font-weight: 700;
+  font-size: 10px;
 }
 
 .workspace-landing-card__edited {
-  color: var(--ws-text-3);
+  color: var(--text-4);
 }
 
 .workspace-landing-card__enter {
-  color: var(--ws-accent);
+  margin-left: auto;
+  color: var(--accent);
   font-weight: 600;
   font-size: 12px;
 }
 
-/* Scratch variant — muted + dashed, no memory strip. The Inhabitable
- * cards remain interactive (Enter →) because users do sometimes want
- * to drop into the scratch space. */
+/* Scratch variant — muted + dashed. The card remains interactive
+ * (Enter →) because users do sometimes want to drop into the scratch
+ * space. */
 .workspace-landing-card--scratch {
-  background: rgba(248, 248, 250, 0.66);
+  background: var(--bg-hover);
   border-style: dashed;
-  color: var(--ws-text-2);
+  color: var(--text-2);
 }
 
 .workspace-landing-card--scratch .workspace-landing-card__name {
-  color: var(--ws-text-2);
+  color: var(--text-2);
 }
 
 .workspace-landing-card__scratch-blurb {
   margin: 0;
   font-size: 12px;
-  color: var(--ws-text-3);
+  color: var(--text-3);
   line-height: 1.45;
 }
 
@@ -1111,34 +1125,41 @@
   justify-content: center;
   text-align: center;
   border-style: dashed;
-  background: rgba(255, 255, 255, 0.42);
+  border-color: var(--accent-border);
+  background: var(--accent-a4);
   gap: 8px;
-  min-height: 220px;
+  /* No min-height — the grid's row-stretch (see .workspace-landing__grid)
+   * already matches this tile to its row's tallest real card. */
+}
+
+.workspace-landing-card--new:hover {
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
 }
 
 .workspace-landing-card__new-plus {
   display: inline-flex;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
-  background: rgba(124, 58, 237, 0.10);
-  color: var(--ws-accent-deep);
+  background: var(--accent-soft);
+  color: var(--accent);
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  font-weight: 300;
+  font-size: 22px;
+  font-weight: 400;
 }
 
 .workspace-landing-card__new-label {
-  font-weight: 600;
-  color: var(--ws-accent-deep);
+  font-weight: 700;
+  color: var(--accent);
   font-size: 14px;
 }
 
 .workspace-landing-card__new-blurb {
-  font-size: 12px;
-  color: var(--ws-text-3);
-  max-width: 240px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  max-width: 220px;
   line-height: 1.45;
 }
 

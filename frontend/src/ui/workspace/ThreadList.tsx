@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment } from 'react';
-import { Logo, PrStateIcon, StatusDot } from '../primitives';
+import { Fragment, useState } from 'react';
+import { Chev, Logo, PrStateIcon, StatusDot } from '../primitives';
 import type { LogoColor, PrGlyphState, StatusDotVariant } from '../primitives';
 
 /** One thread row in the sidebar: its repo logo + name + a status dot. */
@@ -25,10 +25,17 @@ export type ThreadRow = {
   status: StatusDotVariant;
 };
 
-/** A single sidebar thread row. */
-export function ThreadListItem({ thread, active = false, onOpen }: {
+/** A single sidebar thread row. {@code onOpen} is also the fold/unfold
+ *  trigger — the caller decides whether a click on an already-active
+ *  trunk toggles its task list instead of re-navigating. */
+export function ThreadListItem({ thread, active = false, showsFoldChevron = false, foldedOpen = true, onOpen }: {
   thread: ThreadRow;
   active?: boolean;
+  /** Show the fold chevron (only meaningful when this row is active
+   *  and has tasks to fold). */
+  showsFoldChevron?: boolean;
+  /** Chevron direction: true = ▾ (tasks showing), false = ▸ (folded). */
+  foldedOpen?: boolean;
   onOpen?: (id: string) => void;
 }) {
   return (
@@ -40,6 +47,7 @@ export function ThreadListItem({ thread, active = false, onOpen }: {
       <Logo initials={thread.initials} color={thread.color} size="sm" />
       <span className="nm">{thread.name}</span>
       <StatusDot variant={thread.status} />
+      {showsFoldChevron && <Chev open={foldedOpen} />}
     </button>
   );
 }
@@ -63,6 +71,13 @@ export type TaskNavRow = {
  * and expands to show **all** its tasks (a thread can run several at once),
  * each a clickable row with its name + status dot + PR glyph. Stage
  * navigation lives on the brain page's live-plan diagram, not here.
+ *
+ * <p>Clicking the already-active trunk row (the common "I'm already here"
+ * click, which would otherwise be a navigation no-op) toggles its task
+ * list open/closed instead. Clicking a different trunk always navigates
+ * and shows that trunk's tasks — {@code foldedId} only ever hides the
+ * one thread it names, so switching away and back can't strand the list
+ * in a folded state with no way to reopen it.
  */
 export function ThreadList({
   threads, selectedId, tasks = [], selectedTaskId,
@@ -77,6 +92,8 @@ export function ThreadList({
   onOpenTask?: (id: string) => void;
   onNewThread?: () => void;
 }) {
+  const [foldedId, setFoldedId] = useState<string | null>(null);
+
   return (
     <div className="sb-section" style={{ paddingTop: 8 }}>
       <div className="sb-section-h">
@@ -87,27 +104,44 @@ export function ThreadList({
         </span>
       </div>
       <div className="thread-list">
-        {threads.map(t => (
-          <Fragment key={t.id}>
-            <ThreadListItem thread={t} active={t.id === selectedId} onOpen={onOpen} />
-            {t.id === selectedId && tasks.map(task => (
-              <button
-                key={task.id}
-                type="button"
-                className={task.id === selectedTaskId ? 'task-subhead active' : 'task-subhead'}
-                onClick={() => onOpenTask?.(task.id)}
-              >
-                {/* One leading lifecycle mark before the name: the GitHub
-                    PR glyph once a PR exists (open / merged), else the
-                    pre-PR dot (green created → amber developing). */}
-                {task.pr !== undefined
-                  ? <PrStateIcon state={task.pr} />
-                  : task.dot !== undefined && <StatusDot variant={task.dot} />}
-                <span className="nm">{task.label}</span>
-              </button>
-            ))}
-          </Fragment>
-        ))}
+        {threads.map(t => {
+          const isActive = t.id === selectedId;
+          const isFolded = isActive && foldedId === t.id;
+          return (
+            <Fragment key={t.id}>
+              <ThreadListItem
+                thread={t}
+                active={isActive}
+                showsFoldChevron={isActive && tasks.length > 0}
+                foldedOpen={!isFolded}
+                onOpen={id => {
+                  if (id === selectedId) {
+                    setFoldedId(prev => (prev === id ? null : id));
+                  }
+                  else {
+                    onOpen?.(id);
+                  }
+                }}
+              />
+              {isActive && !isFolded && tasks.map(task => (
+                <button
+                  key={task.id}
+                  type="button"
+                  className={task.id === selectedTaskId ? 'task-subhead active' : 'task-subhead'}
+                  onClick={() => onOpenTask?.(task.id)}
+                >
+                  {/* One leading lifecycle mark before the name: the GitHub
+                      PR glyph once a PR exists (open / merged), else the
+                      pre-PR dot (green created → amber developing). */}
+                  {task.pr !== undefined
+                    ? <PrStateIcon state={task.pr} />
+                    : task.dot !== undefined && <StatusDot variant={task.dot} />}
+                  <span className="nm">{task.label}</span>
+                </button>
+              ))}
+            </Fragment>
+          );
+        })}
       </div>
     </div>
   );

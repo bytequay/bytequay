@@ -954,6 +954,21 @@
 /* ── Boundary node (Layer 1) ── */
 .shell .sp-node { position: relative; margin: 0 0 14px -30px; padding-left: 30px; }
 .shell .sp-node:first-child { margin-top: 0; }
+
+/* Break: a labelled dashed rule spanning the full spine width (rail
+   included) so the trunk line visibly interrupts here — the trailing
+   conversation below it reads as a new beat, not a child of the fold
+   sitting above. Deliberately heavier than a plain hairline (thick dashes,
+   a text label) since a bare 1px line read as invisible in practice. */
+.shell .sp-break {
+  display: flex; align-items: center; gap: 10px;
+  margin: 10px 0 22px -30px; padding-left: 30px;
+}
+.shell .sp-break__line { flex: 1; height: 0; border-top: 2px dashed var(--text-4); }
+.shell .sp-break__lbl {
+  flex-shrink: 0; font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-4);
+}
 /* The stage-boundary mark is the largest, most prominent node on the rail —
    noticeably bigger than round / work marks. Centred on the 2px rail (at x=10)
    via left:-3 (13px half-width), with a --bg halo so the rail line reads as
@@ -1324,8 +1339,6 @@
 /* A second switch (auto-merge) following auto-approve groups with a fixed gap
    instead of both grabbing the free space via margin-left:auto. */
 .shell .plan-auto + .plan-auto { margin-left: 12px; }
-.shell .plan-auto--disabled { cursor: not-allowed; opacity: .5; }
-.shell .plan-auto--disabled .plan-auto__lbl { color: var(--text-4); }
 /* Minimum-approvals selector in the plan-card header. Sits at the right; when
    the auto-approve switch follows it, they group with a fixed gap instead of
    both grabbing the free space. */

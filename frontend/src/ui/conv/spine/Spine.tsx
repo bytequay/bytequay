@@ -29,6 +29,23 @@ export function Spine({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Layer-1 spine primitive: a break in the trunk — a dashed rule marking
+ * "what follows is not part of the fold above it". Used between the last
+ * folded task and the trailing conversation that hasn't been cut into a
+ * task yet, so the live conversation doesn't read as nested under the
+ * task card sitting right above it.
+ */
+export function SpineBreak() {
+  return (
+    <div className="sp-break" aria-hidden>
+      <span className="sp-break__line" />
+      <span className="sp-break__lbl">new since last task</span>
+      <span className="sp-break__line" />
+    </div>
+  );
+}
+
+/**
  * Layer-1 spine primitive: a labelled boundary node — the largest tier.
  * A colour-coded mark sits on the rail; the label pill carries a name, an
  * optional status, and optional meta (duration / cost / outcome). Used for

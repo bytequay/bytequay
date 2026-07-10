@@ -14,7 +14,7 @@
 import type { ReactNode } from 'react';
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import {
-  ActivityStrip, Headline, Round, Spine, TaskCutNode, TaskFold, UserTurn, WorkFold,
+  ActivityStrip, Headline, Round, Spine, SpineBreak, TaskCutNode, TaskFold, UserTurn, WorkFold,
 } from '../ui/conv';
 import type { Density, TaskStatus, ToolGroup } from '../ui/conv';
 import { AskQuestionCard } from './AskQuestionCard';
@@ -260,6 +260,10 @@ export function TrunkFeed({
     );
     segment = [];
   }
+  // The trailing segment is live conversation that hasn't been cut into a
+  // task yet — mark the seam so it doesn't read as nested under the last
+  // folded task sitting right above it.
+  if (nodes.length > 0 && segment.length > 0) nodes.push(<SpineBreak key="trailing-break" />);
   nodes.push(...segment);
 
   return (

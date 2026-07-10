@@ -20,7 +20,7 @@
  */
 
 // Layer 1 — spine primitives (no domain knowledge).
-export { Spine, SpineNode, NodeCard } from './Spine';
+export { Spine, SpineNode, NodeCard, SpineBreak } from './Spine';
 export type { SpineColor } from './Spine';
 
 // Layer 2 — conversation units.

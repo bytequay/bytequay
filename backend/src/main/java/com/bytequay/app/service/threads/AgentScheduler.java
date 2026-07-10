@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
@@ -30,6 +32,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.skills.ManagedSkillPolicy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
@@ -94,6 +98,7 @@ public class AgentScheduler
     private final ThreadRegistry sessions;
     private final StageStore stages;
     private final TaskStore tasks;
+    private final ManagedSkillPolicy managedSkillPolicy;
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
     /** Per-agent-identity run gate: holds the agent key of every turn
      *  currently dispatched, so two turns for the SAME agent serialize
@@ -109,6 +114,22 @@ public class AgentScheduler
      *  turn-finished side effects (mutex release) aren't under test. */
     private ApplicationEventPublisher eventPublisher;
 
+    @Autowired
+    public AgentScheduler(
+            ThreadStore threads,
+            ThreadTurnStore turns,
+            ThreadTurnEventStore events,
+            ThreadRegistry sessions,
+            StageStore stages,
+            TaskStore tasks,
+            ManagedSkillPolicy managedSkillPolicy,
+            @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
+            @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
+    {
+        this(threads, turns, events, sessions, stages, tasks,
+                managedSkillPolicy, maxCliRunning, maxApiRunning, true);
+    }
+
     public AgentScheduler(
             ThreadStore threads,
             ThreadTurnStore turns,
@@ -119,12 +140,29 @@ public class AgentScheduler
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
+        this(threads, turns, events, sessions, stages, tasks,
+                null, maxCliRunning, maxApiRunning, true);
+    }
+
+    private AgentScheduler(
+            ThreadStore threads,
+            ThreadTurnStore turns,
+            ThreadTurnEventStore events,
+            ThreadRegistry sessions,
+            StageStore stages,
+            TaskStore tasks,
+            ManagedSkillPolicy managedSkillPolicy,
+            int maxCliRunning,
+            int maxApiRunning,
+            @SuppressWarnings("unused") boolean ignored)
+    {
         this.threads = requireNonNull(threads, "threads is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.events = requireNonNull(events, "events is null");
         this.sessions = requireNonNull(sessions, "sessions is null");
         this.stages = requireNonNull(stages, "stages is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.managedSkillPolicy = managedSkillPolicy == null ? new ManagedSkillPolicy() : managedSkillPolicy;
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
     }
@@ -551,6 +589,8 @@ public class AgentScheduler
             // messages it emits inherit an explicit stage_id.
             session.setActiveStage(runningTurn.stageId());
             session.setActiveAgentRun(runningTurn.agentRunId());
+            session.setActiveManagedSkillNames(managedSkillPolicy.skillNames(
+                    thread.kind(), runningTurn, stageType(runningTurn.stageId())));
             completion = requireNonNull(
                     session.send(runningTurn.input()),
                     "session send returned null");
@@ -611,6 +651,21 @@ public class AgentScheduler
                 eventPublisher.publishEvent(
                         new TaskTurnFinishedEvent(taskId, finished.id(), failed));
             }
+        }
+    }
+
+    private StageType stageType(String stageId)
+    {
+        if (stageId == null || stageId.isBlank()) {
+            return null;
+        }
+        try {
+            return stages.findStageById(UUID.fromString(stageId))
+                    .map(StageInstance::type)
+                    .orElse(null);
+        }
+        catch (IllegalArgumentException e) {
+            return null;
         }
     }
 

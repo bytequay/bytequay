@@ -494,6 +494,7 @@ export function StageDetailRoute({
       runTestsBusy={testsBusy}
       onResolveThread={taskTerminal ? undefined : resolveLocalComment}
       onDismissThread={taskTerminal ? undefined : dismissLocalComment}
+      onOpenStage={onOpenStage}
       syncedAt={localPrBundle.pr.syncedAt}
       syncing={prSyncing}
       onRefresh={refreshLocalPr}

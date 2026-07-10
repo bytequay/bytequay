@@ -28,6 +28,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
@@ -79,6 +80,7 @@ public class PlanStageService
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
     private final ThreadTurnScheduler scheduler;
+    private final PRService prService;
     private final ApplicationEventPublisher events;
     private final ObjectMapper mapper;
 
@@ -89,6 +91,7 @@ public class PlanStageService
             ThreadStore threadStore,
             ThreadTurnStore turnStore,
             ThreadTurnScheduler scheduler,
+            PRService prService,
             ApplicationEventPublisher events,
             ObjectMapper mapper)
     {
@@ -98,6 +101,7 @@ public class PlanStageService
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.prService = requireNonNull(prService, "prService is null");
         this.events = requireNonNull(events, "events is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -288,6 +292,10 @@ public class PlanStageService
         payload.put("approvedAt", Instant.now().toString());
         stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_APPROVED, payload);
         stageStore.closeStage(plan.id(), "plan_approved");
+        // A no-op unless the local PR already exists (e.g. a replan after
+        // dev started) — the usual first approval is backfilled onto the
+        // timeline once PRServiceImpl.createForTask creates the row instead.
+        prService.recordPlanApproved(taskId, plan.id().toString());
 
         // PLANNING ▶ IMPLEMENTING: StageLifecycle's reconcile opens the
         // DevelopmentStage off this transition; the PLAN_APPROVED event we

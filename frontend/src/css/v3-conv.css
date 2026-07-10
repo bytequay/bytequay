@@ -1626,6 +1626,19 @@
 .pr-tl-crossref a { color: var(--blue); text-decoration: none; }
 .pr-tl-crossref a:hover { text-decoration: underline; }
 
+/* A same-page link card under a timeline row — click-to-navigate rather
+   than an <a>, same box as .pr-tl-crossref above. Used by the
+   plan-finalized row to jump back to the Plan node on the Live Plan
+   ladder. */
+.pr-tl-plan-link {
+  display: flex; align-items: center; gap: 6px;
+  margin: -4px 0 8px 80px; padding: 6px 10px;
+  border: 1px solid var(--border-mid); border-radius: 6px;
+  background: var(--bg-elev); color: var(--blue); font-size: 12px;
+  font-family: inherit; cursor: pointer; width: fit-content;
+}
+.pr-tl-plan-link:hover { background: var(--bg-hover); text-decoration: underline; }
+
 /* Copilot-redesign pass — person-event: the eye/check icon sits ON the rail
    line (x=64, same technique as .tic above), with the 40px avatar (0-40,
    same size as the comment bubble's) immediately to its left. The row's

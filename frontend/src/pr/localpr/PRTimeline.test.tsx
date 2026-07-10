@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRTimeline } from './PRTimeline';
 import type { LocalPR, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
 import type { ActivityItemDto, PullRequestDetailDto, ReviewThreadDto } from '../../types';
@@ -123,13 +123,39 @@ describe('PRTimeline review rendering', () => {
     expect(screen.queryByText(/approved these changes/)).toBeNull();
   });
 
-  it('renders the brain adversarial-review branch as a person-event too', () => {
+  it('renders the brain adversarial code-review branch as a person-event too', () => {
     render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
       actor: 'brain', isLocalOnly: true,
-      payload: { scope: 'plan', verdict: 'approved', iteration: 1 },
+      payload: { scope: 'dev', verdict: 'approved', iteration: 1 },
     })]} />);
 
     expect(screen.getByText(/approved these changes/)).toBeTruthy();
+  });
+
+  it('renders the plan self-review branch with plan-specific copy, no "view changes" link', () => {
+    render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
+      actor: 'brain', isLocalOnly: true,
+      payload: { scope: 'plan', verdict: 'approved', iteration: 1 },
+    })]} onReviewChanges={() => {}} />);
+
+    expect(screen.getByText(/approved the plan/)).toBeTruthy();
+    expect(screen.queryByText(/approved these changes/)).toBeNull();
+    expect(screen.queryByText('View reviewed changes')).toBeNull();
+  });
+});
+
+describe('PRTimeline plan-finalized rendering', () => {
+  it('renders a link card that jumps to the approved PlanStage', () => {
+    const onOpenStage = vi.fn();
+    render(<PRTimeline pr={pr()} comments={[]} events={[{
+      id: 'ev2', localPrId: 'pr1', eventType: 'plan-finalized', actor: 'you',
+      isLocalOnly: true, strippedOnPushAt: null, createdAt: Date.parse('2026-06-20T10:00:00Z'),
+      payload: { planStageId: 'plan-stage-1' },
+    }]} onOpenStage={onOpenStage} />);
+
+    expect(screen.getByText(/finalized the plan/)).toBeTruthy();
+    fireEvent.click(screen.getByText('View the plan'));
+    expect(onOpenStage).toHaveBeenCalledWith('plan-stage-1');
   });
 });
 

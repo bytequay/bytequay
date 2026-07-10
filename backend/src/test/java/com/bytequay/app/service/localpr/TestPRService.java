@@ -437,4 +437,56 @@ class TestPRService
 
         verify(store, never()).addEvent(any());
     }
+
+    @Test
+    void createForTaskBackfillsThePlanApprovalOntoTheNewRowsTimeline()
+    {
+        UUID planStageId = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
+        Instant approvedAt = NOW.minusSeconds(500);
+        StageInstance plan = new StageInstance(
+                planStageId, "task1", StageType.PLAN_STAGE, StageState.CLOSED, NOW.minusSeconds(700), NOW, null);
+        StageEvent approved = new StageEvent(
+                UUID.randomUUID(), planStageId, "task1", StageEventType.PLAN_APPROVED, approvedAt,
+                "{\"approvedAt\":\"" + approvedAt + "\"}");
+        when(stageStore.findStagesByTask("task1")).thenReturn(List.of(plan));
+        when(stageStore.findEventsByStage(planStageId)).thenReturn(List.of(approved));
+        when(store.findByTaskId("task1")).thenReturn(Optional.empty());
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.createForTask("task1", "dev/x", "main", "T", "");
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_PLAN_FINALIZED);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_USER);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().createdAt()).isEqualTo(approvedAt);
+        assertThat(event.getValue().payloadJson()).contains("\"planStageId\":\"" + planStageId + "\"");
+    }
+
+    @Test
+    void recordPlanApprovedWritesATimelineEventWhenThePrExists()
+    {
+        PR existing = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW);
+        when(store.findByTaskId("task1")).thenReturn(Optional.of(existing));
+
+        service.recordPlanApproved("task1", "plan-stage-1");
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_PLAN_FINALIZED);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_USER);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().payloadJson()).contains("\"planStageId\":\"plan-stage-1\"");
+    }
+
+    @Test
+    void recordPlanApprovedNoOpsWhenTheTaskHasNoPrYet()
+    {
+        when(store.findByTaskId("task1")).thenReturn(Optional.empty());
+
+        service.recordPlanApproved("task1", "plan-stage-1");
+
+        verify(store, never()).addEvent(any());
+    }
 }

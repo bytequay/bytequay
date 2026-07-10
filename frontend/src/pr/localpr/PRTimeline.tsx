@@ -22,6 +22,7 @@ import { actorRole } from './prViewMeta';
 import { TimelineBubble } from './TimelineBubble';
 import { TimelinePersonEvent } from './TimelinePersonEvent';
 import { TimelineIconEvent } from './TimelineIconEvent';
+import { TimelinePlanFinalized } from './TimelinePlanFinalized';
 import { ReviewThreadCard } from './ReviewThreadCard';
 
 function str(payload: Record<string, unknown> | null, key: string): string | null {
@@ -164,7 +165,7 @@ function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]>
  * The description renders as the first bubble.
  */
 export function PRTimeline({
-  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread,
+  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread, onOpenStage,
   commits = [], activity, reviewThreads, remoteDetail, threadActions, currentUserLogin,
 }: {
   pr: LocalPR;
@@ -174,6 +175,9 @@ export function PRTimeline({
   onReviewChanges?: () => void;
   onResolveThread?: (rootCommentId: string) => void;
   onDismissThread?: (rootCommentId: string) => void;
+  /** Jumps to a stage's detail view — wired to the "View the plan" link card
+   *  on a `plan-finalized` row so it can jump back to the Plan node. */
+  onOpenStage?: (stageId: string) => void;
   /** GitHub's own conversation feed (labels, review-requests, force-pushes,
    *  cross-references, comments/reviews + inline diff threads) — once the
    *  PR has a `remotePrNumber`, this becomes the source for everything it
@@ -240,13 +244,14 @@ export function PRTimeline({
     if (githubFeedActive && (event.eventType !== 'ci' || str(event.payload, 'kind') !== 'local')) continue;
     if (event.eventType === 'review') {
       const verdict = str(event.payload, 'verdict');
+      const scope = str(event.payload, 'scope');
       const body = str(event.payload, 'body');
       rows.push({
         key: event.id,
         time: event.createdAt,
         render: (
           <Fragment key={event.id}>
-            <TimelinePersonEvent actor={event.actor} verdict={verdict} time={event.createdAt} onViewChanges={onReviewChanges} />
+            <TimelinePersonEvent actor={event.actor} verdict={verdict} scope={scope} time={event.createdAt} onViewChanges={onReviewChanges} />
             {body !== null && body.trim().length > 0 && (
               <TimelineBubble actor={event.actor} role={actorRole(event.actor, pr)} action="left a review comment" time={event.createdAt}>
                 {body}
@@ -254,6 +259,14 @@ export function PRTimeline({
             )}
           </Fragment>
         ),
+      });
+      continue;
+    }
+    if (event.eventType === 'plan-finalized') {
+      rows.push({
+        key: event.id,
+        time: event.createdAt,
+        render: <TimelinePlanFinalized key={event.id} event={event} onOpenStage={onOpenStage} />,
       });
       continue;
     }

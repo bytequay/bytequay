@@ -41,7 +41,7 @@ import { PRCommentComposer } from './PRCommentComposer';
 export function PRView({
   bundle, capabilities, commentValue, onCommentChange, username,
   onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
-  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread,
+  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onOpenStage,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
 }: {
   bundle: LocalPRBundle;
@@ -68,6 +68,9 @@ export function PRView({
   runTestsBusy?: boolean;
   onResolveThread?: (commentId: string) => void;
   onDismissThread?: (commentId: string) => void;
+  /** Jumps to a stage's detail view — the timeline's "View the plan" link
+   *  card on a `plan-finalized` row is the only thing that uses it today. */
+  onOpenStage?: (stageId: string) => void;
   onPublishReview?: () => void;
   onDiscardDrafts?: () => void;
   syncedAt: number | null;
@@ -185,6 +188,7 @@ export function PRView({
             onReviewChanges={onReviewChanges}
             onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
             onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
+            onOpenStage={onOpenStage}
             activity={activity}
             reviewThreads={reviewThreads}
             remoteDetail={remoteDetail}

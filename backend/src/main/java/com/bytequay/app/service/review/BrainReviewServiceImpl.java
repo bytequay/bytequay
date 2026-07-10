@@ -239,6 +239,11 @@ public class BrainReviewServiceImpl
             stageStore.recordEvent(
                     UUID.fromString(stageId), taskId, StageEventType.PLAN_SELF_REVIEWED,
                     Map.of("verdict", verdict));
+            // Exactly one pass (R20), so iteration is always 1 — mirrors
+            // PRServiceImpl.backfillPlanSelfReview's hardcoded value for the
+            // same event, reached instead when the review finishes before
+            // the local PR exists (the usual case).
+            prService.recordBrainReview(taskId, scope, verdict, /* iteration */ 1);
             return;
         }
         Optional<ReviewRound> live = roundStore.findLiveByTask(taskId)

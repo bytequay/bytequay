@@ -21,23 +21,29 @@ const APPROVED_VERDICTS = new Set(['APPROVED', 'approved']);
  *  small icon that actually sits on the rail line, the same way `.tic` does
  *  for commit/CI rows — the avatar is *aligned with* it, not layered on it. */
 export function TimelinePersonEvent({
-  actor, verdict, time, onViewChanges,
+  actor, verdict, time, scope, onViewChanges,
 }: {
   actor: string;
   verdict: string | null;
   time: number;
+  /** The review's target — `'plan'` for the plan self-review (R20), vs the
+   *  default code lock-point review — swaps the verb so a plan pass doesn't
+   *  read as "approved these changes" when there's no diff yet. */
+  scope?: string | null;
   onViewChanges?: () => void;
 }) {
   const approved = verdict !== null && APPROVED_VERDICTS.has(verdict);
+  const isPlan = scope === 'plan';
+  const verb = isPlan ? (approved ? 'approved the plan' : 'reviewed the plan') : (approved ? 'approved these changes' : 'reviewed');
   return (
     <div className="pr-person-event">
       <Avatar login={displayName(actor)} size={40} className={`pr-avatar s40 ${approved ? 'author' : ''}`} />
       <span className={`eye${approved ? ' approved' : ''}`} aria-hidden>{approved ? '✓' : '👁'}</span>
       <span className="tb">
-        <span className="who">{displayName(actor)}</span> {approved ? 'approved these changes' : 'reviewed'}
+        <span className="who">{displayName(actor)}</span> {verb}
         {' '}· {agoLabel(time)}
       </span>
-      {onViewChanges !== undefined && (
+      {!isPlan && onViewChanges !== undefined && (
         <button type="button" className="ts pr-link-btn" onClick={onViewChanges}>View reviewed changes</button>
       )}
     </div>

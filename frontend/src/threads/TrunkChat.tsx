@@ -628,7 +628,7 @@ const userBubbleStyle: React.CSSProperties = {
   color: '#fff',
   borderRadius: 14,
   borderTopRightRadius: 4,
-  fontSize: 15,
+  fontSize: 16,
   // line-height comes from .bq-chat-md so the markdown helper can
   // tighten it without fighting an inline style.
   overflowWrap: 'anywhere',
@@ -645,7 +645,7 @@ const userAvatarStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   fontSize: 11,
-  fontWeight: 700,
+  fontWeight: 400,
   letterSpacing: '0.02em',
   flexShrink: 0,
 };
@@ -681,7 +681,7 @@ const thinkingStopBtnStyle: React.CSSProperties = {
   marginLeft: 'auto',
   padding: '3px 10px',
   fontSize: 11,
-  fontWeight: 600,
+  fontWeight: 400,
   border: '1px solid rgba(207, 19, 34, 0.55)',
   background: '#fff',
   color: '#cf1322',
@@ -720,7 +720,7 @@ const claudeAvatarStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   fontSize: 13,
-  fontWeight: 700,
+  fontWeight: 400,
   flexShrink: 0,
 };
 
@@ -740,7 +740,7 @@ const assistantHeaderStyle: React.CSSProperties = {
 
 const assistantNameStyle: React.CSSProperties = {
   fontSize: 12,
-  fontWeight: 700,
+  fontWeight: 400,
   color: '#ea580c',
 };
 
@@ -756,7 +756,7 @@ const assistantBubbleStyle: React.CSSProperties = {
   border: '1px solid rgba(0,0,0,0.08)',
   borderRadius: 14,
   borderTopLeftRadius: 4,
-  fontSize: 15,
+  fontSize: 16,
   // line-height comes from .bq-chat-md.
   overflowWrap: 'anywhere',
   color: 'var(--text-1)',
@@ -785,7 +785,7 @@ const launchCardStyle: React.CSSProperties = {
 const launchGlyphStyle: React.CSSProperties = {
   fontSize: 12,
   color: '#7c3aed',
-  fontWeight: 700,
+  fontWeight: 400,
 };
 
 const launchBodyStyle: React.CSSProperties = {
@@ -798,7 +798,7 @@ const launchBodyStyle: React.CSSProperties = {
 
 const launchTitleStyle: React.CSSProperties = {
   fontSize: 12,
-  fontWeight: 600,
+  fontWeight: 400,
   color: 'var(--text-1)',
 };
 
@@ -829,7 +829,7 @@ function launchPillStyle(isForeground: boolean, status: string): React.CSSProper
     borderRadius: 999,
     background: bg,
     color,
-    fontWeight: 700,
+    fontWeight: 400,
     letterSpacing: '0.06em',
     whiteSpace: 'nowrap',
   };

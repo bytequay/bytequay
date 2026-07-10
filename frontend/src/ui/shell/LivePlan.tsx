@@ -155,11 +155,12 @@ export function LivePlan({
   const click = (node: LivePlanNode) => () => navigate(node.nav);
 
   // Explicit user toggles for a node's phase ladder, keyed by node key.
-  // Absent = default to expanded while the node is still live, collapsed
-  // once it's done (e.g. Local Development, after it closes).
+  // Absent = collapsed — the ladder only opens once the user clicks its
+  // chevron, live or not; it used to auto-expand while the node was
+  // running, which buried the plan under every in-progress node's steps.
   const [phaseToggles, setPhaseToggles] = useState<Record<string, boolean>>({});
   const phasesExpanded = (node: LivePlanNode): boolean =>
-    phaseToggles[node.key] ?? node.status !== 'done';
+    phaseToggles[node.key] ?? false;
 
   const rows: ReactNode[] = [];
   let prev: LivePlanNode['placement'] | null = null;

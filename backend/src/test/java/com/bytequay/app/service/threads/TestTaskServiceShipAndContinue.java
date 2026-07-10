@@ -334,6 +334,7 @@ class TestTaskServiceShipAndContinue
         // The dev-lifecycle phase is also driven to COMPLETED through the
         // machine — its transition event is what advances the task queue.
         verify(taskPhaseMachine).transition("task-1", TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
+        verify(sealer).seal("task-1", "pr_merged");
     }
 
     @Test

@@ -407,7 +407,7 @@ export function TaskBrainRoute({
         metaLine: task.statusLabel, finished,
       }}
       nodes={livePlanNodes}
-      guard={buildGuardChip(data.guard)}
+      guard={buildGuardChip(data.guard, task.terminal)}
       onBack={onBack}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}

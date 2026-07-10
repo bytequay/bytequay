@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewRoundService;
+import com.bytequay.app.service.runs.AgentRunService;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,29 +27,33 @@ import static java.util.Objects.requireNonNull;
 /**
  * The one place every "a task just went terminal" path (remote merge/close
  * observed, in-app cancel) seals the task's open work, so no caller can
- * forget a piece: any still-open review round (its {@code review_round} run
- * included) and any still-open stage stop rendering as live once the task
- * itself is done. Purely a status seal — interrupting live agent
- * subprocesses is the caller's job, since {@link TaskLifecycleDriver} and
- * {@link TaskService} do that with different urgency (fire-and-forget vs.
- * blocking on the subprocess actually exiting).
+ * forget a piece: any still-open review round, live run, or still-open stage
+ * stops rendering as live once the task itself is done. Purely a status seal —
+ * interrupting live agent subprocesses is the caller's job, since
+ * {@link TaskLifecycleDriver} and {@link TaskService} do that with different
+ * urgency (fire-and-forget vs. blocking on the subprocess actually exiting).
  */
 @Component
 class TaskTerminalSealer
 {
     private final StageStore stageStore;
     private final ReviewRoundService reviewRounds;
+    private final AgentRunService agentRuns;
 
-    TaskTerminalSealer(StageStore stageStore, ReviewRoundService reviewRounds)
+    TaskTerminalSealer(StageStore stageStore, ReviewRoundService reviewRounds, AgentRunService agentRuns)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
     }
 
     @Transactional
     void seal(String taskId, String reason)
     {
         reviewRounds.closeOpenRounds(taskId, reason);
+        for (AgentRun run : agentRuns.liveRunsByTask(taskId)) {
+            agentRuns.transition(run.id(), AgentRun.STATUS_CANCELLED, reason);
+        }
         for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
             if (stage.state() != StageState.CLOSED) {
                 stageStore.closeStage(stage.id(), reason);

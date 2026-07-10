@@ -672,6 +672,7 @@ public class TaskService
                                 task.id(), e.getMessage());
                     }
                 }
+                sealer.seal(task.id(), "pr_merged");
                 // The PR landed, so the local worktree + branch are dead
                 // weight — reap them. Best-effort; a task already shipped
                 // (worktree nulled) is skipped.

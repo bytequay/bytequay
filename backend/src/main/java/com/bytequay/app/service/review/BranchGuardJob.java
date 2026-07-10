@@ -20,6 +20,7 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
@@ -121,7 +122,8 @@ public class BranchGuardJob
     void checkOne(BranchGuard guard)
     {
         Task task = taskStore.findTaskById(guard.taskId()).orElse(null);
-        if (task == null || task.worktreePath() == null || task.worktreePath().isBlank()
+        if (task == null || isTerminal(task.status())
+                || task.worktreePath() == null || task.worktreePath().isBlank()
                 || task.baseBranch() == null) {
             return;
         }
@@ -266,7 +268,8 @@ public class BranchGuardJob
             return;
         }
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
-        if (task == null || task.worktreePath() == null || task.baseBranch() == null) {
+        if (task == null || isTerminal(task.status())
+                || task.worktreePath() == null || task.baseBranch() == null) {
             return;
         }
         Path worktree = Path.of(task.worktreePath());
@@ -323,5 +326,13 @@ public class BranchGuardJob
         catch (Exception e) {
             log.warn("branch guard needs-attention notify failed for task {}: {}", task.id(), e.getMessage());
         }
+    }
+
+    private static boolean isTerminal(TaskStatus status)
+    {
+        return switch (status) {
+            case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
     }
 }

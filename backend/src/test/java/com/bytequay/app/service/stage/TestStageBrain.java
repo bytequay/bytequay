@@ -16,6 +16,7 @@ package com.bytequay.app.service.stage;
 import com.bytequay.app.beans.stage.BrainFeedRow;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
@@ -36,6 +37,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.TaskAutoPushEvent;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.Test;
@@ -86,6 +88,8 @@ class TestStageBrain
     private IterationStore iterationStore;
     @Autowired
     private ThreadTurnStore threadTurnStore;
+    @Autowired
+    private AgentRunService agentRuns;
 
     @Test
     void brainFeedIncludesIterationSummariesInChronologicalOrder()
@@ -498,6 +502,22 @@ class TestStageBrain
         taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withStatus(TaskStatus.PAUSED));
 
         assertThat(stageService.getBrain(taskId).task().paused()).isTrue();
+    }
+
+    @Test
+    void terminalTasksDoNotExposeStaleLiveRuns()
+    {
+        String taskId = seedTask();
+        StageInstance remote = stageStore.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
+        agentRuns.openInStage(taskId, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                remote.id().toString(), null);
+        taskStore.completeTask(taskId, Instant.parse("2026-06-20T10:00:00Z"));
+        taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        assertThat(brain.liveRuns()).isEmpty();
+        assertThat(brain.liveRound()).isNull();
     }
 
     /** Open a ci-fixing stage with its budget seeded — a {@code ci_fix}

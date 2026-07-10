@@ -13,11 +13,13 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewRoundService;
+import com.bytequay.app.service.runs.AgentRunService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -35,13 +37,15 @@ class TestTaskTerminalSealer
 
     private final StageStore stageStore = mock(StageStore.class);
     private final ReviewRoundService reviewRounds = mock(ReviewRoundService.class);
-    private final TaskTerminalSealer sealer = new TaskTerminalSealer(stageStore, reviewRounds);
+    private final AgentRunService agentRuns = mock(AgentRunService.class);
+    private final TaskTerminalSealer sealer = new TaskTerminalSealer(stageStore, reviewRounds, agentRuns);
 
     @Test
     void closesTheOpenRoundAndEveryStillOpenStage()
     {
         StageInstance open = stage(StageState.OPEN);
         StageInstance closed = stage(StageState.CLOSED);
+        when(agentRuns.liveRunsByTask(TASK_ID)).thenReturn(List.of());
         when(stageStore.findStagesByTask(TASK_ID)).thenReturn(List.of(open, closed));
 
         sealer.seal(TASK_ID, "pr_merged");
@@ -49,6 +53,21 @@ class TestTaskTerminalSealer
         verify(reviewRounds).closeOpenRounds(TASK_ID, "pr_merged");
         verify(stageStore).closeStage(open.id(), "pr_merged");
         verify(stageStore, never()).closeStage(closed.id(), "pr_merged");
+    }
+
+    @Test
+    void cancelsAnyLiveRunLeftAfterClosingRounds()
+    {
+        AgentRun run = new AgentRun(
+                "run-1", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                null, null, "stage-1", AgentRun.STATUS_RUNNING, 0, null, null, null,
+                Instant.parse("2026-07-08T00:00:00Z"), null);
+        when(agentRuns.liveRunsByTask(TASK_ID)).thenReturn(List.of(run));
+        when(stageStore.findStagesByTask(TASK_ID)).thenReturn(List.of());
+
+        sealer.seal(TASK_ID, "pr_merged");
+
+        verify(agentRuns).transition("run-1", AgentRun.STATUS_CANCELLED, "pr_merged");
     }
 
     private static StageInstance stage(StageState state)

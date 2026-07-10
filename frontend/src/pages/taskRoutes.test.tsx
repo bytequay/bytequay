@@ -130,6 +130,6 @@ describe('StageDetailRoute', () => {
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'fix the import' } });
     fireEvent.keyDown(box, { key: 'Enter' });
-    await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-1', 'fix the import'));
+    await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-1', 'fix the import', []));
   });
 });

@@ -211,14 +211,14 @@ class TestReviewCommentService
         when(stageStore.findStagesByTask("task-1")).thenReturn(List.of(
                 stage(UUID.randomUUID(), StageType.PLAN_STAGE, StageState.CLOSED),
                 stage(devStageId, StageType.DEVELOPMENT_STAGE, StageState.ACTIVE)));
-        when(steering.steer(eq(devStageId), any())).thenReturn(new StageSteeringService.SteerResult("turn-9"));
+        when(steering.steer(eq(devStageId), any(), any())).thenReturn(new StageSteeringService.SteerResult("turn-9"));
 
         ReviewCommentService.SubmitResult result = service.submitReview("task-1", null, null);
 
         assertThat(result.submitted()).isEqualTo(1);
         assertThat(result.turnId()).isEqualTo("turn-9");
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
-        verify(steering).steer(eq(devStageId), text.capture());
+        verify(steering).steer(eq(devStageId), text.capture(), any());
         assertThat(text.getValue())
                 .contains("Address these review comments before shipping")
                 .contains("`src/Foo.java:7` - rename it")
@@ -237,7 +237,7 @@ class TestReviewCommentService
 
         assertThat(result.submitted()).isZero();
         assertThat(result.turnId()).isNull();
-        verify(steering, never()).steer(any(), any());
+        verify(steering, never()).steer(any(), any(), any());
     }
 
     @Test
@@ -248,13 +248,13 @@ class TestReviewCommentService
         UUID devStageId = UUID.randomUUID();
         when(stageStore.findStagesByTask("task-1")).thenReturn(List.of(
                 stage(devStageId, StageType.DEVELOPMENT_STAGE, StageState.ACTIVE)));
-        when(steering.steer(eq(devStageId), any())).thenReturn(new StageSteeringService.SteerResult("turn-10"));
+        when(steering.steer(eq(devStageId), any(), any())).thenReturn(new StageSteeringService.SteerResult("turn-10"));
 
         ReviewCommentService.SubmitResult result = service.submitReview("task-1", "Looks great overall.", "APPROVE");
 
         assertThat(result.turnId()).isEqualTo("turn-10");
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
-        verify(steering).steer(eq(devStageId), text.capture());
+        verify(steering).steer(eq(devStageId), text.capture(), any());
         assertThat(text.getValue())
                 .contains("Review verdict: Approve")
                 .contains("Looks great overall.")

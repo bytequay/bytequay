@@ -40,11 +40,21 @@ function toolDesc(label: string | null, detail: string | null): ReactNode {
  * both show an identical transcript. {@code onDecide} wires the Allow / Deny
  * buttons on a pending {@code permission} row; surfaces that pass none (the
  * read-only code-diff column) render it as a static "awaiting approval" note.
+ * {@code threadId} resolves a `user` row's attached-screenshot thumbnails.
  */
-export function stageRow(r: StageConversationRow, onDecide?: PermissionDecideHandler): ReactNode {
+export function stageRow(
+  r: StageConversationRow, onDecide?: PermissionDecideHandler, threadId?: string): ReactNode {
   switch (r.kind) {
     case 'user':
-      return <UserMsg key={r.id} text={r.text ?? ''} timestamp={<EventTimestamp iso={r.ts} />} />;
+      return (
+        <UserMsg
+          key={r.id}
+          text={r.text ?? ''}
+          timestamp={<EventTimestamp iso={r.ts} />}
+          threadId={threadId}
+          images={r.images}
+        />
+      );
     case 'agent':
       return (
         <EventRow

@@ -132,7 +132,11 @@ public record StageDetailData(
             String ts,
             /** For a pending {@code permission} row, the callId to answer the
              *  prompt with; null for every other row kind. */
-            String callId) {}
+            String callId,
+            /** Attached-screenshot file paths on a {@code user} row — see
+             *  {@code MessageAttachments.encodeMessage}. Empty for every
+             *  other row kind. */
+            List<String> images) {}
 
     /**
      * @param prNumber null when the task has no PR

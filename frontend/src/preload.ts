@@ -980,8 +980,8 @@ const bridge: Bridge = {
   getTaskRounds: (taskId: string) => ipcRenderer.invoke('rounds:forTask', taskId),
   approveRound: (roundId: string) => ipcRenderer.invoke('rounds:approve', roundId),
   spawnReview: (parentStageId: string) => ipcRenderer.invoke('stages:spawnReview', parentStageId),
-  steerStage: (stageId: string, text: string): Promise<{ turnId: string }> =>
-    ipcRenderer.invoke('stages:steer', stageId, text),
+  steerStage: (stageId: string, text: string, images?: string[]): Promise<{ turnId: string }> =>
+    ipcRenderer.invoke('stages:steer', stageId, text, images),
   approvePlan: (planStageId: string) => ipcRenderer.invoke('plans:approve', planStageId),
   replan: (taskId: string) => ipcRenderer.invoke('plans:replan', taskId),
   updateFollowup: (planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed') =>

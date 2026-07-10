@@ -63,6 +63,10 @@ export function StageDetailPage({
     queueWhenBusy?: boolean;
     modePill?: ReactNode;
     placeholder?: string;
+    /** Pending pasted-screenshot data URLs — controlled, like `value`. Omit
+     *  (with `onImagesChange`) to disable image paste on this composer. */
+    images?: string[];
+    onImagesChange?: (next: string[]) => void;
   };
   run?: {
     statusLabel?: string;
@@ -216,6 +220,8 @@ export function StageDetailPage({
               queueWhenBusy={composer.queueWhenBusy}
               modePill={composer.modePill}
               placeholder={composer.placeholder}
+              images={composer.images}
+              onImagesChange={composer.onImagesChange}
             />
           </div>
           {showPane && (

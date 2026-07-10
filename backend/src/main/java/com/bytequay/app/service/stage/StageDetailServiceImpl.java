@@ -624,15 +624,17 @@ public class StageDetailServiceImpl
                 rows.add(new ConversationRow(m.id(), "tool_call", null,
                         tc.tag(), tc.label(), tc.detail(),
                         r == null ? null : r.output(), r == null ? null : r.isError(),
-                        editDiff(m), null, m.ts().toString(), null));
+                        editDiff(m), null, m.ts().toString(), null, List.of()));
             }
             else if ("text".equals(m.type())) {
                 String text = decodeText(m.contentJson());
-                if (text == null || text.isBlank()) {
+                boolean user = "user".equals(m.role());
+                List<String> images = user ? decodeImages(m.contentJson()) : List.of();
+                if ((text == null || text.isBlank()) && images.isEmpty()) {
                     continue;
                 }
-                rows.add(new ConversationRow(m.id(), "user".equals(m.role()) ? "user" : "agent",
-                        text, null, null, null, null, null, null, null, m.ts().toString(), null));
+                rows.add(new ConversationRow(m.id(), user ? "user" : "agent",
+                        text, null, null, null, null, null, null, null, m.ts().toString(), null, images));
             }
             else if ("permission_request".equals(m.type())) {
                 String callId = callIdOf(m);
@@ -640,14 +642,14 @@ public class StageDetailServiceImpl
                     rows.add(new ConversationRow(m.id(), "permission",
                             permissionField(m, "summary"),
                             null, permissionField(m, "toolName"), null,
-                            null, null, null, null, m.ts().toString(), callId));
+                            null, null, null, null, m.ts().toString(), callId, List.of()));
                 }
             }
         }
         for (TaskStageIteration it : iters) {
             rows.add(new ConversationRow(it.id() + ":marker", "iteration_marker",
                     it.trigger(), null, null, null, null, null, null, it.iterationNumber(),
-                    TimeWindow.forIteration(it).start().toString(), null));
+                    TimeWindow.forIteration(it).start().toString(), null, List.of()));
         }
         rows.sort(Comparator.comparing(ConversationRow::ts));
         return rows;
@@ -1001,6 +1003,24 @@ public class StageDetailServiceImpl
         }
         catch (JsonProcessingException e) {
             return "";
+        }
+    }
+
+    /** Extract a message's attached-screenshot paths, if any — see
+     *  {@code MessageAttachments.encodeMessage}. */
+    private List<String> decodeImages(String contentJson)
+    {
+        if (contentJson == null || contentJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode node = mapper.readTree(contentJson).path("images");
+            List<String> images = new ArrayList<>();
+            node.forEach(n -> images.add(n.asText()));
+            return images;
+        }
+        catch (JsonProcessingException e) {
+            return List.of();
         }
     }
 

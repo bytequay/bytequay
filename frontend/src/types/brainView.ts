@@ -467,6 +467,8 @@ export type StageConversationRow = {
   /** For a pending {@code permission} row, the callId to answer the prompt
    *  with (Allow / Deny); null for every other row kind. */
   callId: string | null;
+  /** Attached-screenshot paths — `user` rows only, empty otherwise. */
+  images: string[];
 };
 
 /** Uncomputed catalog fields are absent (not zero); panelInvocationsCount

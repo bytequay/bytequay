@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { MarkdownProse } from '../../../threads/MarkdownProse';
 import { useAttachmentImages } from '../../../threads/useAttachmentImages';
 
@@ -35,7 +35,7 @@ export function Round({ tag, children }: { tag?: ReactNode; children: ReactNode 
  * teal-bordered block. First-class and never folds; the spine answers
  * "where did I intervene?" by these nodes alone.
  */
-export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images }: {
+export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, managedSkills = [] }: {
   text: string;
   timestamp?: ReactNode;
   glyph?: ReactNode;
@@ -45,13 +45,23 @@ export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images }: {
   /** Attached-image file paths from the message's envelope (see
    *  `extractImages`), resolved to renderable thumbnails via the bridge. */
   images?: string[];
+  /** Hidden runtime markers. Shown only when the user opens the disclosure. */
+  managedSkills?: string[];
 }) {
   const resolvedImages = useAttachmentImages(threadId ?? '', images ?? []);
   return (
     <div className="sp-uturn">
       <span className="sp-uturn__mark" aria-hidden>{glyph}</span>
       <div className="sp-ublock">
-        <div className="sp-ublock__who">You{timestamp !== undefined && <span className="ago">{timestamp}</span>}</div>
+        <div className="sp-ublock__who">
+          You{timestamp !== undefined && <span className="ago">{timestamp}</span>}
+          {managedSkills.length > 0 && (
+            <details style={runtimeDetailsStyle}>
+              <summary style={runtimeSummaryStyle}>runtime</summary>
+              <div style={runtimeBodyStyle}>Managed skills: {managedSkills.join(', ')}</div>
+            </details>
+          )}
+        </div>
         {resolvedImages.length > 0 && (
           <div className="sp-ublock__images">
             {resolvedImages.map(src => <img key={src} src={src} alt="Attached" className="sp-ublock__img" />)}
@@ -62,6 +72,27 @@ export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images }: {
     </div>
   );
 }
+
+const runtimeDetailsStyle: CSSProperties = {
+  display: 'inline-block',
+  marginLeft: 8,
+  fontSize: 10.5,
+  fontWeight: 600,
+  color: 'var(--text-4)',
+};
+
+const runtimeSummaryStyle: CSSProperties = {
+  cursor: 'pointer',
+  userSelect: 'none',
+};
+
+const runtimeBodyStyle: CSSProperties = {
+  marginTop: 4,
+  fontFamily: 'var(--mono)',
+  fontSize: 10,
+  fontWeight: 500,
+  color: 'var(--text-3)',
+};
 
 /**
  * Layer-2 conversation unit: the headline — the agent's final message of a

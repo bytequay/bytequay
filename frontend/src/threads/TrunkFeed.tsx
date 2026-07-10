@@ -180,6 +180,7 @@ export function TrunkFeed({
             timestamp={<EventTimestamp iso={round.userTurn.ts} />}
             threadId={round.userTurn.threadId}
             images={extractImages(round.userTurn.contentJson)}
+            managedSkills={extractManagedSkills(round.userTurn.contentJson)}
           />
         )}
         {work.length > 0 && (
@@ -277,4 +278,16 @@ export function TrunkFeed({
       {trailer}
     </>
   );
+}
+
+function extractManagedSkills(contentJson: string): string[] {
+  try {
+    const parsed = JSON.parse(contentJson) as { managedSkills?: unknown };
+    return Array.isArray(parsed.managedSkills)
+      ? parsed.managedSkills.filter((s): s is string => typeof s === 'string' && s.length > 0)
+      : [];
+  }
+  catch {
+    return [];
+  }
 }

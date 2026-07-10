@@ -15,6 +15,13 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.ReviewComment;
+import com.bytequay.app.domain.ReviewCommentSource;
+import com.bytequay.app.domain.StageEvent;
+import com.bytequay.app.domain.StageEventType;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
@@ -31,6 +38,7 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -51,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
@@ -70,7 +79,6 @@ import static com.bytequay.app.domain.ThreadTurnStatus.FAILED;
 import static com.bytequay.app.domain.ThreadTurnStatus.QUEUED;
 import static com.bytequay.app.domain.ThreadTurnStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
 class TestAgentScheduler
 {
@@ -130,6 +138,25 @@ class TestAgentScheduler
         String turnId = harness.scheduler.enqueueTaskTurn(thread, "plan", null);
 
         assertThat(harness.turns.findTurnById(turnId).orElseThrow().taskId()).isNull();
+    }
+
+    @Test
+    void codingStageActivatesPonytailWithoutChangingUserInput()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String stageId = "11111111-1111-1111-1111-111111111111";
+        Instant now = Instant.parse("2026-07-10T00:00:00Z");
+        harness.stageStore.stages.put(UUID.fromString(stageId), new StageInstance(
+                UUID.fromString(stageId), "task-1", StageType.DEVELOPMENT_STAGE,
+                StageState.OPEN, now, null, null));
+
+        harness.scheduler.enqueueTaskTurn(
+                thread, "implement", "task-1", stageId, TurnInitiator.user());
+
+        assertThat(session.inputs).containsExactly("implement");
+        assertThat(session.skillNames).containsExactly(List.of("ponytail"));
     }
 
     @Test
@@ -454,12 +481,13 @@ class TestAgentScheduler
         private final InMemoryTaskTurnStore turns = new InMemoryTaskTurnStore();
         private final InMemoryTaskTurnEventStore events = new InMemoryTaskTurnEventStore();
         private final RecordingRegistry registry = new RecordingRegistry();
+        private final StubStageStore stageStore = new StubStageStore();
         private final AgentScheduler scheduler;
 
         private TestHarness(int maxCliRunning, int maxApiRunning)
         {
             scheduler = new AgentScheduler(
-                    threads, turns, events, registry, mock(StageStore.class),
+                    threads, turns, events, registry, stageStore,
                     new StubTaskStore(), maxCliRunning, maxApiRunning);
         }
 
@@ -517,6 +545,37 @@ class TestAgentScheduler
             // Both return the recorded session for the thread.
             return getOrCreate(thread);
         }
+    }
+
+    private static final class StubStageStore
+            implements StageStore
+    {
+        private final Map<UUID, StageInstance> stages = new LinkedHashMap<>();
+
+        @Override public StageInstance openStage(String taskId, StageType type, UUID callerStageId) { throw new UnsupportedOperationException(); }
+        @Override public void closeStage(UUID stageId, String reason) {}
+        @Override public void closeStage(UUID stageId, String reason, Map<String, Object> extraPayload) {}
+        @Override public StageInstance reopenStage(UUID stageId) { throw new UnsupportedOperationException(); }
+        @Override public Optional<StageInstance> findStageById(UUID stageId) { return Optional.ofNullable(stages.get(stageId)); }
+        @Override public Optional<String> findMetricsJson(UUID stageId) { return Optional.empty(); }
+        @Override public void updateMetricsJson(UUID stageId, String metricsJson) {}
+        @Override public void updateWorkModel(UUID stageId, WorkModel workModel) {}
+        @Override public List<StageInstance> findStagesByTask(String taskId) { return List.of(); }
+        @Override public Optional<StageInstance> findActiveStage(String taskId) { return Optional.empty(); }
+        @Override public StageEvent recordEvent(UUID stageId, String taskId, StageEventType type, Map<String, Object> payload) { throw new UnsupportedOperationException(); }
+        @Override public Optional<StageEvent> findEventById(UUID eventId) { return Optional.empty(); }
+        @Override public void updateEventPayload(UUID eventId, Map<String, Object> payload) {}
+        @Override public List<StageEvent> findEventsByStage(UUID stageId) { return List.of(); }
+        @Override public List<StageEvent> findRecentEventsByStage(UUID stageId, int limit) { return List.of(); }
+        @Override public List<StageEvent> findEventsByTask(String taskId) { return List.of(); }
+        @Override public ReviewComment saveReviewComment(ReviewComment comment) { throw new UnsupportedOperationException(); }
+        @Override public Optional<ReviewComment> findReviewCommentById(UUID id) { return Optional.empty(); }
+        @Override public boolean reviewCommentExistsByRemoteLink(String remoteLink) { return false; }
+        @Override public List<ReviewComment> findUnresolvedComments(String taskId) { return List.of(); }
+        @Override public List<ReviewComment> findCommentsBySource(String taskId, ReviewCommentSource source) { return List.of(); }
+        @Override public List<ReviewComment> findUnroundedRemoteComments(String taskId) { return List.of(); }
+        @Override public List<ReviewComment> findCommentsByRound(UUID roundId) { return List.of(); }
+        @Override public void assignCommentsToRound(List<UUID> commentIds, UUID roundId) {}
     }
 
     /** Empty TaskStore — the scheduler tests don't exercise the
@@ -764,6 +823,7 @@ class TestAgentScheduler
     {
         private final Thread thread;
         private final List<String> inputs = new ArrayList<>();
+        private final List<List<String>> skillNames = new ArrayList<>();
         private final ArrayDeque<CompletableFuture<Void>> completions = new ArrayDeque<>();
         private ThreadStatus status = ThreadStatus.IDLE;
 
@@ -834,6 +894,12 @@ class TestAgentScheduler
             CompletableFuture<Void> completion = new CompletableFuture<>();
             completions.add(completion);
             return completion;
+        }
+
+        @Override
+        public void setActiveManagedSkillNames(List<String> names)
+        {
+            skillNames.add(names == null ? List.of() : List.copyOf(names));
         }
 
         private void completeNext()

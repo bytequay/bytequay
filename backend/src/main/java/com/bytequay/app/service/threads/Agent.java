@@ -19,6 +19,7 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.service.skills.ManagedSkillBundle;
 
 import java.util.List;
 import java.util.OptionalInt;
@@ -62,6 +63,14 @@ public interface Agent
     }
 
     default void setActiveAgentRun(String agentRunId)
+    {
+    }
+
+    default void setManagedSkillBundle(ManagedSkillBundle bundle)
+    {
+    }
+
+    default void setActiveManagedSkillNames(List<String> names)
     {
     }
 

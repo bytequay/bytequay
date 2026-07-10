@@ -248,10 +248,10 @@ public class CodexCliThreadAgent
             if (model != null && !model.isBlank()) {
                 argv.add("-m", model);
             }
-            // The prompt is the trailing positional arg. Fold the role-skill
-            // + workspace-memory context in front of it, since Codex has no
-            // system-prompt flag.
-            argv.add(composeFirstPrompt(userInput));
+            // The prompt is the trailing positional arg. Fold hidden managed
+            // skills, role-skill, and workspace memory in front of it, since
+            // Codex has no system-prompt flag.
+            argv.add(composePrompt(userInput, true));
         }
         else {
             // `codex exec resume --json --skip-git-repo-check <SESSION_ID>
@@ -262,7 +262,7 @@ public class CodexCliThreadAgent
                     .add("--json")
                     .add("--skip-git-repo-check")
                     .add(resume)
-                    .add(userInput);
+                    .add(composePrompt(userInput, false));
         }
 
         ProcessBuilder pb = new ProcessBuilder(argv.build());
@@ -298,14 +298,18 @@ public class CodexCliThreadAgent
      *  brain the Claude agent injects via {@code --append-system-prompt}.
      *  Both blocks are optional; when neither is present the user's prompt
      *  is returned unchanged. */
-    private String composeFirstPrompt(String userInput)
+    private String composePrompt(String userInput, boolean firstTurn)
     {
         StringBuilder preamble = new StringBuilder();
-        if (roleSkillText != null && !roleSkillText.isBlank()) {
+        String managed = activeManagedSkillPrompt();
+        if (!managed.isBlank()) {
+            preamble.append(managed).append("\n\n");
+        }
+        if (firstTurn && roleSkillText != null && !roleSkillText.isBlank()) {
             preamble.append(roleSkillText.strip()).append("\n\n");
         }
-        String workspaceMemory = workspaceMemoryProvider.get();
-        if (workspaceMemory != null && !workspaceMemory.isBlank()) {
+        String workspaceMemory = firstTurn ? workspaceMemoryProvider.get() : null;
+        if (firstTurn && workspaceMemory != null && !workspaceMemory.isBlank()) {
             preamble.append("# Workspace memory\n\n")
                     .append(workspaceMemory.strip())
                     .append("\n\n");

@@ -19,6 +19,7 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.service.skills.ManagedSkillBundle;
 
 import java.util.List;
 import java.util.OptionalInt;
@@ -67,6 +68,8 @@ final class AgentViews
         @Override public CompletionStage<Void> send(String userInput) { return delegate.send(userInput); }
         @Override public void setActiveStage(String stageId) { delegate.setActiveStage(stageId); }
         @Override public void setActiveAgentRun(String agentRunId) { delegate.setActiveAgentRun(agentRunId); }
+        @Override public void setManagedSkillBundle(ManagedSkillBundle bundle) { delegate.setManagedSkillBundle(bundle); }
+        @Override public void setActiveManagedSkillNames(List<String> names) { delegate.setActiveManagedSkillNames(names); }
         @Override public void setMcpAgentKey(String agentKey) { delegate.setMcpAgentKey(agentKey); }
         @Override public void interrupt() { delegate.interrupt(); }
         @Override public void pause() { delegate.pause(); }

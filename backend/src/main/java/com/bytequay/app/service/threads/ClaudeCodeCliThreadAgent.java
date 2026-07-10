@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.tools.ToolContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,9 +29,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -72,6 +77,7 @@ public class ClaudeCodeCliThreadAgent
     private final AtomicReference<Path> skillsDir = new AtomicReference<>();
     /** Optional Claude Code effort level for planning-heavy sessions. */
     private final String reasoningEffort;
+    private final AtomicReference<Set<String>> managedSkillFolders = new AtomicReference<>(Set.of());
     /** Lazily-written MCP config file Claude reads via {@code
      *  --mcp-config}. Same path for the lifetime of one session. */
     private final AtomicReference<Path> mcpConfigPath = new AtomicReference<>();
@@ -348,10 +354,11 @@ public class ClaudeCodeCliThreadAgent
     /** Re-materialize the resolved skills into a session-scoped temp dir
      *  on every buildCommand. Idempotent: the materializer overwrites
      *  SKILL.md files in place so a re-spawn picks up edits the user made
-     *  between turns. Silently no-ops when no materializer was wired in. */
+     *  between turns. Silently no-ops when neither DB skills nor built-in
+     *  managed skills apply. */
     private Path ensureSkillsDir()
     {
-        if (skillMaterializer == null) {
+        if (skillMaterializer == null && activeManagedSkills().isEmpty()) {
             return null;
         }
         Path existing = skillsDir.get();
@@ -367,19 +374,73 @@ public class ClaudeCodeCliThreadAgent
             }
         }
         try {
-            skillMaterializer.materialize(existing, ToolContext.forRepo(repoFromWorkingDir(), null));
+            if (skillMaterializer != null) {
+                skillMaterializer.materialize(existing, ToolContext.forRepo(repoFromWorkingDir(), null));
+            }
         }
         catch (RuntimeException e) {
             log.warn("Skill materialization failed for thread {}: {}", threadId, e.getMessage());
         }
+        writeManagedSkills(existing);
         return existing;
+    }
+
+    private void writeManagedSkills(Path baseDir)
+    {
+        List<ManagedSkill> active = activeManagedSkills();
+        Set<String> next = active.stream()
+                .map(ManagedSkill::name)
+                .collect(Collectors.toSet());
+        for (String stale : managedSkillFolders.get()) {
+            if (!next.contains(stale)) {
+                cleanupPathQuietly(baseDir.resolve(stale));
+            }
+        }
+        for (ManagedSkill skill : active) {
+            Path folder = baseDir.resolve(skill.name());
+            try {
+                Files.createDirectories(folder);
+                Files.writeString(folder.resolve("SKILL.md"), skill.body(), StandardCharsets.UTF_8);
+            }
+            catch (IOException e) {
+                log.warn("Failed to write managed skill {} for thread {}: {}",
+                        skill.name(), threadId, e.getMessage());
+            }
+        }
+        managedSkillFolders.set(next);
     }
 
     private void cleanupSkillsDir()
     {
         Path p = skillsDir.getAndSet(null);
-        if (p != null && skillMaterializer != null) {
+        if (p == null) {
+            return;
+        }
+        if (skillMaterializer != null) {
             skillMaterializer.cleanup(p);
+            return;
+        }
+        cleanupPathQuietly(p);
+    }
+
+    private void cleanupPathQuietly(Path dir)
+    {
+        if (dir == null || !Files.exists(dir)) {
+            return;
+        }
+        try (var stream = Files.walk(dir)) {
+            stream.sorted(Comparator.reverseOrder())
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        }
+                        catch (IOException e) {
+                            log.warn("Failed to delete skill path {}: {}", p, e.getMessage());
+                        }
+                    });
+        }
+        catch (IOException e) {
+            log.warn("Failed to walk skill dir {}: {}", dir, e.getMessage());
         }
     }
 

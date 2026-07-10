@@ -213,7 +213,7 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void codingStageRoleSkillIncludesPonytailDefaults()
+    void codingStageRoleSkillDoesNotExposeManagedPonytail()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         UUID stageId = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -231,7 +231,7 @@ class TestThreadRegistryWorkModel
 
         assertThat(lastArg(agent.buildCommand("implement this").command()))
                 .contains("TASK ROLE")
-                .contains("Ponytail mode is active for this coding stage");
+                .doesNotContain("Ponytail");
     }
 
     @Test
@@ -297,6 +297,7 @@ class TestThreadRegistryWorkModel
                 () -> "",
                 leaseService,
                 thread -> System.getProperty("java.io.tmpdir"),
+                null,
                 null,
                 null,
                 workModelResolver,

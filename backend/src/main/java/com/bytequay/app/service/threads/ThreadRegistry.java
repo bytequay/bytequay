@@ -30,6 +30,8 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
+import com.bytequay.app.service.skills.ManagedSkillBundle;
+import com.bytequay.app.service.skills.PonytailBundleService;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.stage.AgentContextDigest;
@@ -87,16 +89,6 @@ public class ThreadRegistry
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadRegistry.class);
     private static final String PLANNING_REASONING_EFFORT = "high";
-    private static final String CODING_STAGE_PONYTAIL_ROLE = """
-            Ponytail mode is active for this coding stage. Prefer the simplest working change,
-            reuse existing code, avoid speculative abstractions, and leave one focused runnable
-            check for non-trivial logic.
-            """.strip();
-    private static final Set<StageType> PONYTAIL_STAGE_TYPES = Set.of(
-            StageType.DEVELOPMENT_STAGE,
-            StageType.REMOTE_DEVELOPMENT_STAGE,
-            StageType.CI_FIXING_STAGE,
-            StageType.BRANCH_GUARD_STAGE);
 
     private final ThreadStore store;
     private final TaskStore taskStore;
@@ -119,6 +111,7 @@ public class ThreadRegistry
      *  from each task's frozen {@code role_skill} column. May be null
      *  on legacy / test paths. */
     private final RoleSkillService roleSkillService;
+    private final PonytailBundleService ponytailBundleService;
     /** Resolves the effective work model for the API lane; null on
      *  CLI-only legacy / test paths. */
     private final WorkModelResolver workModelResolver;
@@ -182,6 +175,7 @@ public class ThreadRegistry
             WorktreeService worktreeService,
             SkillMaterializer skillMaterializer,
             RoleSkillService roleSkillService,
+            PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
             CredentialService credentialService,
             LogicLoopToolRegistry toolRegistry,
@@ -201,6 +195,7 @@ public class ThreadRegistry
                 thread -> resolveTrunkPlanningCwd(worktreeService, workspaces, watchedRepos, thread),
                 skillMaterializer,
                 roleSkillService,
+                ponytailBundleService,
                 workModelResolver,
                 credentialService,
                 toolRegistry,
@@ -300,6 +295,7 @@ public class ThreadRegistry
                 null,
                 null,
                 null,
+                null,
                 null);
     }
 
@@ -317,6 +313,7 @@ public class ThreadRegistry
             Function<Thread, String> trunkCwdResolver,
             SkillMaterializer skillMaterializer,
             RoleSkillService roleSkillService,
+            PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
             CredentialService credentialService,
             LogicLoopToolRegistry toolRegistry,
@@ -338,6 +335,7 @@ public class ThreadRegistry
         this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
         this.skillMaterializer = skillMaterializer;
         this.roleSkillService = roleSkillService;
+        this.ponytailBundleService = ponytailBundleService;
         this.workModelResolver = workModelResolver;
         this.credentialService = credentialService;
         this.toolRegistry = toolRegistry;
@@ -659,17 +657,17 @@ public class ThreadRegistry
         // across every iteration within it (see getOrCreate), so this is a
         // stage-open-time decision, not re-evaluated per turn.
         WorkModel resolved = resolveWorkModelForStage(thread, boundTask, stageId);
-        return switch (thread.kind()) {
+        ThreadAgent agent = switch (thread.kind()) {
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider,
-                            resolveStageRoleSkill(boundTask, stageId),
+                            resolveTaskRoleSkill(boundTask),
                             boundTask, cliModelOverride(resolved))
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemoryProvider, skillMaterializer,
-                            resolveStageRoleSkill(boundTask, stageId),
+                            resolveTaskRoleSkill(boundTask),
                             boundTask, cliModelOverride(resolved));
             case LOGIC_LOOP -> {
                 String workingDir = boundTask != null
@@ -678,11 +676,12 @@ public class ThreadRegistry
                 yield new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
                         credentialService, resolved, workingDir,
-                        resolveStageRoleSkill(boundTask, stageId), toolRegistry,
+                        resolveTaskRoleSkill(boundTask), toolRegistry,
                         ds4, ds4Instrumentation, gate);
             }
             case BRAIN_AGENT -> buildBrain(thread);
         };
+        return withManagedSkillBundle(agent);
     }
 
     /** The resolved cascade's model id, but only when it's actually a CLI
@@ -736,15 +735,15 @@ public class ThreadRegistry
                     String synced = trunkCwdResolver.apply(thread);
                     log.debug("trunk {} planning base synced at {}", thread.id(), synced);
                 });
-                yield agent;
+                yield withManagedSkillBundle(agent);
             }
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
-                yield new LogicLoopThreadAgent(
+                yield withManagedSkillBundle(new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
                         roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                        toolRegistry, ds4, ds4Instrumentation, gate);
+                        toolRegistry, ds4, ds4Instrumentation, gate));
             }
             // Brain turns carry no task id in the turn row, but the thread
             // kind still builds the task-brain runtime, not a trunk planner.
@@ -773,18 +772,18 @@ public class ThreadRegistry
             // Runs without a focused Task in the parent task's worktree, with
             // the brain prompt as its role block. Its tool surface is scoped
             // to the brain allowlist by the MCP server (ThreadKind=BRAIN_AGENT).
-            return new ClaudeCodeCliThreadAgent(
+            return withManagedSkillBundle(new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                     workspaceMemoryProvider, skillMaterializer,
                     brainSystemPrompt(thread), workingDir,
                     ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
-                    PLANNING_REASONING_EFFORT);
+                    PLANNING_REASONING_EFFORT));
         }
-        return new LogicLoopThreadAgent(
+        return withManagedSkillBundle(new LogicLoopThreadAgent(
                 thread, store, mapper, executor,
                 credentialService, resolved, workingDir,
                 brainSystemPrompt(thread), toolRegistry,
-                ds4, ds4Instrumentation, gate);
+                ds4, ds4Instrumentation, gate));
     }
 
     /**
@@ -829,23 +828,13 @@ public class ThreadRegistry
         return boundTask == null ? null : boundTask.roleSkill();
     }
 
-    private String resolveStageRoleSkill(Task boundTask, String stageId)
+    private ThreadAgent withManagedSkillBundle(ThreadAgent agent)
     {
-        String base = resolveTaskRoleSkill(boundTask);
-        if (!shouldApplyPonytail(stageId)) {
-            return base;
-        }
-        if (base == null || base.isBlank()) {
-            return CODING_STAGE_PONYTAIL_ROLE;
-        }
-        return base.stripTrailing() + "\n\n" + CODING_STAGE_PONYTAIL_ROLE;
-    }
-
-    private boolean shouldApplyPonytail(String stageId)
-    {
-        return agentStageType(stageId)
-                .map(PONYTAIL_STAGE_TYPES::contains)
-                .orElse(false);
+        ManagedSkillBundle bundle = ponytailBundleService == null
+                ? ManagedSkillBundle.empty()
+                : ponytailBundleService.snapshot();
+        agent.setManagedSkillBundle(bundle);
+        return agent;
     }
 
     private void requireAgentBackedStage(String stageId)

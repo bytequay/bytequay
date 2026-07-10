@@ -36,6 +36,9 @@ import com.bytequay.app.service.ai.ModelPricing;
 import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
+import com.bytequay.app.service.skills.ManagedSkill;
+import com.bytequay.app.service.skills.ManagedSkillBundle;
+import com.bytequay.app.service.skills.ManagedSkillPrompt;
 import com.bytequay.app.service.threads.tools.AgentTool;
 import com.bytequay.app.service.threads.tools.AgentToolContext;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
@@ -49,10 +52,14 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.http.HttpClient;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -150,6 +157,8 @@ public class LogicLoopThreadAgent
     private volatile String activeStageId;
     /** AgentRun episode of the in-flight turn, when this turn belongs to one. */
     private volatile String activeAgentRunId;
+    private volatile ManagedSkillBundle managedSkillBundle = ManagedSkillBundle.empty();
+    private volatile List<ManagedSkill> activeManagedSkills = List.of();
     private final ObjectMapper mapper;
     private final ExecutorService executor;
     private final CredentialService credentialService;
@@ -537,18 +546,24 @@ public class LogicLoopThreadAgent
         Instant now = Instant.now();
         liveTurnTokensIn.set(0);
         liveTurnTokensOut.set(0);
-        persistUserMessage(userInput, now);
-        publish(new StreamEvent.UserMessage(now, userInput));
+        // Pasted images ride inside userInput as a MessageAttachments
+        // envelope (see its doc) — decode once here. Unlike the CLI agents,
+        // this transport builds the outgoing request JSON directly, so it
+        // inlines real multimodal image content blocks instead of a
+        // file-path pointer (see buildMessageHistory/buildOpenAiMessages).
+        MessageAttachments.Decoded decoded = MessageAttachments.decode(mapper, userInput);
+        persistUserMessage(decoded.text(), now, decoded.images());
+        publish(new StreamEvent.UserMessage(now, decoded.text(), decoded.images()));
         publish(new StreamEvent.SessionStarted(now, sessionId, workingDir, model()));
 
         try {
             String provider = resolvedModel.agentOrProvider();
             if (ANTHROPIC_PROVIDER_ID.equalsIgnoreCase(provider)) {
-                runAnthropicTurn(userInput, now);
+                runAnthropicTurn(decoded.text(), decoded.images(), now);
             }
             else if (OPENAI_PROVIDER_ID.equalsIgnoreCase(provider)
                     || DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)) {
-                runOpenAiCompatibleTurn(userInput, now);
+                runOpenAiCompatibleTurn(decoded.text(), decoded.images(), now);
             }
             else {
                 emitFatal("Provider '" + provider + "' is not supported by the API lane. "
@@ -574,7 +589,7 @@ public class LogicLoopThreadAgent
 
     // ── Anthropic transport ───────────────────────────────────────────────
 
-    private void runAnthropicTurn(String userInput, Instant turnStart)
+    private void runAnthropicTurn(String userInput, List<String> images, Instant turnStart)
     {
         if (resolvedModel.kind() != WorkModelKind.API) {
             throw new UnsupportedProviderException(
@@ -594,7 +609,7 @@ public class LogicLoopThreadAgent
         activeModel.set(modelId);
 
         String system = composeSystemPrompt();
-        ArrayNode messages = buildMessageHistory(userInput);
+        ArrayNode messages = buildMessageHistory(userInput, images);
         // Trunk/brain turns get narrow allowlists; ordinary task turns get the
         // task-role catalog, still filtered by thread kind.
         Set<String> toolFilter = toolNameFilter();
@@ -634,7 +649,7 @@ public class LogicLoopThreadAgent
 
     // ── OpenAI-compatible transport (OpenAI + DeepSeek) ───────────────────
 
-    private void runOpenAiCompatibleTurn(String userInput, Instant turnStart)
+    private void runOpenAiCompatibleTurn(String userInput, List<String> images, Instant turnStart)
     {
         if (resolvedModel.kind() != WorkModelKind.API) {
             throw new UnsupportedProviderException(
@@ -671,7 +686,7 @@ public class LogicLoopThreadAgent
         }
 
         String system = composeSystemPrompt();
-        ArrayNode messages = buildOpenAiMessages(system, userInput);
+        ArrayNode messages = buildOpenAiMessages(system, userInput, images);
         Set<String> toolFilter = toolNameFilter();
         ArrayNode toolsArray = toolRegistry == null
                 ? null
@@ -897,18 +912,22 @@ public class LogicLoopThreadAgent
 
     private String composeSystemPrompt()
     {
+        String managed = ManagedSkillPrompt.render(activeManagedSkills);
         if (kind == ThreadKind.BRAIN_AGENT) {
             // The registry composes the brain prompt (role template + context
             // digest) and passes it as roleSkillText at session creation; fall
             // back to the bare template if it wasn't supplied.
-            return roleSkillText == null || roleSkillText.isBlank()
+            String base = roleSkillText == null || roleSkillText.isBlank()
                     ? BRAIN_SYSTEM_PROMPT
                     : roleSkillText;
+            return managed.isBlank() ? base : base + "\n\n" + managed;
         }
         if (roleSkillText == null || roleSkillText.isBlank()) {
-            return null;
+            return managed.isBlank() ? null : managed;
         }
-        return roleSkillText.trim();
+        return managed.isBlank()
+                ? roleSkillText.trim()
+                : roleSkillText.trim() + "\n\n" + managed;
     }
 
     /** The tool-name allowlist for this turn: brain agents get the
@@ -929,7 +948,7 @@ public class LogicLoopThreadAgent
 
     /** Build the Anthropic message history array (no system message —
      *  Anthropic takes the system prompt as a top-level field). */
-    private ArrayNode buildMessageHistory(String userInput)
+    private ArrayNode buildMessageHistory(String userInput, List<String> images)
     {
         ArrayNode messages = mapper.createArrayNode();
         List<ThreadMessage> tail = store.listRecentMessages(threadId, REPLAY_HISTORY_LIMIT);
@@ -945,22 +964,16 @@ public class LogicLoopThreadAgent
             if (text == null || text.isEmpty()) {
                 continue;
             }
-            ObjectNode msg = mapper.createObjectNode();
-            msg.put("role", role);
-            msg.put("content", text);
-            messages.add(msg);
+            messages.add(userOrAssistantContentNode(role, text, extractImages(row.contentJson()), true));
         }
-        ObjectNode userMsg = mapper.createObjectNode();
-        userMsg.put("role", "user");
-        userMsg.put("content", userInput == null ? "" : userInput);
-        messages.add(userMsg);
+        messages.add(userOrAssistantContentNode("user", userInput, images, true));
         return messages;
     }
 
     /** Build the OpenAI-compatible message list. The system prompt goes as
      *  the first role:system message; OpenAI does not accept a top-level
      *  {@code system} field. */
-    private ArrayNode buildOpenAiMessages(String system, String userInput)
+    private ArrayNode buildOpenAiMessages(String system, String userInput, List<String> images)
     {
         ArrayNode messages = mapper.createArrayNode();
         if (system != null && !system.isEmpty()) {
@@ -982,16 +995,72 @@ public class LogicLoopThreadAgent
             if (text == null || text.isEmpty()) {
                 continue;
             }
-            ObjectNode msg = mapper.createObjectNode();
-            msg.put("role", role);
-            msg.put("content", text);
-            messages.add(msg);
+            messages.add(userOrAssistantContentNode(role, text, extractImages(row.contentJson()), false));
         }
-        ObjectNode userMsg = mapper.createObjectNode();
-        userMsg.put("role", "user");
-        userMsg.put("content", userInput == null ? "" : userInput);
-        messages.add(userMsg);
+        messages.add(userOrAssistantContentNode("user", userInput, images, false));
         return messages;
+    }
+
+    /** One message entry: a plain {@code content} string when there are no
+     *  images (identical to the pre-image-support shape), or a multimodal
+     *  content-block array — image block(s) then a text block — when there
+     *  are. {@code anthropicStyle} picks the block shape: Anthropic's
+     *  {@code {"type":"image","source":{...}}} vs OpenAI's {@code
+     *  {"type":"image_url","image_url":{"url":...}}}; DeepSeek rides the
+     *  OpenAI shape too, though its local ds4 model likely has no vision
+     *  support — untested, narrow enough to leave for whoever hits it. */
+    private ObjectNode userOrAssistantContentNode(
+            String role, String text, List<String> images, boolean anthropicStyle)
+    {
+        ObjectNode msg = mapper.createObjectNode();
+        msg.put("role", role);
+        if (images == null || images.isEmpty()) {
+            msg.put("content", text == null ? "" : text);
+            return msg;
+        }
+        ArrayNode parts = msg.putArray("content");
+        for (String path : images) {
+            ObjectNode block = imageContentBlock(path, anthropicStyle);
+            if (block != null) {
+                parts.add(block);
+            }
+        }
+        ObjectNode textBlock = mapper.createObjectNode();
+        textBlock.put("type", "text");
+        textBlock.put("text", text == null ? "" : text);
+        parts.add(textBlock);
+        return msg;
+    }
+
+    /** Reads an attached image fresh off disk and base64-encodes it into a
+     *  content block. Returns null (dropping the block, not the whole turn)
+     *  if the file is gone — e.g. an old message referencing a since-deleted
+     *  attachments dir — logging instead of failing the turn over one image. */
+    private ObjectNode imageContentBlock(String path, boolean anthropicStyle)
+    {
+        byte[] bytes;
+        try {
+            bytes = Files.readAllBytes(Path.of(path));
+        }
+        catch (IOException e) {
+            log.warn("Could not read attached image {} for thread {}: {}", path, threadId, e.getMessage());
+            return null;
+        }
+        String base64 = Base64.getEncoder().encodeToString(bytes);
+        String mimeType = MessageAttachments.mimeTypeFor(path);
+        ObjectNode node = mapper.createObjectNode();
+        if (anthropicStyle) {
+            node.put("type", "image");
+            ObjectNode source = node.putObject("source");
+            source.put("type", "base64");
+            source.put("media_type", mimeType);
+            source.put("data", base64);
+        }
+        else {
+            node.put("type", "image_url");
+            node.putObject("image_url").put("url", "data:" + mimeType + ";base64," + base64);
+        }
+        return node;
     }
 
     private String extractText(String contentJson)
@@ -1005,6 +1074,24 @@ public class LogicLoopThreadAgent
         }
         catch (Exception e) {
             return null;
+        }
+    }
+
+    /** The image file paths a persisted {@code text} message carries, if
+     *  any — see {@link MessageAttachments#encodeMessage}. */
+    private List<String> extractImages(String contentJson)
+    {
+        if (contentJson == null || contentJson.isEmpty()) {
+            return List.of();
+        }
+        try {
+            JsonNode node = mapper.readTree(contentJson);
+            List<String> images = new ArrayList<>();
+            node.path("images").forEach(n -> images.add(n.asText()));
+            return images;
+        }
+        catch (Exception e) {
+            return List.of();
         }
     }
 
@@ -1057,10 +1144,10 @@ public class LogicLoopThreadAgent
 
     // ── Message persistence ───────────────────────────────────────────────
 
-    private void persistUserMessage(String text, Instant ts)
+    private void persistUserMessage(String text, Instant ts, List<String> images)
     {
         long seq = nextSeq.getAndIncrement();
-        String contentJson = encodeText(text);
+        String contentJson = MessageAttachments.encodeMessage(mapper, text, images);
         appendStamped(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "user", "text", contentJson,
@@ -1097,6 +1184,19 @@ public class LogicLoopThreadAgent
     public void setActiveAgentRun(String agentRunId)
     {
         this.activeAgentRunId = agentRunId;
+    }
+
+    @Override
+    public void setManagedSkillBundle(ManagedSkillBundle bundle)
+    {
+        this.managedSkillBundle = bundle == null ? ManagedSkillBundle.empty() : bundle;
+        this.activeManagedSkills = List.of();
+    }
+
+    @Override
+    public void setActiveManagedSkillNames(List<String> names)
+    {
+        this.activeManagedSkills = managedSkillBundle.select(names);
     }
 
     /** Persist a message stamped with the turn's explicit stage + scope. A

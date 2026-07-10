@@ -63,6 +63,7 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   // Task ids whose PR has an open merge gate (ready to merge).
   const [mergeReadyIds, setMergeReadyIds] = useState<ReadonlySet<string>>(new Set());
   const [text, setText] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   // The caller switches threads by passing a new id (no remount, since
@@ -158,10 +159,10 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   // canonical messages refresh + the live buffers flush once the turn lands.
   const { liveText, liveThinking } = useThreadStream(threadId, thread?.status, load);
 
-  const sendNow = useCallback((body: string) => {
+  const sendNow = useCallback((body: string, sendImages: string[] = []) => {
     setBusy(true);
     setAwaitedAt(replyCount);
-    window.bridge.sendTrunkMessage(threadId, body)
+    window.bridge.sendTrunkMessage(threadId, body, sendImages)
       .then(() => load())
       .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
@@ -185,10 +186,19 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
   const submit = () => {
     const body = text.trim();
-    if (body.length === 0) return;
+    if (body.length === 0 && images.length === 0) return;
+    // Queued (while-busy) sends are text-only — the queue auto-sends via
+    // sendNow(text) with no images param, and images can't safely wait
+    // behind an in-flight turn without also holding the pasted bytes in the
+    // queue. Simplest correct behaviour: an image attachment just waits for
+    // the composer to free up instead of queueing.
+    if (working && images.length > 0) return;
     setText('');
     if (working) enqueue(body);
-    else sendNow(body);
+    else {
+      sendNow(body, images);
+      setImages([]);
+    }
   };
 
   // Tasks are cut by the trunk agent (create_task) — proposed to the user via
@@ -264,7 +274,11 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
       threadId={threadId}
       thread={{ title: thread?.title ?? 'Thread' }}
       conversation={conversation}
-      composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Discuss the next task, ask the brain, or paste an error…' }}
+      composer={{
+        value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
+        placeholder: 'Discuss the next task, ask the brain, or paste an error…',
+        images, onImagesChange: setImages,
+      }}
       tasks={{ active, closed }}
       onOpenTask={onOpenTask}
     />

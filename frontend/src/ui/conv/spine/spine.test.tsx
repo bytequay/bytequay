@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ActivityStrip, Headline, Round, Spine, SpineNode, UserTurn, WorkFold,
 } from './index';
@@ -48,6 +48,23 @@ describe('UserTurn', () => {
     const { container } = render(<UserTurn text="Run the gate" timestamp="3m ago" />);
     expect(container.querySelector('.sp-uturn__mark')?.textContent).toBe('Y');
     expect(container.querySelector('.sp-ublock__tx')?.textContent).toContain('Run the gate');
+  });
+
+  it('resolves attached images to thumbnails via the bridge', async () => {
+    const readAttachment = vi.fn().mockResolvedValue('data:image/png;base64,aaa');
+    (window as unknown as { bridge: unknown }).bridge = { readAttachment };
+    const { container } = render(
+      <UserTurn text="see this" threadId="t1" images={['/tmp/attachments/t1/a.png']} />,
+    );
+    await waitFor(() => expect(container.querySelectorAll('.sp-ublock__img')).toHaveLength(1));
+    expect(readAttachment).toHaveBeenCalledWith('t1', '/tmp/attachments/t1/a.png');
+    expect(container.querySelector('.sp-ublock__img')?.getAttribute('src')).toBe('data:image/png;base64,aaa');
+    Reflect.deleteProperty(window, 'bridge');
+  });
+
+  it('renders no image row when there are no attachments', () => {
+    const { container } = render(<UserTurn text="plain text" />);
+    expect(container.querySelector('.sp-ublock__images')).toBeNull();
   });
 });
 

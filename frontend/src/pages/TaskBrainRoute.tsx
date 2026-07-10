@@ -59,6 +59,7 @@ export function TaskBrainRoute({
   const { task, brainFeed, stages, subStages } = data;
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of the <PRView> construction below, which
@@ -193,11 +194,11 @@ export function TaskBrainRoute({
   }, [responseCount, awaitedAt]);
   const working = busy || awaitedAt !== null;
 
-  const sendNow = useCallback((body: string) => {
+  const sendNow = useCallback((body: string, sendImages: string[] = []) => {
     setBusy(true);
     setAwaitedAt(responseCount);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    bridge?.sendBrainMessage(taskId, body)
+    bridge?.sendBrainMessage(taskId, body, sendImages)
       .then(() => pollFast())
       .catch(() => { setAwaitedAt(null); })
       .finally(() => setBusy(false));
@@ -207,10 +208,16 @@ export function TaskBrainRoute({
   const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
   const submit = () => {
     const body = text.trim();
-    if (body.length === 0) return;
+    if (body.length === 0 && images.length === 0) return;
+    // See TrunkRoute's identical comment: an image attachment waits for the
+    // composer to free up rather than queueing behind an in-flight turn.
+    if (working && images.length > 0) return;
     setText('');
     if (working) enqueue(body);
-    else sendNow(body);
+    else {
+      sendNow(body, images);
+      setImages([]);
+    }
   };
 
   const runAction = (fn?: (threadId: string, taskId: string) => Promise<unknown>) => () => {
@@ -295,6 +302,7 @@ export function TaskBrainRoute({
         stages={stages}
         density="focused"
         onOpenStage={onOpenStage}
+        threadId={threadId}
         trailer={(
           <>
             {showRoot && planCard}
@@ -437,7 +445,11 @@ export function TaskBrainRoute({
       sidebar={sidebar}
       openTabRequest={openTabRequest}
       conversation={conversation}
-      composer={{ value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true, placeholder: 'Ask the brain, or steer the task…' }}
+      composer={{
+        value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
+        placeholder: 'Ask the brain, or steer the task…',
+        images, onImagesChange: setImages,
+      }}
       run={{
         statusLabel: task.statusLabel,
         paused: task.paused,

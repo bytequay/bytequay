@@ -100,7 +100,7 @@ describe('TrunkRoute', () => {
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'cut a task' } });
     fireEvent.keyDown(box, { key: 'Enter' });
-    await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'cut a task'));
+    await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'cut a task', []));
   });
 
   it('opening a task-cut card fires onOpenTask', async () => {

@@ -852,8 +852,13 @@ const bridge: Bridge = {
   sendTrunkMessage: (
     threadId: string,
     input: string,
+    images?: string[],
   ): Promise<ThreadSendResultDto> =>
-    ipcRenderer.invoke('threads:trunk:send', { threadId, input }),
+    ipcRenderer.invoke('threads:trunk:send', { threadId, input, images }),
+  /** Resolves an attached image's saved path (from a message's `images`
+   *  field) into a renderable data URL. */
+  readAttachment: (threadId: string, path: string): Promise<string> =>
+    ipcRenderer.invoke('threads:attachment:read', { threadId, path }),
   getThreadSettings: (threadId: string): Promise<ThreadSettingsDto> =>
     ipcRenderer.invoke('threads:settings:get', threadId),
   putThreadSettings: (
@@ -965,8 +970,8 @@ const bridge: Bridge = {
   getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),
   updateTaskGuard: (taskId: string, patch: { enabled?: boolean; schedule?: string }) =>
       ipcRenderer.invoke('tasks:updateGuard', { taskId, ...patch }),
-  sendBrainMessage: (taskId: string, text: string) =>
-    ipcRenderer.invoke('brain:sendMessage', taskId, text),
+  sendBrainMessage: (taskId: string, text: string, images?: string[]) =>
+    ipcRenderer.invoke('brain:sendMessage', taskId, text, images),
   getStageDetail: (stageId: string) => ipcRenderer.invoke('stages:getDetail', stageId),
   getTaskRuns: (taskId: string) => ipcRenderer.invoke('runs:forTask', taskId),
   getAgentRun: (runId: string) => ipcRenderer.invoke('runs:get', runId),

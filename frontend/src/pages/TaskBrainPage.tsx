@@ -56,6 +56,8 @@ export function TaskBrainPage({
     queueWhenBusy?: boolean;
     modePill?: ReactNode;
     placeholder?: string;
+    images?: string[];
+    onImagesChange?: (next: string[]) => void;
   };
   run?: {
     statusLabel?: string;
@@ -204,6 +206,8 @@ export function TaskBrainPage({
               queueWhenBusy={composer.queueWhenBusy}
               modePill={composer.modePill}
               placeholder={composer.placeholder}
+              images={composer.images}
+              onImagesChange={composer.onImagesChange}
             />
           </div>
           {showPane && (

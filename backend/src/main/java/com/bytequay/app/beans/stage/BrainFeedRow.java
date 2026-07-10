@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.beans.stage;
 
+import java.util.List;
+
 /**
  * One chronological row of the brain feed. In this milestone only the
  * {@code STAGE_OPENED} / {@code STAGE_CLOSED} types are produced (derived
@@ -25,6 +27,8 @@ package com.bytequay.app.beans.stage;
  * through the same markdown path as every other feed row.
  *
  * @param body markdown
+ * @param images attached-screenshot file paths — only ever non-empty on a
+ *               {@code USER_MESSAGE} row
  */
 public record BrainFeedRow(
         String id,
@@ -33,6 +37,7 @@ public record BrainFeedRow(
         String stageType,
         String ts,
         String body,
-        String referencedStageId)
+        String referencedStageId,
+        List<String> images)
 {
 }

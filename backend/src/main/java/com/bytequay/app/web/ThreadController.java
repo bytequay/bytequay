@@ -31,12 +31,15 @@ import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.CheckpointTrigger;
 import com.bytequay.app.service.threads.ConvIndexService;
+import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
@@ -102,6 +105,8 @@ public class ThreadController
     private final WorkModelResolver workModelResolver;
     private final PrTaskLinkService prTaskLink;
     private final TaskStore taskStore;
+    private final ChatAttachmentStore attachmentStore;
+    private final ObjectMapper mapper;
 
     public ThreadController(
             ThreadService threads,
@@ -111,7 +116,9 @@ public class ThreadController
             ContextAssembler contextAssembler,
             WorkModelResolver workModelResolver,
             PrTaskLinkService prTaskLink,
-            TaskStore taskStore)
+            TaskStore taskStore,
+            ChatAttachmentStore attachmentStore,
+            ObjectMapper mapper)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.convIndex = requireNonNull(convIndex, "convIndex is null");
@@ -121,6 +128,8 @@ public class ThreadController
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
         this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     /** GET /api/threads?status=RUNNING&limit=50&groupId=...&workspaceId=... */
@@ -562,7 +571,8 @@ public class ThreadController
         if (body.input() == null || body.input().isBlank()) {
             throw new IllegalArgumentException("input is required");
         }
-        String turnId = threads.send(id, body.taskId(), body.input());
+        String input = encodeWithImages(id, body.input(), body.images());
+        String turnId = threads.send(id, body.taskId(), input);
         return ImmutableMap.of("status", "queued", "turnId", turnId);
     }
 
@@ -577,8 +587,33 @@ public class ThreadController
         if (body.input() == null || body.input().isBlank()) {
             throw new IllegalArgumentException("input is required");
         }
-        String turnId = threads.sendTrunk(id, body.input());
+        String input = encodeWithImages(id, body.input(), body.images());
+        String turnId = threads.sendTrunk(id, input);
         return ImmutableMap.of("status", "queued", "turnId", turnId);
+    }
+
+    /** GET /api/threads/{id}/attachments?path=... — serves a pasted image
+     *  back for a message's thumbnail. {@code path} is one of the paths a
+     *  {@code text} message's {@code contentJson.images} already carries.
+     *  {@code id} isn't used for lookup (see {@code ChatAttachmentStore.read}'s
+     *  doc) — kept in the URL so it reads like every other thread sub-resource. */
+    @GetMapping("/{id}/attachments")
+    public ResponseEntity<byte[]> attachment(@PathVariable String id, @RequestParam String path)
+    {
+        ChatAttachmentStore.Attachment attachment = attachmentStore.read(path);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(attachment.mimeType()))
+                .body(attachment.bytes());
+    }
+
+    /** Saves any pasted-image data URLs to disk and folds their paths into
+     *  the plain-text turn input via {@link MessageAttachments} — see its
+     *  doc for why this rides inside the {@code String} rather than a new
+     *  column. A plain-text send (the common case) passes through untouched. */
+    private String encodeWithImages(String threadId, String text, List<String> imageDataUrls)
+    {
+        List<String> paths = attachmentStore.save(threadId, imageDataUrls);
+        return MessageAttachments.encode(mapper, text, paths);
     }
 
     @PostMapping("/{id}/interrupt")
@@ -730,7 +765,10 @@ public class ThreadController
              *  the brain validates or revises it instead of planning cold. */
             JsonNode trunkPlan) {}
 
-    public record SendBody(String taskId, String input) {}
+    /** {@code images}: pasted-screenshot data URLs (e.g. {@code
+     *  data:image/png;base64,...}) from the composer's clipboard-paste
+     *  handler. Optional/omittable — a plain-text send passes null/empty. */
+    public record SendBody(String taskId, String input, List<String> images) {}
 
     public record DecisionBody(
             String callId,

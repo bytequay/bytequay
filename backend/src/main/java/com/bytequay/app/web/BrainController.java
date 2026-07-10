@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -47,6 +49,7 @@ public class BrainController
             @RequestBody BrainMessageRequest body)
     {
         String text = body == null ? null : body.text();
-        return brainService.sendMessage(taskId, text);
+        List<String> images = body == null ? null : body.images();
+        return brainService.sendMessage(taskId, text, images);
     }
 }

@@ -14,6 +14,7 @@
 package com.bytequay.app.domain;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Single live event in an agent session — the unit the frontend
@@ -65,10 +66,13 @@ public sealed interface StreamEvent
             implements StreamEvent {}
 
     /** User input dispatched into the loop. Echoed back so the
-     *  renderer can show what was sent without a round-trip. */
+     *  renderer can show what was sent without a round-trip. {@code images}:
+     *  file paths of any pasted screenshots, empty for a plain-text turn —
+     *  see {@code MessageAttachments} for how these ride into this event. */
     record UserMessage(
             Instant timestamp,
-            String text)
+            String text,
+            List<String> images)
             implements StreamEvent {}
 
     /** Assistant prose. Streamed in chunks for {@code CLI_AGENT};

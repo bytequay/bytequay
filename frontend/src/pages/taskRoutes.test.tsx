@@ -54,7 +54,7 @@ describe('TaskBrainRoute', () => {
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'what next?' } });
     fireEvent.keyDown(box, { key: 'Enter' });
-    await waitFor(() => expect(sendBrainMessage).toHaveBeenCalledWith('task-1', 'what next?'));
+    await waitFor(() => expect(sendBrainMessage).toHaveBeenCalledWith('task-1', 'what next?', []));
     // The working indicator appears while awaiting the brain's reply.
     expect(await screen.findByText('Brain is thinking…')).toBeTruthy();
   });

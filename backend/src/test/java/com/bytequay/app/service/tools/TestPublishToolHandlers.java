@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -221,6 +222,28 @@ class TestPublishToolHandlers
         assertThat(completed.isError()).isFalse();
         assertThat(completed.text()).doesNotContain("no active task");
         verify(parkedProposals).park(eq(shipped), any());
+    }
+
+    @Test
+    void requestReviewDiffPreviewUsesUpstreamBaseForForkWorktrees()
+            throws Exception
+    {
+        Task task = taskAt("task-fork", TaskStatus.RUNNING);
+        when(taskStore.findTaskById("task-fork")).thenReturn(Optional.of(task));
+        when(git.refExists(Path.of(task.worktreePath()), "upstream/main")).thenReturn(true);
+        when(git.diff(Path.of(task.worktreePath()), "upstream/main", "HEAD", 500_000))
+                .thenReturn("diff --git a/src/App.java b/src/App.java\n");
+
+        ToolOutcome outcome = handlers.requestReview(
+                new PublishToolHandlers.RequestReviewArgs("ready", null),
+                new ToolCall("thread-fork", null, AgentRole.TASK, "task-fork", null));
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
+        verify(parkedProposals).park(eq(task), captor.capture());
+        ParkedProposal.RequestReview parked = (ParkedProposal.RequestReview) captor.getValue();
+        assertThat(parked.diffBase()).isEqualTo("upstream/main");
+        assertThat(parked.diff()).contains("diff --git");
     }
 
     private static Task taskAt(String id, TaskStatus status)

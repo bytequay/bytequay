@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -55,7 +56,7 @@ public class PonytailBundleService
 
     public ManagedSkillBundle snapshot()
     {
-        return cachedBundle().orElseGet(this::bundledBundle);
+        return withBundledInternalSkills(cachedBundle().orElseGet(this::bundledPonytailBundle));
     }
 
     public Status status()
@@ -122,7 +123,7 @@ public class PonytailBundleService
         }
     }
 
-    private ManagedSkillBundle bundledBundle()
+    private ManagedSkillBundle bundledPonytailBundle()
     {
         return new ManagedSkillBundle(BUNDLED_VERSION, "bundled", Map.of(
                 ManagedSkillPolicy.PONYTAIL,
@@ -131,6 +132,15 @@ public class PonytailBundleService
                 ManagedSkillPolicy.PONYTAIL_REVIEW,
                 new ManagedSkill(ManagedSkillPolicy.PONYTAIL_REVIEW,
                         readResource(RESOURCE_ROOT + "skills/ponytail-review/SKILL.md"))));
+    }
+
+    private ManagedSkillBundle withBundledInternalSkills(ManagedSkillBundle bundle)
+    {
+        Map<String, ManagedSkill> skills = new LinkedHashMap<>(bundle.skills());
+        skills.put(ManagedSkillPolicy.TRUNK_PLANNER, new ManagedSkill(
+                ManagedSkillPolicy.TRUNK_PLANNER,
+                readResource("managed-skills/bytequay/trunk-planner/SKILL.md")));
+        return new ManagedSkillBundle(bundle.version(), bundle.source(), Map.copyOf(skills));
     }
 
     private ManagedSkillBundle loadFromFiles(String version, String source, Path dir)

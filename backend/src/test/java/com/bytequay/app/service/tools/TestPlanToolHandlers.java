@@ -85,18 +85,21 @@ class TestPlanToolHandlers
     }
 
     @Test
-    void recordingAPlanRenamesTheTaskToItsGoal()
+    void recordingAPlanKeepsTheExistingTaskName()
     {
         String taskId = seedTask();
+        taskStore.findTaskById(taskId).ifPresent(task ->
+                taskStore.saveTask(task.withName("Update backend cancel exploration API")));
         stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
         ObjectNode plan = mapper.createObjectNode();
         plan.put("status", "finalized");
-        plan.put("goal", "Summarize TaskService code smells");
+        plan.put("goal", "Wire the existing backend cancel-exploration route into the frontend "
+                + "so an in-progress-but-unlinked backlog card can revert cleanly");
 
         tools.recordPlan(new RecordPlanArgs(taskId, plan), CALL);
 
         assertThat(taskStore.findTaskById(taskId).map(Task::name))
-                .contains("Summarize TaskService code smells");
+                .contains("Update backend cancel exploration API");
     }
 
     @Test

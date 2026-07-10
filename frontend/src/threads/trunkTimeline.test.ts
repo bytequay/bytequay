@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import {
-  buildTrunkTimeline, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
+  buildTrunkTimeline, extractImages, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
 } from './trunkTimeline';
 
 function msg(id: string, role: string, type: string, body: unknown, ts: string): ThreadMessageDto {
@@ -39,6 +39,19 @@ describe('extractText / parseToolCall', () => {
     const { name, summary } = parseToolCall(JSON.stringify({ toolName: 'Grep', input: { pattern: 'foo' } }));
     expect(name).toBe('Grep');
     expect(summary).toBe('foo');
+  });
+});
+
+describe('extractImages', () => {
+  it('pulls the images array out of a message envelope', () => {
+    expect(extractImages(JSON.stringify({ text: 'hi', images: ['/tmp/a.png', '/tmp/b.png'] })))
+      .toEqual(['/tmp/a.png', '/tmp/b.png']);
+  });
+
+  it('is empty for a plain-text message, malformed JSON, or a non-array images field', () => {
+    expect(extractImages(JSON.stringify({ text: 'hi' }))).toEqual([]);
+    expect(extractImages('not json')).toEqual([]);
+    expect(extractImages(JSON.stringify({ text: 'hi', images: 'not-an-array' }))).toEqual([]);
   });
 });
 

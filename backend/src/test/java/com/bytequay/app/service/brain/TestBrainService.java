@@ -25,10 +25,12 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
+import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
@@ -58,9 +60,10 @@ class TestBrainService
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final IdGenerator idGenerator = mock(IdGenerator.class);
     private final WorkModelResolver workModelResolver = mock(WorkModelResolver.class);
+    private final ChatAttachmentStore attachmentStore = new ChatAttachmentStore();
 
-    private final BrainServiceImpl service =
-            new BrainServiceImpl(taskStore, threadStore, scheduler, idGenerator, workModelResolver);
+    private final BrainServiceImpl service = new BrainServiceImpl(
+            taskStore, threadStore, scheduler, idGenerator, workModelResolver, attachmentStore, new ObjectMapper());
 
     @Test
     void createsBrainThreadOnFirstMessageAndEnqueuesTurn()
@@ -76,7 +79,7 @@ class TestBrainService
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
 
-        BrainMessageResponse out = service.sendMessage(TASK_ID, "How many pushes?");
+        BrainMessageResponse out = service.sendMessage(TASK_ID, "How many pushes?", null);
 
         // A brain thread was created and saved with the right kind + parent.
         ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
@@ -108,7 +111,7 @@ class TestBrainService
                 new WorkModel(WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null));
         when(workModelResolver.resolveForThread(DEV_THREAD)).thenReturn(resolved);
 
-        service.sendMessage(TASK_ID, "How many pushes?");
+        service.sendMessage(TASK_ID, "How many pushes?", null);
 
         ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
         verify(threadStore).saveThread(saved.capture());
@@ -128,7 +131,7 @@ class TestBrainService
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(existing));
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-2");
 
-        BrainMessageResponse out = service.sendMessage(TASK_ID, "again");
+        BrainMessageResponse out = service.sendMessage(TASK_ID, "again", null);
 
         verify(threadStore, never()).saveThread(any());
         assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-existing");
@@ -299,11 +302,11 @@ class TestBrainService
     @Test
     void rejectsBlankTextAndUnknownTask()
     {
-        assertThatThrownBy(() -> service.sendMessage(TASK_ID, "  "))
+        assertThatThrownBy(() -> service.sendMessage(TASK_ID, "  ", null))
                 .isInstanceOf(ResponseStatusException.class);
 
         when(taskStore.findTaskById("missing")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.sendMessage("missing", "hi"))
+        assertThatThrownBy(() -> service.sendMessage("missing", "hi", null))
                 .isInstanceOf(ResponseStatusException.class);
     }
 }

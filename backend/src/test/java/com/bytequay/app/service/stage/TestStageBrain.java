@@ -156,6 +156,35 @@ class TestStageBrain
     }
 
     @Test
+    void brainFeedCarriesAttachedImagePathsOnAUserMessageRowOnly()
+    {
+        String taskId = seedTask();
+        String brainThreadId = "ws-default.brain-" + UUID.randomUUID();
+        Thread brain = new Thread(
+                brainThreadId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain",
+                ThreadStatus.IDLE, "claude-haiku-4-5-20251001", 0L, 0L, 0L,
+                Instant.parse("2026-06-21T10:00:00Z"), Instant.parse("2026-06-21T10:00:00Z"),
+                null, null, ThreadFlow.BUILD, "ws-default", null, null,
+                1, taskId);
+        threadStore.saveThread(brain);
+        threadStore.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), brainThreadId, null, 1, "user", "text",
+                "{\"text\":\"see this\",\"images\":[\"/tmp/attachments/a.png\"]}",
+                null, null, null, null, Instant.parse("2026-06-21T10:01:00Z")));
+        appendBrainMsg(brainThreadId, 2, "assistant", "Got it.", Instant.parse("2026-06-21T10:01:30Z"));
+
+        TaskBrainViewData brainView = stageService.getBrain(taskId);
+
+        BrainFeedRow userRow = brainView.brainFeed().stream()
+                .filter(r -> r.type().equals("USER_MESSAGE")).findFirst().orElseThrow();
+        assertThat(userRow.images()).containsExactly("/tmp/attachments/a.png");
+
+        BrainFeedRow agentRow = brainView.brainFeed().stream()
+                .filter(r -> r.type().equals("BRAIN_AGENT_RESPONSE")).findFirst().orElseThrow();
+        assertThat(agentRow.images()).isEmpty();
+    }
+
+    @Test
     void brainFeedReadsOnlyTheBrainThreadNotTheDevThread()
     {
         String taskId = seedTask();

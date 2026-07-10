@@ -23,7 +23,7 @@ import { EventTimestamp } from '../ui/conv';
 import { cardStatus, toTaskCard } from './taskCardData';
 import { taskLabel } from './taskLabel';
 import {
-  buildTrunkTimeline, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
+  buildTrunkTimeline, extractImages, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
 } from './trunkTimeline';
 import type { TrunkRound, TrunkSummary } from './trunkTimeline';
 import { PermissionCard } from './PermissionCard';
@@ -175,7 +175,12 @@ export function TrunkFeed({
     return (
       <Round key={round.id} tag={tag}>
         {round.userTurn !== null && (
-          <UserTurn text={extractText(round.userTurn.contentJson)} timestamp={<EventTimestamp iso={round.userTurn.ts} />} />
+          <UserTurn
+            text={extractText(round.userTurn.contentJson)}
+            timestamp={<EventTimestamp iso={round.userTurn.ts} />}
+            threadId={round.userTurn.threadId}
+            images={extractImages(round.userTurn.contentJson)}
+          />
         )}
         {work.length > 0 && (
           <WorkFold

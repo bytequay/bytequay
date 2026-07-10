@@ -19,7 +19,7 @@ import { BrainFeed } from './BrainFeed';
 afterEach(cleanup);
 
 function row(id: string, type: BrainFeedRow['type'], body = id): BrainFeedRow {
-  return { id, type, stageId: null, stageType: null, ts: '2026-01-01T00:00:00Z', body, referencedStageId: null };
+  return { id, type, stageId: null, stageType: null, ts: '2026-01-01T00:00:00Z', body, referencedStageId: null, images: [] };
 }
 
 const DEV: StageDto = {

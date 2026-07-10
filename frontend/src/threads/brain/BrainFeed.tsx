@@ -48,7 +48,7 @@ function workMeta(work: BrainFeedRow[], headline: BrainFeedRow | null): string {
  * carries no tool calls, so the work fold collects the round's intermediate
  * prose only.
  */
-export function BrainFeed({ feed, stages, density, trailer, onOpenStage }: {
+export function BrainFeed({ feed, stages, density, trailer, onOpenStage, threadId }: {
   feed: BrainFeedRow[];
   stages: StageDto[];
   density: Density;
@@ -56,6 +56,10 @@ export function BrainFeed({ feed, stages, density, trailer, onOpenStage }: {
   trailer?: ReactNode;
   /** Jump into a stage's detail view when its boundary node is clicked. */
   onOpenStage?: (stageId: string) => void;
+  /** Scopes attached-image thumbnail lookups — any thread id works, reads
+   *  are attachments-root-scoped, not thread-scoped (see the backend's
+   *  ChatAttachmentStore doc: a brain thread's own id isn't known here). */
+  threadId?: string;
 }) {
   const segments = buildBrainTimeline(feed, stages);
   const full = density === 'full';
@@ -80,7 +84,7 @@ export function BrainFeed({ feed, stages, density, trailer, onOpenStage }: {
           // When a closed stage is folded, keep the user's interventions
           // visible but drop the agent chatter (design.md #20).
           if (collapsed && r.userTurn === null) return null;
-          return <RoundView key={r.id} round={r} tag={tag} full={full} collapsedStage={collapsed} />;
+          return <RoundView key={r.id} round={r} tag={tag} full={full} collapsedStage={collapsed} threadId={threadId} />;
         });
         return (
           <div key={stage?.id ?? `seg-${si}`}>
@@ -103,11 +107,12 @@ export function BrainFeed({ feed, stages, density, trailer, onOpenStage }: {
   );
 }
 
-function RoundView({ round, tag, full, collapsedStage }: {
+function RoundView({ round, tag, full, collapsedStage, threadId }: {
   round: BrainRound;
   tag?: string;
   full: boolean;
   collapsedStage: boolean;
+  threadId?: string;
 }) {
   const work = workOf(round);
   const headline = headlineOf(round);
@@ -115,7 +120,12 @@ function RoundView({ round, tag, full, collapsedStage }: {
   return (
     <Round tag={tag}>
       {round.userTurn !== null && (
-        <UserTurn text={round.userTurn.body} timestamp={<EventTimestamp iso={round.userTurn.ts} />} />
+        <UserTurn
+          text={round.userTurn.body}
+          timestamp={<EventTimestamp iso={round.userTurn.ts} />}
+          threadId={threadId}
+          images={round.userTurn.images}
+        />
       )}
       {/* A folded closed stage keeps only the user turn visible. */}
       {!collapsedStage && qna && headline !== null && (

@@ -15,6 +15,8 @@ package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
 
+import java.util.List;
+
 /**
  * Backend contract for the brain composer: post a user question to a
  * task's read-only brain agent. The agent's reply streams back via the
@@ -26,6 +28,7 @@ public interface BrainService
      * Send {@code text} to the task's brain agent, lazily creating the
      * task's single brain thread if needed, and enqueue the answering turn.
      * Returns the turn id and the brain thread id (for the SSE subscription).
+     * {@code images}: pasted-screenshot data URLs, optional/omittable.
      */
-    BrainMessageResponse sendMessage(String taskId, String text);
+    BrainMessageResponse sendMessage(String taskId, String text, List<String> images);
 }

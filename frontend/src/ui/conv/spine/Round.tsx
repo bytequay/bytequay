@@ -13,6 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import { MarkdownProse } from '../../../threads/MarkdownProse';
+import { useAttachmentImages } from '../../../threads/useAttachmentImages';
 
 /**
  * Layer-2 conversation unit: a round — one user turn (or an autonomous
@@ -34,16 +35,28 @@ export function Round({ tag, children }: { tag?: ReactNode; children: ReactNode 
  * teal-bordered block. First-class and never folds; the spine answers
  * "where did I intervene?" by these nodes alone.
  */
-export function UserTurn({ text, timestamp, glyph = 'Y' }: {
+export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images }: {
   text: string;
   timestamp?: ReactNode;
   glyph?: ReactNode;
+  /** The thread images are scoped under — required (alongside `images`) to
+   *  resolve attached-screenshot thumbnails. */
+  threadId?: string;
+  /** Attached-image file paths from the message's envelope (see
+   *  `extractImages`), resolved to renderable thumbnails via the bridge. */
+  images?: string[];
 }) {
+  const resolvedImages = useAttachmentImages(threadId ?? '', images ?? []);
   return (
     <div className="sp-uturn">
       <span className="sp-uturn__mark" aria-hidden>{glyph}</span>
       <div className="sp-ublock">
         <div className="sp-ublock__who">You{timestamp !== undefined && <span className="ago">{timestamp}</span>}</div>
+        {resolvedImages.length > 0 && (
+          <div className="sp-ublock__images">
+            {resolvedImages.map(src => <img key={src} src={src} alt="Attached" className="sp-ublock__img" />)}
+          </div>
+        )}
         <div className="sp-ublock__tx"><MarkdownProse text={text} /></div>
       </div>
     </div>

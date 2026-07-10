@@ -3851,7 +3851,11 @@ export type Bridge = {
   sendTrunkMessage: (
     threadId: string,
     input: string,
+    images?: string[],
   ) => Promise<ThreadSendResultDto>;
+  /** Resolves an attached image's saved path (from a message's `images`
+   *  field) into a renderable data URL. */
+  readAttachment: (threadId: string, path: string) => Promise<string>;
   /** Effective per-thread scope settings — global merged with the
    *  thread's overrides (caps, prompt addendum). Always returns a
    *  payload, even for zero-config threads. */
@@ -3998,7 +4002,7 @@ export type Bridge = {
   updateTaskGuard: (taskId: string, patch: { enabled?: boolean; schedule?: string }) => Promise<BranchGuardDto>;
   /** Post a question to the task's brain agent. Returns the answering
    *  turn id and the brain thread id (subscribe to its stream). */
-  sendBrainMessage: (taskId: string, text: string) => Promise<BrainMessageResult>;
+  sendBrainMessage: (taskId: string, text: string, images?: string[]) => Promise<BrainMessageResult>;
   /** Drill-in detail for one stage: iteration log, metrics, realtime CI. */
   getStageDetail: (stageId: string) => Promise<StageDetailData>;
   /** A task's agent runs (live and finished) — the Dev stage feed folds the

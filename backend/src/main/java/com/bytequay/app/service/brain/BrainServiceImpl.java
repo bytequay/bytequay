@@ -28,11 +28,14 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.stage.PlanSeedWindow;
+import com.bytequay.app.service.threads.ChatAttachmentStore;
+import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -42,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -63,24 +67,30 @@ public class BrainServiceImpl
     private final ThreadTurnScheduler scheduler;
     private final IdGenerator idGenerator;
     private final WorkModelResolver workModelResolver;
+    private final ChatAttachmentStore attachmentStore;
+    private final ObjectMapper mapper;
 
     public BrainServiceImpl(
             TaskStore taskStore,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             IdGenerator idGenerator,
-            WorkModelResolver workModelResolver)
+            WorkModelResolver workModelResolver,
+            ChatAttachmentStore attachmentStore,
+            ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
+        this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Override
     @Transactional
-    public BrainMessageResponse sendMessage(String taskId, String text)
+    public BrainMessageResponse sendMessage(String taskId, String text, List<String> images)
     {
         if (text == null || text.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "text is required");
@@ -92,9 +102,15 @@ public class BrainServiceImpl
         Thread brain = threadStore.findBrainThreadByTask(taskId)
                 .orElseGet(() -> createBrainThread(task));
 
+        // Fold any pasted images into the turn input the same way the trunk/
+        // task composer does — see MessageAttachments' doc for why this rides
+        // inside the plain-text string rather than a new column.
+        List<String> paths = attachmentStore.save(brain.id(), images);
+        String input = MessageAttachments.encode(mapper, text.trim(), paths);
+
         // The brain agent persists the user message and the assistant reply
         // itself when the turn runs; the reply streams via the thread SSE.
-        String turnId = scheduler.enqueueTurn(brain, text.trim(), TurnInitiator.user());
+        String turnId = scheduler.enqueueTurn(brain, input, TurnInitiator.user());
         return new BrainMessageResponse(turnId, brain.id());
     }
 

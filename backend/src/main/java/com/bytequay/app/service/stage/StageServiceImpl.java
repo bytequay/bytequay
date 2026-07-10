@@ -592,7 +592,8 @@ public class StageServiceImpl
                 null,
                 m.ts().toString(),
                 body,
-                referencedStageId);
+                referencedStageId,
+                user ? decodeImages(m.contentJson()) : List.of());
     }
 
     /** The id of the first stage whose display name the reply mentions, or
@@ -629,6 +630,24 @@ public class StageServiceImpl
         }
     }
 
+    /** Extract a message's attached-screenshot paths, if any — see
+     *  {@code MessageAttachments.encodeMessage}. */
+    private List<String> decodeImages(String contentJson)
+    {
+        if (contentJson == null || contentJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode node = mapper.readTree(contentJson).path("images");
+            List<String> images = new ArrayList<>();
+            node.forEach(n -> images.add(n.asText()));
+            return images;
+        }
+        catch (JsonProcessingException e) {
+            return List.of();
+        }
+    }
+
     /** A brain-feed row paired with its timestamp, for chronological merge. */
     private record FeedEntry(Instant ts, BrainFeedRow row)
     {
@@ -652,7 +671,8 @@ public class StageServiceImpl
                 stageType == null ? null : stageType.name(),
                 event.createdAt().toString(),
                 event.message() == null ? "" : event.message(),
-                null);
+                null,
+                List.of());
     }
 
     private Optional<BrainFeedRow> brainFeedRow(
@@ -670,7 +690,8 @@ public class StageServiceImpl
                     stageType.name(),
                     e.eventAt().toString(),
                     panelReviewBody(e.payloadJson()),
-                    e.stageId().toString()));
+                    e.stageId().toString(),
+                    List.of()));
         }
 
         String type = switch (e.eventType()) {
@@ -702,7 +723,8 @@ public class StageServiceImpl
                 stageType == null ? null : stageType.name(),
                 e.eventAt().toString(),
                 body,
-                null));
+                null,
+                List.of()));
     }
 
     /** Human-readable line for a finished panel, read from the CLOSED event's

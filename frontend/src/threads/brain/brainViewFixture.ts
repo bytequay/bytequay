@@ -153,42 +153,42 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
   brainFeed: [
     {
       id: 'feed-1', type: 'STAGE_OPENED', stageId: DEV, stageType: 'DEVELOPMENT_STAGE',
-      ts: ago(14), referencedStageId: null,
+      ts: ago(14), referencedStageId: null, images: [],
       body: 'First iteration: implement the cost-meter widget below the memory peek '
         + 'card. Wire to `WorkspaceMetricsService.totalCostMilli()`.',
     },
     {
       id: 'feed-2', type: 'PANEL_REVIEW_COMPLETED', stageId: REVIEW1, stageType: 'REVIEW_STAGE',
-      ts: ago(13), referencedStageId: REVIEW1,
+      ts: ago(13), referencedStageId: REVIEW1, images: [],
       body: 'Internal review panel ran with **DeepSeek + Java expertise X + Skimmed '
         + 'reviewer**. 3 findings, all AGREED. Addressed them in the follow-up code pass.',
     },
     {
       id: 'feed-3', type: 'PUSHED_PR_CREATED', stageId: DEV, stageType: 'DEVELOPMENT_STAGE',
-      ts: ago(12), referencedStageId: null,
+      ts: ago(12), referencedStageId: null, images: [],
       body: 'Branch `jack/cost-meter` pushed to origin. Draft PR `#5680` created. '
         + '**DevelopmentStage closed**. **CiFixingStage** and **ReviewMonitorStage** armed.',
     },
     {
       id: 'feed-4', type: 'ITERATION_SUMMARY', stageId: CIFIX, stageType: 'CI_FIXING_STAGE',
-      ts: ago(6), referencedStageId: CIFIX,
+      ts: ago(6), referencedStageId: CIFIX, images: [],
       body: '**Fix #1:** bumped retry-count default 3 → 5 in `RetryConfig.java`; tests '
         + 'pass. Auto-pushed (1/5 used). CI green after the fix.',
     },
     {
       id: 'feed-5', type: 'ITERATION_SUMMARY', stageId: REVMON, stageType: 'REVIEW_MONITOR_STAGE',
-      ts: ago(5), referencedStageId: REVMON,
+      ts: ago(5), referencedStageId: REVMON, images: [],
       body: '**Iter #1:** @jane left an inline comment on `CostMeter.tsx#L42` asking for '
         + 'a memoization. Addressed it; you approved the push. Pushed (1 push used).',
     },
     {
       id: 'feed-6', type: 'USER_MESSAGE', stageId: null, stageType: null,
-      ts: ago(2), referencedStageId: null,
+      ts: ago(2), referencedStageId: null, images: [],
       body: 'Are all the changes covered by tests?',
     },
     {
       id: 'feed-7', type: 'BRAIN_AGENT_RESPONSE', stageId: null, stageType: null,
-      ts: ago(2), referencedStageId: null,
+      ts: ago(2), referencedStageId: null, images: [],
       body: 'Yes — **4 new test files** were added in DevelopmentStage and **2 more** in '
         + 'ReviewMonitorStage iter #1. The retry-count change in CiFixingStage iter #1 '
         + "doesn't have a dedicated test — covered transitively by the existing "
@@ -196,7 +196,7 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     },
     {
       id: 'feed-8', type: 'ITERATION_SUMMARY', stageId: CIFIX, stageType: 'CI_FIXING_STAGE',
-      ts: ago(0), referencedStageId: CIFIX,
+      ts: ago(0), referencedStageId: CIFIX, images: [],
       body: 'Detected red CI: `linter warning unused-import` in `CostMeter.tsx`. Agent '
         + 'addressing now — awaiting push approval (budget exhausted: **5/5 used**).',
     },

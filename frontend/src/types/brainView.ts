@@ -188,6 +188,7 @@ export type BrainFeedRow = {
   ts: string;                         // ISO 8601
   body: string;                       // markdown
   referencedStageId: string | null;   // for the "🔍 Open stage" drill-in chip
+  images: string[];                   // attached-screenshot paths — USER_MESSAGE only
 };
 
 export type ApprovalDto = {

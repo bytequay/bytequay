@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
 const MAX_INPUT_HEIGHT = 160;
@@ -25,7 +25,7 @@ const MAX_INPUT_HEIGHT = 160;
  */
 export function Composer({
   value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false,
-  queueWhenBusy = false, onAddContext,
+  queueWhenBusy = false, onAddContext, images = [], onImagesChange,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -39,8 +39,14 @@ export function Composer({
    *  (it sends when the agent goes idle) instead of blocking the send. */
   queueWhenBusy?: boolean;
   onAddContext?: () => void;
+  /** Pending pasted-screenshot data URLs (e.g. `data:image/png;base64,...`),
+   *  shown as removable thumbnail chips above the input — controlled, like
+   *  `value`. Omit (with `onImagesChange`) to disable image paste on this
+   *  composer instance. */
+  images?: string[];
+  onImagesChange?: (next: string[]) => void;
 }) {
-  const canSend = !disabled && value.trim().length > 0 && (!busy || queueWhenBusy);
+  const canSend = !disabled && (value.trim().length > 0 || images.length > 0) && (!busy || queueWhenBusy);
   // Spinner only when we're blocked (busy with nothing queueable); when a
   // message can be queued mid-run the button stays active.
   const spinning = busy && !canSend;
@@ -72,9 +78,47 @@ export function Composer({
     }
   };
 
+  // Cmd/Ctrl+V a screenshot straight into the composer — the common "paste
+  // a bug repro" workflow. Reads each pasted image item as a data URL and
+  // appends it to the pending-attachments list; the caller sends them
+  // alongside the text on submit. No-ops (falls through to normal text
+  // paste) when the host didn't wire onImagesChange.
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (onImagesChange === undefined) return;
+    const imageItems = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/'));
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    for (const item of imageItems) {
+      const file = item.getAsFile();
+      if (file === null) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          onImagesChange([...images, reader.result]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <div className="composer-wrap">
       <div className="composer">
+        {images.length > 0 && (
+          <div className="composer-images">
+            {images.map(src => (
+              <div className="composer-image-chip" key={src}>
+                <img src={src} alt="Pasted attachment" />
+                <button
+                  type="button"
+                  className="rm"
+                  aria-label="Remove image"
+                  onClick={() => onImagesChange?.(images.filter(i => i !== src))}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={taRef}
           className="input"
@@ -84,6 +128,7 @@ export function Composer({
           disabled={disabled}
           onChange={e => onChange(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
         />
         <div className="footer">
           <button type="button" className="plus" aria-label="Add context" onClick={onAddContext}>+</button>

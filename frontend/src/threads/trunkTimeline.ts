@@ -31,6 +31,21 @@ export function extractText(contentJson: string): string {
   return '';
 }
 
+/** A `text` message's attached-image file paths, if any — see the backend's
+ *  `MessageAttachments.encodeMessage`. Empty for every message that isn't a
+ *  pasted-screenshot send, which is the overwhelming majority. */
+export function extractImages(contentJson: string): string[] {
+  try {
+    const v: unknown = JSON.parse(contentJson);
+    if (v !== null && typeof v === 'object') {
+      const images = (v as Record<string, unknown>).images;
+      if (Array.isArray(images)) return images.filter((s): s is string => typeof s === 'string');
+    }
+  }
+  catch { /* non-JSON envelope */ }
+  return [];
+}
+
 /** Read a `permission_request` message's envelope: `{callId, toolName,
  *  summary}` — see `AbstractCliThreadAgent`'s `StreamEvent.PermissionRequested`
  *  mapping on the backend. */

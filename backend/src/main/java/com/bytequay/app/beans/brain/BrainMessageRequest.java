@@ -13,7 +13,11 @@
  */
 package com.bytequay.app.beans.brain;
 
-/** Body for posting a question to a task's brain agent. */
-public record BrainMessageRequest(String text)
+import java.util.List;
+
+/** Body for posting a question to a task's brain agent. {@code images}:
+ *  pasted-screenshot data URLs from the composer's clipboard-paste handler,
+ *  optional/omittable. */
+public record BrainMessageRequest(String text, List<String> images)
 {
 }

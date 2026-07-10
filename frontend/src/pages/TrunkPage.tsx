@@ -108,6 +108,8 @@ export function TrunkPage({
     queueWhenBusy?: boolean;
     modePill?: ReactNode;
     placeholder?: string;
+    images?: string[];
+    onImagesChange?: (next: string[]) => void;
   };
   tasks: { active: TaskCardData[]; closed: TaskCardData[] };
   onOpenTask?: (id: string) => void;
@@ -287,6 +289,8 @@ export function TrunkPage({
               queueWhenBusy={composer.queueWhenBusy}
               modePill={composer.modePill}
               placeholder={composer.placeholder}
+              images={composer.images}
+              onImagesChange={composer.onImagesChange}
             />
           </div>
           {paneOpen && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />}

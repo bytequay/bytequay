@@ -880,13 +880,13 @@ function registerIpc(): void {
     return res.json();
   });
 
-  ipcMain.handle('brain:sendMessage', async (_event, taskId: string, text: string) => {
+  ipcMain.handle('brain:sendMessage', async (_event, taskId: string, text: string, images?: string[]) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain/message`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, images }),
       },
     );
     if (!res.ok) {
@@ -4975,9 +4975,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('threads:trunk:send', async (_event, args: unknown) => {
-    const params = args as { threadId?: unknown; input?: unknown };
+    const params = args as { threadId?: unknown; input?: unknown; images?: unknown };
     const threadId = params?.threadId;
     const input = params?.input;
+    const images = Array.isArray(params?.images) ? params.images : undefined;
     if (typeof threadId !== 'string' || threadId.trim().length === 0) {
       throw new Error('threadId must be a non-empty string');
     }
@@ -4989,13 +4990,34 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input }),
+        body: JSON.stringify({ input, images }),
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST /trunk-turns returned ${res.status}: ${text}`);
     }
     return res.json();
+  });
+
+  ipcMain.handle('threads:attachment:read', async (_event, args: unknown) => {
+    const params = args as { threadId?: unknown; path?: unknown };
+    const threadId = params?.threadId;
+    const path = params?.path;
+    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
+    }
+    if (typeof path !== 'string' || path.trim().length === 0) {
+      throw new Error('path must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/attachments?path=${encodeURIComponent(path)}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /attachments returned ${res.status}: ${text}`);
+    }
+    const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return `data:${contentType};base64,${bytes.toString('base64')}`;
   });
 
   ipcMain.handle('threads:settings:get', async (_event, threadId: unknown) => {

@@ -26,6 +26,9 @@ import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.skills.ManagedSkill;
+import com.bytequay.app.service.skills.ManagedSkillBundle;
+import com.bytequay.app.service.skills.ManagedSkillPrompt;
 import com.bytequay.app.service.tools.PermissionResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -158,6 +161,8 @@ public abstract class AbstractCliThreadAgent
     /** The stage the in-flight turn belongs to, set by the scheduler before
      *  each {@link #send}; messages emitted during the turn inherit it. */
     private volatile String activeStageId;
+    private volatile ManagedSkillBundle managedSkillBundle = ManagedSkillBundle.empty();
+    private volatile List<ManagedSkill> activeManagedSkills = List.of();
     /** The stage this agent has bound to (set on its first stage turn). A work
      *  stage starts a BRAND-NEW session — it never {@code --resume}s the task's
      *  or a prior stage's session — so cross-stage context flows only through
@@ -461,6 +466,29 @@ public abstract class AbstractCliThreadAgent
     }
 
     @Override
+    public final void setManagedSkillBundle(ManagedSkillBundle bundle)
+    {
+        this.managedSkillBundle = bundle == null ? ManagedSkillBundle.empty() : bundle;
+        this.activeManagedSkills = List.of();
+    }
+
+    @Override
+    public final void setActiveManagedSkillNames(List<String> names)
+    {
+        this.activeManagedSkills = managedSkillBundle.select(names);
+    }
+
+    protected final List<ManagedSkill> activeManagedSkills()
+    {
+        return activeManagedSkills;
+    }
+
+    protected final String activeManagedSkillPrompt()
+    {
+        return ManagedSkillPrompt.render(activeManagedSkills);
+    }
+
+    @Override
     public final void setMcpAgentKey(String agentKey)
     {
         if (agentKey != null && !agentKey.isBlank()) {
@@ -493,14 +521,22 @@ public abstract class AbstractCliThreadAgent
         transition(ThreadStatus.RUNNING);
         // Echo the user input so subscribers see the full conversation
         // and the row lands in thread_messages — polling readers work off
-        // the persisted log, not the listener fan-out.
+        // the persisted log, not the listener fan-out. Any pasted images
+        // ride inside userInput as a MessageAttachments envelope (see its
+        // doc); decode once here so the echo/persisted row carries the
+        // clean text + image list, and the CLI prompt actually dispatched
+        // gets the text plus a pointer to each image path — the CLI's own
+        // Read tool is how it "sees" a pasted screenshot, since a plain
+        // stdin/argv prompt has no room for inline image content.
+        MessageAttachments.Decoded decoded = MessageAttachments.decode(mapper, userInput);
         Instant now = Instant.now();
-        handle(new StreamEvent.UserMessage(now, userInput));
+        handle(new StreamEvent.UserMessage(now, decoded.text(), decoded.images()));
+        String promptText = withImageNote(decoded);
         CompletableFuture<Void> completion = new CompletableFuture<>();
         try {
             executor.execute(() -> {
                 try {
-                    runTurn(userInput);
+                    runTurn(promptText);
                     completion.complete(null);
                 }
                 catch (RuntimeException | Error e) {
@@ -514,6 +550,21 @@ public abstract class AbstractCliThreadAgent
             completion.completeExceptionally(e);
         }
         return completion;
+    }
+
+    /** The CLI's stdin/argv prompt has no room for inline image content, so
+     *  a pasted screenshot becomes a plain-text pointer the agent's own
+     *  {@code Read} tool can open. No-op (returns the text unchanged) when
+     *  there are no images — the overwhelmingly common case. */
+    private static String withImageNote(MessageAttachments.Decoded decoded)
+    {
+        if (decoded.images().isEmpty()) {
+            return decoded.text();
+        }
+        String note = decoded.images().size() == 1
+                ? "[Attached image: " + decoded.images().get(0) + "]"
+                : "[Attached images: " + String.join(", ", decoded.images()) + "]";
+        return decoded.text() + "\n\n" + note;
     }
 
     @Override
@@ -1011,7 +1062,7 @@ public abstract class AbstractCliThreadAgent
                     null, null, null, null, ts);
             case StreamEvent.UserMessage e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "user", "text",
-                    content(mapper.createObjectNode().put("text", e.text())),
+                    MessageAttachments.encodeMessage(mapper, e.text(), e.images()),
                     null, null, null, null, ts);
             case StreamEvent.AssistantText e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "assistant", "text",

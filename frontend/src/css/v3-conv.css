@@ -1562,11 +1562,11 @@
 .pr-badge.author { color: var(--blue); border-color: var(--blue-border); background: var(--blue-soft); }
 .pr-badge.pending { color: var(--amber-deep); border-color: var(--amber-border); background: var(--amber-soft); }
 
-/* U15 (revised) — comment bubble: avatar starts at x=0 (no left padding) so
-   it lines up with .pr-person-event's avatar, which also starts at x=0 —
-   the card's left edge lands at x=60 (avatar 40px + 20px gap), which
-   is all that matters for the rail (an independent, further-right x=64)
-   to sit inside the card's body rather than at its edge. */
+/* U15 (revised) — comment bubble: avatar sits at x=-6 (margin-left: -6px)
+   so it lines up with .pr-person-event's avatar, which matches the same
+   offset — the card's left edge lands at x=54 (avatar 40px + 20px gap - 6),
+   which is all that matters for the rail (an independent, further-right
+   x=64) to sit inside the card's body rather than at its edge. */
 .pr-bubble-row { position: relative; display: flex; align-items: flex-start; gap: 20px; margin: 0 0 12px; }
 .pr-bubble-row .pr-avatar { margin-top: 4px; margin-left: -6px; }
 .pr-bubble { position: relative; z-index: 1; flex: 1; min-width: 0; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin-top: 3px; }
@@ -1639,15 +1639,19 @@
 }
 .pr-tl-plan-link:hover { background: var(--bg-hover); text-decoration: underline; }
 
-/* Copilot-redesign pass — person-event: the eye/check icon sits ON the rail
-   line (x=64, same technique as .tic above), with the 40px avatar (0-40,
-   same size as the comment bubble's) immediately to its left. The row's
-   8px gap plus the icon's own +5px margin lands its left edge at
-   40+8+5=53; at 22px wide it spans 53-75, centered exactly on x=64. */
+/* Copilot-redesign pass — person-event: the avatar matches the comment
+   bubble's exactly (margin-left: -6px, same margin-top the row's own
+   padding difference calls for) so the two row kinds' avatars sit flush
+   in the same column when interleaved on the timeline. The eye/check icon
+   still sits ON the rail line (x=64, same technique as .tic above) — its
+   own margin-left is bumped to 11px to re-center it there now that the
+   avatar (and so the row's flex flow) shifted 6px left: (-6)+40(avatar)
+   +8(gap)+11(margin)=53 left edge, at 22px wide spans 53-75, centered on
+   x=64. The net effect also widens the avatar-to-rail gap, as intended. */
 .pr-person-event { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; }
-.pr-person-event .pr-avatar { margin-top: -8px; }
+.pr-person-event .pr-avatar { margin-top: -3px; margin-left: -6px; }
 .pr-person-event .eye {
-  position: relative; z-index: 1; flex-shrink: 0; margin-left: 5px;
+  position: relative; z-index: 1; flex-shrink: 0; margin-left: 11px;
   width: 22px; height: 22px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; color: var(--text-3);

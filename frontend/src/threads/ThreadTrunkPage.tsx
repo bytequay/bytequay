@@ -1266,7 +1266,7 @@ const settingsLabelStyle: React.CSSProperties = {
   gap: 2,
   fontSize: 10,
   color: 'var(--text-3)',
-  fontWeight: 600,
+  fontWeight: 400,
   letterSpacing: '0.04em',
 };
 
@@ -1294,7 +1294,7 @@ const settingsSaveBtnStyle: React.CSSProperties = {
   color: '#fff',
   borderRadius: 6,
   cursor: 'pointer',
-  fontWeight: 600,
+  fontWeight: 400,
 };
 
 const settingsCancelBtnStyle: React.CSSProperties = {
@@ -1331,7 +1331,7 @@ const dangerHeadStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'baseline',
   fontSize: 10,
-  fontWeight: 700,
+  fontWeight: 400,
   letterSpacing: '0.06em',
   color: '#991b1b',
   marginBottom: 8,
@@ -1345,7 +1345,7 @@ const deleteBtnStyle: React.CSSProperties = {
   color: '#dc2626',
   borderRadius: 8,
   fontSize: 12,
-  fontWeight: 600,
+  fontWeight: 400,
   cursor: 'pointer',
 };
 
@@ -1357,7 +1357,7 @@ const deleteBtnDisabledStyle: React.CSSProperties = {
   color: 'var(--text-4)',
   borderRadius: 8,
   fontSize: 12,
-  fontWeight: 600,
+  fontWeight: 400,
   cursor: 'not-allowed',
 };
 
@@ -1727,7 +1727,7 @@ const contextChipStyle: React.CSSProperties = {
   background: 'rgba(124,92,255,0.08)',
   borderRadius: 999,
   fontSize: 11.5,
-  fontWeight: 600,
+  fontWeight: 400,
   color: 'var(--primary-deep, #5b3edb)',
   cursor: 'pointer',
 };
@@ -1749,7 +1749,7 @@ const contextChipKbdStyle: React.CSSProperties = {
 
 const titleStyle: React.CSSProperties = {
   fontSize: 14,
-  fontWeight: 600,
+  fontWeight: 400,
   letterSpacing: '0.005em',
   flex: 1,
   whiteSpace: 'nowrap',
@@ -1769,7 +1769,7 @@ function statusPillStyle(status: string): React.CSSProperties {
     border: `1px solid ${tone}40`,
     color: tone,
     background: `${tone}14`,
-    fontWeight: 700,
+    fontWeight: 400,
     letterSpacing: '0.06em',
   };
 }
@@ -1796,13 +1796,13 @@ const altitudeBandStyle: React.CSSProperties = {
 };
 
 const bandGlyphStyle: React.CSSProperties = {
-  fontWeight: 700,
+  fontWeight: 400,
   letterSpacing: '0.08em',
   color: SLATE,
 };
 
 const bandTitleStyle: React.CSSProperties = {
-  fontWeight: 600,
+  fontWeight: 400,
   color: 'var(--text-1)',
 };
 
@@ -1825,7 +1825,7 @@ const bandCwdStyle: React.CSSProperties = {
 
 const bandCwdLabelStyle: React.CSSProperties = {
   fontSize: 9,
-  fontWeight: 700,
+  fontWeight: 400,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
   color: 'var(--text-4)',
@@ -1905,14 +1905,14 @@ const railHeadStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'baseline',
   fontSize: 10,
-  fontWeight: 700,
+  fontWeight: 400,
   letterSpacing: '0.06em',
   color: 'var(--text-2)',
   marginBottom: 6,
 };
 
 const railHeadMutedStyle: React.CSSProperties = {
-  fontWeight: 500,
+  fontWeight: 400,
   color: 'var(--text-4)',
   letterSpacing: '0.04em',
 };
@@ -2010,7 +2010,7 @@ function glyphStyle(task: WorkUnitTaskDto): React.CSSProperties {
     justifyContent: 'center',
     fontSize: 13,
     flexShrink: 0,
-    fontWeight: 700,
+    fontWeight: 400,
   };
 }
 
@@ -2023,7 +2023,7 @@ const taskCardTitleRowStyle: React.CSSProperties = {
 
 const taskCardTitleStyle: React.CSSProperties = {
   fontSize: 14,
-  fontWeight: 600,
+  fontWeight: 400,
   color: 'var(--text-1)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -2145,7 +2145,7 @@ function taskStatusPillStyle(status: string): React.CSSProperties {
     borderRadius: 999,
     background: bg,
     color,
-    fontWeight: 700,
+    fontWeight: 400,
     letterSpacing: '0.04em',
     textTransform: 'lowercase',
   };
@@ -2172,7 +2172,7 @@ const attentionBannerStyle: React.CSSProperties = {
 
 const attentionTitleStyle: React.CSSProperties = {
   fontSize: 12,
-  fontWeight: 700,
+  fontWeight: 400,
   color: '#9a3412',
   marginBottom: 8,
 };
@@ -2196,7 +2196,7 @@ const attentionRowStyle: React.CSSProperties = {
 const attentionLabelStyle: React.CSSProperties = {
   flex: 1,
   color: '#9a3412',
-  fontWeight: 600,
+  fontWeight: 400,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
@@ -2210,7 +2210,7 @@ const attentionJumpBtnStyle: React.CSSProperties = {
   color: '#fff',
   borderRadius: 6,
   cursor: 'pointer',
-  fontWeight: 700,
+  fontWeight: 400,
   letterSpacing: '0.04em',
 };
 
@@ -2238,7 +2238,7 @@ function nextBtnStyle(disabled: boolean): React.CSSProperties {
       : 'linear-gradient(135deg, #7c3aed, #6366f1)',
     color: disabled ? 'rgba(255,255,255,0.85)' : '#fff',
     borderRadius: 8,
-    fontWeight: 600,
+    fontWeight: 400,
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.65 : 1,
   };
@@ -2252,7 +2252,7 @@ function shipBtnStyle(disabled: boolean): React.CSSProperties {
     background: disabled ? 'rgba(0,0,0,0.04)' : '#fff',
     color: disabled ? 'var(--text-4)' : 'var(--text-1)',
     borderRadius: 8,
-    fontWeight: 600,
+    fontWeight: 400,
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.7 : 1,
   };
@@ -2369,7 +2369,7 @@ const trunkResumeCopyStyle: React.CSSProperties = {
   minWidth: 0,
 };
 const trunkResumeTitleStyle: React.CSSProperties = {
-  fontWeight: 700,
+  fontWeight: 400,
   fontSize: 13,
   color: 'var(--text-1)',
 };
@@ -2385,7 +2385,7 @@ const trunkResumeBtnStyle: React.CSSProperties = {
   background: 'linear-gradient(135deg,#4f86ff,#3b6fe0)',
   color: '#fff',
   fontSize: 12.5,
-  fontWeight: 700,
+  fontWeight: 400,
   cursor: 'pointer',
 };
 
@@ -2435,7 +2435,7 @@ const checkpointBodyStyle: React.CSSProperties = {
 };
 
 const checkpointTitleStyle: React.CSSProperties = {
-  fontWeight: 600,
+  fontWeight: 400,
   color: 'var(--text-1)',
 };
 
@@ -2461,7 +2461,7 @@ const composerAnchorStyle: React.CSSProperties = {
   fontSize: 10,
   letterSpacing: '0.04em',
   color: SLATE,
-  fontWeight: 600,
+  fontWeight: 400,
   marginBottom: 4,
 };
 
@@ -2488,7 +2488,7 @@ const composerSendBtnStyle: React.CSSProperties = {
   color: '#fff',
   borderRadius: 6,
   cursor: 'pointer',
-  fontWeight: 600,
+  fontWeight: 400,
 };
 
 const composerInterruptBtnStyle: React.CSSProperties = {
@@ -2499,7 +2499,7 @@ const composerInterruptBtnStyle: React.CSSProperties = {
   color: '#cf1322',
   borderRadius: 6,
   cursor: 'pointer',
-  fontWeight: 600,
+  fontWeight: 400,
 };
 
 const composerFooterStyle: React.CSSProperties = {
@@ -2516,7 +2516,7 @@ const composerScopeStyle: React.CSSProperties = {
   background: SLATE_BG,
   borderRadius: 6,
   color: SLATE,
-  fontWeight: 600,
+  fontWeight: 400,
   letterSpacing: '0.04em',
 };
 

@@ -61,7 +61,7 @@ export function TrafficLights({ onBack, onForward, backEnabled = true, forwardEn
         aria-label="Toggle sidebar"
         onClick={onToggleCollapse}
       >
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden>
           <rect x="2" y="3" width="12" height="10" rx="2.2" stroke="currentColor" strokeWidth="1.3" />
           <line x1="6.4" y1="3.4" x2="6.4" y2="12.6" stroke="currentColor" strokeWidth="1.3" />
         </svg>

@@ -54,8 +54,8 @@
   gap: 6px;
 }
 .shell .sb-traffic .dots span {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   display: inline-block;
 }

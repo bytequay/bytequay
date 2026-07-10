@@ -4127,6 +4127,8 @@ export type Bridge = {
   getTaskCumulativeDiff: (id: string, taskId?: string) => Promise<DiffFileDto[]>;
   /** One commit's diff as DiffFileDto rows for the shared diff view. */
   getTaskCommitDiffFiles: (id: string, sha: string, taskId?: string) => Promise<DiffFileDto[]>;
+  /** Full file content from the task worktree, split into lines for diff expansion. */
+  fetchTaskFileBlob: (id: string, taskId: string, path: string) => Promise<{ lines: string[] }>;
 };
 
 /** Mirror of GitRunner.WorkingTreeFile — uncommitted change in a

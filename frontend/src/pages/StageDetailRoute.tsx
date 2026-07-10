@@ -593,6 +593,7 @@ export function StageDetailRoute({
         files={files}
         comments={localPrBundle?.comments ?? []}
         allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
+        fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
         onAddComment={addLocalLineComment}
         onReplyComment={replyLocalLineComment}
         onResolveComment={resolveLocalComment}

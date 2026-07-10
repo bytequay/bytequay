@@ -429,6 +429,7 @@ export function TaskBrainRoute({
         files={reviewFiles}
         comments={localPrBundle?.comments ?? []}
         allowLocalComments={prCapabilities?.draftLocalComments === true && !task.terminal}
+        fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
         onAddComment={addLocalLineComment}
         onReplyComment={replyLocalLineComment}
         onResolveComment={resolveLocalComment}

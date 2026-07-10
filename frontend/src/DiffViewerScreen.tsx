@@ -1178,10 +1178,14 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
     setExpandError(null);
   }, [file.patch, file.filename]);
 
-  const onExpandClick = async (gap: Gap, direction: 'up' | 'down') => {
+  const onExpandClick = async (gap: Gap, direction: 'up' | 'down' | 'all') => {
     if (!headSha) return;
     const loaded = expanded.get(gap.index) ?? new Map<number, string>();
-    const range = computeFetchRange(gap, loaded, direction);
+    const range = direction === 'all' && gap.newEnd !== null
+      ? { from: gap.newStart, to: gap.newEnd }
+      : direction === 'all'
+        ? null
+        : computeFetchRange(gap, loaded, direction);
     if (!range) return;
     const key = `${gap.index}:${direction}`;
     if (expandLoading.has(key)) return;

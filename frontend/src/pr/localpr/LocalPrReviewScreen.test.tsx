@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LocalPrReviewScreen } from './LocalPrReviewScreen';
 import type { DiffFileDto } from '../../types';
@@ -48,6 +48,31 @@ describe('LocalPrReviewScreen', () => {
     expect(container.querySelectorAll('.diff-row--add').length).toBe(2);
     expect(container.querySelectorAll('.diff-row--del').length).toBe(1);
     expect(screen.getByText('// half-open window')).toBeTruthy();
+  });
+
+  it('expands unmodified lines when a task file fetcher is provided', async () => {
+    const fetchFileBlob = vi.fn().mockResolvedValue({
+      lines: ['new one', 'same two', 'same three', 'same four', 'new five'],
+    });
+    render(
+      <LocalPrReviewScreen
+        title="Review"
+        files={[{
+          filename: 'backend/src/Composer.java', status: 'modified', additions: 2, deletions: 2,
+          patch: '@@ -1,1 +1,1 @@\n-old one\n+new one\n@@ -5,1 +5,1 @@\n-old five\n+new five\n',
+        }]}
+        comments={[]}
+        fetchFileBlob={fetchFileBlob}
+        onBack={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '3 unmodified lines' }));
+
+    await waitFor(() => expect(fetchFileBlob).toHaveBeenCalledWith('backend/src/Composer.java'));
+    expect(await screen.findByText('same two')).toBeTruthy();
+    expect(screen.getByText('same three')).toBeTruthy();
+    expect(screen.getByText('same four')).toBeTruthy();
   });
 
   it('shows a loading state until files arrive and an empty state for no changes', () => {

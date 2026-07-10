@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ResizeHandle from '../../ResizeHandle';
 import { ContinuousDiff, FileDiffBody } from '../../diff/DiffFileList';
 import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
+import { computeFetchRange, type Gap, type LoadedGap } from '../../diffExpand';
 import { DiffFileTreePane } from '../../diff/DiffFileTreePane';
 import { DiffInlineComments, diffInlineCommentFromLocalPr, rangeLabel } from '../../diff/DiffInlineComments';
 import { statusBadge } from '../../diffStatusBadge';
@@ -41,11 +42,12 @@ function lineKey(filename: string, side: AnchorSide, ln: number): string {
  * the identical pattern applied to the task-in-progress diff).
  */
 function LocalFileDiff({
-  file, comments, allowLocalComments, onAddComment, onReplyComment, onResolveComment, onDismissComment,
+  file, comments, allowLocalComments, fetchFileBlob, onAddComment, onReplyComment, onResolveComment, onDismissComment,
 }: {
   file: DiffFileDto;
   comments: LocalPRComment[];
   allowLocalComments: boolean;
+  fetchFileBlob?: (path: string) => Promise<{ lines: string[] }>;
   onAddComment?: (
     filePath: string, side: AnchorSide, line: number,
     startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
@@ -58,6 +60,14 @@ function LocalFileDiff({
   onDismissComment?: (commentId: string) => void;
 }) {
   const [composer, setComposer] = useState<ComposerSlot>(null);
+  const [expanded, setExpanded] = useState<Map<number, LoadedGap>>(new Map());
+  const [expandLoading, setExpandLoading] = useState<Set<string>>(new Set());
+  const [expandError, setExpandError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setExpanded(new Map());
+    setExpandError(null);
+  }, [file.patch, file.filename]);
 
   const byLine = useMemo(() => {
     const m = new Map<string, LocalPRComment[]>();
@@ -191,7 +201,55 @@ function LocalFileDiff({
     };
   };
 
-  return <FileDiffBody file={file} renderAfterRow={renderAfterRow} rowDecoration={rowDecoration} />;
+  const onExpandClick = fetchFileBlob === undefined ? undefined : async (gap: Gap, direction: 'up' | 'down' | 'all') => {
+    const loaded = expanded.get(gap.index) ?? new Map<number, string>();
+    const range = direction === 'all' && gap.newEnd !== null
+      ? { from: gap.newStart, to: gap.newEnd }
+      : direction === 'all'
+        ? null
+        : computeFetchRange(gap, loaded, direction);
+    if (!range) return;
+    const key = `${gap.index}:${direction}`;
+    if (expandLoading.has(key)) return;
+    setExpandLoading(s => new Set(s).add(key));
+    setExpandError(null);
+    try {
+      const blob = await fetchFileBlob(file.filename);
+      const next = new Map(loaded);
+      for (let n = range.from; n <= range.to; n++) {
+        if (n - 1 < blob.lines.length) next.set(n, blob.lines[n - 1]);
+      }
+      setExpanded(prev => {
+        const out = new Map(prev);
+        out.set(gap.index, next);
+        return out;
+      });
+    }
+    catch (e) {
+      setExpandError(e instanceof Error ? e.message : 'Expand failed.');
+    }
+    finally {
+      setExpandLoading(s => {
+        const out = new Set(s);
+        out.delete(key);
+        return out;
+      });
+    }
+  };
+
+  return (
+    <>
+      {expandError && <div className="diff-expand-error" role="alert">{expandError}</div>}
+      <FileDiffBody
+        file={file}
+        expanded={expanded}
+        expandLoading={expandLoading}
+        onExpandClick={onExpandClick}
+        renderAfterRow={renderAfterRow}
+        rowDecoration={rowDecoration}
+      />
+    </>
+  );
 }
 
 /**
@@ -203,13 +261,14 @@ function LocalFileDiff({
  */
 export function LocalPrReviewScreen({
   title, files, comments, allowLocalComments = false, onAddComment, onReplyComment, onResolveComment, onDismissComment,
-  onBack, error = null,
+  onBack, error = null, fetchFileBlob,
 }: {
   title: string;
   /** Null = still loading. Empty array = nothing changed. */
   files: DiffFileDto[] | null;
   comments: LocalPRComment[];
   allowLocalComments?: boolean;
+  fetchFileBlob?: (path: string) => Promise<{ lines: string[] }>;
   onAddComment?: (
     filePath: string, side: AnchorSide, line: number,
     startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
@@ -287,9 +346,10 @@ export function LocalPrReviewScreen({
               renderFileBody={file => (
                 <LocalFileDiff
                   file={file}
-                    comments={comments}
-                    allowLocalComments={allowLocalComments}
-                    onAddComment={onAddComment}
+                comments={comments}
+                allowLocalComments={allowLocalComments}
+                fetchFileBlob={fetchFileBlob}
+                onAddComment={onAddComment}
                     onReplyComment={onReplyComment}
                     onResolveComment={onResolveComment}
                     onDismissComment={onDismissComment}

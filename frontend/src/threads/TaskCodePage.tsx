@@ -16,11 +16,12 @@ import ResizeHandle from '../ResizeHandle';
 import MarkdownComposer from '../MarkdownComposer';
 import { CommitsColumn } from '../diff/CommitsColumn';
 import { DiffChatColumn } from './DiffChatColumn';
-import { ContinuousDiff, FileDiffBody } from '../diff/DiffFileList';
+import { ContinuousDiff, FileDiffBody, type FileDiffBodyProps } from '../diff/DiffFileList';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { contiguousRange } from '../diff/commitRange';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
+import { computeFetchRange, type Gap, type LoadedGap } from '../diffExpand';
 import type { DiffFileDto, NotificationDto, ReviewCommentDto, ThreadCommitDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 import { isLocalStatus } from '../types/localPr';
@@ -116,6 +117,75 @@ const COMMITS_DEFAULT = 230;
 const FILES_DEFAULT = 280;
 const WIDTH_MIN = 160;
 const WIDTH_MAX = 900;
+
+function ExpandableTaskFileDiffBody({
+  threadId,
+  taskId,
+  file,
+  ...bodyProps
+}: {
+  threadId: string;
+  taskId: string;
+  file: DiffFileDto;
+} & Omit<FileDiffBodyProps, 'file' | 'expanded' | 'expandLoading' | 'onExpandClick'>) {
+  const [expanded, setExpanded] = useState<Map<number, LoadedGap>>(new Map());
+  const [expandLoading, setExpandLoading] = useState<Set<string>>(new Set());
+  const [expandError, setExpandError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setExpanded(new Map());
+    setExpandError(null);
+  }, [file.patch, file.filename]);
+
+  const onExpandClick = async (gap: Gap, direction: 'up' | 'down' | 'all') => {
+    const loaded = expanded.get(gap.index) ?? new Map<number, string>();
+    const range = direction === 'all' && gap.newEnd !== null
+      ? { from: gap.newStart, to: gap.newEnd }
+      : direction === 'all'
+        ? null
+        : computeFetchRange(gap, loaded, direction);
+    if (!range) return;
+    const key = `${gap.index}:${direction}`;
+    if (expandLoading.has(key)) return;
+    setExpandLoading(s => new Set(s).add(key));
+    setExpandError(null);
+    try {
+      const blob = await window.bridge.fetchTaskFileBlob(threadId, taskId, file.filename);
+      const next = new Map(loaded);
+      for (let n = range.from; n <= range.to; n++) {
+        if (n - 1 < blob.lines.length) next.set(n, blob.lines[n - 1]);
+      }
+      setExpanded(prev => {
+        const out = new Map(prev);
+        out.set(gap.index, next);
+        return out;
+      });
+    }
+    catch (e) {
+      setExpandError(e instanceof Error ? e.message : 'Expand failed.');
+    }
+    finally {
+      setExpandLoading(s => {
+        const out = new Set(s);
+        out.delete(key);
+        return out;
+      });
+    }
+  };
+
+  return (
+    <>
+      {expandError && <div className="diff-expand-error" role="alert">{expandError}</div>}
+      <FileDiffBody
+        {...bodyProps}
+        file={file}
+        expanded={expanded}
+        expandLoading={expandLoading}
+        onExpandClick={onExpandClick}
+      />
+    </>
+  );
+}
 
 function loadWidth(key: string, fallback: number): number {
   try {
@@ -825,7 +895,9 @@ export default function TaskCodePage({
                 selectedPath={selectedPath}
                 onActiveFileChange={setSelectedPath}
                 renderFileBody={(file) => (reviewMode ? (
-                  <FileDiffBody
+                  <ExpandableTaskFileDiffBody
+                    threadId={threadId}
+                    taskId={taskId}
                     file={file}
                     rowDecoration={(anchorSide, anchorLine) => {
                       const hasComment = commentsByAnchor.has(`${file.filename}:${anchorSide}:${anchorLine}`);
@@ -869,7 +941,9 @@ export default function TaskCodePage({
                     }}
                   />
                 ) : localCommentMode ? (
-                  <FileDiffBody
+                  <ExpandableTaskFileDiffBody
+                    threadId={threadId}
+                    taskId={taskId}
                     file={file}
                     rowDecoration={(anchorSide, anchorLine) => {
                       const hasComment = localByAnchor.has(`${file.filename}:${anchorSide}:${anchorLine}`);
@@ -930,7 +1004,7 @@ export default function TaskCodePage({
                     }}
                   />
                 ) : (
-                  <FileDiffBody file={file} />
+                  <ExpandableTaskFileDiffBody threadId={threadId} taskId={taskId} file={file} />
                 ))}
               />
             ) : error !== null ? (

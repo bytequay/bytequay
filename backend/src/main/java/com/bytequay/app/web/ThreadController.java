@@ -563,6 +563,17 @@ public class ThreadController
         return threads.taskCommitDiffFiles(id, taskId, sha);
     }
 
+    /** GET /api/threads/{id}/fileBlob?taskId=...&path=... — full file
+     *  content from the task worktree for expanding unchanged diff lines. */
+    @GetMapping("/{id}/fileBlob")
+    public Map<String, Object> fileBlob(
+            @PathVariable String id,
+            @RequestParam String taskId,
+            @RequestParam String path)
+    {
+        return ImmutableMap.of("lines", threads.taskFileBlobLines(id, taskId, path));
+    }
+
     /** POST /api/threads/{id}/messages — send a follow-up turn. */
     @PostMapping("/{id}/messages")
     public Map<String, String> send(@PathVariable String id, @RequestBody SendBody body)

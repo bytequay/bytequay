@@ -1203,40 +1203,68 @@
   font-size: var(--font-size-xs);
 }
 
-/* "Expand collapsed code" controls. Replaces the two gutter spans on
-   hunk-header rows; spans the same 72px width via grid-column: 1/3
-   so the @@ ... @@ text lines up with normal content. */
+/* "Expand collapsed code" controls. */
 .diff-row__expand-cell {
-  grid-column: 1 / 3;
+  grid-column: 1 / 4;
   display: flex;
   align-items: stretch;
   justify-content: stretch;
-  /* Stronger blue tint reads as a distinct, clickable area against the
-     surrounding hunk-header background. Matches the mockup at
-     docs/mockups/v2/codereview/expand.png. */
-  background: rgba(56, 139, 253, 0.22);
-  border-right: 1px solid var(--border);
+  background: var(--panel);
   padding: 0;
   user-select: none;
 }
+.diff-expand-row {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: 0 14px;
+  text-align: left;
+}
+.diff-expand-row:hover:not(:disabled),
+.diff-expand-row__label-btn:hover:not(:disabled),
+.diff-expand-btn:hover:not(:disabled) {
+  background: rgba(56, 139, 253, 0.10);
+  color: var(--accent, #388bfd);
+}
+.diff-expand-row:disabled,
+.diff-expand-row__label-btn:disabled,
+.diff-expand-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.diff-expand-row__icon {
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+}
+.diff-expand-row__label {
+  white-space: nowrap;
+}
+.diff-expand-row--middle {
+  display: grid;
+  grid-template-columns: 28px max-content 28px;
+  justify-content: start;
+  padding: 0 12px;
+}
 .diff-expand-btn {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   border: none;
-  color: var(--accent, #388bfd);
+  color: inherit;
   cursor: pointer;
   padding: 0;
-  min-height: 16px;
-}
-.diff-expand-btn:hover:not(:disabled) {
-  background: rgba(56, 139, 253, 0.40);
-}
-.diff-expand-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  min-height: 28px;
+  border-radius: var(--radius-sm);
 }
 .diff-expand-btn__svg {
   width: 12px;
@@ -1244,52 +1272,15 @@
   fill: currentColor;
   display: block;
 }
-.diff-expand-btn--single {
-  /* Top / bottom of file — one big button filling both gutter columns. */
-  width: 100%;
-  min-height: 20px;
-}
-.diff-expand-split {
-  /* Middle-of-file split — github.com layout. Dotted strip on top
-     marks the hidden range; the two chevrons sit side-by-side below
-     so the whole control stays roughly square instead of stacking
-     three tall rows in the gutter. */
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-/* Four short horizontal dashes laid out left-to-right across the top
-   of the control, hinting at collapsed code that sits between the
-   surrounding hunks. Non-interactive. */
-.diff-expand-split__divider {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  padding: 3px 0 2px;
-}
-.diff-expand-split__divider > span {
-  width: 5px;
-  height: 1px;
-  background: var(--text-3);
-  opacity: 0.7;
-}
-/* Up + down chevrons share one row beneath the dashes. A 1px divider
-   at the top separates the dashed strip from the buttons; a vertical
-   divider between the buttons lets each chevron read as its own
-   click target. */
-.diff-expand-split__row {
-  display: flex;
-  flex-direction: row;
-  border-top: 1px solid var(--border);
-}
-.diff-expand-split__row .diff-expand-btn {
-  flex: 1;
-  min-height: 18px;
-}
-.diff-expand-split__row .diff-expand-btn--up {
-  border-right: 1px solid var(--border);
+.diff-expand-row__label-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
 }
 
 /* Expanded context rows look like ordinary context rows — no
@@ -2571,4 +2562,3 @@
   font-size: var(--font-size-md);
   margin: 0;
 }
-

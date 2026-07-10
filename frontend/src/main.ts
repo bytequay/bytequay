@@ -3685,6 +3685,25 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:fileBlob', async (_event, id: unknown, taskId: unknown, path: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('taskId must be a non-empty string');
+    }
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new Error('path must be a non-empty string');
+    }
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/fileBlob?taskId=${encodeURIComponent(taskId)}&path=${encodeURIComponent(path)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:interrupt', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');

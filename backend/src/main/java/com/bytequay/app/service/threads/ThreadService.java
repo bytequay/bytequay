@@ -55,6 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -1183,6 +1184,47 @@ public class ThreadService
         });
     }
 
+    /** Full file content from the task worktree, split into lines for
+     *  expanding collapsed unchanged regions in the diff viewer. */
+    public List<String> taskFileBlobLines(String threadId, String taskId, String path)
+    {
+        requireNonNull(path, "path is null");
+        Thread thread = requireTask(threadId);
+        Task task = resolveSurfaceTask(threadId, taskId).orElse(null);
+        Optional<Path> cwd = existingAgentCwd(thread, taskId);
+        if (cwd.isEmpty()) {
+            return taskPrLocator(task)
+                    .map(pr -> {
+                        List<PullRequestCommit> commits = pullRequests.getPullRequestCommits(pr.repoFullName(), pr.number());
+                        String headSha = commits.stream()
+                                .map(PullRequestCommit::sha)
+                                .filter(sha -> sha != null && !sha.isBlank())
+                                .reduce((first, second) -> second)
+                                .orElse(null);
+                        if (headSha == null) {
+                            throw new ResponseStatusException(HttpStatusCode.valueOf(404), "task worktree is not available");
+                        }
+                        return pullRequests.getFileBlobLines(pr.repoFullName(), path, headSha);
+                    })
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "task worktree is not available"));
+        }
+        return runGit("read file " + path + " for " + threadId, () -> {
+            Path root = cwd.get().toRealPath().normalize();
+            Path target = root.resolve(path).normalize();
+            if (!target.startsWith(root)) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(400), "path escapes task worktree");
+            }
+            if (!Files.exists(target)) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404), "file is not available");
+            }
+            Path realTarget = target.toRealPath().normalize();
+            if (!realTarget.startsWith(root) || !Files.isRegularFile(realTarget)) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404), "file is not available");
+            }
+            return splitLines(Files.readString(realTarget, StandardCharsets.UTF_8));
+        });
+    }
+
     /** The thread's task PR target ({@code owner/repo} + number), parsed
      *  from the task's {@code linkedPrRef} ({@code owner/repo#number}). Used
      *  to serve a merged task's diff/commits from GitHub once its worktree is
@@ -1212,6 +1254,16 @@ public class ThreadService
         String authoredAt = c.authoredAt() == null ? null : c.authoredAt().toString();
         String author = c.authorName() != null ? c.authorName() : c.authorLogin();
         return new GitRunner.CommitEntry(sha, shortSha, author, null, authoredAt, subject);
+    }
+
+    private static List<String> splitLines(String text)
+    {
+        String[] lines = text.split("\n", -1);
+        int len = lines.length;
+        if (len > 0 && lines[len - 1].isEmpty()) {
+            len -= 1;
+        }
+        return Arrays.stream(lines, 0, len).toList();
     }
 
     /** Owner/repo + number target for a task's linked PR. */

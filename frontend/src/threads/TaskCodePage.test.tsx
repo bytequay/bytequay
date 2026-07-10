@@ -40,6 +40,7 @@ function mockBridge(overrides: Record<string, unknown> = {}) {
     ]),
     getTaskCumulativeDiff: vi.fn().mockResolvedValue(CUMULATIVE),
     getTaskCommitDiffFiles: vi.fn().mockResolvedValue(PER_COMMIT),
+    fetchTaskFileBlob: vi.fn().mockResolvedValue({ lines: [] }),
     // Review-mode bridge surface — default to "no proposal / no comments"
     // so the existing read-only tests stay unchanged.
     listNotificationsForThread: vi.fn().mockResolvedValue([]),
@@ -111,6 +112,26 @@ describe('TaskCodePage', () => {
     expect((await screen.findAllByText('src/Bar.ts')).length).toBeGreaterThan(0);
   });
 
+  it('expands unmodified lines in the task diff', async () => {
+    const bridge = mockBridge({
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([{
+        filename: 'src/Foo.ts', status: 'modified', additions: 2, deletions: 2,
+        patch: '@@ -1,1 +1,1 @@\n-old one\n+new one\n@@ -5,1 +5,1 @@\n-old five\n+new five\n',
+      }]),
+      fetchTaskFileBlob: vi.fn().mockResolvedValue({
+        lines: ['new one', 'same two', 'same three', 'same four', 'new five'],
+      }),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '3 unmodified lines' }));
+
+    await waitFor(() => expect(bridge.fetchTaskFileBlob).toHaveBeenCalledWith('thread-1', 'task-1', 'src/Foo.ts'));
+    expect(await screen.findByText('same two')).toBeTruthy();
+    expect(screen.getByText('same three')).toBeTruthy();
+    expect(screen.getByText('same four')).toBeTruthy();
+  });
+
   it('back button fires onBack', async () => {
     mockBridge();
     const onBack = vi.fn();
@@ -133,7 +154,7 @@ describe('TaskCodePage', () => {
     await screen.findAllByText('src/Foo.ts');
     const body = container.querySelector('.diff-viewer__body') as HTMLElement;
     vi.spyOn(body, 'getBoundingClientRect').mockReturnValue({
-      left: 0, right: 1000, top: 0, bottom: 500, width: 1000, height: 500, x: 0, y: 0, toJSON() {},
+      left: 0, right: 1000, top: 0, bottom: 500, width: 1000, height: 500, x: 0, y: 0, toJSON: () => ({}),
     } as DOMRect);
     const handle = screen.getByRole('separator', { name: 'Resize changed-files panel' });
     fireEvent.mouseDown(handle);

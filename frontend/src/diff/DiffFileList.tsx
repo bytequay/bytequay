@@ -38,17 +38,13 @@ const ArrowDownIcon = () => (
 
 /** Expand-collapsed-code controls that sit in the gutter of a hunk
  *  header (or its own row for the after-last-hunk gap). The two button
- *  variants mirror docs/mockups/v2/codereview/expand.png:
- *
- *  - Top-of-file gap (no hunk above): single ↕ button — only "up"
+ *  variants:
+ *  - Top-of-file gap (no hunk above): single button — only "up"
  *    direction makes sense (loading lines toward the bottom of the gap,
  *    just above this hunk header).
- *  - Bottom-of-file gap (no hunk below): single ↕ button — only "down"
+ *  - Bottom-of-file gap (no hunk below): single button — only "down"
  *    makes sense (loading lines after the last hunk's content).
- *  - Middle gap: stacked control with an up chevron, a non-interactive
- *    "collapsed content" decoration in the middle, and a down chevron at
- *    the bottom. Either chevron loads the next 20 lines in that
- *    direction.
+ *  - Middle gap: up, all, and down buttons in one full-width row.
  */
 function ExpandControls({
   gap,
@@ -56,15 +52,21 @@ function ExpandControls({
   onClick,
   upBusy,
   downBusy,
+  allBusy,
 }: {
   gap: Gap;
   loaded: LoadedGap;
-  onClick: (gap: Gap, dir: 'up' | 'down') => void;
+  onClick: (gap: Gap, dir: 'up' | 'down' | 'all') => void;
   upBusy: boolean;
   downBusy: boolean;
+  allBusy: boolean;
 }) {
   const showUp = canExpandUp(gap, loaded);
   const showDown = canExpandDown(gap, loaded);
+  const remaining = hiddenLineCount(gap, loaded);
+  const label = remaining === null
+    ? 'More unmodified lines'
+    : `${remaining} unmodified line${remaining === 1 ? '' : 's'}`;
   // Single-button style for top/bottom gaps: only one direction is
   // meaningful, so we render one big affordance instead of the split.
   if (gap.isTop || gap.isBottom) {
@@ -74,48 +76,62 @@ function ExpandControls({
     return (
       <button
         type="button"
-        className="diff-expand-btn diff-expand-btn--single"
+        className="diff-expand-row diff-expand-row--single"
         onClick={() => onClick(gap, dir)}
         disabled={!enabled || busy}
-        title={`Expand ${EXPAND_INCREMENT} more lines`}
-        aria-label={`Expand ${EXPAND_INCREMENT} more lines`}
+        title={label}
+        aria-label={label}
       >
-        {dir === 'up' ? <ArrowUpIcon /> : <ArrowDownIcon />}
+        <span className="diff-expand-row__icon">{dir === 'up' ? <ArrowUpIcon /> : <ArrowDownIcon />}</span>
+        <span className="diff-expand-row__label">{label}</span>
       </button>
     );
   }
-  // Middle gap: github.com-style split. Dotted strip on top hints at
-  // hidden lines; the two chevrons sit side-by-side below — up on the
-  // left, down on the right. See docs/mockups/issue/code-diff/g-expand-button.png.
+  // Middle gap: three affordances in one row — reveal from the top,
+  // reveal the whole remaining hidden block, or reveal from the bottom.
   return (
-    <div className="diff-expand-split">
-      <span className="diff-expand-split__divider" aria-hidden="true">
-        <span /><span /><span /><span />
-      </span>
-      <div className="diff-expand-split__row">
-        <button
-          type="button"
-          className="diff-expand-btn diff-expand-btn--up"
-          onClick={() => onClick(gap, 'up')}
-          disabled={!showUp || upBusy}
-          title={`Expand ${EXPAND_INCREMENT} more lines up`}
-          aria-label={`Expand ${EXPAND_INCREMENT} more lines up`}
-        >
-          <ArrowUpIcon />
-        </button>
-        <button
-          type="button"
-          className="diff-expand-btn diff-expand-btn--down"
-          onClick={() => onClick(gap, 'down')}
-          disabled={!showDown || downBusy}
-          title={`Expand ${EXPAND_INCREMENT} more lines down`}
-          aria-label={`Expand ${EXPAND_INCREMENT} more lines down`}
-        >
-          <ArrowDownIcon />
-        </button>
-      </div>
+    <div className="diff-expand-row diff-expand-row--middle">
+      <button
+        type="button"
+        className="diff-expand-btn diff-expand-btn--up"
+        onClick={() => onClick(gap, 'up')}
+        disabled={!showUp || upBusy}
+        title={`Expand ${EXPAND_INCREMENT} lines above`}
+        aria-label={`Expand ${EXPAND_INCREMENT} lines above`}
+      >
+        <ArrowUpIcon />
+      </button>
+      <button
+        type="button"
+        className="diff-expand-row__label-btn"
+        onClick={() => onClick(gap, 'all')}
+        disabled={remaining === 0 || upBusy || downBusy || allBusy}
+        title={label}
+        aria-label={label}
+      >
+        {label}
+      </button>
+      <button
+        type="button"
+        className="diff-expand-btn diff-expand-btn--down"
+        onClick={() => onClick(gap, 'down')}
+        disabled={!showDown || downBusy}
+        title={`Expand ${EXPAND_INCREMENT} lines below`}
+        aria-label={`Expand ${EXPAND_INCREMENT} lines below`}
+      >
+        <ArrowDownIcon />
+      </button>
     </div>
   );
+}
+
+function hiddenLineCount(gap: Gap, loaded: LoadedGap): number | null {
+  if (gap.newEnd === null) return null;
+  let hidden = 0;
+  for (let n = gap.newStart; n <= gap.newEnd; n++) {
+    if (!loaded.has(n)) hidden++;
+  }
+  return hidden;
 }
 
 /** The (side, line) a diff row anchors to: deletions live on the LEFT
@@ -154,7 +170,7 @@ export type FileDiffBodyProps = {
   expandLoading?: Set<string>;
   /** When provided, hunk-header gaps render ExpandControls wired to this
    *  callback. When omitted, gaps render plain gutters (no controls). */
-  onExpandClick?: (gap: Gap, direction: 'up' | 'down') => void;
+  onExpandClick?: (gap: Gap, direction: 'up' | 'down' | 'all') => void;
   /** Rendered immediately after each diff row (and each expanded row),
    *  keyed by the row's anchor. The host returns the overlays for that
    *  anchor (findings, threads, composer, …). */
@@ -223,9 +239,10 @@ export function FileDiffBody({ file, expanded, expandLoading, onExpandClick, ren
               const showExpand = onExpandClick != null && gapAbove != null && !isGapFullyLoaded(gapAbove, loadedAbove);
               const upBusy = loadingState.has(`${hi}:up`);
               const downBusy = loadingState.has(`${hi}:down`);
-              return (
-                <div key={ri} className="diff-row diff-row--hunk-header">
-                  {showExpand ? (
+              const allBusy = loadingState.has(`${hi}:all`);
+              if (showExpand) {
+                return (
+                  <div key={ri} className="diff-row diff-row--hunk-header">
                     <span className="diff-row__expand-cell">
                       <ExpandControls
                         gap={gapAbove!}
@@ -233,14 +250,16 @@ export function FileDiffBody({ file, expanded, expandLoading, onExpandClick, ren
                         onClick={onExpandClick!}
                         upBusy={upBusy}
                         downBusy={downBusy}
+                        allBusy={allBusy}
                       />
                     </span>
-                  ) : (
-                    <>
-                      <span className="diff-row__gutter" />
-                      <span className="diff-row__gutter" />
-                    </>
-                  )}
+                  </div>
+                );
+              }
+              return (
+                <div key={ri} className="diff-row diff-row--hunk-header">
+                  <span className="diff-row__gutter" />
+                  <span className="diff-row__gutter" />
                   <span className="diff-row__content">{hunk.header}</span>
                 </div>
               );
@@ -297,6 +316,7 @@ export function FileDiffBody({ file, expanded, expandLoading, onExpandClick, ren
         const expandedRows = [...loadedBottom.entries()].sort((a, b) => a[0] - b[0]);
         const downBusy = loadingState.has(`${hunks.length}:down`);
         const upBusy = loadingState.has(`${hunks.length}:up`);
+        const allBusy = loadingState.has(`${hunks.length}:all`);
         const showExpand = onExpandClick != null && (canExpandUp(bottomGap, loadedBottom) || canExpandDown(bottomGap, loadedBottom));
         return (
           <div className="diff-hunk">
@@ -325,9 +345,9 @@ export function FileDiffBody({ file, expanded, expandLoading, onExpandClick, ren
                     onClick={onExpandClick!}
                     upBusy={upBusy}
                     downBusy={downBusy}
+                    allBusy={allBusy}
                   />
                 </span>
-                <span className="diff-row__content" />
               </div>
             )}
           </div>

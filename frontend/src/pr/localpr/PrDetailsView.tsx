@@ -62,6 +62,10 @@ export function PrDetailsView<T extends DetailsPr>({
   } = useExternalPrActions(owner, repoName, pr.number);
 
   if (reviewOpen && bundle != null) {
+    const headSha = bundle.commits.length > 0
+      ? bundle.commits[bundle.commits.length - 1].sha
+      : null;
+    const blobRepo = bundle.pr.repo ?? pr.repo;
     return (
       <LocalPrReviewScreen
         title={`Review · ${bundle.pr.title}`}
@@ -69,6 +73,9 @@ export function PrDetailsView<T extends DetailsPr>({
         error={reviewError}
         comments={bundle.comments}
         allowLocalComments={capabilities?.draftLocalComments === true}
+        fetchFileBlob={headSha === null
+          ? undefined
+          : (path) => window.bridge.fetchFileBlob(blobRepo, path, headSha)}
         onAddComment={addLocalLineComment}
         onReplyComment={replyLocalLineComment}
         onResolveComment={resolveLocalComment}

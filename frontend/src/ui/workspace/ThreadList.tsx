@@ -80,7 +80,7 @@ export function ThreadList({
   return (
     <div className="sb-section" style={{ paddingTop: 8 }}>
       <div className="sb-section-h">
-        <span className="nm">Threads</span>
+        <span className="nm">Trunks</span>
         <span className="actions">
           <span role="button" tabIndex={0} aria-label="Filter">⛚</span>
           <span role="button" tabIndex={0} aria-label="New thread" onClick={onNewThread}>+</span>

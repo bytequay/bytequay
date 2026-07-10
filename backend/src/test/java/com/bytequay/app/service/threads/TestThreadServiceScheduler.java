@@ -125,6 +125,51 @@ class TestThreadServiceScheduler
     }
 
     @Test
+    void createDisambiguatesTitleCollisionsWithinAWorkspaceOnly()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        ThreadService service = new ThreadService(
+                store,
+                new StubTaskStore(),
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                Mockito.mock(McpPermissionGate.class),
+                new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
+
+        NewThreadRequestBuilder request = title -> new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", title,
+                "/tmp/work", "main", /* initialPrompt */ null, List.of(), "DEVELOP",
+                null, null, null, "ws-default", null);
+
+        Thread first = service.create(request.of("Fix the broken tests"));
+        Thread second = service.create(request.of("Fix the broken tests"));
+        Thread third = service.create(request.of("Fix the broken tests"));
+        assertThat(first.title()).isEqualTo("Fix the broken tests");
+        assertThat(second.title()).isEqualTo("Fix the broken tests (2)");
+        assertThat(third.title()).isEqualTo("Fix the broken tests (3)");
+
+        // Same title, different workspace — no collision, no suffix.
+        Thread otherWorkspace = service.create(new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix the broken tests",
+                "/tmp/work", "main", null, List.of(), "DEVELOP",
+                null, null, null, "ws-other", null));
+        assertThat(otherWorkspace.title()).isEqualTo("Fix the broken tests");
+    }
+
+    @FunctionalInterface
+    private interface NewThreadRequestBuilder
+    {
+        ThreadService.NewTaskRequest of(String title);
+    }
+
+    @Test
     void createHonoursReviewFlowOnTheRequest()
     {
         InMemoryTaskStore store = new InMemoryTaskStore();
@@ -1751,6 +1796,14 @@ class TestThreadServiceScheduler
         {
             return threads.values().stream()
                     .filter(thread -> !thread.updatedAt().isBefore(since))
+                    .toList();
+        }
+
+        @Override
+        public List<Thread> listThreadsByWorkspace(String workspaceId)
+        {
+            return threads.values().stream()
+                    .filter(thread -> thread.workspaceId().equals(workspaceId))
                     .toList();
         }
 

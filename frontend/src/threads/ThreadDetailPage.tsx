@@ -807,7 +807,7 @@ function BackBar({ onBack, title }: { onBack: () => void; title: string }) {
   return (
     <div style={breadcrumbRowStyle}>
       <button type="button" onClick={onBack} style={crumbBackStyle}>←</button>
-      <button type="button" onClick={onBack} style={crumbLinkStyle}>Threads</button>
+      <button type="button" onClick={onBack} style={crumbLinkStyle}>Trunks</button>
       <span style={crumbSepStyle}>/</span>
       <span style={crumbCurrentStyle}>{title}</span>
     </div>

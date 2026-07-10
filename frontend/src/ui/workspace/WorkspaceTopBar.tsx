@@ -18,7 +18,7 @@ import type { LogoColor } from '../primitives';
 export type WsTab = 'threads' | 'backlog' | 'memory' | 'insights';
 
 const TABS: { key: WsTab; ic: string; label: string }[] = [
-  { key: 'threads', ic: '💭', label: 'Threads' },
+  { key: 'threads', ic: '💭', label: 'Trunks' },
   { key: 'backlog', ic: '📥', label: 'Backlog' },
   { key: 'memory', ic: '🧠', label: 'Memory' },
   { key: 'insights', ic: '📊', label: 'Insights' },

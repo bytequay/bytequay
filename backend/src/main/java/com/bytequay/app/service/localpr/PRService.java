@@ -154,6 +154,14 @@ public interface PRService
      *  first creates the row). */
     void recordBrainReview(String taskId, String scope, String verdict, int iteration);
 
+    /** Records the user's plan approval as a {@code plan-finalized} timeline
+     *  event carrying {@code planStageId} (so the row can link back to the
+     *  Plan node). A no-op when the task has no local PR yet — the usual
+     *  case, since approval precedes dev's first commit; that event is
+     *  backfilled onto the timeline once {@link #createForTask} first
+     *  creates the row, same as {@link #recordBrainReview}'s plan scope. */
+    void recordPlanApproved(String taskId, String planStageId);
+
     /**
      * Validated status flip. Throws {@link IllegalArgumentException} on an
      * unknown PR or an illegal edge. Writes the {@code status} timeline event.

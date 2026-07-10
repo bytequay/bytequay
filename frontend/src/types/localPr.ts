@@ -95,7 +95,8 @@ export type LocalPRTimelineEventType =
   | 'status'
   | 'review'
   | 'comment'
-  | 'follow-up';
+  | 'follow-up'
+  | 'plan-finalized';
 
 export interface LocalPRTimelineEvent {
   id: string;

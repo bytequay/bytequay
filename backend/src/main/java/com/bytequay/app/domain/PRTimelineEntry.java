@@ -19,13 +19,13 @@ import java.time.Instant;
  * One event in a {@link PR}'s unified timeline (design #55). The
  * {@code eventType} wire values match the TypeScript union: {@code commit},
  * {@code ci}, {@code amend}, {@code branch}, {@code status}, {@code review},
- * {@code comment}, {@code follow-up}. {@code localOnly} events render with a
- * lock marker and are stripped on push — {@code strippedOnPushAt} is stamped
- * (never migrated to GitHub). {@code payloadJson} is the event-specific
- * payload as raw JSON text, or null. {@code remoteEventId} is the GitHub id
- * of a remote-synced comment/review event (null for every locally-authored
- * event) — it's how a repeated sync avoids re-inserting the same GitHub
- * comment or review as a duplicate row.
+ * {@code comment}, {@code follow-up}, {@code plan-finalized}. {@code
+ * localOnly} events render with a lock marker and are stripped on push —
+ * {@code strippedOnPushAt} is stamped (never migrated to GitHub). {@code
+ * payloadJson} is the event-specific payload as raw JSON text, or null.
+ * {@code remoteEventId} is the GitHub id of a remote-synced comment/review
+ * event (null for every locally-authored event) — it's how a repeated sync
+ * avoids re-inserting the same GitHub comment or review as a duplicate row.
  */
 public record PRTimelineEntry(
         String id,
@@ -46,6 +46,10 @@ public record PRTimelineEntry(
     public static final String TYPE_REVIEW = "review";
     public static final String TYPE_COMMENT = "comment";
     public static final String TYPE_FOLLOW_UP = "follow-up";
+    /** The user approved the plan (R20's finalize gate) — carries the
+     *  approved PlanStage's id in the payload so the timeline row can link
+     *  back to it (see {@code PRService#recordPlanApproved}). */
+    public static final String TYPE_PLAN_FINALIZED = "plan-finalized";
 
     public static final String ACTOR_AGENT = "claude-code";
     public static final String ACTOR_USER = "you";

@@ -61,7 +61,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -178,16 +177,18 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
-    void recordVerdictForPlanScopeWritesTheSelfReviewedMarker()
+    void recordVerdictForPlanScopeWritesTheSelfReviewedMarkerAndTheTimelineEvent()
     {
         service.recordVerdict(TASK_ID, PLAN_STAGE_ID.toString(), "plan", ReviewRound.VERDICT_APPROVED);
 
         verify(stageStore).recordEvent(
                 eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
                 eq(Map.of("verdict", ReviewRound.VERDICT_APPROVED)));
-        // The plan predates the local PR — its timeline event is backfilled
-        // later, when PRServiceImpl.createForTask first creates the row.
-        verify(prService, never()).recordBrainReview(any(), any(), any(), anyInt());
+        // Exactly one pass (R20), so iteration is always 1. A no-op when the
+        // plan predates the local PR (the usual case) — PRServiceImpl backs
+        // that with its own backfill, verified separately in PRServiceImpl's
+        // own test.
+        verify(prService).recordBrainReview(TASK_ID, "plan", ReviewRound.VERDICT_APPROVED, 1);
     }
 
     @Test

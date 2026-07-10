@@ -141,6 +141,7 @@ class PRServiceImpl
                 UUID.randomUUID().toString(), taskId, branchName, baseBranch, title, description, now());
         PR saved = store.save(pr);
         backfillPlanSelfReview(taskId, saved.id());
+        backfillPlanApproved(taskId, saved.id());
         notifyUpdated(saved.id());
         return saved;
     }
@@ -328,6 +329,26 @@ class PRServiceImpl
         }
     }
 
+    /** The plan's {@code PLAN_APPROVED} event predates the local PR at the
+     *  usual first approval — backfilled onto the timeline, at its original
+     *  timestamp, the first time a local PR row is created for this task. A
+     *  later re-approval (replan after the PR already exists) takes the live
+     *  {@link #recordPlanApproved} path instead. */
+    private void backfillPlanApproved(String taskId, String prId)
+    {
+        stageStore.findStagesByTask(taskId).stream()
+                .filter(s -> s.type() == StageType.PLAN_STAGE)
+                .findFirst()
+                .flatMap(plan -> stageStore.findEventsByStage(plan.id()).stream()
+                        .filter(e -> e.eventType() == StageEventType.PLAN_APPROVED)
+                        .findFirst()
+                        .map(approved -> Map.entry(plan, approved)))
+                .ifPresent(entry -> appendEvent(
+                        prId, PRTimelineEntry.TYPE_PLAN_FINALIZED, PRTimelineEntry.ACTOR_USER,
+                        /* localOnly */ true, entry.getValue().eventAt(),
+                        payload("planStageId", entry.getKey().id().toString())));
+    }
+
     @Override
     public void recordBrainReview(String taskId, String scope, String verdict, int iteration)
     {
@@ -335,6 +356,16 @@ class PRServiceImpl
             appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
                     /* localOnly */ true, now(),
                     payload("scope", scope, "verdict", verdict, "iteration", iteration));
+            notifyUpdated(pr.id());
+        });
+    }
+
+    @Override
+    public void recordPlanApproved(String taskId, String planStageId)
+    {
+        store.findByTaskId(taskId).ifPresent(pr -> {
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_PLAN_FINALIZED, PRTimelineEntry.ACTOR_USER,
+                    /* localOnly */ true, now(), payload("planStageId", planStageId));
             notifyUpdated(pr.id());
         });
     }

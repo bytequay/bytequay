@@ -470,6 +470,7 @@ export function TaskBrainRoute({
             runTestsBusy={testsBusy}
             onResolveThread={task.terminal ? undefined : resolveLocalComment}
             onDismissThread={task.terminal ? undefined : dismissLocalComment}
+            onOpenStage={onOpenStage}
             syncedAt={localPrBundle.pr.syncedAt}
             syncing={prSyncing}
             onRefresh={refreshLocalPr}

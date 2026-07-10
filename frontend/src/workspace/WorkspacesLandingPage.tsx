@@ -16,6 +16,7 @@ import NewWorkspaceDialog from './NewWorkspaceDialog';
 import WorkspaceCard from './WorkspaceCard';
 import { ConfirmDialog } from './ConfirmDialog';
 import useWorkspaces from './useWorkspaces';
+import { WORKSPACES_ICON } from '../ui/workspace/WorkspaceNavSidebar';
 
 type Props = {
   /** Workspace the user most recently entered, persisted in
@@ -106,23 +107,7 @@ function WorkspacesLandingPage({
     <section className="workspace-landing">
       <header className="workspace-landing__appbar">
         <span className="workspace-landing__title-group">
-          <svg
-            className="workspace-landing__title-icon"
-            aria-hidden
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="3" width="7" height="7" rx="1.6" />
-            <rect x="14" y="3" width="7" height="7" rx="1.6" />
-            <rect x="3" y="14" width="7" height="7" rx="1.6" />
-            <rect x="14" y="14" width="7" height="7" rx="1.6" />
-          </svg>
+          <span className="workspace-landing__title-icon" aria-hidden>{WORKSPACES_ICON}</span>
           Workspaces
           <span className="workspace-landing__title-count">· {activeCount} active</span>
         </span>

@@ -211,10 +211,11 @@ export function LocalPrReviewScreen({
   const pending = useMemo(() => comments.filter(isPendingLocalComment), [comments]);
 
   const extraTabs: DiffReviewExtraTab[] = showAuxTabs ? [
-    { key: 'commits', label: 'Commits', count: commits.length, content: <LocalCommitsList commits={commits} /> },
+    { key: 'commits', label: 'Commits', icon: 'commits', count: commits.length, content: <LocalCommitsList commits={commits} /> },
     {
       key: 'review',
       label: 'Review',
+      icon: 'review',
       count: pending.length,
       content: (
         <div className="diff-viewer__review-tab">

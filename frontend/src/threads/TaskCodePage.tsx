@@ -291,6 +291,11 @@ export default function TaskCodePage({
       .then(() => refreshLocalPr())
       .catch(() => { /* poll reconciles */ });
   }, [refreshLocalPr]);
+  const deleteLocalComment = useCallback((commentId: string) => {
+    void window.bridge.deleteLocalPrComment(commentId)
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ });
+  }, [refreshLocalPr]);
   const dismissLocalComment = useCallback((commentId: string) => {
     void window.bridge.dismissLocalPrComment(commentId)
       .then(() => refreshLocalPr())
@@ -699,7 +704,7 @@ export default function TaskCodePage({
             open={localSubmitOpen}
             submitting={localSubmitting}
             pendingComments={localPendingComments}
-            onRemovePending={dismissLocalComment}
+            onRemovePending={deleteLocalComment}
             onClose={() => setLocalSubmitOpen(false)}
             onSubmit={(body, verdict) => {
               submitLocalReview(body, verdict);
@@ -795,7 +800,7 @@ export default function TaskCodePage({
               <div className="diff-viewer__review-tab">
                 <ReviewTabPendingList
                   comments={reviewTabComments}
-                  onRemove={localCommentMode ? dismissLocalComment : undefined}
+                  onRemove={localCommentMode ? deleteLocalComment : undefined}
                   onJump={jumpToReviewComment}
                   onOpenSubmitPanel={localCommentMode ? () => setLocalSubmitOpen(true) : undefined}
                   emptyHint="No pending comments yet. Click a line in the diff to add one."
@@ -961,7 +966,7 @@ export default function TaskCodePage({
                             if (parent !== undefined) replyLocalComment(parent, body);
                           }}
                           onResolve={resolveLocalComment}
-                          onDismiss={dismissLocalComment}
+                          onDismiss={deleteLocalComment}
                           onCancel={composerHere ? closeComposer : undefined}
                           composingOn={composerHere
                             ? rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)

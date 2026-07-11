@@ -209,6 +209,9 @@ public interface PRService
             String body,
             String parentCommentId);
 
+    /** Delete an unpublished local draft comment. */
+    void deleteDraftComment(String commentId);
+
     /** Resolve a comment (marks {@code resolvedAt}) — the agent addressed it. */
     PRComment resolveComment(String commentId);
 

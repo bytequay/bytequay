@@ -1009,6 +1009,7 @@ const bridge: Bridge = {
     },
   ) => ipcRenderer.invoke('pr:addComment', prId, body),
   resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:resolveComment', commentId),
+  deleteLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:deleteComment', commentId),
   dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:dismissComment', commentId),
   runLocalPrTests: (prId: string) => ipcRenderer.invoke('pr:runTests', prId),
   fetchDashboardPrs: () => ipcRenderer.invoke('pr:dashboardList'),

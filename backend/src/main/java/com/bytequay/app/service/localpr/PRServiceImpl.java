@@ -657,6 +657,22 @@ class PRServiceImpl
     }
 
     @Override
+    public void deleteDraftComment(String commentId)
+    {
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        if (!PRComment.ORIGIN_LOCAL.equals(comment.origin()) ||
+                comment.publishedAt() != null ||
+                comment.resolvedAt() != null ||
+                comment.dismissedAt() != null ||
+                comment.strippedOnPushAt() != null) {
+            throw new IllegalArgumentException("comment is not an open local draft: " + commentId);
+        }
+        store.deleteComment(comment.id());
+        notifyUpdated(comment.prId());
+    }
+
+    @Override
     public void recordRemoteReview(
             String prId, String reviewer, String verdict, String body, Instant when, long remoteReviewId)
     {

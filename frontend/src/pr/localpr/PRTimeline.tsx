@@ -281,7 +281,8 @@ export function PRTimeline({
   for (const comment of localComments) {
     if (comment.scope !== 'pr') continue;
     const role = actorRole(comment.author, pr);
-    const pending = comment.origin === 'local' && comment.publishedAt === null;
+    const pending = comment.origin === 'local' && comment.publishedAt === null &&
+      comment.resolvedAt === null && comment.dismissedAt === null;
     rows.push({
       key: comment.id,
       time: comment.createdAt,

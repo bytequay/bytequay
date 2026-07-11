@@ -55,7 +55,7 @@ export function PrDetailsView<T extends DetailsPr>({
     bundle, refresh, syncing, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy, reviewFiles, reviewError,
     runLocalTests, testsBusy,
@@ -80,7 +80,7 @@ export function PrDetailsView<T extends DetailsPr>({
         onAddComment={addLocalLineComment}
         onReplyComment={replyLocalLineComment}
         onResolveComment={resolveLocalComment}
-        onDismissComment={dismissLocalComment}
+        onDismissComment={deleteLocalComment}
         onBack={() => setReviewOpen(false)}
         // ponytail: publishLocalPrReview has no body/verdict param (unlike the
         // task flow's steering-turn submitReview) — it just pushes whatever
@@ -110,7 +110,7 @@ export function PrDetailsView<T extends DetailsPr>({
           onRunTests={runLocalTests}
           runTestsBusy={testsBusy}
           onResolveThread={resolveLocalComment}
-          onDismissThread={dismissLocalComment}
+          onDismissThread={deleteLocalComment}
           onPublishReview={publishBusy ? undefined : publishReview}
           syncedAt={bundle.pr.syncedAt}
           syncing={syncing}

@@ -199,6 +199,16 @@ describe('LocalPrReviewScreen', () => {
     expect(onDismissComment).toHaveBeenCalledWith('cm1');
   });
 
+  it('does not offer Reopen for a removed local draft', () => {
+    render(
+      <LocalPrReviewScreen
+        title="Review" files={[FILE]} comments={[comment({ dismissedAt: Date.now() })]} allowLocalComments
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Reopen' })).toBeNull();
+  });
+
   it('fires onBack from the Back button', () => {
     const onBack = vi.fn();
     render(<LocalPrReviewScreen title="Review" files={[FILE]} comments={[]} onBack={onBack} />);

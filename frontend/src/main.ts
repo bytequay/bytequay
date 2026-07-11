@@ -1045,6 +1045,16 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('pr:deleteComment', async (_event, commentId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR delete comment returned ${res.status}: ${text}`);
+    }
+    return undefined;
+  });
   ipcMain.handle('pr:dismissComment', async (_event, commentId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}/dismiss`, {
       method: 'PATCH',

@@ -23,4 +23,6 @@ interface PrCommentJpaRepository
     List<PrCommentEntity> findByPrIdOrderByCreatedAtMsAsc(String prId);
 
     List<PrCommentEntity> findByPrIdAndOriginAndStrippedOnPushAtMsIsNull(String prId, String origin);
+
+    void deleteByParentCommentId(String parentCommentId);
 }

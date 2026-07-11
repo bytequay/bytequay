@@ -300,6 +300,35 @@ class TestPRService
     }
 
     @Test
+    void deleteDraftCommentDeletesOpenLocalDraft()
+    {
+        PRComment comment = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, null, null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+
+        service.deleteDraftComment("cm1");
+
+        verify(store).deleteComment("cm1");
+        verify(events).publishEvent(new PrUpdatedEvent("pr1"));
+    }
+
+    @Test
+    void reopenCommentClearsClosedState()
+    {
+        PRComment comment = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, NOW, NOW, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment reopened = service.reopenComment("cm1");
+
+        assertThat(reopened.resolvedAt()).isNull();
+        assertThat(reopened.dismissedAt()).isNull();
+    }
+
+    @Test
     void resolveCommentUnknownIdThrows()
     {
         when(store.findCommentById("missing")).thenReturn(Optional.empty());

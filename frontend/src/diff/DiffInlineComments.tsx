@@ -121,7 +121,7 @@ export function diffInlineCommentFromLocalPr(c: LocalPRComment): DiffInlineComme
     parentCommentId: c.parentCommentId,
     resolved: c.resolvedAt !== null,
     dismissed: c.dismissedAt !== null,
-    pending: c.origin === 'local' && c.publishedAt === null,
+    pending: isPendingLocalComment(c),
     sourceLabel: agent ? 'AGENT' : undefined,
     createdAtMs: c.createdAt,
   };

@@ -231,7 +231,7 @@ export function RecentList({ onResume, onOpenPr }: {
 
   return (
     <>
-      <div className="sb-section">
+      <div className="sb-section sb-section--recent">
         <div className="sb-section-h">
           <span className="nm">Recent</span>
         </div>

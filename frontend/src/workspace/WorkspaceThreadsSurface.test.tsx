@@ -31,16 +31,19 @@ function thread(over: Partial<ThreadDto> = {}): ThreadDto {
 }
 
 describe('WorkspaceThreadsSurface', () => {
-  it('renders a thread card with repo logo, title and meta', () => {
+  it('renders a thread card with trunk tile, title, meta chips and active count', () => {
     const { container } = render(
       <WorkspaceThreadsSurface threads={[thread()]} loading={false} />,
     );
     expect(screen.getByText('Open threads')).toBeTruthy();
+    expect(screen.getByText('1 active')).toBeTruthy();
     expect(screen.getByText('Backend cleanup review')).toBeTruthy();
     // The thread DTO no longer projects a task, so the card shows the
-    // discussion meta line.
-    expect(screen.getByText('repo · discussion · no task yet')).toBeTruthy();
-    expect(container.querySelector('.v3-logo')).toBeTruthy();
+    // discussion meta chips + the orange no-task hint.
+    expect(screen.getByText('repo')).toBeTruthy();
+    expect(screen.getByText('discussion')).toBeTruthy();
+    expect(screen.getByText('no task yet')).toBeTruthy();
+    expect(container.querySelector('.thread-card .tile svg')).toBeTruthy();
   });
 
   it('hides terminal threads and shows the empty state when none are open', () => {
@@ -73,6 +76,7 @@ describe('WorkspaceThreadsSurface', () => {
         loading={false}
       />,
     );
-    expect(screen.getByText('repo · discussion · no task yet')).toBeTruthy();
+    expect(screen.getByText('discussion')).toBeTruthy();
+    expect(screen.getByText('no task yet')).toBeTruthy();
   });
 });

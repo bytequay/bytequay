@@ -12,15 +12,12 @@
  * limitations under the License.
  */
 import { Fragment, useState } from 'react';
-import { Chev, Logo, PrStateIcon, StatusDot } from '../primitives';
-import type { LogoColor, PrGlyphState, StatusDotVariant } from '../primitives';
+import { Chev, PrStateIcon, StatusDot, TrunkIcon } from '../primitives';
+import type { PrGlyphState, StatusDotVariant } from '../primitives';
 
-/** One thread row in the sidebar: its repo logo + name + a status dot. */
+/** One thread row in the sidebar: a trunk tile + name + a status dot. */
 export type ThreadRow = {
   id: string;
-  /** Repo monogram + colour (which repo the thread targets). */
-  initials: string;
-  color: LogoColor;
   name: string;
   status: StatusDotVariant;
 };
@@ -44,7 +41,7 @@ export function ThreadListItem({ thread, active = false, showsFoldChevron = fals
       className={active ? 'thread-item active' : 'thread-item'}
       onClick={() => onOpen?.(thread.id)}
     >
-      <Logo initials={thread.initials} color={thread.color} size="sm" />
+      <span className="trunk-tile" aria-hidden><TrunkIcon size={12} /></span>
       <span className="nm">{thread.name}</span>
       <StatusDot variant={thread.status} />
       {showsFoldChevron && <Chev open={foldedOpen} />}
@@ -66,8 +63,8 @@ export type TaskNavRow = {
 };
 
 /**
- * The workspace's threads in the sidebar — each prefixed by its repo logo so
- * you see which repo it targets at a glance. The selected thread highlights
+ * The workspace's threads in the sidebar — each prefixed by a soft accent
+ * trunk tile. The selected thread highlights
  * and expands to show **all** its tasks (a thread can run several at once),
  * each a clickable row with its name + status dot + PR glyph. Stage
  * navigation lives on the brain page's live-plan diagram, not here.

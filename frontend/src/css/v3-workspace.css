@@ -298,6 +298,19 @@
   white-space: nowrap;
   flex: 1;
 }
+/* Soft accent trunk tile leading each row — a tinted glyph, not the
+   full-background repo logo. */
+.shell .thread-item .trunk-tile {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 
 /* ── Task name + its stages, nested under the open thread ───── */
 /* The active task's name — a sub-header indented past the thread's logo. */
@@ -401,49 +414,79 @@
 .shell .ws-topbar .head-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 11px 18px 9px;
+  gap: 11px;
+  padding: 12px 20px 0;
+}
+/* Dark hero tile with the trunk glyph — the workspace's identity mark,
+   shared by the main-pane header and the sidebar's workspace switcher. */
+.shell .ws-hero-tile {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #3a3a44, #1c1c22);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .shell .ws-topbar .head-row .ws-title {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text-1);
 }
-.shell .ws-topbar .head-row .ws-repos {
-  font-size: 11.5px;
-  color: var(--text-3);
+.shell .ws-topbar .head-row .ws-repo-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 3px 9px;
+}
+.shell .ws-topbar .head-row .ws-repo-chip svg {
+  color: var(--accent);
 }
 .shell .ws-topbar .head-row .grow {
   flex: 1;
 }
-/* "+ New thread" is the top bar's primary action — solid blue so it
+/* "+ New thread" is the top bar's primary action — accent gradient so it
  * pulls the eye in against the plain-text tabs beside it. */
 .shell .ws-topbar .head-row .btn {
-  background: var(--blue);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 15px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
   color: #fff;
-  border-color: var(--blue);
+  border-color: var(--accent-dark);
+  border-radius: 9px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px var(--accent-a40);
 }
 .shell .ws-topbar .head-row .btn:hover {
-  background: var(--blue-deep);
-  border-color: var(--blue-deep);
+  filter: brightness(1.06);
 }
 .shell .ws-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 14px;
+  padding: 12px 20px 0;
+}
+.shell .ws-topbar .head-row + .ws-tabs {
+  padding-top: 12px;
 }
 .shell .ws-tab {
-  padding: 8px 13px 10px;
+  padding: 9px 14px 12px;
   font-size: 13px;
+  font-weight: 500;
   color: var(--text-3);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   border: 0;
   background: transparent;
   font-family: inherit;
@@ -455,19 +498,28 @@
 }
 .shell .ws-tab.active {
   color: var(--text-1);
-  font-weight: 600;
+  font-weight: 700;
   border-bottom-color: var(--accent);
 }
 .shell .ws-tab .ic {
-  font-size: 13px;
+  display: inline-flex;
+  color: var(--text-3);
+}
+.shell .ws-tab.active .ic {
+  color: var(--accent);
 }
 .shell .ws-tab .count {
   font-size: 10.5px;
+  font-weight: 700;
   font-family: var(--mono);
-  color: var(--text-4);
-  padding: 0 6px;
+  color: var(--text-3);
+  padding: 1px 7px;
   background: var(--bg-hover);
   border-radius: 999px;
+}
+.shell .ws-tab.active .count {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* ── Threads surface (main body) ─────────────────────────────── */
@@ -485,9 +537,13 @@
   gap: 10px;
 }
 .shell .surface-h .t {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-1);
+}
+.shell .surface-h .n {
+  font-size: 12px;
+  color: var(--text-4);
 }
 .shell .surface-h .grow {
   flex: 1;
@@ -495,68 +551,108 @@
 .shell .surface-h .filter {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 6px 11px;
   border: 1px solid var(--border-mid);
   background: var(--bg-elev);
-  border-radius: 7px;
+  border-radius: 8px;
   font-size: 12px;
   color: var(--text-2);
   cursor: pointer;
+}
+.shell .surface-h .filter:hover {
+  background: var(--bg-hover);
 }
 
 .shell .thread-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 14px;
+  padding: 15px 18px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   text-align: left;
   font-family: inherit;
   width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .shell .thread-card:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-a40);
+  box-shadow: 0 4px 14px var(--accent-a10);
+}
+/* Accent-tinted trunk tile leading the card. */
+.shell .thread-card .tile {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .shell .thread-card .col {
   min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 .shell .thread-card .title {
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-1);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.shell .thread-card .sub {
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.5;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.shell .thread-card .meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.shell .thread-card .repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.shell .thread-card .kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.shell .thread-card .task-hint {
+  font-size: 11.5px;
+  color: var(--orange);
+  font-weight: 500;
   white-space: nowrap;
 }
 .shell .thread-card .right {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
+  align-items: center;
+  gap: 14px;
   flex-shrink: 0;
 }
 .shell .thread-card .ts {
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: var(--text-4);
-  font-family: var(--mono);
+  white-space: nowrap;
 }
 .shell .tasks-pill {
   display: inline-flex;

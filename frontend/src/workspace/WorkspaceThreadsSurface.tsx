@@ -11,14 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Logo } from '../ui/primitives';
-import { logoColorFor, monogram, threadRepo } from '../pages/useWorkspaceNav';
-import type { ThreadDto, WorkUnitTaskDto } from '../types';
+import { TrunkIcon } from '../ui/primitives';
+import { threadRepo } from '../pages/useWorkspaceNav';
+import type { ThreadDto } from '../types';
 
 /**
- * The workspace Threads tab body — the design's `.surface` with a header
- * and a list of full-width thread cards (repo logo · title · meta · time ·
- * task pill). Presentational: the shell owns the data + click routing.
+ * The workspace Trunks tab body — the redesign's `.surface` with an
+ * "Open threads · N active · All repos" header and a list of full-width
+ * thread cards (trunk tile · title · repo chip + kind + task hint ·
+ * time · chevron). Presentational: the shell owns the data + routing.
  */
 export function WorkspaceThreadsSurface({ threads, loading, onOpenThread }: {
   threads: ThreadDto[];
@@ -30,9 +31,10 @@ export function WorkspaceThreadsSurface({ threads, loading, onOpenThread }: {
     <div className="surface">
       <div className="surface-h">
         <span className="t">Open threads</span>
+        <span className="n">{loading ? '' : `${open.length} active`}</span>
         <span className="grow" />
         <span className="filter">
-          <span className="ic" aria-hidden>⛚</span>
+          <TrunkIcon size={13} />
           All repos
           <span style={{ color: 'var(--text-4)', fontSize: 9 }} aria-hidden>▾</span>
         </span>
@@ -55,25 +57,33 @@ function ThreadCard({ thread, onOpen }: { thread: ThreadDto; onOpen?: (id: strin
       onClick={() => onOpen?.(thread.id)}
       disabled={onOpen === undefined}
     >
-      <Logo initials={monogram(repo)} color={logoColorFor(repo)} size="md" />
+      <span className="tile" aria-hidden><TrunkIcon size={18} /></span>
       <div className="col">
         <div className="title-row"><span className="title">{thread.title}</span></div>
-        <div className="sub">{subText(repo, null)}</div>
+        <div className="meta-row">
+          <span className="repo-chip">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M3 12h4l3 8 4-16 3 8h4" />
+            </svg>
+            {repo}
+          </span>
+          <span className="kind">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            discussion
+          </span>
+          <span className="task-hint">no task yet</span>
+        </div>
       </div>
       <div className="right">
         <span className="ts">{relativeTime(thread.updatedAt)}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="m9 18 6-6-6-6" />
+        </svg>
       </div>
     </button>
   );
-}
-
-/** The card's second line: repo · what's happening on the active task. */
-function subText(repo: string, task: WorkUnitTaskDto | null): string {
-  if (task === null) return `${repo} · discussion · no task yet`;
-  if (task.branchName !== null && task.branchName.length > 0) {
-    return `${repo} · ${task.branchName}`;
-  }
-  return `${repo} · no branch yet`;
 }
 
 /** Open = non-terminal: everything except the resting states

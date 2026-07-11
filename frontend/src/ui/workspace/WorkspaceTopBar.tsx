@@ -11,20 +11,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { IconBtn, Logo } from '../primitives';
+import { IconBtn, TrunkIcon } from '../primitives';
 import type { LogoColor } from '../primitives';
 
 /** The workspace surfaces. */
 export type WsTab = 'threads' | 'backlog' | 'memory' | 'insights';
 
-const TABS: { key: WsTab; ic: string; label: string }[] = [
-  { key: 'threads', ic: '💭', label: 'Trunks' },
-  { key: 'backlog', ic: '📥', label: 'Backlog' },
-  { key: 'memory', ic: '🧠', label: 'Memory' },
-  { key: 'insights', ic: '📊', label: 'Insights' },
+function TabIcon({ tab }: { tab: WsTab }) {
+  const paths: Record<WsTab, React.ReactNode> = {
+    threads: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+    backlog: (
+      <>
+        <path d="M8 6h13M8 12h13M8 18h13" />
+        <circle cx="3.5" cy="6" r="1.4" />
+        <circle cx="3.5" cy="12" r="1.4" />
+        <circle cx="3.5" cy="18" r="1.4" />
+      </>
+    ),
+    memory: <path d="M12 3a4 4 0 0 0-4 4 3.5 3.5 0 0 0-2 6.5A3.5 3.5 0 0 0 9 20a3 3 0 0 0 6 0 3.5 3.5 0 0 0 3-6.5A3.5 3.5 0 0 0 16 7a4 4 0 0 0-4-4Z" />,
+    insights: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+  };
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {paths[tab]}
+    </svg>
+  );
+}
+
+const TABS: { key: WsTab; label: string }[] = [
+  { key: 'threads', label: 'Trunks' },
+  { key: 'backlog', label: 'Backlog' },
+  { key: 'memory', label: 'Memory' },
+  { key: 'insights', label: 'Insights' },
 ];
 
-/** The Threads · Backlog · Memory · Insights tab bar, wired to the workspace tabs. */
+/** The Trunks · Backlog · Memory · Insights tab bar, wired to the workspace tabs. */
 export function WorkspaceTabBar({ active, onSelect, threadCount, backlogCount }: {
   active: WsTab;
   onSelect: (tab: WsTab) => void;
@@ -40,7 +71,7 @@ export function WorkspaceTabBar({ active, onSelect, threadCount, backlogCount }:
           className={t.key === active ? 'ws-tab active' : 'ws-tab'}
           onClick={() => onSelect(t.key)}
         >
-          <span className="ic" aria-hidden>{t.ic}</span>
+          <span className="ic" aria-hidden><TabIcon tab={t.key} /></span>
           {t.label}
           {t.key === 'threads' && threadCount !== undefined && <span className="count">{threadCount}</span>}
           {t.key === 'backlog' && backlogCount !== undefined && backlogCount > 0 && <span className="count">{backlogCount}</span>}
@@ -54,8 +85,9 @@ export function WorkspaceTabBar({ active, onSelect, threadCount, backlogCount }:
 export type RepoChip = { initials: string; color: LogoColor };
 
 /**
- * The workspace main top bar: the workspace logo + name + its repo chips,
- * a New-thread action and pane toggle, and the workspace tab bar beneath.
+ * The workspace main top bar: a dark hero tile + workspace name + a
+ * repo-count chip, the New-thread action and pane toggle, and the
+ * workspace tab bar beneath. Matches the workspace-detail redesign.
  */
 export function WorkspaceTopBar({
   workspace, repos, threadCount, backlogCount, activeTab, onSelectTab, onNewThread, onTogglePane,
@@ -72,18 +104,20 @@ export function WorkspaceTopBar({
   return (
     <div className="ws-topbar">
       <div className="head-row">
-        <Logo initials={workspace.initials} color={workspace.color} size="lg" />
+        <span className="ws-hero-tile" aria-label={workspace.initials}><TrunkIcon size={15} /></span>
         <span className="ws-title">{workspace.name}</span>
         {repos !== undefined && repos.length > 0 && (
-          <span className="ws-repos">
-            ·
-            {repos.map((r, i) => <Logo key={i} initials={r.initials} color={r.color} size="sm" />)}
-            {repos.length} repos
+          <span className="ws-repo-chip">
+            <TrunkIcon size={12} />
+            {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
           </span>
         )}
         <span className="grow" />
         <button type="button" className="btn" onClick={onNewThread}>
-          <span className="ic" aria-hidden>+</span>New thread
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New thread
         </button>
         {onTogglePane !== undefined && (
           <IconBtn ariaLabel="Toggle right pane" onClick={onTogglePane}>◧</IconBtn>

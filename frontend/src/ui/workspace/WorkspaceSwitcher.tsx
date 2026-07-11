@@ -11,24 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Logo } from '../primitives';
-import type { LogoColor } from '../primitives';
+import { TrunkIcon } from '../primitives';
 
 /**
- * The context chip shown once a workspace is open: its logo + name +
- * "N repos · M threads". Clicking it returns to the workspace's own
- * surface; switching workspaces happens on the Workspaces landing page.
+ * The context chip shown once a workspace is open: the dark trunk-glyph
+ * hero tile + name + "N repos · M threads" — the same identity mark as
+ * the workspace main pane's header. Clicking it returns to the
+ * workspace's own surface; switching workspaces happens on the
+ * Workspaces landing page.
  */
-export function WorkspaceSwitcher({ initials, color, name, sub, onSwitch }: {
-  initials: string;
-  color: LogoColor;
+export function WorkspaceSwitcher({ name, sub, onSwitch }: {
   name: string;
   sub: string;
   onSwitch?: () => void;
 }) {
   return (
     <button type="button" className="ws-switcher" title={`Open ${name}`} onClick={onSwitch}>
-      <Logo initials={initials} color={color} />
+      <span className="ws-hero-tile" aria-hidden><TrunkIcon size={16} /></span>
       <span className="ws-meta">
         <span className="ws-name">{name}</span>
         <span className="ws-sub">{sub}</span>

@@ -115,7 +115,7 @@ describe('WorkspaceSwitcher', () => {
   it('shows the workspace context and fires onSwitch', () => {
     const onSwitch = vi.fn();
     const { container } = render(
-      <WorkspaceSwitcher initials="BQ" color="purple" name="ByteQuay" sub="3 repos · 5 threads" onSwitch={onSwitch} />,
+      <WorkspaceSwitcher name="ByteQuay" sub="3 repos · 5 threads" onSwitch={onSwitch} />,
     );
     expect(screen.getByText('ByteQuay')).toBeTruthy();
     fireEvent.click(container.querySelector('.ws-switcher') as HTMLElement);
@@ -124,13 +124,13 @@ describe('WorkspaceSwitcher', () => {
 });
 
 describe('ThreadList', () => {
-  it('renders threads with repo logos + status dots and highlights the selected one', () => {
+  it('renders threads with trunk tiles + status dots and highlights the selected one', () => {
     const onOpen = vi.fn();
     const { container } = render(
       <ThreadList
         threads={[
-          { id: 't1', initials: 'we', color: 'purple', name: 'Backend cleanup review', status: 'active' },
-          { id: 't2', initials: 'tr', color: 'pink', name: 'Fix Delta Lake timestamp', status: 'planning' },
+          { id: 't1', name: 'Backend cleanup review', status: 'active' },
+          { id: 't2', name: 'Fix Delta Lake timestamp', status: 'planning' },
         ]}
         selectedId="t1"
         onOpen={onOpen}
@@ -148,8 +148,8 @@ describe('ThreadList', () => {
     const { container } = render(
       <ThreadList
         threads={[
-          { id: 't1', initials: 'we', color: 'purple', name: 'Backend cleanup review', status: 'active' },
-          { id: 't2', initials: 'tr', color: 'pink', name: 'Fix Delta Lake timestamp', status: 'planning' },
+          { id: 't1', name: 'Backend cleanup review', status: 'active' },
+          { id: 't2', name: 'Fix Delta Lake timestamp', status: 'planning' },
         ]}
         selectedId="t1"
         tasks={[
@@ -181,7 +181,7 @@ describe('ThreadList', () => {
   it('hides the thread\'s tasks when the matching thread is not selected', () => {
     const { container } = render(
       <ThreadList
-        threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
+        threads={[{ id: 't1', name: 'A', status: 'active' }]}
         selectedId="t2"
         tasks={[{ id: 'k1', label: 'Task' }]}
       />,
@@ -193,7 +193,7 @@ describe('ThreadList', () => {
     const onOpen = vi.fn();
     const { container } = render(
       <ThreadList
-        threads={[{ id: 't1', initials: 'we', color: 'purple', name: 'A', status: 'active' }]}
+        threads={[{ id: 't1', name: 'A', status: 'active' }]}
         selectedId="t1"
         tasks={[{ id: 'k1', label: 'Task' }]}
         onOpen={onOpen}

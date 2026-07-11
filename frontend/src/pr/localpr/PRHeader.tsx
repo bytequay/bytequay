@@ -17,20 +17,16 @@ import { StatePill } from './StatePill';
 import { SyncChip } from './SyncChip';
 import { DeltaMeter } from './DeltaMeter';
 
-export type PRHeaderTab = 'conversation' | 'commits' | 'checks';
+export type PRHeaderTab = 'conversation' | 'commits' | 'checks' | 'changes';
 
 /**
  * The PR header (U13b): title + number, the solid state pill, the
  * "X wants to merge N commits into base from head" branch row, the sync
- * chip, and the tab strip with count chips + the delta meter. Conversation/
- * Commits/Checks are real, clickable tabs, tracked by {@link PRHeaderTab};
- * "Changes" sits alongside them but isn't one — it navigates straight to the
- * full-page changed-files + diff review ({@code onReviewChanges}) instead of
- * swapping in-place content, so it carries no `activeTab` state of its own.
+ * chip, and the tab strip with count chips + the delta meter.
  */
 export function PRHeader({
   pr, syncedAt, syncing, onRefresh, commitCount, checkCount, conversationCount, additions, deletions, headerAction,
-  onReviewChanges, activeTab, onTabChange,
+  onReviewChanges, activeTab, onTabChange, changesInline = false,
 }: {
   pr: LocalPR;
   syncedAt: number | null;
@@ -49,6 +45,7 @@ export function PRHeader({
   onReviewChanges?: () => void;
   activeTab: PRHeaderTab;
   onTabChange: (tab: PRHeaderTab) => void;
+  changesInline?: boolean;
 }) {
   const prNumLabel = pr.remotePrNumber !== null ? `#${pr.remotePrNumber}` : '#local';
   const author = pr.origin === 'external' ? pr.author ?? 'someone' : 'claude-code';
@@ -80,7 +77,13 @@ export function PRHeader({
           ✓ Checks <span className="cnt">{checkCount}</span>
         </button>
         {onReviewChanges !== undefined && (
-          <button type="button" className="pt" onClick={onReviewChanges}>
+          <button
+            type="button"
+            role={changesInline ? 'tab' : undefined}
+            aria-selected={changesInline ? activeTab === 'changes' : undefined}
+            className={`pt${activeTab === 'changes' ? ' on' : ''}`}
+            onClick={() => onTabChange('changes')}
+          >
             ⇄ Changes
           </button>
         )}

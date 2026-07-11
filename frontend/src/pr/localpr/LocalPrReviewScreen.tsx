@@ -11,14 +11,44 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
-import { DiffReviewShell } from '../../diff/DiffReviewShell';
+import { DiffReviewShell, type DiffReviewExtraTab } from '../../diff/DiffReviewShell';
 import { ExpandableFileDiffBody } from '../../diff/ExpandableFileDiffBody';
-import { DiffInlineComments, diffInlineCommentFromLocalPr, rangeLabel } from '../../diff/DiffInlineComments';
+import {
+  DiffInlineComments, diffInlineCommentFromLocalPr, isPendingLocalComment, rangeLabel,
+} from '../../diff/DiffInlineComments';
+import { PendingCommentsList } from '../../diff/PendingCommentsList';
+import { commitSubject, formatShortSha } from '../../diff/commitDisplay';
+import { formatRelativeTime } from '../utils';
 import { useDiffRangeComposer } from '../../diff/useDiffRangeComposer';
+import { SubmitReviewDrawer, type ReviewVerdict } from '../../pages/SubmitReviewDrawer';
 import type { DiffFileDto } from '../../types';
-import type { LocalPRComment } from '../../types/localPr';
+import type { LocalPRComment, LocalPRCommit } from '../../types/localPr';
+
+/** Read-only commit list for the Review tab's Commits view — this page's
+ *  diff is always the cumulative local PR (no per-commit scoping), so unlike
+ *  {@link CommitsColumn} there's no selection state to wire, just the list. */
+function LocalCommitsList({ commits }: { commits: LocalPRCommit[] }) {
+  if (commits.length === 0) {
+    return <div className="diff-viewer__empty">No commits yet.</div>;
+  }
+  return (
+    <div className="diff-viewer__commits-list">
+      {commits.map(c => (
+        <div className="diff-viewer__commit-row" key={c.id}>
+          <span className="diff-viewer__commit-text">
+            <span className="diff-viewer__commit-subject">{commitSubject(c.message)}</span>
+            <span className="diff-viewer__commit-meta">
+              <span className="diff-viewer__commit-sha">{formatShortSha(c.sha)}</span>
+              {' · '}{formatRelativeTime(new Date(c.authoredAt).toISOString())}
+            </span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function lineKey(filename: string, side: AnchorSide, ln: number): string {
   return `${filename}:${side}:${ln}`;
@@ -62,7 +92,9 @@ function LocalFileDiff({
     for (const c of comments) {
       if (c.scope !== 'file-line' || c.filePath !== file.filename || c.lineNumber === null) continue;
       const k = lineKey(file.filename, c.side, c.lineNumber);
-      (m.get(k) ?? m.set(k, []).get(k)!).push(c);
+      const lineComments = m.get(k);
+      if (lineComments !== undefined) lineComments.push(c);
+      else m.set(k, [c]);
     }
     return m;
   }, [comments, file.filename]);
@@ -139,13 +171,18 @@ function LocalFileDiff({
  * write path is the local {@code file-line} comments.
  */
 export function LocalPrReviewScreen({
-  title, files, comments, allowLocalComments = false, onAddComment, onReplyComment, onResolveComment, onDismissComment,
-  onBack, error = null, fetchFileBlob,
+  title, files, comments, commits = [], allowLocalComments = false,
+  onAddComment, onReplyComment, onResolveComment, onDismissComment,
+  onBack, error = null, fetchFileBlob, onSubmitReview, submittingReview = false,
+  embedded = false, showAuxTabs = true,
 }: {
   title: string;
   /** Null = still loading. Empty array = nothing changed. */
   files: DiffFileDto[] | null;
   comments: LocalPRComment[];
+  /** Read-only — this page's diff is always the cumulative local PR, no
+   *  per-commit scoping (unlike the task code-diff page's Commits tab). */
+  commits?: LocalPRCommit[];
   allowLocalComments?: boolean;
   fetchFileBlob?: (path: string) => Promise<{ lines: string[] }>;
   onAddComment?: (
@@ -160,25 +197,100 @@ export function LocalPrReviewScreen({
   onDismissComment?: (commentId: string) => void;
   onBack: () => void;
   error?: string | null;
+  /** Submits the reviewer's body/verdict via the same Submit-review drawer
+   *  the task brain's top bar uses — undefined hides the toolbar button, since
+   *  this full-page takeover otherwise has no way to reach it. */
+  onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
+  submittingReview?: boolean;
+  embedded?: boolean;
+  showAuxTabs?: boolean;
 }) {
+  const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('files');
+  const pending = useMemo(() => comments.filter(isPendingLocalComment), [comments]);
+
+  const extraTabs: DiffReviewExtraTab[] = showAuxTabs ? [
+    { key: 'commits', label: 'Commits', count: commits.length, content: <LocalCommitsList commits={commits} /> },
+    ...(onSubmitReview !== undefined ? [{
+      key: 'review',
+      label: 'Review',
+      count: pending.length,
+      content: (
+        <div className="diff-viewer__review-tab">
+          <PendingCommentsList
+            comments={pending.map(diffInlineCommentFromLocalPr)}
+            onRemove={onDismissComment}
+            emptyHint={(
+              <>No pending comments yet.<br />Click a line in the diff to add one.</>
+            )}
+          />
+        </div>
+      ),
+    }] : []),
+  ] : [];
+
   return (
-    <DiffReviewShell
-      title={title}
-      files={files}
-      error={error}
-      onBack={onBack}
-      renderFileBody={file => (
-        <LocalFileDiff
-          file={file}
-          comments={comments}
-          allowLocalComments={allowLocalComments}
-          fetchFileBlob={fetchFileBlob}
-          onAddComment={onAddComment}
-          onReplyComment={onReplyComment}
-          onResolveComment={onResolveComment}
-          onDismissComment={onDismissComment}
+    <>
+      <DiffReviewShell
+        title={title}
+        files={files}
+        error={error}
+        onBack={onBack}
+        showToolbar={!embedded}
+        initialFilesWidth={embedded ? 220 : undefined}
+        maxFilesWidth={embedded ? 360 : undefined}
+        extraTabs={extraTabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        renderFileBody={file => (
+          <LocalFileDiff
+            file={file}
+            comments={comments}
+            allowLocalComments={allowLocalComments}
+            fetchFileBlob={fetchFileBlob}
+            onAddComment={onAddComment}
+            onReplyComment={onReplyComment}
+            onResolveComment={onResolveComment}
+            onDismissComment={onDismissComment}
+          />
+        )}
+        toolbarActions={onSubmitReview !== undefined && (
+          <div className="diff-viewer__review-actions">
+            <button
+              type="button"
+              className="button button--ai"
+              disabled
+              title="AI Review isn't wired up for local PRs yet."
+            >
+              ✨ AI Review
+            </button>
+            <div className="diff-viewer__submit-wrap">
+              <button
+                type="button"
+                className="button button--submit"
+                onClick={() => setSubmitReviewOpen(true)}
+                disabled={submittingReview}
+              >
+                {submittingReview ? 'Submitting…' : 'Submit review'}
+                {pending.length > 0 && <span className="button--submit__count">{pending.length}</span>}
+              </button>
+            </div>
+          </div>
+        )}
+      />
+      {onSubmitReview !== undefined && (
+        <SubmitReviewDrawer
+          open={submitReviewOpen}
+          submitting={submittingReview}
+          pendingComments={pending.map(diffInlineCommentFromLocalPr)}
+          onRemovePending={onDismissComment}
+          onClose={() => setSubmitReviewOpen(false)}
+          onSubmit={(body, verdict) => {
+            onSubmitReview(body, verdict);
+            setSubmitReviewOpen(false);
+          }}
         />
       )}
-    />
+    </>
   );
 }

@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ThreadDto } from '../types';
 import { WorkspaceThreadsSurface } from './WorkspaceThreadsSurface';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); Reflect.deleteProperty(window, 'bridge'); });
 
 function thread(over: Partial<ThreadDto> = {}): ThreadDto {
   return {
@@ -69,14 +69,33 @@ describe('WorkspaceThreadsSurface', () => {
     expect(onOpenThread).toHaveBeenCalledWith('t1');
   });
 
-  it('labels a 0-task discussion thread without a pill', () => {
+  it('labels a 0-task discussion thread without a pill', async () => {
+    (window as unknown as { bridge: unknown }).bridge = {
+      listTasksForThread: vi.fn().mockResolvedValue([]),
+    };
     render(
       <WorkspaceThreadsSurface
         threads={[thread({ id: 't2', title: 'View prs' })]}
         loading={false}
       />,
     );
-    expect(screen.getByText('discussion')).toBeTruthy();
+    expect(await screen.findByText('discussion')).toBeTruthy();
     expect(screen.getByText('no task yet')).toBeTruthy();
+  });
+
+  it('shows a task-count pill with the headline status on task-bearing threads', async () => {
+    const listTasksForThread = vi.fn().mockResolvedValue([
+      { id: 'k1', threadId: 't1', status: 'COMPLETED' },
+      { id: 'k2', threadId: 't1', status: 'RUNNING' },
+    ]);
+    (window as unknown as { bridge: unknown }).bridge = { listTasksForThread };
+    const { container } = render(
+      <WorkspaceThreadsSurface threads={[thread()]} loading={false} />,
+    );
+    // RUNNING outranks COMPLETED as the headline status.
+    expect(await screen.findByText('2 tasks · Running')).toBeTruthy();
+    expect(container.querySelector('.tasks-pill--running')).toBeTruthy();
+    expect(screen.queryByText('no task yet')).toBeNull();
+    expect(listTasksForThread).toHaveBeenCalledWith('t1');
   });
 });

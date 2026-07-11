@@ -69,7 +69,7 @@ export function DiffFileTreePane<T>(props: DiffFileTreePaneProps<T>) {
         // Tighter indent than GitHub Desktop — the diff viewer's file
         // pane is narrow, every horizontal pixel back to the filename
         // helps readability.
-        const indent = 4 + row.depth * 10;
+        const indent = row.depth * 10;
         if (row.kind === 'dir') {
           return (
             <button

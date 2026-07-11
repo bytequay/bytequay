@@ -1651,15 +1651,17 @@
    still sits ON the rail line (x=64, same technique as .tic above) — its
    own margin-left is bumped to 11px to re-center it there now that the
    avatar (and so the row's flex flow) shifted 6px left: (-6)+40(avatar)
-   +8(gap)+11(margin)=53 left edge, at 22px wide spans 53-75, centered on
-   x=64. The net effect also widens the avatar-to-rail gap, as intended. */
+   +8(gap)+8(margin)=50 left edge, at 28px wide spans 50-78, centered on
+   x=64. The net effect also widens the avatar-to-rail gap, as intended.
+   The eye/check matches the 28px .tic markers so approved and CI/commit
+   icons read at the same visual weight on the rail. */
 .pr-person-event { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; }
 .pr-person-event .pr-avatar { margin-top: -3px; margin-left: -6px; }
 .pr-person-event .eye {
-  position: relative; z-index: 1; flex-shrink: 0; margin-left: 11px;
-  width: 22px; height: 22px; border-radius: 50%;
+  position: relative; z-index: 1; flex-shrink: 0; margin-left: 8px;
+  width: 28px; height: 28px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 11px; color: var(--text-3);
+  font-size: 13px; color: var(--text-3);
   background: var(--bg-input); border: 2px solid var(--bg);
 }
 .pr-person-event .eye.approved { background: var(--green); color: #fff; }

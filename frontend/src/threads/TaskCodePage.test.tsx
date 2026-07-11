@@ -76,6 +76,7 @@ const SHIP_PROPOSAL: NotificationDto = {
 
 const OPEN_COMMENT = {
   id: 'rc-1', taskId: 'task-1', file: 'src/Foo.ts', line: 1,
+  side: 'RIGHT', startLine: null, startSide: null,
   body: 'please rename this', createdAt: 1, source: 'LOCAL_USER', resolved: false,
 };
 
@@ -171,8 +172,10 @@ describe('TaskCodePage', () => {
     const { container } = render(<TaskCodePage threadId="thread-1" taskId="task-1" embedded />);
     await screen.findAllByText('src/Foo.ts');
     expect(container.querySelector('.diff-viewer__chat')).toBeNull();
-    // Files + diff still render.
-    expect(screen.getByText('Files')).toBeTruthy();
+    // Files / Commits / Review subtabs + diff still render.
+    expect(screen.getByRole('tab', { name: /Files/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Commits/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Review/ })).toBeTruthy();
   });
 
   it('embedded drops the Code/Pull request tab strip too — just the diff', async () => {
@@ -224,6 +227,30 @@ describe('TaskCodePage', () => {
     expect(await screen.findByText('Pull request description')).toBeTruthy();
     await waitFor(() =>
       expect((screen.getByLabelText('Pull request title') as HTMLInputElement).value).toBe('Fix the typos'));
+  });
+
+  it('review mode: clicking a Review tab card jumps to the comment line', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockBridge({
+      listNotificationsForThread: vi.fn().mockResolvedValue([SHIP_PROPOSAL]),
+      listReviewComments: vi.fn().mockResolvedValue([OPEN_COMMENT]),
+    });
+    render(<TaskCodePage threadId="thread-1" taskId="task-1" onBack={() => {}} />);
+
+    await waitFor(() => expect(document.querySelector('[data-anchor="src/Foo.ts:RIGHT:1"]')).not.toBeNull());
+    fireEvent.click(screen.getByRole('tab', { name: /Review/ }));
+    await waitFor(() => expect(document.querySelector('.review-pending__text')?.textContent).toBe('please rename this'));
+    const reviewCard = document.querySelector<HTMLElement>('.review-pending__card');
+    if (!reviewCard) {
+      throw new Error('missing review pending card');
+    }
+    scrollIntoView.mockClear();
+
+    fireEvent.click(reviewCard);
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    expect(document.querySelector('[data-anchor="src/Foo.ts:RIGHT:1"]')).not.toBeNull();
   });
 
   it('embedded hides the open-comments/ship actions too, even in review mode', async () => {
@@ -409,8 +436,11 @@ describe('TaskCodePage', () => {
     // The leading "context" row is RIGHT:1; the trailing "+new line" row is
     // RIGHT:2. Click one, shift-click the other — same side, so it extends
     // into a range regardless of click order.
-    const added = Array.from(rows).find(r => r.classList.contains('diff-row--add'))!;
-    const contextRow = Array.from(rows).find(r => r.classList.contains('diff-row--context'))!;
+    const added = Array.from(rows).find(r => r.classList.contains('diff-row--add'));
+    const contextRow = Array.from(rows).find(r => r.classList.contains('diff-row--context'));
+    if (!added || !contextRow) {
+      throw new Error('missing commentable diff rows');
+    }
     fireEvent.click(added);
     fireEvent.click(contextRow, { shiftKey: true });
 

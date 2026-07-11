@@ -12,10 +12,12 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
+import Avatar from '../Avatar';
+import { getCached } from '../dataCache';
 import MarkdownComposer from '../MarkdownComposer';
 import { MarkdownProse } from '../threads/MarkdownProse';
 import { relativeTime } from '../notificationDisplay';
-import type { ReviewCommentDto } from '../types';
+import type { ReviewCommentDto, UserProfileDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 
 export function initials(author: string): string {
@@ -23,6 +25,17 @@ export function initials(author: string): string {
   const parts = cleaned.split(/[.\s_-]+/).filter(Boolean);
   const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : cleaned.slice(0, 2);
   return letters.toUpperCase();
+}
+
+function isAgentAuthor(author: string): boolean {
+  const normalized = author.trim().replace(/^@/, '').toLowerCase();
+  return normalized === 'agent'
+    || normalized === 'ai reviewer'
+    || normalized === 'ai-reviewer'
+    || normalized === 'brain'
+    || normalized === 'claude'
+    || normalized === 'claude-code'
+    || normalized === 'codex';
 }
 
 /** "R42" for a single line, or "L40 to R42" for a multi-line range — shared
@@ -33,6 +46,19 @@ export function rangeLabel(
   const prefix = (s: 'LEFT' | 'RIGHT') => (s === 'LEFT' ? 'L' : 'R');
   if (startLine == null || startLine === line) return `${prefix(side)}${line}`;
   return `${prefix(startSide ?? side)}${startLine} to ${prefix(side)}${line}`;
+}
+
+export function commentLineLabel(c: Pick<DiffInlineComment, 'side' | 'lineNumber' | 'startLine' | 'startSide'>): string | null {
+  if (c.lineNumber === null) return null;
+  return rangeLabel(c.side, c.lineNumber, c.startLine, c.startSide);
+}
+
+export function commentLocationLabel(c: Pick<DiffInlineComment, 'filePath' | 'side' | 'lineNumber' | 'startLine' | 'startSide'>): string {
+  const path = c.filePath ?? 'Pull request';
+  const slash = path.lastIndexOf('/');
+  const file = slash >= 0 ? path.slice(slash + 1) : path;
+  const line = commentLineLabel(c);
+  return line === null ? file : `${file} · ${line}`;
 }
 
 export type DiffInlineComment = {
@@ -58,10 +84,20 @@ export type DiffInlineComment = {
  *  comment synced from GitHub (ext) vs. the current user's own draft (you).
  *  Exported so the Review tab's pending cards (ReviewTabPendingList) use the
  *  same avatar coloring as the inline thread cards. */
-export function avatarKind(c: DiffInlineComment): 'bot' | 'ext' | 'you' {
-  if (c.sourceLabel === 'AGENT') return 'bot';
+export function avatarKind(c: Pick<DiffInlineComment, 'sourceLabel' | 'author' | 'origin'>): 'bot' | 'ext' | 'you' {
+  if (c.sourceLabel === 'AGENT' || isAgentAuthor(c.author)) return 'bot';
   if (c.origin === 'remote') return 'ext';
   return 'you';
+}
+
+export function githubAvatarLogin(c: Pick<DiffInlineComment, 'sourceLabel' | 'author' | 'origin'>): string | null {
+  if (avatarKind(c) === 'bot') return null;
+  const author = c.author.trim().replace(/^@/, '');
+  if (author.length === 0 || author.toLowerCase() === 'reviewer') return null;
+  if (author.toLowerCase() === 'you') {
+    return getCached<UserProfileDto>('home:profile')?.login ?? null;
+  }
+  return author;
 }
 
 /** Still-open local drafts that would be swept into the next publish — the
@@ -71,6 +107,7 @@ export function isPendingLocalComment(c: LocalPRComment): boolean {
 }
 
 export function diffInlineCommentFromLocalPr(c: LocalPRComment): DiffInlineComment {
+  const agent = c.origin === 'local' && isAgentAuthor(c.author);
   return {
     id: c.id,
     filePath: c.filePath,
@@ -78,18 +115,20 @@ export function diffInlineCommentFromLocalPr(c: LocalPRComment): DiffInlineComme
     side: c.side,
     startLine: c.startLine,
     startSide: c.startSide,
-    author: c.author,
+    author: agent ? 'AI Reviewer' : c.author,
     body: c.body,
     origin: c.origin,
     parentCommentId: c.parentCommentId,
     resolved: c.resolvedAt !== null,
     dismissed: c.dismissedAt !== null,
     pending: c.origin === 'local' && c.publishedAt === null,
+    sourceLabel: agent ? 'AGENT' : undefined,
     createdAtMs: c.createdAt,
   };
 }
 
 export function diffInlineCommentFromReviewDto(c: ReviewCommentDto): DiffInlineComment {
+  const author = commentAuthor(c.author, sourceAuthor(c.source));
   return {
     id: c.id,
     filePath: c.file,
@@ -97,7 +136,7 @@ export function diffInlineCommentFromReviewDto(c: ReviewCommentDto): DiffInlineC
     side: c.side,
     startLine: c.startLine,
     startSide: c.startSide,
-    author: sourceAuthor(c.source),
+    author,
     body: c.body,
     origin: c.source === 'REMOTE_REVIEWER' ? 'remote' : 'local',
     parentCommentId: null,
@@ -111,8 +150,16 @@ export function diffInlineCommentFromReviewDto(c: ReviewCommentDto): DiffInlineC
   };
 }
 
+function commentAuthor(author: string | null | undefined, fallback: string): string {
+  const trimmed = author?.trim();
+  if (trimmed === undefined || trimmed.length === 0 || trimmed.toLowerCase() === 'unknown') {
+    return fallback;
+  }
+  return trimmed.replace(/^@/, '');
+}
+
 function sourceAuthor(source: string): string {
-  if (source === 'LOCAL_AGENT') return 'agent';
+  if (source === 'LOCAL_AGENT') return 'AI Reviewer';
   if (source === 'REMOTE_REVIEWER') return 'reviewer';
   return 'you';
 }
@@ -246,6 +293,7 @@ export function DiffInlineComments({
   const [draft, setDraft] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState('');
+  const [folded, setFolded] = useState(false);
   const submit = () => {
     const body = draft.trim();
     if (body.length > 0 && onAdd !== undefined) { onAdd(body); setDraft(''); }
@@ -259,69 +307,100 @@ export function DiffInlineComments({
   };
   const hasPending = comments.some(c => c.pending === true);
   const first = comments[0];
-  const threadLabel = first !== undefined && first.lineNumber !== null
-    ? rangeLabel(first.side, first.lineNumber, first.startLine, first.startSide)
-    : composingOn;
+  const firstOpenRoot = comments.find(c => c.parentCommentId === null && isOpen(c));
+  const threadLabel = first !== undefined ? commentLineLabel(first) ?? composingOn : composingOn;
   return (
     <>
       {comments.length > 0 && (
         <div className={`ic-thread${hasPending ? ' ic-thread--pending' : ''}`}>
           <div className="ic-thread__head">
+            <button
+              type="button"
+              className="ic-thread__fold"
+              onClick={() => setFolded(v => !v)}
+              aria-expanded={!folded}
+              aria-label={folded ? 'Expand thread' : 'Collapse thread'}
+              title={folded ? 'Expand thread' : 'Collapse thread'}
+            >
+              {folded ? '▸' : '▾'}
+            </button>
             {hasPending && <span className="ic-thread__pending-badge">Pending review</span>}
             {threadLabel !== undefined && <span className="ic-thread__label">Line {threadLabel}</span>}
           </div>
-          <div className="ic-thread__body">
-            {comments.map(c => (
-              <div key={c.id}>
-                <div className="ic-comment">
-                  <span className={`ic-comment__avatar ic-comment__avatar--${avatarKind(c)}`}>
-                    {initials(c.author)}
-                  </span>
-                  <div className="ic-comment__col">
-                    <div className="ic-comment__meta">
-                      <span className="ic-comment__author">{c.author}</span>
-                      {c.sourceLabel !== undefined && <span className="ic-comment__tag">{c.sourceLabel}</span>}
-                      {c.resolved && <span className="ic-comment__tag ic-comment__tag--resolved">resolved</span>}
-                      {c.dismissed && <span className="ic-comment__tag ic-comment__tag--dismissed">dismissed</span>}
-                      {c.createdAtMs !== undefined && (
-                        <span className="ic-comment__time">{relativeTime(new Date(c.createdAtMs).toISOString())}</span>
-                      )}
-                      {allowLocalComments && c.parentCommentId === null && (
-                        <span className="ic-comment__links">
-                          {isOpen(c) && onReply !== undefined && (
-                            <button type="button" onClick={() => { setReplyingTo(c.id); setReplyDraft(''); }}>
-                              Reply
-                            </button>
-                          )}
-                          {isOpen(c) && onResolve !== undefined && (
-                            <button type="button" onClick={() => onResolve(c.id)}>Resolve</button>
-                          )}
-                          {isOpen(c) && onDismiss !== undefined && (
-                            <button type="button" onClick={() => onDismiss(c.id)}>Discard</button>
-                          )}
-                          {!isOpen(c) && onReopen !== undefined && (
-                            <button type="button" onClick={() => onReopen(c.id)}>Reopen</button>
-                          )}
+          {!folded && (
+            <div className="ic-thread__body">
+              {comments.map(c => {
+                const avatarLogin = githubAvatarLogin(c);
+                return (
+                  <div key={c.id}>
+                    <div className="ic-comment">
+                      {avatarLogin !== null ? (
+                        <Avatar
+                          login={avatarLogin}
+                          size={26}
+                          className={`ic-comment__avatar-img ic-comment__avatar--${avatarKind(c)}`}
+                        />
+                      ) : (
+                        <span className={`ic-comment__avatar ic-comment__avatar--${avatarKind(c)}`}>
+                          {initials(c.author)}
                         </span>
                       )}
+                      <div className="ic-comment__col">
+                        <div className="ic-comment__meta">
+                          <span className="ic-comment__author">{c.author}</span>
+                          {c.sourceLabel !== undefined && <span className="ic-comment__tag">{c.sourceLabel}</span>}
+                          {c.resolved && <span className="ic-comment__tag ic-comment__tag--resolved">resolved</span>}
+                          {c.dismissed && <span className="ic-comment__tag ic-comment__tag--dismissed">dismissed</span>}
+                          {c.createdAtMs !== undefined && (
+                            <span className="ic-comment__time">{relativeTime(new Date(c.createdAtMs).toISOString())}</span>
+                          )}
+                          {allowLocalComments && c.parentCommentId === null && (
+                            <span className="ic-comment__links">
+                              {isOpen(c) && onReply !== undefined && (
+                                <button type="button" onClick={() => { setReplyingTo(c.id); setReplyDraft(''); }}>
+                                  Reply
+                                </button>
+                              )}
+                              {isOpen(c) && onResolve !== undefined && (
+                                <button type="button" onClick={() => onResolve(c.id)}>Resolve</button>
+                              )}
+                              {isOpen(c) && onDismiss !== undefined && (
+                                <button type="button" onClick={() => onDismiss(c.id)}>Discard</button>
+                              )}
+                              {!isOpen(c) && onReopen !== undefined && (
+                                <button type="button" onClick={() => onReopen(c.id)}>Reopen</button>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        <div className="ic-comment__text"><MarkdownProse text={c.body} /></div>
+                      </div>
                     </div>
-                    <div className="ic-comment__text"><MarkdownProse text={c.body} /></div>
+                    {replyingTo === c.id && onReply !== undefined && (
+                      <DiffInlineCommentComposer
+                        value={replyDraft}
+                        onChange={setReplyDraft}
+                        onSubmit={() => submitReply(c)}
+                        onCancel={() => { setReplyingTo(null); setReplyDraft(''); }}
+                        placeholder="Write a reply — markdown supported."
+                        submitLabel="Reply"
+                        className="ic-reply-composer"
+                      />
+                    )}
                   </div>
-                </div>
-                {replyingTo === c.id && onReply !== undefined && (
-                  <DiffInlineCommentComposer
-                    value={replyDraft}
-                    onChange={setReplyDraft}
-                    onSubmit={() => submitReply(c)}
-                    onCancel={() => { setReplyingTo(null); setReplyDraft(''); }}
-                    placeholder="Write a reply — markdown supported."
-                    submitLabel="Reply"
-                    className="ic-reply-composer"
-                  />
-                )}
-              </div>
-            ))}
-          </div>
+                );
+              })}
+              {allowLocalComments && onReply !== undefined && firstOpenRoot !== undefined && replyingTo === null && (
+                <button
+                  type="button"
+                  className="ic-thread__reply-stub"
+                  onClick={() => { setReplyingTo(firstOpenRoot.id); setReplyDraft(''); }}
+                >
+                  Write a reply
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
       {allowLocalComments && onAdd !== undefined && (

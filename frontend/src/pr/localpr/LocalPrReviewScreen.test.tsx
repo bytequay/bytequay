@@ -206,6 +206,30 @@ describe('LocalPrReviewScreen', () => {
     expect(onBack).toHaveBeenCalled();
   });
 
+  it('embedded keeps the Files, Commits, and Review column tabs by default', () => {
+    render(
+      <LocalPrReviewScreen
+        embedded
+        title="Review"
+        files={[FILE]}
+        comments={[comment()]}
+        commits={[{
+          id: 'c1', localPrId: 'pr1', sha: 'abc1234', message: 'Ship it',
+          authoredAt: Date.now(), pushedAt: null, additions: 1, deletions: 0,
+        }]}
+        onBack={() => {}}
+        onSubmitReview={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: /Back/ })).toBeNull();
+    expect(screen.getByRole('tab', { name: /Files/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Commits/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Review/ }));
+    expect(document.querySelector('.review-pending-panel__label')?.textContent).toBe('Pending review');
+    expect(screen.getByRole('button', { name: /Open submit panel/ })).toBeTruthy();
+  });
+
   it('embeds without the full-page toolbar or aux tabs', () => {
     render(
       <LocalPrReviewScreen

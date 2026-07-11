@@ -33,6 +33,7 @@ import {
   diffInlineCommentFromReviewDto,
   isPendingLocalComment,
   rangeLabel,
+  type DiffInlineComment,
 } from '../diff/DiffInlineComments';
 import { ReviewTabPendingList } from '../diff/PendingCommentsList';
 import { useThreadTasks } from './useThreadTasks';
@@ -116,6 +117,14 @@ function loadWidth(key: string, fallback: number): number {
     return Number.isFinite(n) && n >= WIDTH_MIN && n <= WIDTH_MAX ? n : fallback;
   }
   catch { return fallback; }
+}
+
+function cssEscape(s: string): string {
+  return s.replace(/(["\\\n])/g, '\\$1');
+}
+
+function diffAnchor(filePath: string, side: 'LEFT' | 'RIGHT', line: number): string {
+  return `${filePath}:${side}:${line}`;
 }
 
 /**
@@ -412,9 +421,23 @@ export default function TaskCodePage({
     if (localCommentMode) return localPendingComments;
     return [];
   }, [reviewMode, reviewComments, localCommentMode, localPendingComments]);
-  const jumpToReviewComment = useCallback((c: { filePath: string | null }) => {
+  const jumpToReviewComment = useCallback((c: DiffInlineComment) => {
     if (c.filePath !== null) setSelectedPath(c.filePath);
+    setPaneTab('code');
     setMidTab('files');
+    if (c.filePath === null || c.lineNumber === null) return;
+    const filePath = c.filePath;
+    const lineNumber = c.lineNumber;
+    const side = c.side;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const anchor = diffAnchor(filePath, side, lineNumber);
+      const row = document.querySelector<HTMLElement>(`[data-anchor="${cssEscape(anchor)}"]`);
+      const target = row ?? document.querySelector<HTMLElement>(`[data-file-anchor="${cssEscape(filePath)}"]`);
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: row ? 'center' : 'start' });
+      target.classList.add('diff-row--flash');
+      window.setTimeout(() => target.classList.remove('diff-row--flash'), 1600);
+    }));
   }, []);
 
   const submitReview = useCallback(async () => {
@@ -480,7 +503,7 @@ export default function TaskCodePage({
       setActionNote(e instanceof Error ? e.message : String(e));
       setActionBusy(false);
     }
-  }, [actionBusy, proposal, proposalAction, hasUnresolved, prTitle, prBody, onBack, refreshProposal, refreshTasks]);
+  }, [actionBusy, proposal, proposalAction, hasUnresolved, prTitle, prBody, refreshProposal, refreshTasks]);
 
   // Commit list for the left column.
   useEffect(() => {
@@ -849,6 +872,7 @@ export default function TaskCodePage({
                       const hasComment = commentsByAnchor.has(`${file.filename}:${anchorSide}:${anchorLine}`);
                       const inRange = isInRange({ file: file.filename, side: anchorSide, line: anchorLine });
                       return {
+                        dataAnchor: diffAnchor(file.filename, anchorSide, anchorLine),
                         addCommentAffordance: true,
                         onClick: (e) => {
                           handleRowClick({ file: file.filename, side: anchorSide, line: anchorLine }, e.shiftKey);
@@ -891,12 +915,9 @@ export default function TaskCodePage({
                     fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
                     rowDecoration={(anchorSide, anchorLine) => {
                       const hasComment = localByAnchor.has(`${file.filename}:${anchorSide}:${anchorLine}`);
-                      const composerHere = composer !== null
-                        && composer.file === file.filename
-                        && composer.side === anchorSide
-                        && composer.line === anchorLine;
                       const inRange = isInRange({ file: file.filename, side: anchorSide, line: anchorLine });
                       return {
+                        dataAnchor: diffAnchor(file.filename, anchorSide, anchorLine),
                         addCommentAffordance: true,
                         // A plain click on the already-active line discards its
                         // open composer; shift-click always extends the range.

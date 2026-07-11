@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import { IconBtn, MergeIcon, Pill } from '../ui/primitives';
@@ -25,7 +25,7 @@ import { SubmitReviewDrawer } from './SubmitReviewDrawer';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
 
-type BrainTab = 'pr';
+type BrainTab = 'pr' | 'code';
 
 /**
  * The task brain surface (frame 2): the 2-pane shell with the brain
@@ -68,8 +68,8 @@ export function TaskBrainPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  /** Pane contents; Changes may be supplied by older hosts but is not shown
-   *  in the task brain's right pane. */
+  /** Pane contents. `code` hosts the embedded task diff page, including its
+   *  Files / Commits / Review subtabs. */
   tabs: { pr?: ReactNode; code?: ReactNode };
   /** Shows a reminder tab above the composer while a plan needs attention:
    *  'awaiting' → the plan is unreviewed (orange, animated flowing border);
@@ -97,25 +97,40 @@ export function TaskBrainPage({
    *  nodes) — a fresh object (new `token`) re-fires even if it is already open. */
   openTabRequest?: { tab: BrainTab; token: number };
 }) {
-  const available: { key: BrainTab; label: string; node: ReactNode }[] = [
+  const available = useMemo<{ key: BrainTab; label: string; node: ReactNode }[]>(() => [
     ...(tabs.pr !== undefined ? [{ key: 'pr' as const, label: 'PR', node: tabs.pr }] : []),
-  ];
+    ...(tabs.code !== undefined ? [{ key: 'code' as const, label: 'Code', node: tabs.code }] : []),
+  ], [tabs.pr, tabs.code]);
   // No PR yet (task hasn't opened one) means nothing to show in the pane.
   const hasTabs = available.length > 0;
   const [paneOpen, setPaneOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<BrainTab>('pr');
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
 
   useEffect(() => {
     if (openTabRequest === undefined) return;
+    setActiveTab(openTabRequest.tab);
     setPaneOpen(true);
   }, [openTabRequest]);
 
-  const active = available[0];
+  useEffect(() => {
+    if (!available.some(t => t.key === activeTab)) {
+      setActiveTab(available[0]?.key ?? 'pr');
+    }
+  }, [activeTab, available]);
+
+  const active = available.find(t => t.key === activeTab) ?? available[0];
 
   // The PR pill mirrors the top-right pane button: it folds/unfolds the
   // right pane, without acting as a tab selector.
-  const togglePane = () => setPaneOpen(o => !o);
+  const selectPane = (tab: BrainTab) => {
+    if (active?.key === tab) setPaneOpen(o => !o);
+    else {
+      setActiveTab(tab);
+      setPaneOpen(true);
+    }
+  };
 
   // Reveal the plan when the reminder tab is clicked: scroll to the inline
   // plan card if it's shown in the conversation (planning live). The host
@@ -184,7 +199,7 @@ export function TaskBrainPage({
                 <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
               )}
               <InlineChips chips={[
-                ...available.map(t => ({ label: t.label, active: paneOpen, onClick: togglePane })),
+                ...available.map(t => ({ label: t.label, active: paneOpen && active?.key === t.key, onClick: () => selectPane(t.key) })),
                 ...(onOpenCi !== undefined ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
               ]}
               />
@@ -206,7 +221,7 @@ export function TaskBrainPage({
           )}
           {showPane && (
             <RightPane>
-              <RightPane.Content>{active.node}</RightPane.Content>
+              <RightPane.Content flush={active.key === 'code'}>{active.node}</RightPane.Content>
             </RightPane>
           )}
         </div>

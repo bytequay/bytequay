@@ -1368,22 +1368,23 @@
    not the small-caps section-header style this class used to have. */
 .diff-viewer__col-tabs {
   display: inline-flex;
-  gap: 4px;
-  padding: 0 4px;
+  gap: 16px;
+  padding: 0 8px;
+  height: 100%;
 }
 .diff-viewer__col-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 9px;
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text-3);
   cursor: pointer;
-  padding: 8px 3px 9px;
-  border-bottom: 2px solid transparent;
+  padding: 0 0 1px;
+  border-bottom: 3px solid transparent;
   margin-bottom: -1px;
 }
 .diff-viewer__col-tab:hover { color: var(--text-1); }
@@ -1398,9 +1399,16 @@
   border-bottom-color: #c2632a;
 }
 .diff-viewer__col-tab .diff-viewer__files-count {
+  min-width: 25px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-weight: 700;
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-3);
+  font-size: 12px;
+  padding: 0 8px;
 }
 .diff-viewer__col-tab--active .diff-viewer__files-count {
   background: var(--accent-a10);
@@ -1425,7 +1433,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px;
+  padding: 18px;
 }
 
 /* ── Conversation column (leftmost) — reuses the V3 conversation +

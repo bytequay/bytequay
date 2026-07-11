@@ -62,7 +62,7 @@ describe('TaskBrainPage', () => {
     expect(document.querySelector('.pane-tab')).toBeNull();
   });
 
-  it('top bar exposes Close (confirmed); toggling the pane leaves only the PR toggle chip', () => {
+  it('top bar exposes Close (confirmed); pane chips include PR and Code', () => {
     const onClose = vi.fn();
     renderBrain({
       run: { onClose, onPause: () => {} },
@@ -75,17 +75,19 @@ describe('TaskBrainPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Toggle right pane' }));
     expect(document.querySelector('.inline-chips')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'PR' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Changes' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Code' })).toBeTruthy();
   });
 
-  it('the inline PR chip folds and unfolds the right pane', () => {
+  it('the inline pane chips switch to Code and fold the active pane', () => {
     renderBrain({
       tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
     });
     const inlineChips = document.querySelector('.inline-chips') as HTMLElement;
-    fireEvent.click(within(inlineChips).getByRole('button', { name: 'PR' }));
+    fireEvent.click(within(inlineChips).getByRole('button', { name: 'Code' }));
+    expect(screen.getByTestId('code-tab')).toBeTruthy();
+    expect(document.querySelector('.pane-content--flush')).not.toBeNull();
+    fireEvent.click(within(inlineChips).getByRole('button', { name: 'Code' }));
     expect(document.querySelector('.body.with-pane')).toBeNull();
-    expect(screen.queryByTestId('pr-tab')).toBeNull();
     fireEvent.click(within(inlineChips).getByRole('button', { name: 'PR' }));
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
   });

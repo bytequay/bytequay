@@ -30,6 +30,7 @@ public record ReviewCommentDto(
         String body,
         long createdAt,
         String source,
+        String author,
         boolean resolved)
 {
     public static ReviewCommentDto from(ReviewComment c)
@@ -45,6 +46,7 @@ public record ReviewCommentDto(
                 c.body(),
                 c.createdAt().toEpochMilli(),
                 c.source().name(),
+                null,
                 c.resolved());
     }
 
@@ -61,6 +63,7 @@ public record ReviewCommentDto(
                 c.body(),
                 c.createdAt().toEpochMilli(),
                 source(c),
+                c.author(),
                 c.resolvedAt() != null || c.dismissedAt() != null);
     }
 

@@ -735,3 +735,9 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+/* The "Recent" section (visited-surface stops) reads larger than its
+   "Today" sibling below it — scoped to --recent so Today's PR-bucket rows
+   (which share the same .sb-recent__* classes) stay at their own size. */
+.shell .sb-section--recent .sb-section-h .nm { font-size: 12px; }
+.shell .sb-section--recent .sb-recent__title { font-size: 13px; }
+.shell .sb-section--recent .sb-recent__sub { font-size: 11px; }

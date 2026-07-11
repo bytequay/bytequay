@@ -75,7 +75,7 @@ describe('WorkspaceNavShell', () => {
     expect(onResumeVisit).toHaveBeenCalledWith(expect.objectContaining({ surfaceId: 'org/web#42' }));
   });
 
-  it('shows the switcher + thread list (with repo logos) when a workspace is active', async () => {
+  it('shows the switcher + thread list (with trunk tiles) when a workspace is active', async () => {
     const bridge = mockBridge();
     const onOpenThread = vi.fn();
     const { container } = render(
@@ -84,10 +84,10 @@ describe('WorkspaceNavShell', () => {
     await waitFor(() => expect(bridge.listTasks).toHaveBeenCalledWith({ workspaceId: 'bq' }));
     // Switcher shows the active workspace.
     expect(container.querySelector('.ws-switcher')?.textContent).toContain('ByteQuay');
-    // Thread rows render with their repo logos + the selected one highlights.
+    // Thread rows render with their trunk tiles + the selected one highlights.
     expect(await screen.findByText('Backend cleanup review')).toBeTruthy();
     expect(container.querySelector('.thread-item.active')?.textContent).toContain('Backend cleanup review');
-    expect(container.querySelector('.v3-logo')).toBeTruthy();
+    expect(container.querySelector('.thread-item .trunk-tile svg')).toBeTruthy();
     fireEvent.click(screen.getByText('Fix Delta Lake timestamp'));
     expect(onOpenThread).toHaveBeenCalledWith('t2');
   });

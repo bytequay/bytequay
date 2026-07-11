@@ -51,11 +51,8 @@ export function threadRepo(_t: ThreadDto): string {
 }
 
 function toThreadRow(t: ThreadDto): ThreadRow {
-  const repo = threadRepo(t);
   return {
     id: t.id,
-    initials: monogram(repo),
-    color: logoColorFor(repo),
     name: t.title,
     status: threadStatusDot(t.status),
   };

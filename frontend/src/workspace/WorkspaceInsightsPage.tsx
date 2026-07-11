@@ -83,27 +83,21 @@ function WorkspaceInsightsPage() {
       {error !== null && <div style={errorStyle} role="alert">{error}</div>}
 
       <div style={kpiGridStyle}>
-        <KpiCard label="Active threads" icon="▢" iconColor="#7c3aed"
+        <KpiCard label="Active threads" icon="▢" iconColor="#0969da"
                  value={loading ? '—' : String(activeThreads)} />
-        <KpiCard label="Tasks in flight" icon="↗" iconColor="#16a34a"
+        <KpiCard label="Tasks in flight" icon="↗" iconColor="#1a7f37"
                  value={loading ? '—' : String(tasksInFlight)} />
-        <KpiCard label="Repos in workspace" icon="▣" iconColor="#0066cc"
+        <KpiCard label="Repos in workspace" icon="▣" iconColor="#7c3aed"
                  value={loading ? '—' : String(reposInWorkspace)} />
         <KpiCard label={spendCardLabel}
-                 icon="$" iconColor="#d97706"
+                 icon="$" iconColor="#c2632a"
                  value={loading ? '—' : formatMilliUsd(spendForCard)} />
-        <KpiCard label="GitHub API"
-                 icon="◴" iconColor="#0066cc"
-                 value={loading || insights?.githubRateLimit == null
-                   ? '—'
-                   : `${insights.githubRateLimit.remaining}/${insights.githubRateLimit.limit}`}
-                 sub={insights?.githubRateLimit == null
-                   ? undefined
-                   : `resets ${new Date(insights.githubRateLimit.resetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
       </div>
 
+      <RateLimitCard rate={insights?.githubRateLimit ?? null} loading={loading} />
+
       <div style={chartRowStyle}>
-        <section className="workspace-card" style={{ flex: 2 }} aria-label="Spend">
+        <section className="workspace-card" aria-label="Spend">
           <div className="workspace-card__head">
             <div className="workspace-card__title">Spend</div>
             <div style={chartMetaStyle}>
@@ -116,7 +110,7 @@ function WorkspaceInsightsPage() {
           <SpendChart series={insights?.spendByDay ?? []} />
         </section>
 
-        <section className="workspace-card" style={{ flex: 1, minWidth: 0 }} aria-label="Tasks shipped">
+        <section className="workspace-card" style={{ minWidth: 0 }} aria-label="Tasks shipped">
           <div className="workspace-card__head">
             <div className="workspace-card__title">Tasks shipped</div>
             <div style={chartMetaStyle}>
@@ -129,46 +123,74 @@ function WorkspaceInsightsPage() {
           <div style={chartMetaStyle}>
             tasks with a linked PR · {windowKey} window
           </div>
-          <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(124, 58, 237, 0.08)' }}>
-            {(insights?.tasksByRepo ?? []).length === 0 ? (
-              <div style={chartMetaStyle}>No PR-linked tasks in this window yet.</div>
-            ) : (
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(insights?.tasksByRepo ?? []).map(r => (
-                  <li key={r.repoFullName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.repoFullName}</span>
-                    <span style={{ ...chartMetaStyle, whiteSpace: 'nowrap' }}>
-                      {r.tasksShipped} shipped · {r.tasksOpen} open
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <div style={{ height: 1, background: 'var(--border, rgba(0,0,0,0.07))', margin: '16px 0' }} />
+          {(insights?.tasksByRepo ?? []).length === 0 ? (
+            <div style={chartMetaStyle}>No PR-linked tasks in this window yet.</div>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(insights?.tasksByRepo ?? []).map(r => (
+                <li key={r.repoFullName} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                    {r.repoFullName}
+                  </span>
+                  <span style={shippedPillStyle}>{r.tasksShipped} shipped</span>
+                  <span style={openPillStyle}>{r.tasksOpen} open</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
     </>
   );
 }
 
-function KpiCard({ label, icon, iconColor, value, sub }: {
+function KpiCard({ label, icon, iconColor, value }: {
   label: string;
   icon: string;
   iconColor: string;
   value: string;
-  sub?: string;
 }) {
   return (
-    <div className="workspace-card" style={{ padding: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={kpiIconStyle(iconColor)}>{icon}</span>
-        <div style={{ flex: 1 }}>
-          <div style={kpiValueStyle}>{value}</div>
-          <div style={kpiLabelStyle}>{label}</div>
-          {sub !== undefined && (
-            <div style={{ fontSize: 10, color: 'var(--text-4)', marginTop: 1 }}>{sub}</div>
+    <div className="workspace-card" style={{ padding: '16px 17px', display: 'flex', flexDirection: 'column', gap: 11 }}>
+      <span style={kpiIconStyle(iconColor)}>{icon}</span>
+      <div>
+        <div style={kpiValueStyle}>{value}</div>
+        <div style={kpiLabelStyle}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+/** The GitHub API rate-limit card — remaining/limit, reset time, and a
+ *  usage bar, laid out as its own full-width row under the KPI grid. */
+function RateLimitCard({ rate, loading }: {
+  rate: WorkspaceInsightsDto['githubRateLimit'];
+  loading: boolean;
+}) {
+  const pct = rate == null || rate.limit === 0 ? 0 : Math.round((rate.remaining / rate.limit) * 100);
+  return (
+    <div className="workspace-card" style={rateCardStyle} aria-label="GitHub API">
+      <span style={kpiIconStyle('#0969da')}>◴</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ws-text-1)' }}>
+          {loading || rate == null ? '—' : (
+            <>
+              {rate.remaining.toLocaleString()}
+              {' '}
+              <span style={{ color: 'var(--ws-text-3)', fontWeight: 500, fontSize: 13 }}>
+                / {rate.limit.toLocaleString()}
+              </span>
+            </>
           )}
         </div>
+        <div style={{ fontSize: 11.5, color: 'var(--ws-text-3)', marginTop: 1 }}>
+          GitHub API
+          {rate != null && ` · resets ${new Date(rate.resetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+        </div>
+      </div>
+      <div style={rateTrackStyle}>
+        <div style={{ ...rateFillStyle, width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -191,11 +213,17 @@ function SpendChart({ series }: { series: WorkspaceInsightsDto['spendByDay'] }) 
     <div style={chartCanvasStyle}>
       {series.map((s, i) => {
         const dollars = s.costUsdMilli / 1000;
-        const pct = (s.costUsdMilli / max) * 100;
+        // Peak bar gets the strong gradient, idle days a faint stub —
+        // matches the redesign's spend chart treatment.
+        const isPeak = s.costUsdMilli === max;
+        const pct = s.costUsdMilli === 0 ? 3 : 6 + (s.costUsdMilli / max) * 94;
+        const bg = isPeak
+          ? 'linear-gradient(180deg, #a78bfa, #7c3aed)'
+          : s.costUsdMilli === 0 ? 'rgba(0, 0, 0, 0.08)' : 'rgba(139, 92, 246, 0.35)';
         return (
           <div key={i} style={chartColumnStyle}>
             <div style={chartBarLabelStyle}>${dollars.toFixed(1)}</div>
-            <div style={{ ...chartBarStyle, height: `${Math.max(2, pct)}%` }} />
+            <div style={{ ...chartBarStyle, height: `${pct}%`, background: bg }} />
             <div style={chartTickStyle}>{s.label}</div>
           </div>
         );
@@ -239,42 +267,88 @@ const kpiGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(4, 1fr)',
   gap: 12,
-  marginBottom: 14,
+  marginBottom: 12,
 };
 
+/** Icon tile — the glyph on a soft tint of its own color. */
 function kpiIconStyle(color: string): React.CSSProperties {
   return {
     width: 32,
     height: 32,
-    borderRadius: 8,
-    background: 'rgba(255, 255, 255, 0.8)',
-    border: '1px solid var(--ws-card-border)',
+    borderRadius: 9,
+    background: `color-mix(in srgb, ${color} 10%, transparent)`,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     color,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: 700,
+    flexShrink: 0,
   };
 }
 
 const kpiValueStyle: React.CSSProperties = {
-  fontSize: 20,
+  fontSize: 23,
   fontWeight: 700,
   letterSpacing: '-0.02em',
   color: 'var(--ws-text-1)',
-  lineHeight: 1.1,
+  lineHeight: 1,
 };
 
 const kpiLabelStyle: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 11.5,
   color: 'var(--ws-text-3)',
-  marginTop: 2,
+  marginTop: 5,
+};
+
+const rateCardStyle: React.CSSProperties = {
+  padding: '14px 17px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 14,
+  marginBottom: 16,
+};
+
+const rateTrackStyle: React.CSSProperties = {
+  flex: 1,
+  maxWidth: 340,
+  marginLeft: 'auto',
+  height: 7,
+  background: 'var(--bg-hover, rgba(0,0,0,0.07))',
+  borderRadius: 999,
+  overflow: 'hidden',
+};
+
+const rateFillStyle: React.CSSProperties = {
+  height: '100%',
+  background: 'linear-gradient(90deg, #60a5fa, #2563eb)',
+  borderRadius: 999,
 };
 
 const chartRowStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 14,
+  display: 'grid',
+  gridTemplateColumns: '1.7fr 1fr',
+  gap: 12,
+};
+
+const shippedPillStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#1a7f37',
+  background: '#dafbe1',
+  borderRadius: 999,
+  padding: '2px 8px',
+  whiteSpace: 'nowrap',
+};
+
+const openPillStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#9a6700',
+  background: '#fff8c5',
+  borderRadius: 999,
+  padding: '2px 8px',
+  whiteSpace: 'nowrap',
 };
 
 const chartMetaStyle: React.CSSProperties = {
@@ -287,7 +361,7 @@ const chartCanvasStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-end',
   gap: 12,
-  height: 160,
+  height: 180,
   padding: '0 4px',
 };
 
@@ -307,8 +381,8 @@ const chartBarLabelStyle: React.CSSProperties = {
 
 const chartBarStyle: React.CSSProperties = {
   width: '70%',
-  background: 'linear-gradient(180deg, #a78bfa, #7c3aed)',
-  borderRadius: '6px 6px 0 0',
+  maxWidth: 44,
+  borderRadius: '7px 7px 3px 3px',
   marginTop: 'auto',
   transition: 'height 140ms ease',
 };
@@ -320,12 +394,12 @@ const chartTickStyle: React.CSSProperties = {
 };
 
 const shippedTotalStyle: React.CSSProperties = {
-  fontSize: 32,
+  fontSize: 44,
   fontWeight: 700,
   letterSpacing: '-0.02em',
   color: 'var(--ws-text-1)',
-  lineHeight: 1.1,
-  marginBottom: 2,
+  lineHeight: 1,
+  marginBottom: 8,
 };
 
 const errorStyle: React.CSSProperties = {

@@ -16,7 +16,7 @@ import {
 } from '../ui/workspace';
 import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import type { FootprintStopDto } from '../types';
-import { logoColorFor, monogram, useWorkspaceNav } from './useWorkspaceNav';
+import { useWorkspaceNav } from './useWorkspaceNav';
 
 /**
  * The live workspace navigation sidebar: top nav + either the
@@ -69,8 +69,6 @@ export function WorkspaceNavShell({
     : (
       <>
         <WorkspaceSwitcher
-          initials={monogram(ws.name).toUpperCase()}
-          color={logoColorFor(ws.name)}
           name={ws.name}
           sub={`${ws.repos.length} repos · ${ws.activeThreadCount} threads`}
           onSwitch={onSwitchWorkspace}

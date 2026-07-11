@@ -1166,29 +1166,26 @@
 .diff-row--del .diff-row__gutter { background: #ffd7d5; }
 .diff-row--del .diff-row__sigil { color: #cf222e; }
 
-[data-theme="atom-one-dark"] .diff-row--add,
-[data-theme="warm"] .diff-row--add {
+/* warm theme now renders diff cards on an opaque white (.diff-file-section
+   uses --bg-elevated, not the translucent --bg-card), so the plain GitHub
+   palette above reads fine there too — only the dark theme needs boosting. */
+[data-theme="atom-one-dark"] .diff-row--add {
   background: rgba(63, 185, 80, 0.20);
 }
-[data-theme="atom-one-dark"] .diff-row--add .diff-row__gutter,
-[data-theme="warm"] .diff-row--add .diff-row__gutter {
+[data-theme="atom-one-dark"] .diff-row--add .diff-row__gutter {
   background: rgba(63, 185, 80, 0.34);
 }
-[data-theme="atom-one-dark"] .diff-row--add .diff-row__sigil,
-[data-theme="warm"] .diff-row--add .diff-row__sigil {
+[data-theme="atom-one-dark"] .diff-row--add .diff-row__sigil {
   color: #3fb950;
 }
 
-[data-theme="atom-one-dark"] .diff-row--del,
-[data-theme="warm"] .diff-row--del {
+[data-theme="atom-one-dark"] .diff-row--del {
   background: rgba(248, 81, 73, 0.20);
 }
-[data-theme="atom-one-dark"] .diff-row--del .diff-row__gutter,
-[data-theme="warm"] .diff-row--del .diff-row__gutter {
+[data-theme="atom-one-dark"] .diff-row--del .diff-row__gutter {
   background: rgba(248, 81, 73, 0.36);
 }
-[data-theme="atom-one-dark"] .diff-row--del .diff-row__sigil,
-[data-theme="warm"] .diff-row--del .diff-row__sigil {
+[data-theme="atom-one-dark"] .diff-row--del .diff-row__sigil {
   color: #f85149;
 }
 
@@ -1413,6 +1410,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+}
+.md-composer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 .md-composer__tabs {
   display: inline-flex;

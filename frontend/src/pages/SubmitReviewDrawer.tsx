@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import type { DiffInlineComment } from '../diff/DiffInlineComments';
+import { PendingCommentsList } from '../diff/PendingCommentsList';
 
 export type ReviewVerdict = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 
@@ -29,11 +31,18 @@ const VERDICT_OPTIONS: Array<{ value: ReviewVerdict; label: string; desc: string
  * sends the dev agent (see StageDetailRoute/TaskBrainRoute), alongside any
  * unresolved local line comments.
  */
-export function SubmitReviewDrawer({ open, submitting = false, onClose, onSubmit }: {
+export function SubmitReviewDrawer({
+  open, submitting = false, onClose, onSubmit, pendingComments = [], onRemovePending,
+}: {
   open: boolean;
   submitting?: boolean;
   onClose: () => void;
   onSubmit: (body: string, verdict: ReviewVerdict) => void;
+  /** Draft comments not yet published — shown above the overall body so the
+   *  reviewer sees exactly what this submission will send, and can drop one
+   *  before submitting. Omit where no draft-comment source is wired up. */
+  pendingComments?: DiffInlineComment[];
+  onRemovePending?: (commentId: string) => void;
 }) {
   const [body, setBody] = useState('');
   const [verdict, setVerdict] = useState<ReviewVerdict>('COMMENT');
@@ -62,8 +71,16 @@ export function SubmitReviewDrawer({ open, submitting = false, onClose, onSubmit
       >
         <div className="submit-review-drawer__head">
           <strong>Submit review</strong>
+          {pendingComments.length > 0 && (
+            <span className="submit-review-drawer__pending-badge">{pendingComments.length} pending</span>
+          )}
           <button type="button" className="submit-review-drawer__close" aria-label="Close" onClick={onClose}>×</button>
         </div>
+        <PendingCommentsList
+          comments={pendingComments}
+          onRemove={submitting ? undefined : onRemovePending}
+          emptyHint="No pending comments. You can still leave overall feedback below."
+        />
         <textarea
           className="submit-review-drawer__body"
           value={body}

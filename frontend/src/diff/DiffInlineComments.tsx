@@ -14,10 +14,11 @@
 import { useState, type ReactNode } from 'react';
 import MarkdownComposer from '../MarkdownComposer';
 import { MarkdownProse } from '../threads/MarkdownProse';
+import { relativeTime } from '../notificationDisplay';
 import type { ReviewCommentDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 
-function initials(author: string): string {
+export function initials(author: string): string {
   const cleaned = author.replace(/^@/, '');
   const parts = cleaned.split(/[.\s_-]+/).filter(Boolean);
   const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : cleaned.slice(0, 2);
@@ -49,7 +50,25 @@ export type DiffInlineComment = {
   dismissed: boolean;
   pending?: boolean;
   sourceLabel?: string;
+  /** Epoch ms — drives the relative-time chip. Omit to hide it. */
+  createdAtMs?: number;
 };
+
+/** Avatar tint: the dev agent's own findings (bot) vs. a real reviewer's
+ *  comment synced from GitHub (ext) vs. the current user's own draft (you).
+ *  Exported so the Review tab's pending cards (ReviewTabPendingList) use the
+ *  same avatar coloring as the inline thread cards. */
+export function avatarKind(c: DiffInlineComment): 'bot' | 'ext' | 'you' {
+  if (c.sourceLabel === 'AGENT') return 'bot';
+  if (c.origin === 'remote') return 'ext';
+  return 'you';
+}
+
+/** Still-open local drafts that would be swept into the next publish — the
+ *  set the Submit-review drawer's pending list and toolbar count show. */
+export function isPendingLocalComment(c: LocalPRComment): boolean {
+  return c.origin === 'local' && c.publishedAt === null && c.resolvedAt === null && c.dismissedAt === null;
+}
 
 export function diffInlineCommentFromLocalPr(c: LocalPRComment): DiffInlineComment {
   return {
@@ -66,6 +85,7 @@ export function diffInlineCommentFromLocalPr(c: LocalPRComment): DiffInlineComme
     resolved: c.resolvedAt !== null,
     dismissed: c.dismissedAt !== null,
     pending: c.origin === 'local' && c.publishedAt === null,
+    createdAtMs: c.createdAt,
   };
 }
 
@@ -83,7 +103,11 @@ export function diffInlineCommentFromReviewDto(c: ReviewCommentDto): DiffInlineC
     parentCommentId: null,
     resolved: c.resolved,
     dismissed: false,
+    // A remote reviewer's comment already lives on GitHub — never "pending
+    // submission" the way an unresolved local/agent finding is.
+    pending: c.source !== 'REMOTE_REVIEWER' && !c.resolved,
     sourceLabel: sourceLabel(c.source),
+    createdAtMs: c.createdAt,
   };
 }
 
@@ -104,8 +128,9 @@ function isOpen(c: DiffInlineComment): boolean {
 
 export function DiffInlineCommentComposer({
   value, onChange, onSubmit, onCancel, range, placeholder = 'Leave a comment — markdown supported.',
-  submitLabel = 'Comment', autoFocus = true, actions, error, className = 'cd-inline-comment cd-inline-comment--composer',
-  headerClassName = 'ic-composer-range', actionsClassName = 'ic-actions', textareaClassName = 'ic-composer',
+  submitLabel = '＋ Add to review', showSingleAction = false, autoFocus = true, actions, error,
+  className = 'cd-inline-comment cd-inline-comment--composer',
+  headerClassName, actionsClassName = 'ic-actions', textareaClassName = 'ic-composer',
   disabled = false,
 }: {
   value: string;
@@ -115,20 +140,32 @@ export function DiffInlineCommentComposer({
   range?: string;
   placeholder?: string;
   submitLabel?: string;
+  /** Renders a secondary "Add single comment" action next to the primary
+   *  submit button, matching the mockup's layout. Same handler as the
+   *  primary action — local PR comments have no distinct "post immediately"
+   *  path yet vs. queuing a draft for review, just this second way in. */
+  showSingleAction?: boolean;
   autoFocus?: boolean;
   actions?: ReactNode;
   error?: ReactNode;
   className?: string;
+  /** Legacy path: renders "Commenting on {range}" as its own div above the
+   *  composer instead of merging it into the Write/Preview tab row. Only
+   *  RemotePrDiffReviewScreen still passes this. Omit for the current
+   *  merged-header layout (docs/mockups/design/claude_design_v1). */
   headerClassName?: string;
   actionsClassName?: string;
   textareaClassName?: string;
   disabled?: boolean;
 }) {
   const trimmed = value.trim();
+  const rangeHeader = range !== undefined
+    ? <>Commenting on <b>{range}</b></>
+    : undefined;
   return (
     <div className={className}>
-      {range !== undefined && (
-        <div className={headerClassName}>Commenting on {range}</div>
+      {headerClassName !== undefined && rangeHeader !== undefined && (
+        <div className={headerClassName}>{rangeHeader}</div>
       )}
       <MarkdownComposer
         value={value}
@@ -140,14 +177,23 @@ export function DiffInlineCommentComposer({
         textareaClassName={textareaClassName}
         onSubmitShortcut={onSubmit}
         onCancelShortcut={onCancel}
+        headerLeft={headerClassName === undefined && rangeHeader !== undefined
+          ? <span className="ic-composer-range">{rangeHeader}</span>
+          : undefined}
       />
       {actions ?? (
         <div className={actionsClassName}>
           <button type="button" className="resolve" onClick={onSubmit} disabled={disabled || trimmed.length === 0}>
             {submitLabel}
           </button>
+          {showSingleAction && (
+            <button type="button" className="secondary" onClick={onSubmit} disabled={disabled || trimmed.length === 0}>
+              Add single comment
+            </button>
+          )}
+          <span className="ic-actions__spacer" />
           {onCancel !== undefined && (
-            <button type="button" onClick={onCancel}>
+            <button type="button" className="cancel" onClick={onCancel}>
               Cancel
             </button>
           )}
@@ -159,11 +205,12 @@ export function DiffInlineCommentComposer({
 }
 
 /**
- * The inline comment thread(s) on a single diff line (mockup Frame 15). Each
- * comment carries an origin badge — 🔒 LOCAL (purple, never migrates) or
- * REMOTE — so it's always clear which comments stay private. When
- * `allowLocalComments` is set, an empty line shows a composer and each open
- * root thread offers Reply / Resolve / Discard.
+ * The inline comment thread on a single diff line — one bordered card per
+ * anchor (matching docs/mockups/design/claude_design_v1/PR Review.dc.html),
+ * amber-headed while any comment in it is still a draft/unresolved, neutral
+ * once everything in it is resolved/posted. When `allowLocalComments` is set,
+ * an empty line shows a composer and each open root comment offers
+ * Reply / Resolve / Discard as small text links next to its author.
  */
 export function DiffInlineComments({
   comments,
@@ -191,8 +238,8 @@ export function DiffInlineComments({
   onCancel?: () => void;
   /** {@link rangeLabel} of the line/range the open composer is anchored to
    *  (e.g. "R42" or "L40 to R42") — shown as a small header above the
-   *  composer so a multi-line range is visible while typing. Omit for a
-   *  plain single-line composer with no range to call out. */
+   *  composer so a multi-line range is visible while typing. Also used as the
+   *  thread header's line label when `comments` is empty. */
   composingOn?: string;
   placeholder?: string;
 }) {
@@ -210,69 +257,73 @@ export function DiffInlineComments({
     setReplyDraft('');
     setReplyingTo(null);
   };
+  const hasPending = comments.some(c => c.pending === true);
+  const first = comments[0];
+  const threadLabel = first !== undefined && first.lineNumber !== null
+    ? rangeLabel(first.side, first.lineNumber, first.startLine, first.startSide)
+    : composingOn;
   return (
     <>
-      {comments.map(c => (
-        <div className="cd-inline-comment" key={c.id}>
-          <div className="ic-head">
-            <span className="avatar">{initials(c.author)}</span>
-            <span className="author">{c.author}</span>
-            <span className={c.origin === 'local' ? 'local-badge' : 'remote-badge'}>
-              {c.origin === 'local' ? '🔒 LOCAL' : 'REMOTE'}
-            </span>
-            {c.sourceLabel !== undefined && <span className="remote-badge">{c.sourceLabel}</span>}
-            {c.pending === true && <span className="pending-badge">Pending</span>}
-            {c.resolved && <span className="resolved-badge">resolved</span>}
-            {c.dismissed && <span className="dismissed-badge">dismissed</span>}
-            {c.startLine !== null && c.startLine !== c.lineNumber && c.lineNumber !== null && (
-              <span className="ic-range">{rangeLabel(c.side, c.lineNumber, c.startLine, c.startSide)}</span>
-            )}
+      {comments.length > 0 && (
+        <div className={`ic-thread${hasPending ? ' ic-thread--pending' : ''}`}>
+          <div className="ic-thread__head">
+            {hasPending && <span className="ic-thread__pending-badge">Pending review</span>}
+            {threadLabel !== undefined && <span className="ic-thread__label">Line {threadLabel}</span>}
           </div>
-          <div className="ic-body"><MarkdownProse text={c.body} /></div>
-          {allowLocalComments && isOpen(c) && c.parentCommentId === null && (
-            <div className="ic-actions">
-              {onReply !== undefined && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReplyingTo(c.id);
-                    setReplyDraft('');
-                  }}
-                >
-                  Reply
-                </button>
-              )}
-              {onResolve !== undefined && (
-                <button type="button" className="resolve" onClick={() => onResolve(c.id)}>
-                  Resolve conversation
-                </button>
-              )}
-              {onDismiss !== undefined && (
-                <button type="button" className="dismiss" onClick={() => onDismiss(c.id)}>
-                  Discard draft
-                </button>
-              )}
-            </div>
-          )}
-          {allowLocalComments && c.parentCommentId === null && !isOpen(c) && onReopen !== undefined && (
-            <div className="ic-actions">
-              <button type="button" onClick={() => onReopen(c.id)}>
-                Reopen conversation
-              </button>
-            </div>
-          )}
-          {replyingTo === c.id && onReply !== undefined && (
-            <DiffInlineCommentComposer
-              value={replyDraft}
-              onChange={setReplyDraft}
-              onSubmit={() => submitReply(c)}
-              onCancel={() => { setReplyingTo(null); setReplyDraft(''); }}
-              placeholder="Write a reply — markdown supported."
-              submitLabel="Reply"
-            />
-          )}
+          <div className="ic-thread__body">
+            {comments.map(c => (
+              <div key={c.id}>
+                <div className="ic-comment">
+                  <span className={`ic-comment__avatar ic-comment__avatar--${avatarKind(c)}`}>
+                    {initials(c.author)}
+                  </span>
+                  <div className="ic-comment__col">
+                    <div className="ic-comment__meta">
+                      <span className="ic-comment__author">{c.author}</span>
+                      {c.sourceLabel !== undefined && <span className="ic-comment__tag">{c.sourceLabel}</span>}
+                      {c.resolved && <span className="ic-comment__tag ic-comment__tag--resolved">resolved</span>}
+                      {c.dismissed && <span className="ic-comment__tag ic-comment__tag--dismissed">dismissed</span>}
+                      {c.createdAtMs !== undefined && (
+                        <span className="ic-comment__time">{relativeTime(new Date(c.createdAtMs).toISOString())}</span>
+                      )}
+                      {allowLocalComments && c.parentCommentId === null && (
+                        <span className="ic-comment__links">
+                          {isOpen(c) && onReply !== undefined && (
+                            <button type="button" onClick={() => { setReplyingTo(c.id); setReplyDraft(''); }}>
+                              Reply
+                            </button>
+                          )}
+                          {isOpen(c) && onResolve !== undefined && (
+                            <button type="button" onClick={() => onResolve(c.id)}>Resolve</button>
+                          )}
+                          {isOpen(c) && onDismiss !== undefined && (
+                            <button type="button" onClick={() => onDismiss(c.id)}>Discard</button>
+                          )}
+                          {!isOpen(c) && onReopen !== undefined && (
+                            <button type="button" onClick={() => onReopen(c.id)}>Reopen</button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    <div className="ic-comment__text"><MarkdownProse text={c.body} /></div>
+                  </div>
+                </div>
+                {replyingTo === c.id && onReply !== undefined && (
+                  <DiffInlineCommentComposer
+                    value={replyDraft}
+                    onChange={setReplyDraft}
+                    onSubmit={() => submitReply(c)}
+                    onCancel={() => { setReplyingTo(null); setReplyDraft(''); }}
+                    placeholder="Write a reply — markdown supported."
+                    submitLabel="Reply"
+                    className="ic-reply-composer"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
+      )}
       {allowLocalComments && onAdd !== undefined && (
         <DiffInlineCommentComposer
           value={draft}
@@ -281,6 +332,7 @@ export function DiffInlineComments({
           onCancel={onCancel !== undefined ? () => { setDraft(''); onCancel(); } : undefined}
           range={composingOn}
           placeholder={placeholder}
+          showSingleAction
         />
       )}
     </>

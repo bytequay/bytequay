@@ -72,6 +72,7 @@ export function PrDetailsView<T extends DetailsPr>({
         files={reviewFiles}
         error={reviewError}
         comments={bundle.comments}
+        commits={bundle.commits}
         allowLocalComments={capabilities?.draftLocalComments === true}
         fetchFileBlob={headSha === null
           ? undefined
@@ -81,6 +82,13 @@ export function PrDetailsView<T extends DetailsPr>({
         onResolveComment={resolveLocalComment}
         onDismissComment={dismissLocalComment}
         onBack={() => setReviewOpen(false)}
+        // ponytail: publishLocalPrReview has no body/verdict param (unlike the
+        // task flow's steering-turn submitReview) — it just pushes whatever
+        // pending line comments exist as a GitHub review. The drawer still
+        // collects a body/verdict for layout parity with the task pages; wire
+        // those through once the backend accepts them.
+        onSubmitReview={() => publishReview()}
+        submittingReview={publishBusy}
       />
     );
   }

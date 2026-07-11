@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { marked } from 'marked';
 import { useAutoGrow } from './useAutoGrow';
 import { useMentions } from './useMentions';
@@ -34,6 +34,9 @@ type Props = {
   onSubmitShortcut?: () => void;
   /** Optional Esc handler for cancellable inline composers. */
   onCancelShortcut?: () => void;
+  /** Rendered on the same row as the Write/Preview tabs, left-aligned (e.g.
+   *  "Commenting on R1220") — omit for the plain tabs-only header. */
+  headerLeft?: ReactNode;
 };
 
 /**
@@ -59,6 +62,7 @@ function MarkdownComposer({
   mentionCandidates,
   onSubmitShortcut,
   onCancelShortcut,
+  headerLeft,
 }: Props) {
   const [tab, setTab] = useState<'write' | 'preview'>(initialTab);
   const taRef = useAutoGrow(value);
@@ -69,25 +73,28 @@ function MarkdownComposer({
 
   return (
     <div className="md-composer">
-      <div className="md-composer__tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'write'}
-          className={`md-composer__tab${tab === 'write' ? ' md-composer__tab--active' : ''}`}
-          onClick={() => setTab('write')}
-        >
-          Write
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'preview'}
-          className={`md-composer__tab${tab === 'preview' ? ' md-composer__tab--active' : ''}`}
-          onClick={() => setTab('preview')}
-        >
-          Preview
-        </button>
+      <div className="md-composer__head">
+        {headerLeft}
+        <div className="md-composer__tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'write'}
+            className={`md-composer__tab${tab === 'write' ? ' md-composer__tab--active' : ''}`}
+            onClick={() => setTab('write')}
+          >
+            Write
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'preview'}
+            className={`md-composer__tab${tab === 'preview' ? ' md-composer__tab--active' : ''}`}
+            onClick={() => setTab('preview')}
+          >
+            Preview
+          </button>
+        </div>
       </div>
       {tab === 'write' ? (
         <div style={{ position: 'relative' }}>

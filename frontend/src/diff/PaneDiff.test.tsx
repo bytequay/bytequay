@@ -72,25 +72,24 @@ describe('PaneDiff', () => {
     expect(container.querySelectorAll('.comment-anchor').length).toBe(4);
   });
 
-  it('renders an existing file-line comment inline with the 🔒 LOCAL origin badge', () => {
+  it('renders an existing file-line comment inline in a threaded card', () => {
     const { container } = render(<PaneDiff files={[FILE]} comments={[comment()]} />);
-    const thread = container.querySelector('.cd-inline-comment');
+    const thread = container.querySelector('.ic-thread');
     expect(thread).not.toBeNull();
     expect(screen.getByText(/Split this into a wrapper/)).toBeTruthy();
-    expect(screen.getByText('🔒 LOCAL')).toBeTruthy();
     // The line carrying the thread flags has-comment (orange ⚠ anchor).
     expect(container.querySelector('.diff-line.has-comment')).not.toBeNull();
   });
 
   it('renders a range label on a persisted multi-line comment', () => {
     render(<PaneDiff files={[FILE]} comments={[comment({ startLine: 180, startSide: 'RIGHT' })]} />);
-    expect(screen.getByText('R180 to R181')).toBeTruthy();
+    expect(screen.getByText(/R180 to R181/)).toBeTruthy();
   });
 
-  it('renders a remote-origin comment with the REMOTE badge', () => {
-    render(<PaneDiff files={[FILE]} comments={[comment({ origin: 'remote', author: '@octocat' })]} />);
-    expect(screen.getByText('REMOTE')).toBeTruthy();
-    expect(screen.queryByText('🔒 LOCAL')).toBeNull();
+  it('renders a remote-origin comment with the ext avatar tint', () => {
+    const { container } = render(<PaneDiff files={[FILE]} comments={[comment({ origin: 'remote', author: '@octocat' })]} />);
+    expect(container.querySelector('.ic-comment__avatar--ext')).not.toBeNull();
+    expect(container.querySelector('.ic-comment__avatar--you')).toBeNull();
   });
 
   it('opens a composer on anchor click and submits a local comment on ⌘↵', () => {
@@ -149,7 +148,7 @@ describe('PaneDiff', () => {
     render(
       <PaneDiff files={[FILE]} allowLocalComments comments={[comment()]} onResolveComment={onResolveComment} />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
     expect(onResolveComment).toHaveBeenCalledWith('cm1');
   });
 
@@ -158,7 +157,7 @@ describe('PaneDiff', () => {
     render(
       <PaneDiff files={[FILE]} allowLocalComments comments={[comment()]} onDismissComment={onDismissComment} />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     expect(onDismissComment).toHaveBeenCalledWith('cm1');
   });
 
@@ -186,6 +185,6 @@ describe('PaneDiff', () => {
   it('hides actions and shows the dismissed badge once dismissed', () => {
     render(<PaneDiff files={[FILE]} allowLocalComments comments={[comment({ dismissedAt: Date.now() })]} />);
     expect(screen.getByText('dismissed')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Resolve conversation' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull();
   });
 });

@@ -18,7 +18,7 @@ import { ExpandableFileDiffBody } from '../../diff/ExpandableFileDiffBody';
 import {
   DiffInlineComments, diffInlineCommentFromLocalPr, isPendingLocalComment, rangeLabel,
 } from '../../diff/DiffInlineComments';
-import { PendingCommentsList } from '../../diff/PendingCommentsList';
+import { ReviewTabPendingList } from '../../diff/PendingCommentsList';
 import { commitSubject, formatShortSha } from '../../diff/commitDisplay';
 import { formatRelativeTime } from '../utils';
 import { useDiffRangeComposer } from '../../diff/useDiffRangeComposer';
@@ -211,22 +211,23 @@ export function LocalPrReviewScreen({
 
   const extraTabs: DiffReviewExtraTab[] = showAuxTabs ? [
     { key: 'commits', label: 'Commits', count: commits.length, content: <LocalCommitsList commits={commits} /> },
-    ...(onSubmitReview !== undefined ? [{
+    {
       key: 'review',
       label: 'Review',
       count: pending.length,
       content: (
         <div className="diff-viewer__review-tab">
-          <PendingCommentsList
+          <ReviewTabPendingList
             comments={pending.map(diffInlineCommentFromLocalPr)}
             onRemove={onDismissComment}
+            onOpenSubmitPanel={onSubmitReview !== undefined ? () => setSubmitReviewOpen(true) : undefined}
             emptyHint={(
               <>No pending comments yet.<br />Click a line in the diff to add one.</>
             )}
           />
         </div>
       ),
-    }] : []),
+    },
   ] : [];
 
   return (

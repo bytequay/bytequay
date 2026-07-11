@@ -172,23 +172,59 @@
 .shell .diff-line:hover .comment-anchor:hover { opacity: 1; }
 .shell .diff-line.has-comment .comment-anchor { color: var(--orange); opacity: 1; }
 .shell .diff-line.diff-row--in-range { background: rgba(245, 158, 11, 0.12); }
-.cd-inline-comment { margin: 4px 8px 4px 20px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--orange); border-left: 3px solid var(--orange); border-radius: 6px; font-family: var(--font); font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
-.cd-inline-comment .ic-head { display: flex; align-items: center; gap: 7px; font-size: 11px; }
-.cd-inline-comment .ic-head .avatar { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #14b8a6, #0d9488); color: #fff; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-.cd-inline-comment .ic-head .author { color: var(--text-1); font-weight: 600; }
-.cd-inline-comment .ic-head .local-badge { padding: 1px 6px; background: var(--accent-soft); color: var(--accent); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; }
-.cd-inline-comment .ic-head .remote-badge { padding: 1px 6px; background: var(--bg-input); color: var(--text-3); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; border-radius: 3px; border: 1px solid var(--border-mid); }
-.cd-inline-comment .ic-head .resolved-badge { padding: 1px 6px; background: var(--green-soft); color: var(--green); font-size: 9.5px; font-weight: 700; border-radius: 3px; border: 1px solid var(--green-border); }
-.cd-inline-comment .ic-head .dismissed-badge { padding: 1px 6px; background: var(--bg-input); color: var(--text-3); font-size: 9.5px; font-weight: 700; border-radius: 3px; border: 1px solid var(--border-mid); }
-.cd-inline-comment .ic-head .ic-range { color: var(--text-3); font-size: 9.5px; font-weight: 600; }
-.cd-inline-comment .ic-body { color: var(--text-1); line-height: 1.55; white-space: pre-wrap; }
-.cd-inline-comment .ic-actions { display: flex; gap: 6px; font-size: 11px; }
-.cd-inline-comment .ic-actions button { padding: 3px 9px; background: var(--bg-input); border: 1px solid var(--border-mid); border-radius: 5px; color: var(--text-2); font-size: 11px; cursor: pointer; }
-.cd-inline-comment .ic-actions button.resolve { background: var(--green-soft); color: var(--green); border-color: var(--green-border); }
-.cd-inline-comment .ic-actions button.dismiss { color: var(--text-3); }
-.cd-inline-comment .ic-composer { background: var(--bg-input); border: 1px dashed var(--border-mid); border-radius: 5px; padding: 7px 10px; font-size: 11.5px; color: var(--text-1); font-family: inherit; min-height: 44px; resize: vertical; width: 100%; box-sizing: border-box; }
-.cd-inline-comment .ic-composer::placeholder { color: var(--text-4); font-style: italic; }
-.cd-inline-comment .ic-composer-range { font-size: 10.5px; color: var(--text-3); font-weight: 600; }
+/* New-comment composer (no existing thread yet) — purple-accented card,
+   transcribed from docs/mockups/design/claude_design_v1/PR Review.dc.html's
+   "Commenting on X" box (isComposer), not approximated. */
+.cd-inline-comment { margin: 4px 8px 8px; padding: 0; background: #fff; border: 1px solid #8b5cf6; border-radius: 8px; font-family: var(--font); font-size: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.10); }
+/* Header row — label + Write/Preview merge into one row via MarkdownComposer's
+   headerLeft slot (see .md-composer__head), scoped so only this composer gets
+   the segmented-pill tab look; other MarkdownComposer surfaces are untouched. */
+.cd-inline-comment .md-composer__head { padding: 6px 10px; border-bottom: 1px solid rgba(0, 0, 0, 0.07); background: #faf9fe; }
+.cd-inline-comment .ic-composer-range { font-size: 11px; color: #767068; }
+.cd-inline-comment .ic-composer-range b { color: #1f2328; font-weight: 700; }
+.cd-inline-comment .md-composer__tabs { gap: 2px; background: #f4f1ec; border-radius: 6px; padding: 2px; }
+.cd-inline-comment .md-composer__tab { border-radius: 4px; padding: 2px 9px; font-size: 11px; color: #767068; border: 0; margin-bottom: 0; }
+.cd-inline-comment .md-composer__tab--active { background: #fff; color: #1f2328; font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); border: 0; margin-bottom: 0; }
+.cd-inline-comment .ic-composer { display: block; width: calc(100% - 20px); box-sizing: border-box; height: 52px; min-height: 38px; resize: vertical; border: 1px solid rgba(0, 0, 0, 0.13); border-radius: 7px; margin: 8px 10px 0; padding: 7px 10px; font-size: 12.5px; color: #1f2328; outline: none; background: #fdfcfb; line-height: 1.5; }
+.cd-inline-comment .ic-composer::placeholder { color: var(--text-4); }
+.cd-inline-comment .ic-actions { display: flex; align-items: center; gap: 8px; padding: 8px 10px 9px; }
+.cd-inline-comment .ic-actions__spacer { flex: 1; }
+.cd-inline-comment .ic-actions button.resolve { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 7px; border: 1px solid #1a7f37; background: #1f883d; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.cd-inline-comment .ic-actions button.resolve:hover { background: #1a7f37; }
+.cd-inline-comment .ic-actions button.secondary { padding: 6px 12px; border-radius: 7px; border: 1px solid rgba(0, 0, 0, 0.13); background: #fff; color: #454c54; font-size: 12px; font-weight: 500; cursor: pointer; }
+.cd-inline-comment .ic-actions button.secondary:hover { background: #f4f1ec; }
+.cd-inline-comment .ic-actions button.cancel { padding: 6px 12px; border: 0; background: transparent; color: #767068; font-size: 12px; cursor: pointer; }
+.cd-inline-comment .ic-actions button.cancel:hover { color: #1f2328; }
+
+/* Reply composer nested inside an existing thread — same box, indented past
+   the avatar column, no drop shadow (it isn't the "new thread" affordance). */
+.ic-reply-composer.cd-inline-comment { margin: 6px 0 0 30px; box-shadow: none; }
+
+/* Existing thread — one bordered card per commented line/range, amber-headed
+   while any comment in it is a still-open draft. */
+.ic-thread { margin: 4px 8px 8px; border: 1px solid var(--border-mid); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
+.ic-thread--pending { border-color: rgba(212, 167, 44, 0.45); }
+.ic-thread__head { display: flex; align-items: center; gap: 8px; padding: 5px 12px; background: var(--bg-input); border-bottom: 1px solid var(--border-light); font-size: 11px; }
+.ic-thread--pending .ic-thread__head { background: #fffbeb; }
+.ic-thread__pending-badge { font-size: 9.5px; font-weight: 700; color: #9a6700; background: #fff8c5; border: 1px solid rgba(212, 167, 44, 0.4); border-radius: 999px; padding: 1px 8px; flex-shrink: 0; }
+.ic-thread__label { color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ic-thread__body { padding: 9px 12px; display: flex; flex-direction: column; gap: 10px; }
+.ic-comment { display: flex; gap: 8px; align-items: flex-start; }
+.ic-comment__avatar { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800; color: #fff; }
+.ic-comment__avatar--bot { border-radius: 6px; background: linear-gradient(135deg, #8b5cf6, #5b21b6); }
+.ic-comment__avatar--ext { background: linear-gradient(135deg, #0969da, #033d8b); }
+.ic-comment__avatar--you { background: linear-gradient(135deg, #fbbf24, #d97706); color: #78350f; }
+.ic-comment__col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ic-comment__meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ic-comment__author { font-size: 12px; font-weight: 700; color: var(--text-1); }
+.ic-comment__tag { font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+.ic-comment__tag--resolved { background: var(--green-soft); color: var(--green); }
+.ic-comment__tag--dismissed { background: var(--bg-input); color: var(--text-3); border: 1px solid var(--border-mid); }
+.ic-comment__time { font-size: 10.5px; color: var(--text-4); }
+.ic-comment__links { margin-left: auto; display: inline-flex; gap: 10px; flex-shrink: 0; }
+.ic-comment__links button { border: 0; background: transparent; padding: 0; font-size: 11px; font-weight: 600; color: var(--text-3); cursor: pointer; }
+.ic-comment__links button:hover { color: var(--accent); }
+.ic-comment__text { font-size: 12.5px; color: var(--text-1); line-height: 1.5; }
 .shell .diff-line.add { background: rgba(34, 197, 94, 0.08); }
 .shell .diff-line.add .ln, .shell .diff-line.add .mark { color: rgba(22, 163, 74, 0.55); }
 .shell .diff-line.add .mark { color: #16a34a; }
@@ -751,8 +787,11 @@
 
 /* ── Submit-review drawer ─────────────────────────────────────
    Right-side slide-over mirroring github.com's "Finish your review"
-   panel — a body composer, three verdict radios, Cancel/Submit footer. */
-.shell .submit-review-drawer-backdrop {
+   panel — a pending-comment list, a body composer, three verdict radios,
+   Cancel/Submit footer. Not scoped under .shell: it's also mounted directly
+   by the full-page diff takeovers (LocalPrReviewScreen, TaskCodePage's
+   standalone route), which render outside the app shell. */
+.submit-review-drawer-backdrop {
   position: fixed;
   inset: 0;
   z-index: 45;
@@ -760,10 +799,10 @@
   display: flex;
   justify-content: flex-end;
 }
-.shell .submit-review-drawer {
+.submit-review-drawer {
   width: min(420px, 92vw);
   height: 100%;
-  background: var(--bg);
+  background: var(--bg-elevated);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16);
   display: flex;
@@ -772,14 +811,24 @@
   gap: 14px;
   overflow-y: auto;
 }
-.shell .submit-review-drawer__head {
+.submit-review-drawer__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   font-size: 14px;
   color: var(--text-1);
 }
-.shell .submit-review-drawer__close {
+.submit-review-drawer__pending-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9a6700;
+  background: #fff8c5;
+  border: 1px solid rgba(212, 167, 44, 0.4);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.submit-review-drawer__close {
+  margin-left: auto;
   border: none;
   background: transparent;
   font-size: 20px;
@@ -788,12 +837,187 @@
   cursor: pointer;
   padding: 0;
 }
-.shell .submit-review-drawer__close:hover {
+.submit-review-drawer__close:hover {
   color: var(--text-1);
 }
-.shell .submit-review-drawer__body {
+/* Pending-comment cards — shared by the Submit-review drawer and the
+   diff page's Review tab (PendingCommentsList), so both surfaces read as
+   the same list of "what's about to ship". */
+.pending-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.pending-comments__item {
+  border: 1px solid var(--border-mid);
+  border-radius: 9px;
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-base);
+}
+.pending-comments__item--jumpable { cursor: pointer; }
+.pending-comments__item--jumpable:hover { border-color: var(--accent-border); }
+.pending-comments__item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pending-comments__loc {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.pending-comments__remove {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-4);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.pending-comments__remove:hover { color: #cf222e; }
+.pending-comments__text {
+  font-size: 12.5px;
+  color: var(--text-1);
+  line-height: 1.5;
+}
+.pending-comments__empty {
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--text-4);
+  font-size: 12px;
+  border: 1px dashed var(--border-mid);
+  border-radius: 9px;
+}
+
+/* Review tab panel — transcribed from
+   docs/mockups/design/claude_design_v1/PR Review.dc.html's REVIEW LIST. */
+.review-pending-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 4px;
+}
+.review-pending-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
+}
+.review-pending-panel__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #9a6700;
+}
+.review-pending-panel__count {
+  font-size: 10px;
+  font-weight: 700;
+  color: #9a6700;
+  background: #fff8c5;
+  border: 1px solid rgba(212, 167, 44, 0.4);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.review-pending-panel__open-submit {
+  margin-top: 2px;
   width: 100%;
-  min-height: 130px;
+  padding: 9px 12px;
+  border: 1px solid #1a7f37;
+  background: #1f883d;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+.review-pending-panel__open-submit:hover { background: #1a7f37; }
+.review-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.review-pending__card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--border-mid);
+  border-radius: 9px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.review-pending__card--jumpable { cursor: pointer; }
+.review-pending__card--jumpable:hover { border-color: #8b5cf6; }
+.review-pending__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.review-pending__avatar {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+}
+.review-pending__avatar--bot { border-radius: 6px; background: linear-gradient(135deg, #8b5cf6, #5b21b6); }
+.review-pending__avatar--ext { background: linear-gradient(135deg, #0969da, #033d8b); }
+.review-pending__avatar--you { background: linear-gradient(135deg, #fbbf24, #d97706); color: #78350f; }
+.review-pending__author { font-size: 12px; font-weight: 700; color: var(--text-1); }
+.review-pending__agent-badge {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #fff;
+  background: #8b5cf6;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.review-pending__remove {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  color: var(--text-4);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+.review-pending__remove:hover { color: #cf222e; }
+.review-pending__text { font-size: 12px; color: var(--text-1); line-height: 1.5; }
+.review-pending__footer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.review-pending__loc {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.submit-review-drawer__body {
+  width: 100%;
+  min-height: 96px;
   resize: vertical;
   padding: 10px 12px;
   border: 1px solid var(--border-mid);
@@ -804,12 +1028,12 @@
   font-size: 13px;
   line-height: 1.5;
 }
-.shell .submit-review-drawer__verdicts {
+.submit-review-drawer__verdicts {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.shell .submit-review-verdict {
+.submit-review-verdict {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -817,25 +1041,25 @@
   border-radius: 8px;
   cursor: pointer;
 }
-.shell .submit-review-verdict:hover {
+.submit-review-verdict:hover {
   background: var(--bg-hover);
 }
-.shell .submit-review-verdict input {
+.submit-review-verdict input {
   margin-top: 2px;
 }
-.shell .submit-review-verdict__text {
+.submit-review-verdict__text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   font-size: 13px;
   color: var(--text-1);
 }
-.shell .submit-review-verdict__desc {
+.submit-review-verdict__desc {
   font-size: 12px;
   font-weight: 400;
   color: var(--text-3);
 }
-.shell .submit-review-drawer__foot {
+.submit-review-drawer__foot {
   margin-top: auto;
   display: flex;
   justify-content: flex-end;
@@ -843,7 +1067,7 @@
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-.shell .submit-review-drawer__cancel {
+.submit-review-drawer__cancel {
   padding: 7px 14px;
   font-size: 12.5px;
   font-weight: 500;
@@ -853,24 +1077,24 @@
   cursor: pointer;
   border-radius: 7px;
 }
-.shell .submit-review-drawer__cancel:hover {
+.submit-review-drawer__cancel:hover {
   background: var(--bg-hover);
 }
-.shell .submit-review-drawer__submit {
+.submit-review-drawer__submit {
   padding: 7px 14px;
   font-size: 12.5px;
   font-weight: 600;
-  border: 1px solid var(--green-border, #15803d);
+  border: 1px solid var(--cta-border);
   border-radius: 7px;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+  background: linear-gradient(135deg, var(--cta-from), var(--cta-to));
   color: #fff;
   cursor: pointer;
 }
-.shell .submit-review-drawer__submit:hover {
-  background: linear-gradient(135deg, #16a34a, #15803d);
+.submit-review-drawer__submit:hover {
+  background: linear-gradient(135deg, var(--cta-to), var(--cta-border));
 }
-.shell .submit-review-drawer__submit:disabled,
-.shell .submit-review-drawer__cancel:disabled {
+.submit-review-drawer__submit:disabled,
+.submit-review-drawer__cancel:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

@@ -1363,10 +1363,13 @@
   padding: var(--space-3) var(--space-4);
 }
 
-/* ── Middle column tabs: Changed files | Commits ─────────────── */
+/* ── Middle column tabs: Files | Commits | Review — transcribed from
+   docs/mockups/design/claude_design_v1/PR Review.dc.html's `tabs` (mkTab),
+   not the small-caps section-header style this class used to have. */
 .diff-viewer__col-tabs {
   display: inline-flex;
-  gap: var(--space-2);
+  gap: 4px;
+  padding: 0 4px;
 }
 .diff-viewer__col-tab {
   display: inline-flex;
@@ -1375,19 +1378,37 @@
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-4);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-3);
   cursor: pointer;
-  padding: 2px 0;
+  padding: 8px 3px 9px;
   border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
 }
-.diff-viewer__col-tab:hover { color: var(--text-2); }
+.diff-viewer__col-tab:hover { color: var(--text-1); }
 .diff-viewer__col-tab--active {
   color: var(--text-1);
+  font-weight: 700;
   border-bottom-color: var(--accent);
+}
+/* Review's active-state accent is amber, not the app's default purple —
+   matches the mockup's per-tab `accent` override (mkTab('review', …, '#c2632a')). */
+.diff-viewer__col-tab--review.diff-viewer__col-tab--active {
+  border-bottom-color: #c2632a;
+}
+.diff-viewer__col-tab .diff-viewer__files-count {
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-3);
+}
+.diff-viewer__col-tab--active .diff-viewer__files-count {
+  background: var(--accent-a10);
+  color: var(--accent);
+}
+.diff-viewer__col-tab--review.diff-viewer__col-tab--active .diff-viewer__files-count {
+  background: #fff8c5;
+  color: #9a6700;
 }
 
 /* Commits rendered as a tab inside the middle column — drop the
@@ -1396,6 +1417,15 @@
   flex: 1;
   min-height: 0;
   background: var(--bg-sunken, rgba(0, 0, 0, 0.04));
+}
+
+/* Review tab body — the pending-comment cards, in the same middle column
+   the Files/Commits tabs occupy. */
+.diff-viewer__review-tab {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
 }
 
 /* ── Conversation column (leftmost) — reuses the V3 conversation +
@@ -1638,18 +1668,8 @@
 
 .diff-file-row:hover { background: var(--accent-a7); }
 .diff-file-row--selected {
-  background: var(--accent, #8a6d3b);
-  color: #fff;
-}
-.diff-file-row--selected .diff-file-row__add {
-  color: rgba(180, 255, 200, 0.95);
-}
-.diff-file-row--selected .diff-file-row__del {
-  color: rgba(255, 190, 180, 0.95);
-}
-.diff-file-row--selected .diff-file-row__badge {
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  background: var(--accent-a10, rgba(139, 92, 246, 0.10));
+  color: var(--text-1);
 }
 
 /* Tree-indent chevron. Rotates via transform rather than swapping glyphs so
@@ -1679,7 +1699,7 @@
 }
 .diff-file-row--selected .tree-folder,
 .diff-file-row--selected .tree-chevron {
-  color: #fff;
+  color: var(--accent);
   opacity: 1;
 }
 
@@ -1809,7 +1829,9 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   margin-bottom: var(--space-3);
-  background: var(--bg-card);
+  /* Opaque (not --bg-card's translucent wash) — GitHub-style diff colors
+     below assume a solid white card, matching docs/mockups/design/diff-view. */
+  background: var(--bg-elevated);
 }
 .diff-file-section:last-child { margin-bottom: 0; }
 .diff-file-section__header {
@@ -1823,13 +1845,14 @@
   padding: var(--space-3) var(--space-4);
   min-height: 48px;
   border-bottom: 1px solid var(--border);
-  /* Slight blue tint (over the elevated base) so a file header clearly
-     reads as the boundary of a new file, not just another toolbar. */
-  background: linear-gradient(rgba(64, 148, 255, 0.22), rgba(64, 148, 255, 0.22)), var(--bg-elevated);
+  background: #f6f8fa;
   /* Match the card's rounded top so the sticky header doesn't square off
      the corners. */
   border-top-left-radius: var(--radius-md);
   border-top-right-radius: var(--radius-md);
+}
+[data-theme="atom-one-dark"] .diff-file-section__header {
+  background: var(--bg-card);
 }
 .diff-file-section__fold {
   display: inline-flex;
@@ -1927,15 +1950,17 @@
 }
 .diff-viewer__submit-wrap { position: relative; display: inline-flex; }
 .button--submit {
-  background: var(--text-1);
-  color: var(--bg-base);
-  border: 1px solid var(--text-1);
+  background: linear-gradient(135deg, var(--cta-from), var(--cta-to));
+  color: #fff;
+  border: 1px solid var(--cta-border);
   font-weight: 600;
+  box-shadow: 0 1px 2px var(--cta-shadow);
 }
+.button--submit:hover:not(:disabled) { background: linear-gradient(135deg, var(--cta-to), var(--cta-border)); }
 .button--submit:disabled { opacity: 0.5; cursor: not-allowed; }
 .button--submit__count {
   display: inline-block;
-  background: #06b6d4;
+  background: rgba(255, 255, 255, 0.24);
   color: white;
   padding: 0 6px;
   margin-left: 6px;
@@ -1944,6 +1969,7 @@
   font-weight: 700;
   vertical-align: 1px;
 }
+.button--ai:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .submit-popover {
   position: absolute;

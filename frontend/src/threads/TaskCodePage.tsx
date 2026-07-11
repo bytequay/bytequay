@@ -31,12 +31,15 @@ import {
   DiffInlineComments,
   diffInlineCommentFromLocalPr,
   diffInlineCommentFromReviewDto,
+  isPendingLocalComment,
   rangeLabel,
 } from '../diff/DiffInlineComments';
+import { ReviewTabPendingList } from '../diff/PendingCommentsList';
 import { useThreadTasks } from './useThreadTasks';
 import { MarkReadyPanel, type MarkReadyPrRef } from './MarkReadyPanel';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { isPendingProposal } from '../notificationDisplay';
+import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDrawer';
 
 /** Editable PR title + body panel shown above the diff in review mode.
  *  The text lives in the parent (so Approve can read the live value);
@@ -163,8 +166,9 @@ export default function TaskCodePage({
   // right-hand pane so the conversation + changed-files columns stay visible.
   const [paneTab, setPaneTab] = useState<'code' | 'pr'>('code');
   // The middle column folds the old commits + changed-files panels into one
-  // tabbed column; the left column is now the conversation.
-  const [midTab, setMidTab] = useState<'files' | 'commits'>('files');
+  // tabbed column, plus a Review tab of pending draft comments; the left
+  // column is now the conversation.
+  const [midTab, setMidTab] = useState<'files' | 'commits' | 'review'>('files');
   const [convWidth, setConvWidth] = useState(() => loadWidth(COMMITS_WIDTH_KEY, COMMITS_DEFAULT));
   const [filesWidth, setFilesWidth] = useState(() => loadWidth(FILES_WIDTH_KEY, FILES_DEFAULT));
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -283,6 +287,22 @@ export default function TaskCodePage({
       .then(() => refreshLocalPr())
       .catch(() => { /* poll reconciles */ });
   }, [refreshLocalPr]);
+  const localPendingComments = useMemo(
+    () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
+    [localPrBundle],
+  );
+  // Standalone (non-embedded) local-comment mode has no host page top bar to
+  // reach the Submit-review drawer through — same gap LocalPrReviewScreen
+  // fixes for the PR diff page, mirrored here with its own drawer instance.
+  const [localSubmitOpen, setLocalSubmitOpen] = useState(false);
+  const [localSubmitting, setLocalSubmitting] = useState(false);
+  const submitLocalReview = useCallback((body: string, verdict: ReviewVerdict) => {
+    setLocalSubmitting(true);
+    window.bridge.submitReview(taskId, { body, verdict })
+      .then(() => refreshLocalPr())
+      .catch(() => { /* poll reconciles */ })
+      .finally(() => setLocalSubmitting(false));
+  }, [taskId, refreshLocalPr]);
   // Only the PR-opening gates carry a title/body to review + edit. A bare
   // `push` gate pushes the branch; the agent opens the PR (with its
   // description) as the next gate — so show that instead of an empty editor.
@@ -384,6 +404,18 @@ export default function TaskCodePage({
 
   const openCount = useMemo(() => reviewComments.filter(c => !c.resolved).length, [reviewComments]);
   const hasUnresolved = openCount > 0;
+
+  // Review tab content — whichever pending-comment source applies to the
+  // active mode. Read-only mode (shipped/terminal, no proposal) has none.
+  const reviewTabComments = useMemo(() => {
+    if (reviewMode) return reviewComments.filter(c => !c.resolved).map(diffInlineCommentFromReviewDto);
+    if (localCommentMode) return localPendingComments;
+    return [];
+  }, [reviewMode, reviewComments, localCommentMode, localPendingComments]);
+  const jumpToReviewComment = useCallback((c: { filePath: string | null }) => {
+    if (c.filePath !== null) setSelectedPath(c.filePath);
+    setMidTab('files');
+  }, []);
 
   const submitReview = useCallback(async () => {
     if (actionBusy) return;
@@ -582,6 +614,14 @@ export default function TaskCodePage({
                 </span>
                 <button
                   type="button"
+                  className="button button--ai"
+                  disabled
+                  title="AI Review isn't wired up for task diffs yet."
+                >
+                  ✨ AI Review
+                </button>
+                <button
+                  type="button"
                   className="button button--secondary"
                   onClick={() => void submitReview()}
                   disabled={actionBusy}
@@ -604,7 +644,45 @@ export default function TaskCodePage({
                 </button>
               </div>
             )}
+            {!reviewMode && !markReadyMode && localCommentMode && (
+              <div className="diff-viewer__review-actions">
+                <button
+                  type="button"
+                  className="button button--ai"
+                  disabled
+                  title="AI Review isn't wired up for task diffs yet."
+                >
+                  ✨ AI Review
+                </button>
+                <div className="diff-viewer__submit-wrap">
+                  <button
+                    type="button"
+                    className="button button--submit"
+                    onClick={() => setLocalSubmitOpen(true)}
+                    disabled={localSubmitting}
+                  >
+                    {localSubmitting ? 'Submitting…' : 'Submit review'}
+                    {localPendingComments.length > 0 && (
+                      <span className="button--submit__count">{localPendingComments.length}</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
+        )}
+        {!embedded && !reviewMode && !markReadyMode && localCommentMode && (
+          <SubmitReviewDrawer
+            open={localSubmitOpen}
+            submitting={localSubmitting}
+            pendingComments={localPendingComments}
+            onRemovePending={dismissLocalComment}
+            onClose={() => setLocalSubmitOpen(false)}
+            onSubmit={(body, verdict) => {
+              submitLocalReview(body, verdict);
+              setLocalSubmitOpen(false);
+            }}
+          />
         )}
 
         <div
@@ -629,7 +707,7 @@ export default function TaskCodePage({
           {/* Middle column: Changed files + Commits folded into two tabs. */}
           <aside className="diff-viewer__files">
             <div className="diff-viewer__files-header">
-              <div className="diff-viewer__col-tabs" role="tablist" aria-label="Files or commits">
+              <div className="diff-viewer__col-tabs" role="tablist" aria-label="Files, commits, or review">
                 <button
                   type="button"
                   role="tab"
@@ -637,7 +715,7 @@ export default function TaskCodePage({
                   onClick={() => setMidTab('files')}
                   aria-selected={midTab === 'files'}
                 >
-                  Changed files
+                  Files
                   {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
                 </button>
                 <button
@@ -649,6 +727,18 @@ export default function TaskCodePage({
                 >
                   Commits
                   {commits !== null && <span className="diff-viewer__files-count">{commits.length}</span>}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`diff-viewer__col-tab diff-viewer__col-tab--review${midTab === 'review' ? ' diff-viewer__col-tab--active' : ''}`}
+                  onClick={() => setMidTab('review')}
+                  aria-selected={midTab === 'review'}
+                >
+                  Review
+                  {reviewTabComments.length > 0 && (
+                    <span className="diff-viewer__files-count">{reviewTabComments.length}</span>
+                  )}
                 </button>
               </div>
             </div>
@@ -664,7 +754,7 @@ export default function TaskCodePage({
                 collapsedDirs={collapsedDirs}
                 onToggleDir={toggleDir}
               />
-            ) : (
+            ) : midTab === 'commits' ? (
               <CommitsColumn
                 commits={(commits ?? []).map(c => ({
                   sha: c.sha, subject: c.subject, author: c.authorName, authoredAt: c.authoredAt,
@@ -678,6 +768,16 @@ export default function TaskCodePage({
                 onToggleCollapsed={() => { /* embedded as a tab; no collapse */ }}
                 embedded
               />
+            ) : (
+              <div className="diff-viewer__review-tab">
+                <ReviewTabPendingList
+                  comments={reviewTabComments}
+                  onRemove={localCommentMode ? dismissLocalComment : undefined}
+                  onJump={jumpToReviewComment}
+                  onOpenSubmitPanel={localCommentMode ? () => setLocalSubmitOpen(true) : undefined}
+                  emptyHint="No pending comments yet. Click a line in the diff to add one."
+                />
+              </div>
             )}
           </aside>
           <ResizeHandle onResize={handleFilesResize} ariaLabel="Resize changed-files panel" />

@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SubmitReviewDrawer } from './SubmitReviewDrawer';
+import type { DiffInlineComment } from '../diff/DiffInlineComments';
 
 afterEach(cleanup);
 
@@ -48,5 +49,32 @@ describe('SubmitReviewDrawer', () => {
     render(<SubmitReviewDrawer open onClose={onClose} onSubmit={() => {}} />);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('lists pending comments and removes one on click', () => {
+    const onRemovePending = vi.fn();
+    const pending: DiffInlineComment[] = [{
+      id: 'c1', filePath: 'src/Foo.java', lineNumber: 42, side: 'RIGHT',
+      startLine: null, startSide: null, author: 'you', body: 'Guard against null here.',
+      origin: 'local', parentCommentId: null, resolved: false, dismissed: false,
+    }];
+    render(
+      <SubmitReviewDrawer
+        open
+        onClose={() => {}}
+        onSubmit={() => {}}
+        pendingComments={pending}
+        onRemovePending={onRemovePending}
+      />,
+    );
+    expect(screen.getByText('1 pending')).toBeTruthy();
+    expect(screen.getByText('Guard against null here.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove comment' }));
+    expect(onRemovePending).toHaveBeenCalledWith('c1');
+  });
+
+  it('shows the empty-pending hint when there are no drafts', () => {
+    render(<SubmitReviewDrawer open onClose={() => {}} onSubmit={() => {}} />);
+    expect(screen.getByText(/No pending comments/)).toBeTruthy();
   });
 });

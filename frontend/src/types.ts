@@ -2030,6 +2030,8 @@ export type ReviewCommentDto = {
   body: string;
   createdAt: number;
   source: string;
+  /** GitHub login / actor label when available. Older rows may omit this. */
+  author?: string | null;
   resolved: boolean;
 };
 

@@ -12,7 +12,14 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
-import { avatarKind, initials, type DiffInlineComment } from './DiffInlineComments';
+import Avatar from '../Avatar';
+import {
+  avatarKind,
+  commentLocationLabel,
+  githubAvatarLogin,
+  initials,
+  type DiffInlineComment,
+} from './DiffInlineComments';
 
 /**
  * Draft-comment cards — "what's about to ship" — for the Submit-review
@@ -69,10 +76,8 @@ export function PendingCommentsList({
  * docs/mockups/design/claude_design_v1/PR Review.dc.html's REVIEW LIST: an
  * uppercase "Pending review N" header, one card per draft (author avatar +
  * name + optional AGENT badge, comment text, a footer with the file/line
- * location), then an "Open submit panel →" button. The mockup also has a
- * tags row and a "→ evidence" link on AI findings — omitted here since
- * nothing in this app's comment model produces severity tags or AI findings
- * yet; add them once AI Review is wired up.
+ * location), then an "Open submit panel →" button. Agent comments use the
+ * purple AI treatment when the comment source marks them as AGENT.
  */
 export function ReviewTabPendingList({
   comments, onRemove, onJump, onOpenSubmitPanel, emptyHint = 'No pending comments yet.',
@@ -96,39 +101,49 @@ export function ReviewTabPendingList({
         <div className="pending-comments__empty">{emptyHint}</div>
       ) : (
         <div className="review-pending">
-          {comments.map(c => (
-            <div
-              key={c.id}
-              className={`review-pending__card${onJump !== undefined ? ' review-pending__card--jumpable' : ''}`}
-              onClick={onJump !== undefined ? () => onJump(c) : undefined}
-              role={onJump !== undefined ? 'button' : undefined}
-              tabIndex={onJump !== undefined ? 0 : undefined}
-            >
-              <div className="review-pending__head">
-                <span className={`review-pending__avatar review-pending__avatar--${avatarKind(c)}`}>
-                  {initials(c.author)}
-                </span>
-                <span className="review-pending__author">{c.author}</span>
-                {c.sourceLabel === 'AGENT' && <span className="review-pending__agent-badge">AGENT</span>}
-                {onRemove !== undefined && (
-                  <button
-                    type="button"
-                    className="review-pending__remove"
-                    aria-label="Remove comment"
-                    onClick={e => { e.stopPropagation(); onRemove(c.id); }}
-                  >
-                    ×
-                  </button>
-                )}
+          {comments.map(c => {
+            const kind = avatarKind(c);
+            const avatarLogin = githubAvatarLogin(c);
+            return (
+              <div
+                key={c.id}
+                className={`review-pending__card review-pending__card--${kind}${onJump !== undefined ? ' review-pending__card--jumpable' : ''}`}
+                onClick={onJump !== undefined ? () => onJump(c) : undefined}
+                role={onJump !== undefined ? 'button' : undefined}
+                tabIndex={onJump !== undefined ? 0 : undefined}
+              >
+                <div className="review-pending__head">
+                  {avatarLogin !== null ? (
+                    <Avatar
+                      login={avatarLogin}
+                      size={28}
+                      className={`review-pending__avatar-img review-pending__avatar--${kind}`}
+                    />
+                  ) : (
+                    <span className={`review-pending__avatar review-pending__avatar--${kind}`}>
+                      {initials(c.author)}
+                    </span>
+                  )}
+                  <span className="review-pending__author">{c.author}</span>
+                  {c.sourceLabel === 'AGENT' && <span className="review-pending__agent-badge">AGENT</span>}
+                  {onRemove !== undefined && (
+                    <button
+                      type="button"
+                      className="review-pending__remove"
+                      aria-label="Remove comment"
+                      onClick={e => { e.stopPropagation(); onRemove(c.id); }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                <span className="review-pending__text">{c.body}</span>
+                <div className="review-pending__footer">
+                  <span className="review-pending__loc">{commentLocationLabel(c)}</span>
+                </div>
               </div>
-              <span className="review-pending__text">{c.body}</span>
-              <div className="review-pending__footer">
-                <span className="review-pending__loc">
-                  {c.filePath}{c.lineNumber !== null ? ` · L${c.lineNumber}` : ''}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {onOpenSubmitPanel !== undefined && (
             <button type="button" className="review-pending-panel__open-submit" onClick={onOpenSubmitPanel}>
               Open submit panel →

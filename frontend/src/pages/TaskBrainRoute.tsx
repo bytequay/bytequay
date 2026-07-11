@@ -478,10 +478,10 @@ export function TaskBrainRoute({
             changesContent={(
               <LocalPrReviewScreen
                 embedded
-                showAuxTabs={false}
                 title={`Review · ${localPrBundle.pr.title}`}
                 files={reviewOpen ? reviewFiles : null}
                 comments={localPrBundle?.comments ?? []}
+                commits={localPrBundle?.commits ?? []}
                 allowLocalComments={prCapabilities?.draftLocalComments === true && !task.terminal}
                 fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
                 onAddComment={addLocalLineComment}
@@ -489,6 +489,8 @@ export function TaskBrainRoute({
                 onResolveComment={resolveLocalComment}
                 onDismissComment={dismissLocalComment}
                 onBack={() => setReviewOpen(false)}
+                onSubmitReview={onSubmitReview}
+                submittingReview={submittingReview}
               />
             )}
             onRunTests={runLocalTests}

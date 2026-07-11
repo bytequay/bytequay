@@ -510,10 +510,10 @@ export function StageDetailRoute({
       changesContent={(
         <LocalPrReviewScreen
           embedded
-          showAuxTabs={false}
           title={`Review · ${localPrBundle.pr.title}`}
           files={reviewOpen ? files : null}
           comments={localPrBundle?.comments ?? []}
+          commits={localPrBundle?.commits ?? []}
           allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
           fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
           onAddComment={addLocalLineComment}
@@ -521,6 +521,8 @@ export function StageDetailRoute({
           onResolveComment={resolveLocalComment}
           onDismissComment={dismissLocalComment}
           onBack={() => setReviewOpen(false)}
+          onSubmitReview={onSubmitReview}
+          submittingReview={submittingReview}
         />
       )}
       onRunTests={runLocalTests}

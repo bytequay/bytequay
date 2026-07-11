@@ -16,7 +16,7 @@ import type { IssueDto, PullRequestDto, UserProfileDto } from './types';
 import IssueDetailScreen from './IssueDetailScreen';
 import { PrDetailsView } from './pr/localpr/PrDetailsView';
 import ReviewScreen from './ReviewScreen';
-import DiffViewerScreen from './DiffViewerScreen';
+import RemotePrDiffReviewScreen from './RemotePrDiffReviewScreen';
 import ResizeHandle from './ResizeHandle';
 import Avatar from './Avatar';
 import LogoLoading from './LogoLoading';
@@ -75,7 +75,7 @@ type Props = {
    *  drop the user back on the PR list. */
   initialTab?: 'pulls' | 'issues';
   /** When set together with {@link #initialPrNumber}, the page jumps
-   *  past the PR conversation view straight into the DiffViewer at
+   *  past the PR conversation view straight into the remote PR diff at
    *  the given commit SHA. Email-injected "↗ ByteQuay" buttons use
    *  this so the user lands on the code diff page they care about. */
   initialDiffCommitSha?: string;
@@ -176,7 +176,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
   const [reviewingPr, setReviewingPr] = useState<PullRequestDto | null>(null);
   const [diffViewerPr, setDiffViewerPr] = useState<PullRequestDto | null>(null);
   // When the user opened the diff viewer by clicking a commit SHA chip in
-  // the timeline, that SHA is stashed here so DiffViewerScreen can land
+  // the timeline, that SHA is stashed here so the remote PR diff can land
   // on the single-commit view instead of the cumulative PR diff.
   const [diffViewerCommitSha, setDiffViewerCommitSha] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfileDto | null>(
@@ -735,7 +735,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
             onBack={handleBackFromReview}
           />
         ) : diffViewerPr ? (
-          <DiffViewerScreen
+          <RemotePrDiffReviewScreen
             pr={diffViewerPr}
             onBack={() => { setDiffViewerPr(null); setDiffViewerCommitSha(null); }}
             onApprove={handleApprove}

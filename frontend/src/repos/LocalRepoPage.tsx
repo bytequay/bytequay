@@ -25,13 +25,13 @@ import { parseUnifiedDiff } from '../diffParse';
 import ResizeHandle from '../ResizeHandle';
 
 // Persisted widths for the Commits-tab 3-pane layout. Same pattern as
-// DiffViewerScreen — left/middle column widths are user-controlled via
+// RemotePrDiffReviewScreen — left/middle column widths are user-controlled via
 // drag handles, the right diff column takes whatever remains so it
 // always grows with the viewport. localStorage keys are scoped to this
 // view so they don't collide with the PR diff viewer's keys.
 const COMMITS_TAB_LEFT_KEY = 'bq.localRepo.commitsTab.leftWidth';
 const COMMITS_TAB_MID_KEY = 'bq.localRepo.commitsTab.midWidth';
-// Shared with the PR diff viewer (DiffViewerScreen.tsx) so the user's
+// Shared with the PR diff viewer so the user's
 // Tree/Flat preference applies across both surfaces.
 const FILES_MODE_KEY = 'settings:diff-files-mode';
 const COMMITS_TAB_LEFT_DEFAULT = 320;

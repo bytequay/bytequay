@@ -988,7 +988,7 @@
 }
 
 /* Selected-mode .v2-main hosts a screen (PullRequestPreview, ReviewScreen,
-   DiffViewerScreen) that needs the full pane to itself. The --screen
+   remote PR diff) that needs the full pane to itself. The --screen
    modifier flips it into a flex column with no padding so:
    - the back-button nav (v2-main__nav) keeps its slot at the top, and
    - the screen child (v2-main__screen) gets a real height to fill.

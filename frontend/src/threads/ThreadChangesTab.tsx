@@ -35,8 +35,7 @@ type Props = {
  * (mode='files') or commit history (mode='commits') side-by-side
  * with the conversation.
  *
- * Visual language mirrors the PR review's diff viewer ({@code
- * DiffViewerScreen}): the file list uses the shared {@link
+ * Visual language mirrors the PR review diff: the file list uses the shared {@link
  * DiffFileTreePane} with a tree/flat toggle, and the diff body
  * reuses {@code parseUnifiedDiff} + the {@code .diff-row*} classes
  * so additions/deletions, line-number gutters, and hunk headers all
@@ -183,8 +182,7 @@ export function ThreadDiffPane({
   workingCount?: number | null;
   commitsCount?: number | null;
   /** Drop the outer card border/radius so the pane sits edge-to-edge —
-   *  used by the standalone code-diff page to match the PR DiffViewerScreen
-   *  shell. */
+   *  used by the standalone code-diff page to match the PR diff shell. */
   flush?: boolean;
   /** Show only the Commits view (no Working tree tab) — the standalone task
    *  code-diff page is about the task's commits. */
@@ -834,7 +832,7 @@ function CommitDiffView({ threadId, sha }: { threadId: string; sha: string }) {
   );
 }
 
-// ─── Diff body — mirrors DiffViewerScreen's .diff-row* layout ───────
+// ─── Diff body — mirrors the shared .diff-row* layout ───────
 
 /** Renders a unified diff via {@link parseUnifiedDiff} with the same
  *  3-cell row layout (old-line gutter, new-line gutter, sigil +
@@ -951,7 +949,7 @@ const panelStyle: React.CSSProperties = {
 };
 
 // Edge-to-edge variant for the standalone code-diff page, which supplies
-// its own DiffViewerScreen-style shell — no card border/radius.
+// its own diff shell — no card border/radius.
 const flushPanelStyle: React.CSSProperties = {
   ...panelStyle,
   border: 'none',

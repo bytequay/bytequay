@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import DiffViewerScreen from './DiffViewerScreen';
+import RemotePrDiffReviewScreen from './RemotePrDiffReviewScreen';
 import type { DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewFindingDto, ReviewThreadDto } from './types';
 
 // React 19 enforces this flag before async act() works.
@@ -171,7 +171,7 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
 }
 
 /** Minimal panel finding for the review-overlay lookup — only the fields
- *  DiffViewerScreen reads (status / path / line / severity / body). */
+ *  RemotePrDiffReviewScreen reads (status / path / line / severity / body). */
 function panelFinding(overrides: Partial<ReviewFindingDto> = {}): ReviewFindingDto {
   return {
     id: 'f',
@@ -219,7 +219,7 @@ async function render(detail = makeDetail(), props: {
   (window as unknown as { bridge: ReturnType<typeof bridgeStub> }).bridge = bridge;
   await act(async () => {
     root.render(
-      <DiffViewerScreen
+      <RemotePrDiffReviewScreen
         pr={makePr()}
         onBack={props.onBack ?? vi.fn()}
         onApprove={props.onApprove}
@@ -240,7 +240,7 @@ function updateTextarea(textarea: HTMLTextAreaElement, value: string) {
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-describe('DiffViewerScreen freshness', () => {
+describe('RemotePrDiffReviewScreen freshness', () => {
   it('uses force-refresh reconciliation after approval', async () => {
     const onApprove = vi.fn().mockResolvedValue(undefined);
     const onBack = vi.fn();
@@ -361,7 +361,7 @@ describe('DiffViewerScreen freshness', () => {
   });
 });
 
-describe('DiffViewerScreen panel-findings overlay', () => {
+describe('RemotePrDiffReviewScreen panel-findings overlay', () => {
   it('lists whole-PR (path-less) agreed findings in the sidebar, not just line-anchored ones', async () => {
     // Regression: "View findings on the diff" showed nothing when the
     // panel's agreed findings had no file path. Whole-PR findings can't
@@ -479,7 +479,7 @@ describe('DiffViewerScreen panel-findings overlay', () => {
   });
 });
 
-describe('DiffViewerScreen commits column', () => {
+describe('RemotePrDiffReviewScreen commits column', () => {
   const commits = [
     makeCommit({ sha: 'c0', message: 'First commit' }),
     makeCommit({ sha: 'c1', message: 'Second commit' }),

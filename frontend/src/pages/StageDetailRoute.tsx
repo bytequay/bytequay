@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
@@ -42,6 +42,7 @@ import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
+import { ConvIndex } from '../threads/ConvIndex';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -106,6 +107,7 @@ export function StageDetailRoute({
   const { data, refresh } = useStageDetailData(stageId);
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const { data: brain, pollFast } = useBrainViewData(taskId);
+  const conversationRef = useRef<HTMLDivElement | null>(null);
   // The plan is the task's; surface it on every stage via the reminder pill +
   // zoomed overlay (the plan no longer sits in the stage's tab strip).
   const plan = brain.rightRail.plan;
@@ -391,8 +393,15 @@ export function StageDetailRoute({
         )),
         ...(transcriptRows ?? []),
       ];
+  const stagePromptSeqs = useMemo(
+    () => new Set(
+      (data?.conversation ?? [])
+        .flatMap(r => r.kind === 'user' && typeof r.messageSeq === 'number'
+          ? [r.messageSeq]
+          : [])),
+    [data?.conversation]);
   const conversation = (
-    <Conv>
+    <Conv scrollRef={conversationRef}>
       {feedRows}
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
@@ -629,6 +638,13 @@ export function StageDetailRoute({
       openTabRequest={openTabRequest}
       stage={{ title: data?.task.title ?? 'Stage', branch: data?.task.branch }}
       conversation={conversation}
+      conversationIndex={data?.conversationThreadId != null ? (
+        <ConvIndex
+          threadId={data.conversationThreadId}
+          scrollContainerRef={conversationRef}
+          restrictToSeqs={stagePromptSeqs}
+        />
+      ) : undefined}
       composer={{
         value: text,
         onChange: setText,

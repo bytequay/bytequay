@@ -53,6 +53,7 @@ export function stageRow(
           timestamp={<EventTimestamp iso={r.ts} />}
           threadId={threadId}
           images={r.images}
+          messageSeq={r.messageSeq}
         />
       );
     case 'agent':

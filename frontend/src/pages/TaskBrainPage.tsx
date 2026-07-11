@@ -40,7 +40,7 @@ export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, composer, run = {},
   tabs, planReminder, onRevealPlan, onOpenCi,
   onSubmitReview, submittingReview = false, openTabRequest,
-  pendingReviewComments = [], onRemovePendingReviewComment,
+  pendingReviewComments = [], onRemovePendingReviewComment, conversationIndex,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
@@ -48,6 +48,7 @@ export function TaskBrainPage({
   pr?: { number: number; status: string; onOpen: () => void };
   sidebar?: ReactNode;
   conversation: ReactNode;
+  conversationIndex?: ReactNode;
   collapsed?: boolean;
   composer: {
     value: string;
@@ -191,7 +192,10 @@ export function TaskBrainPage({
           style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
         >
           <div className="conv-col">
-            {conversation}
+            <div className="conv-index-host">
+              {conversation}
+              {conversationIndex}
+            </div>
             {/* Same row as the development stage: the plan reminder pill sits
                 on the left, the tab chips align to the right. */}
             <div className="chip-reminder-row">

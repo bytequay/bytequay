@@ -40,6 +40,13 @@ class TestManagedSkillPolicy
     }
 
     @Test
+    void apiCodingStageGetsPonytail()
+    {
+        assertThat(policy.skillNames(ThreadKind.LOGIC_LOOP, turn("user"), StageType.DEVELOPMENT_STAGE))
+                .containsExactly("ponytail");
+    }
+
+    @Test
     void brainReviewGetsPonytailReview()
     {
         assertThat(policy.skillNames(ThreadKind.BRAIN_AGENT, turn("brain-review"), null))

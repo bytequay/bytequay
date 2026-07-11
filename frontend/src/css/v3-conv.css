@@ -13,6 +13,13 @@
   min-width: 0;
   min-height: 0;
 }
+.shell .conv-index-host {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .shell .conv {
   padding: 22px 32px 14px;
   display: flex;

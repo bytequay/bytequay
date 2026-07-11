@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { PRView } from '../pr/localpr/PRView';
@@ -33,6 +33,7 @@ import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
 import { PlanOverlay } from './PlanOverlay';
 import TaskCodePage from '../threads/TaskCodePage';
+import { ConvIndex } from '../threads/ConvIndex';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -64,6 +65,7 @@ export function TaskBrainRoute({
 }) {
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
+  const conversationRef = useRef<HTMLDivElement | null>(null);
   const shipProposal = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
@@ -302,9 +304,17 @@ export function TaskBrainRoute({
       onSetMinApprovals={setMinApprovals}
     />
   ) : null;
+  const brainPromptSeqs = useMemo(
+    () => new Set(
+      brainFeed
+        .flatMap(r => (r.type === 'USER_MESSAGE' || r.type === 'TRUNK_MESSAGE')
+          && typeof r.messageSeq === 'number'
+          ? [r.messageSeq]
+          : [])),
+    [brainFeed]);
 
   const conversation = (
-    <Conv>
+    <Conv scrollRef={conversationRef}>
       {showRoot && seed !== undefined && seed.trim().length > 0 && (
         <PlanningSeed seed={seed} />
       )}
@@ -442,6 +452,13 @@ export function TaskBrainRoute({
       sidebar={sidebar}
       openTabRequest={openTabRequest}
       conversation={conversation}
+      conversationIndex={data.brainThreadId !== null ? (
+        <ConvIndex
+          threadId={data.brainThreadId}
+          scrollContainerRef={conversationRef}
+          restrictToSeqs={brainPromptSeqs}
+        />
+      ) : undefined}
       composer={{
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
         placeholder: 'Ask the brain, or steer the task…',

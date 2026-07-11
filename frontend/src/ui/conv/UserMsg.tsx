@@ -20,7 +20,7 @@ import { useAttachmentImages } from '../../threads/useAttachmentImages';
  * ("You"), keeping visual weight on the agent's work rather than a big
  * chat bubble. Body renders as plain text (user prompts skip markdown).
  */
-export function UserMsg({ text, timestamp, who = 'You', children, threadId, images }: {
+export function UserMsg({ text, timestamp, who = 'You', children, threadId, images, messageSeq }: {
   text?: string;
   timestamp?: ReactNode;
   who?: ReactNode;
@@ -31,10 +31,11 @@ export function UserMsg({ text, timestamp, who = 'You', children, threadId, imag
   /** Attached-image file paths from the message's envelope, resolved to
    *  renderable thumbnails via the bridge. */
   images?: string[];
+  messageSeq?: number | null;
 }) {
   const resolvedImages = useAttachmentImages(threadId ?? '', images ?? []);
   return (
-    <EventRow kind="user" who={who} timestamp={timestamp}>
+    <EventRow kind="user" who={who} timestamp={timestamp} dataSeq={messageSeq}>
       {resolvedImages.length > 0 && (
         <div className="sp-ublock__images">
           {resolvedImages.map(src => <img key={src} src={src} alt="Attached" className="sp-ublock__img" />)}

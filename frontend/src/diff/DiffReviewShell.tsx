@@ -19,12 +19,46 @@ import { treeOrderedFiles } from '../fileTree';
 import { ContinuousDiff } from './DiffFileList';
 import { DiffFileTreePane, type FilesPaneMode } from './DiffFileTreePane';
 
+export type DiffReviewTabIcon = 'files' | 'commits' | 'review';
+
 export type DiffReviewExtraTab = {
   key: string;
   label: string;
+  icon?: DiffReviewTabIcon;
   count?: number;
   content: ReactNode;
 };
+
+export function DiffColumnTabIcon({ icon }: { icon: DiffReviewTabIcon }) {
+  if (icon === 'files') {
+    return (
+      <svg className="diff-viewer__col-tab-svg" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="4" height="4" rx="0.8" />
+        <path d="M6.5 4.5h1.4a1 1 0 0 1 1 1v5" />
+        <rect x="9.5" y="3" width="4" height="3.5" rx="0.8" />
+        <path d="M8.9 10.5h0.6" />
+        <rect x="9.5" y="9.5" width="4" height="3.5" rx="0.8" />
+      </svg>
+    );
+  }
+  if (icon === 'commits') {
+    return (
+      <svg className="diff-viewer__col-tab-svg" viewBox="0 0 16 16" aria-hidden="true">
+        <path className="diff-viewer__col-tab-fill" d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5h-3.32ZM8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="diff-viewer__col-tab-svg" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.75 2.75h10.5a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H8.1L4.5 13.75v-2.5H2.75a1.5 1.5 0 0 1-1.5-1.5v-5.5a1.5 1.5 0 0 1 1.5-1.5Z" />
+      <path d="m5.25 7.3 1.55 1.55 3.7-3.7" />
+    </svg>
+  );
+}
+
+function tabLabel(label: string, count?: number): string {
+  return count === undefined ? label : `${label}, ${count}`;
+}
 
 export function DiffReviewShell({
   title,
@@ -118,8 +152,10 @@ export function DiffReviewShell({
                   className={`diff-viewer__col-tab${activeTab === 'files' ? ' diff-viewer__col-tab--active' : ''}`}
                   onClick={() => onTabChange?.('files')}
                   aria-selected={activeTab === 'files'}
+                  aria-label={tabLabel('Files', files?.length)}
+                  title="Files"
                 >
-                  Files
+                  <span className="diff-viewer__col-tab-icon"><DiffColumnTabIcon icon="files" /></span>
                   {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
                 </button>
                 {extraTabs.map(t => (
@@ -132,8 +168,12 @@ export function DiffReviewShell({
                       + (activeTab === t.key ? ' diff-viewer__col-tab--active' : '')}
                     onClick={() => onTabChange?.(t.key)}
                     aria-selected={activeTab === t.key}
+                    aria-label={tabLabel(t.label, t.count)}
+                    title={t.label}
                   >
-                    {t.label}
+                    <span className="diff-viewer__col-tab-icon">
+                      <DiffColumnTabIcon icon={t.icon ?? (t.key === 'review' ? 'review' : 'commits')} />
+                    </span>
                     {t.count !== undefined && <span className="diff-viewer__files-count">{t.count}</span>}
                   </button>
                 ))}

@@ -17,6 +17,7 @@ import MarkdownComposer from '../MarkdownComposer';
 import { CommitsColumn } from '../diff/CommitsColumn';
 import { DiffChatColumn } from './DiffChatColumn';
 import { ContinuousDiff } from '../diff/DiffFileList';
+import { DiffColumnTabIcon } from '../diff/DiffReviewShell';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { contiguousRange } from '../diff/commitRange';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
@@ -742,8 +743,10 @@ export default function TaskCodePage({
                   className={`diff-viewer__col-tab${midTab === 'files' ? ' diff-viewer__col-tab--active' : ''}`}
                   onClick={() => setMidTab('files')}
                   aria-selected={midTab === 'files'}
+                  aria-label={`Files${files !== null ? `, ${files.length}` : ''}`}
+                  title="Files"
                 >
-                  Files
+                  <span className="diff-viewer__col-tab-icon"><DiffColumnTabIcon icon="files" /></span>
                   {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
                 </button>
                 <button
@@ -752,8 +755,10 @@ export default function TaskCodePage({
                   className={`diff-viewer__col-tab${midTab === 'commits' ? ' diff-viewer__col-tab--active' : ''}`}
                   onClick={() => setMidTab('commits')}
                   aria-selected={midTab === 'commits'}
+                  aria-label={`Commits${commits !== null ? `, ${commits.length}` : ''}`}
+                  title="Commits"
                 >
-                  Commits
+                  <span className="diff-viewer__col-tab-icon"><DiffColumnTabIcon icon="commits" /></span>
                   {commits !== null && <span className="diff-viewer__files-count">{commits.length}</span>}
                 </button>
                 <button
@@ -762,8 +767,10 @@ export default function TaskCodePage({
                   className={`diff-viewer__col-tab diff-viewer__col-tab--review${midTab === 'review' ? ' diff-viewer__col-tab--active' : ''}`}
                   onClick={() => setMidTab('review')}
                   aria-selected={midTab === 'review'}
+                  aria-label={`Review, ${reviewTabComments.length}`}
+                  title="Review"
                 >
-                  Review
+                  <span className="diff-viewer__col-tab-icon"><DiffColumnTabIcon icon="review" /></span>
                   {reviewTabComments.length > 0 && (
                     <span className="diff-viewer__files-count">{reviewTabComments.length}</span>
                   )}

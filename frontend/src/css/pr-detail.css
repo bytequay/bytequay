@@ -1069,7 +1069,7 @@ button.prc-branches__ref--clickable:hover {
 }
 .prc-review-thread__loc code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-sm);
   color: var(--text-1);
 }
 .prc-review-thread__side {

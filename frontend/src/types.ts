@@ -4060,6 +4060,8 @@ export type Bridge = {
   ) => Promise<LocalPRComment>;
   /** Mark a local PR comment resolved. */
   resolveLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
+  /** Delete an unpublished local draft comment. */
+  deleteLocalPrComment: (commentId: string) => Promise<void>;
   /** Dismiss a local PR comment (closed without action). */
   dismissLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
   /** On-demand local test run (design doc slice 4); returns the local PR's

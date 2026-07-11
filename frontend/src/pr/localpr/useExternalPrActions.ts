@@ -123,6 +123,13 @@ export function useExternalPrActions(owner: string, repo: string, number: number
       .catch(() => { /* poll reconciles */ });
   }, [refresh]);
 
+  const deleteLocalComment = useCallback((commentId: string) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.deleteLocalPrComment(commentId)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [refresh]);
+
   const dismissLocalComment = useCallback((commentId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.dismissLocalPrComment(commentId)
@@ -162,7 +169,7 @@ export function useExternalPrActions(owner: string, repo: string, number: number
     bundle, refresh, syncing, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment, dismissLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy, reviewFiles, reviewError,
     runLocalTests, testsBusy,

@@ -14,7 +14,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import TaskCodePage from './TaskCodePage';
-import type { NotificationDto } from '../types';
+import type { NotificationDto, ReviewCommentDto } from '../types';
+import type { LocalPRBundle } from '../types/localPr';
 
 // jsdom doesn't implement scrollIntoView; the shared ContinuousDiff calls it
 // when the active file changes.
@@ -48,6 +49,7 @@ function mockBridge(overrides: Record<string, unknown> = {}) {
     addReviewComment: vi.fn().mockResolvedValue({}),
     resolveReviewComment: vi.fn().mockResolvedValue(undefined),
     reopenReviewComment: vi.fn().mockResolvedValue(undefined),
+    deleteLocalPrComment: vi.fn().mockResolvedValue(undefined),
     submitReview: vi.fn().mockResolvedValue({ submitted: 1, turnId: 't1' }),
     setShipDescription: vi.fn().mockResolvedValue({}),
     approveNotification: vi.fn().mockResolvedValue({ ok: true, resolution: 'approved', message: '', action: 'ship_task' }),
@@ -74,7 +76,7 @@ const SHIP_PROPOSAL: NotificationDto = {
   readAt: null,
 };
 
-const OPEN_COMMENT = {
+const OPEN_COMMENT: ReviewCommentDto = {
   id: 'rc-1', taskId: 'task-1', file: 'src/Foo.ts', line: 1,
   side: 'RIGHT', startLine: null, startSide: null,
   body: 'please rename this', createdAt: 1, source: 'LOCAL_USER', resolved: false,
@@ -451,5 +453,41 @@ describe('TaskCodePage', () => {
 
     await waitFor(() => expect(bridge.addReviewComment).toHaveBeenCalledWith(
       'task-1', 'src/Foo.ts', 2, 'spans two lines', 'RIGHT', 1, 'RIGHT'));
+  });
+
+  it('local PR mode: deletes a removed inline pending-review comment', async () => {
+    const bundle: LocalPRBundle = {
+      pr: {
+        id: 'pr-local', taskId: 'task-local', branchName: 'dev/local', baseBranch: 'main',
+        title: 'Fix local review', description: '', status: 'local-open',
+        createdAt: 1, pushedAt: null, remotePrNumber: null, remotePrUrl: null,
+        mergedAt: null, closedAt: null, origin: 'task', repo: null, author: null, syncedAt: null,
+        syncedAdditions: null, syncedDeletions: null, syncedMergeable: null, syncedMergeableState: null,
+        syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null,
+      },
+      commits: [],
+      timeline: [],
+      checks: [],
+      comments: [{
+        id: 'lcm1', localPrId: 'pr-local', origin: 'local', scope: 'file-line',
+        filePath: 'src/Foo.ts', lineNumber: 2, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'you', body: 'bring this back', createdAt: 1,
+        resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
+      }],
+    };
+    const bridge = mockBridge({
+      listTasksForThread: vi.fn().mockResolvedValue([
+        { id: 'task-local', seq: 7, name: 'Local review task', branchName: 'dev/local' },
+      ]),
+      getPrForTask: vi.fn().mockResolvedValue(bundle.pr),
+      getLocalPrBundle: vi.fn().mockResolvedValue(bundle),
+      deleteLocalPrComment: vi.fn().mockResolvedValue(undefined),
+    });
+
+    render(<TaskCodePage threadId="thread-local" taskId="task-local" onBack={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
+
+    await waitFor(() => expect(bridge.deleteLocalPrComment).toHaveBeenCalledWith('lcm1'));
   });
 });

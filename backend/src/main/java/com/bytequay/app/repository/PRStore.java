@@ -81,6 +81,9 @@ public interface PRStore
     /** Insert or update a comment (add, resolve, edit, or stamp stripped). */
     PRComment saveComment(PRComment comment);
 
+    /** Delete a draft comment and any direct replies. */
+    void deleteComment(String id);
+
     Optional<PRComment> findCommentById(String id);
 
     List<PRComment> commentsFor(String prId);

@@ -373,6 +373,12 @@ public class PRController
         return PRCommentDto.from(prService.resolveComment(commentId));
     }
 
+    @DeleteMapping("/api/prs/comments/{commentId}")
+    public void deleteComment(@PathVariable String commentId)
+    {
+        prService.deleteDraftComment(commentId);
+    }
+
     @PatchMapping("/api/prs/comments/{commentId}/dismiss")
     public PRCommentDto dismissComment(@PathVariable String commentId)
     {

@@ -127,7 +127,7 @@ export function StageDetailRoute({
     bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
@@ -519,7 +519,7 @@ export function StageDetailRoute({
           onAddComment={addLocalLineComment}
           onReplyComment={replyLocalLineComment}
           onResolveComment={resolveLocalComment}
-          onDismissComment={dismissLocalComment}
+          onDismissComment={deleteLocalComment}
           onBack={() => setReviewOpen(false)}
           onSubmitReview={onSubmitReview}
           submittingReview={submittingReview}
@@ -528,7 +528,7 @@ export function StageDetailRoute({
       onRunTests={runLocalTests}
       runTestsBusy={testsBusy}
       onResolveThread={taskTerminal ? undefined : resolveLocalComment}
-      onDismissThread={taskTerminal ? undefined : dismissLocalComment}
+      onDismissThread={taskTerminal ? undefined : deleteLocalComment}
       onOpenStage={onOpenStage}
       syncedAt={localPrBundle.pr.syncedAt}
       syncing={prSyncing}
@@ -662,7 +662,7 @@ export function StageDetailRoute({
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
-      onRemovePendingReviewComment={dismissLocalComment}
+      onRemovePendingReviewComment={deleteLocalComment}
       planReminder={plan === null ? undefined
         : plan.state === 'awaiting' ? 'awaiting'
         : plan.state === 'locked' ? 'locked'

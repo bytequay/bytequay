@@ -78,7 +78,7 @@ export function TaskBrainRoute({
     bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
@@ -487,7 +487,7 @@ export function TaskBrainRoute({
                 onAddComment={addLocalLineComment}
                 onReplyComment={replyLocalLineComment}
                 onResolveComment={resolveLocalComment}
-                onDismissComment={dismissLocalComment}
+                onDismissComment={deleteLocalComment}
                 onBack={() => setReviewOpen(false)}
                 onSubmitReview={onSubmitReview}
                 submittingReview={submittingReview}
@@ -496,7 +496,7 @@ export function TaskBrainRoute({
             onRunTests={runLocalTests}
             runTestsBusy={testsBusy}
             onResolveThread={task.terminal ? undefined : resolveLocalComment}
-            onDismissThread={task.terminal ? undefined : dismissLocalComment}
+            onDismissThread={task.terminal ? undefined : deleteLocalComment}
             onOpenStage={onOpenStage}
             syncedAt={localPrBundle.pr.syncedAt}
             syncing={prSyncing}
@@ -513,7 +513,7 @@ export function TaskBrainRoute({
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
-      onRemovePendingReviewComment={dismissLocalComment}
+      onRemovePendingReviewComment={deleteLocalComment}
     />
   );
 }

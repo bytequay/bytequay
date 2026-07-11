@@ -61,7 +61,8 @@ function lineKey(filename: string, side: AnchorSide, ln: number): string {
  * comes from the shared composer hook used by task and remote PR diffs too.
  */
 function LocalFileDiff({
-  file, comments, allowLocalComments, fetchFileBlob, onAddComment, onReplyComment, onResolveComment, onDismissComment,
+  file, comments, allowLocalComments, fetchFileBlob,
+  onAddComment, onReplyComment, onResolveComment, onDismissComment,
 }: {
   file: DiffFileDto;
   comments: LocalPRComment[];

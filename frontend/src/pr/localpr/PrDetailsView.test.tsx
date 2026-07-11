@@ -111,6 +111,7 @@ describe('PrDetailsView', () => {
       addLocalLineComment: vi.fn(),
       replyLocalLineComment: vi.fn(),
       resolveLocalComment: vi.fn(),
+      deleteLocalComment: vi.fn(),
       dismissLocalComment: vi.fn(),
       pushOpen: false,
       setPushOpen: vi.fn(),

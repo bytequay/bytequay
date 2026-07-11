@@ -277,6 +277,14 @@ class SqlitePRStore
     }
 
     @Override
+    @Transactional
+    public void deleteComment(String id)
+    {
+        comments.deleteByParentCommentId(id);
+        comments.deleteById(id);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<PRComment> findCommentById(String id)
     {

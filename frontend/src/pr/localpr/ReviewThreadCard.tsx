@@ -38,7 +38,8 @@ export function ReviewThreadCard({
       <div className="th-file">▾ {filePath}:{lineNumber}</div>
       {comments.map(c => {
         const role = actorRole(c.author, pr);
-        const pending = c.origin === 'local' && c.publishedAt === null;
+        const pending = c.origin === 'local' && c.publishedAt === null &&
+          c.resolvedAt === null && c.dismissedAt === null;
         return (
           <div className="th-cmt" key={c.id}>
             <Avatar login={displayName(c.author)} size={22} className={`pr-avatar ${role === 'other' ? '' : role}`} />

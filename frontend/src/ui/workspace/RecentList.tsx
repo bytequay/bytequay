@@ -252,9 +252,7 @@ export function RecentList({ onResume, onOpenPr }: {
                 </span>
                 <span className="sb-recent__meta">
                   <span className="sb-recent__title">{stop.title ?? stop.surfaceId}</span>
-                  <span className="sb-recent__sub">
-                    {stop.context ?? stop.surfaceId} · {relativeTime(stop.latestVisitAt)}
-                  </span>
+                  <span className="sb-recent__sub">{relativeTime(stop.latestVisitAt)}</span>
                 </span>
               </button>
             ))}

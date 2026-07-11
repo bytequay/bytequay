@@ -602,8 +602,8 @@ export function StageDetailRoute({
   );
 
   // Full-page changed-files + diff review for the local PR, reached from the
-  // PR tab's "Review changed files" button. A takeover (like the remote PR's
-  // DiffViewerScreen), reusing the exact same file-tree + diff panels.
+  // PR tab's "Review changed files" button. A takeover (like the remote PR
+  // diff), reusing the exact same file-tree + diff panels.
   if (reviewOpen && localPr !== null) {
     return (
       <LocalPrReviewScreen

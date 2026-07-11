@@ -16,12 +16,13 @@ import ResizeHandle from '../ResizeHandle';
 import MarkdownComposer from '../MarkdownComposer';
 import { CommitsColumn } from '../diff/CommitsColumn';
 import { DiffChatColumn } from './DiffChatColumn';
-import { ContinuousDiff, FileDiffBody, type FileDiffBodyProps } from '../diff/DiffFileList';
+import { ContinuousDiff } from '../diff/DiffFileList';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { contiguousRange } from '../diff/commitRange';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
-import { computeFetchRange, type Gap, type LoadedGap } from '../diffExpand';
+import { ExpandableFileDiffBody } from '../diff/ExpandableFileDiffBody';
+import { useDiffRangeComposer } from '../diff/useDiffRangeComposer';
 import type { DiffFileDto, NotificationDto, ReviewCommentDto, ThreadCommitDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 import { isLocalStatus } from '../types/localPr';
@@ -36,18 +37,6 @@ import { useThreadTasks } from './useThreadTasks';
 import { MarkReadyPanel, type MarkReadyPrRef } from './MarkReadyPanel';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { isPendingProposal } from '../notificationDisplay';
-
-/** The (file, side, line) the inline composer is open on, or null when
- *  closed. `startLine`/`startSide` are set only for a multi-line range —
- *  mirrors DiffViewerScreen's ComposerSlot for the same shift-click / drag-
- *  select range UX. */
-type ComposerSlot = {
-  file: string;
-  side: 'LEFT' | 'RIGHT';
-  line: number;
-  startLine?: number;
-  startSide?: 'LEFT' | 'RIGHT';
-} | null;
 
 /** Editable PR title + body panel shown above the diff in review mode.
  *  The text lives in the parent (so Approve can read the live value);
@@ -118,75 +107,6 @@ const FILES_DEFAULT = 280;
 const WIDTH_MIN = 160;
 const WIDTH_MAX = 900;
 
-function ExpandableTaskFileDiffBody({
-  threadId,
-  taskId,
-  file,
-  ...bodyProps
-}: {
-  threadId: string;
-  taskId: string;
-  file: DiffFileDto;
-} & Omit<FileDiffBodyProps, 'file' | 'expanded' | 'expandLoading' | 'onExpandClick'>) {
-  const [expanded, setExpanded] = useState<Map<number, LoadedGap>>(new Map());
-  const [expandLoading, setExpandLoading] = useState<Set<string>>(new Set());
-  const [expandError, setExpandError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setExpanded(new Map());
-    setExpandError(null);
-  }, [file.patch, file.filename]);
-
-  const onExpandClick = async (gap: Gap, direction: 'up' | 'down' | 'all') => {
-    const loaded = expanded.get(gap.index) ?? new Map<number, string>();
-    const range = direction === 'all' && gap.newEnd !== null
-      ? { from: gap.newStart, to: gap.newEnd }
-      : direction === 'all'
-        ? null
-        : computeFetchRange(gap, loaded, direction);
-    if (!range) return;
-    const key = `${gap.index}:${direction}`;
-    if (expandLoading.has(key)) return;
-    setExpandLoading(s => new Set(s).add(key));
-    setExpandError(null);
-    try {
-      const blob = await window.bridge.fetchTaskFileBlob(threadId, taskId, file.filename);
-      const next = new Map(loaded);
-      for (let n = range.from; n <= range.to; n++) {
-        if (n - 1 < blob.lines.length) next.set(n, blob.lines[n - 1]);
-      }
-      setExpanded(prev => {
-        const out = new Map(prev);
-        out.set(gap.index, next);
-        return out;
-      });
-    }
-    catch (e) {
-      setExpandError(e instanceof Error ? e.message : 'Expand failed.');
-    }
-    finally {
-      setExpandLoading(s => {
-        const out = new Set(s);
-        out.delete(key);
-        return out;
-      });
-    }
-  };
-
-  return (
-    <>
-      {expandError && <div className="diff-expand-error" role="alert">{expandError}</div>}
-      <FileDiffBody
-        {...bodyProps}
-        file={file}
-        expanded={expanded}
-        expandLoading={expandLoading}
-        onExpandClick={onExpandClick}
-      />
-    </>
-  );
-}
-
 function loadWidth(key: string, fallback: number): number {
   try {
     const n = parseInt(window.localStorage.getItem(key) ?? '', 10);
@@ -198,10 +118,9 @@ function loadWidth(key: string, fallback: number): number {
 /**
  * Standalone "Code" page for a task — the diff/files viewer reached from
  * the brain view and the stage detail's "View code diff". It renders the
- * task's diff with the **same components** as the PR review's
- * {@code DiffViewerScreen}: {@link CommitsColumn}, {@link DiffFileTreePane},
- * {@link ResizeHandle}, and the continuous {@link ContinuousDiff} /
- * {@link FileDiffBody} body — so PR-diff rendering changes propagate here.
+ * task's diff with the same shared diff body and range-selection mechanics as
+ * local and remote PR review: {@link CommitsColumn}, {@link DiffFileTreePane},
+ * {@link ResizeHandle}, and the continuous {@link ContinuousDiff} body.
  * Read-only (no review draft to comment to).
  *
  * Default view is the task's cumulative diff (every commit, base..HEAD);
@@ -257,7 +176,14 @@ export default function TaskCodePage({
   // them to the agent, then approves to ship.
   const [proposal, setProposal] = useState<NotificationDto | null>(null);
   const [reviewComments, setReviewComments] = useState<ReviewCommentDto[]>([]);
-  const [composer, setComposer] = useState<ComposerSlot>(null);
+  const {
+    composer,
+    closeComposer,
+    handleRowClick,
+    onRowPointerDown,
+    onRowPointerEnter,
+    isInRange,
+  } = useDiffRangeComposer();
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   // After a successful approve, a confirmation dialog: 'shipped' (first push +
@@ -431,87 +357,8 @@ export default function TaskCodePage({
     return map;
   }, [reviewComments]);
 
-  const closeComposer = useCallback(() => {
-    setComposer(null);
-  }, []);
-
-  // Plain click → single-line composer. Shift-click on a second row of the
-  // same file+side while a composer is already open → extends the range.
-  // Mirrors DiffViewerScreen's handleRowClick.
-  const openComposer = useCallback((file: string, side: 'LEFT' | 'RIGHT', line: number, shiftKey: boolean) => {
-    setComposer(prev => {
-      if (shiftKey && prev !== null && prev.file === file && prev.side === side) {
-        const anchor = prev.line;
-        const start = Math.min(anchor, line);
-        const end = Math.max(anchor, line);
-        return start === end ? { file, side, line: end } : { file, side, line: end, startLine: start, startSide: side };
-      }
-      return { file, side, line };
-    });
-  }, []);
-
-  // Drag-select: pointerdown starts the range, pointerenter on later rows
-  // (same file+side only) extends it, a window-level pointerup commits it
-  // into the composer. Mirrors DiffViewerScreen's onRowPointerDown /
-  // onRowPointerEnter / pointerup trio — `file` rides along since this page
-  // (unlike DiffViewerScreen's per-file component) renders every file's rows
-  // through the same shared state.
-  const [dragRange, setDragRange] = useState<
-    { file: string; side: 'LEFT' | 'RIGHT'; start: number; end: number } | null
-  >(null);
-  const dragRangeRef = useRef<typeof dragRange>(null);
-  const suppressNextClickRef = useRef(false);
-
-  const onRowPointerDown = useCallback((file: string, side: 'LEFT' | 'RIGHT', line: number) => {
-    const range = { file, side, start: line, end: line };
-    dragRangeRef.current = range;
-    setDragRange(range);
-  }, []);
-  const onRowPointerEnter = useCallback((file: string, side: 'LEFT' | 'RIGHT', line: number) => {
-    const cur = dragRangeRef.current;
-    if (!cur || cur.file !== file || cur.side !== side || cur.end === line) return;
-    const next = { ...cur, end: line };
-    dragRangeRef.current = next;
-    setDragRange(next);
-  }, []);
-  useEffect(() => {
-    const onUp = () => {
-      const drag = dragRangeRef.current;
-      if (!drag) return;
-      dragRangeRef.current = null;
-      setDragRange(null);
-      const start = Math.min(drag.start, drag.end);
-      const end = Math.max(drag.start, drag.end);
-      if (end === start) return;
-      // Real (multi-row) drag — swallow the synthetic click that follows on
-      // the pointerdown row so it doesn't reset the composer to single-line.
-      suppressNextClickRef.current = true;
-      setComposer({ file: drag.file, side: drag.side, line: end, startLine: start, startSide: drag.side });
-    };
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-    return () => {
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-  }, []);
-
-  /** True iff (file, side, line) sits within the live drag range or the
-   *  committed composer's range — drives the highlight during selection and
-   *  on the saved composer's range. */
-  const isInRange = useCallback((file: string, side: 'LEFT' | 'RIGHT', line: number): boolean => {
-    if (dragRange && dragRange.file === file && dragRange.side === side) {
-      const lo = Math.min(dragRange.start, dragRange.end);
-      const hi = Math.max(dragRange.start, dragRange.end);
-      return line >= lo && line <= hi;
-    }
-    if (composer === null || composer.file !== file || composer.side !== side) return false;
-    if (composer.startLine == null) return composer.line === line;
-    return line >= composer.startLine && line <= composer.line;
-  }, [dragRange, composer]);
-
   const saveComment = useCallback(async (body: string) => {
-    if (composer === null) return;
+    if (composer === null || composer.file === undefined) return;
     const trimmed = body.trim();
     if (trimmed.length === 0) return;
     try {
@@ -895,21 +742,19 @@ export default function TaskCodePage({
                 selectedPath={selectedPath}
                 onActiveFileChange={setSelectedPath}
                 renderFileBody={(file) => (reviewMode ? (
-                  <ExpandableTaskFileDiffBody
-                    threadId={threadId}
-                    taskId={taskId}
+                  <ExpandableFileDiffBody
                     file={file}
+                    fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
                     rowDecoration={(anchorSide, anchorLine) => {
                       const hasComment = commentsByAnchor.has(`${file.filename}:${anchorSide}:${anchorLine}`);
-                      const inRange = isInRange(file.filename, anchorSide, anchorLine);
+                      const inRange = isInRange({ file: file.filename, side: anchorSide, line: anchorLine });
                       return {
                         addCommentAffordance: true,
                         onClick: (e) => {
-                          if (suppressNextClickRef.current) { suppressNextClickRef.current = false; return; }
-                          openComposer(file.filename, anchorSide, anchorLine, e.shiftKey);
+                          handleRowClick({ file: file.filename, side: anchorSide, line: anchorLine }, e.shiftKey);
                         },
-                        onPointerDown: () => onRowPointerDown(file.filename, anchorSide, anchorLine),
-                        onPointerEnter: () => onRowPointerEnter(file.filename, anchorSide, anchorLine),
+                        onPointerDown: () => onRowPointerDown({ file: file.filename, side: anchorSide, line: anchorLine }),
+                        onPointerEnter: () => onRowPointerEnter({ file: file.filename, side: anchorSide, line: anchorLine }),
                         role: 'button',
                         tabIndex: 0,
                         title: 'Click to leave a review comment on this line — shift-click or drag to select a range',
@@ -941,28 +786,29 @@ export default function TaskCodePage({
                     }}
                   />
                 ) : localCommentMode ? (
-                  <ExpandableTaskFileDiffBody
-                    threadId={threadId}
-                    taskId={taskId}
+                  <ExpandableFileDiffBody
                     file={file}
+                    fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
                     rowDecoration={(anchorSide, anchorLine) => {
                       const hasComment = localByAnchor.has(`${file.filename}:${anchorSide}:${anchorLine}`);
                       const composerHere = composer !== null
                         && composer.file === file.filename
                         && composer.side === anchorSide
                         && composer.line === anchorLine;
-                      const inRange = isInRange(file.filename, anchorSide, anchorLine);
+                      const inRange = isInRange({ file: file.filename, side: anchorSide, line: anchorLine });
                       return {
                         addCommentAffordance: true,
                         // A plain click on the already-active line discards its
                         // open composer; shift-click always extends the range.
                         onClick: (e) => {
-                          if (suppressNextClickRef.current) { suppressNextClickRef.current = false; return; }
-                          if (composerHere && !e.shiftKey) { closeComposer(); return; }
-                          openComposer(file.filename, anchorSide, anchorLine, e.shiftKey);
+                          handleRowClick(
+                            { file: file.filename, side: anchorSide, line: anchorLine },
+                            e.shiftKey,
+                            { toggleActive: true },
+                          );
                         },
-                        onPointerDown: () => onRowPointerDown(file.filename, anchorSide, anchorLine),
-                        onPointerEnter: () => onRowPointerEnter(file.filename, anchorSide, anchorLine),
+                        onPointerDown: () => onRowPointerDown({ file: file.filename, side: anchorSide, line: anchorLine }),
+                        onPointerEnter: () => onRowPointerEnter({ file: file.filename, side: anchorSide, line: anchorLine }),
                         role: 'button',
                         tabIndex: 0,
                         title: 'Click to leave a local review comment on this line — shift-click or drag to select a range',
@@ -1004,7 +850,10 @@ export default function TaskCodePage({
                     }}
                   />
                 ) : (
-                  <ExpandableTaskFileDiffBody threadId={threadId} taskId={taskId} file={file} />
+                  <ExpandableFileDiffBody
+                    file={file}
+                    fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
+                  />
                 ))}
               />
             ) : error !== null ? (

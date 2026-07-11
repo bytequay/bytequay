@@ -17,7 +17,7 @@ import type { ActivityItemDto, PullRequestDetailDto, ReviewThreadDto } from '../
 /**
  * GitHub's own conversation feed for a pushed PR (task-origin once pushed,
  * or external) — `recentActivity`/`reviewThreads` off the same legacy
- * `/prs/detail` endpoint {@code DiffViewerScreen} already uses for the diff
+ * `/prs/detail` endpoint the remote PR diff already uses for the diff
  * view's inline threads (repo+number keyed, no unified PR id needed).
  * `PRTimeline` merges this alongside the local sync tables once the PR has
  * a `remotePrNumber` — see `unified-pr-view.md` U15's Conversation-tab spec.

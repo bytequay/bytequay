@@ -19,11 +19,11 @@ import Avatar from './Avatar';
 import { parseUnifiedDiff } from './diffParse';
 import {
   computeGap,
-  computeFetchRange,
-  type Gap,
   type LoadedGap,
 } from './diffExpand';
-import { FileDiffBody, ContinuousDiff } from './diff/DiffFileList';
+import { ContinuousDiff } from './diff/DiffFileList';
+import { ExpandableFileDiffBody } from './diff/ExpandableFileDiffBody';
+import { useDiffRangeComposer } from './diff/useDiffRangeComposer';
 import { treeOrderedFiles } from './fileTree';
 import ResizeHandle from './ResizeHandle';
 import AiReviewSidebar, { type AiReviewSidebarHandle } from './AiReviewSidebar';
@@ -1148,21 +1148,8 @@ type FileDiffProps = {
   prAuthor: string | null;
 };
 
-/** A single-line composer slot is `{ line, side }` (legacy shape).
- *  A multi-line range is `{ line, side, startLine, startSide }` where
- *  startLine ≤ line. The composer always pops below the END row
- *  (line/side), matching github.com's UX. */
-type ComposerSlot =
-  | null
-  | {
-    line: number;
-    side: 'LEFT' | 'RIGHT';
-    startLine?: number;
-    startSide?: 'LEFT' | 'RIGHT';
-  };
-
 function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDraftUpdated, prId, repo, prNumber, headSha, threads, onThreadReplied, prAuthor }: FileDiffProps) {
-  // Parsed once here too (independently of FileDiffBody) so the overlay
+  // Parsed once here too so the overlay
   // index maps below can derive which (side, line) anchors are visible.
   const hunks = useMemo(() => parseUnifiedDiff(file.patch), [file.patch]);
   // Expanded gap state — Map<gapIndex, Map<newLine, content>>. Gap g is
@@ -1171,52 +1158,9 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
   // selection swap) — re-expansion is cheap and the in-flight state
   // would be confusing to keep around.
   const [expanded, setExpanded] = useState<Map<number, LoadedGap>>(new Map());
-  const [expandLoading, setExpandLoading] = useState<Set<string>>(new Set());
-  const [expandError, setExpandError] = useState<string | null>(null);
-  useEffect(() => {
-    setExpanded(new Map());
-    setExpandError(null);
-  }, [file.patch, file.filename]);
-
-  const onExpandClick = async (gap: Gap, direction: 'up' | 'down' | 'all') => {
-    if (!headSha) return;
-    const loaded = expanded.get(gap.index) ?? new Map<number, string>();
-    const range = direction === 'all' && gap.newEnd !== null
-      ? { from: gap.newStart, to: gap.newEnd }
-      : direction === 'all'
-        ? null
-        : computeFetchRange(gap, loaded, direction);
-    if (!range) return;
-    const key = `${gap.index}:${direction}`;
-    if (expandLoading.has(key)) return;
-    setExpandLoading(s => new Set(s).add(key));
-    setExpandError(null);
-    try {
-      const blob = await window.bridge.fetchFileBlob(repo, file.filename, headSha);
-      // Slice the requested 1-based [from..to] window. Lines past EOF
-      // are skipped (bottom gap "finishes" naturally by returning fewer
-      // than requested).
-      const next = new Map(loaded);
-      for (let n = range.from; n <= range.to; n++) {
-        if (n - 1 < blob.lines.length) next.set(n, blob.lines[n - 1]);
-      }
-      setExpanded(prev => {
-        const out = new Map(prev);
-        out.set(gap.index, next);
-        return out;
-      });
-    }
-    catch (e) {
-      setExpandError(e instanceof Error ? e.message : 'Expand failed.');
-    }
-    finally {
-      setExpandLoading(s => {
-        const out = new Set(s);
-        out.delete(key);
-        return out;
-      });
-    }
-  };
+  const handleExpandedChange = useCallback((next: Map<number, LoadedGap>) => {
+    setExpanded(next);
+  }, []);
   // Index existing threads by side+line so we can render them under the
   // matching diff row. Threads on lines that aren't visible in the current
   // diff (e.g. comment on a line that hasn't been touched here, or a stale
@@ -1243,29 +1187,24 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
     [threads, file.filename],
   );
   const [showOutdated, setShowOutdated] = useState(false);
-  const [composerSlot, setComposerSlot] = useState<ComposerSlot>(null);
+  const {
+    composer: composerSlot,
+    closeComposer: closeDiffComposer,
+    handleRowClick,
+    onRowPointerDown,
+    onRowPointerEnter,
+    isInRange,
+  } = useDiffRangeComposer();
   const [composerBody, setComposerBody] = useState('');
   const [composerPending, setComposerPending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [postedKeys, setPostedKeys] = useState<Set<string>>(new Set());
-  // Live drag-select range. Distinct from composerSlot so the range
-  // preview can highlight rows during the drag without prematurely
-  // mounting the composer below them. Mirror state in a ref so the
-  // window-level pointerup listener (registered once) sees the latest
-  // value without re-binding on every drag.
-  const [dragRange, setDragRange] = useState<{ side: 'LEFT' | 'RIGHT'; start: number; end: number } | null>(null);
-  const dragRangeRef = useRef<{ side: 'LEFT' | 'RIGHT'; start: number; end: number } | null>(null);
-  // Set on pointerup when a real (multi-row) drag committed. The
-  // synthetic click that browsers fire after the pointer sequence
-  // would otherwise re-fire handleRowClick and reset to a single-line
-  // composer; this flag swallows that one click.
-  const suppressNextClickRef = useRef(false);
 
-  const closeComposer = () => {
-    setComposerSlot(null);
+  const closeComposer = useCallback(() => {
+    closeDiffComposer();
     setComposerBody('');
     setComposerError(null);
-  };
+  }, [closeDiffComposer]);
 
   const submitComposer = async () => {
     if (!composerSlot || !headSha) return;
@@ -1334,111 +1273,6 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
     }
   };
 
-  /** Plain click on a row → single-line composer. Shift-click on a
-   *  second row while a composer is already open on the same side →
-   *  extends the range. The drag-select path (see onRowPointerDown
-   *  below) covers the click-and-drag case; this stays as a keyboard-
-   *  friendly fallback and to support quick "click row" usage. */
-  const handleRowClick = (
-    e: React.MouseEvent,
-    side: 'LEFT' | 'RIGHT',
-    line: number,
-  ) => {
-    // Swallow the synthetic click that follows a real (multi-row)
-    // drag-select — pointerup already opened the composer; this
-    // click would otherwise reset to a single-line composer here.
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
-      return;
-    }
-    if (e.shiftKey && composerSlot && composerSlot.side === side) {
-      const anchor = composerSlot.line;
-      const start = Math.min(anchor, line);
-      const end = Math.max(anchor, line);
-      setComposerSlot(start === end
-        ? { side, line: end }
-        : { side, line: end, startLine: start, startSide: side });
-      return;
-    }
-    setComposerSlot({ side, line });
-  };
-
-  /** Begin a drag-select. Records the starting (side, line) and lets
-   *  pointerenter on subsequent rows extend it. */
-  const onRowPointerDown = (
-    _e: React.PointerEvent,
-    side: 'LEFT' | 'RIGHT',
-    line: number,
-  ) => {
-    const range = { side, start: line, end: line };
-    dragRangeRef.current = range;
-    setDragRange(range);
-  };
-
-  /** Mouse moved over a different row while still dragging — extend
-   *  the range. Same-side only; crossing into the other side is a
-   *  no-op (matches github.com — the API doesn't allow cross-side
-   *  ranges either). */
-  const onRowPointerEnter = (
-    side: 'LEFT' | 'RIGHT',
-    line: number,
-  ) => {
-    const cur = dragRangeRef.current;
-    if (!cur || cur.side !== side) return;
-    if (cur.end === line) return;
-    const next = { ...cur, end: line };
-    dragRangeRef.current = next;
-    setDragRange(next);
-  };
-
-  // Window-level pointerup commits the drag. Registered once; reads
-  // dragRangeRef so it always sees the latest value.
-  useEffect(() => {
-    const onUp = () => {
-      const drag = dragRangeRef.current;
-      if (!drag) return;
-      dragRangeRef.current = null;
-      setDragRange(null);
-      const start = Math.min(drag.start, drag.end);
-      const end = Math.max(drag.start, drag.end);
-      if (end !== start) {
-        // Real drag — swallow the click that follows on the
-        // pointerdown row so it doesn't reset to single-line.
-        suppressNextClickRef.current = true;
-        setComposerSlot({
-          side: drag.side,
-          line: end,
-          startLine: start,
-          startSide: drag.side,
-        });
-      } else {
-        // Single-row "click" — let handleRowClick (via the synthetic
-        // click) handle it normally so shift-click + plain-click stay
-        // consistent. No suppression flag needed.
-        // (Composer will open via the click handler.)
-      }
-    };
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-    return () => {
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-  }, []);
-
-  /** True iff (side, line) sits within either the live drag range or
-   *  the committed composer's range. Drives the amber highlight on
-   *  rows during selection AND on the saved composer's range. */
-  const isInRange = (side: 'LEFT' | 'RIGHT', line: number): boolean => {
-    if (dragRange && dragRange.side === side) {
-      const lo = Math.min(dragRange.start, dragRange.end);
-      const hi = Math.max(dragRange.start, dragRange.end);
-      return line >= lo && line <= hi;
-    }
-    if (!composerSlot || composerSlot.side !== side) return false;
-    if (composerSlot.startLine == null) return composerSlot.line === line;
-    return line >= composerSlot.startLine && line <= composerSlot.line;
-  };
   // Group AI findings by the new-file line they anchor to. The prompt
   // instructs the model to emit "line number in the NEW file after the
   // patch is applied", so matching against row.newLine is the contract.
@@ -1596,14 +1430,10 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
           )}
         </div>
       )}
-      {expandError && (
-        <div className="diff-expand-error" role="alert">{expandError}</div>
-      )}
-      <FileDiffBody
+      <ExpandableFileDiffBody
         file={file}
-        expanded={expanded}
-        expandLoading={expandLoading}
-        onExpandClick={onExpandClick}
+        fetchFileBlob={headSha === null ? undefined : (path) => window.bridge.fetchFileBlob(repo, path, headSha)}
+        onExpandedChange={handleExpandedChange}
         renderAfterRow={(anchorSide, anchorLine) => {
           const inline = findingsByLine.get(`${anchorSide}:${anchorLine}`);
           // The composer sits under the END row of a (possibly
@@ -1714,7 +1544,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
           // side (they always reference the new file).
           const inline = findingsByLine.get(`${anchorSide}:${anchorLine}`);
           const hasFinding = !!inline && inline.length > 0;
-          const inRange = isInRange(anchorSide, anchorLine);
+          const inRange = isInRange({ side: anchorSide, line: anchorLine });
           const canComment = headSha != null;
           return {
             className:
@@ -1726,13 +1556,13 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
             // AI findings always reference the new file.
             dataAnchor: `${file.filename}:${anchorSide}:${anchorLine}`,
             onClick: canComment
-              ? (e) => handleRowClick(e, anchorSide, anchorLine)
+              ? (e) => handleRowClick({ side: anchorSide, line: anchorLine }, e.shiftKey)
               : undefined,
             onPointerDown: canComment
-              ? (e) => onRowPointerDown(e, anchorSide, anchorLine)
+              ? () => onRowPointerDown({ side: anchorSide, line: anchorLine })
               : undefined,
             onPointerEnter: canComment
-              ? () => onRowPointerEnter(anchorSide, anchorLine)
+              ? () => onRowPointerEnter({ side: anchorSide, line: anchorLine })
               : undefined,
             role: canComment ? 'button' : undefined,
             tabIndex: canComment ? 0 : undefined,
@@ -1747,7 +1577,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
   );
 }
 
-function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId, onStartReview }: Props) {
+function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId, onStartReview }: Props) {
   const [assignReviewOpen, setAssignReviewOpen] = useState(false);
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [commits, setCommits] = useState<PullRequestCommitDto[] | null>(null);
@@ -2512,4 +2342,4 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId
   );
 }
 
-export default DiffViewerScreen;
+export default RemotePrDiffReviewScreen;

@@ -26,7 +26,7 @@ import { CiStatusPanel } from './CiStatusPanel';
 import { PRTabContent } from '../ui/pane/tabs';
 import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
 import type { DiffFileDto } from '../types';
-import type { AgentRunDto, StageType } from '../types/brainView';
+import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
 import { Conv, EventRow, QueuedMessages, RoundEpisode, RunEpisode, Working } from '../ui/conv';
 import { useTaskRuns } from '../threads/brain/useTaskRuns';
 import { useTaskRounds } from '../threads/brain/useTaskRounds';
@@ -36,13 +36,12 @@ import type { PermissionDecideHandler } from '../threads/PermissionCard';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
-import TaskCodePage from '../threads/TaskCodePage';
+import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
 import { PlanCard } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
-import type { TaskPhase } from '../types/brainView';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -125,7 +124,7 @@ export function StageDetailRoute({
   // instead of the remote-GitHub PRTabContent. The bundle poll + the
   // user-gated push/merge/comment actions are shared with the brain page.
   const {
-    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, localPr, capabilities: prCapabilities,
+    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
     addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
@@ -146,6 +145,10 @@ export function StageDetailRoute({
       .catch(() => { /* poll reconciles */ })
       .finally(() => setSubmittingReview(false));
   }, [taskId, pollFast]);
+  const pendingReviewComments = useMemo(
+    () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
+    [localPrBundle],
+  );
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
@@ -504,6 +507,22 @@ export function StageDetailRoute({
       onDequeue={dequeuePr}
       onDeleteBranch={deleteBranch}
       onReviewChanges={() => setReviewOpen(true)}
+      changesContent={(
+        <LocalPrReviewScreen
+          embedded
+          showAuxTabs={false}
+          title={`Review · ${localPrBundle.pr.title}`}
+          files={reviewOpen ? files : null}
+          comments={localPrBundle?.comments ?? []}
+          allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
+          fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
+          onAddComment={addLocalLineComment}
+          onReplyComment={replyLocalLineComment}
+          onResolveComment={resolveLocalComment}
+          onDismissComment={dismissLocalComment}
+          onBack={() => setReviewOpen(false)}
+        />
+      )}
       onRunTests={runLocalTests}
       runTestsBusy={testsBusy}
       onResolveThread={taskTerminal ? undefined : resolveLocalComment}
@@ -557,7 +576,7 @@ export function StageDetailRoute({
     ciSummary: brain.rightRail.linkedPr?.ciSummary ?? null,
   }), [
     planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, planDevPhases, sidebarPhase, prNumber, pr,
-    state, stageId, shipProposal, working, data, brain.task.terminal, brain.rightRail.linkedPr,
+    stageId, shipProposal, working, taskTerminal, brain.rightRail.linkedPr,
   ]);
   // Force-opens the right-pane PR tab from the rail's gate nodes (Local
   // review / Remote pull request / Merge-Close, R27) — a fresh token
@@ -601,26 +620,6 @@ export function StageDetailRoute({
     />
   );
 
-  // Full-page changed-files + diff review for the local PR, reached from the
-  // PR tab's "Review changed files" button. A takeover (like the remote PR
-  // diff), reusing the exact same file-tree + diff panels.
-  if (reviewOpen && localPr !== null) {
-    return (
-      <LocalPrReviewScreen
-        title={`Review · ${localPr.title}`}
-        files={files}
-        comments={localPrBundle?.comments ?? []}
-        allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
-        fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
-        onAddComment={addLocalLineComment}
-        onReplyComment={replyLocalLineComment}
-        onResolveComment={resolveLocalComment}
-        onDismissComment={dismissLocalComment}
-        onBack={() => setReviewOpen(false)}
-      />
-    );
-  }
-
   return (
     <StageDetailPage
       stageKind={stageKind}
@@ -640,8 +639,6 @@ export function StageDetailRoute({
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
       tabCounts={{
-        code: files !== null && files.length > 0
-          ? { count: files.length, countColor: 'acc' } : undefined,
         pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
       }}
       paneMeta={stageKind === 'ci-fix' ? {
@@ -659,13 +656,11 @@ export function StageDetailRoute({
       tabs={{
         pr: localPrNode ?? prNode ?? undefined,
         ci: stageKind === 'ci-fix' ? ciNode : undefined,
-        // Gated on hasDiff — otherwise on a Plan stage with no PR yet, this
-        // ends up the only tab, becomes the default, and its paneExpanded
-        // behavior hides the conversation column.
-        code: hasDiff ? <TaskCodePage embedded threadId={threadId} taskId={taskId} stageId={stageId} /> : undefined,
       }}
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}
+      pendingReviewComments={pendingReviewComments}
+      onRemovePendingReviewComment={dismissLocalComment}
       planReminder={plan === null ? undefined
         : plan.state === 'awaiting' ? 'awaiting'
         : plan.state === 'locked' ? 'locked'

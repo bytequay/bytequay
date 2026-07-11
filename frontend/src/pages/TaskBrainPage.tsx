@@ -23,6 +23,7 @@ import { InlineChips, RightPane } from '../ui/pane';
 import { PlanReminderTab } from './PlanOverlay';
 import { SubmitReviewDrawer } from './SubmitReviewDrawer';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
+import type { DiffInlineComment } from '../diff/DiffInlineComments';
 
 type BrainTab = 'pr';
 
@@ -39,6 +40,7 @@ export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, composer, run = {},
   tabs, planReminder, onRevealPlan, onOpenCi,
   onSubmitReview, submittingReview = false, openTabRequest,
+  pendingReviewComments = [], onRemovePendingReviewComment,
 }: {
   task: { pillLabel: string; title: string; branch?: string; finished?: boolean };
   /** The linked pull request, shown as a clickable chip once the task is
@@ -87,6 +89,10 @@ export function TaskBrainPage({
    *  agent as a steering turn. Undefined hides the top-bar button. */
   onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
   submittingReview?: boolean;
+  /** Draft comments the drawer lists so the reviewer sees exactly what a
+   *  submission will send. Omit where no draft-comment source is wired up. */
+  pendingReviewComments?: DiffInlineComment[];
+  onRemovePendingReviewComment?: (commentId: string) => void;
   /** Force-opens the right PR pane from outside (the live-plan rail's gate
    *  nodes) — a fresh object (new `token`) re-fires even if it is already open. */
   openTabRequest?: { tab: BrainTab; token: number };
@@ -145,7 +151,11 @@ export function TaskBrainPage({
           icon="✓"
           onClick={submittingReview ? undefined : () => setSubmitReviewOpen(true)}
         >
-          {submittingReview ? 'Submitting…' : 'Submit review'}
+          {submittingReview
+            ? 'Submitting…'
+            : pendingReviewComments.length > 0
+              ? `Submit review (${pendingReviewComments.length})`
+              : 'Submit review'}
         </TopBarButton>
       )}
       {hasTabs && (
@@ -205,6 +215,8 @@ export function TaskBrainPage({
         <SubmitReviewDrawer
           open={submitReviewOpen}
           submitting={submittingReview}
+          pendingComments={pendingReviewComments}
+          onRemovePending={onRemovePendingReviewComment}
           onClose={() => setSubmitReviewOpen(false)}
           onSubmit={(body, verdict) => {
             onSubmitReview(body, verdict);

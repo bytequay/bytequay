@@ -85,12 +85,12 @@ describe('LocalPrReviewScreen', () => {
     expect(screen.getAllByText('No files changed.').length).toBeGreaterThan(0);
   });
 
-  it('renders an existing file-line comment inline with the 🔒 LOCAL badge', () => {
-    render(
+  it('renders an existing file-line comment inline in a threaded card', () => {
+    const { container } = render(
       <LocalPrReviewScreen title="Review" files={[FILE]} comments={[comment()]} allowLocalComments onBack={() => {}} />,
     );
     expect(screen.getByText(/Split this into a wrapper/)).toBeTruthy();
-    expect(screen.getByText('🔒 LOCAL')).toBeTruthy();
+    expect(container.querySelector('.ic-thread')).not.toBeNull();
   });
 
   it('opens a composer on a line click and submits a local comment on ⌘↵', () => {
@@ -193,8 +193,8 @@ describe('LocalPrReviewScreen', () => {
         onResolveComment={onResolveComment} onDismissComment={onDismissComment} onBack={() => {}}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     expect(onResolveComment).toHaveBeenCalledWith('cm1');
     expect(onDismissComment).toHaveBeenCalledWith('cm1');
   });
@@ -204,5 +204,26 @@ describe('LocalPrReviewScreen', () => {
     render(<LocalPrReviewScreen title="Review" files={[FILE]} comments={[]} onBack={onBack} />);
     fireEvent.click(screen.getByRole('button', { name: /Back/ }));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('embeds without the full-page toolbar or aux tabs', () => {
+    render(
+      <LocalPrReviewScreen
+        embedded
+        showAuxTabs={false}
+        title="Review"
+        files={[FILE]}
+        comments={[]}
+        commits={[{
+          id: 'c1', localPrId: 'pr1', sha: 'abc1234', message: 'Ship it',
+          authoredAt: Date.now(), pushedAt: null, additions: 1, deletions: 0,
+        }]}
+        onBack={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: /Back/ })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Commits/ })).toBeNull();
+    expect(screen.getByText('Changed files')).toBeTruthy();
   });
 });

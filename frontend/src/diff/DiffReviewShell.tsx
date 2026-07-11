@@ -19,6 +19,13 @@ import { treeOrderedFiles } from '../fileTree';
 import { ContinuousDiff } from './DiffFileList';
 import { DiffFileTreePane, type FilesPaneMode } from './DiffFileTreePane';
 
+export type DiffReviewExtraTab = {
+  key: string;
+  label: string;
+  count?: number;
+  content: ReactNode;
+};
+
 export function DiffReviewShell({
   title,
   files,
@@ -29,7 +36,14 @@ export function DiffReviewShell({
   emptyText = 'No files changed.',
   loadingText = 'Loading diff…',
   backLabel = '← Back',
+  showToolbar = true,
   toolbarActions,
+  extraTabs = [],
+  activeTab = 'files',
+  onTabChange,
+  initialFilesWidth = 260,
+  minFilesWidth = 180,
+  maxFilesWidth = 480,
 }: {
   title: ReactNode;
   /** Null = loading. Empty array = no changes. */
@@ -41,12 +55,24 @@ export function DiffReviewShell({
   emptyText?: string;
   loadingText?: string;
   backLabel?: string;
+  showToolbar?: boolean;
   toolbarActions?: ReactNode;
+  /** Additional tabs shown alongside "Changed files" in the left column
+   *  header — e.g. Commits, Review. Empty (the default) renders the plain
+   *  file-tree header exactly as before. */
+  extraTabs?: DiffReviewExtraTab[];
+  /** Controlled by the host when `extraTabs` is non-empty; ignored otherwise. */
+  activeTab?: string;
+  onTabChange?: (key: string) => void;
+  initialFilesWidth?: number;
+  minFilesWidth?: number;
+  maxFilesWidth?: number;
 }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
-  const [filesWidth, setFilesWidth] = useState(260);
+  const [filesWidth, setFilesWidth] = useState(initialFilesWidth);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const hasTabs = extraTabs.length > 0;
 
   const orderedFiles = useMemo(
     () => (files ? treeOrderedFiles(files, f => f.filename) : []),
@@ -63,18 +89,20 @@ export function DiffReviewShell({
   const onFilesResize = (clientX: number) => {
     const rect = bodyRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setFilesWidth(Math.max(180, Math.min(480, clientX - rect.left)));
+    setFilesWidth(Math.max(minFilesWidth, Math.min(maxFilesWidth, clientX - rect.left)));
   };
 
   return (
     <div className="diff-viewer">
-      <div className="diff-viewer__toolbar">
-        <button className="button button--secondary" onClick={onBack} type="button">{backLabel}</button>
-        <div className="diff-viewer__title">
-          <span className="diff-viewer__pr-title">{title}</span>
+      {showToolbar && (
+        <div className="diff-viewer__toolbar">
+          <button className="button button--secondary" onClick={onBack} type="button">{backLabel}</button>
+          <div className="diff-viewer__title">
+            <span className="diff-viewer__pr-title">{title}</span>
+          </div>
+          {toolbarActions}
         </div>
-        {toolbarActions}
-      </div>
+      )}
       <div
         className="diff-viewer__body"
         ref={bodyRef}
@@ -82,20 +110,56 @@ export function DiffReviewShell({
       >
         <aside className="diff-viewer__files">
           <div className="diff-viewer__files-header">
-            <span>Changed files</span>
-            {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
+            {hasTabs ? (
+              <div className="diff-viewer__col-tabs" role="tablist" aria-label="Files or other views">
+                <button
+                  type="button"
+                  role="tab"
+                  className={`diff-viewer__col-tab${activeTab === 'files' ? ' diff-viewer__col-tab--active' : ''}`}
+                  onClick={() => onTabChange?.('files')}
+                  aria-selected={activeTab === 'files'}
+                >
+                  Files
+                  {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
+                </button>
+                {extraTabs.map(t => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    className={'diff-viewer__col-tab'
+                      + (t.key === 'review' ? ' diff-viewer__col-tab--review' : '')
+                      + (activeTab === t.key ? ' diff-viewer__col-tab--active' : '')}
+                    onClick={() => onTabChange?.(t.key)}
+                    aria-selected={activeTab === t.key}
+                  >
+                    {t.label}
+                    {t.count !== undefined && <span className="diff-viewer__files-count">{t.count}</span>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                <span>Changed files</span>
+                {files !== null && <span className="diff-viewer__files-count">{files.length}</span>}
+              </>
+            )}
           </div>
-          <DiffFileTreePane
-            files={files}
-            error={error}
-            mode={mode}
-            pathOf={f => f.filename}
-            statusBadgeOf={f => statusBadge(f.status)}
-            selectedPath={selectedPath}
-            onSelectPath={setSelectedPath}
-            collapsedDirs={collapsedDirs}
-            onToggleDir={toggleDir}
-          />
+          {activeTab === 'files' || !hasTabs ? (
+            <DiffFileTreePane
+              files={files}
+              error={error}
+              mode={mode}
+              pathOf={f => f.filename}
+              statusBadgeOf={f => statusBadge(f.status)}
+              selectedPath={selectedPath}
+              onSelectPath={setSelectedPath}
+              collapsedDirs={collapsedDirs}
+              onToggleDir={toggleDir}
+            />
+          ) : (
+            extraTabs.find(t => t.key === activeTab)?.content
+          )}
         </aside>
 
         <ResizeHandle onResize={onFilesResize} ariaLabel="Resize changed-files panel" />

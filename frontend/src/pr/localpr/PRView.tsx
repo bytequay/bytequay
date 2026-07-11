@@ -43,6 +43,7 @@ export function PRView({
   onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
   onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onOpenStage,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
+  changesContent,
 }: {
   bundle: LocalPRBundle;
   capabilities: PRCapabilities;
@@ -81,7 +82,10 @@ export function PRView({
   /** Force-switches the header's own sub-tab (e.g. the live-plan rail's CI
    *  validation node opens Checks in place) — a fresh `token` re-fires even
    *  for a repeat click on the sub-tab that's already active. */
-  openSubTabRequest?: { subTab: PRHeaderTab; token: number };
+  openSubTabRequest?: { subTab: Exclude<PRHeaderTab, 'changes'>; token: number };
+  /** Embedded changed-files + diff UI. When omitted, Changes keeps opening the
+   *  host's full-page review surface. */
+  changesContent?: ReactNode;
 }) {
   const { pr, commits, timeline, checks, comments } = bundle;
   const local = isLocalStatus(pr.status);
@@ -149,6 +153,14 @@ export function PRView({
     onRefresh();
     refreshActivityFeed(true);
   };
+  const openChanges = () => {
+    onReviewChanges?.();
+    if (changesContent !== undefined) setActiveTab('changes');
+  };
+  const handleTabChange = (tab: PRHeaderTab) => {
+    if (tab === 'changes') openChanges();
+    else setActiveTab(tab);
+  };
 
   const githubFeedActive = pr.remotePrNumber !== null;
   // Once the GitHub feed is active it's the source of truth for the
@@ -174,18 +186,19 @@ export function PRView({
         deletions={deletions}
         headerAction={headerAction}
         onReviewChanges={onReviewChanges}
+        changesInline={changesContent !== undefined}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
       />
 
-      <div className="pr-body-scroll">
+      <div className={activeTab === 'changes' ? 'pr-body-scroll pr-body-scroll--changes' : 'pr-body-scroll'}>
         {activeTab === 'conversation' && (
           <PRTimeline
             pr={pr}
             events={timeline}
             comments={comments}
             commits={commits}
-            onReviewChanges={onReviewChanges}
+            onReviewChanges={onReviewChanges === undefined ? undefined : openChanges}
             onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
             onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
             onOpenStage={onOpenStage}
@@ -208,6 +221,10 @@ export function PRView({
               <CheckRows checks={remoteChecks} />
             </div>
           </div>
+        )}
+
+        {activeTab === 'changes' && changesContent !== undefined && (
+          <div className="pr-changes-tab">{changesContent}</div>
         )}
 
         {activeTab === 'conversation' && (

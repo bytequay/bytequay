@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { PRView } from '../pr/localpr/PRView';
@@ -30,6 +30,7 @@ import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
+import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
 import { PlanOverlay } from './PlanOverlay';
 import TaskCodePage from '../threads/TaskCodePage';
 
@@ -41,7 +42,8 @@ import TaskCodePage from '../threads/TaskCodePage';
  * surface).
  */
 export function TaskBrainRoute({
-  threadId, taskId, onOpenStage, onOpenCode, onOpenRun, onClosed, onBack,
+  threadId, taskId, onOpenStage, onOpenCode, onOpenRun, onClosed,
+  onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
 }: {
   threadId: string;
   taskId: string;
@@ -52,8 +54,13 @@ export function TaskBrainRoute({
   /** Closing a task seals it terminal + reaps its worktree, so the page is
    *  a dead end afterwards — navigate away (back to the thread trunk). */
   onClosed: () => void;
-  /** Navigate back to the thread trunk (the task sidebar's back button). */
+  /** Global nav-history back/forward, forwarded to the task sidebar's
+   *  TrafficLights — same as the main Sidebar uses. */
   onBack?: () => void;
+  onForward?: () => void;
+  backEnabled?: boolean;
+  forwardEnabled?: boolean;
+  onToggleCollapse?: () => void;
 }) {
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
@@ -68,7 +75,7 @@ export function TaskBrainRoute({
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
-    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, localPr, capabilities: prCapabilities,
+    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
     addLocalLineComment, replyLocalLineComment, resolveLocalComment, dismissLocalComment,
@@ -89,6 +96,10 @@ export function TaskBrainRoute({
       .catch(() => { /* poll reconciles */ })
       .finally(() => setSubmittingReview(false));
   }, [taskId, pollFast]);
+  const pendingReviewComments = useMemo(
+    () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
+    [localPrBundle],
+  );
 
   const askAgentToAddress = useCallback(() => {
     setText('Please address my review comments on the PR, then I\'ll push. ');
@@ -409,6 +420,10 @@ export function TaskBrainRoute({
       nodes={livePlanNodes}
       guard={buildGuardChip(data.guard, task.terminal)}
       onBack={onBack}
+      onForward={onForward}
+      backEnabled={backEnabled}
+      forwardEnabled={forwardEnabled}
+      onToggleCollapse={onToggleCollapse}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr?.onOpen}
@@ -419,25 +434,6 @@ export function TaskBrainRoute({
       }}
     />
   );
-
-  // Full-page changed-files + diff review for the local PR, reached from the
-  // PR tab's "Review changed files" button — same takeover the stages use.
-  if (reviewOpen && localPr !== null) {
-    return (
-      <LocalPrReviewScreen
-        title={`Review · ${localPr.title}`}
-        files={reviewFiles}
-        comments={localPrBundle?.comments ?? []}
-        allowLocalComments={prCapabilities?.draftLocalComments === true && !task.terminal}
-        fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
-        onAddComment={addLocalLineComment}
-        onReplyComment={replyLocalLineComment}
-        onResolveComment={resolveLocalComment}
-        onDismissComment={dismissLocalComment}
-        onBack={() => setReviewOpen(false)}
-      />
-    );
-  }
 
   return (
     <TaskBrainPage
@@ -479,6 +475,22 @@ export function TaskBrainRoute({
             onDequeue={dequeuePr}
             onDeleteBranch={deleteBranch}
             onReviewChanges={() => setReviewOpen(true)}
+            changesContent={(
+              <LocalPrReviewScreen
+                embedded
+                showAuxTabs={false}
+                title={`Review · ${localPrBundle.pr.title}`}
+                files={reviewOpen ? reviewFiles : null}
+                comments={localPrBundle?.comments ?? []}
+                allowLocalComments={prCapabilities?.draftLocalComments === true && !task.terminal}
+                fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
+                onAddComment={addLocalLineComment}
+                onReplyComment={replyLocalLineComment}
+                onResolveComment={resolveLocalComment}
+                onDismissComment={dismissLocalComment}
+                onBack={() => setReviewOpen(false)}
+              />
+            )}
             onRunTests={runLocalTests}
             runTestsBusy={testsBusy}
             onResolveThread={task.terminal ? undefined : resolveLocalComment}
@@ -498,6 +510,8 @@ export function TaskBrainRoute({
       }}
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}
+      pendingReviewComments={pendingReviewComments}
+      onRemovePendingReviewComment={dismissLocalComment}
     />
   );
 }

@@ -212,6 +212,30 @@ describe('PRView', () => {
     expect(screen.getByRole('tab', { name: /Checks/ }).getAttribute('aria-selected')).toBe('true');
   });
 
+  it('renders embedded Changes content as an in-place PR subtab', () => {
+    const onReviewChanges = vi.fn();
+    renderView(
+      bundle({ pr: pr('local-open') }),
+      { onReviewChanges, changesContent: <div data-testid="changes-panel">changed files + diff</div> },
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: /Changes/ }));
+
+    expect(onReviewChanges).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('changes-panel')).toBeTruthy();
+    expect(document.querySelector('.pr-body-scroll--changes')).not.toBeNull();
+  });
+
+  it('keeps Changes as a host action when no embedded content is supplied', () => {
+    const onReviewChanges = vi.fn();
+    renderView(bundle({ pr: pr('local-open') }), { onReviewChanges });
+
+    fireEvent.click(screen.getByRole('button', { name: /Changes/ }));
+
+    expect(onReviewChanges).toHaveBeenCalledOnce();
+    expect(document.querySelector('.pr-body-scroll--changes')).toBeNull();
+  });
+
   it('fires onRunTests and shows a busy label', () => {
     const onRunTests = vi.fn();
     const { rerender } = renderView(bundle({ pr: pr('local-open') }), { onRunTests });

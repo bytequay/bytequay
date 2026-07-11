@@ -233,19 +233,6 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const pendingPermission = useMemo<PendingPermission | null>(
     () => findPendingPermission(trunkMessages),
     [trunkMessages]);
-  // Seqs of the trunk's own planning prompts — scopes the conversation-
-  // index rail to prompts that exist in this pane, so it lists planning
-  // prompts (all clickable) instead of the thread-wide trunk + per-task
-  // prompts, the per-task ones having no row to scroll to here. The full
-  // "trunk lists Tasks, expand into each Task's index" nesting is a
-  // separate follow-up.
-  const trunkPromptSeqs = useMemo(
-    () => new Set(
-      trunkMessages
-        .filter(m => m.role === 'user' && m.type === 'text')
-        .map(m => m.seq)),
-    [trunkMessages]);
-
   // Shell-style ↑/↓ recall of prior trunk prompts, newest-first.
   const priorPrompts = useMemo(
     () => trunkMessages
@@ -747,14 +734,13 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   thread={thread}
                 />
               )}
-              {/* Floating right-edge conversation index. Anchored
+              {/* Floating Codex-style conversation index. Anchored
                   inside the chat card via position:relative on the
                   card; ConvIndex itself self-hides while the thread
                   has no prompts. */}
               <ConvIndex
                 threadId={threadId}
                 scrollContainerRef={chatScrollRef}
-                restrictToSeqs={trunkPromptSeqs}
               />
             </div>
 

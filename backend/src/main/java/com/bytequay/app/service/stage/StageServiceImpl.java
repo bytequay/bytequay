@@ -34,6 +34,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadTurnEvent;
@@ -160,6 +161,7 @@ public class StageServiceImpl
                 buildAggregate(task, allStages, brainMessages, cost.totalCents()),
                 topLevel,
                 subStages,
+                threadStore.findBrainThreadByTask(taskId).map(Thread::id).orElse(null),
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
                         brainMessages, stageNameIndex, buildStageStats(task, allStages)),
                 buildRightRail(task, allStages, cost),
@@ -589,6 +591,7 @@ public class StageServiceImpl
         String referencedStageId = user ? null : firstReferencedStage(body, stageNameIndex);
         return new BrainFeedRow(
                 m.id(),
+                m.seq(),
                 user ? "USER_MESSAGE" : "BRAIN_AGENT_RESPONSE",
                 null,
                 null,
@@ -668,6 +671,7 @@ public class StageServiceImpl
         }
         return new BrainFeedRow(
                 event.id(),
+                null,
                 "ITERATION_SUMMARY",
                 event.stageId(),
                 stageType == null ? null : stageType.name(),
@@ -687,6 +691,7 @@ public class StageServiceImpl
         if (e.eventType() == StageEventType.CLOSED && stageType == StageType.REVIEW_STAGE) {
             return Optional.of(new BrainFeedRow(
                     e.id().toString(),
+                    null,
                     "PANEL_REVIEW_COMPLETED",
                     e.stageId().toString(),
                     stageType.name(),
@@ -720,6 +725,7 @@ public class StageServiceImpl
         };
         return Optional.of(new BrainFeedRow(
                 e.id().toString(),
+                null,
                 type,
                 e.stageId().toString(),
                 stageType == null ? null : stageType.name(),

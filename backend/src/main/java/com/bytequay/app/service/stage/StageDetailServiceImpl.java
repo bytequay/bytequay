@@ -46,6 +46,7 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
@@ -183,6 +184,7 @@ public class StageDetailServiceImpl
                 buildStageInfo(stage, iters, window, devMessages),
                 topLevel,
                 subStages,
+                conversationThreadId(stage, task),
                 iterations,
                 buildConversation(stage, task, devMessages, iters),
                 buildRealtimeCi(task, prDetail),
@@ -202,6 +204,16 @@ public class StageDetailServiceImpl
             case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
             default -> false;
         };
+    }
+
+    private String conversationThreadId(StageInstance stage, Task task)
+    {
+        if (stage.type() == StageType.PLAN_STAGE) {
+            return threadStore.findBrainThreadByTask(task.id())
+                    .map(Thread::id)
+                    .orElse(null);
+        }
+        return task.threadId();
     }
 
     /** Development's in-stage phase ladder (plan-rail-runs.md R29) — same
@@ -632,7 +644,7 @@ public class StageDetailServiceImpl
                 ToolCallPayload tc = toolCall(m);
                 String callId = callIdOf(m);
                 ToolResultPayload r = callId == null ? null : resultsByCallId.get(callId);
-                rows.add(new ConversationRow(m.id(), "tool_call", null,
+                rows.add(new ConversationRow(m.id(), m.seq(), "tool_call", null,
                         tc.tag(), tc.label(), tc.detail(),
                         r == null ? null : r.output(), r == null ? null : r.isError(),
                         editDiff(m), null, m.ts().toString(), null, List.of()));
@@ -644,13 +656,13 @@ public class StageDetailServiceImpl
                 if ((text == null || text.isBlank()) && images.isEmpty()) {
                     continue;
                 }
-                rows.add(new ConversationRow(m.id(), user ? "user" : "agent",
+                rows.add(new ConversationRow(m.id(), m.seq(), user ? "user" : "agent",
                         text, null, null, null, null, null, null, null, m.ts().toString(), null, images));
             }
             else if ("permission_request".equals(m.type())) {
                 String callId = callIdOf(m);
                 if (callId != null && !decidedCallIds.contains(callId)) {
-                    rows.add(new ConversationRow(m.id(), "permission",
+                    rows.add(new ConversationRow(m.id(), m.seq(), "permission",
                             permissionField(m, "summary"),
                             null, permissionField(m, "toolName"), null,
                             null, null, null, null, m.ts().toString(), callId, List.of()));
@@ -658,7 +670,7 @@ public class StageDetailServiceImpl
             }
         }
         for (TaskStageIteration it : iters) {
-            rows.add(new ConversationRow(it.id() + ":marker", "iteration_marker",
+            rows.add(new ConversationRow(it.id() + ":marker", null, "iteration_marker",
                     it.trigger(), null, null, null, null, null, null, it.iterationNumber(),
                     TimeWindow.forIteration(it).start().toString(), null, List.of()));
         }

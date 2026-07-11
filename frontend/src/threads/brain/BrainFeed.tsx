@@ -125,6 +125,7 @@ function RoundView({ round, tag, full, collapsedStage, threadId }: {
           timestamp={<EventTimestamp iso={round.userTurn.ts} />}
           threadId={threadId}
           images={round.userTurn.images}
+          messageSeq={round.userTurn.messageSeq}
         />
       )}
       {/* A folded closed stage keeps only the user turn visible. */}

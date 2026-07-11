@@ -182,6 +182,7 @@ export type BrainFeedRowType =
 
 export type BrainFeedRow = {
   id: string;
+  messageSeq: number | null;
   type: BrainFeedRowType;
   stageId: string | null;             // null only for USER_MESSAGE/BRAIN_AGENT_RESPONSE
   stageType: StageType | null;        // mirrors stageId for the row's stage tag
@@ -324,6 +325,7 @@ export type TaskBrainViewData = {
   };
   stages: StageDto[];                 // top-level stages (callerStageId === null)
   subStages: StageDto[];              // ReviewStage instances (callerStageId !== null)
+  brainThreadId: string | null;       // task brain conversation source for the conversation index
   brainFeed: BrainFeedRow[];          // ORDER: chronological ascending
   rightRail: {
     approval: ApprovalDto | null;     // present when any stage is in NEEDS_ATTENTION
@@ -400,6 +402,7 @@ export type StageDetailData = {
   };
   allStages: StageDto[];
   subStages: StageDto[];
+  conversationThreadId: string | null;
   iterations: IterationDetail[];
   /** The stage's conversation transcript — the base timeline the detail view
    *  renders (agent turns + tool calls + your steering), with iteration
@@ -451,6 +454,7 @@ export type StagePrThread = {
  *  iteration_marker → iterationNumber + text (the loop trigger). */
 export type StageConversationRow = {
   id: string;
+  messageSeq: number | null;
   kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker' | 'permission';
   text: string | null;
   toolTag: string | null;

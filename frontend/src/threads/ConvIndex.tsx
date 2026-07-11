@@ -45,11 +45,10 @@ type Props = {
 };
 
 /**
- * Floating right-edge conversation-index rail. Default state is a
- * narrow strip of "−" markers — one per loaded user prompt — that
- * hugs the vertical centre of the host pane. Hovering anywhere on
- * the rail expands it into the full preview panel so the user can
- * read prompt previews and click-jump to a turn.
+ * Floating Codex-style conversation-index rail. Default state is a
+ * narrow right-gutter stack of dash marks — one per loaded user prompt.
+ * Hovering anywhere on the rail expands it into the full preview panel
+ * so the user can read prompt previews and click-jump to a turn.
  *
  * <p>Rows are clickable. Each row's click handler runs
  * {@code scrollIntoView} on the user-message row in the agent
@@ -192,11 +191,14 @@ function CollapsedStrip({
             }}
             title={e.preview}
             aria-label={`Jump to: ${e.preview}`}
-            style={isCurrent
-              ? { ...collapsedTickStyle(palette), ...collapsedTickCurrentStyle(palette) }
-              : collapsedTickStyle(palette)}
+            style={collapsedTickStyle(palette)}
           >
-            −
+            <span
+              aria-hidden
+              style={isCurrent
+                ? { ...collapsedBarStyle(palette), ...collapsedBarCurrentStyle(palette) }
+                : collapsedBarStyle(palette)}
+            />
           </button>
         );
       })}
@@ -408,6 +410,7 @@ type Palette = {
   subColor: string;
   rowColor: string;
   dashColor: string;
+  currentDashColor: string;
   shadow: string;
 };
 
@@ -418,7 +421,8 @@ const LIGHT_PALETTE: Palette = {
   headColor: '#6e7681',
   subColor: '#afb8c1',
   rowColor: '#57606a',
-  dashColor: '#8b96a1',
+  dashColor: '#d4d4d4',
+  currentDashColor: '#737373',
   shadow: '0 6px 18px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.12)',
 };
 
@@ -429,7 +433,8 @@ const DARK_PALETTE: Palette = {
   headColor: '#c8d3e0',
   subColor: '#7c8794',
   rowColor: '#c8d3e0',
-  dashColor: '#a4b0bd',
+  dashColor: 'rgba(255, 255, 255, 0.34)',
+  currentDashColor: 'rgba(255, 255, 255, 0.72)',
   shadow: '0 6px 18px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.30)',
 };
 
@@ -438,9 +443,8 @@ const DARK_PALETTE: Palette = {
 // the conversation is. translateY(-50%) keeps "centre" honest as
 // the rail's own height changes (collapsed vs expanded).
 //
-// `right: 14` keeps a visible gap between the rail and the card's
-// right border so the rail clearly reads as "inside the card"
-// rather than welded to the edge.
+// Codex-style: the collapsed scrubber sits in the right conversation
+// gutter as a naked stack of dash marks; hover expands the preview panel.
 const baseAnchorStyle: React.CSSProperties = {
   position: 'absolute',
   right: 14,
@@ -457,21 +461,17 @@ const baseAnchorStyle: React.CSSProperties = {
   transition: 'width 120ms ease, padding 120ms ease, background 120ms ease',
 };
 
-function panelCollapsedStyle(p: Palette): React.CSSProperties {
-  // Faint backdrop + hairline border so the "−" ticks read crisply
-  // when they overlay the conversation prose underneath, instead of
-  // disappearing into a contrasting word. Light enough that the
-  // rail still feels like a soft hint rather than a sidebar.
+function panelCollapsedStyle(_p: Palette): React.CSSProperties {
   return {
     ...baseAnchorStyle,
-    width: 18,
-    background: p.collapsedBackground,
-    border: `1px solid ${p.border}`,
-    borderRadius: 9,
-    padding: '4px 1px',
+    width: 22,
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 0,
+    padding: '4px 0',
     boxShadow: 'none',
-    backdropFilter: 'blur(4px)',
-    WebkitBackdropFilter: 'blur(4px)',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
   };
 }
 
@@ -493,33 +493,40 @@ const collapsedListStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
-  gap: 2,
+  gap: 6,
   padding: 0,
 };
 
-function collapsedTickStyle(p: Palette): React.CSSProperties {
+function collapsedTickStyle(_p: Palette): React.CSSProperties {
   return {
-    width: 14,
-    height: 12,
+    width: 18,
+    height: 6,
     padding: 0,
     margin: 0,
     border: 'none',
     background: 'transparent',
-    color: p.dashColor,
-    fontSize: 11,
-    lineHeight: 1,
     cursor: 'pointer',
-    borderRadius: 2,
+    borderRadius: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   };
 }
 
-function collapsedTickCurrentStyle(_p: Palette): React.CSSProperties {
+function collapsedBarStyle(p: Palette): React.CSSProperties {
   return {
-    color: 'var(--accent)',
-    fontWeight: 700,
+    width: 10,
+    height: 2,
+    borderRadius: 1,
+    background: p.dashColor,
+    display: 'block',
+  };
+}
+
+function collapsedBarCurrentStyle(p: Palette): React.CSSProperties {
+  return {
+    width: 13,
+    background: p.currentDashColor,
   };
 }
 

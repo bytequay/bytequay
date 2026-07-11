@@ -85,6 +85,7 @@ export function Tx({ markdown, children }: { markdown?: string; children?: React
 type EventRowProps = {
   kind: EventKind;
   who: ReactNode;
+  dataSeq?: number | null;
   taskRef?: ReactNode;
   timestamp?: ReactNode;
   collapsible?: boolean;
@@ -103,10 +104,10 @@ type EventRowProps = {
  * {@link WhoRow}, and {@link Tx}.
  */
 export function EventRow({
-  kind, who, taskRef, timestamp, collapsible = false, collapsed = false, onToggle, markdown, children,
+  kind, who, dataSeq, taskRef, timestamp, collapsible = false, collapsed = false, onToggle, markdown, children,
 }: EventRowProps) {
   return (
-    <div className="ev">
+    <div className="ev" data-seq={dataSeq ?? undefined}>
       <WhoRow
         kind={kind}
         who={who}

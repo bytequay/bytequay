@@ -32,6 +32,7 @@ import java.util.List;
  */
 public record BrainFeedRow(
         String id,
+        Long messageSeq,
         String type,
         String stageId,
         String stageType,

@@ -160,6 +160,25 @@ class TestAgentScheduler
     }
 
     @Test
+    void apiCodingStageActivatesPonytailWithoutChangingUserInput()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", LOGIC_LOOP);
+        RecordingSession session = harness.register(thread);
+        String stageId = "11111111-1111-1111-1111-111111111111";
+        Instant now = Instant.parse("2026-07-10T00:00:00Z");
+        harness.stageStore.stages.put(UUID.fromString(stageId), new StageInstance(
+                UUID.fromString(stageId), "task-1", StageType.DEVELOPMENT_STAGE,
+                StageState.OPEN, now, null, null));
+
+        harness.scheduler.enqueueTaskTurn(
+                thread, "implement", "task-1", stageId, TurnInitiator.user());
+
+        assertThat(session.inputs).containsExactly("implement");
+        assertThat(session.skillNames).containsExactly(List.of("ponytail"));
+    }
+
+    @Test
     void trunkPlanningTurnActivatesTrunkPlannerWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);

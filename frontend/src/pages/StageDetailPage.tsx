@@ -49,12 +49,13 @@ export function StageDetailPage({
   stageKind, stage, sidebar, conversation, collapsed = false, composer, run = {},
   tabs, tabCounts, paneMeta, onOpenCi, planReminder, onRevealPlan,
   onSubmitReview, submittingReview = false, openTabRequest,
-  pendingReviewComments = [], onRemovePendingReviewComment,
+  pendingReviewComments = [], onRemovePendingReviewComment, conversationIndex,
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
   sidebar?: ReactNode;
   conversation: ReactNode;
+  conversationIndex?: ReactNode;
   collapsed?: boolean;
   composer: {
     value: string;
@@ -183,7 +184,10 @@ export function StageDetailPage({
           style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
         >
           <div className="conv-col">
-            {conversation}
+            <div className="conv-index-host">
+              {conversation}
+              {conversationIndex}
+            </div>
             {/* Quick-access chips float just above the composer at all times
                 (not only when the pane is closed). The plan reminder pill sits
                 on the left of the same row; the tab chips align to the right. */}

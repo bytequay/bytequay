@@ -44,6 +44,7 @@ public record TaskBrainViewData(
         Aggregate aggregate,
         List<StageDto> stages,
         List<StageDto> subStages,
+        String brainThreadId,
         List<BrainFeedRow> brainFeed,
         RightRail rightRail,
         Scrubbers scrubbers,

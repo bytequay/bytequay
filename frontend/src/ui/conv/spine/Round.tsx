@@ -35,7 +35,7 @@ export function Round({ tag, children }: { tag?: ReactNode; children: ReactNode 
  * teal-bordered block. First-class and never folds; the spine answers
  * "where did I intervene?" by these nodes alone.
  */
-export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, managedSkills = [] }: {
+export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, managedSkills = [], messageSeq }: {
   text: string;
   timestamp?: ReactNode;
   glyph?: ReactNode;
@@ -47,10 +47,11 @@ export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, manag
   images?: string[];
   /** Hidden runtime markers. Shown only when the user opens the disclosure. */
   managedSkills?: string[];
+  messageSeq?: number | null;
 }) {
   const resolvedImages = useAttachmentImages(threadId ?? '', images ?? []);
   return (
-    <div className="sp-uturn">
+    <div className="sp-uturn" data-seq={messageSeq ?? undefined}>
       <span className="sp-uturn__mark" aria-hidden>{glyph}</span>
       <div className="sp-ublock">
         <div className="sp-ublock__who">

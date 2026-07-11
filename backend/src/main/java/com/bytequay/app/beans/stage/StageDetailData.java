@@ -43,6 +43,7 @@ public record StageDetailData(
         StageInfo stage,
         List<StageDto> allStages,
         List<StageDto> subStages,
+        String conversationThreadId,
         List<IterationDetail> iterations,
         /** The stage's conversation transcript — the base timeline the detail
          *  view renders. For a PlanStage it's the brain thread (seed → planning
@@ -118,6 +119,7 @@ public record StageDetailData(
      */
     public record ConversationRow(
             String id,
+            Long messageSeq,
             String kind,
             String text,
             String toolTag,

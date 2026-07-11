@@ -26,6 +26,8 @@ import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.local.ds4.Ds4Status;
+import com.bytequay.app.service.skills.ManagedSkill;
+import com.bytequay.app.service.skills.ManagedSkillBundle;
 import com.bytequay.app.service.threads.tools.AgentTool;
 import com.bytequay.app.service.threads.tools.AgentToolContext;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
@@ -51,6 +53,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -188,6 +191,26 @@ class TestLogicLoopThreadAgentCharacterization
 
         // The exact outbound payload, locked byte-for-byte.
         assertEquals(expectedFirstRequest("hi"), server.requestBodies.get(0));
+    }
+
+    @Test
+    void activeManagedPonytailIsInjectedIntoSystemPrompt()
+            throws Exception
+    {
+        server.enqueue(SSE_FINAL_TEXT);
+        LogicLoopThreadAgent agent = agent();
+        agent.setManagedSkillBundle(new ManagedSkillBundle(
+                "test", "test", Map.of("ponytail",
+                        new ManagedSkill("ponytail", "name: ponytail\n\nsmallest working change"))));
+        agent.setActiveManagedSkillNames(List.of("ponytail"));
+
+        agent.send("implement").toCompletableFuture().get(20, TimeUnit.SECONDS);
+
+        String request = server.requestBodies.get(0);
+        assertTrue(request.contains("# ByteQuay managed runtime skills"));
+        assertTrue(request.contains("## ponytail"));
+        assertTrue(request.contains("smallest working change"));
+        assertTrue(request.contains("{\"role\":\"user\",\"content\":\"implement\"}"));
     }
 
     @Test

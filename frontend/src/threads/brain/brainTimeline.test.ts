@@ -16,7 +16,17 @@ import type { BrainFeedRow, StageDto } from '../../types/brainView';
 import { buildBrainTimeline, headlineOf, isQnA, workOf } from './brainTimeline';
 
 function row(id: string, type: BrainFeedRow['type'], body = id, stageId: string | null = null): BrainFeedRow {
-  return { id, type, stageId, stageType: null, ts: '2026-01-01T00:00:00Z', body, referencedStageId: null, images: [] };
+  return {
+    id,
+    messageSeq: null,
+    type,
+    stageId,
+    stageType: null,
+    ts: '2026-01-01T00:00:00Z',
+    body,
+    referencedStageId: null,
+    images: [],
+  };
 }
 
 const DEV: StageDto = {

@@ -11,15 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useEffect, useState } from 'react';
 import { TrunkIcon } from '../ui/primitives';
 import { threadRepo } from '../pages/useWorkspaceNav';
-import type { ThreadDto } from '../types';
+import { headlineStatus, taskStatusBadge } from '../threads/taskStatusBadge';
+import type { ThreadDto, WorkUnitTaskDto } from '../types';
 
 /**
  * The workspace Trunks tab body — the redesign's `.surface` with an
  * "Open threads · N active · All repos" header and a list of full-width
- * thread cards (trunk tile · title · repo chip + kind + task hint ·
- * time · chevron). Presentational: the shell owns the data + routing.
+ * thread cards (trunk tile · title · repo chip + task pill or the
+ * discussion/no-task hint · time · chevron). The shell owns the thread
+ * list + click routing; per-thread tasks are fetched here (there's no
+ * bulk endpoint — same N-parallel-calls pattern as RecentList).
  */
 export function WorkspaceThreadsSurface({ threads, loading, onOpenThread }: {
   threads: ThreadDto[];
@@ -27,6 +31,7 @@ export function WorkspaceThreadsSurface({ threads, loading, onOpenThread }: {
   onOpenThread?: (id: string) => void;
 }) {
   const open = threads.filter(isOpenThread);
+  const tasksByThread = useThreadTaskLists(open.map(t => t.id));
   return (
     <div className="surface">
       <div className="surface-h">
@@ -42,13 +47,49 @@ export function WorkspaceThreadsSurface({ threads, loading, onOpenThread }: {
       {open.length === 0 ? (
         <div className="ghost">{loading ? 'Loading…' : 'No open threads — this workspace is at rest.'}</div>
       ) : (
-        open.map(t => <ThreadCard key={t.id} thread={t} onOpen={onOpenThread} />)
+        open.map(t => (
+          <ThreadCard
+            key={t.id}
+            thread={t}
+            tasks={tasksByThread.get(t.id) ?? []}
+            onOpen={onOpenThread}
+          />
+        ))
       )}
     </div>
   );
 }
 
-function ThreadCard({ thread, onOpen }: { thread: ThreadDto; onOpen?: (id: string) => void }) {
+/** Each open thread's tasks, fetched in parallel and re-fetched when the
+ *  set of thread ids changes. A thread missing from the map (fetch still
+ *  in flight or bridge absent) renders as if it had none. */
+function useThreadTaskLists(threadIds: string[]): Map<string, WorkUnitTaskDto[]> {
+  const [byThread, setByThread] = useState<Map<string, WorkUnitTaskDto[]>>(new Map());
+  const idsKey = threadIds.join('\n');
+  useEffect(() => {
+    const bridge = window.bridge as typeof window.bridge | undefined;
+    if (idsKey === '' || bridge?.listTasksForThread === undefined) return;
+    let cancelled = false;
+    void Promise.all(idsKey.split('\n').map(async id => {
+      try {
+        return [id, await bridge.listTasksForThread(id)] as const;
+      }
+      catch {
+        return [id, [] as WorkUnitTaskDto[]] as const;
+      }
+    })).then(entries => {
+      if (!cancelled) setByThread(new Map(entries));
+    });
+    return () => { cancelled = true; };
+  }, [idsKey]);
+  return byThread;
+}
+
+function ThreadCard({ thread, tasks, onOpen }: {
+  thread: ThreadDto;
+  tasks: WorkUnitTaskDto[];
+  onOpen?: (id: string) => void;
+}) {
   const repo = threadRepo(thread);
   return (
     <button
@@ -67,13 +108,19 @@ function ThreadCard({ thread, onOpen }: { thread: ThreadDto; onOpen?: (id: strin
             </svg>
             {repo}
           </span>
-          <span className="kind">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            discussion
-          </span>
-          <span className="task-hint">no task yet</span>
+          {tasks.length === 0 ? (
+            <>
+              <span className="kind">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                discussion
+              </span>
+              <span className="task-hint">no task yet</span>
+            </>
+          ) : (
+            <TasksPill tasks={tasks} />
+          )}
         </div>
       </div>
       <div className="right">
@@ -83,6 +130,20 @@ function ThreadCard({ thread, onOpen }: { thread: ThreadDto; onOpen?: (id: strin
         </svg>
       </div>
     </button>
+  );
+}
+
+/** "N tasks · <headline status>" with the colour-coded status dot — the
+ *  same tasks-pill vocabulary the pre-redesign card used, rebuilt from
+ *  the thread's full task list. */
+function TasksPill({ tasks }: { tasks: WorkUnitTaskDto[] }) {
+  const headline = headlineStatus(tasks.map(t => t.status));
+  const { label, tone } = taskStatusBadge(headline ?? 'IDLE');
+  return (
+    <span className={`tasks-pill tasks-pill--${tone}`}>
+      <span className="dot" aria-hidden />
+      {tasks.length} task{tasks.length === 1 ? '' : 's'} · {label}
+    </span>
   );
 }
 

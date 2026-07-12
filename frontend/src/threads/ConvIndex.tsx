@@ -89,6 +89,9 @@ export function ConvIndex({
   // Always start collapsed. The rail is a peripheral hint — hover or
   // focus it to expand into the full prompt-preview panel.
   const [expanded, setExpanded] = useState(false);
+  // The user-picked row stays bound to that seq. Until they click one,
+  // it's null and the highlight follows the newest prompt.
+  const [pickedSeq, setPickedSeq] = useState<number | null>(null);
 
   // Expose the hook's SSE callback to the parent without forcing a
   // prop-callback re-render cycle. The parent stashes the callback
@@ -108,6 +111,7 @@ export function ConvIndex({
     // page can't hijack the scroll.
     const host = scrollContainerRef.current;
     if (!host) return;
+    setPickedSeq(seq);
     const el = host.querySelector(`[data-seq="${seq}"]`);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -122,9 +126,13 @@ export function ConvIndex({
   }
 
   const palette = variant === 'dark' ? DARK_PALETTE : LIGHT_PALETTE;
-  const currentSeq = entries.length > 0
-    ? entries[entries.length - 1].seq
-    : null;
+  // A picked row stays bound to its seq (as long as it's still in the
+  // list); otherwise the highlight tracks the newest prompt.
+  const currentSeq = pickedSeq !== null && entries.some(e => e.seq === pickedSeq)
+    ? pickedSeq
+    : entries.length > 0
+      ? entries[entries.length - 1].seq
+      : null;
   const loaded = entries.length;
   // When scoped to a single pane, "of M" is just the loaded count —
   // there's no larger thread-wide total to page toward, and pulling

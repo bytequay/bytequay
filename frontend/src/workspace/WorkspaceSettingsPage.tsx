@@ -69,8 +69,7 @@ function WorkspaceSettingsPage() {
     try {
       await window.bridge.deleteWorkspace(workspace.id);
       // Route the user up to the workspaces landing once the row is
-      // gone; activeWorkspaceId in App will fall back to ws-default
-      // (or whatever survives) next time they enter a workspace.
+      // gone; the user chooses the next active workspace explicitly.
       window.location.reload();
     }
     catch (err) {

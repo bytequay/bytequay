@@ -400,7 +400,7 @@ public class TaskService
             Integer prNumber = current.prNumber();
             if (prNumber == null) {
                 String pat = patResolver.resolve(repoFullName);
-                String prBase = resolveMergeTarget(repoFullName, workingDir);
+                String prBase = resolveMergeTarget(thread.workspaceId(), repoFullName, workingDir);
                 // Cross-fork PRs need an owner-qualified head: when the
                 // clone's origin is a fork of the target repo, GitHub wants
                 // <fork-owner>:<branch>; a same-repo PR uses the bare branch.
@@ -538,13 +538,15 @@ public class TaskService
      * order: per-(workspace, repo) override on workspace_repos →
      * local clone's default branch → "main".
      */
-    private String resolveMergeTarget(String repoFullName, Path workingDir)
+    private String resolveMergeTarget(String workspaceId, String repoFullName, Path workingDir)
             throws IOException, InterruptedException
     {
-        Optional<String> override = workspaceService.findDefaultBaseBranch(
-                WorkspaceService.DEFAULT_WORKSPACE_ID, repoFullName);
-        if (override.isPresent()) {
-            return override.get();
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            Optional<String> override = workspaceService.findDefaultBaseBranch(
+                    workspaceId, repoFullName);
+            if (override.isPresent()) {
+                return override.get();
+            }
         }
         // Fork-aware: the upstream's default branch for a fork-based clone
         // (so a trinodb/trino fork targets master, not the fork's HEAD),

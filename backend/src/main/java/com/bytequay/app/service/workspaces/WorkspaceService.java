@@ -52,20 +52,13 @@ import static java.util.Objects.requireNonNull;
  * defaults used by ship-and-continue (notably the merge-target
  * branch).
  *
- * <p>v1 keeps a single ambient workspace ({@code ws-default} named
- * "ByteQuay"). Multi-workspace creation lands later; this service
- * already accepts the workspace id everywhere so the multi-workspace
- * path is just a routing problem.
+ * <p>All methods take an explicit workspace id. Callers must route
+ * through the workspace attached to their thread/task/request rather
+ * than relying on an ambient workspace.
  */
 @Service
 public class WorkspaceService
 {
-    /**
-     * Id of the ambient workspace seeded by V73. The frontend treats
-     * this as "the workspace" until multi-workspace switching ships.
-     */
-    public static final String DEFAULT_WORKSPACE_ID = "ws-default";
-
     /**
      * Soft upper bound on the workspace memory size — loaded into
      * every thread, so growth has a 1:N cost. Distillation keeps the

@@ -49,7 +49,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static com.bytequay.app.service.workspaces.WorkspaceService.DEFAULT_WORKSPACE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -74,6 +73,7 @@ import static org.mockito.Mockito.when;
 class TestCiFixRunExecutor
 {
     private static final String REPO = "acme/widgets";
+    private static final String WORKSPACE_ID = "ws-default";
     private static final String WORKTREE_PATH = "/tmp/acme-widgets/.worktrees/task-1";
     private static final int PR_NUMBER = 42;
     private static final Instant NOW = Instant.parse("2026-05-15T12:00:00Z");
@@ -423,9 +423,9 @@ class TestCiFixRunExecutor
 
     private void wireDashboardOptIn(Thread thread, boolean autoFixEnabled, boolean leaseHeld)
     {
-        when(workspaceStore.findRepo(eq(DEFAULT_WORKSPACE_ID), eq(REPO)))
+        when(workspaceStore.findRepo(eq(thread.workspaceId()), eq(REPO)))
                 .thenReturn(Optional.of(new WorkspaceRepo(
-                        DEFAULT_WORKSPACE_ID, REPO, /* defaultBaseBranch */ null,
+                        thread.workspaceId(), REPO, /* defaultBaseBranch */ null,
                         autoFixEnabled, NOW)));
         when(leaseService.isHeldByAnotherTask(eq(WORKTREE_PATH), anyString())).thenReturn(leaseHeld);
         when(threadStore.findThreadById(eq(thread.id()))).thenReturn(Optional.of(thread));
@@ -492,6 +492,6 @@ class TestCiFixRunExecutor
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 NOW, NOW, null, null,
-                ThreadFlow.BUILD, "ws-default", null, null);
+                ThreadFlow.BUILD, WORKSPACE_ID, null, null);
     }
 }

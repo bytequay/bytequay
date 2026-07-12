@@ -46,9 +46,9 @@ import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 /**
- * REST surface for the Workspace tier. v1 only has one workspace
- * ({@code ws-default}), but the URLs are workspace-id-shaped so the
- * multi-workspace switcher in a later phase doesn't need to re-route.
+ * REST surface for the Workspace tier. Every route is explicitly
+ * workspace-scoped; callers choose the workspace before reading or
+ * mutating memory/repo settings.
  */
 @RestController
 @RequestMapping("/api/workspaces")

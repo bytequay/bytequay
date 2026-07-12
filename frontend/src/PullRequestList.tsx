@@ -64,7 +64,7 @@ type Props = {
   /** Navigate to a freshly-started review thread (its threadId) — wired
    *  to the diff page's "Run AI review" panel launch. */
   onStartReview?: (threadId: string) => void;
-  /** Active workspace the review panel lands in. Null → ws-default. */
+  /** Active workspace the review panel lands in. */
   workspaceId?: string | null;
 };
 

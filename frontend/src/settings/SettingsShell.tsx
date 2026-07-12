@@ -32,6 +32,7 @@ import WorkspaceMemoryPage from './pages/WorkspaceMemoryPage';
 
 type Props = {
   section: SettingsSection;
+  workspaceId?: string | null;
   onSelectSection: (section: SettingsSection) => void;
   /** Forwarded to AccountPage so the Disconnect button lands the user back on first-run setup. */
   onClearPat?: () => void;
@@ -42,7 +43,7 @@ type Props = {
   onOpenThread?: (threadId: string) => void;
 };
 
-function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam, onOpenThread }: Props) {
+function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOpenTeam, onOpenThread }: Props) {
   // 'github-token' is kept in the section union so existing onboarding
   // deep links resolve cleanly; the Credentials → Git PAT tab owns the
   // PAT now, so we alias the old id at render time.
@@ -62,8 +63,10 @@ function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam, onOpe
           {resolved === 'agent-roles' && <AgentRolesPage />}
           {resolved === 'saved-views' && <SavedViewsPage />}
           {resolved === 'concepts' && <ConceptsPage />}
-          {resolved === 'watched-repos' && <WatchedReposPage />}
-          {resolved === 'workspace-memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
+          {resolved === 'watched-repos' && <WatchedReposPage workspaceId={workspaceId} />}
+          {resolved === 'workspace-memory' && (
+            <WorkspaceMemoryPage workspaceId={workspaceId ?? undefined} onOpenThread={onOpenThread} />
+          )}
           {resolved === 'integrations' && <IntegrationsPage />}
           {resolved === 'email' && <EmailSettingsPage />}
           {resolved === 'help' && <HelpPage />}

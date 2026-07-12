@@ -98,8 +98,7 @@ type Props = {
    *  affordance; the app shell routes the returned threadId into the
    *  review-thread page. */
   onStartReview?: (threadId: string) => void;
-  /** Active workspace — a review panel started from a PR/diff lands in
-   *  it. Null falls back to ws-default on the backend. */
+  /** Active workspace — required for starting a PR/diff review panel. */
   workspaceId?: string | null;
 };
 

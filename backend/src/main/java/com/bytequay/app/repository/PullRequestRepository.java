@@ -334,6 +334,20 @@ public interface PullRequestRepository
     }
 
     /**
+     * Returns the pull requests the GitHub notifications feed flags for the
+     * user's attention — {@code reason == "review_requested"} (asked to review,
+     * incl. re-requests) or {@code "mention"} (directly @-mentioned) — rather
+     * than from the search index. Maps to: GET /notifications. The notifications
+     * pipeline (the one that sends the review-request / mention email) surfaces
+     * items the search index can silently drop, so this backstops the
+     * dashboard's search-based review-requested sweep.
+     */
+    default List<PullRequestRef> fetchAttentionPrRefs(String pat)
+    {
+        throw new UnsupportedOperationException("fetchAttentionPrRefs not implemented");
+    }
+
+    /**
      * Updates an existing pull request.
      * Maps to: PATCH /repos/{owner}/{repo}/pulls/{pull_number}
      */

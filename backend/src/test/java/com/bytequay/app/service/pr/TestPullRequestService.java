@@ -193,6 +193,22 @@ class TestPullRequestService
         verify(gitHub, never()).getPullRequest(anyString(), any());
     }
 
+    @Test
+    void testDashboardSweepExcludesClosedNotificationPr()
+    {
+        // Notifications (all=true) still list a review request whose PR has
+        // since closed/merged. The review-requested search is is:open, so a
+        // closed PR must not leak into the "To review" set via this path.
+        PullRequestService service = dashboardService();
+        stubEmptySearches();
+        PullRequestRef ref = PullRequestRef.of("acme", "widget", 3376);
+        when(gitHub.fetchAttentionPrRefs("pat")).thenReturn(List.of(ref));
+        when(gitHub.getPullRequest("pat", ref))
+                .thenReturn(samplePr("acme/widget", 3376, "closed"));
+
+        assertThat(service.searchRelevantForDashboard()).isEmpty();
+    }
+
     /** A PullRequestService wired with direct (synchronous) executors so the
      *  fetchRelevant futures actually run under the test — the @InjectMocks
      *  Executor mock would no-op and hang the joins. */
@@ -213,11 +229,16 @@ class TestPullRequestService
 
     private static PullRequest samplePr(String repo, int number)
     {
+        return samplePr(repo, number, "open");
+    }
+
+    private static PullRequest samplePr(String repo, int number, String state)
+    {
         return new PullRequest(number, repo, number, "title", null, "url",
                 null, Instant.parse("2026-07-12T00:00:00Z"), PullRequest.Origin.AUTHORED,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(),
                 null, 0, 0, 0, null,
-                "open", null, null, null, null, null, null,
+                state, null, null, null, null, null, null,
                 null, null, null);
     }
 

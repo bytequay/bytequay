@@ -12,10 +12,10 @@
    keep their aliases (--bg-base, --bg-elevated, …) which the default
    block below now points at the same V3 values. */
 :root {
-  --bg: #fbfaf9;
+  --bg: #ffffff;
   --bg-elev: #ffffff;
-  --bg-sidebar: #f4f1ec;
-  --bg-code: #faf7f2;
+  --bg-sidebar: #ffffff;
+  --bg-code: #f6f8fa;
   --bg-hover: rgba(0, 0, 0, 0.04);
 
   --border-strong: rgba(0, 0, 0, 0.18);
@@ -65,8 +65,8 @@
   --diff-del: #ffebe9;
   --diff-del-num: #ffd7d5;
 
-  --code-border: rgba(180, 140, 80, 0.2);
-  --code-bg-warm: #f9f4ec;
+  --code-border: rgba(0, 0, 0, 0.1);
+  --code-bg-warm: #f6f8fa;
 
   --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
     sans-serif;
@@ -77,12 +77,12 @@
 
 :root,
 [data-theme="warm"] {
-  --bg-base: #fbfaf9;
+  --bg-base: #ffffff;
   --bg-elevated: #ffffff;
   --bg-card: rgba(255, 255, 255, 0.72);
-  --bg-input: #fdfcfb;
-  --bg-panel: rgba(255, 251, 244, 0.86);
-  --bg-btn-secondary: rgba(255, 251, 244, 0.8);
+  --bg-input: #ffffff;
+  --bg-panel: rgba(255, 255, 255, 0.86);
+  --bg-btn-secondary: #f6f8fa;
 
   --text-1: #1a1a1a;
   --text-2: #4a4a4a;

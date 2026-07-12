@@ -182,17 +182,17 @@
 .cd-inline-comment .md-composer__head { padding: 6px 10px; border-bottom: 1px solid rgba(0, 0, 0, 0.07); background: #faf9fe; }
 .cd-inline-comment .ic-composer-range { font-size: 11px; color: #767068; }
 .cd-inline-comment .ic-composer-range b { color: #1f2328; font-weight: 700; }
-.cd-inline-comment .md-composer__tabs { gap: 2px; background: #f4f1ec; border-radius: 6px; padding: 2px; }
+.cd-inline-comment .md-composer__tabs { gap: 2px; background: #eef1f4; border-radius: 6px; padding: 2px; }
 .cd-inline-comment .md-composer__tab { border-radius: 4px; padding: 2px 9px; font-size: 11px; color: #767068; border: 0; margin-bottom: 0; }
 .cd-inline-comment .md-composer__tab--active { background: #fff; color: #1f2328; font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); border: 0; margin-bottom: 0; }
-.cd-inline-comment .ic-composer { display: block; width: calc(100% - 20px); box-sizing: border-box; height: 52px; min-height: 38px; resize: vertical; border: 1px solid rgba(0, 0, 0, 0.13); border-radius: 7px; margin: 8px 10px 0; padding: 7px 10px; font-size: 12.5px; color: #1f2328; outline: none; background: #fdfcfb; line-height: 1.5; }
+.cd-inline-comment .ic-composer { display: block; width: calc(100% - 20px); box-sizing: border-box; height: 52px; min-height: 38px; resize: vertical; border: 1px solid rgba(0, 0, 0, 0.13); border-radius: 7px; margin: 8px 10px 0; padding: 7px 10px; font-size: 12.5px; color: #1f2328; outline: none; background: #ffffff; line-height: 1.5; }
 .cd-inline-comment .ic-composer::placeholder { color: var(--text-4); }
 .cd-inline-comment .ic-actions { display: flex; align-items: center; gap: 8px; padding: 8px 10px 9px; }
 .cd-inline-comment .ic-actions__spacer { flex: 1; }
 .cd-inline-comment .ic-actions button.resolve { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 7px; border: 1px solid #1a7f37; background: #1f883d; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
 .cd-inline-comment .ic-actions button.resolve:hover { background: #1a7f37; }
 .cd-inline-comment .ic-actions button.secondary { padding: 6px 12px; border-radius: 7px; border: 1px solid rgba(0, 0, 0, 0.13); background: #fff; color: #454c54; font-size: 12px; font-weight: 500; cursor: pointer; }
-.cd-inline-comment .ic-actions button.secondary:hover { background: #f4f1ec; }
+.cd-inline-comment .ic-actions button.secondary:hover { background: #eef1f4; }
 .cd-inline-comment .ic-actions button.cancel { padding: 6px 12px; border: 0; background: transparent; color: #767068; font-size: 12px; cursor: pointer; }
 .cd-inline-comment .ic-actions button.cancel:hover { color: #1f2328; }
 

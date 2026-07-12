@@ -1302,7 +1302,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-sunken, rgba(0, 0, 0, 0.04));
+  background: #ffffff;
 }
 
 .diff-viewer__files-header {
@@ -1462,7 +1462,7 @@
 .diff-viewer__commits--embedded {
   flex: 1;
   min-height: 0;
-  background: var(--bg-sunken, rgba(0, 0, 0, 0.04));
+  background: #ffffff;
 }
 
 /* Review tab body — the pending-comment cards, in the same middle column
@@ -2456,16 +2456,17 @@
 .ai-summary__rerun:hover { color: #6d28d9; border-color: rgba(139, 92, 246, 0.3); }
 
 /* ═══════════ Three-column diff view: commits lane ═══════════
-   Lane backgrounds step brighter toward the code (commits → files →
-   diff) instead of solid divider lines, pulling focus to the diff. */
-.diff-viewer__files { background: #fbfcfd; }
+   All lanes share the white canvas; hairline dividers separate the
+   columns (commits → files → diff). */
+.diff-viewer__files { background: #ffffff; border-right: 1px solid var(--border-light); }
 .diff-viewer__pane { background: #ffffff; }
 
 .diff-viewer__commits {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #f6f8fa;
+  background: #ffffff;
+  border-right: 1px solid var(--border-light);
 }
 .diff-viewer__commits--collapsed {
   align-items: center;

@@ -23,7 +23,8 @@ import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import type { TaskPhase } from '../types/brainView';
-import { Conv, DecisionNode, QueuedMessages, Working } from '../ui/conv';
+import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working } from '../ui/conv';
+import { SparkIcon } from '../ui/TaskBrainDesignIcons';
 import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
@@ -265,6 +266,8 @@ export function TaskBrainRoute({
   // The reminder pill opens the original execution plan card in an overlay.
   const [planOpen, setPlanOpen] = useState(false);
   const closePlan = useCallback(() => setPlanOpen(false), []);
+  const [planInlineOpenOverride, setPlanInlineOpenOverride] = useState<boolean | null>(null);
+  useEffect(() => setPlanInlineOpenOverride(null), [plan?.planStageId, plan?.state]);
 
   // While planning is live (draft / awaiting), the planning seed anchors the
   // top of the conversation as opening context and the typed plan card + review
@@ -278,9 +281,9 @@ export function TaskBrainRoute({
   const planConfidenceHigh = (plan?.signals.confidence ?? null) === 'high';
   const approvedAt = brainFeed.find(r => r.type === 'PLAN_APPROVED')?.ts;
 
-  // The original execution plan card (steps + signals + review bar). Shown
-  // inline while planning is live, and re-openable from the reminder pill via
-  // the overlay below — so it stays reachable once locked and off the feed.
+  // The original execution plan card (steps + signals + review bar). The new
+  // brain redesign keeps it inline even after approval; the reminder pill still
+  // gives a one-click zoomed view from the composer row.
   // Suppressed until the brain has actually written something — a freshly
   // opened PlanStage's draft row is otherwise all empty placeholders (no
   // steps, no summary, "0 steps in scope"), which reads as broken rather
@@ -304,6 +307,39 @@ export function TaskBrainRoute({
       onSetMinApprovals={setMinApprovals}
     />
   ) : null;
+  const defaultInlinePlanOpen = plan?.state !== 'locked';
+  const inlinePlanOpen = planInlineOpenOverride ?? defaultInlinePlanOpen;
+  const planTimelineNode = planCard !== null && plan !== null ? (
+    <NodeCard color="purple" mark={<SparkIcon />}>
+      <div className="plan-feed-event">
+        <div className="plan-feed-event__summary">
+          <div className="plan-feed-event__copy">
+            <strong>{plan.state === 'locked' ? 'Plan finalized' : 'Plan ready'}</strong>
+            <span>
+              rev {plan.revisionCount}
+              {' · '}
+              {plan.steps.length} {plan.steps.length === 1 ? 'step' : 'steps'}
+              {' · '}
+              {plan.signals.riskLevel} risk
+              {' · '}
+              {plan.signals.confidence ?? 'medium'} confidence
+            </span>
+            {approvedAt !== undefined && (
+              <span className="plan-feed-event__time"><EventTimestamp iso={approvedAt} /></span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="plan-feed-event__toggle"
+            onClick={() => setPlanInlineOpenOverride(!inlinePlanOpen)}
+          >
+            {inlinePlanOpen ? 'Hide plan' : 'View plan'}
+          </button>
+        </div>
+        {inlinePlanOpen && <div className="plan-feed-event__card">{planCard}</div>}
+      </div>
+    </NodeCard>
+  ) : null;
   const brainPromptSeqs = useMemo(
     () => new Set(
       brainFeed
@@ -324,14 +360,14 @@ export function TaskBrainRoute({
         density="focused"
         onOpenStage={onOpenStage}
         threadId={threadId}
+        spineTrailer={planTimelineNode}
         trailer={(
           <>
-            {showRoot && planCard}
             {data.rightRail.approval !== null && (
               <DecisionNode tone="approve">
                 <div className="sp-appr">
                   <div className="sp-appr__head">
-                    <span className="sp-appr__lbl">⚑ {data.rightRail.approval.stageTitle}</span>
+                    <span className="sp-appr__lbl">{data.rightRail.approval.stageTitle}</span>
                   </div>
                   <div className="sp-appr__why">
                     {data.rightRail.approval.reasonShort} — {data.rightRail.approval.pendingArtifact}
@@ -434,6 +470,8 @@ export function TaskBrainRoute({
       backEnabled={backEnabled}
       forwardEnabled={forwardEnabled}
       onToggleCollapse={onToggleCollapse}
+      threadLabel="Back to thread"
+      defaultExpandPhases
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr?.onOpen}
@@ -478,6 +516,7 @@ export function TaskBrainRoute({
         : undefined}
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
       markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
+      onOpenMarkReady={onOpenCode}
       tabs={{
         pr: localPrBundle != null && prCapabilities !== null ? (
           <PRView

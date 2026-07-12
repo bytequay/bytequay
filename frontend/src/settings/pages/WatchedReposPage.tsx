@@ -17,14 +17,15 @@ import AddRepoModal from '../../AddRepoModal';
 import Avatar from '../../Avatar';
 import SettingCard from '../shared/SettingCard';
 
-/** v1 ships a single ambient workspace; the auto-fix toggle on each
- *  watched repo writes against this id. Multi-workspace switching
- *  will replace this constant with a useWorkspace() lookup. */
-const DEFAULT_WORKSPACE_ID = 'ws-default';
-
 type Tab = 'repos' | 'tokens';
 
-function WatchedReposPage() {
+type Props = {
+  workspaceId?: string | null;
+};
+
+function WatchedReposPage({ workspaceId }: Props) {
+  const wsId = workspaceId?.trim() ?? '';
+  const hasWorkspace = wsId.length > 0;
   const [tab, setTab] = useState<Tab>('repos');
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
   const [workspaceRepos, setWorkspaceRepos] = useState<WorkspaceRepoDto[]>([]);
@@ -45,8 +46,9 @@ function WatchedReposPage() {
         // workspace_repos endpoint shouldn't blank the rest of the
         // settings page, so we swallow the error here and surface it
         // only at the toggle level.
-        window.bridge.listWorkspaceRepos(DEFAULT_WORKSPACE_ID)
-          .catch((): WorkspaceRepoDto[] => []),
+        hasWorkspace
+          ? window.bridge.listWorkspaceRepos(wsId).catch((): WorkspaceRepoDto[] => [])
+          : Promise.resolve([]),
       ]);
       setRepos(freshRepos);
       setTokens(freshTokens);
@@ -59,8 +61,11 @@ function WatchedReposPage() {
   };
 
   const setRepoAutoFix = async (owner: string, repo: string, enabled: boolean) => {
+    if (!hasWorkspace) {
+      throw new Error('Choose a workspace before changing auto-fix.');
+    }
     const updated = await window.bridge.setWorkspaceRepoAutoFix(
-      DEFAULT_WORKSPACE_ID, owner, repo, enabled);
+      wsId, owner, repo, enabled);
     setWorkspaceRepos(prev => {
       const next = prev.filter(r => r.repoFullName !== updated.repoFullName);
       next.push(updated);
@@ -68,7 +73,7 @@ function WatchedReposPage() {
     });
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [wsId]);
 
   // The add modal watches + maps the repo in one step; re-read the list to
   // pick up the new clone-backed row.
@@ -132,6 +137,7 @@ function WatchedReposPage() {
         <ReposTab
           repos={repos}
           workspaceRepos={workspaceRepos}
+          hasWorkspace={hasWorkspace}
           removing={removing}
           onRemove={handleRemove}
           onAutoFixChange={setRepoAutoFix}
@@ -153,12 +159,14 @@ function WatchedReposPage() {
 function ReposTab({
   repos,
   workspaceRepos,
+  hasWorkspace,
   removing,
   onRemove,
   onAutoFixChange,
 }: {
   repos: WatchedRepoDto[];
   workspaceRepos: WorkspaceRepoDto[];
+  hasWorkspace: boolean;
   removing: string | null;
   onRemove: (owner: string, repo: string) => void;
   onAutoFixChange: (owner: string, repo: string, enabled: boolean) => Promise<void>;
@@ -200,6 +208,7 @@ function ReposTab({
             <AutoFixToggle
               fullName={fullName}
               workspaceRepo={workspaceRepo}
+              hasWorkspace={hasWorkspace}
               onChange={enabled => onAutoFixChange(r.owner, r.repo, enabled)}
             />
             <button
@@ -220,10 +229,12 @@ function ReposTab({
 function AutoFixToggle({
   fullName,
   workspaceRepo,
+  hasWorkspace,
   onChange,
 }: {
   fullName: string;
   workspaceRepo: WorkspaceRepoDto | undefined;
+  hasWorkspace: boolean;
   onChange: (enabled: boolean) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
@@ -233,7 +244,7 @@ function AutoFixToggle({
   // covers existing repos, but ones added after the migration land
   // outside it. Surface a hint so the user knows why the toggle is
   // greyed out instead of guessing the backend was sleeping.
-  const attached = workspaceRepo !== undefined;
+  const attached = hasWorkspace && workspaceRepo !== undefined;
   const flip = async () => {
     setSaving(true);
     setError(null);
@@ -250,7 +261,9 @@ function AutoFixToggle({
       style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}
       title={attached
         ? `Headless auto-fix on CI failure for ${fullName}`
-        : `${fullName} isn't attached to the default workspace yet`}
+        : hasWorkspace
+          ? `${fullName} isn't attached to this workspace yet`
+          : 'Choose a workspace before changing auto-fix'}
     >
       <input
         type="checkbox"

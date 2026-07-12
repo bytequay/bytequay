@@ -19,8 +19,12 @@ import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemOrigin;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.MemoryItemStore;
-import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -28,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,23 +46,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 class TestMemoryToolHandlers
 {
+    private static final String WORKSPACE_ID = "ws-default";
+
     @Autowired
     private MemoryToolHandlers handlers;
 
     @Autowired
     private MemoryItemStore store;
 
-    private static ToolCall callOn(String threadId)
+    @Autowired
+    private ThreadStore threadStore;
+
+    private ToolCall callOn(String threadId)
     {
+        ensureThread(threadId);
         ObjectNode args = new ObjectMapper().createObjectNode();
         return new ToolCall(threadId, args, AgentRole.TRUNK);
+    }
+
+    private void ensureThread(String threadId)
+    {
+        if (threadStore.findThreadById(threadId).isPresent()) {
+            return;
+        }
+        Instant now = Instant.now();
+        threadStore.saveThread(new Thread(
+                threadId, ThreadKind.CLI_AGENT, "claude-code", null,
+                "Memory tool test", ThreadStatus.IDLE, "claude-sonnet-4.6",
+                0L, 0L, 0L, now, now, null, null,
+                ThreadFlow.BUILD, WORKSPACE_ID, null, null));
     }
 
     private MemoryItem seedDecision(String text)
     {
         return store.insert(new MemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
-                WorkspaceService.DEFAULT_WORKSPACE_ID,
+                WORKSPACE_ID,
                 MemoryItemKind.DECISION,
                 text,
                 List.of(MemoryItemSource.thread("thread-x")),
@@ -70,7 +94,7 @@ class TestMemoryToolHandlers
     {
         return store.insert(new MemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
-                WorkspaceService.DEFAULT_WORKSPACE_ID,
+                WORKSPACE_ID,
                 MemoryItemKind.BLOCKER,
                 text,
                 List.of(MemoryItemSource.thread("thread-y")),

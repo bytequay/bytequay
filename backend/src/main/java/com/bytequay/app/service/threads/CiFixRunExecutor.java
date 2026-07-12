@@ -33,7 +33,6 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
-import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -211,11 +210,23 @@ public class CiFixRunExecutor
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return;
         }
-        Optional<WorkspaceRepo> ws = workspaceStore.findRepo(
-                WorkspaceService.DEFAULT_WORKSPACE_ID, repoFullName);
+        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
+        if (threadOpt.isEmpty()) {
+            log.warn("auto-fix skipped: owning thread {} not found for task {}",
+                    task.threadId(), task.id());
+            return;
+        }
+        Thread thread = threadOpt.get();
+        String workspaceId = thread.workspaceId();
+        if (workspaceId == null || workspaceId.isBlank()) {
+            log.warn("auto-fix skipped: thread {} has no workspace (task {})",
+                    thread.id(), task.id());
+            return;
+        }
+        Optional<WorkspaceRepo> ws = workspaceStore.findRepo(workspaceId, repoFullName);
         if (ws.isEmpty() || !ws.get().autoFixEnabled()) {
-            log.debug("auto-fix not enabled for {} (task {}); NEEDS_ATTENTION-only",
-                    repoFullName, task.id());
+            log.debug("auto-fix not enabled for {} in workspace {} (task {}); NEEDS_ATTENTION-only",
+                    repoFullName, workspaceId, task.id());
             return;
         }
         if (leaseService.isHeldByAnotherTask(task.worktreePath(), task.id())) {
@@ -230,14 +241,6 @@ public class CiFixRunExecutor
             log.debug("auto-fix already queued earlier for task {}; skipping", task.id());
             return;
         }
-        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
-        if (threadOpt.isEmpty()) {
-            autoFixTriggered.remove(task.id());
-            log.warn("auto-fix skipped: owning thread {} not found for task {}",
-                    task.threadId(), task.id());
-            return;
-        }
-        Thread thread = threadOpt.get();
         if (thread.status() != ThreadStatus.IDLE) {
             // Not strictly an error — RUNNING means the user is
             // mid-turn; AWAITING means a permission card is up;

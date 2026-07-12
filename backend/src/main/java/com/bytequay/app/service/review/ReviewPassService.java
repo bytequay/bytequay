@@ -250,6 +250,17 @@ public class ReviewPassService
         });
     }
 
+    private static String requireWorkspaceId(StartOptions opts)
+    {
+        String workspaceId = opts.workspaceId();
+        if (workspaceId == null || workspaceId.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400),
+                    "workspaceId is required to start a review");
+        }
+        return workspaceId.trim();
+    }
+
     /**
      * Seat a new review pass: resolve the panel, pull the PR detail +
      * diff, materialise the thread + pass + participants + kickoff
@@ -265,6 +276,7 @@ public class ReviewPassService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "prNumber must be a positive integer");
         }
+        String workspaceId = requireWorkspaceId(opts);
 
         List<PanelMember> panel = resolvePanelMembers(opts);
 
@@ -317,11 +329,8 @@ public class ReviewPassService
                 /* endedAt */ null, /* errorMessage */ null,
                 ThreadFlow.REVIEW,
                 // The review thread lives in the workspace the dialog was
-                // opened from, so it shows in that workspace's thread
-                // list. Scheduled / one-click paths pass no workspace and
-                // fall back to ws-default.
-                opts.workspaceId() == null || opts.workspaceId().isBlank()
-                        ? "ws-default" : opts.workspaceId(),
+                // opened from, so it shows in that workspace's thread list.
+                workspaceId,
                 /* workModel */ null);
         threadStore.saveThread(thread);
 
@@ -1867,8 +1876,7 @@ public class ReviewPassService
             long costCapMilli,
             boolean independentFirst,
             /** Workspace the review thread is created in, so it shows in
-             *  that workspace's thread list. Null falls back to
-             *  ws-default (the scheduled / one-click paths). */
+             *  that workspace's thread list. Required for review starts. */
             String workspaceId,
             /** Per-run lead override picked in the dialog — a providerId.
              *  Null falls back to the first panel member. */

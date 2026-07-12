@@ -21,12 +21,7 @@ import WorkspaceMemoryProposalBanner from './WorkspaceMemoryProposalBanner';
 const TARGET_CHARS = 8_000;
 
 type Props = {
-  /** Active workspace whose memory this page reads/writes. The
-   *  workspace-scoped entry (WorkspaceShell) passes the real id so the
-   *  page matches the home badge; the app-level settings entry has no
-   *  current workspace and omits it, falling back to the ambient
-   *  ws-default. Getting this wrong reads a different workspace's
-   *  (empty) memory and renders blank. */
+  /** Active workspace whose memory this page reads/writes. */
   workspaceId?: string;
   /** Wires up the back-link chips in the memory proposal banner so a
    *  click navigates to the source thread. Forwarded from
@@ -35,7 +30,8 @@ type Props = {
 };
 
 function WorkspaceMemoryPage({ workspaceId, onOpenThread }: Props) {
-  const wsId = workspaceId ?? 'ws-default';
+  const wsId = workspaceId?.trim() ?? '';
+  const hasWorkspace = wsId.length > 0;
   const [memory, setMemory] = useState('');
   const [original, setOriginal] = useState('');
   const [loading, setLoading] = useState(true);
@@ -60,6 +56,11 @@ function WorkspaceMemoryPage({ workspaceId, onOpenThread }: Props) {
     setLoading(true);
     setError(null);
     try {
+      if (!hasWorkspace) {
+        setMemory('');
+        setOriginal('');
+        return;
+      }
       const { memoryMd } = await window.bridge.getWorkspaceMemory(wsId);
       setMemory(memoryMd);
       setOriginal(memoryMd);
@@ -94,6 +95,10 @@ function WorkspaceMemoryPage({ workspaceId, onOpenThread }: Props) {
     setError(null);
     setStatusMsg(null);
     try {
+      if (!hasWorkspace) {
+        setError('Choose a workspace before editing memory.');
+        return;
+      }
       const updated = await window.bridge.setWorkspaceMemory(wsId, memory);
       setMemory(updated.memoryMd);
       setOriginal(updated.memoryMd);
@@ -119,6 +124,10 @@ function WorkspaceMemoryPage({ workspaceId, onOpenThread }: Props) {
     setError(null);
     setStatusMsg(null);
     try {
+      if (!hasWorkspace) {
+        setError('Choose a workspace before distilling memory.');
+        return;
+      }
       const proposal = await window.bridge.distillWorkspaceMemory(wsId);
       if (proposal === null) {
         setStatusMsg('No proposal queued — there were no Thread Overalls to fold '
@@ -136,6 +145,26 @@ function WorkspaceMemoryPage({ workspaceId, onOpenThread }: Props) {
   };
 
   const sections = parseMemorySections(memory);
+
+  if (!hasWorkspace) {
+    return (
+      <>
+        <header className="workspace-pageheader">
+          <div>
+            <h1 className="workspace-pageheader__title">Memory</h1>
+            <div className="workspace-pageheader__meta">
+              Choose a workspace to view or edit its memory.
+            </div>
+          </div>
+        </header>
+        <section className="workspace-card" aria-label="No workspace selected">
+          <div style={emptyStateStyle}>
+            No workspace selected.
+          </div>
+        </section>
+      </>
+    );
+  }
 
   return (
     <>

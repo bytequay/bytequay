@@ -58,7 +58,6 @@ public class BrainServiceImpl
      *  task later; the API lane resolves this via the thread's work model. */
     private static final String DEFAULT_BRAIN_PROVIDER = "anthropic";
     private static final String DEFAULT_BRAIN_MODEL = "claude-haiku-4-5-20251001";
-    private static final String DEFAULT_WORKSPACE_ID = "ws-default";
 
     private static final Logger log = LoggerFactory.getLogger(BrainServiceImpl.class);
 
@@ -221,10 +220,15 @@ public class BrainServiceImpl
 
     private Thread createBrainThread(Task task)
     {
-        String workspaceId = threadStore.findThreadById(task.threadId())
-                .map(Thread::workspaceId)
-                .filter(w -> w != null && !w.isBlank())
-                .orElse(DEFAULT_WORKSPACE_ID);
+        Thread parent = threadStore.findThreadById(task.threadId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no parent thread: " + task.threadId()));
+        String workspaceId = parent.workspaceId();
+        if (workspaceId == null || workspaceId.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "parent thread " + parent.id() + " has no workspace");
+        }
         // The brain follows the task's resolved work model (the project
         // default), so it runs as a claude-code CLI subprocess on a CLI
         // install or in-JVM against the API provider on an API install —

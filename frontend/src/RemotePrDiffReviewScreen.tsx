@@ -101,8 +101,7 @@ type Props = {
   /** When set, the viewer opens on this single commit's diff instead of
    *  the cumulative PR diff — used by the timeline's clickable SHA chips. */
   initialCommitSha?: string | null;
-  /** Active workspace — the review panel a "Run AI review" launches lands
-   *  in it. Null falls back to ws-default on the backend. */
+  /** Active workspace — required for launching a workspace-scoped review panel. */
   workspaceId?: string | null;
   /** Navigate to a freshly-started review thread (its threadId). When
    *  absent, the "Run AI review" panel affordance is hidden. */
@@ -1579,6 +1578,8 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
 
 function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId, onStartReview }: Props) {
   const [assignReviewOpen, setAssignReviewOpen] = useState(false);
+  const reviewWorkspaceId = workspaceId?.trim() ?? '';
+  const canOpenReviewDialog = !onStartReview || reviewWorkspaceId.length > 0;
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [commits, setCommits] = useState<PullRequestCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2036,9 +2037,16 @@ function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, wor
         <button
           className="button button--ai"
           type="button"
-          onClick={() => { if (onStartReview) setAssignReviewOpen(true); else handleRunAi(); }}
+          onClick={() => {
+            if (!canOpenReviewDialog) return;
+            if (onStartReview) setAssignReviewOpen(true);
+            else handleRunAi();
+          }}
+          disabled={!canOpenReviewDialog}
           title={onStartReview
-            ? 'Spin up a multi-agent review panel on this PR — pick the reviewers and lead, then watch them review.'
+            ? canOpenReviewDialog
+              ? 'Spin up a multi-agent review panel on this PR — pick the reviewers and lead, then watch them review.'
+              : 'Choose a workspace before starting a review.'
             : 'Ask Claude to draft a review — summary plus line-anchored comments. Stored locally until you publish.'}
         >
           ✨ Run AI review
@@ -2330,9 +2338,9 @@ function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, wor
           draftSnapshot={aiDraft}
         />
       </div>
-      {assignReviewOpen && onStartReview && (
+      {assignReviewOpen && onStartReview && reviewWorkspaceId.length > 0 && (
         <AssignReviewTaskDialog
-          workspaceId={workspaceId ?? 'ws-default'}
+          workspaceId={reviewWorkspaceId}
           initialPr={pr}
           onClose={() => setAssignReviewOpen(false)}
           onStarted={(threadId) => { setAssignReviewOpen(false); onStartReview(threadId); }}

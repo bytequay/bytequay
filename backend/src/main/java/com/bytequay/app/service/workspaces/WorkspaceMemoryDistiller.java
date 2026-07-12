@@ -48,12 +48,6 @@ import static java.util.Objects.requireNonNull;
  * Skips quietly when the Anthropic API key isn't configured: the
  * summariser throws, we log the cause once, and the next sweep
  * retries.
- *
- * <p>v1 ships single-workspace; the corpus query is global because
- * the only workspace is {@link WorkspaceService#DEFAULT_WORKSPACE_ID}.
- * When multi-workspace switches on, scope the {@code ThreadCheckpoint}
- * lookup by workspace (Thread → workspace_id is already on the
- * entity).
  */
 @Component
 public class WorkspaceMemoryDistiller

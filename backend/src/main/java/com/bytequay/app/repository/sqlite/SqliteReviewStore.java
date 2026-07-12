@@ -146,14 +146,6 @@ class SqliteReviewStore
     }
 
     @Override
-    public Optional<ReviewPass> findActiveTaskReview(String taskId)
-    {
-        return passes.findFirstByHostKindAndHostIdAndPhaseNotOrderByCreatedAtMsDesc(
-                        ReviewPassHostKind.TASK_PHASE.name(), taskId, ReviewPhase.PUBLISHED.dbValue())
-                .map(SqliteReviewStore::toPass);
-    }
-
-    @Override
     public long sumPassCostSince(Instant since)
     {
         return passes.sumCostUsdMilliSince(since.toEpochMilli());

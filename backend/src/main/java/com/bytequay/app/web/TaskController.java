@@ -15,16 +15,13 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.WorkModel;
-import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
-import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -59,18 +56,15 @@ public class TaskController
     private final TaskService taskService;
     private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
-    private final ReviewStore reviewStore;
 
     public TaskController(
             TaskService taskService,
             ContextAssembler contextAssembler,
-            WorkModelResolver workModelResolver,
-            ReviewStore reviewStore)
+            WorkModelResolver workModelResolver)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
-        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
     }
 
     /** All tasks for the thread, oldest seq first. The UI's left-rail
@@ -79,37 +73,6 @@ public class TaskController
     public List<Task> list(@PathVariable String threadId)
     {
         return taskService.listTasksForThread(threadId);
-    }
-
-    /** The latest non-terminal task for this thread; 404 if the thread
-     *  is in the 0-Task state. */
-    @GetMapping("/active")
-    public Task active(@PathVariable String threadId)
-    {
-        return taskService.findActiveTask(threadId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no active task on thread: " + threadId));
-    }
-
-    /** Single task lookup, scoped to the parent thread. */
-    @GetMapping("/{taskId}")
-    public Task get(@PathVariable String threadId, @PathVariable String taskId)
-    {
-        return taskService.requireTask(threadId, taskId);
-    }
-
-    /** The id of the active TASK_PHASE-hosted review pass for this task,
-     *  if one is running (drives the task page's inline review panel).
-     *  {@code {"passId": null}} when none. */
-    @GetMapping("/{taskId}/active-review")
-    public ImmutableMap<String, String> activeReview(
-            @PathVariable String threadId, @PathVariable String taskId)
-    {
-        requireNonNull(threadId, "threadId is null");
-        String passId = reviewStore.findActiveTaskReview(taskId)
-                .map(p -> p.id())
-                .orElse(null);
-        return passId == null ? ImmutableMap.of() : ImmutableMap.of("passId", passId);
     }
 
     /**
@@ -129,14 +92,6 @@ public class TaskController
                     "dryRun=true is required — this endpoint never dispatches");
         }
         return contextAssembler.forTask(threadId, taskId);
-    }
-
-    /** Files the agent has touched in this task's worktree. Returned
-     *  most-recently-touched first. */
-    @GetMapping("/{taskId}/files")
-    public List<TaskFile> files(@PathVariable String threadId, @PathVariable String taskId)
-    {
-        return taskService.listFiles(threadId, taskId);
     }
 
     /** Close out the current task (commit + push + open PR) and start

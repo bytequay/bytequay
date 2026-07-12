@@ -46,9 +46,4 @@ interface ReviewPassJpaRepository
     Optional<ReviewPassEntity>
             findFirstByRepoFullNameAndPrNumberAndHostKindAndPhaseNotOrderByCreatedAtMsDesc(
                     String repoFullName, int prNumber, String hostKind, String phase);
-
-    /** Newest non-terminal pass hosted by a given host (e.g. the active
-     *  TASK_PHASE pass for a task). */
-    Optional<ReviewPassEntity> findFirstByHostKindAndHostIdAndPhaseNotOrderByCreatedAtMsDesc(
-            String hostKind, String hostId, String phase);
 }

@@ -362,7 +362,8 @@ class TestThreadRegistryWorkModel
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                NOW, null, "TASK ROLE", null, null, null);
+                NOW, /* endedAt */ null, /* errorMessage */ null,
+                /* name */ null, /* roleSkill */ "TASK ROLE", /* workModel */ null);
     }
 
     private static StageInstance stage(UUID id, StageType type)

@@ -30,14 +30,16 @@ describe('TimelinePersonEvent', () => {
     expect(row?.querySelector('img, .avatar--fallback')?.contains(eye ?? null)).toBe(false);
   });
 
-  it('shows the eye glyph for a plain review, a check for an approval', () => {
+  it('shows the eye icon for a plain review, a check for an approval', () => {
     const plain = render(<TimelinePersonEvent actor="findinpath" verdict={null} time={Date.now()} />);
-    expect(plain.container.querySelector('.eye')?.textContent).toBe('👁');
+    const plainEye = plain.container.querySelector('.eye');
+    expect(plainEye?.querySelector('svg circle')).toBeTruthy();
+    expect(plainEye?.className).not.toContain('approved');
     plain.unmount();
 
     const approved = render(<TimelinePersonEvent actor="findinpath" verdict="APPROVED" time={Date.now()} />);
     const eye = approved.container.querySelector('.eye');
-    expect(eye?.textContent).toBe('✓');
+    expect(eye?.querySelector('svg path')).toBeTruthy();
     expect(eye?.className).toContain('approved');
   });
 });

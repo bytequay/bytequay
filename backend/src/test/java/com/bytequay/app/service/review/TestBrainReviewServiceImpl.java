@@ -299,7 +299,7 @@ class TestBrainReviewServiceImpl
                           && prompt.contains("resolution='dismissed'")
                           && !prompt.contains("record_round_reply")),
                 eq(TASK_ID), eq("run-stage"),
-                argThat(i -> "brain-review-fix".equals(i.source())));
+                argThat(i -> "brain-review-fix".equals(i.source())), anyString());
         verify(roundStore).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())));
     }
 
@@ -405,7 +405,7 @@ class TestBrainReviewServiceImpl
         verify(agentRuns, never()).transition(anyString(), eq(AgentRun.STATUS_AWAITING_GATE), anyString());
         verify(scheduler).enqueueTaskTurn(
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
-                argThat(i -> "brain-review".equals(i.source())));
+                argThat(i -> "brain-review".equals(i.source())), anyString());
     }
 
     // ── reconcileStalledRounds: the intra-thread-multi-tasking backstop ───
@@ -426,7 +426,7 @@ class TestBrainReviewServiceImpl
 
         verify(scheduler).enqueueTaskTurn(
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
-                argThat(i -> "brain-review-fix".equals(i.source())));
+                argThat(i -> "brain-review-fix".equals(i.source())), anyString());
         verify(roundStore).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())));
     }
 
@@ -465,7 +465,7 @@ class TestBrainReviewServiceImpl
 
         verify(scheduler).enqueueTaskTurn(
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
-                argThat(i -> "brain-review".equals(i.source())));
+                argThat(i -> "brain-review".equals(i.source())), anyString());
         verify(roundStore).save(argThat(
                 r -> ReviewRound.STATUS_TRIAGING.equals(r.status()) && r.iteration() == 2));
     }

@@ -17,7 +17,10 @@ import type { WorkspaceInsightsDto } from '../types';
 type InsightsWindow = '24h' | '7d' | '30d';
 
 const WINDOWS: InsightsWindow[] = ['24h', '7d', '30d'];
-const WORKSPACE_ID = 'ws-default';
+
+type Props = {
+  workspaceId: string;
+};
 
 /** Workspace Insights — KPI cards + a per-window spend chart + the
  *  per-repo tasks-shipped breakdown. Everything pulls from
@@ -25,7 +28,7 @@ const WORKSPACE_ID = 'ws-default';
  *  attributes PR-linked tasks to their repo via the {@code owner/repo#n}
  *  link ref (the only repo signal a Task carries today), so tasks with
  *  no linked PR don't appear in the breakdown. */
-function WorkspaceInsightsPage() {
+function WorkspaceInsightsPage({ workspaceId }: Props) {
   const [insights, setInsights] = useState<WorkspaceInsightsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +37,7 @@ function WorkspaceInsightsPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setInsights(await window.bridge.getWorkspaceInsights(WORKSPACE_ID, windowKey));
+      setInsights(await window.bridge.getWorkspaceInsights(workspaceId, windowKey));
       setError(null);
     }
     catch (e) {
@@ -43,7 +46,7 @@ function WorkspaceInsightsPage() {
     finally {
       setLoading(false);
     }
-  }, [windowKey]);
+  }, [workspaceId, windowKey]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 

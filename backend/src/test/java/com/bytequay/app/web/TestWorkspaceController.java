@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 class TestWorkspaceController
 {
+    private static final String WORKSPACE_ID = "ws-default";
     private static final String REPO = "octocat/auto-fix-fixture";
 
     @Autowired
@@ -44,20 +45,20 @@ class TestWorkspaceController
     @Test
     void setAutoFixEnabledFlipsTheFlagAndPersists()
     {
-        workspaces.addRepo(WorkspaceService.DEFAULT_WORKSPACE_ID, REPO, null);
+        workspaces.addRepo(WORKSPACE_ID, REPO, null);
         // Sanity-check the default: V75 carried the column in with a
         // default of false, addRepo above also passed false explicitly.
         WorkspaceRepo seeded = findRepo(REPO);
         assertThat(seeded.autoFixEnabled()).isFalse();
 
         WorkspaceRepo enabled = controller.setAutoFixEnabled(
-                WorkspaceService.DEFAULT_WORKSPACE_ID, "octocat", "auto-fix-fixture",
+                WORKSPACE_ID, "octocat", "auto-fix-fixture",
                 new WorkspaceController.AutoFixEnabledBody(true));
         assertThat(enabled.autoFixEnabled()).isTrue();
         assertThat(findRepo(REPO).autoFixEnabled()).isTrue();
 
         WorkspaceRepo disabled = controller.setAutoFixEnabled(
-                WorkspaceService.DEFAULT_WORKSPACE_ID, "octocat", "auto-fix-fixture",
+                WORKSPACE_ID, "octocat", "auto-fix-fixture",
                 new WorkspaceController.AutoFixEnabledBody(false));
         assertThat(disabled.autoFixEnabled()).isFalse();
         assertThat(findRepo(REPO).autoFixEnabled()).isFalse();
@@ -71,7 +72,7 @@ class TestWorkspaceController
         // creating the row would let a typo enable auto-fix on the
         // wrong slug.
         assertThatThrownBy(() -> controller.setAutoFixEnabled(
-                WorkspaceService.DEFAULT_WORKSPACE_ID, "octocat", "never-attached",
+                WORKSPACE_ID, "octocat", "never-attached",
                 new WorkspaceController.AutoFixEnabledBody(true)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("not attached");
@@ -79,7 +80,7 @@ class TestWorkspaceController
 
     private WorkspaceRepo findRepo(String repoFullName)
     {
-        List<WorkspaceRepo> repos = workspaces.listRepos(WorkspaceService.DEFAULT_WORKSPACE_ID);
+        List<WorkspaceRepo> repos = workspaces.listRepos(WORKSPACE_ID);
         return repos.stream()
                 .filter(r -> r.repoFullName().equals(repoFullName))
                 .findFirst()

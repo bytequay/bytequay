@@ -796,9 +796,9 @@ function App() {
             }}
           />
         )}
-        {nav.view === 'thread-create' && (
+        {nav.view === 'thread-create' && activeWorkspaceId && (
           <ThreadCreatePage
-            workspaceId={activeWorkspaceId ?? 'ws-default'}
+            workspaceId={activeWorkspaceId}
             initialGroupId={nav.initialGroupId ?? null}
             onBack={() => setNav({
               view: 'workspace', section: 'threads',
@@ -899,10 +899,10 @@ function App() {
             }}
           />
         )}
-        {nav.view === 'workspace' && (
+        {nav.view === 'workspace' && activeWorkspaceId && (
           <WorkspaceShell
             section={nav.section ?? 'home'}
-            workspaceId={activeWorkspaceId ?? 'ws-default'}
+            workspaceId={activeWorkspaceId}
             onWorkspaceCreated={(newId) => {
               // A workspace created from the inline dialog becomes the
               // active one immediately so the user lands in its empty
@@ -1033,6 +1033,7 @@ function App() {
         {nav.view === 'settings' && (
           <SettingsShell
             section={nav.section ?? 'account'}
+            workspaceId={activeWorkspaceId}
             onSelectSection={(section) => setNav({ view: 'settings', section })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onOpenThread={openThread}

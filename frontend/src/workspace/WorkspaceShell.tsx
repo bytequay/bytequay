@@ -142,7 +142,7 @@ function WorkspaceShell({
           </div>
         )}
         {activeTab === 'insights' && (
-          <div className="surface"><WorkspaceInsightsPage /></div>
+          <div className="surface"><WorkspaceInsightsPage workspaceId={workspaceId} /></div>
         )}
       </div>
       {newThreadOpen && (

@@ -1760,9 +1760,8 @@ export type ThreadCheckpointDto = {
   taskId: string | null;
 };
 
-/** The persistent project brain — a single ambient row in v1
- *  ({@code ws-default}) that holds the markdown blob loaded into
- *  every thread's context. */
+/** A workspace-scoped project brain whose markdown is loaded into
+ *  threads created inside that workspace. */
 export type WorkspaceDto = {
   id: string;
   name: string;
@@ -1826,11 +1825,9 @@ export type WorkspaceCardDto = {
   lastActivityMs: number | null;
 };
 
-/** One repo attached to a workspace. v1 ships a single ambient
- *  workspace ({@code ws-default}), so for now the list mirrors the
- *  watched-repos table 1:1; the row carries the workspace-level
- *  settings that don't belong on the GitHub watched-list row
- *  (default base branch, auto-fix opt-in). */
+/** One repo attached to a workspace. Carries workspace-level settings
+ *  that don't belong on the GitHub watched-list row (default base
+ *  branch, auto-fix opt-in). */
 export type WorkspaceRepoDto = {
   workspaceId: string;
   repoFullName: string;

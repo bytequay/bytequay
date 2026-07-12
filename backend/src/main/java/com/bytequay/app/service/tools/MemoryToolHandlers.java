@@ -17,8 +17,9 @@ import com.bytequay.app.domain.MemoryItem;
 import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.MemoryItemStore;
-import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -54,12 +55,6 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class MemoryToolHandlers
 {
-    /** Default workspace id the trunk operates under in v1. Matches
-     *  {@link WorkspaceService#DEFAULT_WORKSPACE_ID}; the dispatcher
-     *  switches to the calling thread's workspace once the multi-
-     *  workspace router lands. */
-    private static final String DEFAULT_WORKSPACE_ID = WorkspaceService.DEFAULT_WORKSPACE_ID;
-
     /** Hard cap on rows returned by {@code recall_memory}. Keeps the
      *  response inside one tool-result message even when the
      *  workspace's memory bank is large. */
@@ -74,11 +69,13 @@ public class MemoryToolHandlers
     private static final int ONE_LINE_CAP = 120;
 
     private final MemoryItemStore store;
+    private final ThreadStore threadStore;
     private final ObjectMapper mapper;
 
-    public MemoryToolHandlers(MemoryItemStore store, ObjectMapper mapper)
+    public MemoryToolHandlers(MemoryItemStore store, ThreadStore threadStore, ObjectMapper mapper)
     {
         this.store = requireNonNull(store, "store is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -150,16 +147,16 @@ public class MemoryToolHandlers
             return ToolOutcome.Completed.error(
                     "unknown scope: " + args.scope() + " (expected WORKSPACE or THREAD)");
         }
-        String scopeId = scopeKind == MemoryItemScopeKind.THREAD ? call.threadId() : DEFAULT_WORKSPACE_ID;
-        if (scopeId == null || scopeId.isBlank()) {
+        MemoryItemScopeKind resolvedScope = scopeKind == null ? MemoryItemScopeKind.WORKSPACE : scopeKind;
+        Optional<String> scopeId = scopeIdFor(resolvedScope, call);
+        if (scopeId.isEmpty()) {
             return ToolOutcome.Completed.error("recall_memory has no scope id to look up under");
         }
         int limit = args.limit() == null ? RECALL_DEFAULT_LIMIT
                 : Math.clamp(args.limit(), 1, RECALL_HARD_CAP);
         String needle = args.query() == null ? "" : args.query().toLowerCase(Locale.ROOT).trim();
 
-        List<MemoryItem> all = store.findByScope(
-                scopeKind == null ? MemoryItemScopeKind.WORKSPACE : scopeKind, scopeId);
+        List<MemoryItem> all = store.findByScope(resolvedScope, scopeId.get());
         List<MemoryBrief> briefs = new ArrayList<>();
         for (MemoryItem row : all) {
             if (kindFilter != null && row.kind() != kindFilter) {
@@ -168,7 +165,7 @@ public class MemoryToolHandlers
             if (!needle.isEmpty() && !row.text().toLowerCase(Locale.ROOT).contains(needle)) {
                 continue;
             }
-            briefs.add(toBrief(row, scopeKind == null ? MemoryItemScopeKind.WORKSPACE : scopeKind));
+            briefs.add(toBrief(row, resolvedScope));
             if (briefs.size() >= limit) {
                 break;
             }
@@ -204,9 +201,13 @@ public class MemoryToolHandlers
             return ToolOutcome.Completed.error("no memory item with id " + args.id());
         }
         MemoryItem row = hit.get();
+        if (!canRead(row, call)) {
+            return ToolOutcome.Completed.error("memory item " + args.id() + " is outside this agent's scope");
+        }
         MemoryBrief successor = null;
         if (row.supersededBy() != null) {
             successor = store.findById(row.supersededBy())
+                    .filter(succ -> canRead(succ, call))
                     .map(succ -> toBrief(succ, succ.scopeKind()))
                     .orElse(null);
         }
@@ -224,6 +225,33 @@ public class MemoryToolHandlers
                 row.appliedAt(),
                 row.resolvedAt());
         return jsonResult(detail);
+    }
+
+    private Optional<String> scopeIdFor(MemoryItemScopeKind scope, ToolCall call)
+    {
+        if (scope == MemoryItemScopeKind.THREAD) {
+            return Optional.ofNullable(call)
+                    .map(ToolCall::threadId)
+                    .filter(id -> id != null && !id.isBlank());
+        }
+        return workspaceScopeId(call);
+    }
+
+    private Optional<String> workspaceScopeId(ToolCall call)
+    {
+        return Optional.ofNullable(call)
+                .map(ToolCall::threadId)
+                .filter(id -> id != null && !id.isBlank())
+                .flatMap(threadStore::findThreadById)
+                .map(Thread::workspaceId)
+                .filter(id -> id != null && !id.isBlank());
+    }
+
+    private boolean canRead(MemoryItem row, ToolCall call)
+    {
+        return scopeIdFor(row.scopeKind(), call)
+                .map(scopeId -> scopeId.equals(row.scopeId()))
+                .orElse(false);
     }
 
     private MemoryBrief toBrief(MemoryItem row, MemoryItemScopeKind scope)

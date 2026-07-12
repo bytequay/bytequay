@@ -103,7 +103,7 @@ public class ThreadRegistry
     private final McpPermissionGate gate;
     private final ExecutorService executor;
     private final CheckpointTrigger checkpointTrigger;
-    private final Supplier<String> workspaceMemoryProvider;
+    private final Function<Thread, String> workspaceMemoryProvider;
     /** Resolves the skills the CLI lane materializes for each session.
      *  May be null on legacy / test paths that don't care about skill
      *  materialization. */
@@ -188,7 +188,7 @@ public class ThreadRegistry
     {
         this(store, taskStore, stageStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
-                () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
+                thread -> workspaceMemory(workspaces, thread),
                 leaseService,
                 // The trunk runs in a read-only planning worktree pinned to the
                 // up-to-date base (upstream/master for a fork, origin/main for a
@@ -278,6 +278,15 @@ public class ThreadRegistry
                 .orElse(cloneRoot);
     }
 
+    private static String workspaceMemory(WorkspaceService workspaces, Thread thread)
+    {
+        String workspaceId = thread == null ? null : thread.workspaceId();
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return "";
+        }
+        return workspaces.getMemory(workspaceId);
+    }
+
     ThreadRegistry(
             ThreadStore store,
             TaskStore taskStore,
@@ -290,7 +299,7 @@ public class ThreadRegistry
             WorktreeLeaseService leaseService)
     {
         this(store, taskStore, null, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, leaseService,
+                thread -> workspaceMemoryProvider.get(), leaseService,
                 thread -> System.getProperty("java.io.tmpdir"),
                 null,
                 null,
@@ -313,7 +322,7 @@ public class ThreadRegistry
             McpPermissionGate gate,
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
+            Function<Thread, String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService,
             Function<Thread, String> trunkCwdResolver,
             SkillMaterializer skillMaterializer,
@@ -374,7 +383,7 @@ public class ThreadRegistry
             AgentContextDigest contextDigest)
     {
         this(store, taskStore, stageStore, parser, mapper, gate, executor,
-                checkpointTrigger, workspaceMemoryProvider, leaseService,
+                checkpointTrigger, thread -> workspaceMemoryProvider.get(), leaseService,
                 trunkCwdResolver, skillMaterializer, roleSkillService,
                 ponytailBundleService, workModelResolver, credentialService,
                 toolRegistry, ds4, ds4Instrumentation, contextDigest,
@@ -698,12 +707,12 @@ public class ThreadRegistry
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemoryProvider,
+                            workspaceMemorySupplier(thread),
                             resolveTaskRoleSkill(boundTask),
                             boundTask, cliModelOverride(resolved))
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemoryProvider, skillMaterializer,
+                            workspaceMemorySupplier(thread), skillMaterializer,
                             resolveTaskRoleSkill(boundTask),
                             boundTask, cliModelOverride(resolved));
             case LOGIC_LOOP -> {
@@ -772,14 +781,14 @@ public class ThreadRegistry
                 AbstractCliThreadAgent agent = isCodex(thread)
                         ? new CodexCliThreadAgent(
                                 thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemoryProvider,
+                                workspaceMemorySupplier(thread),
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                                 initialCwd,
                                 CodexCliThreadAgent.TrunkMode.ENABLED,
                                 PLANNING_REASONING_EFFORT)
                         : new ClaudeCodeCliThreadAgent(
                                 thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemoryProvider, skillMaterializer,
+                                workspaceMemorySupplier(thread), skillMaterializer,
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                                 initialCwd,
                                 ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
@@ -828,7 +837,7 @@ public class ThreadRegistry
             // to the brain allowlist by the MCP server (ThreadKind=BRAIN_AGENT).
             return withManagedSkillBundle(new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider, skillMaterializer,
+                    workspaceMemorySupplier(thread), skillMaterializer,
                     brainSystemPrompt(thread), workingDir,
                     ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
                     PLANNING_REASONING_EFFORT));
@@ -838,6 +847,11 @@ public class ThreadRegistry
                 credentialService, resolved, workingDir,
                 brainSystemPrompt(thread), toolRegistry,
                 ds4, ds4Instrumentation, gate));
+    }
+
+    private Supplier<String> workspaceMemorySupplier(Thread thread)
+    {
+        return () -> workspaceMemoryProvider.apply(thread);
     }
 
     /**

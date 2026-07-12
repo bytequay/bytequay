@@ -405,6 +405,31 @@ class TestPRPublishService
     }
 
     @Test
+    void mergeMarksAStillDraftPrReadyBeforeMerging()
+            throws Exception
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_DRAFTED)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        PullRequestRef ref = new PullRequestRef("acme", "widget", 145);
+        when(prService.transition("pr1", PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_USER))
+                .thenReturn(pushedPr(PR.STATUS_REMOTE_OPEN));
+        when(pullRequests.mergePullRequest(eq("ghp"), eq(ref), any()))
+                .thenReturn(new MergeResult("sha123", true, "Merged"));
+        PR merged = pushedPr(PR.STATUS_MERGED);
+        when(prService.recordMerged("pr1")).thenReturn(merged);
+
+        PR result = service.merge("pr1", "squash");
+
+        // Ready-for-review flip happens on GitHub AND locally before the merge.
+        verify(pullRequests).setPullRequestDraft("ghp", ref, false);
+        verify(prService).transition("pr1", PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_USER);
+        verify(pullRequests).mergePullRequest(eq("ghp"), eq(ref), any());
+        assertThat(result).isSameAs(merged);
+    }
+
+    @Test
     void mergeRejectsAPrThatWasNeverPushed()
     {
         when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));

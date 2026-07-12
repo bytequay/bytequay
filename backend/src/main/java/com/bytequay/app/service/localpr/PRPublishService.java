@@ -239,6 +239,14 @@ public class PRPublishService
         String pat = target.pat();
         PullRequestRef ref = target.ref();
 
+        // A still-draft PR can't merge or queue on GitHub — merging one
+        // means "mark it ready for review, then merge". Mirrors the
+        // mark-ready gate's own flip in PublishService.
+        if (PR.STATUS_REMOTE_DRAFTED.equals(pr.status())) {
+            pullRequests.setPullRequestDraft(pat, ref, false);
+            pr = prService.transition(prId, PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_USER);
+        }
+
         Optional<PullRequestRepository.MergeQueueProbe> probe;
         try {
             probe = pullRequests.probeMergeQueue(pat, ref);

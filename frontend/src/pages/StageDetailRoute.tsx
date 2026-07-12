@@ -25,13 +25,14 @@ import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import { CiStatusPanel } from './CiStatusPanel';
 import { PRTabContent } from '../ui/pane/tabs';
 import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
-import type { DiffFileDto } from '../types';
+import type { DiffFileDto, UserProfileDto } from '../types';
+import { getCached } from '../dataCache';
 import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
 import { Conv, EventRow, QueuedMessages, RoundEpisode, RunEpisode, Working } from '../ui/conv';
 import { useTaskRuns } from '../threads/brain/useTaskRuns';
 import { useTaskRounds } from '../threads/brain/useTaskRounds';
 import { useMessageQueue } from '../threads/useMessageQueue';
-import { stageRow } from './stageConversationRow';
+import { stageFeed } from './stageConversationRow';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
@@ -120,7 +121,7 @@ export function StageDetailRoute({
   const [prComment, setPrComment] = useState('');
   // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of `localPrNode` below, which reads it.
-  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks'; token: number } | undefined>(undefined);
+  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks' | 'changes'; token: number } | undefined>(undefined);
   // The task's local PR — the primary artifact this milestone renders. Null
   // until Dev records its first commit; then the PR tab shows <PRView>
   // instead of the remote-GitHub PRTabContent. The bundle poll + the
@@ -151,6 +152,38 @@ export function StageDetailRoute({
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
   );
+
+  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
+  // review / Remote pull request / Merge-Close, R27) and the review
+  // callout's View PR — a fresh token re-fires even for a repeat click on
+  // the tab that's already open.
+  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'ci'; token: number } | undefined>(
+    undefined);
+  const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
+    setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
+    if (subTab !== undefined) {
+      setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
+    }
+  }, []);
+
+  // The ready-for-review callout's inline gate — same semantics as the
+  // task page: approve ships the parked proposal exactly as drafted.
+  const [shipBusy, setShipBusy] = useState(false);
+  const [shipNote, setShipNote] = useState<string | null>(null);
+  const approveShip = useCallback(async () => {
+    if (shipBusy || shipProposal === null) return;
+    setShipBusy(true);
+    setShipNote(null);
+    try {
+      const result = await window.bridge.approveNotification(
+        shipProposal.id, null, proposalAction(shipProposal) ?? 'ship_task');
+      if (result.resolution !== 'approved') setShipNote(result.message);
+      pollFast();
+      refresh();
+    }
+    catch (e) { setShipNote(e instanceof Error ? e.message : String(e)); }
+    finally { setShipBusy(false); }
+  }, [shipBusy, shipProposal, pollFast, refresh]);
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
@@ -369,8 +402,8 @@ export function StageDetailRoute({
   // `liveText`. Without this, every keystroke re-maps + re-renders the whole
   // feed, which makes typing crawl on a long conversation.
   const transcriptRows = useMemo(
-    () => data?.conversation.map(r => stageRow(r, onDecide, threadId)),
-    [data?.conversation, onDecide, threadId],
+    () => (data !== null ? stageFeed(data.conversation, onDecide, threadId, working) : undefined),
+    [data, onDecide, threadId, working],
   );
   // Dev feed: the flat transcript, with any ci_fix runs folded in as episodes
   // (a live one flashes). Comments feed: the round list replaces the flat
@@ -393,12 +426,15 @@ export function StageDetailRoute({
         )),
         ...(transcriptRows ?? []),
       ];
-  const stagePromptSeqs = useMemo(
-    () => new Set(
-      (data?.conversation ?? [])
-        .flatMap(r => r.kind === 'user' && typeof r.messageSeq === 'number'
-          ? [r.messageSeq]
-          : [])),
+  // The rail's entries come straight from the loaded transcript — a
+  // stage's messages live in their own per-stage store whose seqs don't
+  // exist in the task thread, so the thread-wide backend index can't
+  // describe them (it used to drop prompts and preview the wrong text).
+  const stageIndexEntries = useMemo(
+    () => (data?.conversation ?? [])
+      .flatMap(r => r.kind === 'user' && typeof r.messageSeq === 'number' && (r.text ?? '').trim().length > 0
+        ? [{ seq: r.messageSeq, preview: (r.text ?? '').trim().slice(0, 80), tsMs: Date.parse(r.ts) }]
+        : []),
     [data?.conversation]);
   const conversation = (
     <Conv scrollRef={conversationRef}>
@@ -406,7 +442,15 @@ export function StageDetailRoute({
       {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
       {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
         ? <MarkReadyPrompt onReview={onOpenCode} />
-        : <ShipReviewPrompt onReview={onOpenCode} />)}
+        : (
+          <ShipReviewPrompt
+            onReview={onOpenCode}
+            onApprove={() => { void approveShip(); }}
+            onReviewChanges={() => openTab('pr', 'changes')}
+            busy={shipBusy}
+            note={shipNote}
+          />
+        ))}
       <QueuedMessages
         messages={queue}
         onEdit={id => setText(takeForEdit(id))}
@@ -589,17 +633,6 @@ export function StageDetailRoute({
     planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, planDevPhases, sidebarPhase, prNumber, pr,
     stageId, shipProposal, working, taskTerminal, brain.rightRail.linkedPr,
   ]);
-  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
-  // review / Remote pull request / Merge-Close, R27) — a fresh token
-  // re-fires even for a repeat click on the tab that's already open.
-  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'ci'; token: number } | undefined>(
-    undefined);
-  const openTab = useCallback((tab: 'pr', subTab?: 'checks') => {
-    setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
-    if (subTab !== undefined) {
-      setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
-    }
-  }, []);
   // Render once we have any stage data — the stage detail, or the task-level
   // brain stages — so the rail persists across stage switches.
   const sidebar = planStages.length === 0 ? undefined : (
@@ -617,6 +650,7 @@ export function StageDetailRoute({
       backEnabled={backEnabled}
       forwardEnabled={forwardEnabled}
       onToggleCollapse={onToggleCollapse}
+      user={getCached<UserProfileDto>('home:profile')?.login}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr !== null ? openPr : undefined}
@@ -642,7 +676,7 @@ export function StageDetailRoute({
         <ConvIndex
           threadId={data.conversationThreadId}
           scrollContainerRef={conversationRef}
-          restrictToSeqs={stagePromptSeqs}
+          localEntries={stageIndexEntries}
         />
       ) : undefined}
       composer={{
@@ -651,7 +685,8 @@ export function StageDetailRoute({
         onSubmit: submit,
         busy: working,
         queueWhenBusy: true,
-        placeholder: state === 'CLOSED' ? 'This stage is closed.' : 'Steer this stage…',
+        placeholder: 'Steer this stage…',
+        closedNote: state === 'CLOSED' ? 'This stage is closed.' : undefined,
         images,
         onImagesChange: setImages,
       }}

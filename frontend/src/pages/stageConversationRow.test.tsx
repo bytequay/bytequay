@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StageConversationRow } from '../types/brainView';
-import { stageRow } from './stageConversationRow';
+import { stageFeed, stageRow } from './stageConversationRow';
 
 afterEach(cleanup);
 
@@ -67,6 +67,31 @@ describe('stageRow tool_call', () => {
     expect(container.querySelector('.tool-block')).toBeTruthy();
     expect(screen.getByText('Tool')).toBeTruthy();
     expect(screen.getByText('Tool call')).toBeTruthy();
+  });
+});
+
+describe('stageFeed grouping', () => {
+  it('folds consecutive tool calls behind a "Worked for" group; boundaries stay inline', () => {
+    const rows = [
+      row({ id: 'u1', kind: 'user', text: 'go' }),
+      row({ id: 't1', ts: '2026-01-01T00:00:00Z' }),
+      row({ id: 't2', ts: '2026-01-01T00:03:12Z' }),
+      row({ id: 'a1', kind: 'agent', text: 'done' }),
+    ];
+    const { container } = render(<>{stageFeed(rows)}</>);
+    expect(screen.getByText('Worked for 3m 12s')).toBeTruthy();
+    expect(screen.getByText('· 2 steps')).toBeTruthy();
+    expect(screen.getByText('done')).toBeTruthy();
+    // Folded by default: the tool rows are hidden until the bar is clicked.
+    expect(container.querySelector('.tool-block')).toBeNull();
+    fireEvent.click(screen.getByText('Worked for 3m 12s'));
+    expect(container.querySelectorAll('.tool-block')).toHaveLength(2);
+  });
+
+  it('keeps the trailing group open while the stage is live', () => {
+    const rows = [row({ id: 't1' }), row({ id: 't2' })];
+    const { container } = render(<>{stageFeed(rows, undefined, undefined, true)}</>);
+    expect(container.querySelectorAll('.tool-block')).toHaveLength(2);
   });
 });
 

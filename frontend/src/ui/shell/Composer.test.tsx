@@ -84,4 +84,13 @@ describe('Composer', () => {
     fireEvent.click(screen.getByLabelText('Send'));
     expect(onSubmit).toHaveBeenCalled();
   });
+
+  it('replaces the input with the closed note when closedNote is set', () => {
+    render(
+      <Composer value="" onChange={() => {}} onSubmit={() => {}} closedNote="This task is closed." />,
+    );
+    expect(screen.getByText('This task is closed.')).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByLabelText('Send')).toBeNull();
+  });
 });

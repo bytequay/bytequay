@@ -18,6 +18,7 @@ import { MarkdownProse } from '../MarkdownProse';
 import {
   EventTimestamp, Headline, Round, Spine, StageBoundaryNode, UserTurn, WorkFold,
 } from '../../ui/conv';
+import { ClockIcon } from '../../ui/TaskBrainDesignIcons';
 import type { Density } from '../../ui/conv/spine/DensityToggle';
 import {
   buildBrainTimeline, headlineOf, isQnA, workOf,
@@ -25,17 +26,20 @@ import {
 import type { BrainRound } from './brainTimeline';
 import { formatDuration } from './format';
 
-/** The work-fold summary: step count plus the wall-clock the brain spent —
- *  from its first work row to the round's headline (or last work row while a
- *  round is still streaming). The duration is dropped when it rounds to under
- *  a second or a timestamp is missing. */
-function workMeta(work: BrainFeedRow[], headline: BrainFeedRow | null): string {
-  const steps = `${work.length} ${work.length === 1 ? 'step' : 'steps'}`;
+/** The work-fold summary, design-shaped: "Worked for 3m 12s" label plus a
+ *  "· 5 steps" meta. The wall-clock runs from the first work row to the
+ *  round's headline (or last work row while a round is still streaming);
+ *  the label falls back to "Brain worked" when it rounds to under a second
+ *  or a timestamp is missing. */
+function workSummary(work: BrainFeedRow[], headline: BrainFeedRow | null): { label: string; meta: string } {
+  const steps = `· ${work.length} ${work.length === 1 ? 'step' : 'steps'}`;
   const firstTs = work[0]?.ts;
   const lastTs = headline?.ts ?? work[work.length - 1]?.ts;
-  if (firstTs === undefined || lastTs === undefined) return steps;
+  if (firstTs === undefined || lastTs === undefined) return { label: 'Brain worked', meta: steps };
   const elapsedSec = (new Date(lastTs).getTime() - new Date(firstTs).getTime()) / 1000;
-  return elapsedSec >= 1 ? `${steps} · ${formatDuration(elapsedSec)}` : steps;
+  return elapsedSec >= 1
+    ? { label: `Worked for ${formatDuration(elapsedSec)}`, meta: steps }
+    : { label: 'Brain worked', meta: steps };
 }
 
 /**
@@ -129,6 +133,8 @@ function RoundView({ round, tag, full, collapsedStage, threadId }: {
           images={round.userTurn.images}
           messageSeq={round.userTurn.messageSeq}
           managedSkills={round.userTurn.managedSkills}
+          quiet
+          clampAt={96}
         />
       )}
       {/* A folded closed stage keeps only the user turn visible. */}
@@ -138,7 +144,12 @@ function RoundView({ round, tag, full, collapsedStage, threadId }: {
       {!collapsedStage && !qna && (
         <>
           {work.length > 0 && (
-            <WorkFold meta={workMeta(work, headline)} forceOpen={full}>
+            <WorkFold
+              label={workSummary(work, headline).label}
+              meta={workSummary(work, headline).meta}
+              icon={<ClockIcon size={14} strokeWidth={1.8} />}
+              forceOpen={full}
+            >
               {work.map(w => (
                 <div className="sp-submsg" key={w.id}>
                   <div className="sp-submsg__who">Brain<span className="ago"><EventTimestamp iso={w.ts} /></span></div>

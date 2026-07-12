@@ -170,6 +170,53 @@ export function ClockIcon(props: IconProps) {
   );
 }
 
+export function TerminalRunIcon(props: IconProps) {
+  return (
+    <Icon size={14} strokeWidth={1.9} {...props}>
+      <path d="M4 17l6-6-6-6" />
+      <path d="M12 19h8" />
+    </Icon>
+  );
+}
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <Icon size={14} strokeWidth={1.8} {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </Icon>
+  );
+}
+
+export function McpCubeIcon(props: IconProps) {
+  return (
+    <Icon size={13} strokeWidth={1.6} {...props}>
+      <path d="M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8z" />
+      <path d="M3.3 7 12 12l8.7-5" />
+      <path d="M12 12v9" />
+    </Icon>
+  );
+}
+
+export function PenIcon(props: IconProps) {
+  return (
+    <Icon size={13} strokeWidth={1.8} {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2 2 0 0 1 3 3L7 19l-4 1 1-4z" />
+    </Icon>
+  );
+}
+
+export function WarnTriangleIcon(props: IconProps) {
+  return (
+    <Icon size={15} strokeWidth={1.8} {...props}>
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+      <path d="M10.3 3.9 2.4 18a1.9 1.9 0 0 0 1.7 2.8h15.8a1.9 1.9 0 0 0 1.7-2.8L13.7 3.9a1.9 1.9 0 0 0-3.4 0z" />
+    </Icon>
+  );
+}
+
 export function SparkIcon({ size = 9, ...props }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" focusable="false" {...props}>

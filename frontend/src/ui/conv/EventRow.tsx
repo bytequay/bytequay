@@ -45,11 +45,12 @@ export function EventIcon({ kind, glyph }: { kind: EventKind; glyph?: ReactNode 
 }
 
 /** The metadata row: name + optional task ref + timestamp + collapse chev. */
-export function WhoRow({ kind, who, taskRef, timestamp, collapsible = false, collapsed = false, onToggle }: {
+export function WhoRow({ kind, who, taskRef, timestamp, metaExtra, collapsible = false, collapsed = false, onToggle }: {
   kind: EventKind;
   who: ReactNode;
   taskRef?: ReactNode;
   timestamp?: ReactNode;
+  metaExtra?: ReactNode;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
@@ -62,6 +63,7 @@ export function WhoRow({ kind, who, taskRef, timestamp, collapsible = false, col
       <span className={whoClass}>{who}</span>
       {taskRef !== undefined && <span className="ref">{taskRef}</span>}
       {timestamp !== undefined && <span className="ref">{timestamp}</span>}
+      {metaExtra}
       {collapsible && (
         <button type="button" className="chev" aria-label={collapsed ? 'Expand' : 'Collapse'} onClick={onToggle}>
           {collapsed ? '▸' : '▾'}
@@ -88,6 +90,7 @@ type EventRowProps = {
   dataSeq?: number | null;
   taskRef?: ReactNode;
   timestamp?: ReactNode;
+  metaExtra?: ReactNode;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
@@ -104,7 +107,7 @@ type EventRowProps = {
  * {@link WhoRow}, and {@link Tx}.
  */
 export function EventRow({
-  kind, who, dataSeq, taskRef, timestamp, collapsible = false, collapsed = false, onToggle, markdown, children,
+  kind, who, dataSeq, taskRef, timestamp, metaExtra, collapsible = false, collapsed = false, onToggle, markdown, children,
 }: EventRowProps) {
   return (
     <div className="ev" data-seq={dataSeq ?? undefined}>
@@ -113,6 +116,7 @@ export function EventRow({
         who={who}
         taskRef={taskRef}
         timestamp={timestamp}
+        metaExtra={metaExtra}
         collapsible={collapsible}
         collapsed={collapsed}
         onToggle={onToggle}

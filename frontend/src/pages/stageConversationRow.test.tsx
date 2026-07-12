@@ -23,11 +23,23 @@ function row(over: Partial<StageConversationRow>): StageConversationRow {
     id: 'r1', kind: 'tool_call', text: null,
     toolTag: 'Run', toolLabel: 'Bash', toolDetail: null,
     toolResult: null, toolError: null, toolDiff: null, iterationNumber: null,
+    ts: '2026-01-01T00:00:00Z', callId: null, images: [], managedSkills: [],
     ...over,
   } as StageConversationRow;
 }
 
 describe('stageRow tool_call', () => {
+  it('shows runtime-managed skills on user rows', () => {
+    render(<>{stageRow(row({
+      kind: 'user',
+      text: 'implement',
+      managedSkills: ['ponytail'],
+    }))}</>);
+
+    fireEvent.click(screen.getByText('runtime'));
+    expect(screen.getByText('Managed skills: ponytail')).toBeTruthy();
+  });
+
   it('prints the command after the tool name', () => {
     const { container } = render(<>{stageRow(row({ toolDetail: 'mvnd airstyle:format' }))}</>);
     expect(screen.getByText('mvnd airstyle:format')).toBeTruthy();

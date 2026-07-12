@@ -128,6 +128,7 @@ function RoundView({ round, tag, full, collapsedStage, threadId }: {
           threadId={threadId}
           images={round.userTurn.images}
           messageSeq={round.userTurn.messageSeq}
+          managedSkills={round.userTurn.managedSkills}
         />
       )}
       {/* A folded closed stage keeps only the user turn visible. */}

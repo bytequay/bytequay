@@ -13,6 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import { EventRow } from './EventRow';
+import { RuntimeSkillsDisclosure } from './RuntimeSkillsDisclosure';
 import { useAttachmentImages } from '../../threads/useAttachmentImages';
 
 /**
@@ -20,7 +21,7 @@ import { useAttachmentImages } from '../../threads/useAttachmentImages';
  * ("You"), keeping visual weight on the agent's work rather than a big
  * chat bubble. Body renders as plain text (user prompts skip markdown).
  */
-export function UserMsg({ text, timestamp, who = 'You', children, threadId, images, messageSeq }: {
+export function UserMsg({ text, timestamp, who = 'You', children, threadId, images, managedSkills = [], messageSeq }: {
   text?: string;
   timestamp?: ReactNode;
   who?: ReactNode;
@@ -31,11 +32,19 @@ export function UserMsg({ text, timestamp, who = 'You', children, threadId, imag
   /** Attached-image file paths from the message's envelope, resolved to
    *  renderable thumbnails via the bridge. */
   images?: string[];
+  /** Hidden runtime markers. Shown only when the user opens the disclosure. */
+  managedSkills?: string[];
   messageSeq?: number | null;
 }) {
   const resolvedImages = useAttachmentImages(threadId ?? '', images ?? []);
   return (
-    <EventRow kind="user" who={who} timestamp={timestamp} dataSeq={messageSeq}>
+    <EventRow
+      kind="user"
+      who={who}
+      timestamp={timestamp}
+      dataSeq={messageSeq}
+      metaExtra={<RuntimeSkillsDisclosure skills={managedSkills} />}
+    >
       {resolvedImages.length > 0 && (
         <div className="sp-ublock__images">
           {resolvedImages.map(src => <img key={src} src={src} alt="Attached" className="sp-ublock__img" />)}

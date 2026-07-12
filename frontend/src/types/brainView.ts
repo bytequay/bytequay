@@ -190,6 +190,7 @@ export type BrainFeedRow = {
   body: string;                       // markdown
   referencedStageId: string | null;   // for the "🔍 Open stage" drill-in chip
   images: string[];                   // attached-screenshot paths — USER_MESSAGE only
+  managedSkills: string[];            // runtime-managed skills — USER_MESSAGE only
 };
 
 export type ApprovalDto = {
@@ -473,6 +474,8 @@ export type StageConversationRow = {
   callId: string | null;
   /** Attached-screenshot paths — `user` rows only, empty otherwise. */
   images: string[];
+  /** Runtime-managed skills — `user` rows only, empty otherwise. */
+  managedSkills: string[];
 };
 
 /** Uncomputed catalog fields are absent (not zero); panelInvocationsCount

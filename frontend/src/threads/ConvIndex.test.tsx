@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Bridge, ConvIndexEntryDto, ConvIndexPageDto, WorkUnitTaskDto } from '../types';
+import type { Bridge, ConvIndexEntryDto, ConvIndexPageDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { ConvIndex } from './ConvIndex';
 
 afterEach(() => {
@@ -26,12 +26,12 @@ function entry(seq: number, preview: string): ConvIndexEntryDto {
   return { seq, preview, tsMs: 1_765_000_000_000 + seq };
 }
 
-function installBridge(entries: ConvIndexEntryDto[]) {
+function installBridge(entries: ConvIndexEntryDto[], messages: ThreadMessageDto[] = []) {
   const pageDto: ConvIndexPageDto = {
     threadId: 't1',
     totalUserMessages: entries.length,
     entries,
-    messages: [],
+    messages,
     loadedFromSeq: entries.length > 0 ? entries[0].seq : null,
     nextCursor: null,
   };
@@ -100,4 +100,46 @@ describe('ConvIndex scoping', () => {
     });
     expect(container.querySelector('aside')).toBeNull();
   });
+
+  it('keeps long previews collapsed to the short index text on hover', async () => {
+    const preview = 'Remove dead endpoints from TaskController...';
+    installBridge([entry(40, preview)], [
+      message(40, 'Remove dead endpoints from TaskController\n\nUNIQUE FULL PROMPT TAIL'),
+    ]);
+    const { container } = render(
+      <ConvIndex
+        threadId="t1"
+        scrollContainerRef={createRef<HTMLElement>()}
+      />,
+    );
+
+    const aside = await waitFor(() => {
+      const node = container.querySelector('aside');
+      expect(node).toBeTruthy();
+      return node as HTMLElement;
+    });
+    fireEvent.mouseEnter(aside);
+    const row = await screen.findByText(preview);
+    fireEvent.mouseEnter(row);
+
+    expect(screen.getByText(preview)).toBeTruthy();
+    expect(screen.queryByText(/UNIQUE FULL PROMPT TAIL/)).toBeNull();
+  });
 });
+
+function message(seq: number, text: string): ThreadMessageDto {
+  return {
+    id: `m-${seq}`,
+    threadId: 't1',
+    taskId: null,
+    seq,
+    role: 'user',
+    type: 'text',
+    contentJson: JSON.stringify({ text }),
+    durationMs: null,
+    tokensIn: null,
+    tokensOut: null,
+    costUsdMilli: null,
+    ts: '2026-01-01T00:00:00Z',
+  };
+}

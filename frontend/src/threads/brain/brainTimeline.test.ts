@@ -26,6 +26,7 @@ function row(id: string, type: BrainFeedRow['type'], body = id, stageId: string 
     body,
     referencedStageId: null,
     images: [],
+    managedSkills: [],
   };
 }
 

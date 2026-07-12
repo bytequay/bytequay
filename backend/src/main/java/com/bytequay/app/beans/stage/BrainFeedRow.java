@@ -29,6 +29,7 @@ import java.util.List;
  * @param body markdown
  * @param images attached-screenshot file paths — only ever non-empty on a
  *               {@code USER_MESSAGE} row
+ * @param managedSkills runtime-managed skills active for this user turn
  */
 public record BrainFeedRow(
         String id,
@@ -39,6 +40,7 @@ public record BrainFeedRow(
         String ts,
         String body,
         String referencedStageId,
-        List<String> images)
+        List<String> images,
+        List<String> managedSkills)
 {
 }

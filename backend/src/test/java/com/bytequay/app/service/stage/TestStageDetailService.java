@@ -92,7 +92,8 @@ class TestStageDetailService
         // A user steering message in the window — drives interventionsCount.
         // Anchor at openedAt so it predates the open stage's wall-clock window end.
         appendStageMessage(threadId, taskId, 2, "user", "text",
-                "{\"text\":\"bump the retry default\"}", open, stage.id().toString());
+                "{\"text\":\"bump the retry default\",\"managedSkills\":[\"ponytail\"]}",
+                open, stage.id().toString());
         // A stage event (recorded ~now, inside iter #1's window) so the
         // iteration log surfaces a stage_event row.
         stageStore.recordEvent(stage.id(), taskId, StageEventType.NOTIFY_FIRED,
@@ -127,6 +128,10 @@ class TestStageDetailService
         assertThat(m.backflowsCount()).isZero();
         assertThat(m.activeTimeSec()).isNotNull();
         assertThat(m.waitingUserTimeSec()).isNotNull();
+        assertThat(detail.conversation()).anySatisfy(r -> {
+            assertThat(r.kind()).isEqualTo("user");
+            assertThat(r.managedSkills()).containsExactly("ponytail");
+        });
 
         // CI-fix history is the simple iteration-summary list (no fabrication).
         assertThat(detail.ciFixHistory()).hasSize(2);

@@ -29,6 +29,7 @@ function row(id: string, type: BrainFeedRow['type'], body = id): BrainFeedRow {
     body,
     referencedStageId: null,
     images: [],
+    managedSkills: [],
   };
 }
 
@@ -72,5 +73,16 @@ describe('BrainFeed', () => {
     expect(screen.getByText('intermediate work step')).toBeTruthy();
     expect(screen.getByText('All sites routed')).toBeTruthy();
     expect(container.querySelector('.sp-work.open')).toBeTruthy();
+  });
+
+  it('shows runtime-managed skills on user turns', () => {
+    render(<BrainFeed
+      feed={[{ ...row('u', 'USER_MESSAGE', 'implement'), managedSkills: ['ponytail'] }]}
+      stages={[]}
+      density="full"
+    />);
+
+    fireEvent.click(screen.getByText('runtime'));
+    expect(screen.getByText('Managed skills: ponytail')).toBeTruthy();
   });
 });

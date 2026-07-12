@@ -333,6 +333,11 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     void reload(true);
   };
 
+  const handleBackToKanban = () => {
+    setSelected(null);
+    void reload(true);
+  };
+
   const handleMarkHandled = async (prId: string) => {
     const patch = markHandledPatch('MANUAL');
     updatePrState(prId, patch);
@@ -819,7 +824,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
           {topbarExtraNode && !reviewingPr && createPortal(
             <button
               type="button"
-              onClick={() => setSelected(null)}
+              onClick={handleBackToKanban}
               title={activeTab === 'inbox'
                 ? 'Return to the kanban board.'
                 : 'Return to the handled list.'}

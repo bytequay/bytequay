@@ -178,7 +178,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
 
 
   async function handleAdded() {
-    // The modal already watched + mapped the repo; re-read the list so the
+    // The modal already watched + cloned the repo; re-read the list so the
     // new (now clone-backed) row lands with its server-assigned fields.
     const fresh = await window.bridge.getWatchedRepos();
     setRepos(fresh);

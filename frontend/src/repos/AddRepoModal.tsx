@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { LocalRepoStatusDto } from '../types';
+import type { LocalRepoStatusDto, ManagedClonePlanDto, ManagedRepoWriteMode } from '../types';
 
 type Props = {
   owner: string;
@@ -21,226 +21,132 @@ type Props = {
   onMapped: (status: LocalRepoStatusDto) => void;
 };
 
-type Mode = 'choose' | 'locate' | 'clone' | 'cloning';
-
-/**
- * Add-repo modal — two stacked options for mapping a watched repo to a
- * local working copy: locate an existing folder on disk, or clone
- * fresh from the GitHub URL. Mirrors the design in
- * docs/mockups/local-repo-design.md (`bytequay_add_repo_modal_v1`).
- *
- * The same modal is opened by every entry point (UNMAPPED card on the
- * Repos page, future "Map clone…" CTAs elsewhere). Cancel closes
- * without writing anything; success calls onMapped with the refreshed
- * status row so the parent doesn't need to re-list.
- */
 function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
-  const [mode, setMode] = useState<Mode>('choose');
+  const [plan, setPlan] = useState<ManagedClonePlanDto | null>(null);
+  const [writeMode, setWriteMode] = useState<ManagedRepoWriteMode>('FORK');
+  const [loading, setLoading] = useState(true);
+  const [cloning, setCloning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [destination, setDestination] = useState<string>('');
-  const [locatedPath, setLocatedPath] = useState<string | null>(null);
 
-  // Pre-fetch the default clone destination as soon as the user picks
-  // the Clone-fresh option so the field is populated by the time they
-  // see it. Cheap call; we don't bother caching across opens.
   useEffect(() => {
-    if (mode !== 'clone' || destination !== '') return;
     let cancelled = false;
-    void window.bridge.defaultClonePath(owner, repo)
-      .then(p => { if (!cancelled) setDestination(p); })
-      .catch(() => { /* fallback to empty; user can still type */ });
+    setLoading(true);
+    setError(null);
+    void window.bridge.getManagedClonePlan(owner, repo)
+      .then(p => {
+        if (cancelled) return;
+        setPlan(p);
+        setWriteMode(p.defaultWriteMode);
+      })
+      .catch(e => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => { cancelled = true; };
-  }, [mode, owner, repo, destination]);
+  }, [owner, repo]);
 
-  const browseLocate = async () => {
-    setError(null);
-    try {
-      const picked = await window.bridge.pickFolder({
-        title: `Locate ${owner}/${repo} on disk`,
-      });
-      if (picked) setLocatedPath(picked);
-    } catch (e) {
-      // Most common cause of a silent failure here is a stale
-      // preload script — the user updated ByteQuay but the
-      // Electron app wasn't restarted, so `bridge.pickFolder` is
-      // unavailable in this renderer. Surface the message so it's
-      // not just a click-with-nothing-happening.
-      setError(folderPickerErrorMessage(e));
-    }
-  };
-
-  const browseClone = async () => {
-    setError(null);
-    try {
-      const picked = await window.bridge.pickFolder({
-        title: `Choose clone destination for ${owner}/${repo}`,
-        defaultPath: destination || undefined,
-      });
-      if (picked) setDestination(picked);
-    } catch (e) {
-      setError(folderPickerErrorMessage(e));
-    }
-  };
-
-  const submitLocate = async () => {
-    if (!locatedPath) return;
-    setError(null);
-    try {
-      const status = await window.bridge.locateRepo(owner, repo, locatedPath);
-      onMapped(status);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
+  const selectedAvailable = plan != null
+      && (writeMode === 'FORK' ? plan.forkAvailable : plan.directAvailable);
 
   const submitClone = async () => {
-    if (!destination.trim()) return;
+    if (!selectedAvailable || cloning) return;
     setError(null);
-    setMode('cloning');
+    setCloning(true);
     try {
-      const status = await window.bridge.cloneRepo(owner, repo, destination.trim());
+      const status = await window.bridge.cloneRepo(owner, repo, writeMode);
       onMapped(status);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setMode('clone');
+    } finally {
+      setCloning(false);
     }
   };
 
   return (
-    <div className="add-repo-modal-backdrop" onClick={onClose}>
+    <div className="add-repo-modal-backdrop" onClick={cloning ? undefined : onClose}>
       <div className="add-repo-modal" onClick={(e) => e.stopPropagation()}>
         <header className="add-repo-modal__head">
           <h2 className="add-repo-modal__title">
-            Map a local clone for <code>{owner}/{repo}</code>
+            Add <code>{owner}/{repo}</code>
           </h2>
           <button
             type="button"
             className="add-repo-modal__close"
             onClick={onClose}
             aria-label="Close"
-            disabled={mode === 'cloning'}
+            disabled={cloning}
           >
-            ✕
+            x
           </button>
         </header>
 
-        {mode === 'choose' && (
-          <div className="add-repo-modal__choices">
-            <button
-              type="button"
-              className="add-repo-choice"
-              onClick={() => setMode('locate')}
-            >
-              <div className="add-repo-choice__title">Locate existing folder</div>
-              <div className="add-repo-choice__sub">
-                Already cloned? Pick the folder and ByteQuay will verify
-                its <code>origin</code> matches.
-              </div>
-            </button>
-            <button
-              type="button"
-              className="add-repo-choice"
-              onClick={() => setMode('clone')}
-            >
-              <div className="add-repo-choice__title">Clone fresh</div>
-              <div className="add-repo-choice__sub">
-                Run <code>git clone</code> against the GitHub URL into
-                a destination of your choice.
-              </div>
-            </button>
-          </div>
+        {loading && (
+          <div className="add-repo-modal__loading">Checking repository access...</div>
         )}
 
-        {mode === 'locate' && (
+        {!loading && plan && (
           <div className="add-repo-modal__form">
-            <label className="add-repo-modal__label">Folder</label>
-            <div className="add-repo-modal__row">
-              <input
-                type="text"
-                className="add-repo-modal__input"
-                value={locatedPath ?? ''}
-                onChange={(e) => setLocatedPath(e.target.value || null)}
-                placeholder="/Users/you/code/airbyte"
+            <div className="add-repo-modal__choices">
+              <WriteModeChoice
+                title="Use my fork"
+                checked={writeMode === 'FORK'}
+                disabled={!plan.forkAvailable || cloning}
+                onSelect={() => setWriteMode('FORK')}
+                detail={plan.forkAvailable
+                  ? `Push branches to ${plan.viewerLogin}/${repo}; open PRs against ${owner}/${repo}. ByteQuay will create the fork if needed.`
+                  : 'This repo is already owned by the signed-in user.'}
               />
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                onClick={browseLocate}
-              >
-                Browse…
-              </button>
+              <WriteModeChoice
+                title="Write directly"
+                checked={writeMode === 'DIRECT'}
+                disabled={!plan.directAvailable || cloning}
+                onSelect={() => setWriteMode('DIRECT')}
+                detail={plan.directAvailable
+                  ? `Push branches directly to ${owner}/${repo}.`
+                  : `No write permission for ${owner}/${repo}.`}
+              />
             </div>
-            <p className="add-repo-modal__hint">
-              ByteQuay will scan every remote configured in the folder
-              and accept it if any of them points at{' '}
-              <code>{owner}/{repo}</code> — so a fork-based clone (with
-              your fork as <code>origin</code> and the watched repo as
-              <code> upstream</code>) is fine.
-            </p>
+
+            <div className="add-repo-modal__managed-path">
+              <span className="add-repo-modal__label">Managed clone</span>
+              <code>{plan.destination}</code>
+            </div>
+
             {error && <div className="add-repo-modal__error">{error}</div>}
+
             <footer className="add-repo-modal__actions">
               <button
                 type="button"
                 className="button button--secondary button--sm"
-                onClick={() => setMode('choose')}
+                onClick={onClose}
+                disabled={cloning}
               >
-                Back
-              </button>
-              <button
-                type="button"
-                className="button button--primary button--sm"
-                onClick={() => { void submitLocate(); }}
-                disabled={!locatedPath}
-              >
-                Map this folder
-              </button>
-            </footer>
-          </div>
-        )}
-
-        {(mode === 'clone' || mode === 'cloning') && (
-          <div className="add-repo-modal__form">
-            <label className="add-repo-modal__label">Destination</label>
-            <div className="add-repo-modal__row">
-              <input
-                type="text"
-                className="add-repo-modal__input"
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                disabled={mode === 'cloning'}
-              />
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                onClick={browseClone}
-                disabled={mode === 'cloning'}
-              >
-                Change…
-              </button>
-            </div>
-            <p className="add-repo-modal__hint">
-              ByteQuay will run{' '}
-              <code>git clone https://github.com/{owner}/{repo}.git</code>{' '}
-              into this folder. Big repos can take a few minutes — the
-              modal will stay open while it runs.
-            </p>
-            {error && <div className="add-repo-modal__error">{error}</div>}
-            <footer className="add-repo-modal__actions">
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                onClick={() => setMode('choose')}
-                disabled={mode === 'cloning'}
-              >
-                Back
+                Cancel
               </button>
               <button
                 type="button"
                 className="button button--primary button--sm"
                 onClick={() => { void submitClone(); }}
-                disabled={mode === 'cloning' || !destination.trim()}
+                disabled={cloning || !selectedAvailable}
               >
-                {mode === 'cloning' ? 'Cloning…' : 'Clone'}
+                {cloning ? cloneProgressLabel(writeMode) : 'Clone into ByteQuay'}
+              </button>
+            </footer>
+          </div>
+        )}
+
+        {!loading && !plan && error && (
+          <div className="add-repo-modal__form">
+            <div className="add-repo-modal__error">{error}</div>
+            <footer className="add-repo-modal__actions">
+              <button
+                type="button"
+                className="button button--secondary button--sm"
+                onClick={onClose}
+              >
+                Close
               </button>
             </footer>
           </div>
@@ -250,15 +156,37 @@ function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
   );
 }
 
-function folderPickerErrorMessage(e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e);
-  // The renderer sees a TypeError when bridge.pickFolder is missing
-  // entirely (preload didn't expose it yet, or the app needs a
-  // restart). Translate to something actionable.
-  if (raw.includes('is not a function')) {
-    return 'Folder picker unavailable — restart ByteQuay so it picks up the latest preload script, then try again.';
-  }
-  return `Couldn't open folder picker: ${raw}`;
+function WriteModeChoice({
+  title,
+  detail,
+  checked,
+  disabled,
+  onSelect,
+}: {
+  title: string;
+  detail: string;
+  checked: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`add-repo-choice${checked ? ' add-repo-choice--active' : ''}`}
+      onClick={onSelect}
+      disabled={disabled}
+    >
+      <div className="add-repo-choice__title">
+        <input type="radio" checked={checked} readOnly tabIndex={-1} />
+        <span>{title}</span>
+      </div>
+      <div className="add-repo-choice__sub">{detail}</div>
+    </button>
+  );
+}
+
+function cloneProgressLabel(writeMode: ManagedRepoWriteMode): string {
+  return writeMode === 'FORK' ? 'Preparing fork...' : 'Cloning...';
 }
 
 export default AddRepoModal;

@@ -30,10 +30,12 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
+import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -72,6 +74,26 @@ public class LocalRepoService
     private final PullRequestStore pullRequestStore;
     private final LlmReviewerRegistry llmReviewerRegistry;
     private final PatResolver patResolver;
+    private final CodeGraphUpdateCoordinator codeGraph;
+
+    @Autowired
+    public LocalRepoService(
+            WatchedRepoStore watchedRepoStore,
+            GitRunner gitRunner,
+            PullRequestRepository gitHub,
+            PullRequestStore pullRequestStore,
+            LlmReviewerRegistry llmReviewerRegistry,
+            PatResolver patResolver,
+            CodeGraphUpdateCoordinator codeGraph)
+    {
+        this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
+        this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
+        this.llmReviewerRegistry = requireNonNull(llmReviewerRegistry, "llmReviewerRegistry is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+    }
 
     public LocalRepoService(
             WatchedRepoStore watchedRepoStore,
@@ -81,12 +103,8 @@ public class LocalRepoService
             LlmReviewerRegistry llmReviewerRegistry,
             PatResolver patResolver)
     {
-        this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
-        this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
-        this.gitHub = requireNonNull(gitHub, "gitHub is null");
-        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
-        this.llmReviewerRegistry = requireNonNull(llmReviewerRegistry, "llmReviewerRegistry is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this(watchedRepoStore, gitRunner, gitHub, pullRequestStore,
+                llmReviewerRegistry, patResolver, CodeGraphUpdateCoordinator.disabled());
     }
 
     /**
@@ -207,6 +225,7 @@ public class LocalRepoService
         // Direct clone — origin already points at the watched repo,
         // so there is no separate "upstream" remote to track.
         watchedRepoStore.setUpstreamRemoteName(owner, repo, null);
+        codeGraph.requestRefreshAsync(destination, "repo-cloned");
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
@@ -250,6 +269,7 @@ public class LocalRepoService
         ensureWatched(owner, repo);
         watchedRepoStore.setLocalClonePath(owner, repo, path.toString());
         watchedRepoStore.setUpstreamRemoteName(owner, repo, upstreamRemoteName);
+        codeGraph.requestRefreshAsync(path, "repo-located");
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
@@ -299,6 +319,7 @@ public class LocalRepoService
     {
         Path path = clonePathOrThrow(owner, repo);
         gitRunner.fetch(path);
+        codeGraph.requestRefreshAsync(path, "repo-fetch");
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
@@ -314,6 +335,7 @@ public class LocalRepoService
     {
         Path path = clonePathOrThrow(owner, repo);
         gitRunner.pullFastForward(path);
+        codeGraph.ensureFreshSync(path, "repo-pull");
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
@@ -359,6 +381,7 @@ public class LocalRepoService
             throw new IllegalArgumentException("Branch name is required");
         }
         gitRunner.createBranch(path, branchName.trim(), baseRef);
+        codeGraph.ensureFreshSync(path, "repo-create-branch");
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
@@ -376,6 +399,7 @@ public class LocalRepoService
             throw new IllegalArgumentException("Branch name is required");
         }
         gitRunner.switchBranch(path, branchName.trim());
+        codeGraph.ensureFreshSync(path, "repo-switch-branch");
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
@@ -393,6 +417,7 @@ public class LocalRepoService
             throw new IllegalArgumentException("Branch name is required");
         }
         gitRunner.checkoutRemoteBranch(path, branchName.trim());
+        codeGraph.ensureFreshSync(path, "repo-checkout-remote-branch");
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 

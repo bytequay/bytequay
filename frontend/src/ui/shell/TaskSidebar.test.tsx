@@ -40,6 +40,18 @@ describe('TaskSidebar', () => {
     expect(screen.getByText('Cleanup')).toBeTruthy();
   });
 
+  it('shows the done-count over the plan leaves and the footer user', () => {
+    render(
+      <TaskSidebar
+        task={{ title: 'x', branch: 'b' }}
+        nodes={nodes}
+        user="chenjian2664"
+      />,
+    );
+    expect(screen.getByText(/^\d+ of \d+ done$/)).toBeTruthy();
+    expect(screen.getByText('chenjian2664')).toBeTruthy();
+  });
+
   it('fires onBack from the traffic-lights back arrow', () => {
     const onBack = vi.fn();
     render(

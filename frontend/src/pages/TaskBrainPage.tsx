@@ -63,6 +63,7 @@ export function TaskBrainPage({
     placeholder?: string;
     images?: string[];
     onImagesChange?: (next: string[]) => void;
+    closedNote?: string;
   };
   run?: {
     statusLabel?: string;
@@ -157,7 +158,9 @@ export function TaskBrainPage({
       )}
       <Grow />
       {run.statusLabel !== undefined && (
-        <span className="task-brain__status">{run.statusLabel}</span>
+        <span className={run.terminal === true ? 'task-brain__status task-brain__status--terminal' : 'task-brain__status'}>
+          {run.statusLabel}
+        </span>
       )}
       <RunMenu
         hideStatus
@@ -241,6 +244,7 @@ export function TaskBrainPage({
                 placeholder={composer.placeholder}
                 images={composer.images}
                 onImagesChange={composer.onImagesChange}
+                closedNote={composer.closedNote}
               />
             </div>
             {showPane && (

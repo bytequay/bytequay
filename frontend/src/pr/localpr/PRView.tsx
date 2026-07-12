@@ -80,9 +80,10 @@ export function PRView({
   /** e.g. the standalone details page's "Review with agent →" affordance. */
   headerAction?: ReactNode;
   /** Force-switches the header's own sub-tab (e.g. the live-plan rail's CI
-   *  validation node opens Checks in place) — a fresh `token` re-fires even
-   *  for a repeat click on the sub-tab that's already active. */
-  openSubTabRequest?: { subTab: Exclude<PRHeaderTab, 'changes'>; token: number };
+   *  validation node opens Checks in place; the ready-for-review callout
+   *  opens Changes) — a fresh `token` re-fires even for a repeat click on
+   *  the sub-tab that's already active. */
+  openSubTabRequest?: { subTab: PRHeaderTab; token: number };
   /** Embedded changed-files + diff UI. When omitted, Changes keeps opening the
    *  host's full-page review surface. */
   changesContent?: ReactNode;
@@ -138,11 +139,6 @@ export function PRView({
 
   const [activeTab, setActiveTab] = useState<PRHeaderTab>('conversation');
 
-  useEffect(() => {
-    if (openSubTabRequest === undefined) return;
-    setActiveTab(openSubTabRequest.subTab);
-  }, [openSubTabRequest]);
-
   // The header's "Sync" button previously only re-fetched the local PR
   // bundle — the GitHub-native conversation feed (comments/review threads)
   // fetches once on mount and otherwise never refreshes, so the tab could
@@ -161,6 +157,12 @@ export function PRView({
     if (tab === 'changes') openChanges();
     else setActiveTab(tab);
   };
+
+  useEffect(() => {
+    if (openSubTabRequest === undefined) return;
+    handleTabChange(openSubTabRequest.subTab);
+    // The request object is the whole trigger — a fresh token re-fires it.
+  }, [openSubTabRequest]);
 
   const githubFeedActive = pr.remotePrNumber !== null;
   // Once the GitHub feed is active it's the source of truth for the

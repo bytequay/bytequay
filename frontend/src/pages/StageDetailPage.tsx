@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import { IconBtn, Pill } from '../ui/primitives';
+import { CheckIcon, PanelIcon } from '../ui/TaskBrainDesignIcons';
 import {
   Composer, CtxChip, Grow, Main, RunMenu, Shell, TopBar, TopBarButton, TopBarTitle,
   usePaneWidth,
@@ -69,6 +70,7 @@ export function StageDetailPage({
      *  (with `onImagesChange`) to disable image paste on this composer. */
     images?: string[];
     onImagesChange?: (next: string[]) => void;
+    closedNote?: string;
   };
   run?: {
     statusLabel?: string;
@@ -118,7 +120,7 @@ export function StageDetailPage({
   const hasTabs = available.length > 0;
   const [activeTab, setActiveTab] = useState<StageTab | undefined>(available[0]?.key);
   const [paneOpen, setPaneOpen] = useState(true);
-  const { paneWidth, bodyRef, onResize } = usePaneWidth();
+  const { paneWidth, bodyRef, onResize } = usePaneWidth('bq.stagePaneWidth.v2', 428);
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
 
   useEffect(() => {
@@ -144,7 +146,13 @@ export function StageDetailPage({
       <TopBarTitle>{stage.title}</TopBarTitle>
       {stage.branch !== undefined && <CtxChip>{stage.branch}</CtxChip>}
       <Grow />
+      {run.statusLabel !== undefined && (
+        <span className={run.terminal === true ? 'task-brain__status task-brain__status--terminal' : 'task-brain__status'}>
+          {run.statusLabel}
+        </span>
+      )}
       <RunMenu
+        hideStatus
         statusLabel={run.statusLabel}
         paused={run.paused}
         terminal={run.terminal}
@@ -152,11 +160,11 @@ export function StageDetailPage({
         onResume={run.onResume}
         onClose={run.onClose}
       />
-      {showCi && <TopBarButton icon="✓" onClick={onOpenCi}>CI Status</TopBarButton>}
+      {showCi && <TopBarButton icon={<CheckIcon size={14} strokeWidth={2.2} />} onClick={onOpenCi}>CI Status</TopBarButton>}
       {onSubmitReview !== undefined && (
         <TopBarButton
           variant="submit"
-          icon="✓"
+          icon={<CheckIcon size={14} strokeWidth={2.2} />}
           onClick={submittingReview ? undefined : () => setSubmitReviewOpen(true)}
         >
           {submittingReview
@@ -167,7 +175,9 @@ export function StageDetailPage({
         </TopBarButton>
       )}
       {hasTabs && (
-        <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
+        <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>
+          <PanelIcon />
+        </IconBtn>
       )}
     </TopBar>
   );
@@ -175,9 +185,15 @@ export function StageDetailPage({
   const showPane = paneOpen && hasTabs && active !== undefined;
 
   return (
-    <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
-      {sidebar}
-      <Main topBar={topBar}>
+    <div className="task-brain">
+      <Shell
+        collapsed={collapsed}
+        fullWidth={sidebar === undefined}
+        sidebarWidthKey="bq.taskBrainSidebarWidth.v2"
+        sidebarWidthDefault={270}
+      >
+        {sidebar}
+        <Main topBar={topBar}>
         <div
           ref={bodyRef}
           className={showPane ? 'body with-pane' : 'body'}
@@ -211,6 +227,7 @@ export function StageDetailPage({
               placeholder={composer.placeholder}
               images={composer.images}
               onImagesChange={composer.onImagesChange}
+              closedNote={composer.closedNote}
             />
           </div>
           {showPane && (
@@ -251,6 +268,7 @@ export function StageDetailPage({
           }}
         />
       )}
-    </Shell>
+      </Shell>
+    </div>
   );
 }

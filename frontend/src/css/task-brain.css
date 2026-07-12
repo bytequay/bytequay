@@ -8,7 +8,7 @@
   display: flex;
   justify-content: stretch;
   padding: 0;
-  background: #fbfaf9;
+  background: #ffffff;
   color: #1f2328;
 }
 
@@ -19,9 +19,9 @@
   overflow: hidden;
   border: none;
   border-radius: 0;
-  background: #fbfaf9;
+  background: #ffffff;
   box-shadow: none;
-  --bg: #fbfaf9;
+  --bg: #ffffff;
   --bg-elev: #ffffff;
   --bg-sidebar: #f4f1ec;
   --bg-code: #faf9f7;
@@ -47,7 +47,7 @@
 }
 
 .task-brain .shell .main {
-  background: #fbfaf9;
+  background: #ffffff;
 }
 
 /* Header */
@@ -55,11 +55,12 @@
   min-height: 53px;
   gap: 12px;
   padding: 11px 18px;
-  background: #fbfaf9;
+  background: #ffffff;
   border-bottom-color: rgba(0, 0, 0, 0.08);
 }
 
-.task-brain .topbar .v3-pill--task {
+.task-brain .topbar .v3-pill--task,
+.task-brain .topbar .v3-pill--stage {
   padding: 3px 9px;
   border-radius: 6px;
   background: rgba(139, 92, 246, 0.12);
@@ -111,6 +112,14 @@
   font-weight: 700;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/* Terminal tasks show the design's muted CLOSED chip, not the live blue. */
+.task-brain__status--terminal {
+  background: #f4f1ec;
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #767068;
+  letter-spacing: 0.03em;
 }
 
 .task-brain .shell .topbar .btn {
@@ -323,10 +332,25 @@
   font-size: 10.5px;
 }
 
+.task-brain .shell .task-identity .ti-sub {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+
 .task-brain .shell .task-identity .ti-meta {
   color: #0969da;
   font-size: 10.5px;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.task-brain .shell .task-identity .ti-meta--done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #1a7f37;
+  font-size: 11px;
 }
 
 .task-brain .shell .plan-section-h {
@@ -341,6 +365,14 @@
 .task-brain .shell .plan-section-h .live-dot {
   margin-left: 8px;
   background: #1a7f37;
+}
+
+.task-brain .shell .plan-section-h .plan-count {
+  margin-left: auto;
+  color: #a8a39c;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .task-brain .shell .live-plan {
@@ -406,6 +438,9 @@
 .task-brain .shell .plan-node.has-toggle {
   border-color: transparent;
   background: transparent;
+  /* The nav button inside carries the row padding — the outer box adding
+     its own doubled the row height (huge gap under expanded group nodes). */
+  padding: 0;
 }
 
 .task-brain .shell .plan-node-nav {
@@ -629,20 +664,64 @@
 
 .task-brain .shell .plan-phase-row .ph-meta,
 .task-brain .shell .plan-phase-row .ph-badge {
+  font-size: 11px;
+  color: #a8a39c;
+  font-weight: 500;
+}
+
+.task-brain .shell .plan-phase-row.running .ph-meta:not(.ph-meta--pr) {
   font-size: 10.5px;
+  font-weight: 700;
+  color: #7c3aed;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.task-brain .shell .plan-phase-row .ph-meta--pr {
+  font-family: var(--mono, 'SF Mono', Menlo, ui-monospace, monospace);
+  font-size: 10px;
+  color: #767068;
+  background: #ece8e2;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .task-brain .shell .plan-phase-row:hover {
   background: rgba(0, 0, 0, 0.035);
 }
 
+/* Sidebar footer (design: avatar + username above the bottom edge) */
+.task-brain .shell .ts-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+
+.task-brain .shell .ts-footer .v3-avatar--amber {
+  background: linear-gradient(135deg, #fde68a, #f59e0b);
+  color: #78350f;
+}
+
+.task-brain .shell .ts-footer__name {
+  font-size: 12px;
+  color: #454c54;
+  font-weight: 500;
+}
+
 /* Main body and right pane */
 .task-brain .shell .body {
-  background: #fbfaf9;
+  background: #ffffff;
 }
 
 .task-brain .shell .pane {
-  background: #fbfaf9;
+  background: #ffffff;
   border-left-color: rgba(0, 0, 0, 0.08);
 }
 
@@ -747,6 +826,123 @@
   margin-left: 37px;
 }
 
+/* PR header: muted number, blue mono ref chips, solid merged pill. */
+.task-brain .shell .pr-view .pr-header .pr-num {
+  color: #a8a39c;
+  font-weight: 400;
+}
+
+.task-brain .shell .pr-view .pr-header .pr-branch {
+  font-size: 10px;
+  color: #0969da;
+  background: rgba(9, 105, 218, 0.08);
+  border: none;
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.task-brain .shell .pr-state-pill {
+  font-size: 11.5px;
+  padding: 4px 12px;
+}
+
+.task-brain .shell .pr-state-pill.merged {
+  background: #8250df;
+}
+
+/* PR tabs: no emoji, orange active underline + tinted count badge. */
+.task-brain .shell .pr-tabs .pt-ic {
+  display: none;
+}
+
+.task-brain .shell .pr-tabs .pt {
+  color: #767068;
+  font-weight: 500;
+}
+
+.task-brain .shell .pr-tabs .pt.on {
+  color: #1f2328;
+  font-weight: 700;
+  border-bottom-color: #c2632a;
+}
+
+.task-brain .shell .pr-tabs .cnt {
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.06);
+  color: #767068;
+  padding: 0 6px;
+}
+
+.task-brain .shell .pr-tabs .pt.on .cnt {
+  background: rgba(194, 99, 42, 0.12);
+  color: #c2632a;
+}
+
+/* Timeline threads / description cards: design card chrome. */
+.task-brain .shell .pr-thread {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+}
+
+.task-brain .shell .pr-thread .th-file {
+  background: #faf9f8;
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+  font-size: 10px;
+  color: #454c54;
+}
+
+/* Merged banner: violet-bordered, like the design's success box. */
+.task-brain .shell .pr-merge-box.merged {
+  border-color: rgba(130, 80, 223, 0.4);
+  border-radius: 10px;
+}
+
+.task-brain .shell .pr-merge-box .mb-ic.purple {
+  background: #8250df;
+}
+
+/* Comment composer: card chrome, segmented Write/Preview pill, teal avatar. */
+.task-brain .shell .pr-comment-composer .pr-avatar.you {
+  background: linear-gradient(135deg, #14b8a6, #0f766e);
+  color: #ffffff;
+  border: none;
+}
+
+.task-brain .shell .pr-comment-composer .cc-box {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+}
+
+.task-brain .shell .pr-comment-composer .cc-tabs {
+  gap: 2px;
+  padding: 7px 11px;
+  background: #faf9f8;
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+}
+
+.task-brain .shell .pr-comment-composer .cc-tab {
+  padding: 2px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #767068;
+  font-weight: 500;
+}
+
+.task-brain .shell .pr-comment-composer .cc-tab.active {
+  margin-bottom: 0;
+  border: none;
+  background: #ffffff;
+  color: #1f2328;
+  font-weight: 600;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+.task-brain .shell .pr-comment-composer .cc-footer {
+  border-top-style: solid;
+  border-top-color: rgba(0, 0, 0, 0.07);
+}
+
 .task-brain .shell .resize-handle.pane-resize:hover::before,
 .task-brain .shell .resize-handle.pane-resize:active::before {
   background: #8250df;
@@ -786,7 +982,7 @@
   height: 9px;
   border-radius: 2px;
   transform: rotate(45deg);
-  background: #fbfaf9;
+  background: #ffffff;
   border: 2px solid #b6b0a7;
   box-shadow: none;
   color: transparent;
@@ -828,56 +1024,66 @@
   margin-bottom: 2px;
 }
 
+/* User turn: right-aligned bubble (design's USER block). */
 .task-brain .shell .sp-uturn {
   position: relative;
-  margin: 0 0 14px;
-  padding-top: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin: 0;
+  padding: 11px 0;
 }
 
 .task-brain .shell .sp-uturn__mark {
-  left: -30.5px;
-  top: 6px;
-  width: 13px;
-  height: 13px;
-  background: #fbfaf9;
-  border: 2.5px solid #7fd1c4;
-  color: transparent;
-  font-size: 0;
-  box-sizing: border-box;
+  display: none;
 }
 
-.task-brain .shell .sp-ublock {
-  margin-top: 0;
-  padding: 11px 14px;
-  background: #f5f6f4;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  border-radius: 10px;
-}
-
-.task-brain .shell .sp-ublock__who {
-  position: absolute;
-  top: 6px;
-  left: 12px;
+.task-brain .shell .sp-uturn__time {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 0;
-  color: #a8a39c;
-  font-size: 0;
-  font-weight: 500;
-  text-transform: none;
-}
-
-.task-brain .shell .sp-ublock__who .ago {
-  margin-left: 0;
+  margin: 0 0 6px;
   color: #a8a39c;
   font-size: 11px;
+  line-height: 15px;
+}
+
+.task-brain .shell .sp-ublock {
+  max-width: 80%;
+  margin-top: 0;
+  padding: 11px 14px;
+  background: #eef1ee;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 13px 13px 4px 13px;
+  text-align: left;
 }
 
 .task-brain .shell .sp-ublock__tx {
-  color: #33393f;
+  color: #2b3138;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.task-brain .shell .sp-ublock__tx code {
+  font-size: 11.5px;
+  background: #e2e6e2;
+  border: none;
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.task-brain .shell .sp-ublock__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #7c3aed;
+}
+
+.task-brain .shell .sp-ublock__more:hover {
+  color: #6d28d9;
 }
 
 .task-brain .shell .sp-headline {
@@ -892,7 +1098,7 @@
   top: 6px;
   width: 13px;
   height: 13px;
-  background: #fbfaf9;
+  background: #ffffff;
   border: 2.5px solid #a99fd6;
   box-sizing: border-box;
 }
@@ -930,28 +1136,40 @@
 
 .task-brain .shell .sp-work__bar {
   margin-top: 4px;
+  gap: 8px;
   background: transparent;
   border: none;
-  padding: 4px 10px 4px 8px;
+  border-radius: 8px;
+  padding: 5px 10px;
 }
 
 .task-brain .shell .sp-work__bar:hover {
   background: rgba(0, 0, 0, 0.04);
+  filter: none;
+}
+
+/* Design order: chevron leads, then the clock icon, then the label. */
+.task-brain .shell .sp-work__chev {
+  order: -1;
+  display: inline-flex;
+  color: #bdb7ad;
 }
 
 .task-brain .shell .sp-work__sp {
-  color: #a99fd6;
+  display: inline-flex;
+  color: #9a917f;
+  font-size: 11px;
 }
 
 .task-brain .shell .sp-work__lbl {
-  color: #8a8178;
-  font-size: 12px;
+  color: #57606a;
+  font-size: 12.5px;
   font-weight: 500;
 }
 
-.task-brain .shell .sp-work__meta,
-.task-brain .shell .sp-work__chev {
-  color: #a8a39c;
+.task-brain .shell .sp-work__meta {
+  color: #b7b0a7;
+  font-size: 11.5px;
   font-family: inherit;
 }
 
@@ -985,7 +1203,7 @@
   width: 15px;
   height: 15px;
   background: #7c3aed;
-  border: 2px solid #fbfaf9;
+  border: 2px solid #ffffff;
   color: #ffffff;
   font-size: 10px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
@@ -1287,7 +1505,7 @@
 
 .task-brain .shell .composer-wrap {
   padding: 10px 30px 16px;
-  background: #fbfaf9;
+  background: #ffffff;
 }
 
 .task-brain .shell .composer {
@@ -1374,4 +1592,133 @@
     padding-left: 16px;
     padding-right: 16px;
   }
+}
+
+/* ── Stage transcript (Task/Stage Conversation design) ────────────────── */
+
+/* User rows: right-aligned bubble, time above-right, no "You" glyph. */
+.task-brain .shell .ev--user {
+  align-items: flex-end;
+  gap: 6px;
+  padding: 11px 0;
+}
+
+.task-brain .shell .ev--user .who-row .ic.user {
+  display: none;
+}
+
+.task-brain .shell .ev--user .who-row .who.user {
+  display: none;
+}
+
+.task-brain .shell .ev--user .who-row .ref {
+  color: #a8a39c;
+  font-size: 11px;
+}
+
+.task-brain .shell .ev--user .tx {
+  max-width: 80%;
+  padding: 11px 14px;
+  background: #eef1ee;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 13px 13px 4px 13px;
+  color: #2b3138;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: left;
+}
+
+/* Agent rows: plain prose, no "Agent" chrome row (design's AGENT block). */
+.task-brain .shell .ev--agent .who-row .ic.agent {
+  display: none;
+}
+
+.task-brain .shell .ev--agent .who-row .who {
+  display: none;
+}
+
+.task-brain .shell .ev--agent .who-row .ref {
+  color: #a8a39c;
+  font-size: 11px;
+}
+
+.task-brain .shell .ev--agent .tx {
+  color: #24292f;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+/* Stage transcript folds sit directly in the conv column — no spine
+   rail exists there, so hide the rail node the fold would otherwise
+   paint into the gutter, and tuck the fold closer to the message that
+   produced it (the design's tight group spacing). */
+.task-brain .shell .conv > .sp-work::before {
+  display: none;
+}
+
+.task-brain .shell .conv > .sp-work {
+  margin: -8px 0;
+}
+
+/* Tool rows: transparent hover rows with verb icon + mono target. */
+.task-brain .shell .tool-block {
+  border: none;
+  border-radius: 6px;
+  overflow: visible;
+}
+
+.task-brain .shell .tool-block .head {
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.task-brain .shell .tool-block .head:hover {
+  background: rgba(0, 0, 0, 0.035);
+}
+
+.task-brain .shell .tool-block .head .disc {
+  color: #cec8bd;
+}
+
+.task-brain .shell .tool-block .head .t-ic {
+  display: inline-flex;
+  color: #8a8178;
+}
+
+.task-brain .shell .tool-block .head .tag {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-brain .shell .tool-block .head .desc {
+  font-family: var(--mono, 'SF Mono', Menlo, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: #8a8178;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-brain .shell .tool-block .head .meta {
+  margin-left: auto;
+  color: #b7b0a7;
+  font-size: 11px;
+}
+
+.task-brain .shell .tool-block .body-code {
+  margin: 2px 0 5px 30px;
+  padding: 9px 12px;
+  background: #faf9f7;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 7px;
+  font-size: 11px;
+  color: #6e7781;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }

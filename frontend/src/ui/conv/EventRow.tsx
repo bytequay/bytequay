@@ -110,7 +110,7 @@ export function EventRow({
   kind, who, dataSeq, taskRef, timestamp, metaExtra, collapsible = false, collapsed = false, onToggle, markdown, children,
 }: EventRowProps) {
   return (
-    <div className="ev" data-seq={dataSeq ?? undefined}>
+    <div className={`ev ev--${kind}`} data-seq={dataSeq ?? undefined}>
       <WhoRow
         kind={kind}
         who={who}

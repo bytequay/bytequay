@@ -44,7 +44,7 @@ const CLAMP_AT = 220;
  * sits above a neutral bubble, and a long message clamps to a preview
  * behind a "Show full message" toggle.
  */
-export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, managedSkills = [], messageSeq, quiet = false }: {
+export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, managedSkills = [], messageSeq, quiet = false, clampAt = CLAMP_AT }: {
   text: string;
   timestamp?: ReactNode;
   glyph?: ReactNode;
@@ -58,11 +58,14 @@ export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, manag
   managedSkills?: string[];
   messageSeq?: number | null;
   quiet?: boolean;
+  /** Preview length for clamped quiet turns (Task Conversation clamps
+   *  shorter than the trunk feed). */
+  clampAt?: number;
 }) {
   const resolvedImages = useAttachmentImages(threadId ?? '', images ?? []);
   const [expanded, setExpanded] = useState(false);
-  const clampable = quiet && text.length > CLAMP_AT;
-  const shown = clampable && !expanded ? `${text.slice(0, CLAMP_AT).trimEnd()}…` : text;
+  const clampable = quiet && text.length > clampAt;
+  const shown = clampable && !expanded ? `${text.slice(0, clampAt).trimEnd()}…` : text;
   return (
     <div className={quiet ? 'sp-uturn sp-uturn--quiet' : 'sp-uturn'} data-seq={messageSeq ?? undefined}>
       <span className="sp-uturn__mark" aria-hidden>{quiet ? undefined : glyph}</span>

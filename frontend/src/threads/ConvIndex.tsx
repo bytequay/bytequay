@@ -42,6 +42,13 @@ type Props = {
    *  the index to "that Task's prompts" per the design. Omit in the
    *  trunk, where the thread-wide list is intended. */
   restrictToSeqs?: ReadonlySet<number>;
+  /** When set, the rail lists exactly these entries and never talks to
+   *  the thread-wide backend index. The stage pages use this: a stage's
+   *  transcript lives in its own per-stage message store whose seqs
+   *  don't exist in the task thread, so the thread index can't describe
+   *  it — but the host already has the full transcript loaded and can
+   *  hand the prompts over directly. */
+  localEntries?: ConvIndexEntryDto[];
   /** Which gutter the rail floats in. Defaults to {@code right}; the
    *  trunk anchors it left, clear of its right task panel. */
   side?: 'left' | 'right';
@@ -61,20 +68,24 @@ type Props = {
  * — i.e. the most recent prompt — highlighted with the accent colour.
  */
 export function ConvIndex({
-  threadId, scrollContainerRef, onSseEvent, variant = 'light', restrictToSeqs, side = 'right',
+  threadId, scrollContainerRef, onSseEvent, variant = 'light', restrictToSeqs, localEntries, side = 'right',
 }: Props) {
   const idx = useConvIndex(threadId);
   const { tasks } = useThreadTasks(threadId);
+  const local = localEntries !== undefined;
   // Scope the thread-wide index to the host pane's own prompts when the
   // caller asks. A focused Task passes its loaded prompt seqs so the
   // rail lists only that Task's prompts (all clickable); the trunk omits
-  // it and keeps the full thread-wide list.
-  const scoped = restrictToSeqs !== undefined;
+  // it and keeps the full thread-wide list. localEntries bypasses the
+  // backend index outright (per-stage transcripts).
+  const scoped = local || restrictToSeqs !== undefined;
   const entries = useMemo(
-    () => scoped
-      ? idx.entries.filter(e => restrictToSeqs.has(e.seq))
-      : idx.entries,
-    [scoped, idx.entries, restrictToSeqs]);
+    () => local
+      ? localEntries
+      : restrictToSeqs !== undefined
+        ? idx.entries.filter(e => restrictToSeqs.has(e.seq))
+        : idx.entries,
+    [local, localEntries, idx.entries, restrictToSeqs]);
   // Always start collapsed. The rail is a peripheral hint — hover or
   // focus it to expand into the full prompt-preview panel.
   const [expanded, setExpanded] = useState(false);
@@ -106,10 +117,7 @@ export function ConvIndex({
   // While loading initial state or if the pane genuinely has no
   // prompts yet, render nothing — the rail is meant to surface
   // navigation for content that exists, not to flash an empty strip.
-  if (idx.loading && entries.length === 0) {
-    return null;
-  }
-  if (!idx.loading && entries.length === 0) {
+  if (entries.length === 0) {
     return null;
   }
 
@@ -430,7 +438,7 @@ const DARK_PALETTE: Palette = {
 // gutter as a naked stack of dash marks; hover expands the preview panel.
 const baseAnchorStyle: React.CSSProperties = {
   position: 'absolute',
-  right: 14,
+  right: 4,
   top: '50%',
   transform: 'translateY(-50%)',
   zIndex: 10,

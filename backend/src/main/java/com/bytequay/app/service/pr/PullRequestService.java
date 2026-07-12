@@ -1559,7 +1559,15 @@ public class PullRequestService
                 continue;
             }
             try {
-                merged.put(key, withOrigin(gitHub.getPullRequest(pat, ref), REVIEW_REQUESTED));
+                PullRequest pr = gitHub.getPullRequest(pat, ref);
+                // Notifications (all=true) still list PRs the user was asked to
+                // review that have since closed/merged; the review-requested
+                // search is is:open, so match it — a closed PR must never enter
+                // the "To review" set. (Transient GitHub 5xx here is caught
+                // below and simply retried on the next sweep.)
+                if ("open".equals(pr.state())) {
+                    merged.put(key, withOrigin(pr, REVIEW_REQUESTED));
+                }
             }
             catch (RuntimeException e) {
                 log.info("notification PR {} fetch failed: {}", ref.fullName(), e.getMessage());

@@ -106,6 +106,14 @@ public class PullRequestService
     // keeps the safety net while cutting the steady-state cost ~15x.
     private static final Duration BACKFILL_RECHECK_INTERVAL = Duration.ofMinutes(15);
 
+    // How often the notifications-feed backstop actually re-polls GitHub. The
+    // dashboard sweep runs every ~60s, but the four search queries are the
+    // primary source; notifications only catch what search silently drops, so
+    // polling them (plus the per-PR fetch each surfaced ref costs) every sweep
+    // is wasteful. Between polls the last resolved set is re-served so those
+    // PRs stay in the sweep's result set and don't flicker off the dashboard.
+    private static final Duration NOTIFICATION_POLL_INTERVAL = Duration.ofMinutes(5);
+
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
     // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
     // (GitHub's search ceiling is 1000) while still covering reviewers
@@ -145,6 +153,13 @@ public class PullRequestService
      *  review-less PR isn't re-fetched on every sync tick. In-memory
      *  only — a restart just re-checks each PR once. */
     private final ConcurrentMap<Long, Instant> lastBackfillAttempt = new ConcurrentHashMap<>();
+    /** Last resolved notification-backstop PRs and when we last polled the
+     *  notifications feed. Re-served on every sweep inside {@link
+     *  #NOTIFICATION_POLL_INTERVAL} so the search-invisible PRs they surface
+     *  stay put; refreshed only past that interval. In-memory only — a restart
+     *  just forces one poll on the next sweep. */
+    private volatile List<PullRequest> cachedNotificationPrs = List.of();
+    private volatile Instant lastNotificationPoll = Instant.EPOCH;
 
     /** Snapshot of "last ETag and when we got it" for one PR. */
     private record EtagEntry(String etag, Instant lastProbedAt) {}
@@ -1553,40 +1568,57 @@ public class PullRequestService
         // author:@me search somehow dropped would be mislabelled REVIEW_REQUESTED
         // here (author:@me is reliable, so vanishingly rare). Add paging /
         // author-check / requested-reviewer re-verify only if these bite.
-        for (PullRequestRef ref : fetchAttentionNotificationRefs(pat)) {
-            String key = ref.repoFullName() + "#" + ref.number();
-            if (merged.containsKey(key)) {
+        for (PullRequest pr : notificationBackstopPrs(pat, merged.keySet())) {
+            merged.putIfAbsent(pr.repo() + "#" + pr.number(), withOrigin(pr, REVIEW_REQUESTED));
+        }
+        return ImmutableList.copyOf(merged.values());
+    }
+
+    /**
+     * The open PRs surfaced by the notifications backstop. Re-polls the
+     * notifications feed (and re-fetches each surfaced PR) at most once per
+     * {@link #NOTIFICATION_POLL_INTERVAL}; every sweep in between re-serves the
+     * last resolved set so those PRs stay in the dashboard result and don't
+     * flicker. Best-effort throughout — a notifications-endpoint failure or a
+     * transient per-PR 5xx must never regress the search-based sweep, so it
+     * keeps whatever it resolved and retries on the next poll.
+     */
+    private List<PullRequest> notificationBackstopPrs(String pat, Set<String> alreadyPresent)
+    {
+        if (Duration.between(lastNotificationPoll, Instant.now()).compareTo(NOTIFICATION_POLL_INTERVAL) < 0) {
+            return cachedNotificationPrs;
+        }
+        lastNotificationPoll = Instant.now();
+        List<PullRequestRef> refs;
+        try {
+            refs = gitHub.fetchAttentionPrRefs(pat);
+        }
+        catch (RuntimeException e) {
+            log.info("attention notifications fetch failed: {}", e.getMessage());
+            return cachedNotificationPrs;
+        }
+        List<PullRequest> resolved = new ArrayList<>();
+        for (PullRequestRef ref : refs) {
+            // Skip anything the search sweep already surfaced — no point spending
+            // a per-PR fetch on a PR we already have.
+            if (alreadyPresent.contains(ref.repoFullName() + "#" + ref.number())) {
                 continue;
             }
             try {
                 PullRequest pr = gitHub.getPullRequest(pat, ref);
-                // Notifications (all=true) still list PRs the user was asked to
-                // review that have since closed/merged; the review-requested
-                // search is is:open, so match it — a closed PR must never enter
-                // the "To review" set. (Transient GitHub 5xx here is caught
-                // below and simply retried on the next sweep.)
+                // Notifications (all=true) still list review requests whose PR
+                // has since closed/merged; the review-requested search is
+                // is:open, so match it — a closed PR must never enter "To review".
                 if ("open".equals(pr.state())) {
-                    merged.put(key, withOrigin(pr, REVIEW_REQUESTED));
+                    resolved.add(pr);
                 }
             }
             catch (RuntimeException e) {
                 log.info("notification PR {} fetch failed: {}", ref.fullName(), e.getMessage());
             }
         }
-        return ImmutableList.copyOf(merged.values());
-    }
-
-    /** Best-effort: a notifications-endpoint failure must never regress the
-     *  search-based sweep that already ran, so swallow and return empty. */
-    private List<PullRequestRef> fetchAttentionNotificationRefs(String pat)
-    {
-        try {
-            return gitHub.fetchAttentionPrRefs(pat);
-        }
-        catch (RuntimeException e) {
-            log.info("attention notifications fetch failed: {}", e.getMessage());
-            return List.of();
-        }
+        cachedNotificationPrs = List.copyOf(resolved);
+        return cachedNotificationPrs;
     }
 
     /**

@@ -832,7 +832,7 @@ function App() {
             })}
             onOpenRun={openRun(nav.threadId, nav.taskId)}
             onClosed={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
-            onBack={goBack}
+            onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onForward={goForward}
             backEnabled={canGoBack(navHistoryRef.current)}
             forwardEnabled={canGoForward(navHistoryRef.current)}
@@ -860,7 +860,7 @@ function App() {
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
             onOpenRun={openRun(nav.threadId, nav.taskId)}
-            onBack={goBack}
+            onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onForward={goForward}
             backEnabled={canGoBack(navHistoryRef.current)}
             forwardEnabled={canGoForward(navHistoryRef.current)}

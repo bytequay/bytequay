@@ -77,6 +77,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -97,6 +98,10 @@ public class GitHubClient
 
     private static final int PER_PAGE = 50;
     private static final String REPOS_SEGMENT = "/repos/";
+
+    /** Notification reasons that mean "a pull request wants my attention":
+     *  asked to review (incl. re-requests) or directly @-mentioned. */
+    private static final Set<String> ATTENTION_REASONS = Set.of("review_requested", "mention");
 
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
@@ -825,6 +830,65 @@ public class GitHubClient
         }
     }
 
+    /**
+     * Pull requests the notifications feed flags for the user's attention —
+     * the same signal that generates the review-request / mention email. Keeps
+     * {@code review_requested} (asked to review, incl. re-requests) and
+     * {@code mention} (directly @-mentioned); drops comments, pushes, CI, and
+     * state changes. GitHub's search index occasionally omits a request
+     * (observed: a team review request on an enterprise repo never appeared in
+     * {@code user-review-requested:@me}), so the dashboard uses this to catch
+     * what search drops. {@code all=true} so an item already read but not yet
+     * acted on still comes back.
+     */
+    @Override
+    public List<PullRequestRef> fetchAttentionPrRefs(String pat)
+    {
+        requirePat(pat);
+        try {
+            List<GitHubNotification> notifications = gitHubRestClient.get()
+                    .uri(uri -> uri.path("/notifications")
+                            .queryParam("participating", "true")
+                            .queryParam("all", "true")
+                            .queryParam("per_page", PER_PAGE)
+                            .build())
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (notifications == null) {
+                return ImmutableList.of();
+            }
+            return notifications.stream()
+                    .map(GitHubClient::attentionPrRef)
+                    .flatMap(Optional::stream)
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    /** Notification → PR ref for the dashboard attention backstop: keeps review
+     *  requests and direct @-mentions on pull requests, empty for every other
+     *  reason or a non-PR subject. subject.url tail is the PR number and
+     *  repository.full_name is {@code owner/repo}, so {@link PullRequestRef#parse}
+     *  handles the split and validation. Package-private for direct unit test. */
+    static Optional<PullRequestRef> attentionPrRef(GitHubNotification n)
+    {
+        if (n.subject() == null || !"PullRequest".equals(n.subject().type())
+                || !ATTENTION_REASONS.contains(n.reason())
+                || n.subject().url() == null
+                || n.repository() == null || n.repository().fullName() == null) {
+            return Optional.empty();
+        }
+        String url = n.subject().url();
+        int slash = url.lastIndexOf('/');
+        if (slash < 0 || slash == url.length() - 1) {
+            return Optional.empty();
+        }
+        return PullRequestRef.parse(n.repository().fullName() + "#" + url.substring(slash + 1));
+    }
+
     private static PullRequest toPullRequest(GitHubRepoPullRequestItem item, String fullName)
     {
         List<GitHubRepoPullRequestItem.Label> rawLabels = Optional.ofNullable(item.labels())
@@ -1377,6 +1441,16 @@ public class GitHubClient
 
     // GraphQL response DTOs. Loose — the query above is small enough
     // that hand-rolled records are simpler than a generic walker.
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitHubNotification(String reason, Subject subject, NotificationRepo repository)
+    {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        record Subject(String title, String url, String type) {}
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        record NotificationRepo(@JsonProperty("full_name") String fullName) {}
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ReviewThreadGqlResponse(GqlData data) {}

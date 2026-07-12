@@ -138,7 +138,9 @@ public record StageDetailData(
             /** Attached-screenshot file paths on a {@code user} row — see
              *  {@code MessageAttachments.encodeMessage}. Empty for every
              *  other row kind. */
-            List<String> images) {}
+            List<String> images,
+            /** Runtime-managed skills active for this user turn. */
+            List<String> managedSkills) {}
 
     /**
      * @param prNumber null when the task has no PR

@@ -173,7 +173,8 @@ class TestStageBrain
         threadStore.saveThread(brain);
         threadStore.appendMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), brainThreadId, null, 1, "user", "text",
-                "{\"text\":\"see this\",\"images\":[\"/tmp/attachments/a.png\"]}",
+                "{\"text\":\"see this\",\"images\":[\"/tmp/attachments/a.png\"],"
+                        + "\"managedSkills\":[\"ponytail-review\"]}",
                 null, null, null, null, Instant.parse("2026-06-21T10:01:00Z")));
         appendBrainMsg(brainThreadId, 2, "assistant", "Got it.", Instant.parse("2026-06-21T10:01:30Z"));
 
@@ -182,10 +183,12 @@ class TestStageBrain
         BrainFeedRow userRow = brainView.brainFeed().stream()
                 .filter(r -> r.type().equals("USER_MESSAGE")).findFirst().orElseThrow();
         assertThat(userRow.images()).containsExactly("/tmp/attachments/a.png");
+        assertThat(userRow.managedSkills()).containsExactly("ponytail-review");
 
         BrainFeedRow agentRow = brainView.brainFeed().stream()
                 .filter(r -> r.type().equals("BRAIN_AGENT_RESPONSE")).findFirst().orElseThrow();
         assertThat(agentRow.images()).isEmpty();
+        assertThat(agentRow.managedSkills()).isEmpty();
     }
 
     @Test

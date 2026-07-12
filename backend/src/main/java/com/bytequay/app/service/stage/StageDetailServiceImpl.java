@@ -647,17 +647,19 @@ public class StageDetailServiceImpl
                 rows.add(new ConversationRow(m.id(), m.seq(), "tool_call", null,
                         tc.tag(), tc.label(), tc.detail(),
                         r == null ? null : r.output(), r == null ? null : r.isError(),
-                        editDiff(m), null, m.ts().toString(), null, List.of()));
+                        editDiff(m), null, m.ts().toString(), null, List.of(), List.of()));
             }
             else if ("text".equals(m.type())) {
                 String text = decodeText(m.contentJson());
                 boolean user = "user".equals(m.role());
-                List<String> images = user ? decodeImages(m.contentJson()) : List.of();
-                if ((text == null || text.isBlank()) && images.isEmpty()) {
+                List<String> images = user ? decodeStringArray(m.contentJson(), "images") : List.of();
+                List<String> managedSkills = user ? decodeStringArray(m.contentJson(), "managedSkills") : List.of();
+                if ((text == null || text.isBlank()) && images.isEmpty() && managedSkills.isEmpty()) {
                     continue;
                 }
                 rows.add(new ConversationRow(m.id(), m.seq(), user ? "user" : "agent",
-                        text, null, null, null, null, null, null, null, m.ts().toString(), null, images));
+                        text, null, null, null, null, null, null, null, m.ts().toString(), null,
+                        images, managedSkills));
             }
             else if ("permission_request".equals(m.type())) {
                 String callId = callIdOf(m);
@@ -665,14 +667,14 @@ public class StageDetailServiceImpl
                     rows.add(new ConversationRow(m.id(), m.seq(), "permission",
                             permissionField(m, "summary"),
                             null, permissionField(m, "toolName"), null,
-                            null, null, null, null, m.ts().toString(), callId, List.of()));
+                            null, null, null, null, m.ts().toString(), callId, List.of(), List.of()));
                 }
             }
         }
         for (TaskStageIteration it : iters) {
             rows.add(new ConversationRow(it.id() + ":marker", null, "iteration_marker",
                     it.trigger(), null, null, null, null, null, null, it.iterationNumber(),
-                    TimeWindow.forIteration(it).start().toString(), null, List.of()));
+                    TimeWindow.forIteration(it).start().toString(), null, List.of(), List.of()));
         }
         rows.sort(Comparator.comparing(ConversationRow::ts));
         return rows;
@@ -1029,18 +1031,18 @@ public class StageDetailServiceImpl
         }
     }
 
-    /** Extract a message's attached-screenshot paths, if any — see
+    /** Extract a string-array field from a message envelope, if any — see
      *  {@code MessageAttachments.encodeMessage}. */
-    private List<String> decodeImages(String contentJson)
+    private List<String> decodeStringArray(String contentJson, String field)
     {
         if (contentJson == null || contentJson.isBlank()) {
             return List.of();
         }
         try {
-            JsonNode node = mapper.readTree(contentJson).path("images");
-            List<String> images = new ArrayList<>();
-            node.forEach(n -> images.add(n.asText()));
-            return images;
+            JsonNode node = mapper.readTree(contentJson).path(field);
+            List<String> values = new ArrayList<>();
+            node.forEach(n -> values.add(n.asText()));
+            return values;
         }
         catch (JsonProcessingException e) {
             return List.of();

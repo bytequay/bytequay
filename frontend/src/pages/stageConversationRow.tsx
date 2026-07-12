@@ -53,6 +53,7 @@ export function stageRow(
           timestamp={<EventTimestamp iso={r.ts} />}
           threadId={threadId}
           images={r.images}
+          managedSkills={r.managedSkills}
           messageSeq={r.messageSeq}
         />
       );

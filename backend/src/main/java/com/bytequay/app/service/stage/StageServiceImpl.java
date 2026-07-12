@@ -598,7 +598,8 @@ public class StageServiceImpl
                 m.ts().toString(),
                 body,
                 referencedStageId,
-                user ? decodeImages(m.contentJson()) : List.of());
+                user ? decodeStringArray(m.contentJson(), "images") : List.of(),
+                user ? decodeStringArray(m.contentJson(), "managedSkills") : List.of());
     }
 
     /** The id of the first stage whose display name the reply mentions, or
@@ -635,18 +636,18 @@ public class StageServiceImpl
         }
     }
 
-    /** Extract a message's attached-screenshot paths, if any — see
+    /** Extract a string-array field from a message envelope, if any — see
      *  {@code MessageAttachments.encodeMessage}. */
-    private List<String> decodeImages(String contentJson)
+    private List<String> decodeStringArray(String contentJson, String field)
     {
         if (contentJson == null || contentJson.isBlank()) {
             return List.of();
         }
         try {
-            JsonNode node = mapper.readTree(contentJson).path("images");
-            List<String> images = new ArrayList<>();
-            node.forEach(n -> images.add(n.asText()));
-            return images;
+            JsonNode node = mapper.readTree(contentJson).path(field);
+            List<String> values = new ArrayList<>();
+            node.forEach(n -> values.add(n.asText()));
+            return values;
         }
         catch (JsonProcessingException e) {
             return List.of();
@@ -678,6 +679,7 @@ public class StageServiceImpl
                 event.createdAt().toString(),
                 event.message() == null ? "" : event.message(),
                 null,
+                List.of(),
                 List.of());
     }
 
@@ -698,6 +700,7 @@ public class StageServiceImpl
                     e.eventAt().toString(),
                     panelReviewBody(e.payloadJson()),
                     e.stageId().toString(),
+                    List.of(),
                     List.of()));
         }
 
@@ -732,6 +735,7 @@ public class StageServiceImpl
                 e.eventAt().toString(),
                 body,
                 null,
+                List.of(),
                 List.of()));
     }
 

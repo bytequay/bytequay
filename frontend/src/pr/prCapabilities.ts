@@ -30,8 +30,9 @@ export interface PRCapabilities {
   publishReview: boolean;
   /** Push the local branch + open a Draft PR. Task-origin, local-open only. */
   push: boolean;
-  /** Merge a pushed PR — any origin, remote-open only (task-origin once
-   *  pushed, or an external PR discovered via the dashboard sync). */
+  /** Merge a pushed PR — any origin, any remote-* status (task-origin once
+   *  pushed, or an external PR from the dashboard sync). Merging a
+   *  still-draft PR marks it ready for review first (backend flip). */
   merge: boolean;
   /** The composer belongs to the owning stage — task/stage surfaces only. */
   chatAgent: boolean;
@@ -50,7 +51,7 @@ export function derivePRCapabilities(pr: LocalPR, surface: PRSurface): PRCapabil
     draftLocalComments: !TERMINAL_STATUSES.has(pr.status),
     publishReview: pr.origin === 'external',
     push: pr.origin === 'task' && pr.status === 'local-open',
-    merge: pr.status === 'remote-open',
+    merge: REMOTE_STATUSES.has(pr.status),
     chatAgent: surface === 'task',
     postRemoteComment: REMOTE_STATUSES.has(pr.status),
   };

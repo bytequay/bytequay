@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import type { PRCapabilities } from '../prCapabilities';
 import type { LocalPR, LocalPRCheck } from '../../types/localPr';
+import { MergeBranchIcon } from '../../ui/TaskBrainDesignIcons';
 import { CheckRows } from './CheckRows';
 
 /** The brain's dev-end review verdict, once it's concluded (plan-rail-runs.md
@@ -228,7 +229,7 @@ export function MergeBox({
     return (
       <div className="pr-merge-box merged">
         <div className="mb-sec">
-          <span className="mb-ic purple">⎇</span>
+          <span className="mb-ic purple"><MergeBranchIcon size={13} strokeWidth={2.2} /></span>
           <div className="mb-t">
             <div className="h">Pull request successfully merged and closed</div>
             <div className="s">You're all set — the <code>{pr.branchName}</code> branch can be safely deleted.</div>
@@ -243,7 +244,10 @@ export function MergeBox({
   const summary = checksSummary(allChecks);
 
   const showPushGate = capabilities.push && pr.status === 'local-open';
-  const showMergeGate = capabilities.merge && pr.status === 'remote-open';
+  // Drafts show the gate too — merging one marks it ready for review
+  // first (the backend flips it before merging/queueing).
+  const showMergeGate = capabilities.merge;
+  const draft = pr.status === 'remote-drafted';
   const showPublishGate = capabilities.publishReview && draftCount > 0;
   const hasMergeableData = pr.syncedMergeable !== null;
   if (!showPushGate && !showMergeGate && !showPublishGate
@@ -318,9 +322,10 @@ export function MergeBox({
           <div className="mb-sec">
             <div className="mb-t">
               <div className="s">
+                {draft ? 'This will mark the draft ready for review, then ' : 'This will '}
                 {pr.syncedMergeQueueEnabled
-                  ? 'This will add this pull request to the merge queue.'
-                  : `This will ${MERGE_METHODS.find(m => m.key === method)?.verb} your changes and merge them into ${pr.baseBranch}.`}
+                  ? 'add this pull request to the merge queue.'
+                  : `${MERGE_METHODS.find(m => m.key === method)?.verb} your changes and merge them into ${pr.baseBranch}.`}
               </div>
             </div>
           </div>
@@ -340,7 +345,11 @@ export function MergeBox({
           <div className="mb-sec">
             <span className="mb-ic green">⎇</span>
             <div className="mb-t">
-              <div className="h">{openComments > 0 ? `${openComments} open comment${openComments === 1 ? '' : 's'} — resolve before merge` : 'Ready to merge'}</div>
+              <div className="h">
+                {openComments > 0
+                  ? `${openComments} open comment${openComments === 1 ? '' : 's'} — resolve before merge`
+                  : draft ? 'Draft — merging marks it ready first' : 'Ready to merge'}
+              </div>
               <div className="s">Merging opens {pr.baseBranch} ← {pr.branchName}</div>
             </div>
           </div>

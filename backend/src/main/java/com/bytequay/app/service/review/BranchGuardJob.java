@@ -31,6 +31,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.checks.ValidationFailure;
+import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.RebaseOutcome;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -43,6 +44,7 @@ import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -76,6 +78,38 @@ public class BranchGuardJob
     private final PullRequestService pullRequests;
     private final ObjectMapper mapper;
     private final RemoteDevelopmentStageService remoteStages;
+    private final CodeGraphUpdateCoordinator codeGraph;
+
+    @Autowired
+    public BranchGuardJob(
+            BranchGuardStore guards,
+            TaskStore taskStore,
+            ThreadStore threadStore,
+            ThreadTurnScheduler scheduler,
+            ThreadTurnStore turnStore,
+            GitRunner git,
+            List<ValidationCheck> checks,
+            AgentRunService agentRuns,
+            NotificationService notifications,
+            PullRequestService pullRequests,
+            ObjectMapper mapper,
+            RemoteDevelopmentStageService remoteStages,
+            CodeGraphUpdateCoordinator codeGraph)
+    {
+        this.guards = requireNonNull(guards, "guards is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.git = requireNonNull(git, "git is null");
+        this.checks = requireNonNull(checks, "checks is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
+        this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+    }
 
     public BranchGuardJob(
             BranchGuardStore guards,
@@ -91,18 +125,9 @@ public class BranchGuardJob
             ObjectMapper mapper,
             RemoteDevelopmentStageService remoteStages)
     {
-        this.guards = requireNonNull(guards, "guards is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
-        this.turnStore = requireNonNull(turnStore, "turnStore is null");
-        this.git = requireNonNull(git, "git is null");
-        this.checks = requireNonNull(checks, "checks is null");
-        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
-        this.notifications = requireNonNull(notifications, "notifications is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
-        this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
+        this(guards, taskStore, threadStore, scheduler, turnStore, git, checks,
+                agentRuns, notifications, pullRequests, mapper, remoteStages,
+                CodeGraphUpdateCoordinator.disabled());
     }
 
     @Scheduled(fixedDelay = NIGHTLY_MS, initialDelay = NIGHTLY_MS)
@@ -199,8 +224,10 @@ public class BranchGuardJob
         }
         try {
             git.rebase(worktree, baseRef);
+            codeGraph.rebuildSync(worktree, "branch-guard-rebase");
         }
         catch (RuntimeException e) {
+            codeGraph.rebuildSync(worktree, "branch-guard-rebase-failed");
             askAgentToResolve(task, thread, guard, run, baseRef, "rebase failed: " + e.getMessage());
             return;
         }

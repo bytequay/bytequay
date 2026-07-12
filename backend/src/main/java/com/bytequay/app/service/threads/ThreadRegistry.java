@@ -28,6 +28,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
@@ -132,6 +133,7 @@ public class ThreadRegistry
      *  session creation. Null on legacy/test paths that never build a
      *  brain agent. */
     private final AgentContextDigest contextDigest;
+    private final CodeGraphUpdateCoordinator codeGraph;
     private final WorktreeLeaseService leaseService;
     /** Resolves the cwd a trunk session should be spawned in. Takes
      *  the Thread because the trunk's working dir is workspace-
@@ -181,7 +183,8 @@ public class ThreadRegistry
             LogicLoopToolRegistry toolRegistry,
             Ds4LifecycleService ds4,
             Ds4Instrumentation ds4Instrumentation,
-            AgentContextDigest contextDigest)
+            AgentContextDigest contextDigest,
+            CodeGraphUpdateCoordinator codeGraph)
     {
         this(store, taskStore, stageStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
@@ -201,7 +204,8 @@ public class ThreadRegistry
                 toolRegistry,
                 ds4,
                 ds4Instrumentation,
-                contextDigest);
+                contextDigest,
+                codeGraph);
     }
 
     /**
@@ -296,7 +300,55 @@ public class ThreadRegistry
                 null,
                 null,
                 null,
-                null);
+                null,
+                CodeGraphUpdateCoordinator.disabled());
+    }
+
+    ThreadRegistry(
+            ThreadStore store,
+            TaskStore taskStore,
+            StageStore stageStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            WorktreeLeaseService leaseService,
+            Function<Thread, String> trunkCwdResolver,
+            SkillMaterializer skillMaterializer,
+            RoleSkillService roleSkillService,
+            PonytailBundleService ponytailBundleService,
+            WorkModelResolver workModelResolver,
+            CredentialService credentialService,
+            LogicLoopToolRegistry toolRegistry,
+            Ds4LifecycleService ds4,
+            Ds4Instrumentation ds4Instrumentation,
+            AgentContextDigest contextDigest,
+            CodeGraphUpdateCoordinator codeGraph)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.stageStore = stageStore;
+        this.parser = requireNonNull(parser, "parser is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
+        this.codexParser = new CodexJsonParser(mapper);
+        this.gate = requireNonNull(gate, "gate is null");
+        this.executor = requireNonNull(executor, "executor is null");
+        this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
+        this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
+        this.leaseService = requireNonNull(leaseService, "leaseService is null");
+        this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
+        this.skillMaterializer = skillMaterializer;
+        this.roleSkillService = roleSkillService;
+        this.ponytailBundleService = ponytailBundleService;
+        this.workModelResolver = workModelResolver;
+        this.credentialService = credentialService;
+        this.toolRegistry = toolRegistry;
+        this.ds4 = ds4;
+        this.ds4Instrumentation = ds4Instrumentation;
+        this.contextDigest = contextDigest;
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
     }
 
     ThreadRegistry(
@@ -321,27 +373,12 @@ public class ThreadRegistry
             Ds4Instrumentation ds4Instrumentation,
             AgentContextDigest contextDigest)
     {
-        this.store = requireNonNull(store, "store is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.stageStore = stageStore;
-        this.parser = requireNonNull(parser, "parser is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
-        this.codexParser = new CodexJsonParser(mapper);
-        this.gate = requireNonNull(gate, "gate is null");
-        this.executor = requireNonNull(executor, "executor is null");
-        this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
-        this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
-        this.leaseService = requireNonNull(leaseService, "leaseService is null");
-        this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
-        this.skillMaterializer = skillMaterializer;
-        this.roleSkillService = roleSkillService;
-        this.ponytailBundleService = ponytailBundleService;
-        this.workModelResolver = workModelResolver;
-        this.credentialService = credentialService;
-        this.toolRegistry = toolRegistry;
-        this.ds4 = ds4;
-        this.ds4Instrumentation = ds4Instrumentation;
-        this.contextDigest = contextDigest;
+        this(store, taskStore, stageStore, parser, mapper, gate, executor,
+                checkpointTrigger, workspaceMemoryProvider, leaseService,
+                trunkCwdResolver, skillMaterializer, roleSkillService,
+                ponytailBundleService, workModelResolver, credentialService,
+                toolRegistry, ds4, ds4Instrumentation, contextDigest,
+                CodeGraphUpdateCoordinator.disabled());
     }
 
     /**
@@ -681,7 +718,22 @@ public class ThreadRegistry
             }
             case BRAIN_AGENT -> buildBrain(thread);
         };
+        if (agent instanceof AbstractCliThreadAgent cli && boundTask != null) {
+            Optional<Path> checkout = taskCheckout(boundTask);
+            checkout.ifPresent(path -> {
+                cli.setPreTurnHook(() -> codeGraph.ensureFreshSync(path, "before-agent-turn"));
+                cli.setPostTurnHook(() -> codeGraph.requestRefreshAsync(path, "after-agent-turn"));
+            });
+        }
         return withManagedSkillBundle(agent);
+    }
+
+    private static Optional<Path> taskCheckout(Task task)
+    {
+        return Optional.ofNullable(task.worktreePath())
+                .filter(p -> !p.isBlank())
+                .or(() -> Optional.ofNullable(task.workingDir()).filter(p -> !p.isBlank()))
+                .map(Path::of);
     }
 
     /** The resolved cascade's model id, but only when it's actually a CLI
@@ -716,25 +768,27 @@ public class ThreadRegistry
                 // trunkCwdResolver also fetches + resets the planning worktree
                 // (the cwd). Re-run it before every turn so each planning turn
                 // searches an up-to-date base.
+                String initialCwd = trunkCwdResolver.apply(thread);
                 AbstractCliThreadAgent agent = isCodex(thread)
                         ? new CodexCliThreadAgent(
                                 thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemoryProvider,
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                                trunkCwdResolver.apply(thread),
+                                initialCwd,
                                 CodexCliThreadAgent.TrunkMode.ENABLED,
                                 PLANNING_REASONING_EFFORT)
                         : new ClaudeCodeCliThreadAgent(
                                 thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemoryProvider, skillMaterializer,
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                                trunkCwdResolver.apply(thread),
+                                initialCwd,
                                 ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
                                 PLANNING_REASONING_EFFORT);
                 agent.setPreTurnHook(() -> {
                     String synced = trunkCwdResolver.apply(thread);
                     log.debug("trunk {} planning base synced at {}", thread.id(), synced);
                 });
+                agent.setPostTurnHook(() -> codeGraph.requestRefreshAsync(Path.of(initialCwd), "after-trunk-turn"));
                 yield withManagedSkillBundle(agent);
             }
             case LOGIC_LOOP -> {

@@ -127,6 +127,10 @@ public abstract class AbstractCliThreadAgent
      *  set it). A failure here is logged, not fatal: the turn proceeds on
      *  the last-known checkout. */
     private volatile Runnable preTurnHook = () -> {};
+    /** Best-effort hook run after a clean TurnDone has been persisted.
+     *  Used for background cache warming; failures are logged and never
+     *  change the turn outcome. */
+    private volatile Runnable postTurnHook = () -> {};
     /** Resolved CLI binary name (overridable for tests). */
     protected final String binary;
 
@@ -772,6 +776,12 @@ public abstract class AbstractCliThreadAgent
         this.preTurnHook = hook == null ? () -> {} : hook;
     }
 
+    /** Wire a per-turn hook run after {@link StreamEvent.TurnDone}. */
+    public final void setPostTurnHook(Runnable hook)
+    {
+        this.postTurnHook = hook == null ? () -> {} : hook;
+    }
+
     // ---- Turn execution ----------------------------------------------
 
     private void runTurn(String userInput)
@@ -981,6 +991,12 @@ public abstract class AbstractCliThreadAgent
             }
             catch (RuntimeException e) {
                 log.warn("checkpoint trigger failed for thread {}: {}", threadId, e.getMessage());
+            }
+            try {
+                postTurnHook.run();
+            }
+            catch (RuntimeException e) {
+                log.warn("post-turn hook for thread {} failed: {}", threadId, e.getMessage());
             }
         }
     }

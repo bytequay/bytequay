@@ -114,6 +114,22 @@ public class GitRunner
     }
 
     /**
+     * Raw status stream for callers that need a stable checkout
+     * fingerprint. {@code -z} avoids ambiguous quoting, and
+     * {@code --untracked-files=all} expands untracked directories so
+     * a new source file inside one participates in the fingerprint.
+     */
+    public String statusPorcelainZ(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "status", "--porcelain=v1", "-z", "--untracked-files=all"),
+                workingDir);
+        result.requireSuccess();
+        return result.stdout();
+    }
+
+    /**
      * {@code git add -A} on the working dir — stages all unstaged
      * changes and untracked files. Pairs with {@link #commit} when
      * the agent finished editing but never committed.
@@ -200,6 +216,24 @@ public class GitRunner
         GitResult result = run(List.of("git", "rev-parse", "HEAD"), workingDir);
         result.requireSuccess();
         return result.stdout().strip();
+    }
+
+    /**
+     * Resolves the local exclude file for this checkout. Linked
+     * worktrees have a {@code .git} file instead of a directory, so
+     * callers must ask git rather than assuming {@code .git/info/exclude}
+     * under the working tree.
+     */
+    public Path gitInfoExcludePath(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(List.of("git", "rev-parse", "--git-path", "info/exclude"), workingDir);
+        result.requireSuccess();
+        Path path = Path.of(result.stdout().strip());
+        if (!path.isAbsolute()) {
+            path = workingDir.resolve(path);
+        }
+        return path.toAbsolutePath().normalize();
     }
 
     /**

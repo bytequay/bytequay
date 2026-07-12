@@ -49,6 +49,23 @@ const ALL = [
 ];
 
 describe('ConvIndex scoping', () => {
+  it('lists localEntries verbatim, ignoring the backend index', () => {
+    installBridge(ALL);
+    render(
+      <ConvIndex
+        threadId="t1"
+        scrollContainerRef={createRef<HTMLElement>()}
+        localEntries={[entry(0, 'stage kickoff prompt'), entry(326, 'ship instructions')]}
+      />,
+    );
+
+    // Local mode renders synchronously from the handed-over entries —
+    // per-stage transcripts have seqs the thread index doesn't know.
+    expect(screen.getByLabelText('Jump to: stage kickoff prompt')).toBeTruthy();
+    expect(screen.getByLabelText('Jump to: ship instructions')).toBeTruthy();
+    expect(screen.queryByLabelText('Jump to: trunk planning prompt')).toBeNull();
+  });
+
   it('restricts the rail to the pane’s own prompt seqs', async () => {
     installBridge(ALL);
     render(

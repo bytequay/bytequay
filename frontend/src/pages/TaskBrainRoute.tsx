@@ -17,7 +17,8 @@ import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { PRView } from '../pr/localpr/PRView';
 import { LocalPrReviewScreen } from '../pr/localpr/LocalPrReviewScreen';
 import { PushDialog } from '../pr/localpr/PushDialog';
-import type { DiffFileDto } from '../types';
+import type { DiffFileDto, UserProfileDto } from '../types';
+import { getCached } from '../dataCache';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
@@ -74,7 +75,7 @@ export function TaskBrainRoute({
   // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of the <PRView> construction below, which
   // reads it.
-  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks'; token: number } | undefined>(undefined);
+  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks' | 'changes'; token: number } | undefined>(undefined);
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
@@ -103,6 +104,37 @@ export function TaskBrainRoute({
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
   );
+
+  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
+  // review / Remote pull request / Merge-Close, R27) and the review
+  // callout's View PR — a fresh token re-fires even for a repeat click on
+  // the tab that's already open.
+  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr'; token: number } | undefined>(undefined);
+  const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
+    setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
+    if (subTab !== undefined) {
+      setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
+    }
+  }, []);
+
+  // The ready-for-review callout's inline gate. Approve ships the parked
+  // proposal exactly as drafted (the agent's stored PR title + body); the
+  // full editable surface stays on TaskCodePage via the callout's link.
+  const [shipBusy, setShipBusy] = useState(false);
+  const [shipNote, setShipNote] = useState<string | null>(null);
+  const approveShip = useCallback(async () => {
+    if (shipBusy || shipProposal === null) return;
+    setShipBusy(true);
+    setShipNote(null);
+    try {
+      const result = await window.bridge.approveNotification(
+        shipProposal.id, null, proposalAction(shipProposal) ?? 'ship_task');
+      if (result.resolution !== 'approved') setShipNote(result.message);
+      pollFast();
+    }
+    catch (e) { setShipNote(e instanceof Error ? e.message : String(e)); }
+    finally { setShipBusy(false); }
+  }, [shipBusy, shipProposal, pollFast]);
 
   const askAgentToAddress = useCallback(() => {
     setText('Please address my review comments on the PR, then I\'ll push. ');
@@ -382,7 +414,15 @@ export function TaskBrainRoute({
             )}
             {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
               ? <MarkReadyPrompt onReview={onOpenCode} />
-              : <ShipReviewPrompt onReview={onOpenCode} />)}
+              : (
+                <ShipReviewPrompt
+                  onReview={onOpenCode}
+                  onApprove={() => { void approveShip(); }}
+                  onReviewChanges={() => openTab('pr', 'changes')}
+                  busy={shipBusy}
+                  note={shipNote}
+                />
+              ))}
             <QueuedMessages
               messages={queue}
               onEdit={id => setText(takeForEdit(id))}
@@ -447,16 +487,6 @@ export function TaskBrainRoute({
     ciStatus: linkedPr?.ciStatus ?? null,
     ciSummary: linkedPr?.ciSummary ?? null,
   });
-  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
-  // review / Remote pull request / Merge-Close, R27) — a fresh token
-  // re-fires even for a repeat click on the tab that's already open.
-  const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr'; token: number } | undefined>(undefined);
-  const openTab = useCallback((tab: 'pr', subTab?: 'checks') => {
-    setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
-    if (subTab !== undefined) {
-      setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
-    }
-  }, []);
   const sidebar = (
     <TaskSidebar
       task={{
@@ -471,6 +501,7 @@ export function TaskBrainRoute({
       forwardEnabled={forwardEnabled}
       onToggleCollapse={onToggleCollapse}
       threadLabel="Back to thread"
+      user={getCached<UserProfileDto>('home:profile')?.login}
       defaultExpandPhases
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
@@ -501,6 +532,7 @@ export function TaskBrainRoute({
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
         placeholder: 'Ask the brain, or steer the task…',
         images, onImagesChange: setImages,
+        closedNote: task.terminal ? 'This task is closed.' : undefined,
       }}
       run={{
         statusLabel: task.statusLabel,

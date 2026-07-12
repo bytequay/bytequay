@@ -12,13 +12,14 @@
  * limitations under the License.
  */
 import type { LocalPRStatus } from '../../types/localPr';
+import { MergeBranchIcon } from '../../ui/TaskBrainDesignIcons';
 
 /** Solid GitHub-parity state pill (U13a): Open green, Merged purple, Local
  *  amber with a lock (task-origin, still pre-push), Closed gray. One
  *  component, `status` in — color out; no caller re-derives this mapping. */
 export function StatePill({ status }: { status: LocalPRStatus }) {
   if (status === 'merged') {
-    return <span className="pr-state-pill merged">⎇ Merged</span>;
+    return <span className="pr-state-pill merged"><MergeBranchIcon size={12} strokeWidth={2.2} />Merged</span>;
   }
   if (status === 'closed') {
     return <span className="pr-state-pill closed">Closed</span>;

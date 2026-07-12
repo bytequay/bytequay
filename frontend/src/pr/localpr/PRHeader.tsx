@@ -68,13 +68,13 @@ export function PRHeader({
       </div>
       <div className="pr-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={activeTab === 'conversation'} className={`pt${activeTab === 'conversation' ? ' on' : ''}`} onClick={() => onTabChange('conversation')}>
-          💬 Conversation <span className="cnt">{conversationCount}</span>
+          <span className="pt-ic" aria-hidden>💬</span> Conversation <span className="cnt">{conversationCount}</span>
         </button>
         <button type="button" role="tab" aria-selected={activeTab === 'commits'} className={`pt${activeTab === 'commits' ? ' on' : ''}`} onClick={() => onTabChange('commits')}>
-          ◆ Commits <span className="cnt">{commitCount}</span>
+          <span className="pt-ic" aria-hidden>◆</span> Commits <span className="cnt">{commitCount}</span>
         </button>
         <button type="button" role="tab" aria-selected={activeTab === 'checks'} className={`pt${activeTab === 'checks' ? ' on' : ''}`} onClick={() => onTabChange('checks')}>
-          ✓ Checks <span className="cnt">{checkCount}</span>
+          <span className="pt-ic" aria-hidden>✓</span> Checks <span className="cnt">{checkCount}</span>
         </button>
         {onReviewChanges !== undefined && (
           <button
@@ -84,7 +84,7 @@ export function PRHeader({
             className={`pt${activeTab === 'changes' ? ' on' : ''}`}
             onClick={() => onTabChange('changes')}
           >
-            ⇄ Changes
+            <span className="pt-ic" aria-hidden>⇄</span> Changes
           </button>
         )}
         <DeltaMeter additions={additions} deletions={deletions} />

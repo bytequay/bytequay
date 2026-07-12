@@ -26,7 +26,7 @@ const MAX_INPUT_HEIGHT = 160;
  */
 export function Composer({
   value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false,
-  queueWhenBusy = false, onAddContext, images = [], onImagesChange,
+  queueWhenBusy = false, onAddContext, images = [], onImagesChange, closedNote,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -46,6 +46,9 @@ export function Composer({
    *  composer instance. */
   images?: string[];
   onImagesChange?: (next: string[]) => void;
+  /** Replaces the whole composer with a muted "closed" box (terminal
+   *  tasks/stages take no more input). */
+  closedNote?: string;
 }) {
   const canSend = !disabled && (value.trim().length > 0 || images.length > 0) && (!busy || queueWhenBusy);
   // Spinner only when we're blocked (busy with nothing queueable); when a
@@ -101,6 +104,17 @@ export function Composer({
       reader.readAsDataURL(file);
     }
   };
+
+  if (closedNote !== undefined) {
+    return (
+      <div className="composer-wrap">
+        <div className="composer composer--closed">
+          <span className="composer-closed-note">{closedNote}</span>
+          <span className="composer-closed-plus" aria-hidden><PlusIcon /></span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="composer-wrap">

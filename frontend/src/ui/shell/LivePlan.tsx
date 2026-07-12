@@ -111,7 +111,9 @@ function PhaseRow({ phase, onClick }: { phase: LivePlanPhaseNode; onClick: () =>
       <span className="ph-glyph" aria-hidden>{markIcon(phase.status, phase.key)}</span>
       <span className="ph-name">{phase.label}</span>
       {phase.badge !== undefined && <span className="ph-badge">{phase.badge}</span>}
-      {phase.meta !== undefined && <span className="ph-meta">{phase.meta}</span>}
+      {phase.meta !== undefined && (
+        <span className={phase.meta.startsWith('PR #') ? 'ph-meta ph-meta--pr' : 'ph-meta'}>{phase.meta}</span>
+      )}
     </button>
   );
 }

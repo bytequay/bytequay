@@ -12,8 +12,9 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
-import { MergeIcon } from '../primitives';
-import { BackChevronIcon, TaskBranchIcon, ThreadBubbleIcon, UpArrowIcon } from '../TaskBrainDesignIcons';
+import { initials } from '../../diff/DiffInlineComments';
+import { Avatar, MergeIcon } from '../primitives';
+import { BackChevronIcon, CheckIcon, TaskBranchIcon, ThreadBubbleIcon, UpArrowIcon } from '../TaskBrainDesignIcons';
 import { LivePlan } from './LivePlan';
 import type { GuardChipData, LivePlanNode } from './livePlanModel';
 import { TrafficLights } from './Sidebar';
@@ -29,7 +30,7 @@ import { TrafficLights } from './Sidebar';
 export function TaskSidebar({
   task, threadLabel, nodes, guard, defaultExpandPhases = false,
   onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
-  onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard, actions,
+  onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard, actions, user,
 }: {
   task: {
     title: string; branch: string;
@@ -64,7 +65,11 @@ export function TaskSidebar({
   /** Enable/disable the branch guard from its chip's toggle. */
   onToggleGuard?: (enabled: boolean) => void;
   actions?: ReactNode;
+  /** GitHub login shown in the sidebar footer; omitted → no footer. */
+  user?: string;
 }) {
+  const leaves = nodes.flatMap(n => (n.phases !== undefined && n.phases.length > 0 ? n.phases : [n]));
+  const doneCount = leaves.filter(l => l.status === 'done').length;
   return (
     <aside className="task-sidebar">
       <TrafficLights
@@ -97,10 +102,21 @@ export function TaskSidebar({
           <TaskBranchIcon />
         </span>
         <div className="ti-title">{task.finished === true && <MergeIcon />}{task.title}</div>
-        <div className="ti-branch">{task.branch}</div>
-        {task.metaLine !== undefined && <div className="ti-meta">{task.metaLine}</div>}
+        <div className="ti-sub">
+          <div className="ti-branch">{task.branch}</div>
+          {task.metaLine !== undefined && (
+            <div className={task.finished === true ? 'ti-meta ti-meta--done' : 'ti-meta'}>
+              {task.finished === true && <CheckIcon size={11} strokeWidth={2.4} />}
+              {task.metaLine}
+            </div>
+          )}
+        </div>
       </div>
-      <div className="plan-section-h"><span>Live plan</span><span className="live-dot" aria-hidden /></div>
+      <div className="plan-section-h">
+        <span>Live plan</span>
+        <span className="live-dot" aria-hidden />
+        <span className="plan-count">{doneCount} of {leaves.length} done</span>
+      </div>
       <LivePlan
         nodes={nodes}
         guard={guard}
@@ -114,6 +130,12 @@ export function TaskSidebar({
         onToggleGuard={onToggleGuard}
       />
       {actions !== undefined && <div className="panel-actions">{actions}</div>}
+      {user !== undefined && (
+        <div className="ts-footer">
+          <Avatar initials={initials(user)} hue="amber" />
+          <span className="ts-footer__name">{user}</span>
+        </div>
+      )}
     </aside>
   );
 }

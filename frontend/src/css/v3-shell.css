@@ -652,6 +652,20 @@
   gap: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
+/* Closed composer — a terminal task/stage takes no more input. */
+.shell .composer--closed {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-sidebar);
+  border-color: var(--border-mid);
+  box-shadow: none;
+}
+.shell .composer--closed .composer-closed-note { font-size: 13px; color: var(--text-4); }
+.shell .composer--closed .composer-closed-plus {
+  margin-left: auto; width: 26px; height: 26px; border-radius: 7px; color: var(--text-4);
+  display: inline-flex; align-items: center; justify-content: center; opacity: 0.7;
+}
 /* Pending pasted-image thumbnails — one removable chip per attachment,
    above the input row. */
 .shell .composer-images { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -815,6 +829,7 @@
   border-radius: 5px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
 }
 .shell .task-identity .ti-title { font-size: 13.5px; color: var(--text-1); line-height: 1.35; }
+.shell .task-identity .ti-sub { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .shell .task-identity .ti-branch { font-family: var(--mono); font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell .task-identity .ti-meta { font-size: 10.5px; color: var(--text-4); display: flex; align-items: center; gap: 8px; padding-top: 2px; }
 .shell .task-identity .ti-meta .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-4); }

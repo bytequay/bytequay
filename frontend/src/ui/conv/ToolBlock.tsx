@@ -22,7 +22,7 @@ import type { ReactNode } from 'react';
  * plan-family tools. Controlled when `open`/`onToggle` are supplied,
  * otherwise self-managed.
  */
-export function ToolBlock({ tag, plan = false, desc, meta, children, open, onToggle, defaultOpen = false }: {
+export function ToolBlock({ tag, plan = false, desc, meta, children, open, onToggle, defaultOpen = false, icon }: {
   tag: ReactNode;
   /** Purple plan-family tag tint. */
   plan?: boolean;
@@ -33,6 +33,8 @@ export function ToolBlock({ tag, plan = false, desc, meta, children, open, onTog
   open?: boolean;
   onToggle?: () => void;
   defaultOpen?: boolean;
+  /** Verb icon before the tag (Run/Read/MCP…, Task Conversation design). */
+  icon?: ReactNode;
 }) {
   const [selfOpen, setSelfOpen] = useState(defaultOpen);
   const isControlled = open !== undefined;
@@ -48,6 +50,7 @@ export function ToolBlock({ tag, plan = false, desc, meta, children, open, onTog
     <div className="tool-block">
       <button type="button" className="head" onClick={hasBody ? toggle : undefined} aria-expanded={hasBody ? expanded : undefined}>
         {hasBody && <span className="disc" aria-hidden>{expanded ? '▾' : '▸'}</span>}
+        {icon !== undefined && <span className="t-ic" aria-hidden>{icon}</span>}
         <span className={plan ? 'tag plan' : 'tag'}>{tag}</span>
         <span className="desc">{desc}</span>
         {meta !== undefined && <span className="meta">{meta}</span>}

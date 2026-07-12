@@ -13,12 +13,27 @@
  */
 import type { ReactNode } from 'react';
 import type { StageConversationRow } from '../types/brainView';
-import { EventRow, EventTimestamp, ToolBlock, UserMsg } from '../ui/conv';
+import { EventRow, EventTimestamp, ToolBlock, UserMsg, WorkFold } from '../ui/conv';
+import {
+  ClockIcon, McpCubeIcon, PenIcon, SearchIcon, TerminalRunIcon,
+} from '../ui/TaskBrainDesignIcons';
+import { formatDuration } from '../threads/brain/format';
 import { PermissionCard, type PermissionDecideHandler } from '../threads/PermissionCard';
 
 /** A blank-safe trim: empty/whitespace strings count as absent. */
 function nonBlank(s: string | null): string | null {
   return s !== null && s.trim().length > 0 ? s.trim() : null;
+}
+
+/** The design's verb icon per tool tag (Run → terminal prompt, Read →
+ *  magnifier, MCP → package, Write → pen); everything else runs as Run. */
+function verbIcon(tag: string): ReactNode {
+  switch (tag) {
+    case 'Read': return <SearchIcon />;
+    case 'MCP': return <McpCubeIcon />;
+    case 'Write': return <PenIcon />;
+    default: return <TerminalRunIcon />;
+  }
 }
 
 /** The tool-block description: the tool name plus its command / target
@@ -82,7 +97,12 @@ export function stageRow(
       // them doesn't repeat the redundant agent header on every line. Tag
       // falls back to "Tool" so the block never collapses to a blank line.
       return (
-        <ToolBlock key={r.id} tag={nonBlank(r.toolTag) ?? 'Tool'} desc={toolDesc(r.toolLabel, r.toolDetail)}>
+        <ToolBlock
+          key={r.id}
+          tag={nonBlank(r.toolTag) ?? 'Tool'}
+          icon={verbIcon(nonBlank(r.toolTag) ?? 'Tool')}
+          desc={toolDesc(r.toolLabel, r.toolDetail)}
+        >
           {r.toolResult ?? r.toolDiff ?? undefined}
         </ToolBlock>
       );
@@ -110,4 +130,55 @@ export function stageRow(
     default:
       return null;
   }
+}
+
+/** The fold header: "Worked for 3m 12s · 5 steps" (Task Conversation
+ *  design), falling back to "Agent worked" when the run spans under a
+ *  second or timestamps are missing. */
+function foldSummary(run: StageConversationRow[]): { label: string; meta: string } {
+  const meta = `· ${run.length} ${run.length === 1 ? 'step' : 'steps'}`;
+  const first = run[0]?.ts;
+  const last = run[run.length - 1]?.ts;
+  if (first === undefined || last === undefined) return { label: 'Agent worked', meta };
+  const elapsedSec = (new Date(last).getTime() - new Date(first).getTime()) / 1000;
+  return elapsedSec >= 1 ? { label: `Worked for ${formatDuration(elapsedSec)}`, meta } : { label: 'Agent worked', meta };
+}
+
+/**
+ * The stage transcript with consecutive tool calls folded into collapsible
+ * "Worked for … · N steps" groups (Task Conversation design). User, agent,
+ * iteration and permission rows are group boundaries and render inline;
+ * the trailing group of a still-streaming stage stays open so live tool
+ * activity remains visible.
+ */
+export function stageFeed(
+  rows: StageConversationRow[], onDecide?: PermissionDecideHandler, threadId?: string, live = false): ReactNode[] {
+  const out: ReactNode[] = [];
+  let run: StageConversationRow[] = [];
+  const flush = (isTail: boolean) => {
+    if (run.length === 0) return;
+    const { label, meta } = foldSummary(run);
+    out.push(
+      <WorkFold
+        key={`fold-${run[0].id}`}
+        label={label}
+        meta={meta}
+        icon={<ClockIcon size={14} strokeWidth={1.8} />}
+        forceOpen={live && isTail}
+      >
+        {run.map(r => stageRow(r, onDecide, threadId))}
+      </WorkFold>,
+    );
+    run = [];
+  };
+  for (const r of rows) {
+    if (r.kind === 'tool_call') {
+      run.push(r);
+      continue;
+    }
+    flush(false);
+    out.push(stageRow(r, onDecide, threadId));
+  }
+  flush(true);
+  return out;
 }

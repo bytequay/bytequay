@@ -23,8 +23,32 @@ describe('ShipReviewPrompt', () => {
     const onReview = vi.fn();
     render(<ShipReviewPrompt onReview={onReview} />);
     expect(screen.getByText('Ready for review')).toBeTruthy();
-    fireEvent.click(screen.getByText(/Review changes/));
+    fireEvent.click(screen.getByText(/diff and the drafted PR description/));
     expect(onReview).toHaveBeenCalledOnce();
+  });
+
+  it('fires the inline gate actions when provided', () => {
+    const onApprove = vi.fn();
+    const onReviewChanges = vi.fn();
+    render(
+      <ShipReviewPrompt
+        onReview={vi.fn()}
+        onApprove={onApprove}
+        onReviewChanges={onReviewChanges}
+      />,
+    );
+    fireEvent.click(screen.getByText('Approve & ship'));
+    fireEvent.click(screen.getByText('Review changes'));
+    expect(onApprove).toHaveBeenCalledOnce();
+    expect(onReviewChanges).toHaveBeenCalledOnce();
+  });
+
+  it('disables the gate buttons and surfaces the note while busy', () => {
+    render(
+      <ShipReviewPrompt onReview={vi.fn()} onApprove={vi.fn()} busy note="boom" />,
+    );
+    expect((screen.getByText('Shipping…').closest('button') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('boom')).toBeTruthy();
   });
 });
 

@@ -18,6 +18,7 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
@@ -109,6 +110,23 @@ class TestAutomationCoordinatorAutoFix
     }
 
     @Test
+    void dashboardTaskSkipsWhenThePrIsOnlyReviewedNotAuthored()
+    {
+        // The linked PR belongs to someone else — the user only reviews it.
+        // Red CI there is the author's to fix, so no bell should ring.
+        Task task = newDashboardTask("task-4");
+        wireDashboardFailingCi(task);
+        when(pullRequestStore.findById(PR_ID))
+                .thenReturn(Optional.of(prWithOrigin(PullRequest.Origin.REVIEW_REQUESTED)));
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.scanForFailingCi();
+
+        verify(notificationService, never()).notifyNeedsAttention(anyString(), anyString(), anyString());
+        verify(ciFixRunExecutor, never()).tryAutoFix(any(), anyString(), any(), any());
+    }
+
+    @Test
     void dashboardTaskSkipsWhenNoRepoMatchesTheWorkingDir()
     {
         Task task = newDashboardTask("task-3");
@@ -174,8 +192,19 @@ class TestAutomationCoordinatorAutoFix
                         CLONE_PATH, /* upstreamRemoteName */ null, /* viewFocus */ "fork")));
         when(pullRequestStore.findIdByRepoAndNumber(eq(REPO), eq(PR_NUMBER)))
                 .thenReturn(Optional.of(PR_ID));
+        when(pullRequestStore.findById(PR_ID))
+                .thenReturn(Optional.of(prWithOrigin(PullRequest.Origin.AUTHORED)));
         when(prDetailStore.find(eq(PR_ID))).thenReturn(Optional.of(detailWithFailingCi()));
         when(notificationService.listUnread()).thenReturn(List.of());
+    }
+
+    private static PullRequest prWithOrigin(PullRequest.Origin origin)
+    {
+        return new PullRequest(PR_ID, REPO, PR_NUMBER, "title", "ebyhr", "url",
+                NOW, NOW, origin, List.of(), null, false, null, null, null, List.of(),
+                null, 0, 0, 0, null,
+                "open", null, null, null, null, null, null,
+                null, null, null);
     }
 
     private static StoredPrDetail detailWithFailingCi()

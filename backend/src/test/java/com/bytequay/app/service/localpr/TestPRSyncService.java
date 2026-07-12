@@ -542,6 +542,7 @@ class TestPRSyncService
                 .thenReturn(List.of(ghPr(101, "Fix flaky test", "octocat", PullRequest.Origin.AUTHORED)));
         when(pullRequests.resolveCurrentDashboardLogin()).thenReturn("octocat");
         when(prService.findByRepoAndNumber("acme/widget", 101)).thenReturn(Optional.of(existing));
+        when(prService.updateAuthor("pr-101", "@octocat")).thenReturn(existing);
         when(prService.updateSyncSnapshot(eq("pr-101"), any())).thenReturn(existing);
         when(prService.dashboardEntries()).thenReturn(List.of());
 

@@ -1540,7 +1540,45 @@ public class PullRequestService
                 merged.putIfAbsent(key, withOrigin(pr, REVIEW_REQUESTED));
             }
         }
+        // 5th source: the notifications feed (review requests + direct
+        // @-mentions). GitHub's search index can silently drop a review request
+        // (observed: a team review request on an enterprise repo never surfaced
+        // in user-review-requested:@me), but the notifications pipeline — the
+        // one that sends the email — always has it. Pull each PR search missed
+        // via a direct read, stamped REVIEW_REQUESTED, deduped by repo#number.
+        // ponytail: single notifications page (≤50, freshest first) covers
+        // "jump to top on a new request/mention"; a PR reaches the board this
+        // way only while its notification is still returned — the search sweep
+        // stays the durable source. Also: a mention on the user's OWN PR that
+        // author:@me search somehow dropped would be mislabelled REVIEW_REQUESTED
+        // here (author:@me is reliable, so vanishingly rare). Add paging /
+        // author-check / requested-reviewer re-verify only if these bite.
+        for (PullRequestRef ref : fetchAttentionNotificationRefs(pat)) {
+            String key = ref.repoFullName() + "#" + ref.number();
+            if (merged.containsKey(key)) {
+                continue;
+            }
+            try {
+                merged.put(key, withOrigin(gitHub.getPullRequest(pat, ref), REVIEW_REQUESTED));
+            }
+            catch (RuntimeException e) {
+                log.info("notification PR {} fetch failed: {}", ref.fullName(), e.getMessage());
+            }
+        }
         return ImmutableList.copyOf(merged.values());
+    }
+
+    /** Best-effort: a notifications-endpoint failure must never regress the
+     *  search-based sweep that already ran, so swallow and return empty. */
+    private List<PullRequestRef> fetchAttentionNotificationRefs(String pat)
+    {
+        try {
+            return gitHub.fetchAttentionPrRefs(pat);
+        }
+        catch (RuntimeException e) {
+            log.info("attention notifications fetch failed: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     /**

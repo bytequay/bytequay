@@ -24,6 +24,7 @@ import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
@@ -143,6 +144,81 @@ class TestPullRequestService
     {
         Mockito.lenient().when(patResolver.resolve(anyString())).thenReturn("pat");
         Mockito.lenient().when(patResolver.resolve()).thenReturn("pat");
+    }
+
+    // ── searchRelevantForDashboard: notifications backstop ─────────────────────
+
+    @Test
+    void testDashboardSweepIncludesReviewRequestSearchDropped()
+    {
+        // The failing case: GitHub's search index omits a live review request,
+        // but the notifications feed (which still sends the email) has it.
+        PullRequestService service = dashboardService();
+        stubEmptySearches();
+        PullRequestRef ref = PullRequestRef.of("acme", "widget", 3405);
+        when(gitHub.fetchAttentionPrRefs("pat")).thenReturn(List.of(ref));
+        when(gitHub.getPullRequest("pat", ref))
+                .thenReturn(samplePr("acme/widget", 3405));
+
+        List<PullRequest> result = service.searchRelevantForDashboard();
+
+        assertThat(result).singleElement().satisfies(pr -> {
+            assertThat(pr.repo()).isEqualTo("acme/widget");
+            assertThat(pr.number()).isEqualTo(3405);
+            assertThat(pr.origin()).isEqualTo(PullRequest.Origin.REVIEW_REQUESTED);
+        });
+    }
+
+    @Test
+    void testDashboardSweepDoesNotRefetchNotificationAlreadyInSearch()
+    {
+        // Notifications overlap heavily with search; a PR already surfaced by
+        // the review-requested search must not be fetched again (deduped by
+        // repo#number) and must not appear twice.
+        PullRequestService service = dashboardService();
+        PullRequest alreadyFound = samplePr("owner/repo", 7);
+        when(gitHub.searchPullRequestsPaged(anyString(), argThat(q -> q != null && q.contains("review-requested")),
+                anyInt(), anyInt(), any(), any()))
+                .thenReturn(new PullRequestHistoryPage(List.of(alreadyFound), 1, 100, 1, false));
+        when(gitHub.searchPullRequestsPaged(anyString(), argThat(q -> q == null || !q.contains("review-requested")),
+                anyInt(), anyInt(), any(), any()))
+                .thenReturn(new PullRequestHistoryPage(List.of(), 1, 100, 0, false));
+        when(gitHub.searchPullRequests(anyString(), anyString())).thenReturn(List.of());
+        when(gitHub.fetchAttentionPrRefs("pat"))
+                .thenReturn(List.of(PullRequestRef.of("owner", "repo", 7)));
+
+        List<PullRequest> result = service.searchRelevantForDashboard();
+
+        assertThat(result).singleElement().satisfies(pr -> assertThat(pr.number()).isEqualTo(7));
+        verify(gitHub, never()).getPullRequest(anyString(), any());
+    }
+
+    /** A PullRequestService wired with direct (synchronous) executors so the
+     *  fetchRelevant futures actually run under the test — the @InjectMocks
+     *  Executor mock would no-op and hang the joins. */
+    private PullRequestService dashboardService()
+    {
+        return new PullRequestService(
+                gitHub, store, detailStore, viewStateStore, settingsStore, credentialService,
+                responseCache, detailInvalidator, repoListCache, patResolver, eventPublisher,
+                taskStore, collaboratorPermissions, Runnable::run, Runnable::run);
+    }
+
+    private void stubEmptySearches()
+    {
+        when(gitHub.searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt(), any(), any()))
+                .thenReturn(new PullRequestHistoryPage(List.of(), 1, 100, 0, false));
+        when(gitHub.searchPullRequests(anyString(), anyString())).thenReturn(List.of());
+    }
+
+    private static PullRequest samplePr(String repo, int number)
+    {
+        return new PullRequest(number, repo, number, "title", null, "url",
+                null, Instant.parse("2026-07-12T00:00:00Z"), PullRequest.Origin.AUTHORED,
+                ImmutableList.of(), null, false, null, null, null, ImmutableList.of(),
+                null, 0, 0, 0, null,
+                "open", null, null, null, null, null, null,
+                null, null, null);
     }
 
     // ── listPullRequests ───────────────────────────────────────────────────────

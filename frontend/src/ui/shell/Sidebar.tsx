@@ -22,13 +22,14 @@ export type SidebarNavKey = 'home' | 'my-work' | 'automations';
  *  stand in for the native macOS buttons — hidden behind the real ones
  *  while windowed, shown (red/yellow/green) only in fullscreen where the
  *  OS hides its own (driven by the `.is-fullscreen` class on the rail). */
-export function TrafficLights({ onBack, onForward, backEnabled = true, forwardEnabled = true, onToggleCollapse }: {
+export function TrafficLights({ onBack, onForward, backEnabled = true, forwardEnabled = true, onToggleCollapse, hideNavArrows = false }: {
   onBack?: () => void;
   onForward?: () => void;
   /** Dim an arrow when its history edge is reached (default enabled). */
   backEnabled?: boolean;
   forwardEnabled?: boolean;
   onToggleCollapse?: () => void;
+  hideNavArrows?: boolean;
 }) {
   return (
     <div className="sb-traffic">
@@ -66,30 +67,32 @@ export function TrafficLights({ onBack, onForward, backEnabled = true, forwardEn
           <line x1="6.4" y1="3.4" x2="6.4" y2="12.6" stroke="currentColor" strokeWidth="1.3" />
         </svg>
       </span>
-      <div className="nav-arrows">
-        <span
-          role="button"
-          tabIndex={0}
-          aria-label="Back"
-          aria-disabled={!backEnabled}
-          onClick={backEnabled ? onBack : undefined}
-        >
-          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden>
-            <path d="M6.5 1.5 1.5 7l5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-        <span
-          role="button"
-          tabIndex={0}
-          aria-label="Forward"
-          aria-disabled={!forwardEnabled}
-          onClick={forwardEnabled ? onForward : undefined}
-        >
-          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden>
-            <path d="M1.5 1.5 6.5 7l-5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      </div>
+      {!hideNavArrows && (
+        <div className="nav-arrows">
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label="Back"
+            aria-disabled={!backEnabled}
+            onClick={backEnabled ? onBack : undefined}
+          >
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden>
+              <path d="M6.5 1.5 1.5 7l5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label="Forward"
+            aria-disabled={!forwardEnabled}
+            onClick={forwardEnabled ? onForward : undefined}
+          >
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden>
+              <path d="M1.5 1.5 6.5 7l-5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

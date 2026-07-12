@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import Avatar from '../../Avatar';
+import { CheckIcon, EyeIcon } from '../../ui/TaskBrainDesignIcons';
 import { agoLabel, displayName } from './prViewMeta';
 
 const APPROVED_VERDICTS = new Set(['APPROVED', 'approved']);
@@ -38,7 +39,9 @@ export function TimelinePersonEvent({
   return (
     <div className="pr-person-event">
       <Avatar login={displayName(actor)} size={40} className={`pr-avatar s40 ${approved ? 'author' : ''}`} />
-      <span className={`eye${approved ? ' approved' : ''}`} aria-hidden>{approved ? '✓' : '👁'}</span>
+      <span className={`eye${approved ? ' approved' : ''}`} aria-hidden>
+        {approved ? <CheckIcon size={12} strokeWidth={2.8} /> : <EyeIcon />}
+      </span>
       <span className="tb">
         <span className="who">{displayName(actor)}</span> {verb}
         {' '}· {agoLabel(time)}

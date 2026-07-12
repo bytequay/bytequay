@@ -16,11 +16,14 @@ import type { ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import { IconBtn, MergeIcon, Pill } from '../ui/primitives';
 import {
+  CheckIcon, CodeIcon, PanelIcon, PullRequestIcon,
+} from '../ui/TaskBrainDesignIcons';
+import {
   Composer, CtxChip, Grow, Main, RunMenu, Shell, TopBar, TopBarButton, TopBarTitle,
   usePaneWidth,
 } from '../ui/shell';
 import { InlineChips, RightPane } from '../ui/pane';
-import { PlanReminderTab } from './PlanOverlay';
+import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
 import { SubmitReviewDrawer } from './SubmitReviewDrawer';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
@@ -38,7 +41,7 @@ type BrainTab = 'pr' | 'code';
  */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, collapsed = false, composer, run = {},
-  tabs, planReminder, onRevealPlan, onOpenCi,
+  tabs, planReminder, onRevealPlan, markReadyReminder, onOpenMarkReady, onOpenCi,
   onSubmitReview, submittingReview = false, openTabRequest,
   pendingReviewComments = [], onRemovePendingReviewComment, conversationIndex,
 }: {
@@ -84,6 +87,7 @@ export function TaskBrainPage({
    *  draft's CI is green and the mark-ready gate is parked — clicking it
    *  opens the Changes tab. */
   markReadyReminder?: boolean;
+  onOpenMarkReady?: () => void;
   onOpenCi?: () => void;
   /** Submits the reviewer's comment + verdict (from the Submit-review
    *  drawer), plus any unresolved comments on the task's diff, to the dev
@@ -106,7 +110,7 @@ export function TaskBrainPage({
   const hasTabs = available.length > 0;
   const [paneOpen, setPaneOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<BrainTab>('pr');
-  const { paneWidth, bodyRef, onResize } = usePaneWidth();
+  const { paneWidth, bodyRef, onResize } = usePaneWidth('bq.taskBrainPaneWidth.v2', 428);
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
 
   useEffect(() => {
@@ -142,7 +146,7 @@ export function TaskBrainPage({
 
   const topBar = (
     <TopBar>
-      <Pill kind="task" icon="▣">{task.pillLabel}</Pill>
+      <Pill kind="task">{task.pillLabel}</Pill>
       <TopBarTitle>{task.finished === true && <MergeIcon />}{task.title}</TopBarTitle>
       {task.branch !== undefined && <CtxChip>{task.branch}</CtxChip>}
       {pr !== undefined && (
@@ -152,6 +156,9 @@ export function TaskBrainPage({
         </button>
       )}
       <Grow />
+      {run.statusLabel !== undefined && (
+        <span className="task-brain__status">{run.statusLabel}</span>
+      )}
       <RunMenu
         hideStatus
         statusLabel={run.statusLabel}
@@ -164,7 +171,7 @@ export function TaskBrainPage({
       {onSubmitReview !== undefined && (
         <TopBarButton
           variant="submit"
-          icon="✓"
+          icon={<CheckIcon size={14} strokeWidth={2.2} />}
           onClick={submittingReview ? undefined : () => setSubmitReviewOpen(true)}
         >
           {submittingReview
@@ -175,7 +182,9 @@ export function TaskBrainPage({
         </TopBarButton>
       )}
       {hasTabs && (
-        <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>◧</IconBtn>
+        <IconBtn active={paneOpen} ariaLabel="Toggle right pane" onClick={() => setPaneOpen(o => !o)}>
+          <PanelIcon />
+        </IconBtn>
       )}
     </TopBar>
   );
@@ -183,66 +192,81 @@ export function TaskBrainPage({
   const showPane = paneOpen && hasTabs && active !== undefined;
 
   return (
-    <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
-      {sidebar}
-      <Main topBar={topBar}>
-        <div
-          ref={bodyRef}
-          className={showPane ? 'body with-pane' : 'body'}
-          style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
-        >
-          <div className="conv-col">
-            <div className="conv-index-host">
-              {conversation}
-              {conversationIndex}
-            </div>
-            {/* Same row as the development stage: the plan reminder pill sits
-                on the left, the tab chips align to the right. */}
-            <div className="chip-reminder-row">
-              {planReminder !== undefined && (
-                <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
-              )}
-              <InlineChips chips={[
-                ...available.map(t => ({ label: t.label, active: paneOpen && active?.key === t.key, onClick: () => selectPane(t.key) })),
-                ...(onOpenCi !== undefined ? [{ icon: '✓', label: 'CI Status', onClick: onOpenCi }] : []),
-              ]}
+    <div className="task-brain">
+      <Shell
+        collapsed={collapsed}
+        fullWidth={sidebar === undefined}
+        sidebarWidthKey="bq.taskBrainSidebarWidth.v2"
+        sidebarWidthDefault={270}
+      >
+        {sidebar}
+        <Main topBar={topBar}>
+          <div
+            ref={bodyRef}
+            className={showPane ? 'body with-pane' : 'body'}
+            style={showPane ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
+          >
+            <div className="conv-col">
+              <div className="conv-index-host">
+                {conversation}
+                {conversationIndex}
+              </div>
+              {/* Same row as the development stage: the plan reminder pill sits
+                  on the left, the tab chips align to the right. */}
+              <div className="chip-reminder-row">
+                {markReadyReminder === true && onOpenMarkReady !== undefined && (
+                  <MarkReadyReminderTab onClick={onOpenMarkReady} />
+                )}
+                {planReminder !== undefined && (
+                  <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
+                )}
+                <InlineChips chips={[
+                  ...available.map(t => ({
+                    icon: t.key === 'pr' ? <PullRequestIcon /> : <CodeIcon />,
+                    label: t.label,
+                    active: paneOpen && active?.key === t.key,
+                    onClick: () => selectPane(t.key),
+                  })),
+                  ...(onOpenCi !== undefined ? [{ icon: <CheckIcon />, label: 'CI Status', onClick: onOpenCi }] : []),
+                ]}
+                />
+              </div>
+              <Composer
+                value={composer.value}
+                onChange={composer.onChange}
+                onSubmit={composer.onSubmit}
+                busy={composer.busy}
+                queueWhenBusy={composer.queueWhenBusy}
+                modePill={composer.modePill}
+                placeholder={composer.placeholder}
+                images={composer.images}
+                onImagesChange={composer.onImagesChange}
               />
             </div>
-            <Composer
-              value={composer.value}
-              onChange={composer.onChange}
-              onSubmit={composer.onSubmit}
-              busy={composer.busy}
-              queueWhenBusy={composer.queueWhenBusy}
-              modePill={composer.modePill}
-              placeholder={composer.placeholder}
-              images={composer.images}
-              onImagesChange={composer.onImagesChange}
-            />
+            {showPane && (
+              <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />
+            )}
+            {showPane && (
+              <RightPane>
+                <RightPane.Content flush={active.key === 'code'}>{active.node}</RightPane.Content>
+              </RightPane>
+            )}
           </div>
-          {showPane && (
-            <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the side pane" />
-          )}
-          {showPane && (
-            <RightPane>
-              <RightPane.Content flush={active.key === 'code'}>{active.node}</RightPane.Content>
-            </RightPane>
-          )}
-        </div>
-      </Main>
-      {onSubmitReview !== undefined && (
-        <SubmitReviewDrawer
-          open={submitReviewOpen}
-          submitting={submittingReview}
-          pendingComments={pendingReviewComments}
-          onRemovePending={onRemovePendingReviewComment}
-          onClose={() => setSubmitReviewOpen(false)}
-          onSubmit={(body, verdict) => {
-            onSubmitReview(body, verdict);
-            setSubmitReviewOpen(false);
-          }}
-        />
-      )}
-    </Shell>
+        </Main>
+        {onSubmitReview !== undefined && (
+          <SubmitReviewDrawer
+            open={submitReviewOpen}
+            submitting={submittingReview}
+            pendingComments={pendingReviewComments}
+            onRemovePending={onRemovePendingReviewComment}
+            onClose={() => setSubmitReviewOpen(false)}
+            onSubmit={(body, verdict) => {
+              onSubmitReview(body, verdict);
+              setSubmitReviewOpen(false);
+            }}
+          />
+        )}
+      </Shell>
+    </div>
   );
 }

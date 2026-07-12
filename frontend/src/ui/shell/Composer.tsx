@@ -13,6 +13,7 @@
  */
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
+import { CloseIcon, PlusIcon, SendUpIcon } from '../TaskBrainDesignIcons';
 
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
 const MAX_INPUT_HEIGHT = 160;
@@ -114,7 +115,7 @@ export function Composer({
                   className="rm"
                   aria-label="Remove image"
                   onClick={() => onImagesChange?.(images.filter(i => i !== src))}
-                >×</button>
+                ><CloseIcon size={10} strokeWidth={2.4} /></button>
               </div>
             ))}
           </div>
@@ -131,7 +132,9 @@ export function Composer({
           onPaste={onPaste}
         />
         <div className="footer">
-          <button type="button" className="plus" aria-label="Add context" onClick={onAddContext}>+</button>
+          <button type="button" className="plus" aria-label="Add context" onClick={onAddContext}>
+            <PlusIcon />
+          </button>
           {modePill}
           <span className="grow" />
           <button
@@ -142,7 +145,7 @@ export function Composer({
             disabled={!canSend}
             onClick={submit}
           >
-            {spinning ? '○' : '↑'}
+            {spinning ? <span className="send-spin-dot" aria-hidden /> : <SendUpIcon />}
           </button>
         </div>
       </div>

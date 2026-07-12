@@ -16,10 +16,9 @@ import type { ReactNode } from 'react';
 import type { BrainFeedRow, StageDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import {
-  Headline, Round, Spine, StageBoundaryNode, UserTurn, WorkFold,
+  EventTimestamp, Headline, Round, Spine, StageBoundaryNode, UserTurn, WorkFold,
 } from '../../ui/conv';
 import type { Density } from '../../ui/conv/spine/DensityToggle';
-import { EventTimestamp } from '../../ui/conv';
 import {
   buildBrainTimeline, headlineOf, isQnA, workOf,
 } from './brainTimeline';
@@ -48,10 +47,12 @@ function workMeta(work: BrainFeedRow[], headline: BrainFeedRow | null): string {
  * carries no tool calls, so the work fold collects the round's intermediate
  * prose only.
  */
-export function BrainFeed({ feed, stages, density, trailer, onOpenStage, threadId }: {
+export function BrainFeed({ feed, stages, density, spineTrailer, trailer, onOpenStage, threadId }: {
   feed: BrainFeedRow[];
   stages: StageDto[];
   density: Density;
+  /** Timeline-aware tail appended inside the spine (milestones hung on the rail). */
+  spineTrailer?: ReactNode;
   /** Live tail appended after the spine (queued msgs, working indicator). */
   trailer?: ReactNode;
   /** Jump into a stage's detail view when its boundary node is clicked. */
@@ -101,6 +102,7 @@ export function BrainFeed({ feed, stages, density, trailer, onOpenStage, threadI
           </div>
         );
         })}
+        {spineTrailer}
       </Spine>
       {trailer}
     </>

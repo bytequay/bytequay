@@ -13,6 +13,9 @@
  */
 import type { ReactNode } from 'react';
 import type { LocalPRTimelineEvent } from '../../types/localPr';
+import {
+  CheckIcon, ClockIcon, CloseIcon, CommitIcon,
+} from '../../ui/TaskBrainDesignIcons';
 import { agoLabel, isFailedCiPayload } from './prViewMeta';
 
 function str(payload: Record<string, unknown> | null, key: string): string | null {
@@ -65,11 +68,13 @@ function eventBody(event: LocalPRTimelineEvent): ReactNode {
 
 export function TimelineIconEvent({ event }: { event: LocalPRTimelineEvent }) {
   const failed = event.eventType === 'ci' && isFailedCiPayload(event.payload);
-  const iconCls = event.eventType === 'ci' ? (failed ? 'fail' : 'green') : '';
-  const glyph = event.eventType === 'ci' ? (failed ? '✗' : '✓') : event.eventType === 'commit' ? '◆' : '◐';
+  const iconCls = event.eventType === 'ci' ? (failed ? 'fail' : 'green') : event.eventType === 'commit' ? 'commit' : '';
+  const icon = event.eventType === 'ci'
+    ? failed ? <CloseIcon size={12} strokeWidth={2.4} /> : <CheckIcon size={12} strokeWidth={2.4} />
+    : event.eventType === 'commit' ? <CommitIcon /> : <ClockIcon />;
   return (
     <div className="pr-tl-icon-row">
-      <span className={`tic ${iconCls}`}>{glyph}</span>
+      <span className={`tic ${iconCls}`}>{icon}</span>
       <div className="tb">
         {eventBody(event)}
         {event.isLocalOnly && <span className="lock-tag">🔒 local</span>}

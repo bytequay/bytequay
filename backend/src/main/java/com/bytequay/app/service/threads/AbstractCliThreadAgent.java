@@ -596,13 +596,24 @@ public abstract class AbstractCliThreadAgent
         // exactly where the previous turn left off. Clear endedAt +
         // errorMessage so the runtime ticker restarts and the failure
         // banner doesn't hover over the new conversation.
-        if (status.compareAndSet(ThreadStatus.ERRORED, ThreadStatus.IDLE)
+        //
+        // A trunk agent normalises a terminal inherited status to IDLE
+        // in-memory at construction (so send() accepts the next turn), which
+        // makes every compareAndSet below miss — fall back to the persisted
+        // row's status so the stored thread still flips out of its terminal
+        // state on resume.
+        Thread current = store.findThreadById(threadId).orElse(null);
+        if (current == null) {
+            return;
+        }
+        boolean inMemoryTerminal = status.compareAndSet(ThreadStatus.ERRORED, ThreadStatus.IDLE)
                 || status.compareAndSet(ThreadStatus.COMPLETED, ThreadStatus.IDLE)
-                || status.compareAndSet(ThreadStatus.ARCHIVED, ThreadStatus.IDLE)) {
-            Thread current = store.findThreadById(threadId).orElse(null);
-            if (current == null) {
-                return;
-            }
+                || status.compareAndSet(ThreadStatus.ARCHIVED, ThreadStatus.IDLE);
+        boolean persistedTerminal = current.status() == ThreadStatus.ERRORED
+                || current.status() == ThreadStatus.COMPLETED
+                || current.status() == ThreadStatus.ARCHIVED;
+        if (inMemoryTerminal || persistedTerminal) {
+            status.set(ThreadStatus.IDLE);
             // Flip the bound task back to IDLE first so the thread-side
             // saveThread cascade sees a non-terminal active task and the two
             // stay in sync. Trunk agents have no bound task and must not

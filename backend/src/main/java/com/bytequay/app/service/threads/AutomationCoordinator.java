@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PrCheckRunState;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StoredPrDetail;
@@ -195,6 +196,16 @@ public class AutomationCoordinator
         Optional<Long> prId = pullRequestStore.findIdByRepoAndNumber(
                 repoFullName, task.linkedPrNumber());
         if (prId.isEmpty()) {
+            return false;
+        }
+        // Only ring the bell on the user's OWN PRs. A red-CI notification on a
+        // PR the user merely reviews is noise — the reviewer can't fix someone
+        // else's CI (mirrors PrAttention's mine-gating and its "would be noise"
+        // comment). The shipped-PR autonomous fix path above is separate and
+        // doesn't emit a bell, so it's unaffected.
+        if (pullRequestStore.findById(prId.get())
+                .map(pr -> pr.origin() != PullRequest.Origin.AUTHORED)
+                .orElse(true)) {
             return false;
         }
         Optional<StoredPrDetail> detail = prDetailStore.find(prId.get());

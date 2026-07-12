@@ -176,15 +176,18 @@ export function TrunkFeed({
       <Round key={round.id} tag={tag}>
         {round.userTurn !== null && (
           <UserTurn
+            quiet
             text={extractText(round.userTurn.contentJson)}
             timestamp={<EventTimestamp iso={round.userTurn.ts} />}
             threadId={round.userTurn.threadId}
             images={extractImages(round.userTurn.contentJson)}
             managedSkills={extractManagedSkills(round.userTurn.contentJson)}
+            messageSeq={round.userTurn.seq}
           />
         )}
         {work.length > 0 && (
           <WorkFold
+            label="Trunk worked"
             meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`}
             forceOpen={full || holdsPendingAsk || holdsPendingPermission}
           >
@@ -192,7 +195,7 @@ export function TrunkFeed({
           </WorkFold>
         )}
         {headline !== null && (
-          <Headline who="Agent" body={extractText(headline.contentJson)} timestamp={<EventTimestamp iso={headline.ts} />} />
+          <Headline bare who="Agent" body={extractText(headline.contentJson)} />
         )}
       </Round>
     );
@@ -250,18 +253,19 @@ export function TrunkFeed({
     const { task } = item.cut;
     const cutCard = renderCut(task);
     const s = summaryByTaskId.get(task.id);
+    const status = cardStatus(task.status);
     nodes.push(
       <TaskFold
         key={`fold-${task.id}`}
         title={taskLabel(task)}
         tone={s !== undefined ? 'done' : 'running'}
-        summary={s?.text}
-        statusLabel={FOLD_STATUS_LABEL[cardStatus(task.status)]}
+        status={status}
+        statusLabel={task.status === 'COMPLETED' ? 'merged' : FOLD_STATUS_LABEL[status]}
         forceOpen={full}
       >
         {segment}
         {cutCard}
-        {s !== undefined && s.text.trim().length > 0 && <Headline who="Agent" body={s.text} />}
+        {s !== undefined && s.text.trim().length > 0 && <Headline bare who="Agent" body={s.text} />}
       </TaskFold>,
     );
     segment = [];
@@ -274,7 +278,7 @@ export function TrunkFeed({
 
   return (
     <>
-      <Spine>{nodes}</Spine>
+      <Spine variant="trunk">{nodes}</Spine>
       {trailer}
     </>
   );

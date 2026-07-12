@@ -41,11 +41,15 @@ function cardStatusText(status: string): string | undefined {
 }
 
 /** The PR-state glyph before a task's name: merged once the work landed, a
- *  draft / open pull-request mark while it's in flight, nothing before a PR
- *  exists. */
+ *  draft / open pull-request mark while it's in flight, the red closed mark
+ *  when the task errored, and the in-progress mark for a running task that
+ *  has no PR yet. */
 export function cardPr(t: WorkUnitTaskDto): PrGlyphState | undefined {
   if (t.status === 'COMPLETED') return 'merged';
-  if (t.prNumber == null) return undefined;
+  if (t.status === 'ERRORED') return 'closed';
+  if (t.prNumber == null) {
+    return cardStatus(t.status) === 'foreground' ? 'progress' : undefined;
+  }
   return typeof t.prState === 'string' && t.prState.toUpperCase() === 'DRAFT' ? 'draft' : 'open';
 }
 

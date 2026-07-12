@@ -113,12 +113,12 @@ describe('TrunkFeed', () => {
     );
 
     // task1 and task2 are done — blue folds.
-    expect(container.querySelectorAll('.sp-taskfold--done').length).toBe(2);
+    expect(container.querySelectorAll('.sp-taskrow--done').length).toBe(2);
     // task3 and task4 both have no summary yet — each still gets its own
     // green "running" fold instead of vanishing into task2's, or staying
     // unfolded as "the current task". Every cut folds immediately; there's
     // no such exception.
-    const runningFolds = container.querySelectorAll('.sp-taskfold--running');
+    const runningFolds = container.querySelectorAll('.sp-taskrow--running');
     expect(runningFolds.length).toBe(2);
     expect(runningFolds[0].textContent).toContain('Task three');
     expect(runningFolds[1].textContent).toContain('Task four');

@@ -120,16 +120,17 @@ describe('StageFold', () => {
 });
 
 describe('Card', () => {
-  it('task variant: diamond + status pill + branch', () => {
+  it('task variant: diamond + status footer + branch', () => {
     const { container } = render(
       <Card kind="task" title="Task 4 · cost meter" body="desc" branch="feat/cost" status="foreground" />,
     );
     expect(container.querySelector('.task-card')?.className).toBe('task-card');
     expect(container.querySelector('.diamond')).toBeTruthy();
     expect(container.querySelector('.branch-tag')?.textContent).toContain('feat/cost');
-    const pill = container.querySelector('.status-pill.foreground');
-    expect(pill?.textContent).toContain('FOREGROUND');
-    expect(pill?.querySelector('.arrow')).toBeTruthy();
+    const row = container.querySelector('.status-row');
+    expect(row?.querySelector('.dot.foreground')).toBeTruthy();
+    expect(row?.textContent).toContain('In progress');
+    expect(row?.querySelector('.fg-action')?.textContent).toContain('Foreground');
   });
 
   it('task variant with a PR shows the PR-state glyph instead of the diamond', () => {

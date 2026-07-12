@@ -109,11 +109,12 @@ export function Card(props: CardProps) {
       <div className="meta-row">
         {kind === 'task' ? <TaskMeta {...props} /> : <BacklogMeta {...props} />}
       </div>
+      {kind === 'task' && props.status !== undefined && <TaskStatusRow {...props} />}
     </div>
   );
 }
 
-function TaskMeta({ branch, createdLabel, prNumber, status, statusText, mergeReady }: TaskProps) {
+function TaskMeta({ branch, createdLabel, prNumber }: TaskProps) {
   return (
     <>
       {branch !== undefined && (
@@ -123,14 +124,32 @@ function TaskMeta({ branch, createdLabel, prNumber, status, statusText, mergeRea
         <span className="pr-num"><span className="ic" aria-hidden>⌗</span>#{prNumber}</span>
       )}
       {createdLabel !== undefined && <span className="created">{createdLabel}</span>}
-      {mergeReady === true && <span className="merge-ready-pill">Ready to merge</span>}
-      {status !== undefined && (
-        <span className={`status-pill ${status}`}>
-          {statusText ?? status.toUpperCase()}
-          {status === 'foreground' && <span className="arrow" aria-hidden>→</span>}
-        </span>
-      )}
     </>
+  );
+}
+
+/** Sentence-case status wording for the card's footer row. */
+const STATUS_LABEL: Record<TaskStatus, string> = {
+  foreground: 'In progress', shipped: 'Shipped', pending: 'Queued', review: 'Awaiting review',
+  paused: 'Paused', errored: 'Errored', closed: 'Closed',
+};
+
+/** The card footer: a status dot + sentence-case status label, plus a
+ *  "Foreground →" affordance on the running task (the whole card is
+ *  clickable — this only labels what the click does). A merge-ready card
+ *  leads its label with "Ready to merge · …". */
+function TaskStatusRow({ status, statusText, mergeReady }: TaskProps) {
+  if (status === undefined) return null;
+  const base = statusText ?? STATUS_LABEL[status];
+  const label = mergeReady === true ? `Ready to merge · ${base.toLowerCase()}` : base;
+  return (
+    <div className="status-row">
+      <span className={`dot ${status}${mergeReady === true ? ' merge-ready' : ''}`} aria-hidden />
+      <span className={`lbl ${status}${mergeReady === true ? ' merge-ready' : ''}`}>{label}</span>
+      {status === 'foreground' && (
+        <span className="fg-action">Foreground <span className="arrow" aria-hidden>→</span></span>
+      )}
+    </div>
   );
 }
 

@@ -12,48 +12,65 @@
  * limitations under the License.
  */
 
-/** Which PR-state glyph to show before a task name. */
-export type PrGlyphState = 'merged' | 'open' | 'draft';
+/** Which PR/task-state glyph to show before a task name. `closed` marks an
+ *  errored/abandoned task, `progress` an in-flight one without a landed PR. */
+export type PrGlyphState = 'merged' | 'open' | 'draft' | 'closed' | 'progress';
 
-/** GitHub's git-merge octicon (the merged-PR glyph). */
-const MERGE_PATH = 'M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734'
-  + ' 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25'
-  + ' 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0'
-  + ' 0 1.5ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z';
-
-/** GitHub's git-pull-request octicon (the open/draft-PR glyph). */
-const PULL_REQUEST_PATH = 'M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25'
-  + ' 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5'
-  + ' 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177'
-  + ' 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75'
-  + ' 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z';
+/** Stroke-drawn GitHub-style PR glyphs (24×24), from the Trunk Thread
+ *  claude_design mockup — one consistent set across the sidebar task rows,
+ *  the trunk task rail, and the task cards. */
+const RAIL = 'M6 8.4v7.2';
+const GLYPH: Record<PrGlyphState, { circles: [number, number][]; paths: string[]; dots?: [number, number][] }> = {
+  merged: { circles: [[6, 6], [6, 18], [18, 13]], paths: [RAIL, 'M6.4 8.4C7.5 11.6 10.5 13 15.6 13'] },
+  open: {
+    circles: [[6, 6], [6, 18], [18, 18]],
+    paths: [RAIL, 'M18 15.6V11a3.2 3.2 0 0 0-3.2-3.2h-2.3', 'm14.6 5.2-2.7 2.6 2.7 2.6'],
+  },
+  draft: { circles: [[6, 6], [6, 18], [18, 18]], paths: [RAIL], dots: [[18, 6], [18, 11.5]] },
+  closed: { circles: [[6, 6], [6, 18], [18, 18]], paths: [RAIL, 'm15.6 5 4.8 4.8', 'm20.4 5-4.8 4.8'] },
+  progress: {
+    circles: [[6, 6], [6, 18], [18, 18]],
+    paths: [RAIL, 'M18 15.6v-5a3.4 3.4 0 0 0-3.4-3.4h-1.8', 'm14.9 4.6-2.7 2.6 2.7 2.6'],
+  },
+};
 
 const LABEL: Record<PrGlyphState, string> = {
   merged: 'Merged',
   open: 'Open pull request',
   draft: 'Draft pull request',
+  closed: 'Errored',
+  progress: 'In progress',
 };
 
 /**
- * The PR-state glyph shown before a task's name: GitHub's purple git-merge
- * mark once the PR is merged, and its pull-request mark (green when open,
- * grey while a draft) while the PR is still in flight. Colour is driven by
- * the {@code pr-state-icon--<state>} class so the same glyph reads correctly
- * on the trunk task cards and in the left-nav task row.
+ * The PR-state glyph shown before a task's name: purple git-merge once the
+ * PR is merged, green pull-request while open, grey while a draft, red
+ * closed-PR when the task errored, and a green incoming-arrow while the task
+ * is still in progress. Colour is driven by the {@code pr-state-icon--<state>}
+ * class so the same glyph reads correctly on the trunk task cards, the task
+ * rail, and the left-nav task row.
  */
 export function PrStateIcon({ state, title }: { state: PrGlyphState; title?: string }) {
   const label = title ?? LABEL[state];
+  const g = GLYPH[state];
   return (
     <svg
       className={`pr-state-icon pr-state-icon--${state}`}
-      viewBox="0 0 16 16"
-      width="13"
-      height="13"
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       role="img"
       aria-label={label}
     >
       <title>{label}</title>
-      <path fill="currentColor" d={state === 'merged' ? MERGE_PATH : PULL_REQUEST_PATH} />
+      {g.circles.map(([cx, cy]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="2.4" />)}
+      {g.paths.map(d => <path key={d} d={d} />)}
+      {g.dots?.map(([cx, cy]) => <circle key={`d${cx}-${cy}`} cx={cx} cy={cy} r="1.3" fill="currentColor" stroke="none" />)}
     </svg>
   );
 }

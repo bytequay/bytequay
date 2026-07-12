@@ -16,8 +16,9 @@ import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { Callout, Conv, EventRow, QueuedMessages, Thought, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { useThreadStream } from '../threads/useThreadStream';
+import { ConvIndex } from '../threads/ConvIndex';
 import { TrunkFeed } from '../threads/TrunkFeed';
-import { parseToolCall } from '../threads/trunkTimeline';
+import { buildTrunkTimeline, parseToolCall } from '../threads/trunkTimeline';
 import { toTaskCard } from '../threads/taskCardData';
 import { proposalAction } from '../threads/usePendingShipProposal';
 import { TrunkPage } from './TrunkPage';
@@ -229,8 +230,24 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
     ? activity.summary
     : undefined;
 
+  // Scroll host for the conversation-index rail's click-to-jump.
+  const conversationRef = useRef<HTMLDivElement | null>(null);
+  // The rail only lists prompts that have a visible row to jump to: every
+  // cut task folds its whole segment away (see TrunkFeed), so only the
+  // trailing not-yet-cut conversation is on screen. Same segmentation as
+  // the feed — reset at each cut, keep what follows the last one. When
+  // everything is folded the set is empty and the rail hides itself.
+  const visibleSeqs = (() => {
+    let acc: number[] = [];
+    for (const item of buildTrunkTimeline(messages, tasks)) {
+      if (item.kind === 'cut') acc = [];
+      else if (item.kind === 'round' && item.round.userTurn !== null) acc.push(item.round.userTurn.seq);
+    }
+    return new Set(acc);
+  })();
+
   const conversation = (
-    <Conv>
+    <Conv scrollRef={conversationRef}>
       <TrunkFeed
         messages={messages}
         tasks={tasks}
@@ -274,6 +291,14 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
       threadId={threadId}
       thread={{ title: thread?.title ?? 'Thread' }}
       conversation={conversation}
+      conversationIndex={(
+        <ConvIndex
+          threadId={threadId}
+          scrollContainerRef={conversationRef}
+          side="left"
+          restrictToSeqs={visibleSeqs}
+        />
+      )}
       composer={{
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
         placeholder: 'Discuss the next task, ask the brain, or paste an error…',

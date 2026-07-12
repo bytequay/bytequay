@@ -11,9 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { CSSProperties, ReactNode } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { MarkdownProse } from '../../../threads/MarkdownProse';
 import { useAttachmentImages } from '../../../threads/useAttachmentImages';
+import { RuntimeSkillsDisclosure } from '../RuntimeSkillsDisclosure';
 
 /**
  * Layer-2 conversation unit: a round — one user turn (or an autonomous
@@ -30,12 +32,19 @@ export function Round({ tag, children }: { tag?: ReactNode; children: ReactNode 
   );
 }
 
+/** Quiet user turns longer than this clamp to a preview behind a
+ *  "Show full message" toggle (Trunk Thread mockup). */
+const CLAMP_AT = 220;
+
 /**
  * Layer-2 conversation unit: the human's turn — a teal spine node + a
  * teal-bordered block. First-class and never folds; the spine answers
- * "where did I intervene?" by these nodes alone.
+ * "where did I intervene?" by these nodes alone. `quiet` (trunk feed)
+ * follows the Trunk Thread mockup instead: no "You" label, the timestamp
+ * sits above a neutral bubble, and a long message clamps to a preview
+ * behind a "Show full message" toggle.
  */
-export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, managedSkills = [], messageSeq }: {
+export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, managedSkills = [], messageSeq, quiet = false }: {
   text: string;
   timestamp?: ReactNode;
   glyph?: ReactNode;
@@ -48,52 +57,43 @@ export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, manag
   /** Hidden runtime markers. Shown only when the user opens the disclosure. */
   managedSkills?: string[];
   messageSeq?: number | null;
+  quiet?: boolean;
 }) {
   const resolvedImages = useAttachmentImages(threadId ?? '', images ?? []);
+  const [expanded, setExpanded] = useState(false);
+  const clampable = quiet && text.length > CLAMP_AT;
+  const shown = clampable && !expanded ? `${text.slice(0, CLAMP_AT).trimEnd()}…` : text;
   return (
-    <div className="sp-uturn" data-seq={messageSeq ?? undefined}>
-      <span className="sp-uturn__mark" aria-hidden>{glyph}</span>
-      <div className="sp-ublock">
-        <div className="sp-ublock__who">
-          You{timestamp !== undefined && <span className="ago">{timestamp}</span>}
-          {managedSkills.length > 0 && (
-            <details style={runtimeDetailsStyle}>
-              <summary style={runtimeSummaryStyle}>runtime</summary>
-              <div style={runtimeBodyStyle}>Managed skills: {managedSkills.join(', ')}</div>
-            </details>
-          )}
+    <div className={quiet ? 'sp-uturn sp-uturn--quiet' : 'sp-uturn'} data-seq={messageSeq ?? undefined}>
+      <span className="sp-uturn__mark" aria-hidden>{quiet ? undefined : glyph}</span>
+      {quiet && (
+        <div className="sp-uturn__time">
+          {timestamp}
+          <RuntimeSkillsDisclosure skills={managedSkills} />
         </div>
+      )}
+      <div className="sp-ublock">
+        {!quiet && (
+          <div className="sp-ublock__who">
+            You{timestamp !== undefined && <span className="ago">{timestamp}</span>}
+            <RuntimeSkillsDisclosure skills={managedSkills} />
+          </div>
+        )}
         {resolvedImages.length > 0 && (
           <div className="sp-ublock__images">
             {resolvedImages.map(src => <img key={src} src={src} alt="Attached" className="sp-ublock__img" />)}
           </div>
         )}
-        <div className="sp-ublock__tx"><MarkdownProse text={text} /></div>
+        <div className="sp-ublock__tx"><MarkdownProse text={shown} /></div>
+        {clampable && (
+          <button type="button" className="sp-ublock__more" onClick={() => setExpanded(e => !e)}>
+            {expanded ? 'Show less' : 'Show full message'}
+          </button>
+        )}
       </div>
     </div>
   );
 }
-
-const runtimeDetailsStyle: CSSProperties = {
-  display: 'inline-block',
-  marginLeft: 8,
-  fontSize: 10.5,
-  fontWeight: 600,
-  color: 'var(--text-4)',
-};
-
-const runtimeSummaryStyle: CSSProperties = {
-  cursor: 'pointer',
-  userSelect: 'none',
-};
-
-const runtimeBodyStyle: CSSProperties = {
-  marginTop: 4,
-  fontFamily: 'var(--mono)',
-  fontSize: 10,
-  fontWeight: 500,
-  color: 'var(--text-3)',
-};
 
 /**
  * Layer-2 conversation unit: the headline — the agent's final message of a
@@ -101,17 +101,27 @@ const runtimeBodyStyle: CSSProperties = {
  * tints the dot + name to the active surface (brain blue, trunk blue).
  * When `reply` is set the headline tucks under a user turn with a dashed
  * `↳ replies` connector (a question + its answer read as one exchange).
+ * `bare` (trunk feed) drops the who-row entirely — plain prose on an
+ * orange rail dot, per the Trunk Thread mockup.
  */
-export function Headline({ who = 'Brain', body, timestamp, color = 'blue', reply = false }: {
+export function Headline({ who = 'Brain', body, timestamp, color = 'blue', reply = false, bare = false }: {
   who?: ReactNode;
   body: string;
   timestamp?: ReactNode;
   color?: 'blue' | 'purple';
   reply?: boolean;
+  bare?: boolean;
 }) {
   if (reply) {
     return (
       <div className="sp-reply">
+        <div className="sp-headline__tx"><MarkdownProse text={body} /></div>
+      </div>
+    );
+  }
+  if (bare) {
+    return (
+      <div className="sp-headline sp-headline--bare">
         <div className="sp-headline__tx"><MarkdownProse text={body} /></div>
       </div>
     );

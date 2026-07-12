@@ -74,6 +74,9 @@ public class SqliteWatchedRepoStore
     @Override
     public void setLocalClonePath(String owner, String repo, String localClonePath)
     {
+        if (localClonePath == null || localClonePath.isBlank()) {
+            throw new IllegalArgumentException("localClonePath is required");
+        }
         WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
                 .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
         entity.setLocalClonePath(localClonePath);

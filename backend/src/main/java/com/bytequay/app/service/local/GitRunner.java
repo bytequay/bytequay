@@ -1576,12 +1576,9 @@ public class GitRunner
 
     /**
      * Lists all configured remotes for the working tree at
-     * {@code path} as (name, fetch-URL) pairs. Powers the
-     * Locate-existing flow: a fork-based clone has both
-     * {@code origin} (the user's fork) and {@code upstream} (the
-     * watched repo), and we need to accept the clone if either
-     * matches — checking only origin would refuse the standard OSS
-     * contribution layout.
+     * {@code path} as (name, fetch-URL) pairs. Used by fork-aware
+     * local repo flows where {@code origin} is the user's fork and
+     * {@code upstream} is the watched repo.
      */
     public List<Remote> listRemotes(Path workingDir)
             throws IOException, InterruptedException
@@ -1613,6 +1610,31 @@ public class GitRunner
     }
 
     public record Remote(String name, String url) {}
+
+    /**
+     * Adds a named remote to a freshly-managed clone. Used by fork-mode
+     * clones where {@code origin} is the user's fork and {@code upstream}
+     * points at the watched repo.
+     */
+    public void addRemote(Path workingDir, String name, String url)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(name, "name is null");
+        requireNonNull(url, "url is null");
+        run(List.of("git", "remote", "add", name, url), workingDir).requireSuccess();
+    }
+
+    /**
+     * Best-effort setup of refs/remotes/{remote}/HEAD after adding a
+     * non-origin remote. Without this, callers that ask for the remote's
+     * default branch may fall back to origin's default.
+     */
+    public void setRemoteHead(Path workingDir, String remote)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
+        run(List.of("git", "remote", "set-head", remote, "-a"), workingDir, 30).requireSuccess();
+    }
 
     /**
      * Owner segment of a remote's URL — {@code "trinodb"} for

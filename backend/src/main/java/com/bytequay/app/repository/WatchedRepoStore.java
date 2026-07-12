@@ -28,14 +28,14 @@ public interface WatchedRepoStore
 
     void remove(String owner, String repo);
 
-    /** Updates the local clone path for a watched repo. Pass null to
-     *  unmap (e.g. when the user moves / deletes the directory).
-     *  Throws IllegalArgumentException if the repo isn't watched. */
+    /** Updates the app-managed local clone path for a watched repo.
+     *  Throws IllegalArgumentException if the repo isn't watched or
+     *  the path is blank. */
     void setLocalClonePath(String owner, String repo, String localClonePath);
 
     /** Records the name of the git remote that points at the watched
      *  repo (typically "upstream" in fork-based clones). Pass null
-     *  when the repo is unmapped or when origin already points at the
+     *  when the repo is not cloned or when origin already points at the
      *  watched repo. Throws IllegalArgumentException if the repo
      *  isn't watched. */
     void setUpstreamRemoteName(String owner, String repo, String upstreamRemoteName);

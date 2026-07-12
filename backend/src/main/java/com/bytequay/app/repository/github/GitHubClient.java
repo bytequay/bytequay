@@ -2485,6 +2485,22 @@ public class GitHubClient
     }
 
     @Override
+    public void createFork(String pat, RepoRef repo)
+    {
+        requirePat(pat);
+        try {
+            gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/forks", repo.owner(), repo.repo())
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public List<RepoActivityItem> fetchRepoActivity(String pat, RepoRef repo)
     {
         try {

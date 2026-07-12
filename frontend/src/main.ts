@@ -1945,10 +1945,9 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
-  // Native folder picker for the Locate-existing flow + the
-  // Change-destination button in the Clone-fresh flow. Renderer
-  // can't open dialogs directly because contextIsolation hides
-  // the Electron module surface.
+  // Native folder picker for settings/install flows. Renderer can't
+  // open dialogs directly because contextIsolation hides the Electron
+  // module surface.
   ipcMain.handle('repos:pickFolder', async (
     _event, options?: { defaultPath?: string; title?: string },
   ) => {
@@ -1985,15 +1984,28 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return json.defaultPath;
   });
 
+  ipcMain.handle('repos:managedClonePlan', async (
+    _event, owner: string, repo: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/clone-plan`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `clone plan failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:cloneRepo', async (
-    _event, owner: string, repo: string, destination: string,
+    _event, owner: string, repo: string, writeMode: 'FORK' | 'DIRECT',
   ) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/clone`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ destination }),
+        body: JSON.stringify({ writeMode }),
       },
     );
     if (!res.ok) {
@@ -2354,24 +2366,6 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
-  ipcMain.handle('repos:locateRepo', async (
-    _event, owner: string, repo: string, path: string,
-  ) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/locate`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      },
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `locate failed (${res.status})`);
-    }
-    return res.json();
-  });
-
   ipcMain.handle('repos:revealInFinder', async (_event, repoPath: string) => {
     if (!repoPath) throw new Error('No path mapped for this repo');
     // showItemInFolder reveals the *parent* with the item selected.
@@ -2424,23 +2418,6 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
       }
     }
     throw new Error('No supported IDE found (tried VS Code, Cursor, JetBrains)');
-  });
-
-  ipcMain.handle('repos:setLocalClonePath', async (
-    _event, owner: string, repo: string, path: string | null,
-  ) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/path`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: path ?? '' }),
-      },
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/repos/local/.../path returned ${res.status}: ${body}`);
-    }
   });
 
   ipcMain.handle('repos:setViewFocus', async (

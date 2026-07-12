@@ -47,8 +47,8 @@ type PrFilter = 'needs-you' | 'yours' | 'all-open';
  * Repository home page — unified entry per
  * docs/mockups/design/repository/SUMMARY.md. Hero + tab strip
  * (Overview / Pull Requests / Issues / Branches) with the Overview
- * tab as the default. Branches shows a hint when the repo isn't
- * mapped to a local clone — that flow needs git.
+ * tab as the default. Branches shows a hint when the repo has not
+ * been cloned into ByteQuay yet.
  */
 function RepositoryPage(props: Props) {
   const { owner, repo, onBack, onOpenPrs, onOpenIssues, onOpenBranches, onSelectPr } = props;
@@ -59,9 +59,9 @@ function RepositoryPage(props: Props) {
   const [pulls, setPulls] = useState<PullRequestDto[] | null>(null);
   const [issues, setIssues] = useState<IssueDto[] | null>(null);
   const [me, setMe] = useState<UserProfileDto | null>(null);
-  // Open while the user is mapping a local clone (locate or clone fresh).
-  // The mapping flow lives in AddRepoModal; navigating to the branches
-  // page before a clone exists is what previously errored.
+  // Open while the user creates the ByteQuay-managed clone. Navigating
+  // to the branches page before a clone exists would fail because those
+  // calls need git.
   const [mapCloneOpen, setMapCloneOpen] = useState(false);
 
   useEffect(() => {
@@ -115,7 +115,7 @@ function RepositoryPage(props: Props) {
         <RepoTab label="Overview" active={tab === 'overview'} onClick={() => setTab('overview')} />
         <RepoTab label="Pull Requests" count={openPulls.length} active={tab === 'pulls'} onClick={() => { setTab('pulls'); onOpenPrs(owner, repo); }} />
         <RepoTab label="Issues" count={openIssues.length} active={tab === 'issues'} onClick={() => { setTab('issues'); onOpenIssues(owner, repo); }} />
-        <RepoTab label="Branches" active={tab === 'branches'} disabled={!isMapped} disabledHint="map a clone to enable" onClick={() => { setTab('branches'); onOpenBranches(owner, repo); }} />
+        <RepoTab label="Branches" active={tab === 'branches'} disabled={!isMapped} disabledHint="clone into ByteQuay to enable" onClick={() => { setTab('branches'); onOpenBranches(owner, repo); }} />
       </div>
 
       {tab === 'overview' && (
@@ -313,10 +313,10 @@ function CloneBlock({
     return (
       <div className="repo-overview-panel repo-overview-panel--clone repo-overview-panel--clone-unmapped">
         <div className="repo-overview-panel__clone-msg">
-          No local clone yet — branches & commits unavailable.
+          Not cloned into ByteQuay yet — branches & commits unavailable.
         </div>
         <button type="button" className="repo-overview-panel__clone-cta" onClick={onMapClone}>
-          Map a local clone…
+          Clone into ByteQuay…
         </button>
       </div>
     );
@@ -324,7 +324,7 @@ function CloneBlock({
   return (
     <div className="repo-overview-panel repo-overview-panel--clone">
       <div className="repo-overview-panel__clone-left">
-        <span className="repo-overview-panel__clone-label">Local clone</span>
+        <span className="repo-overview-panel__clone-label">Managed clone</span>
         <span className="repo-overview-panel__clone-path" title={status.localClonePath}>
           {compactPath(status.localClonePath)}
         </span>

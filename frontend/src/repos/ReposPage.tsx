@@ -22,26 +22,15 @@ type Props = {
   onSelectRepo: (owner: string, repo: string) => void;
 };
 
-type Filter = 'all' | 'mapped' | 'unmapped';
-
 /**
  * Top-level Repos page — one card per watched repo, three sections per
- * card per docs/mockups/design/repository/repositories.png:
- * identity (avatar + name + tagline + stars/forks/watching),
- * local-clone block (mapped row OR unmapped CTA), and an activity
- * strip with PR/issue counts and last-activity. Filter chips at top
- * scope the grid to mapped vs. unmapped clones.
+ * card: identity, ByteQuay-managed clone state, and GitHub activity.
  */
 function ReposPage({ onSelectRepo }: Props) {
   const [repos, setRepos] = useState<LocalRepoStatusDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('all');
   const [me, setMe] = useState<UserProfileDto | null>(null);
-  // When set, open the Add-repo modal scoped to this repo. Cleared on
-  // close or success. The modal kicks off the clone / locate IPC calls;
-  // this page just decides when it's visible and folds the result back
-  // into the list.
-  const [mappingTarget, setMappingTarget] = useState<{ owner: string; repo: string } | null>(null);
+  const [cloneTarget, setCloneTarget] = useState<{ owner: string; repo: string } | null>(null);
   const [showWatchModal, setShowWatchModal] = useState(false);
 
   useEffect(() => {
@@ -64,12 +53,11 @@ function ReposPage({ onSelectRepo }: Props) {
     setRepos(prev => prev?.map(r =>
       r.owner === status.owner && r.repo === status.repo ? status : r,
     ) ?? null);
-    setMappingTarget(null);
+    setCloneTarget(null);
   };
 
-  // The add modal watches + maps the repo in one step, so by the time it
-  // calls back the row already carries its clone. Re-fetch to pick up the
-  // new entry; the modal stays open so the user can add several at a time.
+  // The add modal watches + creates the managed clone in one step, so
+  // by the time it calls back the row already carries its clone.
   const handleAddWatched = async () => {
     const fresh = await window.bridge.listLocalRepos();
     setRepos(fresh);
@@ -80,7 +68,7 @@ function ReposPage({ onSelectRepo }: Props) {
   // the minimum shape rather than firing a second backend call.
   const watchedSynthetic = useMemo<WatchedRepoDto[]>(() =>
     (repos ?? []).map((r, i): WatchedRepoDto => ({
-      id: i, owner: r.owner, repo: r.repo, displayOrder: i, localClonePath: null,
+      id: i, owner: r.owner, repo: r.repo, displayOrder: i, localClonePath: r.localClonePath,
     })),
   [repos]);
 
@@ -88,24 +76,6 @@ function ReposPage({ onSelectRepo }: Props) {
   // mapped repo will report it. Surface a single banner once instead
   // of N copies of the same error.
   const gitMissing = repos?.length ? repos.every(r => r.state === 'GIT_UNAVAILABLE') : false;
-
-  const filtered = useMemo(() => {
-    if (!repos) return repos;
-    if (filter === 'mapped') return repos.filter(r => r.localClonePath != null);
-    if (filter === 'unmapped') return repos.filter(r => r.localClonePath == null);
-    return repos;
-  }, [repos, filter]);
-
-  const counts = useMemo(() => {
-    if (!repos) return { all: 0, mapped: 0, unmapped: 0 };
-    let mapped = 0;
-    let unmapped = 0;
-    for (const r of repos) {
-      if (r.localClonePath != null) mapped++;
-      else unmapped++;
-    }
-    return { all: repos.length, mapped, unmapped };
-  }, [repos]);
 
   return (
     <div className="repos-page calm-page">
@@ -115,9 +85,10 @@ function ReposPage({ onSelectRepo }: Props) {
             <h1 className="repos-page__title">Repos</h1>
             <p className="repos-page__subtitle">
               All repositories you're watching, with their GitHub state
-              and (when mapped) the local clone state. <strong>Watching</strong>
-              {' '}gives you PR review features; <strong>mapping a local clone</strong>
-              {' '}adds branches, commits, and git ops on top.
+              and ByteQuay-managed local clone state. Watching keeps PRs,
+              issues, and merges tied to upstream; the managed clone gives
+              branches, commits, code graph indexing, and future local
+              optimizations.
             </p>
           </div>
           <button
@@ -129,13 +100,6 @@ function ReposPage({ onSelectRepo }: Props) {
             + Watch a repo
           </button>
         </div>
-        {repos !== null && repos.length > 0 && (
-          <div className="repos-page__filters">
-            <FilterChip label="All" count={counts.all} active={filter === 'all'} onClick={() => setFilter('all')} />
-            <FilterChip label="Mapped" count={counts.mapped} active={filter === 'mapped'} onClick={() => setFilter('mapped')} />
-            <FilterChip label="Unmapped" count={counts.unmapped} active={filter === 'unmapped'} onClick={() => setFilter('unmapped')} />
-          </div>
-        )}
       </header>
 
       {gitMissing && (
@@ -166,26 +130,26 @@ function ReposPage({ onSelectRepo }: Props) {
         </div>
       )}
 
-      {filtered !== null && filtered.length > 0 && !gitMissing && (
+      {repos !== null && repos.length > 0 && !gitMissing && (
         <div className="repos-page__grid">
-          {filtered.map(r => (
+          {repos.map(r => (
             <RepoCard
               key={`${r.owner}/${r.repo}`}
               status={r}
               meLogin={me?.login ?? null}
               onOpen={() => onSelectRepo(r.owner, r.repo)}
-              onMapClone={() => setMappingTarget({ owner: r.owner, repo: r.repo })}
+              onClone={() => setCloneTarget({ owner: r.owner, repo: r.repo })}
             />
           ))}
           <WatchPlaceholderCard onClick={() => setShowWatchModal(true)} />
         </div>
       )}
 
-      {mappingTarget && (
+      {cloneTarget && (
         <AddRepoModal
-          owner={mappingTarget.owner}
-          repo={mappingTarget.repo}
-          onClose={() => setMappingTarget(null)}
+          owner={cloneTarget.owner}
+          repo={cloneTarget.repo}
+          onClose={() => setCloneTarget(null)}
           onMapped={onMapped}
         />
       )}
@@ -201,38 +165,16 @@ function ReposPage({ onSelectRepo }: Props) {
   );
 }
 
-function FilterChip({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`repos-page__filter-chip${active ? ' repos-page__filter-chip--active' : ''}`}
-      onClick={onClick}
-    >
-      {label} <span className="repos-page__filter-chip-count">{count}</span>
-    </button>
-  );
-}
-
 function RepoCard({
   status,
   meLogin,
   onOpen,
-  onMapClone,
+  onClone,
 }: {
   status: LocalRepoStatusDto;
   meLogin: string | null;
   onOpen: () => void;
-  onMapClone: () => void;
+  onClone: () => void;
 }) {
   // Lazy-fetch the GitHub-side metadata + PR list per card. Both are
   // best-effort — when they fail we keep rendering the local-clone
@@ -251,11 +193,8 @@ function RepoCard({
   }, [status.owner, status.repo]);
 
   const isUnmapped = status.localClonePath == null;
-  // Whole card is the click target so users don't have to hit a
-  // tiny link. Unmapped → opens the map-clone modal (CTA-style);
-  // mapped → opens the repo detail page.
   const handleCardClick = () => {
-    if (isUnmapped) onMapClone();
+    if (isUnmapped) onClone();
     else onOpen();
   };
 
@@ -282,11 +221,11 @@ function RepoCard({
       role="button"
       tabIndex={0}
       title={isUnmapped
-        ? `Map a local clone for ${status.owner}/${status.repo}`
+        ? `Clone ${status.owner}/${status.repo} into ByteQuay`
         : `Open ${status.owner}/${status.repo}`}
     >
       <RepoCardIdentity status={status} meta={meta} />
-      <RepoCardLocalClone status={status} onMapClone={onMapClone} />
+      <RepoCardLocalClone status={status} onClone={onClone} />
       <RepoCardActivity
         prCount={openPrCount}
         needsYouCount={needsYouCount}
@@ -337,31 +276,31 @@ function RepoCardIdentity({
 
 function RepoCardLocalClone({
   status,
-  onMapClone,
+  onClone,
 }: {
   status: LocalRepoStatusDto;
-  onMapClone: () => void;
+  onClone: () => void;
 }) {
   if (status.localClonePath == null) {
     return (
       <div className="repo-card__clone repo-card__clone--unmapped">
-        <span className="repo-card__clone-label">Local clone</span>
+        <span className="repo-card__clone-label">Managed clone</span>
         <span className="repo-card__clone-empty">
-          No local clone yet — branches & commits unavailable
+          Not cloned into ByteQuay yet
         </span>
         <button
           type="button"
           className="repo-card__clone-cta"
-          onClick={(e) => { e.stopPropagation(); onMapClone(); }}
+          onClick={(e) => { e.stopPropagation(); onClone(); }}
         >
-          Map clone…
+          Clone…
         </button>
       </div>
     );
   }
   return (
     <div className="repo-card__clone repo-card__clone--mapped">
-      <span className="repo-card__clone-label">Local clone</span>
+      <span className="repo-card__clone-label">Managed clone</span>
       <div className="repo-card__clone-body">
         {status.currentBranch && (
           <code className="repo-card__clone-branch">{status.currentBranch}</code>
@@ -434,8 +373,8 @@ function WatchPlaceholderCard({ onClick }: { onClick: () => void }) {
       <span className="repo-card__placeholder-glyph" aria-hidden="true">+</span>
       <span className="repo-card__placeholder-title">Watch a repo</span>
       <p className="repo-card__placeholder-body">
-        Watching gives you PR review. You can map a local clone later
-        for branches, commits, and git ops.
+        Watch upstream for PRs and issues; ByteQuay will create the
+        managed clone for local work.
       </p>
     </article>
   );

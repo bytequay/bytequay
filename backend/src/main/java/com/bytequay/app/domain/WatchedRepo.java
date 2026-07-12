@@ -19,7 +19,7 @@ package com.bytequay.app.domain;
  *                            when the user is using a fork-based
  *                            workflow. Null for direct clones (origin
  *                            already points at the watched repo) and
- *                            for not-yet-mapped repos.
+ *                            for repos without a managed clone.
  * @param viewFocus           Persisted choice for the repo detail
  *                            page's commits-tab focus: {@code "fork"}
  *                            or {@code "upstream"}. Null when the user

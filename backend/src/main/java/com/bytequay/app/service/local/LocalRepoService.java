@@ -24,6 +24,7 @@ import com.bytequay.app.domain.LocalMergeBase;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
+import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestRepository;
@@ -60,13 +61,37 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Drives the Repos page. Joins the watched-repos table with the
- * working-tree state of each mapped clone, returning one
+ * working-tree state of each managed clone, returning one
  * {@link LocalRepoStatus} per watched repo.
  */
 @Service
 public class LocalRepoService
 {
     private static final Logger log = LoggerFactory.getLogger(LocalRepoService.class);
+    private static final String UPSTREAM_REMOTE = "upstream";
+    private static final Duration FORK_READY_TIMEOUT = Duration.ofMinutes(2);
+    private static final Duration FORK_READY_POLL = Duration.ofSeconds(2);
+
+    public enum WriteMode
+    {
+        FORK,
+        DIRECT;
+
+        public static WriteMode parse(String raw)
+        {
+            if (raw == null || raw.isBlank()) {
+                return FORK;
+            }
+            return WriteMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        }
+    }
+
+    public record ManagedClonePlan(
+            String viewerLogin,
+            boolean directAvailable,
+            boolean forkAvailable,
+            WriteMode defaultWriteMode,
+            String destination) {}
 
     private final WatchedRepoStore watchedRepoStore;
     private final GitRunner gitRunner;
@@ -109,7 +134,7 @@ public class LocalRepoService
 
     /**
      * Returns the local-repo status for every watched repo. Cheap
-     * unmapped rows are returned immediately; mapped rows run a small
+     * rows without a clone are returned immediately; cloned rows run a small
      * batch of git commands (status --porcelain, rev-parse HEAD)
      * which can take ~50ms each on a large working tree.
      */
@@ -184,10 +209,8 @@ public class LocalRepoService
     }
 
     /**
-     * Default destination for the Clone-fresh flow:
+     * App-managed destination for the repo:
      * {@code ~/Library/Application Support/ByteQuay/repos/{owner}/{repo}}.
-     * The user can override at clone time via the modal's `Change…`
-     * action; this is the value the modal pre-fills.
      */
     public static Path defaultClonePath(String owner, String repo)
     {
@@ -195,17 +218,126 @@ public class LocalRepoService
         return Path.of(home, "Library", "Application Support", "ByteQuay", "repos", owner, repo);
     }
 
+    public ManagedClonePlan managedClonePlan(String owner, String repo)
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(repo, "repo is null");
+        String pat = patResolver.resolve(owner + "/" + repo);
+        String viewer = gitHub.fetchUserProfile(pat).login();
+        boolean directAvailable = gitHub.fetchViewerCanWrite(pat, RepoRef.of(owner, repo));
+        boolean forkAvailable = !owner.equalsIgnoreCase(viewer);
+        WriteMode defaultMode = forkAvailable ? WriteMode.FORK : WriteMode.DIRECT;
+        return new ManagedClonePlan(
+                viewer,
+                directAvailable,
+                forkAvailable,
+                defaultMode,
+                defaultClonePath(owner, repo).toString());
+    }
+
     /**
-     * Runs `git clone` against the GitHub URL of {@code owner/repo}
-     * into {@code destination}, then records the destination on the
-     * watched repo. Throws {@link IllegalStateException} if the
-     * destination already exists with content (refuse to clobber).
+     * Creates a ByteQuay-managed clone for a watched repo. The watched
+     * repo is always {@code owner/repo}; {@code writeMode} decides
+     * where branches are pushed:
+     * <ul>
+     *   <li>DIRECT: origin is {@code owner/repo}; requires push access.</li>
+     *   <li>FORK: origin is {@code viewer/repo}, upstream is {@code owner/repo}.</li>
+     * </ul>
      */
-    public LocalRepoStatus cloneFresh(String owner, String repo, Path destination)
+    public LocalRepoStatus cloneManaged(String owner, String repo, WriteMode writeMode)
             throws IOException, InterruptedException
     {
         requireNonNull(owner, "owner is null");
         requireNonNull(repo, "repo is null");
+        WriteMode mode = requireNonNull(writeMode, "writeMode is null");
+        Path destination = defaultClonePath(owner, repo);
+        Optional<WatchedRepo> existing = watchedRepoStore.find(owner, repo);
+        if (existing.isPresent()
+                && existing.get().localClonePath() != null
+                && Files.isDirectory(Path.of(existing.get().localClonePath()))) {
+            return statusOf(existing.get());
+        }
+        requireEmptyDestination(destination);
+
+        String pat = patResolver.resolve(owner + "/" + repo);
+        RepoRef watched = RepoRef.of(owner, repo);
+        String viewer = gitHub.fetchUserProfile(pat).login();
+        String cloneOwner;
+        String upstreamRemoteName = null;
+
+        if (mode == WriteMode.DIRECT) {
+            if (!gitHub.fetchViewerCanWrite(pat, watched)) {
+                throw new IllegalStateException("No write access to " + owner + "/" + repo
+                        + ". Use fork mode instead.");
+            }
+            cloneOwner = owner;
+        }
+        else {
+            if (owner.equalsIgnoreCase(viewer)) {
+                throw new IllegalStateException(owner + "/" + repo
+                        + " is owned by the current user; use direct mode.");
+            }
+            ensureForkReady(pat, viewer, watched);
+            cloneOwner = viewer;
+            upstreamRemoteName = UPSTREAM_REMOTE;
+        }
+
+        String cloneUrl = githubCloneUrl(cloneOwner, repo);
+        log.info("Cloning managed repo {} via {} -> {}", watched.fullName(), mode, destination);
+        gitRunner.clone(cloneUrl, destination);
+        if (upstreamRemoteName != null) {
+            gitRunner.addRemote(destination, upstreamRemoteName, githubCloneUrl(owner, repo));
+            gitRunner.fetchRemote(destination, upstreamRemoteName);
+            try {
+                gitRunner.setRemoteHead(destination, upstreamRemoteName);
+            }
+            catch (GitRunner.GitCommandException e) {
+                log.warn("Could not set {}/HEAD for {}: {}", upstreamRemoteName, destination, e.getMessage());
+            }
+        }
+        ensureWatched(owner, repo);
+        watchedRepoStore.setLocalClonePath(owner, repo, destination.toString());
+        watchedRepoStore.setUpstreamRemoteName(owner, repo, upstreamRemoteName);
+        codeGraph.requestRefreshAsync(destination, "repo-cloned");
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    private void ensureForkReady(String pat, String viewer, RepoRef watched)
+            throws InterruptedException
+    {
+        if (findExpectedFork(pat, viewer, watched).isPresent()) {
+            return;
+        }
+        gitHub.createFork(pat, watched);
+        Instant deadline = Instant.now().plus(FORK_READY_TIMEOUT);
+        while (Instant.now().isBefore(deadline)) {
+            Thread.sleep(FORK_READY_POLL.toMillis());
+            if (findExpectedFork(pat, viewer, watched).isPresent()) {
+                return;
+            }
+        }
+        throw new IllegalStateException("Fork " + viewer + "/" + watched.repo()
+                + " was not ready after " + FORK_READY_TIMEOUT.toSeconds() + " seconds.");
+    }
+
+    private Optional<RepoMeta> findExpectedFork(String pat, String viewer, RepoRef watched)
+    {
+        Optional<RepoMeta> fork = gitHub.findRepoMeta(pat, RepoRef.of(viewer, watched.repo()));
+        if (fork.isEmpty()) {
+            return Optional.empty();
+        }
+        RepoMeta meta = fork.get();
+        if (watched.owner().equalsIgnoreCase(meta.parentOwner())
+                && watched.repo().equalsIgnoreCase(meta.parentName())) {
+            return fork;
+        }
+        throw new IllegalStateException(viewer + "/" + watched.repo()
+                + " already exists but is not a fork of " + watched.fullName() + ".");
+    }
+
+    private static void requireEmptyDestination(Path destination)
+            throws IOException
+    {
         requireNonNull(destination, "destination is null");
         if (Files.exists(destination) && Files.isDirectory(destination)) {
             try (Stream<Path> entries = Files.list(destination)) {
@@ -214,72 +346,18 @@ public class LocalRepoService
                 }
             }
         }
-        String url = "https://github.com/" + owner + "/" + repo + ".git";
-        log.info("Cloning {} → {}", url, destination);
-        gitRunner.clone(url, destination);
-        // Upsert: a watched repo is never persisted without a clone, so
-        // the add-to-watch flow calls straight through here with no prior
-        // row. Mapping an already-watched repo finds the row and skips.
-        ensureWatched(owner, repo);
-        watchedRepoStore.setLocalClonePath(owner, repo, destination.toString());
-        // Direct clone — origin already points at the watched repo,
-        // so there is no separate "upstream" remote to track.
-        watchedRepoStore.setUpstreamRemoteName(owner, repo, null);
-        codeGraph.requestRefreshAsync(destination, "repo-cloned");
-        return statusOf(refreshWatchedRepo(owner, repo));
     }
 
-    /**
-     * Verifies the user-picked folder is a git working tree with at
-     * least one remote pointing at the watched repo, then records
-     * the path. Tolerates the fork-based OSS workflow:
-     * {@code origin} = user's fork, {@code upstream} = watched repo
-     * — both layouts are accepted as long as ANY remote matches.
-     * Throws {@link IllegalArgumentException} on mismatch with the
-     * remote list embedded in the message so the modal can show it
-     * inline.
-     */
-    public LocalRepoStatus locateExisting(String owner, String repo, Path path)
-            throws IOException, InterruptedException
+    private static String githubCloneUrl(String owner, String repo)
     {
-        requireNonNull(owner, "owner is null");
-        requireNonNull(repo, "repo is null");
-        requireNonNull(path, "path is null");
-        if (!Files.isDirectory(path)) {
-            throw new IllegalArgumentException("Not a directory: " + path);
-        }
-        if (!gitRunner.isGitWorkingTree(path)) {
-            throw new IllegalArgumentException("Not a git working tree: " + path);
-        }
-        List<GitRunner.Remote> remotes = gitRunner.listRemotes(path);
-        if (remotes.isEmpty()) {
-            throw new IllegalArgumentException("No remotes configured at " + path);
-        }
-        String upstreamRemoteName = LocalRepoRemote.pickUpstreamRemoteName(remotes, owner, repo);
-        if (upstreamRemoteName == null && remotes.stream().noneMatch(r -> LocalRepoRemote.remoteMatchesRepo(r.url(), owner, repo))) {
-            String summary = remotes.stream()
-                    .map(r -> r.name() + " " + LocalRepoRemote.redactCredentials(r.url()))
-                    .reduce((a, b) -> a + ", " + b)
-                    .orElse("(none)");
-            throw new IllegalArgumentException(
-                    "No remote points at " + owner + "/" + repo + ". Found: " + summary);
-        }
-        // Upsert: see cloneFresh — locate is the other entry point for
-        // adding a brand-new watched repo, so create the row on first map.
-        ensureWatched(owner, repo);
-        watchedRepoStore.setLocalClonePath(owner, repo, path.toString());
-        watchedRepoStore.setUpstreamRemoteName(owner, repo, upstreamRemoteName);
-        codeGraph.requestRefreshAsync(path, "repo-located");
-        return statusOf(refreshWatchedRepo(owner, repo));
+        return "https://github.com/" + owner + "/" + repo + ".git";
     }
 
     /**
      * Creates the watched-repo row if it does not exist yet. A watched
-     * repo must always carry a local clone, so the only way one is born
-     * is through a clone / locate that lands its path in the same call;
-     * this guard lets both entry points run whether or not the user had
-     * previously added the repo. Idempotent — an existing row is left
-     * untouched (so a re-map never resets display order).
+     * repo must always carry a managed clone, so the only way one is born
+     * is through the managed-clone flow that lands its path in the same call.
+     * Idempotent — an existing row is left untouched.
      */
     private void ensureWatched(String owner, String repo)
     {

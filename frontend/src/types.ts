@@ -1435,6 +1435,16 @@ export type LocalRepoStatusDto = {
   viewFocus: 'fork' | 'upstream';
 };
 
+export type ManagedRepoWriteMode = 'FORK' | 'DIRECT';
+
+export type ManagedClonePlanDto = {
+  viewerLogin: string;
+  directAvailable: boolean;
+  forkAvailable: boolean;
+  defaultWriteMode: ManagedRepoWriteMode;
+  destination: string;
+};
+
 /** One row of the branches kanban on the repo detail page. */
 export type LocalBranchDto = {
   name: string;
@@ -2923,9 +2933,6 @@ export type Bridge = {
   /** All watched repos plus their local-clone state (CLEAN / MODIFIED /
    *  UNMAPPED / …). Drives the Repos page. */
   listLocalRepos: () => Promise<LocalRepoStatusDto[]>;
-  /** Set or clear the local-clone path for a watched repo. Pass null
-   *  to unmap. Triggered by the Repos page's clone / locate flows. */
-  setLocalClonePath: (owner: string, repo: string, path: string | null) => Promise<void>;
   /** Persists the user's choice of fork-vs-upstream focus for the
    *  repo detail page's commits tab. Returns the refreshed status row
    *  so the caller can update local state without a list refetch. */
@@ -2935,20 +2942,19 @@ export type Bridge = {
     viewFocus: 'fork' | 'upstream',
   ) => Promise<LocalRepoStatusDto>;
   /** Native folder picker. Returns the selected absolute path, or null
-   *  when the user cancels. Used by the Locate-existing flow and the
-   *  Change-destination button on Clone-fresh. */
+   *  when the user cancels. Used by settings/install surfaces. */
   pickFolder: (options?: { defaultPath?: string; title?: string }) => Promise<string | null>;
-  /** Server-side suggested clone destination
-   *  ({@code ~/Library/Application Support/ByteQuay/repos/{owner}/{repo}}).
-   *  Pre-fills the Add-repo modal's destination field. */
+  /** Server-side managed clone destination
+   *  ({@code ~/Library/Application Support/ByteQuay/repos/{owner}/{repo}}). */
   defaultClonePath: (owner: string, repo: string) => Promise<string>;
-  /** Runs `git clone` and records the path. Returns the refreshed
-   *  status row so the Repos page can update without a list refetch. */
-  cloneRepo: (owner: string, repo: string, destination: string) => Promise<LocalRepoStatusDto>;
-  /** Verifies the path is a git working tree whose origin matches the
-   *  watched repo, then records it. Errors carry the backend's
-   *  {@code message} field verbatim ("wrong remote: …"). */
-  locateRepo: (owner: string, repo: string, path: string) => Promise<LocalRepoStatusDto>;
+  /** Reads the managed-clone plan for this watched repo candidate. */
+  getManagedClonePlan: (owner: string, repo: string) => Promise<ManagedClonePlanDto>;
+  /** Creates the app-managed clone and records the watched repo. */
+  cloneRepo: (
+    owner: string,
+    repo: string,
+    writeMode: ManagedRepoWriteMode,
+  ) => Promise<LocalRepoStatusDto>;
   /** Local branches for the repo detail page's kanban. Each entry has
    *  enough metadata to decide column placement and render the inline
    *  ahead/behind + last-commit chips. */

@@ -19,6 +19,9 @@ import Avatar from '../../Avatar';
 import { ReviewThreadCard } from '../ReviewThreadCard';
 import type { ReactionContent } from '../utils';
 import { MarkdownProse } from '../../threads/MarkdownProse';
+import {
+  ClockIcon, CloseIcon, CommitIcon, EyeIcon, MergeBranchIcon,
+} from '../../ui/TaskBrainDesignIcons';
 import { actorRole, agoLabel, displayName } from './prViewMeta';
 import { RailReviewThread } from './RailReviewThread';
 import { TimelineBubble } from './TimelineBubble';
@@ -130,10 +133,42 @@ function groupBody(entry: Extract<TimelineEntry, { kind: 'event-group' }>): Reac
   );
 }
 
-function IconRow({ children, time }: { children: ReactNode; time: number }) {
+function iconForEvent(eventType: string): ReactNode {
+  switch (eventType) {
+    case 'committed':
+    case 'head_ref_force_pushed':
+      return <CommitIcon />;
+    case 'review_requested':
+      return <EyeIcon />;
+    case 'merged':
+    case 'added_to_merge_queue':
+    case 'removed_from_merge_queue':
+      return <MergeBranchIcon />;
+    case 'closed':
+      return <CloseIcon />;
+    default:
+      return <ClockIcon />;
+  }
+}
+
+function toneForEvent(eventType: string): string {
+  switch (eventType) {
+    case 'merged':
+      return 'green';
+    case 'closed':
+      return 'fail';
+    case 'committed':
+    case 'head_ref_force_pushed':
+      return 'commit';
+    default:
+      return '';
+  }
+}
+
+function IconRow({ children, time, eventType }: { children: ReactNode; time: number; eventType: string }) {
   return (
     <div className="pr-tl-icon-row">
-      <span className="tic">◐</span>
+      <span className={`tic ${toneForEvent(eventType)}`}>{iconForEvent(eventType)}</span>
       <div className="tb">{children}</div>
       <span className="ts">{agoLabel(time)}</span>
     </div>
@@ -183,7 +218,7 @@ export function GitHubTimelineRow({
     return null;
   }
   if (entry.kind === 'event-group') {
-    return <IconRow time={toMs(entry.lastItem.timestamp)}>{groupBody(entry)}</IconRow>;
+    return <IconRow time={toMs(entry.lastItem.timestamp)} eventType={entry.eventType}>{groupBody(entry)}</IconRow>;
   }
   if (entry.kind === 'thread') {
     return (
@@ -243,10 +278,10 @@ export function GitHubTimelineRow({
   if (item.eventType === 'cross-referenced') {
     return (
       <Fragment>
-        <IconRow time={toMs(item.timestamp)}>{activityBody(item)}</IconRow>
+        <IconRow time={toMs(item.timestamp)} eventType={item.eventType}>{activityBody(item)}</IconRow>
         <CrossRefCard item={item} />
       </Fragment>
     );
   }
-  return <IconRow time={toMs(item.timestamp)}>{activityBody(item)}</IconRow>;
+  return <IconRow time={toMs(item.timestamp)} eventType={item.eventType}>{activityBody(item)}</IconRow>;
 }

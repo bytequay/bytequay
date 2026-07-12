@@ -806,25 +806,6 @@
   height: 100%;
   overflow-y: auto;
 }
-.shell .task-sidebar .back-row { padding: 9px 12px 0; }
-.shell .task-sidebar .back-to-thread {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px 4px 7px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border-mid);
-  border-radius: 7px;
-  font-size: 11.5px;
-  color: var(--text-2);
-  cursor: pointer;
-  font-family: inherit;
-  width: 100%;
-  text-align: left;
-}
-.shell .task-sidebar .back-to-thread:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
-.shell .task-sidebar .back-to-thread .arrow { font-size: 11px; color: var(--text-4); flex-shrink: 0; }
-.shell .task-sidebar .back-to-thread .label { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .shell .task-identity { padding: 12px 14px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .shell .task-identity .pill-row { display: flex; align-items: center; gap: 8px; }

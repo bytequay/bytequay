@@ -13,6 +13,7 @@
  */
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { CheckIcon, CloseIcon, SparkIcon } from '../ui/TaskBrainDesignIcons';
 
 /**
  * Reminder pill above the composer that keeps a plan needing attention in
@@ -30,7 +31,7 @@ export function PlanReminderTab({ state, onClick }: { state: 'awaiting' | 'locke
       onClick={onClick}
       title={awaiting ? 'Plan awaiting your review — click to view' : 'Plan finalized — click to view'}
     >
-      <span className="plan-reminder__ic" aria-hidden>{awaiting ? '✦' : '✓'}</span>
+      <span className="plan-reminder__ic" aria-hidden>{awaiting ? <SparkIcon /> : <CheckIcon size={12} strokeWidth={2.8} />}</span>
       <span className="plan-reminder__t">
         {awaiting ? 'Plan awaiting your review' : 'Plan finalized'}
       </span>
@@ -54,7 +55,7 @@ export function MarkReadyReminderTab({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       title="Draft is ready to mark for review — click to review"
     >
-      <span className="plan-reminder__ic" aria-hidden>✓</span>
+      <span className="plan-reminder__ic" aria-hidden><CheckIcon size={12} strokeWidth={2.8} /></span>
       <span className="plan-reminder__t">Mark ready for review</span>
     </button>
   );
@@ -82,7 +83,7 @@ export function PlanOverlay({ open, card, onClose }: { open: boolean; card: Reac
           className="plan-overlay__close"
           aria-label="Close the plan"
           onClick={onClose}
-        >×</button>
+        ><CloseIcon /></button>
         {card}
       </div>
     </div>

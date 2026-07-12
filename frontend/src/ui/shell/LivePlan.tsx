@@ -13,6 +13,9 @@
  */
 import { useState, type ReactNode } from 'react';
 import Toggle from '../../settings/shared/Toggle';
+import {
+  BranchIcon, BroomIcon, CheckIcon, ChevronRightIcon, CloudIcon, PlanIcon, ShieldIcon,
+} from '../TaskBrainDesignIcons';
 import type { GuardChipData, LivePlanNode, LivePlanPhaseNode } from './livePlanModel';
 
 /** One node button in the diagram. Disabled when it has nowhere to go (a
@@ -34,7 +37,8 @@ function PlanNode({ node, onClick, small, toggle }: {
   ].filter(Boolean).join(' ');
   const content = (
     <>
-      <span className="pn-glyph" aria-hidden>{node.glyph}</span>
+      <span className={markClass(node)} aria-hidden>{markIcon(node.status, node.key)}</span>
+      <span className={`pn-kind pn-kind--${node.key}`} aria-hidden>{kindIcon(node)}</span>
       <span className="pn-name">{node.label}</span>
       {node.meta !== undefined && <span className="pn-meta">{node.meta}</span>}
     </>
@@ -67,10 +71,34 @@ function PlanNode({ node, onClick, small, toggle }: {
         aria-expanded={toggle.expanded}
         aria-label={toggle.expanded ? `Collapse ${node.label}` : `Expand ${node.label}`}
       >
-        {toggle.expanded ? '▾' : '▸'}
+        <ChevronRightIcon />
       </button>
     </div>
   );
+}
+
+function markClass(node: LivePlanNode): string {
+  return node.status === 'done' && node.key === 'local-development' ? 'pn-glyph pn-glyph--done-ring' : 'pn-glyph';
+}
+
+function markIcon(status: LivePlanNode['status'], nodeKey: string): ReactNode {
+  if (status === 'done') {
+    return <CheckIcon size={nodeKey === 'local-development' ? 12 : 13} strokeWidth={2.6} />;
+  }
+  if (status === 'running' || status === 'monitoring' || status === 'planning' || status === 'awaiting') {
+    return <span className="pn-dot" />;
+  }
+  return null;
+}
+
+function kindIcon(node: LivePlanNode): ReactNode {
+  switch (node.key) {
+    case 'plan': return <PlanIcon />;
+    case 'local-development': return <BranchIcon />;
+    case 'remote-development': return <CloudIcon />;
+    case 'cleanup': return <BroomIcon />;
+    default: return null;
+  }
 }
 
 /** One row of a lifecycle node's phase ladder — nested beneath its parent
@@ -80,7 +108,7 @@ function PhaseRow({ phase, onClick }: { phase: LivePlanPhaseNode; onClick: () =>
   const cls = ['plan-phase-row', phase.status].filter(Boolean).join(' ');
   return (
     <button type="button" className={cls} onClick={onClick} disabled={phase.nav.kind === 'none'} title={phase.label}>
-      <span className="ph-glyph" aria-hidden>{phase.glyph}</span>
+      <span className="ph-glyph" aria-hidden>{markIcon(phase.status, phase.key)}</span>
       <span className="ph-name">{phase.label}</span>
       {phase.badge !== undefined && <span className="ph-badge">{phase.badge}</span>}
       {phase.meta !== undefined && <span className="ph-meta">{phase.meta}</span>}
@@ -96,7 +124,7 @@ function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enab
   if (guard === null) return null;
   return (
     <div className={`guard-chip ${guard.enabled ? guard.state : 'off'}`}>
-      <span className="guard-icon" aria-hidden>🛡</span>
+      <span className="guard-icon" aria-hidden><ShieldIcon /></span>
       <span className="guard-lb">Guard</span>
       <span className="guard-label">{guard.label}</span>
       <span className="guard-right">
@@ -122,10 +150,12 @@ function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enab
  * navigation.
  */
 export function LivePlan({
-  nodes, guard, onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
+  nodes, guard, defaultExpandPhases = false,
+  onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
 }: {
   nodes: LivePlanNode[];
   guard?: GuardChipData;
+  defaultExpandPhases?: boolean;
   onOpenStage?: (stageId: string) => void;
   onOpenCode?: () => void;
   onOpenPr?: () => void;
@@ -160,7 +190,7 @@ export function LivePlan({
   // running, which buried the plan under every in-progress node's steps.
   const [phaseToggles, setPhaseToggles] = useState<Record<string, boolean>>({});
   const phasesExpanded = (node: LivePlanNode): boolean =>
-    phaseToggles[node.key] ?? false;
+    phaseToggles[node.key] ?? defaultExpandPhases;
 
   const rows: ReactNode[] = [];
   let prev: LivePlanNode['placement'] | null = null;
@@ -201,7 +231,7 @@ export function LivePlan({
   return (
     <div className="live-plan">
       <GuardChip guard={guard ?? null} onToggle={onToggleGuard} />
-      {rows}
+      <div className="plan-tree">{rows}</div>
     </div>
   );
 }

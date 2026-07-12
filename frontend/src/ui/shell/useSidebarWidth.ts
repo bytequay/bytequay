@@ -26,7 +26,7 @@ const DEFAULT = 232;
  * sitting on the sidebar's right edge. The sidebar is left-anchored, so its
  * width is the pointer minus the shell's left edge, clamped to a sane range.
  */
-export function useSidebarWidth(key = 'bq.sidebarWidth'): {
+export function useSidebarWidth(key = 'bq.sidebarWidth', defaultWidth = DEFAULT): {
   sidebarWidth: number;
   shellRef: RefObject<HTMLDivElement>;
   onResize: (clientX: number) => void;
@@ -34,10 +34,10 @@ export function useSidebarWidth(key = 'bq.sidebarWidth'): {
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
       const stored = typeof localStorage !== 'undefined' ? Number(localStorage.getItem(key)) : NaN;
-      return Number.isFinite(stored) && stored >= MIN && stored <= MAX ? stored : DEFAULT;
+      return Number.isFinite(stored) && stored >= MIN && stored <= MAX ? stored : defaultWidth;
     }
     catch {
-      return DEFAULT;
+      return defaultWidth;
     }
   });
   const shellRef = useRef<HTMLDivElement>(null);

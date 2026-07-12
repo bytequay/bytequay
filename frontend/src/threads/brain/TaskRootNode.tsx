@@ -15,6 +15,9 @@ import { useState } from 'react';
 import type { PlanCardDto, PlanStepDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
+import {
+  ChatBubbleIcon, CheckIcon, ChevronRightIcon, SparkIcon,
+} from '../../ui/TaskBrainDesignIcons';
 
 /**
  * The task root node (M10 Part A): the planning seed + the typed plan card +
@@ -77,7 +80,7 @@ export function PlanningSeed({ seed }: { seed: string }) {
         <span className="seed__ic" aria-hidden>◆</span>
         <span className="seed__lbl">Planning seed</span>
         <span className="seed__meta">parsed from trunk{facts > 0 ? ` · ${facts} facts` : ''}</span>
-        <span className="seed__chev" aria-hidden>›</span>
+        <span className="seed__chev" aria-hidden><ChevronRightIcon /></span>
       </button>
       <div className="seed__chips">
         {chips.type !== undefined && <Chip k="Type" v={chips.type} />}
@@ -103,8 +106,8 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
  *  at the bottom of the planning conversation (where the eye lands) rather
  *  than pinned above the feed. */
 export function PlanCard({
-  plan, autoApprove, autoMerge, autoConfidenceHigh, approvedAt, onApprove, onEdit, onRequestRevision, onCommentStep,
-  onHoldAuto, onToggleAutoApprove, onToggleAutoMerge, minApprovals, onSetMinApprovals,
+  plan, autoApprove, autoMerge, autoConfidenceHigh: _autoConfidenceHigh, approvedAt, onApprove, onEdit, onRequestRevision, onCommentStep,
+  onHoldAuto: _onHoldAuto, onToggleAutoApprove, onToggleAutoMerge, minApprovals, onSetMinApprovals,
 }: {
   plan: PlanCardDto;
   autoApprove?: boolean;
@@ -141,7 +144,7 @@ export function PlanCard({
   return (
     <div className={awaiting ? 'plan-card plan-card--awaiting' : 'plan-card'}>
       <div className="plan-card__hd">
-        <span className="plan-card__ic" aria-hidden>✦</span>
+        <span className="plan-card__ic" aria-hidden><SparkIcon size={13} /></span>
         <span className="plan-card__t">Execution plan</span>
         {plan.revisionCount > 0 && <span className="plan-card__rev">rev {plan.revisionCount}</span>}
         {onSetMinApprovals !== undefined && (
@@ -270,7 +273,7 @@ function PlanStep({ step, overallRisk, onComment }: {
         <span className="plan-step__title">{title}</span>
         <span className="plan-step__right">
           <span className={`risk ${riskRaw}`}>{riskRaw}</span>
-          <span className="plan-step__chev" aria-hidden>›</span>
+          <span className="plan-step__chev" aria-hidden><ChevronRightIcon /></span>
         </span>
       </button>
       {open && (
@@ -282,7 +285,9 @@ function PlanStep({ step, overallRisk, onComment }: {
             </div>
           )}
           {onComment !== undefined && (
-            <button type="button" className="plan-step__cmt" onClick={() => onComment(step.ordinal)}>💬 Comment on this step</button>
+            <button type="button" className="plan-step__cmt" onClick={() => onComment(step.ordinal)}>
+              <ChatBubbleIcon />Comment on this step
+            </button>
           )}
         </div>
       )}
@@ -309,7 +314,9 @@ function ReviewBar({ plan, awaiting, onApprove, onEdit, onRequestRevision }: {
       </div>
       <div className="trigger-note">Approving freezes this plan and activates <span className="flow">Development → Review → Push</span>.</div>
       <div className="actions-row">
-        <button type="button" className="rb-btn rb-btn--primary" onClick={onApprove} disabled={!awaiting || onApprove === undefined}>✓ Approve &amp; start dev</button>
+        <button type="button" className="rb-btn rb-btn--primary" onClick={onApprove} disabled={!awaiting || onApprove === undefined}>
+          <CheckIcon size={13} strokeWidth={2.2} />Approve &amp; start dev
+        </button>
         {onEdit !== undefined && <button type="button" className="rb-btn rb-btn--ghost" onClick={onEdit}>Edit plan</button>}
         {onRequestRevision !== undefined && <button type="button" className="rb-btn rb-btn--ghost rb-btn--amber" onClick={onRequestRevision}>Request revision</button>}
       </div>

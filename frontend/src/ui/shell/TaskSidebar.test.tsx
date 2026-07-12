@@ -40,18 +40,23 @@ describe('TaskSidebar', () => {
     expect(screen.getByText('Cleanup')).toBeTruthy();
   });
 
-  it('fires onBack from the back-to-thread button', () => {
+  it('fires onBack from the traffic-lights back arrow', () => {
     const onBack = vi.fn();
     render(
       <TaskSidebar
         task={{ title: 'x', branch: 'b' }}
         nodes={nodes}
         onBack={onBack}
-        threadLabel="Backend cleanup review"
       />,
     );
-    fireEvent.click(screen.getByText('Backend cleanup review'));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it('renders the traffic-lights window chrome unconditionally', () => {
+    render(<TaskSidebar task={{ title: 'x', branch: 'b' }} nodes={nodes} />);
+    expect(screen.getByRole('button', { name: 'Close window' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Toggle sidebar' })).toBeTruthy();
   });
 
   it('routes a live-plan node click through to the stage handler', () => {

@@ -29,7 +29,7 @@ const DEFAULT = 520;
  * left of the pane. The pane is right-anchored, so its width is the body's
  * right edge minus the pointer, clamped to a sane range.
  */
-export function usePaneWidth(key = 'bq.brainPaneWidth'): {
+export function usePaneWidth(key = 'bq.brainPaneWidth', defaultWidth = DEFAULT): {
   paneWidth: number;
   bodyRef: RefObject<HTMLDivElement>;
   onResize: (clientX: number) => void;
@@ -37,10 +37,10 @@ export function usePaneWidth(key = 'bq.brainPaneWidth'): {
   const [paneWidth, setPaneWidth] = useState<number>(() => {
     try {
       const stored = typeof localStorage !== 'undefined' ? Number(localStorage.getItem(key)) : NaN;
-      return Number.isFinite(stored) && stored >= MIN && stored <= MAX ? stored : DEFAULT;
+      return Number.isFinite(stored) && stored >= MIN && stored <= MAX ? stored : defaultWidth;
     }
     catch {
-      return DEFAULT;
+      return defaultWidth;
     }
   });
   const bodyRef = useRef<HTMLDivElement>(null);

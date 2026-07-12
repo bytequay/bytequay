@@ -548,8 +548,9 @@ export function isMyReviewTurn(pr: PrLike, me: string | null): boolean {
  * omits the user on a team request and used to drop those PRs. `me` is
  * retained for callers but no longer gates needs_attention.
  */
-export function categorizeToReview(pr: PrLike, now: number = Date.now(), me: string | null = null): ToReviewColumn | null {
+export function categorizeToReview(pr: PrLike, now: number = Date.now(), _me: string | null = null): ToReviewColumn | null {
   if (pr.origin !== 'REVIEW_REQUESTED') return null;
+  if (pr.mergedAt !== null || pr.state === 'closed' || pr.state === 'merged') return null;
 
   // Cleared today: handled action with reviewedAt today. Anything older
   // drops out of the kanban (lives in the Handled tab via splitInboxAndHandled).

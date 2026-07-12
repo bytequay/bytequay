@@ -559,6 +559,20 @@ describe('categorizeToReview', () => {
     expect(categorizeToReview(pr({ origin: 'AUTHORED' }), NOW)).toBeNull();
   });
 
+  it('returns null for terminal PRs that no longer need review', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      state: 'merged',
+      mergedAt: '2026-04-28T10:00:00Z',
+    }), NOW)).toBeNull();
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      state: 'closed',
+      closedAt: '2026-04-28T10:00:00Z',
+      viewedAt: '2026-04-28T11:00:00Z',
+    }), NOW)).toBeNull();
+  });
+
   it('attentionReason set → needs_attention', () => {
     expect(categorizeToReview(pr({
       origin: 'REVIEW_REQUESTED',
@@ -748,6 +762,15 @@ describe('groupMyPrs / groupToReview', () => {
     const groups = groupToReview([mine, review], NOW);
     const all = Object.values(groups).flat().map(p => p.id);
     expect(all).toEqual([2]);
+  });
+
+  it('groupToReview filters out merged and closed PRs', () => {
+    const merged = pr({ id: 1, origin: 'REVIEW_REQUESTED', state: 'merged', mergedAt: '2026-04-28T10:00:00Z' });
+    const closed = pr({ id: 2, origin: 'REVIEW_REQUESTED', state: 'closed', closedAt: '2026-04-28T10:00:00Z' });
+    const open = pr({ id: 3, origin: 'REVIEW_REQUESTED' });
+    const groups = groupToReview([merged, closed, open], NOW);
+    const all = Object.values(groups).flat().map(p => p.id);
+    expect(all).toEqual([3]);
   });
 
   it('groupMyPrs folds ready_to_merge PRs into waiting_on_review and leaves the column empty', () => {

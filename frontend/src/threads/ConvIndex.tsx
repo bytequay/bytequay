@@ -42,6 +42,9 @@ type Props = {
    *  the index to "that Task's prompts" per the design. Omit in the
    *  trunk, where the thread-wide list is intended. */
   restrictToSeqs?: ReadonlySet<number>;
+  /** Which gutter the rail floats in. Defaults to {@code right}; the
+   *  trunk anchors it left, clear of its right task panel. */
+  side?: 'left' | 'right';
 };
 
 /**
@@ -58,7 +61,7 @@ type Props = {
  * — i.e. the most recent prompt — highlighted with the accent colour.
  */
 export function ConvIndex({
-  threadId, scrollContainerRef, onSseEvent, variant = 'light', restrictToSeqs,
+  threadId, scrollContainerRef, onSseEvent, variant = 'light', restrictToSeqs, side = 'right',
 }: Props) {
   const idx = useConvIndex(threadId);
   const { tasks } = useThreadTasks(threadId);
@@ -125,7 +128,10 @@ export function ConvIndex({
 
   return (
     <aside
-      style={expanded ? panelExpandedStyle(palette) : panelCollapsedStyle(palette)}
+      style={{
+        ...(expanded ? panelExpandedStyle(palette) : panelCollapsedStyle(palette)),
+        ...(side === 'left' ? { left: 14, right: 'auto' } : {}),
+      }}
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
       onFocusCapture={() => setExpanded(true)}
@@ -150,7 +156,6 @@ export function ConvIndex({
           error={idx.error}
           onLoadOlder={() => { void idx.loadOlder(); }}
           onPick={scrollToSeq}
-          fullTextBySeq={idx.fullTextBySeq}
           palette={palette}
           tasks={scoped ? [] : (tasks ?? [])}
         />
@@ -209,7 +214,7 @@ function CollapsedStrip({
 function ExpandedPanel({
   entries, total, loaded, currentSeq,
   canLoadMore, loadingMore, olderCount,
-  error, onLoadOlder, onPick, fullTextBySeq, palette, tasks,
+  error, onLoadOlder, onPick, palette, tasks,
 }: {
   entries: ConvIndexEntryDto[];
   total: number;
@@ -221,11 +226,9 @@ function ExpandedPanel({
   error: string | null;
   onLoadOlder: () => void;
   onPick: (seq: number) => void;
-  fullTextBySeq: Record<number, string>;
   palette: Palette;
   tasks: WorkUnitTaskDto[];
 }) {
-  const [hoveredSeq, setHoveredSeq] = useState<number | null>(null);
   const groups = useMemo(() => groupEntriesByTask(entries, tasks), [entries, tasks]);
   return (
     <>
@@ -259,10 +262,6 @@ function ExpandedPanel({
                 key={e.seq}
                 entry={e}
                 isCurrent={e.seq === currentSeq}
-                isHovered={e.seq === hoveredSeq}
-                fullText={fullTextBySeq[e.seq] ?? null}
-                onHover={() => setHoveredSeq(e.seq)}
-                onLeave={() => setHoveredSeq(prev => prev === e.seq ? null : prev)}
                 onClick={() => onPick(e.seq)}
                 palette={palette}
               />
@@ -351,25 +350,13 @@ function groupEntriesByTask(
 }
 
 function ConvIndexRow({
-  entry, isCurrent, isHovered, fullText, onHover, onLeave, onClick, palette,
+  entry, isCurrent, onClick, palette,
 }: {
   entry: ConvIndexEntryDto;
   isCurrent: boolean;
-  isHovered: boolean;
-  fullText: string | null;
-  onHover: () => void;
-  onLeave: () => void;
   onClick: () => void;
   palette: Palette;
 }) {
-  // On hover (or focus), drop the single-line ellipsis and reveal
-  // the whole prompt. fullText comes from the hook's
-  // {@link useConvIndex#fullTextBySeq} map — populated from the
-  // same /index payload, so no extra fetch. Falls back to the
-  // server-truncated preview when the full text hasn't loaded yet
-  // (e.g. SSE arrived between fetches).
-  const showFull = isHovered && fullText !== null;
-  const textForRow = showFull ? fullText : entry.preview;
   return (
     <div
       role="button"
@@ -381,11 +368,7 @@ function ConvIndexRow({
           onClick();
         }
       }}
-      onMouseEnter={onHover}
-      onMouseLeave={onLeave}
-      onFocus={onHover}
-      onBlur={onLeave}
-      title={fullText ?? entry.preview}
+      title={entry.preview}
       style={isCurrent
         ? { ...rowStyle(palette), ...rowCurrentStyle }
         : rowStyle(palette)}
@@ -393,7 +376,7 @@ function ConvIndexRow({
       <span style={isCurrent
         ? { ...dashStyle(palette), ...dashCurrentStyle, alignSelf: 'start', paddingTop: 2 }
         : { ...dashStyle(palette), alignSelf: 'start', paddingTop: 2 }}>−</span>
-      <span style={showFull ? textExpandedStyle : textStyle}>{textForRow}</span>
+      <span style={textStyle}>{entry.preview}</span>
     </div>
   );
 }
@@ -634,15 +617,4 @@ const textStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
   lineHeight: 1.35,
-};
-
-// Hovered row drops the single-line clip and lets the prompt wrap.
-// `whiteSpace: pre-wrap` preserves the user's own line breaks so a
-// multi-line prompt stays readable; `overflowWrap: anywhere` keeps a
-// pasted URL from blowing out the rail's width.
-const textExpandedStyle: React.CSSProperties = {
-  whiteSpace: 'pre-wrap',
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-word',
-  lineHeight: 1.4,
 };

@@ -39,9 +39,19 @@ describe('toTaskCard', () => {
     expect(toTaskCard(task(), true).mergeReady).toBe(true);
   });
 
-  it('omits the PR number and glyph before a PR exists', () => {
+  it('shows the in-progress glyph for a running task before a PR exists', () => {
     const c = toTaskCard(task({ prNumber: null, prState: null, status: 'RUNNING' }), false);
     expect(c.prNumber).toBeUndefined();
+    expect(c.pr).toBe('progress');
+  });
+
+  it('shows the closed glyph for an errored task', () => {
+    const c = toTaskCard(task({ prNumber: null, prState: null, status: 'ERRORED' }), false);
+    expect(c.pr).toBe('closed');
+  });
+
+  it('omits the glyph for a parked task before a PR exists', () => {
+    const c = toTaskCard(task({ prNumber: null, prState: null, status: 'PENDING' }), false);
     expect(c.pr).toBeUndefined();
   });
 

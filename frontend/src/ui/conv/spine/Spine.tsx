@@ -22,10 +22,12 @@ export type SpineColor = 'purple' | 'blue' | 'amber' | 'teal' | 'orange' | 'gray
  * left and every {@link SpineNode} / conversation unit hangs its mark on it.
  * Shared by the brain feed, the trunk feed, and any surface that wants a
  * "where is this conversation right now?" spine — there is exactly one spine
- * component (no per-surface copies).
+ * component (no per-surface copies). The `trunk` variant applies the Trunk
+ * Thread mockup's quieter styling (neutral rail, unlabelled nodes, quiet
+ * work rows) without touching the brain feed.
  */
-export function Spine({ children }: { children: ReactNode }) {
-  return <div className="spine">{children}</div>;
+export function Spine({ children, variant }: { children: ReactNode; variant?: 'trunk' }) {
+  return <div className={variant === undefined ? 'spine' : `spine spine--${variant}`}>{children}</div>;
 }
 
 /**

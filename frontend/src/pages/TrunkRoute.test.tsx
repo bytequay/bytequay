@@ -67,7 +67,7 @@ describe('TrunkRoute', () => {
     // Both cut tasks fold by default — open them to reach the planning
     // message underneath.
     await screen.findAllByText('Add meter'); // wait for the mount-time load to settle
-    container.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
+    container.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
     expect(screen.getByText('plan the cleanup')).toBeTruthy();
     // Active task card shows in the (now-open) conversation fold AND the
     // Tasks tab; its own fold bar label is a third occurrence.
@@ -85,7 +85,7 @@ describe('TrunkRoute', () => {
     // milestone peak (purple ◆ + "Task cut" kicker) embedding the existing
     // task card, the same card used in the Tasks tab.
     await screen.findAllByText('Add meter');
-    conv.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
+    conv.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
     const cut = conv.querySelector('.sp-ms--purple');
     expect(cut).toBeTruthy();
     expect(cut?.textContent).toContain('Task cut');
@@ -110,7 +110,7 @@ describe('TrunkRoute', () => {
     // Every cut task folds by default now — open the folds to reach the
     // task card underneath.
     await screen.findAllByText('Add meter');
-    container.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
+    container.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
     // Both task folds are now open, each with its own card — pick task-1's
     // by its title, since the two folds carry different cards.
     const card = Array.from(container.querySelectorAll('.sp-ms .task-card'))
@@ -204,17 +204,13 @@ describe('TrunkRoute', () => {
     // cut task folds by default, including the latest. Open both folds to
     // reach it.
     await screen.findAllByText('Add meter');
-    container.querySelectorAll('.sp-taskfold .sp-work__bar').forEach(bar => fireEvent.click(bar));
+    container.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
     // The last assistant text is the headline — visible once its fold opens.
     expect(screen.getByText('Here is the plan.')).toBeTruthy();
     // The thinking row folds into the round's own work disclosure (hidden in
     // Focused density), nested one level deeper than the task fold.
     expect(screen.queryByText('weighing the approach')).toBeNull();
-    // '.sp-work__bar' is shared with the task fold's own bar (a TaskFold is
-    // a '.sp-work.sp-taskfold'), so scope to the round's own — the one whose
-    // immediate parent is a plain WorkFold, not a TaskFold.
-    const bars = Array.from(container.querySelectorAll('.sp-work__bar'));
-    const work = bars.find(b => !b.parentElement?.classList.contains('sp-taskfold')) as HTMLElement;
+    const work = container.querySelector('.sp-work__bar') as HTMLElement;
     expect(work).toBeTruthy();
     fireEvent.click(work);
     expect(screen.getByText('weighing the approach')).toBeTruthy();

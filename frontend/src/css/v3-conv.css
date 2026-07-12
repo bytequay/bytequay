@@ -576,30 +576,25 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 13px 15px;
   background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 10px;
+  border: 1px solid var(--border-mid);
+  border-radius: 11px;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   text-align: left;
   font-family: inherit;
   width: 100%;
 }
 .shell .task-card:hover {
-  border-color: var(--accent);
-}
-/* Backlog variant drops the task-only purple spine. */
-.shell .task-card.backlog {
-  border-left: 1px solid var(--border);
+  border-color: var(--accent-a40);
 }
 .shell .task-card.started {
   opacity: 0.85;
 }
 .shell .task-card .header {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 9px;
   min-width: 0;
 }
@@ -620,21 +615,25 @@
 .shell .pr-state-icon--merged { color: #8b5cf6; }
 .shell .pr-state-icon--open { color: #1a7f37; }
 .shell .pr-state-icon--draft { color: #6e7781; }
-/* On the card the header's own 9px gap spaces the glyph; just center it
-   against the baseline-aligned title. */
+.shell .pr-state-icon--closed { color: #cf222e; }
+.shell .pr-state-icon--progress { color: #1a7f37; }
+/* On the card the header's own 9px gap spaces the glyph; nudge it down to
+   sit on the title's first line. */
 .shell .task-card .header .pr-state-icon {
-  align-self: center;
+  margin-top: 2px;
   margin-right: 0;
 }
 .shell .task-card .header .title {
-  font-size: 14px;
+  font-size: 14.5px;
+  font-weight: 600;
   color: var(--text-1);
-  line-height: 1.35;
+  line-height: 1.4;
   letter-spacing: -0.005em;
   min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   flex: 1;
 }
 .shell .task-card .body {
@@ -650,9 +649,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-top: 7px;
-  border-top: 1px dashed var(--border);
+  margin-top: 2px;
   flex-wrap: wrap;
+}
+/* Task cards indent the meta + status rows under the title (past the
+   14px state icon + 9px gap); backlog cards have no leading icon. */
+.shell .task-card:not(.backlog) .meta-row {
+  padding-left: 23px;
 }
 .shell .task-card .branch-tag {
   display: inline-flex;
@@ -695,67 +698,63 @@
   font-weight: 600;
   cursor: pointer;
 }
-.shell .task-card .status-pill {
+/* Card footer: status dot + sentence-case label (+ the Foreground action).
+   Replaces the old uppercase status pill. */
+.shell .task-card .status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+.shell .task-card:not(.backlog) .status-row {
+  padding-left: 23px;
+}
+.shell .task-card .status-row .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-4);
+}
+.shell .task-card .status-row .dot.foreground,
+.shell .task-card .status-row .dot.shipped,
+.shell .task-card .status-row .dot.merge-ready { background: #1a7f37; }
+.shell .task-card .status-row .dot.review { background: var(--accent); }
+.shell .task-card .status-row .dot.errored,
+.shell .task-card .status-row .dot.paused {
+  background: var(--bg-elev);
+  border: 2px solid var(--orange);
+  box-sizing: border-box;
+}
+.shell .task-card .status-row .lbl {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.shell .task-card .status-row .lbl.foreground,
+.shell .task-card .status-row .lbl.shipped,
+.shell .task-card .status-row .lbl.merge-ready { color: #1a7f37; }
+.shell .task-card .status-row .lbl.review { color: var(--accent-deep); }
+.shell .task-card .status-row .lbl.errored,
+.shell .task-card .status-row .lbl.paused { color: var(--orange); }
+.shell .task-card .status-row .fg-action {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 11px;
-  border-radius: 6px;
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent-dark);
   white-space: nowrap;
 }
-.shell .task-card .status-pill .arrow {
-  font-size: 10px;
-}
-.shell .task-card .status-pill.foreground {
-  background: rgba(34, 197, 94, 0.14);
-  color: var(--green);
-  border: 1px solid var(--green-border);
-}
-.shell .task-card .status-pill.shipped {
-  background: var(--bg-input);
-  color: var(--text-1);
-  border: 1px solid var(--border-mid);
-}
-/* Ready-to-merge task: a green-tinted card + a "Ready to merge" pill so a
-   mergeable PR stands out in the Tasks and Ready-to-merge tabs. */
-.shell .task-card.merge-ready { border-color: var(--green-border); background: rgba(34, 197, 94, 0.05); }
-.shell .task-card.merge-ready .title { color: #15803d; }
-.shell .task-card .merge-ready-pill {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;
-  padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-  color: #15803d; background: rgba(34, 197, 94, 0.12); border: 1px solid var(--green-border);
-}
+.shell .task-card .status-row .fg-action .arrow { font-size: 11px; }
+/* Ready-to-merge task: a green-tinted border so a mergeable PR stands out
+   in the Tasks and Ready-to-merge tabs; the footer label carries the
+   "Ready to merge · …" wording. */
+.shell .task-card.merge-ready { border-color: rgba(31, 136, 61, 0.35); }
 .shell .pane-empty-note { padding: 16px; color: var(--text-3); font-size: 12.5px; }
-.shell .task-card .status-pill.pending {
-  background: var(--bg-hover);
-  color: var(--text-3);
-  border: 1px solid var(--border-mid);
-}
-.shell .task-card .status-pill.review {
-  background: rgba(124, 58, 237, 0.10);
-  color: var(--accent-deep);
-  border: 1px solid var(--accent-border);
-}
-.shell .task-card .status-pill.closed {
-  background: var(--bg-hover);
-  color: var(--text-3);
-  border: 1px solid var(--border-mid);
-}
-.shell .task-card .status-pill.errored {
-  background: rgba(220, 38, 38, 0.1);
-  color: var(--red);
-  border: 1px solid rgba(220, 38, 38, 0.3);
-}
-.shell .task-card .status-pill.paused {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--orange);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
 
 /* Start-development button — tag-shaped, bright orange. */
 .shell .start-dev-btn {
@@ -949,6 +948,57 @@
   background: linear-gradient(var(--accent), var(--blue) 55%, var(--amber));
 }
 
+/* ── Trunk variant (Trunk Thread mockup) ─────────────────────────
+   A quieter spine for the trunk feed: neutral rail, unlabelled nodes
+   (hollow teal = you, solid orange = agent reply, hollow lavender =
+   brain work), a neutral user bubble with the timestamp above it, and
+   the work fold as a plain text row instead of a purple pill. Scoped
+   here so the brain feed keeps its labelled styling. */
+.shell .spine--trunk::before { background: var(--border-mid); }
+/* The teal node centres on the rail (x = -20) and lines up with the
+   timestamp line that sits above the bubble. */
+.shell .spine--trunk .sp-uturn__mark {
+  left: -26.5px; top: 1px; width: 13px; height: 13px;
+  background: var(--bg); border: 2.5px solid var(--teal); box-sizing: border-box;
+}
+.shell .sp-uturn--quiet { margin-top: 10px; }
+.shell .sp-uturn__time { font-size: 11px; color: var(--text-4); margin: 0 0 7px 3px; line-height: 15px; }
+.shell .sp-uturn--quiet .sp-ublock {
+  /* Light green — visibly tinted, still calm. */
+  background: #eaf5ec; border: 1px solid rgba(34, 197, 94, 0.14); border-left: 1px solid rgba(34, 197, 94, 0.14);
+  border-radius: 10px; padding: 11px 14px;
+}
+.shell .sp-uturn--quiet .sp-ublock__tx { font-size: 14.5px; color: var(--text-2); line-height: 1.6; }
+.shell .sp-ublock__more {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 9px; padding: 0;
+  border: 0; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: 11.5px; font-weight: 600; color: var(--accent-dark);
+}
+.shell .sp-ublock__more:hover { color: var(--accent-deep); }
+.shell .sp-headline--bare .sp-headline__tx { font-size: 14.5px; color: var(--text-1); line-height: 1.65; }
+/* The lavender work node centres on the rail and on the bar's text line. */
+.shell .spine--trunk .sp-work::before {
+  left: -25px; top: 8px; width: 10px; height: 10px; box-sizing: border-box;
+  background: var(--bg); border-color: var(--accent-border);
+}
+.shell .spine--trunk .sp-work { padding-left: 7px; }
+.shell .spine--trunk .sp-work__bar {
+  background: transparent; border: 0; padding: 5px 10px; margin-left: -10px; gap: 8px;
+}
+.shell .spine--trunk .sp-work__bar:hover { background: var(--bg-hover); }
+.shell .spine--trunk .sp-work__sp { color: var(--accent); opacity: .6; font-size: 10px; }
+.shell .spine--trunk .sp-work__lbl { font-size: 12px; font-weight: 500; color: var(--text-3); }
+.shell .spine--trunk .sp-work__meta { font-size: 11.5px; font-family: inherit; color: var(--text-4); }
+.shell .spine--trunk .sp-work__chev { color: var(--text-4); }
+.shell .spine--trunk .sp-work__inner {
+  margin: 5px 0 2px; padding: 9px 12px; border-left: 0;
+  background: var(--bg-code); border: 1px solid var(--border-hairline); border-radius: 8px;
+}
+/* Inside the expanded fold the content sits in an inset panel, off the
+   rail — the activity strips' own rail dots would float in the middle of
+   nothing, so drop them there. */
+.shell .spine--trunk .sp-work__inner .sp-act::before { display: none; }
+
 /* node colour → --n (mark/label hue) + --nd (deep text hue) */
 .shell .sp-node--purple, .shell .sp-nodecard--purple { --n: var(--accent); --nd: var(--accent-deep); }
 .shell .sp-node--blue,   .shell .sp-nodecard--blue   { --n: var(--blue);   --nd: var(--blue-deep); }
@@ -1038,6 +1088,12 @@
 .shell .sp-headline--blue { --hl: var(--blue-deep); --hldot: var(--blue); }
 .shell .sp-headline--purple { --hl: var(--accent-deep); --hldot: var(--accent); }
 .shell .sp-headline::before { content: ""; position: absolute; left: -25.5px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--hldot, var(--blue)); border: 2px solid var(--bg); z-index: 2; }
+/* Bare (trunk) headline: plain prose on a solid orange agent dot — a size
+   up from the brain's chatter dots, centred on the rail. The padding pushes
+   the prose off the rail a touch; the dot is anchored to the element's own
+   left edge so it stays put. */
+.shell .sp-headline--bare { padding-left: 7px; }
+.shell .sp-headline--bare::before { background: #f0883e; width: 12px; height: 12px; left: -28px; top: 4px; }
 .shell .sp-headline__who { font-size: 12px; font-weight: 700; color: var(--hl, var(--blue-deep)); margin-bottom: 2px; }
 .shell .sp-headline__ava { display: inline-flex; width: 16px; height: 16px; border-radius: 4px; background: var(--hl, var(--blue-deep)); color: #fff; font-size: 8px; font-weight: 800; align-items: center; justify-content: center; vertical-align: middle; margin-right: 5px; }
 .shell .sp-headline__who .ago { font-weight: 500; color: var(--text-4); font-size: 10.5px; margin-left: 6px; }
@@ -1069,39 +1125,52 @@
 .shell .sp-work.open .sp-work__chev { transform: rotate(90deg); }
 .shell .sp-work__inner { margin: 8px 0 0 4px; padding-left: 13px; border-left: 2px dashed var(--accent-border); }
 
-/* A folded TASK reads as its own branch merging into the trunk (git-graph
-   style) rather than a step sitting flush on the trunk line: the block
-   shifts right, and a curved connector (an L-shaped border rounded at the
-   corner — no SVG needed) runs from the trunk down into the task's own
-   node dot. The trunk's own line keeps running straight underneath/behind
-   it, uninterrupted, exactly like a branch peeling off a git log graph.
-   Colour comes from --tc/--ts/--tb ("tone colour/soft/border"), set per
-   tone below — 'done' reuses the accent hue the fold already had; 'running'
-   (a task that's folded but hasn't finished — e.g. shipped, in review)
-   switches the whole block green so it doesn't read as complete. */
-.shell .sp-taskfold { --tc: var(--accent-deep); --ts: var(--accent-soft); --tb: var(--accent-border); }
-.shell .sp-taskfold--running { --tc: var(--green); --ts: var(--green-soft); --tb: var(--green-border); }
-.shell .sp-work.sp-taskfold { margin-left: 24px; }
-.shell .sp-work.sp-taskfold::before { left: -15px; top: 8px; border-color: var(--tc); }
-.shell .sp-work.sp-taskfold::after {
-  content: ""; position: absolute; left: -44px; top: 0;
-  width: 30px; height: 13px;
-  border-left: 2px solid var(--tc); border-bottom: 2px solid var(--tc);
-  border-bottom-left-radius: 13px; z-index: 1;
+/* A folded TASK is a compact task-rail row (Trunk Thread mockup): a hollow
+   node on the rail, a status glyph, the task's title (muted once done), a
+   right-aligned status word, and a chevron. The row itself is quiet —
+   transparent until hover — so a long trunk reads as a scannable list of
+   outcomes. */
+.shell .sp-taskrow { position: relative; margin: 0 0 2px; }
+.shell .sp-taskrow::before {
+  content: ""; position: absolute; left: -27.5px; top: 10.5px; width: 15px; height: 15px;
+  border-radius: 50%; background: var(--bg); border: 2.5px solid var(--border-strong);
+  box-sizing: border-box; z-index: 2;
 }
-/* A second dot sits ON the trunk line itself, at the exact point the curve
-   peels off — the "o" before the "|\" in a git graph, marking every branch
-   point on the trunk even while its own fold is collapsed elsewhere. */
-.shell .sp-taskfold__trunk-dot {
-  position: absolute; left: -48.5px; top: -4.5px; width: 9px; height: 9px; border-radius: 50%;
-  background: var(--bg-elev); border: 2px solid var(--tc); z-index: 2;
+.shell .sp-taskrow__bar {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px;
+  padding: 5px 9px; margin-left: -9px; border: 0; border-radius: 8px;
+  background: transparent; cursor: pointer; font-family: inherit; text-align: left;
 }
-.shell .sp-taskfold .sp-work__bar { background: var(--ts); border-color: var(--tb); }
-.shell .sp-taskfold .sp-work__sp, .shell .sp-taskfold .sp-work__lbl, .shell .sp-taskfold .sp-work__chev { color: var(--tc); }
-.shell .sp-taskfold .sp-work__inner { border-left-color: var(--tb); }
-/* The running dot pulses (reuses the same keyframe the live-plan phase
-   ladder uses for its own "still working" glyph) — done never does. */
-.shell .sp-taskfold--running .sp-work__sp { animation: working-pulse 1.4s infinite; }
+.shell .sp-taskrow__bar:hover { background: var(--bg-hover); }
+.shell .sp-taskrow__bar:disabled { cursor: default; }
+.shell .sp-taskrow__glyph { display: inline-flex; flex-shrink: 0; }
+.shell .sp-taskrow__glyph--check { color: #1a7f37; }
+.shell .sp-taskrow__glyph--eye { color: #0969da; }
+.shell .sp-taskrow__glyph--x { color: #cf222e; }
+.shell .sp-taskrow__glyph--arrow { color: #1a7f37; }
+.shell .sp-taskrow__dotglyph {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); margin: 3px;
+}
+.shell .sp-taskrow__title {
+  font-size: 14.5px; font-weight: 500; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
+}
+.shell .sp-taskrow--done .sp-taskrow__title { font-weight: 400; color: var(--text-3); }
+.shell .sp-taskrow__st {
+  font-size: 11px; font-weight: 500; white-space: nowrap; flex-shrink: 0; color: var(--text-4);
+}
+.shell .sp-taskrow__st--foreground, .shell .sp-taskrow__st--shipped,
+.shell .sp-taskrow__st--review { color: #1a7f37; }
+.shell .sp-taskrow--done .sp-taskrow__st { color: var(--text-4); }
+.shell .sp-taskrow__st--errored { color: var(--orange); }
+.shell .sp-taskrow__chev { font-size: 12px; color: var(--text-4); flex-shrink: 0; transition: transform .15s; }
+.shell .sp-taskrow.open .sp-taskrow__chev { transform: rotate(90deg); }
+.shell .sp-taskrow__inner {
+  margin: 4px 0 10px 4px; padding-left: 13px; border-left: 2px dashed var(--border-mid);
+}
+/* The running row's glyph pulses (reuses the live-plan "still working"
+   keyframe) — done never does. */
+.shell .sp-taskrow--running .sp-taskrow__glyph--arrow { animation: working-pulse 1.4s infinite; }
 
 /* ── Activity strip (Layer 2) ── */
 .shell .sp-act { position: relative; margin: 0 0 13px; }

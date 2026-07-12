@@ -92,13 +92,15 @@ function signalToNotif(s: ThreadSignalDto, formatTime: (ms: number) => string): 
  * tabs are wired here to the new per-thread APIs via {@link useTrunkPane}.
  */
 export function TrunkPage({
-  threadId, thread, sidebar, conversation, collapsed = false, composer,
+  threadId, thread, sidebar, conversation, conversationIndex, collapsed = false, composer,
   tasks, onOpenTask, formatTime = () => '',
 }: {
   threadId: string;
   thread: { title: string; createdLabel?: string };
   sidebar?: ReactNode;
   conversation: ReactNode;
+  /** Floating conversation-index rail, overlaid on the conversation. */
+  conversationIndex?: ReactNode;
   collapsed?: boolean;
   composer: {
     value: string;
@@ -169,9 +171,14 @@ export function TrunkPage({
     setPaneOpen(true);
   };
 
+  const threadIcon = (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
   const topBar = (
     <TopBar>
-      <Pill kind="thread" icon="💭">THREAD</Pill>
+      <Pill kind="thread" icon={threadIcon}>THREAD</Pill>
       <TopBarTitle>{thread.title}</TopBarTitle>
       {thread.createdLabel !== undefined && (
         <>
@@ -246,7 +253,10 @@ export function TrunkPage({
           style={paneOpen ? { gridTemplateColumns: `minmax(0, 1fr) 5px ${paneWidth}px` } : undefined}
         >
           <div className="conv-col">
-            {conversation}
+            <div className="conv-index-host">
+              {conversation}
+              {conversationIndex}
+            </div>
             {openQuestions.length > 0 && (
               <div className="trunk-questions">
                 {openQuestions.map((q, i) => (

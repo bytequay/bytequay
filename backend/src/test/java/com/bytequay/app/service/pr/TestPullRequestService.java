@@ -73,6 +73,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -207,6 +208,28 @@ class TestPullRequestService
                 .thenReturn(samplePr("starburstdata/starburst-enterprise-trino", 3376, "closed"));
 
         assertThat(service.searchRelevantForDashboard()).isEmpty();
+    }
+
+    @Test
+    void testDashboardSweepThrottlesNotificationPollingAndServesCache()
+    {
+        // Reduce notification-feed load: two back-to-back sweeps (the second
+        // within the poll interval) must hit the feed + per-PR fetch only once,
+        // yet both still surface the PR from the cached resolved set.
+        PullRequestService service = dashboardService();
+        stubEmptySearches();
+        PullRequestRef ref = PullRequestRef.of("starburstdata", "starburst-enterprise-trino", 3405);
+        when(gitHub.fetchAttentionPrRefs("pat")).thenReturn(List.of(ref));
+        when(gitHub.getPullRequest("pat", ref))
+                .thenReturn(samplePr("starburstdata/starburst-enterprise-trino", 3405));
+
+        List<PullRequest> first = service.searchRelevantForDashboard();
+        List<PullRequest> second = service.searchRelevantForDashboard();
+
+        assertThat(first).singleElement().satisfies(pr -> assertThat(pr.number()).isEqualTo(3405));
+        assertThat(second).singleElement().satisfies(pr -> assertThat(pr.number()).isEqualTo(3405));
+        verify(gitHub, times(1)).fetchAttentionPrRefs("pat");
+        verify(gitHub, times(1)).getPullRequest("pat", ref);
     }
 
     /** A PullRequestService wired with direct (synchronous) executors so the

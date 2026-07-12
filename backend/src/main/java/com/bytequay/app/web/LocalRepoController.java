@@ -23,7 +23,6 @@ import com.bytequay.app.domain.LocalMergeBase;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
-import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.springframework.http.HttpStatus;
@@ -32,7 +31,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,7 +38,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.List;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
@@ -56,14 +53,10 @@ import static java.util.Objects.requireNonNull;
 public class LocalRepoController
 {
     private final LocalRepoService localRepoService;
-    private final WatchedRepoStore watchedRepoStore;
 
-    public LocalRepoController(
-            LocalRepoService localRepoService,
-            WatchedRepoStore watchedRepoStore)
+    public LocalRepoController(LocalRepoService localRepoService)
     {
         this.localRepoService = requireNonNull(localRepoService, "localRepoService is null");
-        this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
     }
 
     /**
@@ -77,27 +70,10 @@ public class LocalRepoController
     }
 
     /**
-     * PUT /api/repos/local/{owner}/{repo}/path — record a local
-     * working-copy path against a watched repo. Pass an empty string
-     * to unmap. The clone / locate-existing flows on the Repos page
-     * call this once the user picks a destination.
-     */
-    @PutMapping("/{owner}/{repo}/path")
-    public void setLocalClonePath(
-            @PathVariable("owner") String owner,
-            @PathVariable("repo") String repo,
-            @RequestBody PathRequest body)
-    {
-        String path = body == null || body.path() == null || body.path().isBlank() ? null : body.path();
-        watchedRepoStore.setLocalClonePath(owner, repo, path);
-    }
-
-    /**
      * GET /api/repos/local/{owner}/{repo}/default-clone-path —
-     * suggested destination the modal pre-fills for the Clone-fresh
-     * flow. Computed from the user's home dir; sent down rather than
-     * computed on the renderer so we keep the path-shape decision
-     * server-side.
+     * server-side managed clone destination. Computed from the user's
+     * home dir; sent down rather than computed on the renderer so we
+     * keep the path-shape decision server-side.
      */
     @GetMapping("/{owner}/{repo}/default-clone-path")
     public DefaultClonePathResponse defaultClonePath(
@@ -108,10 +84,23 @@ public class LocalRepoController
     }
 
     /**
-     * POST /api/repos/local/{owner}/{repo}/clone — clones the
-     * watched repo's GitHub URL into {@code body.destination} and
-     * records the path. Synchronous; big repos can take minutes, so
-     * the renderer shows a "Cloning…" state while this is in flight.
+     * GET /api/repos/local/{owner}/{repo}/clone-plan — tells the UI
+     * whether direct push is available and which managed write mode to
+     * default to.
+     */
+    @GetMapping("/{owner}/{repo}/clone-plan")
+    public LocalRepoService.ManagedClonePlan clonePlan(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo)
+    {
+        return localRepoService.managedClonePlan(owner, repo);
+    }
+
+    /**
+     * POST /api/repos/local/{owner}/{repo}/clone — creates a managed
+     * clone under ByteQuay's app-data repo folder. Body carries only
+     * the write mode: DIRECT (push to watched repo) or FORK (push to
+     * viewer fork, PR to watched repo).
      */
     @PostMapping("/{owner}/{repo}/clone")
     public LocalRepoStatus clone(
@@ -120,9 +109,12 @@ public class LocalRepoController
             @RequestBody CloneRequest body)
     {
         CloneRequest request = requireBody(body);
-        requireNotBlank(request.destination(), "destination is required");
+        requireNotBlank(request.writeMode(), "writeMode is required");
         try {
-            return localRepoService.cloneFresh(owner, repo, Path.of(request.destination()));
+            return localRepoService.cloneManaged(owner, repo, LocalRepoService.WriteMode.parse(request.writeMode()));
+        }
+        catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
         catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
@@ -133,36 +125,6 @@ public class LocalRepoController
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "clone interrupted");
-        }
-    }
-
-    /**
-     * POST /api/repos/local/{owner}/{repo}/locate — register an
-     * existing local working tree as the watched repo's clone. The
-     * service verifies the folder is a git working tree whose origin
-     * matches the watched repo; mismatches surface as 400 with a
-     * humane message the modal can render inline.
-     */
-    @PostMapping("/{owner}/{repo}/locate")
-    public LocalRepoStatus locate(
-            @PathVariable("owner") String owner,
-            @PathVariable("repo") String repo,
-            @RequestBody PathRequest body)
-    {
-        PathRequest request = requireBody(body);
-        requireNotBlank(request.path(), "path is required");
-        try {
-            return localRepoService.locateExisting(owner, repo, Path.of(request.path()));
-        }
-        catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "locate interrupted");
         }
     }
 
@@ -672,8 +634,7 @@ public class LocalRepoController
         }
     }
 
-    public record PathRequest(String path) {}
-    public record CloneRequest(String destination) {}
+    public record CloneRequest(String writeMode) {}
     public record ViewFocusRequest(String viewFocus) {}
     public record DefaultClonePathResponse(String defaultPath) {}
     public record CreateBranchRequest(String name, String base) {}

@@ -18,9 +18,8 @@ import MapRepoModal from './repos/AddRepoModal';
 
 type Props = {
   watchedRepos: WatchedRepoDto[];
-  // Called after a repo has been both watched AND mapped to a local
-  // clone. A watched repo can never exist without a clone, so adding is
-  // a single map step — the host re-reads its list from this signal.
+  // Called after the repo has been watched and cloned into ByteQuay's
+  // managed repo folder.
   onAdded: (status: LocalRepoStatusDto) => void;
   onClose: () => void;
 };
@@ -56,7 +55,7 @@ function RepoRow({
           className="modal-repo-row__add-btn"
           onClick={onAdd}
         >
-          Add…
+          Watch…
         </button>
       )}
     </div>
@@ -69,9 +68,8 @@ function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
   const [loadingUser, setLoadingUser] = useState(true);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
-  // The repo the user is mapping a clone for. Picking a repo doesn't
-  // watch it directly — it opens the locate/clone step, and the repo is
-  // only persisted once that succeeds (every watched repo has a clone).
+  // Picking a repo opens the managed-clone step; persistence happens
+  // only after that succeeds.
   const [mapTarget, setMapTarget] = useState<{ owner: string; repo: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,7 +125,7 @@ function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
             ref={inputRef}
             className="modal__search"
             type="text"
-            placeholder="Search any GitHub repo (e.g. facebook/react or react)"
+            placeholder="Search any GitHub repo (e.g. trinodb/trino or trino)"
             value={query}
             onChange={e => handleQueryChange(e.target.value)}
           />

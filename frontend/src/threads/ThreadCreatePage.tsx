@@ -67,7 +67,6 @@ export default function ThreadCreatePage({
   const [prompt, setPrompt] = useState('');
   const [groupId, setGroupId] = useState<string>(initialGroupId ?? '');
   const [submitting, setSubmitting] = useState(false);
-  const [cloneStatus, setCloneStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Repo selection.
@@ -372,7 +371,7 @@ export default function ThreadCreatePage({
   const selectedRepo = useMemo(
     () => repos.find(r => repoKey(r) === selectedRepoKey) ?? null,
     [repos, selectedRepoKey]);
-  const needsClone = selectedRepo !== null && selectedRepo.localClonePath === null;
+  const selectedRepoMissingClone = selectedRepo !== null && selectedRepo.localClonePath === null;
 
   const submit = useCallback(async () => {
     if (submitting) return;
@@ -382,6 +381,10 @@ export default function ThreadCreatePage({
     const trimmedPrompt = prompt.trim();
     if (!selectedRepo) {
       setError('Pick a repo to work in.');
+      return;
+    }
+    if (selectedRepo.localClonePath === null) {
+      setError(`Clone ${selectedRepo.owner}/${selectedRepo.repo} into ByteQuay from the Repos tab first.`);
       return;
     }
     if (trimmedTitle === '') {
@@ -395,19 +398,7 @@ export default function ThreadCreatePage({
 
     setSubmitting(true);
     try {
-      let workingDir = selectedRepo.localClonePath;
-      if (workingDir === null) {
-        setCloneStatus(`Cloning ${selectedRepo.owner}/${selectedRepo.repo}…`);
-        const destination = await window.bridge.defaultClonePath(
-          selectedRepo.owner, selectedRepo.repo);
-        const cloned = await window.bridge.cloneRepo(
-          selectedRepo.owner, selectedRepo.repo, destination);
-        workingDir = cloned.localClonePath;
-        setCloneStatus(null);
-      }
-      if (workingDir === null) {
-        throw new Error('Repo has no local path even after cloning.');
-      }
+      const workingDir = selectedRepo.localClonePath;
       // ThreadKind reflects the lane the resolved work model puts
       // the new thread on. CLI-kind picks a CLI agent (claude-code /
       // codex), API-kind picks a provider + key. Null/inherit defaults
@@ -439,7 +430,6 @@ export default function ThreadCreatePage({
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setCloneStatus(null);
       setSubmitting(false);
     }
   }, [
@@ -506,10 +496,15 @@ export default function ThreadCreatePage({
                 {repos.map(r => (
                   <option key={repoKey(r)} value={repoKey(r)}>
                     {r.owner}/{r.repo}
-                    {r.localClonePath === null ? ' (will clone on create)' : ''}
+                    {r.localClonePath === null ? ' (clone in Repos first)' : ''}
                   </option>
                 ))}
               </select>
+            )}
+            {selectedRepoMissingClone && (
+              <div style={mutedHintStyle}>
+                Clone this repo into ByteQuay from the Repos tab before starting a thread.
+              </div>
             )}
           </Field>
 
@@ -655,9 +650,6 @@ export default function ThreadCreatePage({
         </div>
 
         {error !== null && <div style={errorBoxStyle}>{error}</div>}
-        {cloneStatus !== null && (
-          <div style={mutedHintStyle} role="status">{cloneStatus}</div>
-        )}
 
         <footer style={footerStyle}>
           <button
@@ -671,12 +663,10 @@ export default function ThreadCreatePage({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={submitting || repos.length === 0}
+            disabled={submitting || repos.length === 0 || selectedRepoMissingClone}
             style={primaryBtnStyle}
           >
-            {submitting
-              ? (needsClone ? 'Cloning + starting…' : 'Starting…')
-              : '+ Create & start'}
+            {submitting ? 'Starting…' : '+ Create & start'}
             <span style={kbdHintStyle}>⌘↵</span>
           </button>
         </footer>

@@ -47,6 +47,7 @@ import com.bytequay.app.domain.UserCommitSummary;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -782,6 +783,33 @@ public interface PullRequestRepository
     default RepoMeta fetchRepoMeta(String pat, RepoRef repo)
     {
         throw new UnsupportedOperationException("fetchRepoMeta not implemented");
+    }
+
+    /**
+     * Optional wrapper for {@link #fetchRepoMeta}. Kept here so callers
+     * that probe for an existing fork don't have to know how the GitHub
+     * client maps 404s.
+     */
+    default Optional<RepoMeta> findRepoMeta(String pat, RepoRef repo)
+    {
+        try {
+            return Optional.ofNullable(fetchRepoMeta(pat, repo));
+        }
+        catch (ResponseStatusException e) {
+            if (e.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Creates a fork for the authenticated user.
+     * Maps to: POST /repos/{owner}/{repo}/forks.
+     */
+    default void createFork(String pat, RepoRef repo)
+    {
+        throw new UnsupportedOperationException("createFork not implemented");
     }
 
     /**

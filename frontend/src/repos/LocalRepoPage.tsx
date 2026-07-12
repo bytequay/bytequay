@@ -95,7 +95,7 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 /**
- * Repo detail page for a mapped local clone. The Branches tab carries
+ * Repo detail page for a ByteQuay-managed local clone. The Branches tab carries
  * the kanban + action bar; Commits and Activity are skeletons until
  * their backend slices land (commit listing via `git log`, activity
  * stream from local event store).
@@ -107,10 +107,10 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // True when this repo has no local clone mapped yet. We render a
-  // mapping affordance instead of letting the branch/commit loads error.
+  // True when this repo has no managed clone yet. We render a clone
+  // affordance instead of letting the branch/commit loads error.
   const [unmapped, setUnmapped] = useState(false);
-  // Open while the user maps a clone (locate or clone fresh).
+  // Open while the user creates the managed clone.
   const [mapCloneOpen, setMapCloneOpen] = useState(false);
   // Repo-level GitHub metadata, fetched lazily once per page load.
   // We only read parent.{owner,name,defaultBranch} for the fork →
@@ -180,8 +180,8 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
     if (signal?.cancelled) return;
     const match = all.find(r => r.owner === owner && r.repo === repo) ?? null;
     setStatus(match);
-    // No clone mapped yet — listLocalBranches throws for an unmapped
-    // repo, so skip it and surface the mapping flow instead of an error.
+    // No managed clone yet — listLocalBranches throws, so skip it and
+    // surface the clone flow instead of an error.
     if (match == null || match.localClonePath == null) {
       setUnmapped(true);
       setBranches(null);
@@ -607,8 +607,8 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
     }
   };
 
-  // No local clone mapped yet — offer the mapping flow rather than
-  // erroring on the branch/commit loads (which require a clone).
+  // No managed clone yet — offer the clone flow rather than erroring
+  // on the branch/commit loads (which require a local git repo).
   if (unmapped) {
     return (
       <div className="local-repo-page">
@@ -621,15 +621,15 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
         </header>
         <div className="local-repo-page__unmapped">
           <div className="local-repo-page__unmapped-msg">
-            No local clone mapped for <code>{owner}/{repo}</code> yet — branches and
-            commits need one.
+            <code>{owner}/{repo}</code> is not cloned into ByteQuay yet — branches
+            and commits need a managed clone.
           </div>
           <button
             type="button"
             className="button button--primary button--sm"
             onClick={() => setMapCloneOpen(true)}
           >
-            Map a local clone…
+            Clone into ByteQuay…
           </button>
         </div>
         {mapCloneOpen && (

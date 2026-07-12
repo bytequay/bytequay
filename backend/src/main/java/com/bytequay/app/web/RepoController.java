@@ -28,6 +28,7 @@ import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.service.RepoService;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -37,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -76,7 +78,9 @@ public class RepoController
         request = requireBody(request);
         requireNotBlank(request.owner(), "owner is required");
         requireNotBlank(request.repo(), "repo is required");
-        return repoService.addWatchedRepo(request.owner(), request.repo());
+        throw new ResponseStatusException(
+                HttpStatus.GONE,
+                "Repos must be added through the managed clone flow.");
     }
 
     /**

@@ -16,19 +16,19 @@ package com.bytequay.app.domain;
 /**
  * One row of the Repos page — a watched repo plus its local-clone state.
  * The state pill the UI renders is derived directly from {@link #state};
- * detail (current branch, dirty file count) is null when the repo is
- * unmapped or git itself is unavailable.
+ * detail (current branch, dirty file count) is null when the repo has
+ * no managed clone or git itself is unavailable.
  *
  * @param localClonePath filesystem path of the user's working copy, or null
- * when the repo is watched but no clone has been mapped to it yet.
+ * when the repo is watched but no managed clone exists yet.
  * @param currentBranch currently checked-out branch name. Null when the repo is
- * unmapped or git could not read HEAD.
+ * not cloned or git could not read HEAD.
  * @param dirtyFileCount count of changed files reported by
- * {@code git status --porcelain}. Null when the repo is unmapped.
+ * {@code git status --porcelain}. Null when the repo is not cloned.
  * @param errorMessage human-readable error from the last git operation,
  * surfaced when state is {@link State#ERROR}.
  * @param upstreamRemoteName name of the git remote that points at the watched
- * repo. Null when origin is the watched repo or the repo is not mapped.
+ * repo. Null when origin is the watched repo or the repo is not cloned.
  * @param defaultBranch repo's default branch as the local clone sees it.
  * @param viewFocus resolved focus for the repo detail page's commits tab:
  * {@code "fork"} or {@code "upstream"}.
@@ -47,8 +47,7 @@ public record LocalRepoStatus(
 {
     public enum State
     {
-        /** Watched but no local-clone path is set. UI shows the
-         *  "Map clone…" call-to-action. */
+        /** Watched but no managed-clone path is set. */
         UNMAPPED,
         /** Working tree exists and matches HEAD — nothing modified,
          *  added, or untracked. */
@@ -57,8 +56,7 @@ public record LocalRepoStatus(
          *  staged-but-unsubmitted hunks. */
         MODIFIED,
         /** Path is set but doesn't resolve to a git working tree
-         *  anymore — user moved or deleted the directory. UI offers
-         *  to re-map or unset. */
+         *  anymore — user moved or deleted the directory. */
         MISSING,
         /** git itself isn't available on the host. Most desktop Macs
          *  ship it via Xcode CLI tools; if that hasn't been installed

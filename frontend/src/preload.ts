@@ -256,18 +256,16 @@ const bridge: Bridge = {
   getRepoActivity: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:activity', owner, repo),
   listLocalRepos: () => ipcRenderer.invoke('repos:listLocal'),
-  setLocalClonePath: (owner: string, repo: string, path: string | null) =>
-    ipcRenderer.invoke('repos:setLocalClonePath', owner, repo, path),
   setViewFocus: (owner: string, repo: string, viewFocus: 'fork' | 'upstream') =>
     ipcRenderer.invoke('repos:setViewFocus', owner, repo, viewFocus),
   pickFolder: (options?: { defaultPath?: string; title?: string }) =>
     ipcRenderer.invoke('repos:pickFolder', options),
   defaultClonePath: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:defaultClonePath', owner, repo),
-  cloneRepo: (owner: string, repo: string, destination: string) =>
-    ipcRenderer.invoke('repos:cloneRepo', owner, repo, destination),
-  locateRepo: (owner: string, repo: string, path: string) =>
-    ipcRenderer.invoke('repos:locateRepo', owner, repo, path),
+  getManagedClonePlan: (owner: string, repo: string) =>
+    ipcRenderer.invoke('repos:managedClonePlan', owner, repo),
+  cloneRepo: (owner: string, repo: string, writeMode: 'FORK' | 'DIRECT') =>
+    ipcRenderer.invoke('repos:cloneRepo', owner, repo, writeMode),
   listLocalBranches: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:listLocalBranches', owner, repo),
   listLocalCommits: (owner: string, repo: string, revision?: string, limit?: number) =>

@@ -16,9 +16,11 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.local.GitRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -94,14 +96,22 @@ public class WorktreeService
 
     private final GitRunner git;
     private final WatchedRepoStore watchedRepos;
+    private final CodeGraphUpdateCoordinator codeGraph;
     /** Per-clone monitors so concurrent trunk turns serialise their
      *  fetch + reset of the shared planning worktree. */
     private final ConcurrentHashMap<String, Object> planningLocks = new ConcurrentHashMap<>();
 
-    public WorktreeService(GitRunner git, WatchedRepoStore watchedRepos)
+    @Autowired
+    public WorktreeService(GitRunner git, WatchedRepoStore watchedRepos, CodeGraphUpdateCoordinator codeGraph)
     {
         this.git = requireNonNull(git, "git is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+    }
+
+    public WorktreeService(GitRunner git, WatchedRepoStore watchedRepos)
+    {
+        this(git, watchedRepos, CodeGraphUpdateCoordinator.disabled());
     }
 
     /**
@@ -128,6 +138,7 @@ public class WorktreeService
                     .resolve(taskId)
                     .toAbsolutePath()
                     .normalize();
+            ensurePlanningWorktree(repoRoot);
             // Name the branch for the task's purpose, not its id. The id
             // is the fallback only when the title yields no usable slug.
             String branchName = uniqueDevBranch(repoRoot, slug.isEmpty() ? taskId : slug);
@@ -139,6 +150,7 @@ public class WorktreeService
             }
             appendToGitInfoExclude(repoRoot);
             git.worktreeAdd(repoRoot, worktreePath, branchName, baseRef);
+            codeGraph.ensureFreshSync(worktreePath, "task-worktree-created");
             // Pin the exact base commit the worktree was cut from, so the
             // task's diff is a fixed base..HEAD rather than a re-guessed
             // branch name on every request.
@@ -186,6 +198,7 @@ public class WorktreeService
             log.warn("Worktree remove interrupted for {}", worktreePath);
             return;
         }
+        codeGraph.forget(Path.of(worktreePath));
         if (localBranch == null || localBranch.isBlank()) {
             return;
         }
@@ -456,6 +469,7 @@ public class WorktreeService
                     appendToGitInfoExclude(repoRoot);
                     git.worktreeAddDetached(repoRoot, planningPath, baseRef);
                 }
+                codeGraph.ensureFreshSync(planningPath, "planning-worktree-synced");
                 return Optional.of(new PlanningSync(planningPath, baseRef));
             }
             catch (IOException | RuntimeException e) {

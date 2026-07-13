@@ -53,7 +53,18 @@ export function PRHeader({
     <div className="pr-header">
       <div className="pr-title-row">
         <span className="pr-title">{pr.title}</span>
-        <span className="pr-num">{prNumLabel}</span>
+        {pr.remotePrUrl !== null ? (
+          <button
+            type="button"
+            className="pr-num pr-num-link"
+            title="Open on GitHub"
+            onClick={() => { void window.bridge.openExternal(pr.remotePrUrl!); }}
+          >
+            {prNumLabel}
+          </button>
+        ) : (
+          <span className="pr-num">{prNumLabel}</span>
+        )}
         {headerAction !== undefined && (
           <span className="pr-header-action">{headerAction}</span>
         )}

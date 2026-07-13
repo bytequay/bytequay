@@ -54,6 +54,9 @@ function eventBody(event: LocalPRTimelineEvent): ReactNode {
       return <>{name} — {status}{durationMs !== null ? ` (${Math.round(durationMs / 1000)}s)` : ''}</>;
     }
     case 'status':
+      if (str(p, 'gate') === 'push' && str(p, 'decision') === 'approved') {
+        return <>Push approved automatically because auto-merge is enabled</>;
+      }
       return <>{actor} <code>{str(p, 'from') ?? '?'}</code> → <code>{str(p, 'to') ?? '?'}</code></>;
     case 'amend':
       return <>{actor} amended{str(p, 'sha') !== null && <> <code>{str(p, 'sha')}</code></>}</>;

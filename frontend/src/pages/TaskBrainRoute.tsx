@@ -27,10 +27,11 @@ import type { TaskPhase } from '../types/brainView';
 import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working } from '../ui/conv';
 import { SparkIcon } from '../ui/TaskBrainDesignIcons';
 import { BrainFeed } from '../threads/brain/BrainFeed';
-import { PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
+import { PlanCard, PlanningSeed, planStepComments } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
+import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
 import { PlanOverlay } from './PlanOverlay';
@@ -349,6 +350,7 @@ export function TaskBrainRoute({
       onToggleAutoMerge={toggleAutoMerge}
       minApprovals={minApprovals}
       onSetMinApprovals={setMinApprovals}
+      stepComments={planStepComments(brainFeed)}
     />
   ) : null;
   const defaultInlinePlanOpen = plan?.state !== 'locked';
@@ -655,6 +657,7 @@ export function TaskBrainRoute({
         placeholder: 'Ask the brain, or steer the task…',
         images, onImagesChange: setImages,
         closedNote: task.terminal ? 'This task is closed.' : undefined,
+        modePill: <WorkModelPill scope={{ kind: 'task', threadId, taskId }} />,
       }}
       run={{
         statusLabel: task.statusLabel,

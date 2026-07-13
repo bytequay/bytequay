@@ -29,6 +29,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
@@ -61,6 +62,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -188,11 +190,11 @@ class TestBrainReviewServiceImpl
         // plan predates the local PR (the usual case) — PRServiceImpl backs
         // that with its own backfill, verified separately in PRServiceImpl's
         // own test.
-        verify(prService).recordBrainReview(TASK_ID, "plan", ReviewRound.VERDICT_APPROVED, 1);
+        verify(prService).recordBrainReview(TASK_ID, "plan", ReviewRound.VERDICT_APPROVED, 1, null, null);
     }
 
     @Test
-    void recordVerdictForDevScopePersistsItOnTheRoundAndWritesTheTimelineEvent()
+    void recordVerdictForDevScopePersistsItOnTheRound()
     {
         // iteration is already 1 here — it's bumped when the review turn is
         // enqueued, not by this call.
@@ -207,7 +209,7 @@ class TestBrainReviewServiceImpl
 
         verify(roundStore).save(argThat(r ->
                 ReviewRound.VERDICT_CHANGES_REQUESTED.equals(r.brainVerdict()) && r.iteration() == 1));
-        verify(prService).recordBrainReview(TASK_ID, "dev", ReviewRound.VERDICT_CHANGES_REQUESTED, 1);
+        verify(prService, never()).recordBrainReview(any(), any(), any(), anyInt(), any(), any());
     }
 
     // ── R21-R23: code lock-point review loop ─────────────────────────────
@@ -318,9 +320,14 @@ class TestBrainReviewServiceImpl
         when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
         PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
         when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+        when(threadStore.listStageMessages("run-stage")).thenReturn(List.of(reviewMessage(
+                "The final reviewer response survives an MCP disconnect.")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-6", false));
 
+        verify(prService).recordBrainReview(
+                TASK_ID, "dev", ReviewRound.VERDICT_APPROVED, 0, triaging.id(),
+                "The final reviewer response survives an MCP disconnect.");
         verify(roundStore).save(argThat(r -> ReviewRound.STATUS_CLOSED.equals(r.status())));
         verify(agentRuns).transition(triaging.runId(), AgentRun.STATUS_SUCCEEDED, "brain_review_concluded");
         verify(prService).requestUserReview("pr1", "brain");
@@ -564,6 +571,14 @@ class TestBrainReviewServiceImpl
                 "turn-x", "thread-1", TASK_ID, ThreadResourceLane.CLI,
                 ThreadTurnStatus.COMPLETED, "prompt", NOW, NOW, NOW, NOW,
                 null, initiator, stageId, ThreadScope.TASK);
+    }
+
+    private static ThreadMessage reviewMessage(String body)
+    {
+        return new ThreadMessage(
+                "message-1", "thread-1", TASK_ID, 1L, "assistant", "text",
+                "{\"text\":\"" + body + "\"}", null, null, null, null, NOW,
+                "run-stage", ThreadScope.STAGE);
     }
 
     private static ReviewRound round(String status)

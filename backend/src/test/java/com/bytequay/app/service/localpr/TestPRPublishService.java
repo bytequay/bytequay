@@ -202,7 +202,7 @@ class TestPRPublishService
     }
 
     @Test
-    void onLocalReviewClearedPushesWithoutWaitingOnTheManualButtonWhenAutoMergeIsOn()
+    void onLocalReviewClearedRecordsTheAutoApprovedPushGateWhenAutoMergeIsOn()
             throws Exception
     {
         when(taskStore.isAutoMerge("task1")).thenReturn(true);
@@ -217,6 +217,7 @@ class TestPRPublishService
         service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
 
         verify(pullRequests).createPullRequest(any(), any(), any());
+        verify(prService).recordGateApproval("pr1", "push", "auto-merge");
     }
 
     @Test

@@ -25,6 +25,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.TurnInitiator;
@@ -61,6 +62,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
  * Brain-driven adversarial review (plan-rail-runs.md R20-R24). Two
@@ -212,6 +214,7 @@ public class BrainReviewServiceImpl
                 ReviewRound.ORIGIN_BRAIN, /* brainVerdict */ null, /* iteration */ 1,
                 ReviewRound.DEFAULT_BRAIN_BUDGET);
         roundStore.save(round);
+        prService.recordBrainReviewStarted(task.id(), "dev", round.iteration(), round.id());
         enqueueReviewTurn(task, run);
         log.info("brain-review: opened dev-end round {} for task {} (PR {})", round.id(), task.id(), prId);
     }
@@ -227,6 +230,7 @@ public class BrainReviewServiceImpl
             armGate(triaging); // no run to review against — arm as before rather than stall.
             return;
         }
+        prService.recordBrainReviewStarted(task.id(), "round", triaging.iteration(), triaging.id());
         enqueueReviewTurn(task, run);
         log.info("brain-review: verification pass started for round {} (task {})", round.id(), task.id());
     }
@@ -243,7 +247,8 @@ public class BrainReviewServiceImpl
             // PRServiceImpl.backfillPlanSelfReview's hardcoded value for the
             // same event, reached instead when the review finishes before
             // the local PR exists (the usual case).
-            prService.recordBrainReview(taskId, scope, verdict, /* iteration */ 1);
+            prService.recordBrainReview(
+                    taskId, scope, verdict, /* iteration */ 1, /* roundId */ null, /* body */ null);
             return;
         }
         Optional<ReviewRound> live = roundStore.findLiveByTask(taskId)
@@ -255,7 +260,6 @@ public class BrainReviewServiceImpl
         }
         ReviewRound updated = live.get().withBrainVerdict(verdict);
         roundStore.save(updated);
-        prService.recordBrainReview(taskId, scope, verdict, updated.iteration());
     }
 
     private boolean matchesRunStage(ReviewRound round, String stageId)
@@ -415,7 +419,7 @@ public class BrainReviewServiceImpl
             return;
         }
         if (ReviewRound.STATUS_TRIAGING.equals(round.status())) {
-            advanceAfterReviewTurn(round, task);
+            advanceAfterReviewTurn(round, task, turn);
         }
         else if (ReviewRound.STATUS_ADDRESSING.equals(round.status()) && round.iteration() > 0) {
             advanceAfterFixTurn(round, task);
@@ -427,7 +431,18 @@ public class BrainReviewServiceImpl
      *  (approved or budget spent) or loop into another fix turn. */
     private void advanceAfterReviewTurn(ReviewRound round, Task task)
     {
+        advanceAfterReviewTurn(round, task, null);
+    }
+
+    private void advanceAfterReviewTurn(ReviewRound round, Task task, ThreadTurn turn)
+    {
         String verdict = round.brainVerdict();
+        String scope = ReviewRound.ORIGIN_BRAIN.equals(round.origin()) ? "dev" : "round";
+        // The orchestrator owns the finished audit row so the final review
+        // text survives even when the agent omitted its verdict tool call or
+        // its MCP connection failed.
+        prService.recordBrainReview(
+                task.id(), scope, verdict, round.iteration(), round.id(), turn == null ? null : reviewBody(turn));
         boolean approved = ReviewRound.VERDICT_APPROVED.equals(verdict);
         if (approved || round.brainBudgetExhausted()) {
             conclude(round, task, approved);
@@ -452,9 +467,41 @@ public class BrainReviewServiceImpl
                     taskThread.get(), brainFixPrompt(task), task.id(), run.stageId(),
                     TurnInitiator.unattended(SOURCE_BRAIN_FIX), run.id());
             roundStore.save(round.withStatus(ReviewRound.STATUS_ADDRESSING));
+            prService.recordBrainReviewAddressing(task.id(), scope, round.iteration(), round.id());
         }
         catch (RuntimeException e) {
             log.warn("brain-review: fix-turn enqueue failed for round {}: {}", round.id(), e.getMessage());
+        }
+    }
+
+    /** Preserve the reviewer's written conclusion even when its MCP tools
+     *  were unavailable and no structured comments/verdict could be saved. */
+    private String reviewBody(ThreadTurn turn)
+    {
+        List<ThreadMessage> messages = threadStore.listStageMessages(turn.stageId());
+        if (messages.isEmpty()) {
+            messages = threadStore.listMessages(turn.threadId()).stream()
+                    .filter(message -> turn.stageId().equals(message.stageId()))
+                    .toList();
+        }
+        String body = messages.stream()
+                .filter(message -> "assistant".equals(message.role()) && "text".equals(message.type()))
+                .filter(message -> turn.taskId().equals(message.taskId()))
+                .filter(message -> turn.startedAt() == null || !message.ts().isBefore(turn.startedAt()))
+                .filter(message -> turn.finishedAt() == null || !message.ts().isAfter(turn.finishedAt()))
+                .map(this::messageText)
+                .filter(text -> !text.isBlank())
+                .collect(joining("\n\n"));
+        return body.isBlank() ? null : body;
+    }
+
+    private String messageText(ThreadMessage message)
+    {
+        try {
+            return mapper.readTree(message.contentJson()).path("text").asText("");
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            return "";
         }
     }
 
@@ -467,8 +514,11 @@ public class BrainReviewServiceImpl
             conclude(round, task, false);
             return;
         }
+        ReviewRound reviewing = round.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped();
         enqueueReviewTurn(task, run);
-        roundStore.save(round.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped());
+        roundStore.save(reviewing);
+        String scope = ReviewRound.ORIGIN_BRAIN.equals(round.origin()) ? "dev" : "round";
+        prService.recordBrainReviewStarted(task.id(), scope, reviewing.iteration(), reviewing.id());
     }
 
     /**

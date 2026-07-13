@@ -57,9 +57,11 @@ describe('BrainFeed', () => {
   });
 
   it('folds a closed stage in Focused but keeps the user turn visible', () => {
-    const { container } = render(<BrainFeed feed={FEED} stages={[DEV]} density="focused" />);
+    render(<BrainFeed feed={FEED} stages={[DEV]} density="focused" />);
     // The user's intervention stays visible even folded.
     expect(screen.getByText('run the gate')).toBeTruthy();
+    // The final answer to that intervention stays visible too.
+    expect(screen.getByText('gate green')).toBeTruthy();
     // The autonomous headline is folded away.
     expect(screen.queryByText('All sites routed')).toBeNull();
     // Expanding the boundary (the only button while folded) reveals the chatter.

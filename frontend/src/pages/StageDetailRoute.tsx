@@ -36,9 +36,10 @@ import { stageFeed } from './stageConversationRow';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
 import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
+import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
-import { PlanCard } from '../threads/brain/TaskRootNode';
+import { PlanCard, planStepComments } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
@@ -293,6 +294,7 @@ export function StageDetailRoute({
       approvedAt={approvedAt}
       onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
+      stepComments={planStepComments(brain.brainFeed)}
     />
   ) : null;
 

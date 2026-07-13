@@ -252,7 +252,7 @@ export function TaskBrainPage({
             )}
             {showPane && (
               <RightPane>
-                <RightPane.Content flush={active.key === 'code'}>{active.node}</RightPane.Content>
+                <RightPane.Content flush={active.key === 'code' || active.key === 'pr'}>{active.node}</RightPane.Content>
               </RightPane>
             )}
           </div>

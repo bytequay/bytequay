@@ -12,12 +12,12 @@
  * limitations under the License.
  */
 import { Fragment, type ReactNode } from 'react';
-import type { ActivityItemDto } from '../../types';
+import type { ActivityItemDto, PullRequestDetailDto } from '../../types';
 import type { LocalPR } from '../../types/localPr';
 import type { TimelineEntry } from '../timelineGrouping';
 import Avatar from '../../Avatar';
 import { ReviewThreadCard } from '../ReviewThreadCard';
-import type { ReactionContent } from '../utils';
+import { isCheckPassing, type ReactionContent } from '../utils';
 import { MarkdownProse } from '../../threads/MarkdownProse';
 import {
   ClockIcon, CloseIcon, CommitIcon, EyeIcon, MergeBranchIcon,
@@ -60,6 +60,29 @@ function labelPill(label: { name: string; color: string | null }, key: number): 
     <span key={key} className="lbl" style={label.color ? { borderColor: `#${label.color}` } : undefined}>
       {label.name}
     </span>
+  );
+}
+
+function MergeEventBody({ item, pr, detail }: {
+  item: ActivityItemDto;
+  pr: LocalPR;
+  detail?: PullRequestDetailDto | null;
+}) {
+  const passedChecks = detail?.checkRuns.filter(check => isCheckPassing(check.conclusion)).length ?? 0;
+  const target = detail?.baseRef ?? pr.baseBranch;
+  return (
+    <div className="pr-merge-event">
+      <div className="pr-merge-event__main">
+        {who(item.actor)}{' '}
+        {item.afterSha !== null ? <>merged commit {sha(item.afterSha)}</> : <>merged this pull request</>}
+        {' '}into <span className="pr-merge-event__branch">{target}</span>
+      </div>
+      {passedChecks > 0 && (
+        <div className="pr-merge-event__checks">
+          {passedChecks} check{passedChecks === 1 ? '' : 's'} passed
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -154,7 +177,7 @@ function iconForEvent(eventType: string): ReactNode {
 function toneForEvent(eventType: string): string {
   switch (eventType) {
     case 'merged':
-      return 'green';
+      return 'merged';
     case 'closed':
       return 'fail';
     case 'committed':
@@ -208,10 +231,11 @@ export type GitHubThreadActions = {
  *  inline diff threads) — the counterpart to {@link TimelineIconEvent} for
  *  data sourced live from GitHub rather than the local sync tables. */
 export function GitHubTimelineRow({
-  entry, pr, threadActions,
+  entry, pr, detail, threadActions,
 }: {
   entry: TimelineEntry;
   pr: LocalPR;
+  detail?: PullRequestDetailDto | null;
   threadActions: GitHubThreadActions;
 }) {
   if (entry.kind === 'date-divider') {
@@ -273,6 +297,13 @@ export function GitHubTimelineRow({
           </RailReviewThread>
         ))}
       </Fragment>
+    );
+  }
+  if (item.eventType === 'merged') {
+    return (
+      <IconRow time={toMs(item.timestamp)} eventType={item.eventType}>
+        <MergeEventBody item={item} pr={pr} detail={detail} />
+      </IconRow>
     );
   }
   if (item.eventType === 'cross-referenced') {

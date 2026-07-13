@@ -22,7 +22,7 @@ const APPROVED_VERDICTS = new Set(['APPROVED', 'approved']);
  *  small icon that actually sits on the rail line, the same way `.tic` does
  *  for commit/CI rows — the avatar is *aligned with* it, not layered on it. */
 export function TimelinePersonEvent({
-  actor, verdict, time, scope, onViewChanges,
+  actor, verdict, time, scope, intent, onViewChanges, hasReviewContent = true,
 }: {
   actor: string;
   verdict: string | null;
@@ -31,11 +31,24 @@ export function TimelinePersonEvent({
    *  default code lock-point review — swaps the verb so a plan pass doesn't
    *  read as "approved these changes" when there's no diff yet. */
   scope?: string | null;
+  /** Why this review pass ran; shown for local adversarial reviews only. */
+  intent?: string | null;
   onViewChanges?: () => void;
+  hasReviewContent?: boolean;
 }) {
   const approved = verdict !== null && APPROVED_VERDICTS.has(verdict);
   const isPlan = scope === 'plan';
-  const verb = isPlan ? (approved ? 'approved the plan' : 'reviewed the plan') : (approved ? 'approved these changes' : 'reviewed');
+  const isCode = scope === 'dev' || scope === 'round';
+  const target = isPlan ? 'the plan' : isCode ? 'the code' : 'these changes';
+  const verb = !hasReviewContent
+    ? approved
+      ? `reviewed ${target} with no obvious ${isPlan ? 'issues' : 'bugs'} and approved it`
+      : verdict === null
+        ? `reviewed ${target}; no verdict was recorded`
+        : `reviewed ${target} and requested changes, but no review comments were recorded`
+    : approved
+      ? `approved ${target}`
+      : `reviewed ${target}`;
   return (
     <div className="pr-person-event">
       <Avatar login={displayName(actor)} size={40} className={`pr-avatar s40 ${approved ? 'author' : ''}`} />
@@ -45,6 +58,7 @@ export function TimelinePersonEvent({
       <span className="tb">
         <span className="who">{displayName(actor)}</span> {verb}
         {' '}· {agoLabel(time)}
+        {intent !== null && intent !== undefined && <span className="brain-review-intent">{intent}</span>}
       </span>
       {!isPlan && onViewChanges !== undefined && (
         <button type="button" className="ts pr-link-btn" onClick={onViewChanges}>View reviewed changes</button>

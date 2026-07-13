@@ -25,9 +25,10 @@ function str(payload: Record<string, unknown> | null, key: string): string | nul
  *  on the Live Plan ladder, not in this timeline, so the card is the only
  *  way to jump from "the plan is finalized" back to what was approved. */
 export function TimelinePlanFinalized({
-  event, onOpenStage,
+  event, actor, onOpenStage,
 }: {
   event: LocalPRTimelineEvent;
+  actor?: string;
   onOpenStage?: (stageId: string) => void;
 }) {
   const stageId = str(event.payload, 'planStageId');
@@ -36,7 +37,7 @@ export function TimelinePlanFinalized({
       <div className="pr-tl-icon-row">
         <span className="tic green">✓</span>
         <div className="tb">
-          <span className="who">{event.actor === 'you' ? 'You' : event.actor}</span> finalized the plan
+          <span className="who">{actor ?? (event.actor === 'you' ? 'You' : event.actor)}</span> approved the plan
           {event.isLocalOnly && <span className="lock-tag">🔒 local</span>}
         </div>
         <span className="ts">{agoLabel(event.createdAt)}</span>

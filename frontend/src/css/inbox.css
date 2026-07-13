@@ -2455,7 +2455,7 @@
 /* ═══════════ Three-column diff view: commits lane ═══════════
    All lanes share the white canvas; hairline dividers separate the
    columns (commits → files → diff). */
-.diff-viewer__files { background: #ffffff; border-right: 1px solid var(--border-light); }
+.diff-viewer__files { background: #ffffff; }
 .diff-viewer__pane { background: #ffffff; }
 
 .diff-viewer__commits {

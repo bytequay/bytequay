@@ -68,4 +68,14 @@ describe('buildRawTimelineEntries', () => {
 
     expect(entries.map(e => (e.kind === 'activity' ? e.item.githubId : null))).toEqual([1, 2]);
   });
+
+  it('drops the redundant closed event emitted with a merge', () => {
+    const timestamp = '2026-06-20T11:00:00Z';
+    const merged = activity({ eventType: 'merged', timestamp, githubId: 2 });
+    const closed = activity({ eventType: 'closed', timestamp, githubId: 3 });
+    const entries = buildRawTimelineEntries([merged, closed], []);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ kind: 'activity', item: merged });
+  });
 });

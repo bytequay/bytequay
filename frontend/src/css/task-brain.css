@@ -725,7 +725,7 @@
   border-left-color: rgba(0, 0, 0, 0.08);
 }
 
-.task-brain .shell .pane-content {
+.task-brain .shell .pane-content:not(.pane-content--flush) {
   padding: 18px 20px 24px;
 }
 
@@ -734,7 +734,7 @@
 }
 
 .task-brain .shell .pr-tl-rail::before {
-  left: 13px;
+  left: 64px;
   top: 12px;
   bottom: 12px;
   background: #e5e0d8;
@@ -748,7 +748,7 @@
 .task-brain .shell .pr-tl-icon-row .tic {
   width: 24px;
   height: 24px;
-  margin-left: 0;
+  margin-left: 50px;
   border: 0;
   background: #f3f1ec;
   color: #8a8178;
@@ -761,6 +761,11 @@
 
 .task-brain .shell .pr-tl-icon-row .tic.green,
 .task-brain .shell .pr-tl-icon-row .tic.fail {
+  color: #ffffff;
+}
+
+.task-brain .shell .pr-tl-icon-row .tic.merged {
+  background: #8250df;
   color: #ffffff;
 }
 
@@ -794,7 +799,7 @@
 .task-brain .shell .pr-person-event .eye {
   width: 24px;
   height: 24px;
-  margin: 0;
+  margin: 0 0 0 50px;
   border: 0;
   display: inline-flex;
   background: #dbe7f8;
@@ -823,7 +828,7 @@
 .task-brain .shell .pr-thread,
 .task-brain .shell .pr-tl-crossref,
 .task-brain .shell .pr-tl-plan-link {
-  margin-left: 37px;
+  margin-left: 88px;
 }
 
 /* PR header: muted number, blue mono ref chips, solid merged pill. */
@@ -890,6 +895,25 @@
   border-bottom-color: rgba(0, 0, 0, 0.07);
   font-size: 10px;
   color: #454c54;
+}
+
+/* Match github.com's author-comment header and keep its pointer visually
+   joined to the card instead of reading as a separate grey triangle. */
+.task-brain .shell .pr-bubble.hl-author {
+  --bh: #ddf4ff;
+  border-color: #54aeff;
+}
+
+.task-brain .shell .pr-bubble.hl-author::before {
+  border-right-color: #54aeff;
+}
+
+.task-brain .shell .pr-bubble.hl-author::after {
+  border-right-color: #ddf4ff;
+}
+
+.task-brain .shell .pr-bubble.hl-author .bh {
+  border-bottom-color: #54aeff;
 }
 
 /* Merged banner: violet-bordered, like the design's success box. */
@@ -1019,7 +1043,7 @@
   max-width: 80%;
   margin-top: 0;
   padding: 11px 14px;
-  background: #eef1ee;
+  background: #e9f6ee;
   border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 13px 13px 4px 13px;
   text-align: left;
@@ -1245,6 +1269,10 @@
   justify-content: center;
 }
 
+.task-brain .shell .plan-overlay__panel .plan-card__hd {
+  padding-right: 60px;
+}
+
 .task-brain .shell .plan-card--awaiting {
   border-color: rgba(194, 99, 42, 0.35);
   background: #ffffff;
@@ -1352,6 +1380,35 @@
   color: #57606a;
   font-size: 12.5px;
   line-height: 1.6;
+}
+
+.task-brain .shell .plan-step__comment-count {
+  color: #1f883d;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.task-brain .shell .plan-step__comments {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(31, 136, 61, 0.18);
+  border-radius: 8px;
+  background: #e9f6ee;
+}
+
+.task-brain .shell .plan-step__comment {
+  display: flex;
+  gap: 7px;
+}
+
+.task-brain .shell .plan-step__comment + .plan-step__comment {
+  margin-top: 6px;
+}
+
+.task-brain .shell .plan-step__comment strong {
+  flex-shrink: 0;
+  color: #1f883d;
 }
 
 .task-brain .shell .plan-step__cmt,
@@ -1586,7 +1643,7 @@
 .task-brain .shell .ev--user .tx {
   max-width: 80%;
   padding: 11px 14px;
-  background: #eef1ee;
+  background: #e9f6ee;
   border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 13px 13px 4px 13px;
   color: #2b3138;

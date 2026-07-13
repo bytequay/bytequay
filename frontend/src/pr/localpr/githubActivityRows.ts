@@ -20,7 +20,7 @@ function toMs(iso: string | null): number {
 
 /**
  * Builds {@link RawTimelineEntry}s for {@link groupTimelineEntries}: every
- * `recentActivity` item, sorted oldest-first, with each `reviewThreads` entry
+ * visible `recentActivity` item, sorted oldest-first, with each `reviewThreads` entry
  * attached to the `reviewed` activity that submitted it (matched by
  * `reviewId` against a thread message's own `reviewId` — a thread's root
  * comment and a review can be submitted together, or the thread can predate
@@ -45,12 +45,19 @@ export function buildRawTimelineEntries(
     else existing.push(thread);
   }
 
-  const entries: RawTimelineEntry[] = activity.map(item => ({
-    kind: 'activity',
-    ts: toMs(item.timestamp),
-    item,
-    attachedThreads: item.reviewId !== null ? reviewIdToThreads.get(item.reviewId) : undefined,
-  }));
+  // GitHub emits `closed` alongside `merged`; its own UI shows only the merge.
+  const mergedKeys = new Set(activity
+    .filter(item => item.eventType === 'merged')
+    .map(item => `${item.actor}\0${item.timestamp ?? ''}`));
+  const entries: RawTimelineEntry[] = activity
+    .filter(item => item.eventType !== 'closed'
+      || !mergedKeys.has(`${item.actor}\0${item.timestamp ?? ''}`))
+    .map(item => ({
+      kind: 'activity',
+      ts: toMs(item.timestamp),
+      item,
+      attachedThreads: item.reviewId !== null ? reviewIdToThreads.get(item.reviewId) : undefined,
+    }));
   const attachedReviewIds = new Set(activity.map(item => item.reviewId).filter((id): id is number => id !== null));
   for (const thread of unattached) {
     entries.push({ kind: 'thread', ts: toMs(thread.messages[0]?.createdAt ?? null), thread });

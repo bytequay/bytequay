@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -46,7 +47,8 @@ public record GitHubTimelineEvent(
         // "commented" and "reviewed" timeline events carry their text payload
         // here; absent for structural events like "review_requested".
         String body,
-        // "committed" events carry the commit SHA at the top level.
+        // "committed" uses sha; "merged" uses commit_id for the same value.
+        @JsonAlias("commit_id")
         String sha,
         // head_ref_force_pushed events carry these — null otherwise.
         @JsonProperty("before_commit") Commit beforeCommit,

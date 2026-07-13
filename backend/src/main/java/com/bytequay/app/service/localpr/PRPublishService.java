@@ -150,7 +150,10 @@ public class PRPublishService
         }
         try {
             push(event.prId());
-            log.info("auto-merge: pushed local PR {} for task {} without waiting on the manual button",
+            // The toggle is the user's standing approval for this gate. Keep
+            // the decision on the PR even though no manual button was clicked.
+            prService.recordGateApproval(event.prId(), "push", "auto-merge");
+            log.info("auto-merge: approved and pushed local PR {} for task {} without waiting on the manual button",
                     event.prId(), event.taskId());
         }
         catch (RuntimeException e) {

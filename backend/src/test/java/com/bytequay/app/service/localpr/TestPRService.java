@@ -446,7 +446,7 @@ class TestPRService
         PR existing = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW);
         when(store.findByTaskId("task1")).thenReturn(Optional.of(existing));
 
-        service.recordBrainReview("task1", "dev", "changes_requested", 2);
+        service.recordBrainReview("task1", "dev", "changes_requested", 2, "round-1", "Review summary");
 
         ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
         verify(store).addEvent(event.capture());
@@ -454,7 +454,10 @@ class TestPRService
         assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_BRAIN);
         assertThat(event.getValue().localOnly()).isTrue();
         assertThat(event.getValue().payloadJson())
-                .contains("\"scope\":\"dev\"").contains("\"verdict\":\"changes_requested\"").contains("\"iteration\":2");
+                .contains("\"reviewEvent\":\"finished\"")
+                .contains("\"scope\":\"dev\"").contains("\"verdict\":\"changes_requested\"")
+                .contains("\"iteration\":2").contains("\"roundId\":\"round-1\"")
+                .contains("\"body\":\"Review summary\"");
     }
 
     @Test
@@ -462,7 +465,7 @@ class TestPRService
     {
         when(store.findByTaskId("task1")).thenReturn(Optional.empty());
 
-        service.recordBrainReview("task1", "plan", "approved", 1);
+        service.recordBrainReview("task1", "plan", "approved", 1, null, null);
 
         verify(store, never()).addEvent(any());
     }

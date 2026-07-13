@@ -11,11 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { UserProfileDto } from '../../types';
 import type { LocalPRBundle } from '../../types/localPr';
 import { isLocalStatus } from '../../types/localPr';
-import { getCached } from '../../dataCache';
+import { getCached, setCached } from '../../dataCache';
 import type { PRCapabilities } from '../prCapabilities';
 import { useGitHubActivityFeed } from '../useGitHubActivityFeed';
 import type { GitHubThreadActions } from './GitHubTimelineRow';
@@ -126,7 +126,23 @@ export function PRView({
   // identity; see PRTimeline's `githubFeedActive` for how it takes over
   // from the local sync tables at that point.
   const { activity, reviewThreads, detail: remoteDetail, refresh: refreshActivityFeed } = useGitHubActivityFeed(pr.repo, pr.remotePrNumber);
-  const currentUserLogin = getCached<UserProfileDto>('home:profile')?.login ?? null;
+  const [currentUser, setCurrentUser] = useState<UserProfileDto | null>(
+    () => getCached<UserProfileDto>('home:profile') ?? null,
+  );
+  useEffect(() => {
+    if (currentUser !== null || typeof window === 'undefined'
+      || typeof window.bridge?.getUserProfile !== 'function') return;
+    let cancelled = false;
+    window.bridge.getUserProfile()
+      .then(profile => {
+        if (cancelled) return;
+        setCached('home:profile', profile);
+        setCurrentUser(profile);
+      })
+      .catch(() => { /* actor text still falls back to the stored PR author */ });
+    return () => { cancelled = true; };
+  }, [currentUser]);
+  const currentUserLogin = currentUser?.login ?? null;
   const threadActions: GitHubThreadActions | undefined = pr.repo === null ? undefined : {
     repo: pr.repo,
     prAuthor: pr.author,
@@ -162,11 +178,14 @@ export function PRView({
     if (tab === 'changes') openChanges();
     else setActiveTab(tab);
   }, [openChanges]);
+  const handledSubTabToken = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (openSubTabRequest === undefined) return;
+    if (handledSubTabToken.current === openSubTabRequest.token) return;
+    handledSubTabToken.current = openSubTabRequest.token;
     handleTabChange(openSubTabRequest.subTab);
-    // The request object is the whole trigger — a fresh token re-fires it.
+    // A fresh token re-fires it; ordinary parent polling must not.
   }, [handleTabChange, openSubTabRequest]);
 
   const githubFeedActive = pr.remotePrNumber !== null;

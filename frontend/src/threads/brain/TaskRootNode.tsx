@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { PlanCardDto, PlanStepDto } from '../../types/brainView';
+import type { BrainFeedRow, PlanCardDto, PlanStepDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
 import {
@@ -30,7 +30,7 @@ import {
  */
 export function TaskRootNode({
   plan, seed, autoApprove, autoMerge, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep,
-  onHoldAuto, onToggleAutoApprove, onToggleAutoMerge,
+  onHoldAuto, onToggleAutoApprove, onToggleAutoMerge, stepComments,
 }: {
   plan: PlanCardDto;
   /** The trunk-handoff prose, when available. Omit to hide the seed block. */
@@ -46,6 +46,7 @@ export function TaskRootNode({
   onHoldAuto?: () => void;
   onToggleAutoApprove?: () => void;
   onToggleAutoMerge?: () => void;
+  stepComments?: PlanStepComment[];
 }) {
   return (
     <div className="root-node">
@@ -62,6 +63,7 @@ export function TaskRootNode({
         onHoldAuto={onHoldAuto}
         onToggleAutoApprove={onToggleAutoApprove}
         onToggleAutoMerge={onToggleAutoMerge}
+        stepComments={stepComments}
       />
     </div>
   );
@@ -107,7 +109,7 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
  *  than pinned above the feed. */
 export function PlanCard({
   plan, autoApprove, autoMerge, autoConfidenceHigh: _autoConfidenceHigh, approvedAt, onApprove, onEdit, onRequestRevision, onCommentStep,
-  onHoldAuto: _onHoldAuto, onToggleAutoApprove, onToggleAutoMerge, minApprovals, onSetMinApprovals,
+  onHoldAuto: _onHoldAuto, onToggleAutoApprove, onToggleAutoMerge, minApprovals, onSetMinApprovals, stepComments = [],
 }: {
   plan: PlanCardDto;
   autoApprove?: boolean;
@@ -135,6 +137,8 @@ export function PlanCard({
    *  shows in the card header. */
   minApprovals?: number;
   onSetMinApprovals?: (n: number) => void;
+  /** User messages entered through “Comment on this step”. */
+  stepComments?: PlanStepComment[];
 }) {
   const goal = plan.goal !== undefined && plan.goal.trim() !== '' ? plan.goal : plan.understandingSummary;
   const confidence = plan.signals.confidence ?? confidenceFromRisk(plan.signals.riskLevel);
@@ -201,7 +205,13 @@ export function PlanCard({
             <div className="plan-seclbl">Steps <span className="cnt">· {plan.steps.length}</span></div>
             <div className="plan-steps">
               {plan.steps.map(s => (
-                <PlanStep key={s.ordinal} step={s} overallRisk={plan.signals.riskLevel} onComment={onCommentStep} />
+                <PlanStep
+                  key={s.ordinal}
+                  step={s}
+                  overallRisk={plan.signals.riskLevel}
+                  comments={stepComments.filter(comment => comment.ordinal === s.ordinal)}
+                  onComment={onCommentStep}
+                />
               ))}
             </div>
           </>
@@ -247,9 +257,21 @@ export function PlanCard({
   );
 }
 
-function PlanStep({ step, overallRisk, onComment }: {
+export type PlanStepComment = { id: string; ordinal: number; body: string };
+
+/** Recover the step association already encoded by the composer prefix. */
+export function planStepComments(feed: BrainFeedRow[]): PlanStepComment[] {
+  return feed.flatMap(row => {
+    if (row.type !== 'USER_MESSAGE') return [];
+    const match = /^Re:\s*step\s+(\d+)\s*[—–-]\s*([\s\S]+)$/i.exec(row.body.trim());
+    return match === null ? [] : [{ id: row.id, ordinal: Number(match[1]), body: match[2].trim() }];
+  });
+}
+
+function PlanStep({ step, overallRisk, comments, onComment }: {
   step: PlanStepDto;
   overallRisk: 'low' | 'medium' | 'high';
+  comments: PlanStepComment[];
   onComment?: (ordinal: number) => void;
 }) {
   const [open, setOpen] = useState(step.ordinal === 1);
@@ -272,6 +294,11 @@ function PlanStep({ step, overallRisk, onComment }: {
             Consumer<ThreadTurn> (parsed as an unknown HTML tag). */}
         <span className="plan-step__title">{title}</span>
         <span className="plan-step__right">
+          {comments.length > 0 && (
+            <span className="plan-step__comment-count">
+              {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+            </span>
+          )}
           <span className={`risk ${riskRaw}`}>{riskRaw}</span>
           <span className="plan-step__chev" aria-hidden><ChevronRightIcon /></span>
         </span>
@@ -282,6 +309,16 @@ function PlanStep({ step, overallRisk, onComment }: {
           {step.files !== undefined && step.files.length > 0 && (
             <div className="plan-step__files">
               {step.files.map((f, i) => <span className="fref" key={i}>{f}</span>)}
+            </div>
+          )}
+          {comments.length > 0 && (
+            <div className="plan-step__comments">
+              {comments.map(comment => (
+                <div className="plan-step__comment" key={comment.id}>
+                  <strong>Your comment</strong>
+                  <span>{comment.body}</span>
+                </div>
+              ))}
             </div>
           )}
           {onComment !== undefined && (

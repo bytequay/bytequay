@@ -186,10 +186,12 @@ class TestCodexCliThreadAgent
     @Test
     void resumedTrunkTurnOverridesAnOlderSessionsSandbox()
     {
-        List<String> cmd = trunkAgent("sess-abc", null).buildCommand("continue").command();
+        CodexCliThreadAgent agent = trunkAgent("sess-abc", null, "TRUNK ROLE");
+        List<String> cmd = agent.buildCommand("continue").command();
 
         assertThat(cmd).containsSubsequence("-c", "sandbox_mode=\"read-only\"");
         assertThat(cmd).doesNotContain("--sandbox", "workspace-write");
+        assertThat(cmd.get(cmd.size() - 1)).contains("TRUNK ROLE").endsWith("continue");
     }
 
     @Test
@@ -301,6 +303,12 @@ class TestCodexCliThreadAgent
 
     private CodexCliThreadAgent trunkAgent(String sessionId, String reasoningEffort)
     {
+        return trunkAgent(sessionId, reasoningEffort, null);
+    }
+
+    private CodexCliThreadAgent trunkAgent(
+            String sessionId, String reasoningEffort, String roleSkillText)
+    {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         Thread thread = new Thread(
                 "thread-1", ThreadKind.CLI_AGENT, "codex", sessionId,
@@ -311,7 +319,7 @@ class TestCodexCliThreadAgent
         return new CodexCliThreadAgent(
                 thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, CWD,
+                mock(CheckpointTrigger.class), () -> "", roleSkillText, CWD,
                 CodexCliThreadAgent.TrunkMode.ENABLED, reasoningEffort);
     }
 }

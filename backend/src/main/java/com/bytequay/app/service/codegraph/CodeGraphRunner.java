@@ -21,7 +21,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
@@ -33,8 +32,6 @@ public class CodeGraphRunner
     private static final long PROBE_TIMEOUT_SECONDS = 5;
     private static final long INDEX_TIMEOUT_SECONDS = 600;
     private static final long QUERY_TIMEOUT_SECONDS = 120;
-
-    private final ConcurrentHashMap<Thread, String> bufferedOutput = new ConcurrentHashMap<>();
 
     public boolean isAvailable()
     {
@@ -93,10 +90,13 @@ public class CodeGraphRunner
         }
         pb.environment().put("LC_ALL", "C");
         Process process = pb.start();
+        // Captured by the drain virtual threads; the join() below establishes the
+        // happens-before that makes these writes visible here (no shared map to leak).
+        String[] captured = new String[2];
         Thread stdoutDrain = Thread.ofVirtual().start(
-                () -> drainSilently(process.getInputStream()));
+                () -> captured[0] = drain(process.getInputStream()));
         Thread stderrDrain = Thread.ofVirtual().start(
-                () -> drainSilently(process.getErrorStream()));
+                () -> captured[1] = drain(process.getErrorStream()));
         boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         if (!finished) {
             process.destroyForcibly();
@@ -106,23 +106,20 @@ public class CodeGraphRunner
         }
         stdoutDrain.join(5_000);
         stderrDrain.join(5_000);
-        String stdout = bufferedOutput.remove(stdoutDrain);
-        String stderr = bufferedOutput.remove(stderrDrain);
         return new CodeGraphProcessResult(
                 process.exitValue(),
-                stdout == null ? "" : stdout,
-                stderr == null ? "" : stderr,
+                captured[0] == null ? "" : captured[0],
+                captured[1] == null ? "" : captured[1],
                 ImmutableList.copyOf(args));
     }
 
-    private void drainSilently(InputStream in)
+    private static String drain(InputStream in)
     {
         try (in) {
-            byte[] bytes = in.readAllBytes();
-            bufferedOutput.put(Thread.currentThread(), new String(bytes, StandardCharsets.UTF_8));
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         catch (IOException ignored) {
-            bufferedOutput.put(Thread.currentThread(), "");
+            return "";
         }
     }
 

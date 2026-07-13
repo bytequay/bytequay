@@ -44,6 +44,8 @@ class TestRoleSkillService
                 .contains("Never claim implementation or validation work")
                 .contains("Do not call `create_task` in the")
                 .contains("immediately preceding reply")
+                .contains("read_current_repository")
+                .contains("not inspect `.git/config`")
                 // The trunk may cut tasks via create_task (its only write tool).
                 .contains("create_task");
     }

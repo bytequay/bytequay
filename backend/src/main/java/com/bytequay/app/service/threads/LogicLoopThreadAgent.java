@@ -257,6 +257,7 @@ public class LogicLoopThreadAgent
             "list_prs",
             "read_pr",
             "read_task",
+            "read_current_repository",
             // The trunk reads files so it can plan against real source — and
             // so a pasted image (saved to a path it's handed) can be opened.
             "read_file",

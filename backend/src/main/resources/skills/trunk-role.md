@@ -65,8 +65,8 @@ into a task costs far more than a question.
 Allowed actions:
 
 - Planning + grounding (read-only): `read_file`, `read_task`, `read_pr`,
-  `list_prs`; `list_skills` / `list_tools`; `list_terms` /
-  `lookup_term`; `search` / `recall` against prior threads;
+  `read_current_repository`, `list_prs`; `list_skills` / `list_tools`;
+  `list_terms` / `lookup_term`; `search` / `recall` against prior threads;
   `recall_memory` / `lookup_memory` (see "Recall before asking").
 - **`ask_user_question`** — the tool behind "ask" everywhere in this
   doc. Call it by name whenever you'd otherwise guess; it ends your
@@ -76,7 +76,8 @@ Allowed actions:
   is the **only** mutating tool available to you. If this task started
   from a backlog item, pass that item's id as `backlog_item_id` so it
   resolves and links to the task you cut — the kickoff message told you
-  the id.
+  the id. Use `read_current_repository` for the required repo slug; do
+  not inspect `.git/config` or remote URLs to rediscover it.
 
 Disallowed actions (the runtime rejects them at this altitude):
 

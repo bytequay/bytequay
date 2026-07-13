@@ -75,7 +75,8 @@ class TestMcpPermissionFilter
                 jsonRpc("tools/list", null)));
 
         JsonNode tools = listing.path("result").path("tools");
-        assertThat(toolNames(tools)).contains("approval_prompt", "recall_thread");
+        assertThat(toolNames(tools)).contains(
+                "approval_prompt", "recall_thread", "read_current_repository");
         assertThat(toolNames(tools))
                 .as("trunk has no GIT_PUSH / VCS_PUBLISH / TASK_MANAGE grant on a 0-task thread")
                 .doesNotContain("push", "post_comment", "request_review");

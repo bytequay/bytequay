@@ -39,6 +39,13 @@ class TestTrunkToolAllowlist
     }
 
     @Test
+    void trunkCanReadItsRepositoryWithoutOpeningGitConfig()
+    {
+        assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST)
+                .contains("read_current_repository");
+    }
+
+    @Test
     void trunkCanAskAClarifyingQuestion()
     {
         // Regression: trunk-role.md instructs the trunk extensively to ask

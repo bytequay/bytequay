@@ -320,6 +320,35 @@ public class AgentToolHandlers
     /** Wire shape for {@code read_workspace_memory}'s result. */
     public record WorkspaceMemory(String workspaceId, String memoryMd) {}
 
+    /** Args record for {@code read_current_repository} — no args; the repo
+     *  is derived from the calling thread's workspace. */
+    public record ReadCurrentRepositoryArgs() {}
+
+    @AgentTool(
+            name = "read_current_repository",
+            description = "Read the owner/name slug of the repository backing this trunk's "
+                    + "current planning checkout. Returns only sanitized workspace metadata; "
+                    + "it does not read or expose .git/config, remote URLs, credentials, or "
+                    + "the local clone path. Use this before create_task instead of inspecting "
+                    + "Git configuration.",
+            security = SecurityType.VCS_READ,
+            gating = Gating.AUTO,
+            roles = AgentRole.TRUNK)
+    public ToolOutcome readCurrentRepository(ReadCurrentRepositoryArgs args, ToolCall call)
+    {
+        Optional<Thread> thread = threadStore.findThreadById(call.threadId());
+        if (thread.isEmpty()) {
+            return ToolOutcome.Completed.error("thread not found: " + call.threadId());
+        }
+        return resolveTrunkRepo(thread.get().workspaceId())
+                .map(repo -> toolOutcome(new CurrentRepository(repo.fullName())))
+                .orElseGet(() -> ToolOutcome.Completed.error(
+                        "no watched repository with a local clone is linked to this workspace"));
+    }
+
+    /** Sanitized wire shape for {@code read_current_repository}. */
+    public record CurrentRepository(String repo) {}
+
     /** Args record for {@code sync_repo} — no args; the workspace/clone is
      *  derived from the calling thread. */
     public record SyncRepoArgs() {}
@@ -340,7 +369,8 @@ public class AgentToolHandlers
         if (threadOpt.isEmpty()) {
             return ToolOutcome.Completed.error("thread not found: " + call.threadId());
         }
-        Optional<String> cloneRoot = resolveTrunkCloneRoot(threadOpt.get().workspaceId());
+        Optional<String> cloneRoot = resolveTrunkRepo(threadOpt.get().workspaceId())
+                .map(WatchedRepo::localClonePath);
         if (cloneRoot.isEmpty()) {
             return ToolOutcome.Completed.ok(
                     "No local clone is linked to this workspace — nothing to sync.");
@@ -359,27 +389,25 @@ public class AgentToolHandlers
                                 + "planning will use the last-known checkout."));
     }
 
-    /** Clone root the trunk plans in for {@code workspaceId}: the first
-     *  pinned repo with a local clone, else any watched repo with one.
-     *  Mirrors the trunk cwd resolution in ThreadRegistry. */
-    private Optional<String> resolveTrunkCloneRoot(String workspaceId)
+    /** Repo the trunk plans in for {@code workspaceId}: the first pinned repo
+     *  with a local clone, else any watched repo with one. Mirrors the trunk
+     *  cwd resolution in ThreadRegistry. */
+    private Optional<WatchedRepo> resolveTrunkRepo(String workspaceId)
     {
         List<String> pinned = workspaceId == null || workspaceId.isBlank()
                 ? List.of()
                 : workspaces.listRepos(workspaceId).stream()
                         .map(r -> r.repoFullName())
                         .toList();
-        Optional<String> pinnedClone = watchedRepos.findAll().stream()
+        Optional<WatchedRepo> pinnedClone = watchedRepos.findAll().stream()
                 .filter(wr -> pinned.contains(wr.fullName()))
-                .map(WatchedRepo::localClonePath)
-                .filter(p -> p != null && !p.isBlank())
+                .filter(wr -> wr.localClonePath() != null && !wr.localClonePath().isBlank())
                 .findFirst();
         if (pinnedClone.isPresent()) {
             return pinnedClone;
         }
         return watchedRepos.findAll().stream()
-                .map(WatchedRepo::localClonePath)
-                .filter(p -> p != null && !p.isBlank())
+                .filter(wr -> wr.localClonePath() != null && !wr.localClonePath().isBlank())
                 .findFirst();
     }
 
@@ -651,7 +679,8 @@ public class AgentToolHandlers
     public record CreateTaskArgs(
             @ToolParam(description = "owner/name of the watched repo the task should be cut from. "
                     + "Must already be a watched repo with a local clone path; the task's "
-                    + "worktree is cut from that clone.",
+                    + "worktree is cut from that clone. Use read_current_repository to obtain "
+                    + "this value; do not inspect Git configuration.",
                     required = true) String repo,
             @ToolParam(description = "A short, purpose-written task title — what this task "
                     + "accomplishes, phrased like a PR title (e.g. \"Clean up backend exception "

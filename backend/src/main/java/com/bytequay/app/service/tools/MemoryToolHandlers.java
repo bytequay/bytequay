@@ -155,7 +155,7 @@ public class MemoryToolHandlers
             return ToolOutcome.Completed.error("recall_memory has no scope id to look up under");
         }
         int limit = args.limit() == null ? RECALL_DEFAULT_LIMIT
-                : Math.max(1, Math.min(RECALL_HARD_CAP, args.limit()));
+                : Math.clamp(args.limit(), 1, RECALL_HARD_CAP);
         String needle = args.query() == null ? "" : args.query().toLowerCase(Locale.ROOT).trim();
 
         List<MemoryItem> all = store.findByScope(

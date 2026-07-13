@@ -145,7 +145,7 @@ public class TeamController
             @PathVariable long id,
             @RequestParam(value = "days", defaultValue = "7") int days)
     {
-        int sanitized = Math.max(1, Math.min(90, days));
+        int sanitized = Math.clamp(days, 1, 90);
         int count = teamService.countMergedRecently(id, sanitized);
         return new MergedRecentlyResponse(count, sanitized);
     }

@@ -429,8 +429,8 @@ public class TeamService
     {
         Map<MyPrColumn, List<PullRequest>> grouped = grouped(teamId, /* force */ false);
         List<PullRequest> col = grouped.getOrDefault(column, ImmutableList.of());
-        int from = Math.max(0, Math.min(offset, col.size()));
-        int to = Math.max(from, Math.min(from + limit, col.size()));
+        int from = Math.clamp(offset, 0, col.size());
+        int to = Math.clamp(from + limit, from, col.size());
         return new ColumnPage(column, col.size(), from, ImmutableList.copyOf(col.subList(from, to)));
     }
 

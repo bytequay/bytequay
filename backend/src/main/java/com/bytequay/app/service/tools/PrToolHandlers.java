@@ -101,7 +101,7 @@ public class PrToolHandlers
             return ToolOutcome.Completed.error("filter is required");
         }
         int limit = args.limit() == null ? LIST_PRS_DEFAULT_LIMIT
-                : Math.max(1, Math.min(LIST_PRS_MAX_LIMIT, args.limit()));
+                : Math.clamp(args.limit(), 1, LIST_PRS_MAX_LIMIT);
         List<PullRequest> all = pullRequestService.listPullRequests();
         List<PullRequest> matched;
         try {

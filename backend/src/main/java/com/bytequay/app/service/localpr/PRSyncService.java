@@ -510,8 +510,15 @@ public class PRSyncService
             log.info("fetching remote PR detail for PR {} failed: {}", pr.id(), e.getMessage());
             return;
         }
+        reconcileRemoteStatus(pr, detail);
+        // Once a PR exists remotely, GitHub is the shared artifact's source
+        // of truth for its body. This also picks up edits made on github.com
+        // after a task-origin PR was opened.
+        String remoteBody = detail.body() == null ? "" : detail.body();
+        if (!remoteBody.equals(pr.description())) {
+            prService.updateDetails(pr.id(), null, remoteBody);
+        }
         if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
-            reconcileExternalStatus(pr, detail);
             // The dashboard sweep's initial createExternal has no better guess
             // than "unknown"/the default base — GitHub's search API never
             // returns head.ref (GitHubClient.toPullRequest). Backfill the real
@@ -519,15 +526,6 @@ public class PRSyncService
             // dashboard tick first) reaches this path, not syncDashboardDetail.
             if (detail.headRef() != null || detail.baseRef() != null) {
                 prService.updateBranches(pr.id(), detail.headRef(), detail.baseRef());
-            }
-            // Same story as the branch backfill above: the dashboard sweep's
-            // initial createExternal has no PR body to hand over (ghPr is the
-            // lightweight search result), so it creates the row with an empty
-            // description. GitHub is authoritative for an external PR's
-            // description (nothing in ByteQuay ever edits one), so backfill
-            // it from the already-fetched detail on every sync.
-            if (detail.body() != null) {
-                prService.updateDetails(pr.id(), null, detail.body());
             }
             syncExternalCommits(pr);
         }
@@ -592,10 +590,10 @@ public class PRSyncService
         return githubLogin == null || githubLogin.isBlank() ? "unknown" : "@" + githubLogin;
     }
 
-    /** External PRs have no push/merge gate inside ByteQuay — GitHub itself
-     *  drives their status, so a repeat sync must catch up whenever it
-     *  drifts (opened as draft then marked ready, merged, or closed). */
-    private void reconcileExternalStatus(PR pr, PullRequestDetail detail)
+    /** GitHub drives every pushed PR's remote status, including task-origin
+     *  PRs after auto-merge. A repeat sync must catch up whenever it drifts
+     *  (draft marked ready, merged, or closed). */
+    private void reconcileRemoteStatus(PR pr, PullRequestDetail detail)
     {
         String derived = deriveExternalStatus(detail.merged(), detail.state(), detail.draft());
         if (!derived.equals(pr.status()) && pr.canTransitionTo(derived)) {

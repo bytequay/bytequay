@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRTimeline } from './PRTimeline';
-import type { LocalPR, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
+import type { LocalPR, LocalPRComment, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
 import type { ActivityItemDto, PullRequestDetailDto, ReviewThreadDto } from '../../types';
 import type { GitHubThreadActions } from './GitHubTimelineRow';
 import { createAgentReviewFixture } from '../../review/agentReviewTestData';
@@ -130,7 +130,34 @@ describe('PRTimeline review rendering', () => {
       payload: { scope: 'dev', verdict: 'approved', iteration: 1 },
     })]} />);
 
-    expect(screen.getByText(/approved these changes/)).toBeTruthy();
+    expect(screen.getByText(/reviewed the code with no obvious bugs and approved it/)).toBeTruthy();
+    expect(screen.queryByText(/Brain left an adversarial code review/)).toBeNull();
+  });
+
+  it('does not turn a missing brain verdict into an approval or an empty card', () => {
+    render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
+      actor: 'brain', isLocalOnly: true,
+      payload: { reviewEvent: 'finished', scope: 'dev', verdict: null, iteration: 1, findingCount: 0 },
+    })]} />);
+
+    expect(screen.getByText(/reviewed the code; no verdict was recorded/)).toBeTruthy();
+    expect(screen.queryByText(/No review comments/)).toBeNull();
+    expect(screen.queryByText(/approved it/)).toBeNull();
+  });
+
+  it('states the purpose of each adversarial review pass', () => {
+    render(<PRTimeline pr={pr()} comments={[]} events={[
+      reviewEvent({ id: 'start-1', createdAt: 1, actor: 'brain', isLocalOnly: true,
+        payload: { reviewEvent: 'started', scope: 'dev', iteration: 1 } }),
+      reviewEvent({ id: 'fix-1', createdAt: 2, actor: 'claude-code', isLocalOnly: true,
+        payload: { reviewEvent: 'addressing-started', scope: 'dev', iteration: 1 } }),
+      reviewEvent({ id: 'start-2', createdAt: 3, actor: 'brain', isLocalOnly: true,
+        payload: { reviewEvent: 'started', scope: 'dev', iteration: 2 } }),
+    ]} />);
+
+    expect(screen.getByText('Pass 1 · Audit the completed implementation for bugs before Local Review')).toBeTruthy();
+    expect(screen.getByText('Fix pass 1 · Resolve findings before verification pass 2')).toBeTruthy();
+    expect(screen.getByText('Pass 2 · Verify fixes from pass 1 and check for regressions before Local Review')).toBeTruthy();
   });
 
   it('falls back to the generic review event when agent-review data is unavailable', () => {
@@ -147,7 +174,7 @@ describe('PRTimeline review rendering', () => {
       payload: { scope: 'plan', verdict: 'approved', iteration: 1 },
     })]} onReviewChanges={() => {}} />);
 
-    expect(screen.getByText(/approved the plan/)).toBeTruthy();
+    expect(screen.getByText(/reviewed the plan with no obvious issues and approved it/)).toBeTruthy();
     expect(screen.queryByText(/approved these changes/)).toBeNull();
     expect(screen.queryByText('View reviewed changes')).toBeNull();
   });
@@ -160,9 +187,10 @@ describe('PRTimeline plan-finalized rendering', () => {
       id: 'ev2', localPrId: 'pr1', eventType: 'plan-finalized', actor: 'you',
       isLocalOnly: true, strippedOnPushAt: null, createdAt: Date.parse('2026-06-20T10:00:00Z'),
       payload: { planStageId: 'plan-stage-1' },
-    }]} onOpenStage={onOpenStage} />);
+    }]} currentUserLogin="chenjian2664" onOpenStage={onOpenStage} />);
 
-    expect(screen.getByText(/finalized the plan/)).toBeTruthy();
+    expect(screen.getByText('chenjian2664')).toBeTruthy();
+    expect(screen.getByText(/approved the plan/)).toBeTruthy();
     fireEvent.click(screen.getByText('View the plan'));
     expect(onOpenStage).toHaveBeenCalledWith('plan-stage-1');
   });
@@ -225,6 +253,45 @@ describe('PRTimeline composition', () => {
 });
 
 describe('PRTimeline GitHub-native feed', () => {
+  it('uses the authenticated GitHub user for a task PR description avatar', () => {
+    render(<PRTimeline
+      pr={pr({ remotePrNumber: 42, repo: 'acme/widget', origin: 'task', author: 'claude-code' })}
+      events={[]} comments={[]} activity={[]} reviewThreads={[]}
+      threadActions={noopThreadActions} currentUserLogin="octocat"
+    />);
+
+    const avatar = screen.getByAltText('octocat') as HTMLImageElement;
+    expect(avatar.src).toContain('github.com/octocat.png');
+    expect(screen.getByText('octocat')).toBeTruthy();
+    expect(screen.getByText(/drafted the description/)).toBeTruthy();
+  });
+
+  it('renders GitHub merged and closed activity as one merged-commit event', () => {
+    const timestamp = '2026-06-20T11:00:00Z';
+    const { container } = render(<PRTimeline
+      pr={pr({ remotePrNumber: 42, repo: 'acme/widget', status: 'merged', author: 'octocat' })}
+      events={[]} comments={[]}
+      activity={[
+        activity({ eventType: 'merged', timestamp, afterSha: 'f77da91abc123', githubId: 20 }),
+        activity({ eventType: 'closed', timestamp, githubId: 21 }),
+      ]}
+      reviewThreads={[]}
+      remoteDetail={detail({
+        baseRef: 'main',
+        checkRuns: [
+          { githubId: 1, name: 'build', status: 'completed', conclusion: 'success', htmlUrl: null, outputTitle: null, outputSummary: null },
+          { githubId: 2, name: 'lint', status: 'completed', conclusion: 'neutral', htmlUrl: null, outputTitle: null, outputSummary: null },
+        ],
+      })}
+      threadActions={noopThreadActions}
+    />);
+
+    expect(container.textContent).toContain('octocat merged commit f77da91 into main');
+    expect(screen.getByText('2 checks passed')).toBeTruthy();
+    expect(screen.queryByText(/closed this pull request/)).toBeNull();
+    expect(container.querySelector('.tic.merged')).toBeTruthy();
+  });
+
   const pushedPr = pr({ remotePrNumber: 42, repo: 'acme/widget', origin: 'external', author: '@octocat' });
 
   it('renders a labeled event as a one-line row', () => {
@@ -369,5 +436,47 @@ describe('PRTimeline GitHub-native feed', () => {
     expect(screen.getByText('backend/service')).toBeTruthy();
     expect(screen.queryByText(/local commit that should fold/)).toBeNull();
     expect(screen.getByText('ready')).toBeTruthy();
+  });
+
+  it('keeps the adversarial review, its comments, and the auto-approved push gate visible after push', () => {
+    const events: LocalPRTimelineEvent[] = [
+      { id: 'plan-approved', localPrId: 'pr1', eventType: 'plan-finalized', actor: 'you', isLocalOnly: true,
+        strippedOnPushAt: 9, createdAt: 3, payload: { planStageId: 'plan-stage-1' } },
+      { id: 'review-start', localPrId: 'pr1', eventType: 'review', actor: 'brain', isLocalOnly: true,
+        strippedOnPushAt: 9, createdAt: 4,
+        payload: { reviewEvent: 'started', scope: 'dev', iteration: 1, roundId: 'round-1' } },
+      { id: 'review-finish', localPrId: 'pr1', eventType: 'review', actor: 'brain', isLocalOnly: true,
+        strippedOnPushAt: 9, createdAt: 6,
+        payload: { reviewEvent: 'finished', scope: 'dev', verdict: 'changes_requested', iteration: 1,
+          roundId: 'round-1', findingCount: 1, commentIds: ['brain-comment'],
+          body: 'The final reviewer response is retained even if its MCP tools disconnect.' } },
+      { id: 'review-address', localPrId: 'pr1', eventType: 'review', actor: 'claude-code', isLocalOnly: true,
+        strippedOnPushAt: 9, createdAt: 7,
+        payload: { reviewEvent: 'addressing-started', scope: 'dev', iteration: 1, roundId: 'round-1' } },
+      { id: 'push-gate', localPrId: 'pr1', eventType: 'status', actor: 'you', isLocalOnly: false,
+        strippedOnPushAt: null, createdAt: 8,
+        payload: { gate: 'push', decision: 'approved', automatic: true, reason: 'auto-merge' } },
+    ];
+    const comments: LocalPRComment[] = [{
+      id: 'brain-comment', localPrId: 'pr1', origin: 'local' as const, scope: 'file-line' as const,
+      filePath: 'src/Foo.java', lineNumber: 42, side: 'RIGHT' as const, startLine: null, startSide: null,
+      author: 'brain', body: 'This null path loses the original error.', createdAt: 5,
+      resolvedAt: 7, dismissedAt: null, strippedOnPushAt: 9, parentCommentId: null, publishedAt: null,
+    }];
+
+    render(<PRTimeline
+      pr={pr({ remotePrNumber: 42, repo: 'acme/widget', status: 'remote-open', author: '@chenjian2664' })}
+      events={events} comments={comments}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions} currentUserLogin="chenjian2664"
+    />);
+
+    expect(screen.getAllByText('chenjian2664')).toHaveLength(2);
+    expect(screen.getByText(/approved the plan/)).toBeTruthy();
+    expect(screen.getByText(/started an adversarial code review/)).toBeTruthy();
+    expect(screen.getByText(/Adversarial review finished with 1 finding/)).toBeTruthy();
+    expect(screen.getByText(/final reviewer response is retained/)).toBeTruthy();
+    expect(screen.getByText('This null path loses the original error.')).toBeTruthy();
+    expect(screen.getByText(/started addressing the adversarial review comments/)).toBeTruthy();
+    expect(screen.getByText(/Push approved automatically because auto-merge is enabled/)).toBeTruthy();
   });
 });

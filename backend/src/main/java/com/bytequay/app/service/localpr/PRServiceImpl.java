@@ -40,6 +40,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -350,14 +351,111 @@ class PRServiceImpl
     }
 
     @Override
-    public void recordBrainReview(String taskId, String scope, String verdict, int iteration)
+    public void recordBrainReview(
+            String taskId, String scope, String verdict, int iteration, String roundId, String body)
     {
         store.findByTaskId(taskId).ifPresent(pr -> {
+            if (hasReviewActivity(pr.id(), "finished", scope, iteration, roundId)) {
+                return;
+            }
+            Instant when = now();
+            Instant startedAt = reviewStartedAt(pr.id(), scope, iteration, roundId).orElse(pr.createdAt());
+            List<String> commentIds = store.commentsFor(pr.id()).stream()
+                    .filter(c -> PRTimelineEntry.ACTOR_BRAIN.equals(c.author()))
+                    .filter(c -> c.parentCommentId() == null)
+                    .filter(c -> !c.createdAt().isBefore(startedAt) && !c.createdAt().isAfter(when))
+                    .map(PRComment::id)
+                    .toList();
             appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
-                    /* localOnly */ true, now(),
-                    payload("scope", scope, "verdict", verdict, "iteration", iteration));
+                    /* localOnly */ true, when,
+                    payload("reviewEvent", "finished", "scope", scope, "verdict", verdict,
+                            "iteration", iteration, "roundId", roundId,
+                            "findingCount", commentIds.size(), "commentIds", commentIds, "body", body));
             notifyUpdated(pr.id());
         });
+    }
+
+    @Override
+    public void recordBrainReviewStarted(String taskId, String scope, int iteration, String roundId)
+    {
+        recordBrainReviewActivity(taskId, PRTimelineEntry.ACTOR_BRAIN, "started", scope, iteration, roundId);
+    }
+
+    @Override
+    public void recordBrainReviewAddressing(String taskId, String scope, int iteration, String roundId)
+    {
+        recordBrainReviewActivity(taskId, PRTimelineEntry.ACTOR_AGENT, "addressing-started", scope, iteration, roundId);
+    }
+
+    private void recordBrainReviewActivity(
+            String taskId, String actor, String activity, String scope, int iteration, String roundId)
+    {
+        store.findByTaskId(taskId).ifPresent(pr -> {
+            if (hasReviewActivity(pr.id(), activity, scope, iteration, roundId)) {
+                return;
+            }
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, actor, /* localOnly */ true, now(),
+                    payload("reviewEvent", activity, "scope", scope, "iteration", iteration, "roundId", roundId));
+            notifyUpdated(pr.id());
+        });
+    }
+
+    private Optional<Instant> reviewStartedAt(String prId, String scope, int iteration, String roundId)
+    {
+        return store.timelineFor(prId).stream()
+                .filter(e -> e.eventType().equals(PRTimelineEntry.TYPE_REVIEW))
+                .filter(e -> reviewPayloadMatches(e, "started", scope, iteration, roundId))
+                .map(PRTimelineEntry::createdAt)
+                .max(Instant::compareTo);
+    }
+
+    private boolean hasReviewActivity(String prId, String activity, String scope, int iteration, String roundId)
+    {
+        return store.timelineFor(prId).stream()
+                .anyMatch(e -> e.eventType().equals(PRTimelineEntry.TYPE_REVIEW)
+                        && reviewPayloadMatches(e, activity, scope, iteration, roundId));
+    }
+
+    private boolean reviewPayloadMatches(
+            PRTimelineEntry event, String activity, String scope, int iteration, String roundId)
+    {
+        try {
+            var payload = mapper.readTree(event.payloadJson());
+            return activity.equals(payload.path("reviewEvent").asText())
+                    && scope.equals(payload.path("scope").asText())
+                    && iteration == payload.path("iteration").asInt()
+                    && Objects.equals(roundId, payload.path("roundId").isNull()
+                            ? null : payload.path("roundId").asText(null));
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public void recordGateApproval(String prId, String gate, String reason)
+    {
+        PR pr = require(prId);
+        boolean exists = store.timelineFor(prId).stream().anyMatch(event -> {
+            if (!PRTimelineEntry.TYPE_STATUS.equals(event.eventType())) {
+                return false;
+            }
+            try {
+                var value = mapper.readTree(event.payloadJson());
+                return gate.equals(value.path("gate").asText())
+                        && "approved".equals(value.path("decision").asText())
+                        && reason.equals(value.path("reason").asText());
+            }
+            catch (JsonProcessingException | RuntimeException e) {
+                return false;
+            }
+        });
+        if (!exists) {
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_STATUS, PRTimelineEntry.ACTOR_USER,
+                    /* localOnly */ false, now(),
+                    payload("gate", gate, "decision", "approved", "automatic", true, "reason", reason));
+            notifyUpdated(pr.id());
+        }
     }
 
     @Override

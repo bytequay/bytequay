@@ -54,6 +54,7 @@ describe('TaskBrainPage', () => {
     renderBrain();
     expect(screen.getByTestId('pr-tab')).toBeTruthy();
     expect(document.querySelector('.pane-tab')).toBeNull();
+    expect(document.querySelector('.pane-content--flush')).not.toBeNull();
   });
 
   it('shows no side pane when no PR tab is provided', () => {

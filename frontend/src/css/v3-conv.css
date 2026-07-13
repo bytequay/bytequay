@@ -1673,6 +1673,7 @@
 .pr-tl-icon-row { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; }
 .pr-tl-icon-row .tic { position: relative; z-index: 1; margin-left: 50px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
 .pr-tl-icon-row .tic.green { background: var(--green); color: #fff; }
+.pr-tl-icon-row .tic.merged { background: #8250df; color: #fff; }
 .pr-tl-icon-row .tic.fail { background: var(--red); color: #fff; }
 .pr-tl-icon-row .tb { font-size: var(--font-size-md); color: var(--text-3); line-height: 1.55; padding-top: 5px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .pr-tl-icon-row .tb .who { color: var(--text-1); font-weight: 600; }
@@ -1684,6 +1685,9 @@
 .pr-tl-icon-row .verdict-pill.ok { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
 .pr-tl-icon-row .verdict-pill.chg { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid var(--amber-border); }
 .pr-tl-icon-row .tb .lbl { font-size: 10.5px; font-weight: 600; border: 1px solid var(--border-mid); border-radius: 999px; padding: 1px 8px; color: var(--text-2); }
+.pr-merge-event__main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pr-merge-event__branch { font-family: var(--mono); background: var(--blue-soft); color: var(--blue); border-radius: 6px; padding: 1px 6px; }
+.pr-merge-event__checks { color: var(--text-3); }
 
 /* Folded local-only development history for task PRs after they have a
    GitHub conversation. The row stays on the same x=64 rail as commits/CI,
@@ -1764,6 +1768,19 @@
 .pr-thread .th-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--bg); }
 .pr-thread .th-foot .reply { flex: 1; border: 1px solid var(--border-mid); border-radius: 7px; background: var(--bg-elev); padding: 6px 10px; font-size: 11.5px; color: var(--text-4); }
 .pr-thread .th-foot .btn.sm { font-size: 11.5px; padding: 4.5px 11px; }
+
+/* A brain pass is a real local review submission, not a loose collection of
+   timeline bubbles. Keep the GitHub review-card anatomy: verdict header,
+   summary, then the review's PR-level and file-level comments. */
+.brain-pr-review-card { position: relative; z-index: 1; margin: 8px 0 18px 54px; border: 1px solid var(--orange-border); border-left: 3px solid var(--orange); border-radius: 7px; background: var(--bg-elev); overflow: hidden; }
+.brain-pr-review-card.approved { border-color: var(--green-border); border-left-color: var(--green); }
+.brain-pr-review-card__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.brain-pr-review-card__meta, .brain-pr-review-card__empty { padding: 10px 14px; color: var(--text-3); font-size: 11.5px; }
+.brain-pr-review-card__comment { margin: 0 14px 12px; padding: 10px 12px; border: 1px solid var(--border-mid); border-radius: 7px; color: var(--text-2); font-size: 12.5px; }
+.brain-pr-review-card__reply { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+.brain-pr-review-card > .pr-thread { margin: 0 14px 12px; }
+.brain-review-activity .tic { color: var(--accent); }
+.brain-review-intent { display: block; width: 100%; margin-top: 2px; font-size: 10.5px; color: var(--text-4); }
 
 .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; border-radius: 7px; padding: 7px 14px; border: 1px solid var(--border-mid); background: var(--bg-elev); color: var(--text-1); cursor: pointer; white-space: nowrap; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }

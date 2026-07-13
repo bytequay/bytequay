@@ -15,6 +15,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRView } from './PRView';
 import { derivePRCapabilities } from '../prCapabilities';
+import { invalidate } from '../../dataCache';
+import type { PullRequestDetailDto } from '../../types';
 import type {
   LocalPR,
   LocalPRBundle,
@@ -24,7 +26,10 @@ import type {
   LocalPRTimelineEvent,
 } from '../../types/localPr';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  invalidate('home:profile');
+});
 
 function pr(status: LocalPRStatus, over: Partial<LocalPR> = {}): LocalPR {
   return {
@@ -64,6 +69,18 @@ function comment(over: Partial<LocalPRComment> = {}): LocalPRComment {
 
 function bundle(over: Partial<LocalPRBundle> & { pr: LocalPR }): LocalPRBundle {
   return { commits: [], timeline: [], checks: [], comments: [], ...over };
+}
+
+function githubDetail(): PullRequestDetailDto {
+  return {
+    repo: 'acme/widget', number: 145, body: null, labels: [], draft: false,
+    mergeable: null, mergeableState: null, additions: 0, deletions: 0, changedFiles: 0,
+    approvalCount: 0, changesRequestedCount: 0, pendingReviewerCount: 0,
+    requestedReviewers: [], ciStatus: 'NONE', files: [], recentActivity: [],
+    checkRuns: [], reviewThreads: [], linkedIssues: [], viewerCanWrite: true,
+    headRef: 'feat/x', headRepo: 'acme/widget', baseRef: 'main', baseRepo: 'acme/widget',
+    mergeQueueState: null, mergeQueueEnabled: false,
+  };
 }
 
 const noop = () => { /* noop */ };
@@ -218,6 +235,31 @@ describe('PRView', () => {
     expect(screen.getByRole('tab', { name: /Checks/ }).getAttribute('aria-selected')).toBe('true');
   });
 
+  it('does not replay a handled tab request when polling rerenders the parent', () => {
+    const b = bundle({ pr: pr('local-open'), checks: [check({ kind: 'local', status: 'passed' })] });
+    const request = { subTab: 'checks' as const, token: 1 };
+    const { rerender } = renderView(b, {
+      openSubTabRequest: request,
+      onReviewChanges: vi.fn(),
+      changesContent: <div>changes</div>,
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: /Commits/ }));
+    rerender(
+      <PRView
+        bundle={b}
+        capabilities={derivePRCapabilities(b.pr, 'task')}
+        commentValue="" onCommentChange={noop}
+        syncedAt={null} syncing={false} onRefresh={noop}
+        openSubTabRequest={request}
+        onReviewChanges={vi.fn()}
+        changesContent={<div>fresh changes content</div>}
+      />,
+    );
+
+    expect(screen.getByRole('tab', { name: /Commits/ }).getAttribute('aria-selected')).toBe('true');
+  });
+
   it('renders embedded Changes content as an in-place PR subtab', () => {
     const onReviewChanges = vi.fn();
     renderView(
@@ -315,7 +357,7 @@ describe('PRView', () => {
   });
 
   it('force-refreshes the GitHub conversation feed alongside the local bundle on Sync', async () => {
-    const fetchPullRequestDetail = vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] });
+    const fetchPullRequestDetail = vi.fn().mockResolvedValue(githubDetail());
     const refreshPullRequestDetail = vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] });
     window.bridge = { fetchPullRequestDetail, refreshPullRequestDetail } as unknown as typeof window.bridge;
     const onRefresh = vi.fn();
@@ -330,5 +372,24 @@ describe('PRView', () => {
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(refreshPullRequestDetail).toHaveBeenCalledOnce();
     expect(refreshPullRequestDetail).toHaveBeenCalledWith('acme/widget', 145);
+  });
+
+  it('loads the authenticated GitHub user for a task PR description avatar', async () => {
+    const getUserProfile = vi.fn().mockResolvedValue({
+      login: 'octocat', name: 'The Octocat', avatarUrl: 'https://avatars.example/octocat.png',
+      htmlUrl: 'https://github.com/octocat', publicRepos: 8, followers: 10, following: 2,
+      bio: null, location: null, company: null, email: null, hasSponsors: false,
+    });
+    const fetchPullRequestDetail = vi.fn().mockResolvedValue(githubDetail());
+    window.bridge = { getUserProfile, fetchPullRequestDetail } as unknown as typeof window.bridge;
+
+    renderView(bundle({
+      pr: pr('remote-open', {
+        remotePrNumber: 145, repo: 'acme/widget', origin: 'task', author: 'claude-code',
+      }),
+    }));
+
+    await vi.waitFor(() => expect(document.querySelector('.pr-avatar')?.getAttribute('alt')).toBe('octocat'));
+    expect(getUserProfile).toHaveBeenCalledOnce();
   });
 });

@@ -257,6 +257,27 @@ class TestPRSyncService
     }
 
     @Test
+    void syncsGitHubDescriptionAndMergedStateForATaskOriginPr()
+            throws Exception
+    {
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.AWAITING_REMOTE_REVIEW)));
+        PR pushed = pushedPr();
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushed));
+        when(prService.commits("pr1")).thenReturn(List.of());
+        when(git.resolveCommitBase(any(), any())).thenReturn("main");
+        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
+                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        PullRequestDetail remote = detail("feature/x", "main", "The GitHub PR body.", true, "closed", false);
+        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(remote);
+
+        service.syncPR("pr1");
+
+        verify(prService).updateDetails("pr1", null, "The GitHub PR body.");
+        verify(prService).transition("pr1", PR.STATUS_MERGED, PRTimelineEntry.ACTOR_AGENT);
+    }
+
+    @Test
     void skipsAlreadySyncedRemoteEvents()
             throws Exception
     {

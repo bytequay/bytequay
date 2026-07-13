@@ -19,6 +19,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
@@ -122,6 +123,26 @@ class TestAgentToolHandlersCreateTask
 
         assertThat(result.isError()).isTrue();
         assertThat(result.text()).contains("not in watched repos");
+    }
+
+    @Test
+    void readsTheWorkspaceRepositoryWithoutExposingItsClonePath()
+            throws Exception
+    {
+        when(workspaces.listRepos("ws-default")).thenReturn(List.of(
+                new WorkspaceRepo("ws-default", "acme/widgets", "main", false, NOW)));
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("other", "repo", "/tmp/other"),
+                watchedRepo("acme", "widgets", "/secret/local/widgets")));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.readCurrentRepository(
+                new AgentToolHandlers.ReadCurrentRepositoryArgs(),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(new ObjectMapper().readTree(result.text()).path("repo").asText())
+                .isEqualTo("acme/widgets");
+        assertThat(result.text()).doesNotContain("/secret/local/widgets");
     }
 
     @Test

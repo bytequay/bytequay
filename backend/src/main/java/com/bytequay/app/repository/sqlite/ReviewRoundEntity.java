@@ -18,9 +18,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/** JPA row for a {@code review_round}. */
+/** JPA row for the legacy comment-addressing {@code response_round}. */
 @Entity
-@Table(name = "review_round")
+@Table(name = "response_round")
 class ReviewRoundEntity
 {
     @Id

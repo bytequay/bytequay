@@ -19,6 +19,8 @@ import { MarkdownProse } from '../threads/MarkdownProse';
 import { relativeTime } from '../notificationDisplay';
 import type { ReviewCommentDto, UserProfileDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
+import { AgentFindingContent, presentFinding, type AgentFindingPresentation } from '../review/AgentEvidence';
+import type { AgentReviewData } from '../review/agentReviewTypes';
 
 export function initials(author: string): string {
   const cleaned = author.replace(/^@/, '');
@@ -32,6 +34,8 @@ function isAgentAuthor(author: string): boolean {
   return normalized === 'agent'
     || normalized === 'ai reviewer'
     || normalized === 'ai-reviewer'
+    || normalized === 'agent-reviewer'
+    || normalized === 'verifier'
     || normalized === 'brain'
     || normalized === 'claude'
     || normalized === 'claude-code'
@@ -78,6 +82,7 @@ export type DiffInlineComment = {
   sourceLabel?: string;
   /** Epoch ms — drives the relative-time chip. Omit to hide it. */
   createdAtMs?: number;
+  finding?: AgentFindingPresentation;
 };
 
 /** Avatar tint: the dev agent's own findings (bot) vs. a real reviewer's
@@ -106,7 +111,8 @@ export function isPendingLocalComment(c: LocalPRComment): boolean {
   return c.origin === 'local' && c.publishedAt === null && c.resolvedAt === null && c.dismissedAt === null;
 }
 
-export function diffInlineCommentFromLocalPr(c: LocalPRComment): DiffInlineComment {
+export function diffInlineCommentFromLocalPr(c: LocalPRComment, reviewOrIndex?: AgentReviewData | number): DiffInlineComment {
+  const review = typeof reviewOrIndex === 'number' ? undefined : reviewOrIndex;
   const agent = c.origin === 'local' && isAgentAuthor(c.author);
   return {
     id: c.id,
@@ -124,6 +130,7 @@ export function diffInlineCommentFromLocalPr(c: LocalPRComment): DiffInlineComme
     pending: isPendingLocalComment(c),
     sourceLabel: agent ? 'AGENT' : undefined,
     createdAtMs: c.createdAt,
+    finding: c.findingId == null || review === undefined ? undefined : presentFinding(review, c.findingId),
   };
 }
 
@@ -176,6 +183,7 @@ function isOpen(c: DiffInlineComment): boolean {
 export function DiffInlineCommentComposer({
   value, onChange, onSubmit, onCancel, range, placeholder = 'Leave a comment — markdown supported.',
   submitLabel = '＋ Add to review', showSingleAction = false, autoFocus = true, actions, error,
+  singleActionLabel = 'Add single comment',
   className = 'cd-inline-comment cd-inline-comment--composer',
   headerClassName, actionsClassName = 'ic-actions', textareaClassName = 'ic-composer',
   disabled = false,
@@ -192,6 +200,7 @@ export function DiffInlineCommentComposer({
    *  primary action — local PR comments have no distinct "post immediately"
    *  path yet vs. queuing a draft for review, just this second way in. */
   showSingleAction?: boolean;
+  singleActionLabel?: string;
   autoFocus?: boolean;
   actions?: ReactNode;
   error?: ReactNode;
@@ -235,7 +244,7 @@ export function DiffInlineCommentComposer({
           </button>
           {showSingleAction && (
             <button type="button" className="secondary" onClick={onSubmit} disabled={disabled || trimmed.length === 0}>
-              Add single comment
+              {singleActionLabel}
             </button>
           )}
           <span className="ic-actions__spacer" />
@@ -270,6 +279,7 @@ export function DiffInlineComments({
   onCancel,
   composingOn,
   placeholder,
+  singleActionLabel,
 }: {
   comments: DiffInlineComment[];
   allowLocalComments: boolean;
@@ -289,6 +299,7 @@ export function DiffInlineComments({
    *  thread header's line label when `comments` is empty. */
   composingOn?: string;
   placeholder?: string;
+  singleActionLabel?: string;
 }) {
   const [draft, setDraft] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -333,7 +344,7 @@ export function DiffInlineComments({
                 const avatarLogin = githubAvatarLogin(c);
                 return (
                   <div key={c.id}>
-                    <div className="ic-comment">
+                    <div className="ic-comment" data-finding-id={c.finding?.finding.id}>
                       {avatarLogin !== null ? (
                         <Avatar
                           login={avatarLogin}
@@ -373,7 +384,11 @@ export function DiffInlineComments({
                             </span>
                           )}
                         </div>
-                        <div className="ic-comment__text"><MarkdownProse text={c.body} /></div>
+                        <div className="ic-comment__text">
+                          {c.finding !== undefined
+                            ? <AgentFindingContent view={c.finding} body={c.body} pending={c.pending} />
+                            : <MarkdownProse text={c.body} />}
+                        </div>
                       </div>
                     </div>
                     {replyingTo === c.id && onReply !== undefined && (
@@ -412,6 +427,7 @@ export function DiffInlineComments({
           range={composingOn}
           placeholder={placeholder}
           showSingleAction
+          singleActionLabel={singleActionLabel}
         />
       )}
     </>

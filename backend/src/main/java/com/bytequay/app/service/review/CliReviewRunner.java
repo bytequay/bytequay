@@ -139,8 +139,12 @@ public class CliReviewRunner
     /** Points a Claude CLI seat at its review MCP server (the pass + seat
      *  it serves). Null disables the bridge — the seat then has no review
      *  tools and reviews from the inlined diff only (Codex today). */
-    public record McpEndpoint(String passId, String participantId)
+    public record McpEndpoint(String passId, String participantId, String explicitUrl)
     {
+        public McpEndpoint(String passId, String participantId)
+        {
+            this(passId, participantId, null);
+        }
     }
 
     /**
@@ -166,6 +170,15 @@ public class CliReviewRunner
         finally {
             slots.release();
         }
+    }
+
+    /** Run when {@link com.bytequay.app.service.threads.AgentScheduler} has
+     * already acquired the shared CLI lane. The ordinary {@link #run} gate
+     * remains for legacy reviewer seats that call this component directly. */
+    Result runWithSchedulerCapacity(
+            Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
+    {
+        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp);
     }
 
     private Result runOnce(
@@ -250,17 +263,25 @@ public class CliReviewRunner
         return false;
     }
 
-    /** The four review tools, with the CLI's {@code mcp__<server>__}
+    /** The review tools, with the CLI's {@code mcp__<server>__}
      *  prefix, pre-allowed so {@code claude -p} runs them without a
      *  permission prompt. */
     static final String ALLOWED_REVIEW_TOOLS =
             "mcp__bytequay__get_pr_diff,mcp__bytequay__get_file_content,"
-            + "mcp__bytequay__search_code,mcp__bytequay__report_finding";
+            + "mcp__bytequay__search_code,mcp__bytequay__report_finding,"
+            + "mcp__bytequay__record_assignment,mcp__bytequay__record_hypothesis,"
+            + "mcp__bytequay__record_step,mcp__bytequay__read_diff,"
+            + "mcp__bytequay__read_file,mcp__bytequay__search_diff,"
+            + "mcp__bytequay__record_evidence,mcp__bytequay__record_finding,"
+            + "mcp__bytequay__record_verification";
 
     /** The review MCP endpoint URL for a {@code (passId, participantId)}
      *  seat. Pure — unit-tested. */
     static String mcpServerUrl(McpEndpoint mcp)
     {
+        if (mcp.explicitUrl() != null && !mcp.explicitUrl().isBlank()) {
+            return mcp.explicitUrl();
+        }
         return SIDECAR_BASE_URL + "/api/reviews/" + mcp.passId()
                 + "/seats/" + mcp.participantId() + "/mcp";
     }

@@ -43,6 +43,8 @@ import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
+import { AgentReviewHeaderAction } from '../review/AgentReviewHeaderAction';
+import { useAgentReviewState } from '../review/useAgentReviewState';
 import { ConvIndex } from '../threads/ConvIndex';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
@@ -148,6 +150,13 @@ export function StageDetailRoute({
       .catch(() => { /* poll reconciles */ })
       .finally(() => setSubmittingReview(false));
   }, [taskId, pollFast]);
+  const submitAgentFindingsToTask = useCallback(async (verdict: ReviewVerdict, comments: Array<{ body: string }>) => {
+    await window.bridge.submitReview(taskId, {
+      body: comments.map(comment => comment.body).join('\n\n'), verdict,
+    });
+    pollFast();
+  }, [pollFast, taskId]);
+  const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
   const pendingReviewComments = useMemo(
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
@@ -547,9 +556,26 @@ export function StageDetailRoute({
   // remote PRTabContent until then. Push/merge open their user-gated dialogs;
   // the action bar's secondary focuses the composer with an address-comments
   // starter (never auto-posts).
-  const localPrNode = localPrBundle !== null && localPrBundle !== undefined && prCapabilities !== null ? (
+  const displayedLocalPrBundle = agentReview.displayedBundle ?? localPrBundle;
+  const agentReviewHeader = (
+    <AgentReviewHeaderAction
+      state={agentReview.headerState}
+      round={agentReview.data?.rounds.length ?? 1}
+      spendCents={agentReview.latestRound?.cost_cents ?? 0}
+      comments={agentReview.pendingComments}
+      excluded={agentReview.excludedFindings}
+      error={agentReview.error}
+      onStart={agentReview.startReview}
+      onOpenRound={() => { setReviewOpen(true); setPrSubTabRequest(prev => ({ subTab: 'changes', token: (prev?.token ?? 0) + 1 })); }}
+      onToggle={agentReview.toggleFinding}
+      onEdit={agentReview.updateComment}
+      onRemove={agentReview.dismissComment}
+      onSubmit={agentReview.submitReview}
+    />
+  );
+  const localPrNode = displayedLocalPrBundle !== null && displayedLocalPrBundle !== undefined && prCapabilities !== null ? (
     <PRView
-      bundle={localPrBundle}
+      bundle={displayedLocalPrBundle}
       capabilities={prCapabilities}
       commentValue={localComment}
       onCommentChange={setLocalComment}
@@ -563,30 +589,42 @@ export function StageDetailRoute({
       changesContent={(
         <LocalPrReviewScreen
           embedded
-          title={`Review · ${localPrBundle.pr.title}`}
+          title={`Review · ${displayedLocalPrBundle.pr.title}`}
           files={reviewOpen ? files : null}
-          comments={localPrBundle?.comments ?? []}
-          commits={localPrBundle?.commits ?? []}
+          comments={displayedLocalPrBundle.comments}
+          commits={displayedLocalPrBundle.commits}
           allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
           fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
           onAddComment={addLocalLineComment}
           onReplyComment={replyLocalLineComment}
           onResolveComment={resolveLocalComment}
-          onDismissComment={deleteLocalComment}
+          onDismissComment={(commentId) => {
+            if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
+            else deleteLocalComment(commentId);
+          }}
           onBack={() => setReviewOpen(false)}
           onSubmitReview={onSubmitReview}
           submittingReview={submittingReview}
+          reviewData={agentReview.data ?? undefined}
+          onStartAgentReview={agentReview.startReview}
         />
       )}
       onRunTests={runLocalTests}
       runTestsBusy={testsBusy}
       onResolveThread={taskTerminal ? undefined : resolveLocalComment}
-      onDismissThread={taskTerminal ? undefined : deleteLocalComment}
+      onDismissThread={taskTerminal ? undefined : (commentId) => {
+        if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
+        else deleteLocalComment(commentId);
+      }}
       onOpenStage={onOpenStage}
-      syncedAt={localPrBundle.pr.syncedAt}
+      syncedAt={displayedLocalPrBundle.pr.syncedAt}
       syncing={prSyncing}
       onRefresh={refreshLocalPr}
       openSubTabRequest={prSubTabRequest}
+      headerAction={agentReviewHeader}
+      reviewData={agentReview.data ?? undefined}
+      onAnswerFinding={agentReview.answerFinding}
+      onReviewRoundAction={agentReview.roundAction}
     />
   ) : null;
 
@@ -689,6 +727,7 @@ export function StageDetailRoute({
         closedNote: state === 'CLOSED' ? 'This stage is closed.' : undefined,
         images,
         onImagesChange: setImages,
+        modePill: <WorkModelPill scope={{ kind: 'stage', stageId }} />,
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
       tabCounts={{

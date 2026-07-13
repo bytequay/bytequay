@@ -31,8 +31,8 @@ import static java.util.Objects.requireNonNull;
 /**
  * Read-only REST surface for {@link AgentRun} — the rail's run sub-rows and
  * a run's own detail / log. The log reuses {@link StageDetailService}
- * as-is: a run's turns already land in {@code stage_messages} against its
- * own backing stage id, so there's no separate log storage to read from.
+ * as-is for stage-backed runs. Detached artifact runs expose their dedicated
+ * artifact log endpoint instead and return conflict here.
  */
 @RestController
 public class AgentRunController
@@ -61,7 +61,12 @@ public class AgentRunController
     @GetMapping("/api/runs/{runId}/log")
     public StageDetailData log(@PathVariable String runId)
     {
-        return detailService.getDetail(UUID.fromString(findOrThrow(runId).stageId()));
+        AgentRun run = findOrThrow(runId);
+        if (run.stageId() == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409), "run has no stage-backed log: " + runId);
+        }
+        return detailService.getDetail(UUID.fromString(run.stageId()));
     }
 
     private AgentRun findOrThrow(String runId)

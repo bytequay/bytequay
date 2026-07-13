@@ -683,6 +683,14 @@ class PRServiceImpl
     }
 
     @Override
+    public void recordReviewEvent(String prId, String actor, String payloadJson)
+    {
+        PR pr = require(prId);
+        appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, actor, true, now(), payloadJson);
+        notifyUpdated(pr.id());
+    }
+
+    @Override
     public PRComment resolveComment(String commentId)
     {
         PRComment comment = store.findCommentById(commentId)
@@ -718,6 +726,35 @@ class PRServiceImpl
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PRComment saved = store.saveComment(comment.withPublished(when));
+        notifyUpdated(comment.prId());
+        return saved;
+    }
+
+    @Override
+    public PRComment attachFinding(String commentId, String findingId)
+    {
+        if (findingId == null || findingId.isBlank()) {
+            throw new IllegalArgumentException("findingId is required");
+        }
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        PRComment saved = store.saveComment(comment.withFinding(findingId));
+        notifyUpdated(comment.prId());
+        return saved;
+    }
+
+    @Override
+    public PRComment editCommentBody(String commentId, String body)
+    {
+        if (body == null || body.isBlank()) {
+            throw new IllegalArgumentException("comment body is required");
+        }
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        if (!PRComment.ORIGIN_LOCAL.equals(comment.origin()) || comment.publishedAt() != null) {
+            throw new IllegalArgumentException("only pending local comments can be edited");
+        }
+        PRComment saved = store.saveComment(comment.withBody(body.strip()));
         notifyUpdated(comment.prId());
         return saved;
     }

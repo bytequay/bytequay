@@ -65,6 +65,15 @@ class SqliteAgentRunStore
 
     @Override
     @Transactional(readOnly = true)
+    public List<AgentRun> findByReviewRound(String reviewRoundId)
+    {
+        return runs.findByReviewRoundIdOrderByStartedAtMsAsc(reviewRoundId).stream()
+                .map(SqliteAgentRunStore::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<AgentRun> findByTask(String taskId, String kind, String parentStageId)
     {
         return runs.findByTaskIdOrderByStartedAtMsDesc(taskId).stream()

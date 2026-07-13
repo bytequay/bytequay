@@ -70,11 +70,9 @@ export type AgentRunDto = {
   source: AgentRunSource;
   parentStageId: string | null;
   reviewRoundId: string | null;
-  /** The run's own backing stage — every run gets one purely so its turns
-   *  land in {@code stage_messages} through the existing FK-scoped
-   *  mechanism. `GET /api/stages/{stageId}/detail` on this id is the run's
-   *  own conversation/log (what {@code RunLogPage} renders). */
-  stageId: string;
+  /** The run's own backing stage when it has one. Artifact-owned runs such
+   *  as external PR reviews use their artifact log and leave this null. */
+  stageId: string | null;
   status: AgentRunStatus;
   iterations: number;
   budget: number | null;

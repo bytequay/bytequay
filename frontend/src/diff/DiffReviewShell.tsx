@@ -78,6 +78,7 @@ export function DiffReviewShell({
   initialFilesWidth = 260,
   minFilesWidth = 180,
   maxFilesWidth = 480,
+  fileDecoration,
 }: {
   title: ReactNode;
   /** Null = loading. Empty array = no changes. */
@@ -101,6 +102,7 @@ export function DiffReviewShell({
   initialFilesWidth?: number;
   minFilesWidth?: number;
   maxFilesWidth?: number;
+  fileDecoration?: (file: DiffFileDto) => ReactNode;
 }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
@@ -196,6 +198,7 @@ export function DiffReviewShell({
               onSelectPath={setSelectedPath}
               collapsedDirs={collapsedDirs}
               onToggleDir={toggleDir}
+              trailingOf={fileDecoration}
             />
           ) : (
             extraTabs.find(t => t.key === activeTab)?.content

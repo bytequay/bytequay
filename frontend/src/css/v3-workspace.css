@@ -14,7 +14,7 @@
 .shell.shell-rail {
   display: block;
   height: 100%;
-  width: 232px;
+  width: 222px;
   flex-shrink: 0;
   position: relative;
 }
@@ -47,9 +47,7 @@
 }
 .shell.shell-rail > .sidebar {
   height: 100%;
-  /* The global left rail reads as one surface with the main content pane
-     (both var(--bg)), not the darker var(--bg-sidebar) per-surface panes use. */
-  background: var(--bg);
+  background: var(--bg-sidebar);
 }
 
 /* Folded: the nav body + footer aren't rendered and the rail shrinks to a
@@ -206,7 +204,7 @@
   gap: 1px;
 }
 .shell .ws-item .ws-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-1);
   line-height: 1.2;
@@ -253,7 +251,7 @@
   flex: 1;
 }
 .shell .ws-switcher .ws-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-1);
   line-height: 1.2;
 }
@@ -274,7 +272,7 @@
   gap: 9px;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 14.5px;
+  font-size: var(--font-size-md);
   color: var(--text-2);
   cursor: pointer;
   border: 0;
@@ -324,7 +322,7 @@
   background: transparent;
   font-family: inherit;
   text-align: left;
-  font-size: 14.5px;
+  font-size: var(--font-size-md);
   font-weight: 400;
   color: var(--text-2);
   cursor: pointer;
@@ -834,6 +832,6 @@
 /* The "Recent" section (visited-surface stops) reads larger than its
    "Today" sibling below it — scoped to --recent so Today's PR-bucket rows
    (which share the same .sb-recent__* classes) stay at their own size. */
-.shell .sb-section--recent .sb-section-h .nm { font-size: 12px; }
-.shell .sb-section--recent .sb-recent__title { font-size: 13px; }
-.shell .sb-section--recent .sb-recent__sub { font-size: 11px; }
+.shell .sb-section--recent .sb-section-h .nm { font-size: 11px; }
+.shell .sb-section--recent .sb-recent__title { font-size: 12.5px; }
+.shell .sb-section--recent .sb-recent__sub { font-size: 10.5px; font-family: var(--mono); }

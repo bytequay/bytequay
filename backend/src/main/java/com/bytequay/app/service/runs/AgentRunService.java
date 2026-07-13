@@ -31,6 +31,8 @@ public interface AgentRunService
 {
     Optional<AgentRun> findById(String runId);
 
+    List<AgentRun> findByReviewRound(String reviewRoundId);
+
     /** Every run for a task, newest-first. {@code kind} / {@code
      *  parentStageId} narrow when non-null. */
     List<AgentRun> findByTask(String taskId, String kind, String parentStageId);
@@ -60,6 +62,9 @@ public interface AgentRunService
     AgentRun openInStage(
             String taskId, String kind, String source, String stageId, Integer budget);
 
+    /** Open a run for an external review round that has no task/stage container. */
+    AgentRun openDetached(String kind, String source, String reviewRoundId, Integer budget);
+
     /** Record one more iteration, optionally updating the fold-bar headline. */
     AgentRun recordIteration(String runId, String headlineOrNull);
 
@@ -68,8 +73,10 @@ public interface AgentRunService
 
     AgentRun updateHeadline(String runId, String headline);
 
-    /** Transition to {@code status}; a terminal status ({@code succeeded}
-     *  / {@code failed} / {@code cancelled}) also closes the run's
-     *  backing stage. */
+    AgentRun updateMetrics(String runId, String metricsJson);
+
+    /** Transition a live run to {@code status}; terminal runs are immutable.
+     * A terminal status ({@code succeeded} / {@code failed} / {@code
+     * cancelled}) also closes the run's backing stage. */
     AgentRun transition(String runId, String status, String reason);
 }

@@ -17,6 +17,7 @@ import type {
 } from './types/brainView';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
 import type { DashboardPR } from './types/dashboardPr';
+import type { AgentReviewData } from './review/agentReviewTypes';
 
 export type HandledAction =
   | 'APPROVED'
@@ -4013,8 +4014,7 @@ export type Bridge = {
   /** A task's agent runs (live and finished) — the Dev stage feed folds the
    *  `ci_fix`-kind ones (not tied to a review round) into episodes. */
   getTaskRuns: (taskId: string) => Promise<AgentRunDto[]>;
-  /** One run's own record, notably its {@code stageId} — {@code RunLogPage}
-   *  resolves this once, then reuses the stage-detail machinery as-is. */
+  /** One run's record; stage-backed runs can reuse the stage-detail log. */
   getAgentRun: (runId: string) => Promise<AgentRunDto>;
   /** A task's review rounds, newest-first — the Comments stage feed. */
   getTaskRounds: (taskId: string) => Promise<ReviewRoundDto[]>;
@@ -4044,7 +4044,28 @@ export type Bridge = {
   deleteLocalPrBranch: (prId: string) => Promise<LocalPR>;
   /** Batch every unpublished draft comment into one GitHub review
    *  (external PRs only — see {@code PRCapabilities.publishReview}). */
-  publishLocalPrReview: (prId: string) => Promise<LocalPR>;
+  publishLocalPrReview: (
+    prId: string,
+    body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[] },
+  ) => Promise<LocalPR>;
+  /** Persisted investigation-review aggregate; null means this PR has never
+   *  been reviewed. Every review surface consumes this exact payload. */
+  getAgentReviewSession: (prId: string) => Promise<AgentReviewData | null>;
+  startAgentReviewSession: (
+    prId: string,
+    body?: { runner?: 'api' | 'cli'; providerId?: string },
+  ) => Promise<AgentReviewData>;
+  continueAgentReviewSession: (
+    sessionId: string,
+    body: { kind: 'continue' | 're-review' | 'continuation'; findingIds?: string[]; runner?: 'api' | 'cli'; providerId?: string },
+  ) => Promise<AgentReviewData>;
+  answerAgentReviewFinding: (findingId: string, text: string) => Promise<AgentReviewData>;
+  mutateAgentReviewFinding: (
+    findingId: string,
+    body: { action: 'dismiss' | 'include' | 'exclude' | 'editDraft' | 'reopen'; text?: string },
+  ) => Promise<AgentReviewData>;
+  getAgentReviewRoundLog: (roundId: string) => Promise<AgentReviewData>;
+  cancelAgentReviewRound: (roundId: string) => Promise<AgentReviewData>;
   /** Add a user comment to the local PR (PR-level or inline file-line).
    *  `side` is 'LEFT'/'RIGHT' (undefined defaults to RIGHT); `startLine`/
    *  `startSide` are set only for a multi-line range. */

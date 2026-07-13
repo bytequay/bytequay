@@ -27,7 +27,7 @@ class AgentRunEntity
     @Column(name = "id", nullable = false)
     private String id;
 
-    @Column(name = "task_id", nullable = false)
+    @Column(name = "task_id")
     private String taskId;
 
     @Column(name = "kind", nullable = false)
@@ -42,7 +42,7 @@ class AgentRunEntity
     @Column(name = "review_round_id")
     private String reviewRoundId;
 
-    @Column(name = "stage_id", nullable = false)
+    @Column(name = "stage_id")
     private String stageId;
 
     @Column(name = "status", nullable = false)

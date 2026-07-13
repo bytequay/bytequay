@@ -59,6 +59,12 @@ class AgentRunServiceImpl
     }
 
     @Override
+    public List<AgentRun> findByReviewRound(String reviewRoundId)
+    {
+        return store.findByReviewRound(reviewRoundId);
+    }
+
+    @Override
     public List<AgentRun> findByTask(String taskId, String kind, String parentStageId)
     {
         return store.findByTask(taskId, kind, parentStageId);
@@ -119,6 +125,19 @@ class AgentRunServiceImpl
     }
 
     @Override
+    public AgentRun openDetached(
+            String kind, String source, String reviewRoundId, Integer budget)
+    {
+        requireText(kind, "kind");
+        requireText(reviewRoundId, "reviewRoundId");
+        AgentRun run = new AgentRun(
+                UUID.randomUUID().toString(), null, kind, source,
+                null, reviewRoundId, null, AgentRun.STATUS_RUNNING,
+                0, budget, null, null, now(), null);
+        return store.save(run);
+    }
+
+    @Override
     public AgentRun recordIteration(String runId, String headlineOrNull)
     {
         AgentRun run = require(runId);
@@ -140,11 +159,21 @@ class AgentRunServiceImpl
     }
 
     @Override
-    public AgentRun transition(String runId, String status, String reason)
+    public AgentRun updateMetrics(String runId, String metricsJson)
+    {
+        return store.save(require(runId).withMetrics(metricsJson));
+    }
+
+    @Override
+    public synchronized AgentRun transition(String runId, String status, String reason)
     {
         AgentRun run = require(runId);
+        if (!run.isLive()) {
+            return run;
+        }
         AgentRun updated = store.save(run.withStatus(status, now()));
-        if (updated.finishedAt() != null && !Objects.equals(updated.parentStageId(), updated.stageId())) {
+        if (updated.finishedAt() != null && updated.stageId() != null
+                && !Objects.equals(updated.parentStageId(), updated.stageId())) {
             stageStore.closeStage(UUID.fromString(updated.stageId()), reason);
         }
         return updated;

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
@@ -31,6 +32,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -628,13 +630,38 @@ class TestPRPublishService
     }
 
     @Test
-    void publishReviewRejectsATaskOriginPr()
+    void explicitEmptySelectionApprovesWithoutPublishingPendingDrafts()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        PRComment pending = draft("cm1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Do not publish me.");
+        when(prService.comments("pr-ext")).thenReturn(List.of(pending));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr-ext", "APPROVE", List.of(), List.of());
+
+        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
+        verify(pullRequests).createReview(
+                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
+        assertThat(command.getValue().event()).isEqualTo("APPROVE");
+        assertThat(command.getValue().body()).isEmpty();
+        assertThat(command.getValue().comments()).isEmpty();
+        verify(prService, never()).markPublished(eq("cm1"), any());
+    }
+
+    @Test
+    void publishReviewMarksTaskOriginDraftsSubmittedWithoutCallingGitHub()
     {
         when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
+        PRComment local = new PRComment(
+                "cm-task", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, "agent", "Preserve the old behavior.", NOW,
+                null, null, null, null, null, "RIGHT", null, null);
+        when(prService.comments("pr1")).thenReturn(List.of(local));
 
-        assertThatThrownBy(() -> service.publishReview("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("only applies to external PRs");
+        service.publishReview("pr1");
+
+        verify(prService).markPublished(eq("cm-task"), any());
+        verify(pullRequests, never()).createReview(any(), any(), any());
     }
 
     @Test

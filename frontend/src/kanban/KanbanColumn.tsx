@@ -72,6 +72,7 @@ type Props<T extends PrLikeWithId> = {
   onHandle: (prId: T['id']) => void;
   onReopen: (prId: T['id']) => void;
   onSnooze?: (prId: T['id'], untilIso: string) => void;
+  onAgentReview?: (pr: T) => void;
   /** When provided, the column's cards are HTML5-draggable. Only set
    *  by the My-PRs board. */
   draggable?: boolean;
@@ -103,7 +104,7 @@ type Props<T extends PrLikeWithId> = {
 
 function KanbanColumn<T extends PrLikeWithId>({
   kind, label, prs, selectedId, collapsed, yourMove, urgentCount,
-  onToggle, onSelect, onHandle, onReopen, onSnooze,
+  onToggle, onSelect, onHandle, onReopen, onSnooze, onAgentReview,
   draggable, acceptDropFrom, onCardDrop,
   cardMode,
   totalCount, onLoadMore, footerCta,
@@ -270,6 +271,7 @@ function KanbanColumn<T extends PrLikeWithId>({
                 onHandle={() => onHandle(pr.id)}
                 onReopen={() => onReopen(pr.id)}
                 onSnooze={onSnooze ? (untilIso) => onSnooze(pr.id, untilIso) : undefined}
+                onAgentReview={onAgentReview ? () => onAgentReview(pr) : undefined}
                 draggable={draggable}
               />
             ))}

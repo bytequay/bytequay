@@ -342,13 +342,15 @@ function App() {
       });
   };
 
-  /** Open a live/finished agent run's own log — `RunLogPage` is the plain
-   *  `StageDetailRoute` repurposed via the run's own backing stage id
-   *  (every run gets one, purely so its turns land in `stage_messages`
-   *  through the existing FK-scoped mechanism; see `AgentRun.stageId`). */
+  /** Open a stage-backed run's own log. Detached artifact runs route through
+   *  their owning surface and do not have a StageDetailRoute. */
   const openRun = (threadId: string, taskId: string) => (runId: string) => {
     void window.bridge.getAgentRun(runId)
-      .then(run => setNav({ view: 'stage-detail', threadId, taskId, stageId: run.stageId }))
+      .then(run => {
+        if (run.stageId !== null) {
+          setNav({ view: 'stage-detail', threadId, taskId, stageId: run.stageId });
+        }
+      })
       .catch(() => { /* transient; the click is a no-op on failure */ });
   };
   /** Which workspace the user last entered. Drives the CURRENT chip

@@ -12,15 +12,33 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import type { PRCapabilities } from '../prCapabilities';
 import type { LocalPR, LocalPRCheck } from '../../types/localPr';
-import { MergeBranchIcon } from '../../ui/TaskBrainDesignIcons';
+import {
+  CheckIcon, ChevronRightIcon, MergeBranchIcon, PullRequestIcon,
+} from '../../ui/TaskBrainDesignIcons';
 import { CheckRows } from './CheckRows';
 
 /** The brain's dev-end review verdict, once it's concluded (plan-rail-runs.md
  *  R21/R23) — derived by the caller from the PR's brain-authored comments,
  *  since a brain review round never blocks the flip forever. */
 export type BrainReviewSummary = { total: number; unresolved: number };
+
+function MergeBoxShell({ children, className = '', tone = 'green' }: {
+  children: ReactNode;
+  className?: string;
+  tone?: 'green' | 'amber' | 'purple';
+}) {
+  return (
+    <div className={`pr-merge-shell ${tone}`}>
+      <span className={`mb-branch-icon ${tone}`} aria-hidden="true">
+        <PullRequestIcon size={24} strokeWidth={2} />
+      </span>
+      <div className={`pr-merge-box${className === '' ? '' : ` ${className}`}`}>{children}</div>
+    </div>
+  );
+}
 
 /** Mirrors github.com's own merge-method picker, replacing the old
  *  `MergeDialog` modal — squash stays the default (matches the backend's
@@ -68,10 +86,10 @@ function MergeableLine({ mergeable, mergeableState }: { mergeable: boolean | nul
   if (mergeable) {
     return (
       <div className="mb-sec">
-        <span className="mb-ic green">✓</span>
+        <span className="mb-ic green"><CheckIcon size={18} /></span>
         <div className="mb-t">
           <div className="h">No conflicts with base branch</div>
-          <div className="s">Merging can be performed automatically</div>
+          <div className="s">Changes can be cleanly merged.</div>
         </div>
       </div>
     );
@@ -123,7 +141,7 @@ function MethodButton({ method, onChange, onConfirm, disabled }: {
   return (
     <span className="run-menu">
       <button type="button" className="btn green" disabled={disabled} onClick={onConfirm}>
-        {current.label}<span className="kbd">⌘↵</span>
+        {current.label}
       </button>
       <button
         type="button"
@@ -134,7 +152,7 @@ function MethodButton({ method, onChange, onConfirm, disabled }: {
         disabled={disabled}
         onClick={() => setOpen(o => !o)}
       >
-        <span className="chev" aria-hidden>▾</span>
+        <span className="chev" aria-hidden><ChevronRightIcon size={12} /></span>
       </button>
       {open && (
         <div className="run-menu__pop" role="menu">
@@ -174,6 +192,7 @@ export function MergeBox({
   pr, capabilities, localChecks, remoteChecks, openComments, localTestsFailing = false,
   pendingStripCount, draftCount, brainReview, onPush, onAskAgent, onMerge,
   onDequeue, onDeleteBranch, onPublishReview, onDiscardDrafts, onRunTests, runTestsBusy = false,
+  hidePublishGate = false,
 }: {
   pr: LocalPR;
   capabilities: PRCapabilities;
@@ -195,6 +214,7 @@ export function MergeBox({
    *  tests against yet. */
   onRunTests?: () => void;
   runTestsBusy?: boolean;
+  hidePublishGate?: boolean;
 }) {
   // Collapsed by default, matching github.com's own merge-box — a reviewer
   // wants the aggregate line, not 60 individual rows, at a glance.
@@ -210,7 +230,7 @@ export function MergeBox({
 
   if (queued) {
     return (
-      <div className="pr-merge-box queued">
+      <MergeBoxShell className="queued" tone="amber">
         <div className="mb-sec">
           <span className="mb-ic amber">↻</span>
           <div className="mb-t">
@@ -221,13 +241,13 @@ export function MergeBox({
             <button type="button" className="btn sm" onClick={onDequeue}>Remove from queue</button>
           )}
         </div>
-      </div>
+      </MergeBoxShell>
     );
   }
 
   if (justMerged) {
     return (
-      <div className="pr-merge-box merged">
+      <MergeBoxShell className="merged" tone="purple">
         <div className="mb-sec">
           <span className="mb-ic purple"><MergeBranchIcon size={13} strokeWidth={2.2} /></span>
           <div className="mb-t">
@@ -236,7 +256,7 @@ export function MergeBox({
           </div>
           <button type="button" className="btn sm" onClick={onDeleteBranch}>Delete branch</button>
         </div>
-      </div>
+      </MergeBoxShell>
     );
   }
 
@@ -248,7 +268,7 @@ export function MergeBox({
   // first (the backend flips it before merging/queueing).
   const showMergeGate = capabilities.merge;
   const draft = pr.status === 'remote-drafted';
-  const showPublishGate = capabilities.publishReview && draftCount > 0;
+  const showPublishGate = !hidePublishGate && capabilities.publishReview && draftCount > 0;
   const hasMergeableData = pr.syncedMergeable !== null;
   if (!showPushGate && !showMergeGate && !showPublishGate
       && allChecks.length === 0 && !hasMergeableData && onRunTests === undefined) {
@@ -257,6 +277,7 @@ export function MergeBox({
   // Matches github.com's fully-green card border once checks pass AND
   // there's nothing blocking a merge.
   const allGood = summary.icon === 'green' && pr.syncedMergeable === true;
+  const mergeBlocked = openComments > 0 || pr.syncedMergeable === false;
 
   const confirmMerge = () => {
     setMergePhase('idle');
@@ -264,14 +285,27 @@ export function MergeBox({
   };
 
   return (
-    <div className={`pr-merge-box${allGood ? ' ok' : ''}`}>
-      <div className="mb-sec clickable" onClick={() => setChecksOpen(o => !o)}>
-        <span className={`mb-ic ${summary.icon}`}>{summary.icon === 'green' ? '✓' : '●'}</span>
+    <MergeBoxShell
+      className={allGood ? 'ok' : ''}
+      tone={pr.syncedMergeable === false ? 'amber' : summary.icon}
+    >
+      <button
+        type="button"
+        className="mb-sec mb-summary clickable"
+        aria-expanded={checksOpen}
+        onClick={() => setChecksOpen(o => !o)}
+      >
+        <span className={`mb-ic ${summary.icon}`}>
+          {summary.icon === 'green' ? <CheckIcon size={18} /> : '●'}
+        </span>
         <div className="mb-t">
-          <div className="h">{summary.headline}<span className="chev">{checksOpen ? '▴' : '▾'}</span></div>
+          <div className="h">{summary.headline}</div>
           <div className="s">{summary.sub}</div>
         </div>
-      </div>
+        <span className={`mb-chevron${checksOpen ? ' open' : ''}`} aria-hidden="true">
+          <ChevronRightIcon size={16} />
+        </span>
+      </button>
       {checksOpen && allChecks.length > 0 && (
         <div className="check-list">
           {localChecks.length > 0 && <div className="check-group">LOCAL</div>}
@@ -286,7 +320,7 @@ export function MergeBox({
       {showPushGate && (
         <>
           <div className="mb-sec">
-            <span className="mb-ic green">✓</span>
+            <span className="mb-ic green"><CheckIcon size={18} /></span>
             <div className="mb-t">
               <div className="h">Ready to push to GitHub as a Draft PR <BrainReviewTag brainReview={brainReview} /></div>
               <div className="s">
@@ -308,7 +342,7 @@ export function MergeBox({
               onClick={onPush}
               disabled={openComments > 0 || localTestsFailing}
             >
-              Approve &amp; push to GitHub<span className="kbd">⌘↵</span>
+              Approve &amp; push to GitHub
             </button>
             {(openComments > 0 || localTestsFailing) && onAskAgent !== undefined && (
               <span className="alt">or <button type="button" className="pr-link-btn" onClick={onAskAgent}>ask the agent to address comments first</button></span>
@@ -343,14 +377,19 @@ export function MergeBox({
       {showMergeGate && mergePhase === 'idle' && (
         <>
           <div className="mb-sec">
-            <span className="mb-ic green">⎇</span>
+            <span className="mb-ic green"><MergeBranchIcon size={18} /></span>
             <div className="mb-t">
               <div className="h">
                 {openComments > 0
                   ? `${openComments} open comment${openComments === 1 ? '' : 's'} — resolve before merge`
+                  : pr.syncedMergeable === false ? 'Merge blocked'
                   : draft ? 'Draft — merging marks it ready first' : 'Ready to merge'}
               </div>
-              <div className="s">Merging opens {pr.baseBranch} ← {pr.branchName}</div>
+              <div className="s">
+                {pr.syncedMergeable === false
+                  ? `Resolve branch conflicts before merging into ${pr.baseBranch}.`
+                  : `Merging opens ${pr.baseBranch} ← ${pr.branchName}`}
+              </div>
             </div>
           </div>
           <div className="mb-actions">
@@ -358,20 +397,20 @@ export function MergeBox({
               <button
                 type="button"
                 className="btn green"
-                disabled={openComments > 0}
+                disabled={mergeBlocked}
                 onClick={() => setMergePhase('confirm')}
               >
-                Merge when ready<span className="kbd">⌘↵</span>
+                Merge when ready
               </button>
             ) : (
               <MethodButton
                 method={method}
                 onChange={setMethod}
                 onConfirm={() => setMergePhase('confirm')}
-                disabled={openComments > 0}
+                disabled={mergeBlocked}
               />
             )}
-            {openComments > 0 && (
+            {openComments > 0 && pr.syncedMergeable !== false && (
               <button type="button" className="btn" onClick={() => setMergePhase('confirm')}>Merge anyway</button>
             )}
           </div>
@@ -394,7 +433,7 @@ export function MergeBox({
           </div>
           <div className="mb-actions">
             <button type="button" className="btn green" onClick={onPublishReview}>
-              Submit review ({draftCount})<span className="kbd">⌘↵</span>
+              Submit review ({draftCount})
             </button>
             {onDiscardDrafts !== undefined && (
               <button type="button" className="btn" onClick={onDiscardDrafts}>Discard drafts</button>
@@ -402,6 +441,6 @@ export function MergeBox({
           </div>
         </>
       )}
-    </div>
+    </MergeBoxShell>
   );
 }

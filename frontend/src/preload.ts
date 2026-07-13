@@ -992,7 +992,27 @@ const bridge: Bridge = {
   mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('pr:merge', prId, method),
   dequeueLocalPr: (prId: string) => ipcRenderer.invoke('pr:dequeue', prId),
   deleteLocalPrBranch: (prId: string) => ipcRenderer.invoke('pr:deleteBranch', prId),
-  publishLocalPrReview: (prId: string) => ipcRenderer.invoke('pr:publishReview', prId),
+  publishLocalPrReview: (
+    prId: string,
+    body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[] },
+  ) => ipcRenderer.invoke('pr:publishReview', prId, body),
+  getAgentReviewSession: (prId: string) => ipcRenderer.invoke('agentReview:getSession', prId),
+  startAgentReviewSession: (
+    prId: string,
+    body?: { runner?: 'api' | 'cli'; providerId?: string },
+  ) => ipcRenderer.invoke('agentReview:startSession', prId, body),
+  continueAgentReviewSession: (
+    sessionId: string,
+    body: { kind: 'continue' | 're-review' | 'continuation'; findingIds?: string[]; runner?: 'api' | 'cli'; providerId?: string },
+  ) => ipcRenderer.invoke('agentReview:continueSession', sessionId, body),
+  answerAgentReviewFinding: (findingId: string, text: string) =>
+    ipcRenderer.invoke('agentReview:answerFinding', findingId, text),
+  mutateAgentReviewFinding: (
+    findingId: string,
+    body: { action: 'dismiss' | 'include' | 'exclude' | 'editDraft' | 'reopen'; text?: string },
+  ) => ipcRenderer.invoke('agentReview:mutateFinding', findingId, body),
+  getAgentReviewRoundLog: (roundId: string) => ipcRenderer.invoke('agentReview:getRoundLog', roundId),
+  cancelAgentReviewRound: (roundId: string) => ipcRenderer.invoke('agentReview:cancelRound', roundId),
   addLocalPrComment: (
     prId: string,
     body: {

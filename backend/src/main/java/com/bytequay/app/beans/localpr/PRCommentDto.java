@@ -14,13 +14,14 @@
 package com.bytequay.app.beans.localpr;
 
 import com.bytequay.app.domain.PRComment;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
 /** Wire shape of a {@link PRComment}. */
 public record PRCommentDto(
         String id,
-        String prId,
+        @JsonProperty("localPrId") String prId,
         String origin,
         String scope,
         String filePath,
@@ -35,7 +36,8 @@ public record PRCommentDto(
         Long dismissedAt,
         Long strippedOnPushAt,
         String parentCommentId,
-        Long publishedAt)
+        Long publishedAt,
+        String findingId)
 {
     public static PRCommentDto from(PRComment c)
     {
@@ -56,7 +58,8 @@ public record PRCommentDto(
                 epochOrNull(c.dismissedAt()),
                 epochOrNull(c.strippedOnPushAt()),
                 c.parentCommentId(),
-                epochOrNull(c.publishedAt()));
+                epochOrNull(c.publishedAt()),
+                c.findingId());
     }
 
     private static Long epochOrNull(Instant instant)

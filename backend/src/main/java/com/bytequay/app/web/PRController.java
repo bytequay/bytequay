@@ -37,6 +37,7 @@ import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.review.InvestigationReviewService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -51,6 +52,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 
@@ -75,6 +77,7 @@ public class PRController
     private final ObjectMapper mapper;
     private final RepoTestValidationCheck testRunner;
     private final PullRequestService pullRequests;
+    private final InvestigationReviewService investigationReviews;
 
     public PRController(
             PRService prService,
@@ -83,7 +86,8 @@ public class PRController
             TaskStore taskStore,
             ObjectMapper mapper,
             RepoTestValidationCheck testRunner,
-            PullRequestService pullRequests)
+            PullRequestService pullRequests,
+            InvestigationReviewService investigationReviews)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.publish = requireNonNull(publish, "publish is null");
@@ -92,6 +96,7 @@ public class PRController
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.testRunner = requireNonNull(testRunner, "testRunner is null");
+        this.investigationReviews = requireNonNull(investigationReviews, "investigationReviews is null");
     }
 
     /** Resolver — the task's PR id, so the frontend's PR-scoped hook has
@@ -147,7 +152,7 @@ public class PRController
     @GetMapping("/api/prs")
     public List<PRDashboardEntryDto> dashboard()
     {
-        return prService.dashboardEntries().stream().map(PRDashboardEntryDto::from).toList();
+        return dashboardEntries();
     }
 
     /** Explicit user-triggered dashboard refresh (the list's manual-refresh
@@ -156,7 +161,16 @@ public class PRController
     public List<PRDashboardEntryDto> syncDashboard()
     {
         sync.syncList();
-        return prService.dashboardEntries().stream().map(PRDashboardEntryDto::from).toList();
+        return dashboardEntries();
+    }
+
+    private List<PRDashboardEntryDto> dashboardEntries()
+    {
+        Map<String, String> reviewStates = investigationReviews.dashboardStates();
+        return prService.dashboardEntries().stream()
+                .map(entry -> PRDashboardEntryDto.from(
+                        entry, reviewStates.getOrDefault(entry.pr().id(), "none")))
+                .toList();
     }
 
     /** Records that the user opened this PR in the app. Idempotent. */
@@ -305,12 +319,23 @@ public class PRController
     /** Batch every draft comment on an {@code origin=external} PR into one
      *  GitHub review, then re-sync so the review appears on the timeline. */
     @PostMapping("/api/prs/{prId}/publish-review")
-    public PRDto publishReview(@PathVariable String prId)
+    public PRDto publishReview(
+            @PathVariable String prId, @RequestBody(required = false) PublishReviewRequest body)
     {
-        publish.publishReview(prId);
+        String verdict = body == null ? "COMMENT" : body.verdict();
+        List<String> findingIds = body == null ? null : body.findingIds();
+        List<String> commentIds = body == null ? null : body.comments();
+        PR published = publish.publishReview(prId, verdict, findingIds, commentIds);
+        investigationReviews.recordPublished(prId, verdict, findingIds, commentIds);
+        if (!PR.ORIGIN_EXTERNAL.equals(published.origin())) {
+            return PRDto.from(published);
+        }
         return PRDto.from(sync.syncPR(prId, 0)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }
+
+    public record PublishReviewRequest(
+            String verdict, List<String> findingIds, List<String> comments) {}
 
     @PatchMapping("/api/prs/{prId}")
     public PRDto update(@PathVariable String prId, @RequestBody(required = false) UpdatePRRequest body)

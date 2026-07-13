@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { UserProfileDto } from '../../types';
 import type { LocalPRBundle } from '../../types/localPr';
 import { isLocalStatus } from '../../types/localPr';
@@ -25,6 +25,7 @@ import { CommitsList } from './CommitsList';
 import { CheckRows } from './CheckRows';
 import { MergeBox } from './MergeBox';
 import { PRCommentComposer } from './PRCommentComposer';
+import type { AgentReviewData } from '../../review/agentReviewTypes';
 
 /**
  * The unified PR renderer (U7) — ONE component driven by a `capabilities`
@@ -43,7 +44,7 @@ export function PRView({
   onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
   onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onOpenStage,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
-  changesContent,
+  changesContent, reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
 }: {
   bundle: LocalPRBundle;
   capabilities: PRCapabilities;
@@ -87,6 +88,10 @@ export function PRView({
   /** Embedded changed-files + diff UI. When omitted, Changes keeps opening the
    *  host's full-page review surface. */
   changesContent?: ReactNode;
+  reviewData?: AgentReviewData;
+  onOpenReviewRound?: (roundId: string) => void;
+  onAnswerFinding?: (findingId: string, text: string) => void;
+  onReviewRoundAction?: (roundId: string) => void;
 }) {
   const { pr, commits, timeline, checks, comments } = bundle;
   const local = isLocalStatus(pr.status);
@@ -149,20 +154,20 @@ export function PRView({
     onRefresh();
     refreshActivityFeed(true);
   };
-  const openChanges = () => {
+  const openChanges = useCallback(() => {
     onReviewChanges?.();
     if (changesContent !== undefined) setActiveTab('changes');
-  };
-  const handleTabChange = (tab: PRHeaderTab) => {
+  }, [changesContent, onReviewChanges]);
+  const handleTabChange = useCallback((tab: PRHeaderTab) => {
     if (tab === 'changes') openChanges();
     else setActiveTab(tab);
-  };
+  }, [openChanges]);
 
   useEffect(() => {
     if (openSubTabRequest === undefined) return;
     handleTabChange(openSubTabRequest.subTab);
     // The request object is the whole trigger — a fresh token re-fires it.
-  }, [openSubTabRequest]);
+  }, [handleTabChange, openSubTabRequest]);
 
   const githubFeedActive = pr.remotePrNumber !== null;
   // Once the GitHub feed is active it's the source of truth for the
@@ -209,6 +214,10 @@ export function PRView({
             remoteDetail={remoteDetail}
             threadActions={threadActions}
             currentUserLogin={currentUserLogin}
+            reviewData={reviewData}
+            onOpenReviewRound={onOpenReviewRound}
+            onAnswerFinding={onAnswerFinding}
+            onReviewRoundAction={onReviewRoundAction}
           />
         )}
 
@@ -249,13 +258,15 @@ export function PRView({
             onDiscardDrafts={onDiscardDrafts}
             onRunTests={onRunTests}
             runTestsBusy={runTestsBusy}
+            hidePublishGate={reviewData !== undefined && comments.some(comment =>
+              comment.findingId != null && comment.publishedAt === null && comment.dismissedAt === null)}
           />
         )}
 
         {activeTab === 'conversation' && capabilities.draftLocalComments && (
           <PRCommentComposer
             local={local}
-            username={username}
+            username={username ?? currentUserLogin ?? undefined}
             value={commentValue}
             onChange={onCommentChange}
             onSubmit={onAddComment}

@@ -10,7 +10,7 @@
 /* ── Shell — 2-column grid (sidebar + main) ──────────────────── */
 .shell {
   display: grid;
-  grid-template-columns: 232px 1fr;
+  grid-template-columns: 222px 1fr;
   min-height: 0;
   height: 100%;
   background: var(--bg);
@@ -125,10 +125,10 @@
 .shell .sb-nav-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 15px;
+  font-size: var(--font-size-md);
   color: var(--text-2);
   cursor: pointer;
   border: 0;
@@ -146,9 +146,9 @@
   font-weight: 500;
 }
 .shell .sb-nav-item .ic {
-  font-size: 15px;
+  font-size: 16px;
   color: var(--text-3);
-  width: 16px;
+  width: 17px;
   text-align: center;
 }
 .shell .sb-nav-item .kbd {
@@ -212,7 +212,7 @@
   gap: 8px;
   padding: 5px 10px;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-2);
   cursor: pointer;
   border: 0;
@@ -810,9 +810,9 @@
 
 /* ── Task-scoped sidebar + live-plan lifecycle diagram (frames 2/6/7) ── */
 .shell .task-sidebar {
-  /* Stands in for the global left rail on Task/Stage detail pages (App.tsx
-     steps the global nav aside here) — same var(--bg) as the main pane. */
-  background: var(--bg);
+  /* Task/Stage detail uses the same quiet navigation surface as the global
+     workspace rail. */
+  background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;

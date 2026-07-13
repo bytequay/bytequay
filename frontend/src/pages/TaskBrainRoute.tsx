@@ -36,6 +36,9 @@ import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/Dif
 import { PlanOverlay } from './PlanOverlay';
 import TaskCodePage from '../threads/TaskCodePage';
 import { ConvIndex } from '../threads/ConvIndex';
+import { AgentReviewHeaderAction } from '../review/AgentReviewHeaderAction';
+import { AgentReviewRoundPage } from '../review/AgentReviewRoundPage';
+import { useAgentReviewState } from '../review/useAgentReviewState';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -75,7 +78,7 @@ export function TaskBrainRoute({
   // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of the <PRView> construction below, which
   // reads it.
-  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks' | 'changes'; token: number } | undefined>(undefined);
+  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'conversation' | 'checks' | 'changes'; token: number } | undefined>(undefined);
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
@@ -100,6 +103,15 @@ export function TaskBrainRoute({
       .catch(() => { /* poll reconciles */ })
       .finally(() => setSubmittingReview(false));
   }, [taskId, pollFast]);
+  const submitAgentFindingsToTask = useCallback(async (verdict: ReviewVerdict, comments: Array<{ body: string }>) => {
+    await window.bridge.submitReview(taskId, {
+      body: comments.map(comment => comment.body).join('\n\n'), verdict,
+    });
+    pollFast();
+  }, [pollFast, taskId]);
+  const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
+  const [agentRoundId, setAgentRoundId] = useState<string | null>(null);
+  const [selectedAgentFinding, setSelectedAgentFinding] = useState<string | null>(null);
   const pendingReviewComments = useMemo(
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
@@ -514,6 +526,116 @@ export function TaskBrainRoute({
     />
   );
 
+  const displayedTaskBundle = agentReview.displayedBundle ?? localPrBundle;
+  const openAgentRound = (roundId?: string) => {
+    const selected = roundId ?? agentReview.latestRound?.id;
+    if (selected === undefined) return;
+    setReviewOpen(true);
+    setAgentRoundId(selected);
+  };
+  const openAgentFinding = (findingId: string, filePath: string | null = null) => {
+    setSelectedAgentFinding(findingId);
+    setPrSubTabRequest(prev => ({
+      subTab: filePath === null ? 'conversation' : 'changes',
+      token: (prev?.token ?? 0) + 1,
+    }));
+  };
+  const openAgentReviewList = (findingId: string) => {
+    setSelectedAgentFinding(findingId);
+    setPrSubTabRequest(prev => ({
+      subTab: 'changes',
+      token: (prev?.token ?? 0) + 1,
+    }));
+  };
+  const agentHeader = (
+    <AgentReviewHeaderAction
+      state={agentReview.headerState}
+      round={agentReview.data?.rounds.length ?? 1}
+      spendCents={agentReview.latestRound?.cost_cents ?? 0}
+      comments={agentReview.pendingComments}
+      excluded={agentReview.excludedFindings}
+      error={agentReview.error}
+      onStart={agentReview.startReview}
+      onOpenRound={() => openAgentRound()}
+      onToggle={agentReview.toggleFinding}
+      onEdit={agentReview.updateComment}
+      onRemove={agentReview.dismissComment}
+      onSubmit={agentReview.submitReview}
+    />
+  );
+  const taskPrView = displayedTaskBundle != null && prCapabilities !== null ? (
+    <PRView
+      bundle={displayedTaskBundle}
+      capabilities={prCapabilities}
+      commentValue={localComment}
+      onCommentChange={setLocalComment}
+      onAddComment={task.terminal ? undefined : submitLocalComment}
+      onPush={() => setPushOpen(true)}
+      onAskAgent={task.terminal ? undefined : askAgentToAddress}
+      onMerge={confirmMerge}
+      onDequeue={dequeuePr}
+      onDeleteBranch={deleteBranch}
+      onReviewChanges={() => setReviewOpen(true)}
+      changesContent={(
+        <LocalPrReviewScreen
+          embedded
+          title={`Review · ${displayedTaskBundle.pr.title}`}
+          files={reviewOpen ? reviewFiles : null}
+          comments={displayedTaskBundle.comments}
+          commits={displayedTaskBundle.commits}
+          allowLocalComments={prCapabilities.draftLocalComments && !task.terminal}
+          fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
+          onAddComment={addLocalLineComment}
+          onReplyComment={replyLocalLineComment}
+          onResolveComment={resolveLocalComment}
+          onDismissComment={agentReview.hasAgentComment ? (commentId) => {
+            if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
+            else deleteLocalComment(commentId);
+          } : deleteLocalComment}
+          onBack={() => setReviewOpen(false)}
+          onSubmitReview={onSubmitReview}
+          submittingReview={submittingReview}
+          reviewData={agentReview.data ?? undefined}
+          selectedFindingId={selectedAgentFinding}
+          onSelectFinding={(findingId) => openAgentFinding(findingId)}
+          onStartAgentReview={agentReview.startReview}
+        />
+      )}
+      onRunTests={runLocalTests}
+      runTestsBusy={testsBusy}
+      onResolveThread={task.terminal ? undefined : resolveLocalComment}
+      onDismissThread={task.terminal ? undefined : (commentId) => {
+        if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
+        else deleteLocalComment(commentId);
+      }}
+      onOpenStage={onOpenStage}
+      syncedAt={displayedTaskBundle.pr.syncedAt}
+      syncing={prSyncing}
+      onRefresh={refreshLocalPr}
+      openSubTabRequest={prSubTabRequest}
+      headerAction={agentHeader}
+      reviewData={agentReview.data ?? undefined}
+      onOpenReviewRound={openAgentRound}
+      onAnswerFinding={agentReview.answerFinding}
+      onReviewRoundAction={agentReview.roundAction}
+    />
+  ) : null;
+
+  if (agentRoundId !== null && agentReview.data !== null && taskPrView !== null) {
+    return (
+      <AgentReviewRoundPage
+        data={agentReview.data}
+        roundId={agentRoundId}
+        prView={taskPrView}
+        onBack={() => { setAgentRoundId(null); setReviewOpen(false); }}
+        onOpenFinding={(findingId, filePath) => openAgentFinding(findingId, filePath)}
+        onOpenReviewList={openAgentReviewList}
+        onReopenFinding={agentReview.reopenFinding}
+        onStopRound={agentReview.cancelRound}
+      />
+    );
+  }
+
   return (
     <TaskBrainPage
       task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
@@ -550,48 +672,7 @@ export function TaskBrainRoute({
       markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
       onOpenMarkReady={onOpenCode}
       tabs={{
-        pr: localPrBundle != null && prCapabilities !== null ? (
-          <PRView
-            bundle={localPrBundle}
-            capabilities={prCapabilities}
-            commentValue={localComment}
-            onCommentChange={setLocalComment}
-            onAddComment={task.terminal ? undefined : submitLocalComment}
-            onPush={() => setPushOpen(true)}
-            onAskAgent={task.terminal ? undefined : askAgentToAddress}
-            onMerge={confirmMerge}
-            onDequeue={dequeuePr}
-            onDeleteBranch={deleteBranch}
-            onReviewChanges={() => setReviewOpen(true)}
-            changesContent={(
-              <LocalPrReviewScreen
-                embedded
-                title={`Review · ${localPrBundle.pr.title}`}
-                files={reviewOpen ? reviewFiles : null}
-                comments={localPrBundle?.comments ?? []}
-                commits={localPrBundle?.commits ?? []}
-                allowLocalComments={prCapabilities?.draftLocalComments === true && !task.terminal}
-                fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
-                onAddComment={addLocalLineComment}
-                onReplyComment={replyLocalLineComment}
-                onResolveComment={resolveLocalComment}
-                onDismissComment={deleteLocalComment}
-                onBack={() => setReviewOpen(false)}
-                onSubmitReview={onSubmitReview}
-                submittingReview={submittingReview}
-              />
-            )}
-            onRunTests={runLocalTests}
-            runTestsBusy={testsBusy}
-            onResolveThread={task.terminal ? undefined : resolveLocalComment}
-            onDismissThread={task.terminal ? undefined : deleteLocalComment}
-            onOpenStage={onOpenStage}
-            syncedAt={localPrBundle.pr.syncedAt}
-            syncing={prSyncing}
-            onRefresh={refreshLocalPr}
-            openSubTabRequest={prSubTabRequest}
-          />
-        ) : undefined,
+        pr: taskPrView ?? undefined,
         // Gated on having a PR (like StageDetailRoute's `hasDiff`) — otherwise
         // this is the only tab, so it becomes the default and its
         // paneExpanded behavior hides the conversation column, burying the

@@ -23,7 +23,7 @@
   box-shadow: none;
   --bg: #ffffff;
   --bg-elev: #ffffff;
-  --bg-sidebar: #f4f1ec;
+  --bg-sidebar: #f6f8fa;
   --bg-code: #faf9f7;
   --bg-hover: rgba(0, 0, 0, 0.04);
   --border: rgba(0, 0, 0, 0.08);
@@ -180,7 +180,7 @@
 
 /* Left task rail */
 .task-brain .shell .task-sidebar {
-  background: #f4f1ec;
+  background: var(--bg-sidebar);
   border-right-color: rgba(0, 0, 0, 0.08);
   overflow: hidden;
 }
@@ -772,7 +772,7 @@
 .task-brain .shell .pr-tl-icon-row .tb {
   padding-top: 1px;
   color: #454c54;
-  font-size: 12.5px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
 }
 
@@ -809,7 +809,7 @@
 .task-brain .shell .pr-person-event .tb {
   padding-top: 1px;
   color: #454c54;
-  font-size: 12.5px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
 }
 
@@ -902,46 +902,13 @@
   background: #8250df;
 }
 
-/* Comment composer: card chrome, segmented Write/Preview pill, teal avatar. */
-.task-brain .shell .pr-comment-composer .pr-avatar.you {
-  background: linear-gradient(135deg, #14b8a6, #0f766e);
-  color: #ffffff;
-  border: none;
-}
-
-.task-brain .shell .pr-comment-composer .cc-box {
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 10px;
-}
-
-.task-brain .shell .pr-comment-composer .cc-tabs {
-  gap: 2px;
-  padding: 7px 11px;
-  background: #faf9f8;
-  border-bottom-color: rgba(0, 0, 0, 0.07);
-}
-
-.task-brain .shell .pr-comment-composer .cc-tab {
-  padding: 2px 9px;
-  border-radius: 4px;
-  font-size: 11px;
-  color: #767068;
-  font-weight: 500;
-}
-
-.task-brain .shell .pr-comment-composer .cc-tab.active {
-  margin-bottom: 0;
-  border: none;
-  background: #ffffff;
-  color: #1f2328;
-  font-weight: 600;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
-}
-
-.task-brain .shell .pr-comment-composer .cc-footer {
-  border-top-style: solid;
-  border-top-color: rgba(0, 0, 0, 0.07);
-}
+/* The task page embeds PRView in a clipped split pane. Keep the marker and
+   avatar inside that pane by reserving their rail within each shared block. */
+.task-brain .shell .pr-body-scroll:not(.pr-body-scroll--changes) { padding-left: 20px; padding-right: 20px; }
+.task-brain .shell .pr-merge-shell { width: 100%; max-width: none; margin-left: 0; padding-left: 52px; }
+.task-brain .shell .pr-merge-shell .mb-branch-icon { left: 0; }
+.task-brain .shell .pr-comment-composer { width: 100%; max-width: none; margin-left: 0; padding-left: 52px; gap: 0; }
+.task-brain .shell .pr-comment-composer__avatar { position: absolute; left: 0; margin: 0; }
 
 .task-brain .shell .resize-handle.pane-resize:hover::before,
 .task-brain .shell .resize-handle.pane-resize:active::before {
@@ -1623,7 +1590,7 @@
   border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 13px 13px 4px 13px;
   color: #2b3138;
-  font-size: 13px;
+  font-size: var(--font-size-lg);
   line-height: 1.6;
   text-align: left;
 }
@@ -1644,7 +1611,7 @@
 
 .task-brain .shell .ev--agent .tx {
   color: #24292f;
-  font-size: 13.5px;
+  font-size: var(--font-size-lg);
   line-height: 1.65;
 }
 
@@ -1692,13 +1659,13 @@
   border: none;
   padding: 0;
   color: #57606a;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
 }
 
 .task-brain .shell .tool-block .head .desc {
   font-family: var(--mono, 'SF Mono', Menlo, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: var(--font-size-sm);
   color: #8a8178;
   white-space: nowrap;
   overflow: hidden;
@@ -1717,7 +1684,7 @@
   background: #faf9f7;
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 7px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: #6e7781;
   line-height: 1.6;
   white-space: pre-wrap;

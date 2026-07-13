@@ -52,6 +52,10 @@ type Props<T extends PrLikeWithId> = {
    *  a time-preset menu; picking one calls onSnooze with the chosen
    *  ISO-8601 wake instant. Suppressed on already-done columns. */
   onSnooze?: (untilIso: string) => void;
+  /** P1 agent-review quick action. The caller owns the session mutation;
+   * this card only provides the locked hover affordance. */
+  onAgentReview?: () => void;
+  reviewState?: 'none' | 'running' | 'done' | 'stale';
   /** When true, the card root is HTML5-draggable. The MIME payload
    *  encodes {prId, fromColumn, repo, number} so a drop target can
    *  validate the transition without a separate state lookup. */
@@ -87,7 +91,7 @@ export type PrDragPayload = {
  * from the mockup are intentionally not rendered yet — they need new
  * backend endpoints + a confirmation flow we'll wire in a follow-up.
  */
-function KanbanPrCard<T extends PrLikeWithId>({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen, onSnooze, draggable = false, disabled = false }: Props<T>) {
+function KanbanPrCard<T extends PrLikeWithId>({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen, onSnooze, onAgentReview, reviewState = 'none', draggable = false, disabled = false }: Props<T>) {
   // Defensive — a missed prop from a non-strict caller used to crash the
   // whole UI when .replace(...) was invoked on an undefined column. Treat
   // any missing column as a generic in-progress so the card still renders.
@@ -173,6 +177,7 @@ function KanbanPrCard<T extends PrLikeWithId>({ pr, column, mode = 'inbox', sele
           <span className="kpr-card__repo-name">{repoShort}</span>
         </div>
         <div className="kpr-card__head-right">
+          {reviewState !== 'none' && <span className={`kpr-card__review-state kpr-card__review-state--${reviewState}`} title={`Agent review: ${reviewState}`}>⚖</span>}
           {statusPill && (
             <span className={`kpr-card__pill kpr-card__pill--${statusPill.kind}`}>
               {statusPill.label}
@@ -214,6 +219,20 @@ function KanbanPrCard<T extends PrLikeWithId>({ pr, column, mode = 'inbox', sele
               && safeColumn !== 'recently_merged'
               && safeColumn !== 'handled' && (
             <SnoozeMenuButton onPick={onSnooze} />
+          )}
+          {onAgentReview !== undefined
+              && safeColumn !== 'cleared_today'
+              && safeColumn !== 'recently_merged'
+              && safeColumn !== 'handled' && (
+            <button
+              type="button"
+              className="kpr-card__handle kpr-card__agent-review"
+              onClick={(event) => { event.stopPropagation(); onAgentReview(); }}
+              title="Review with agent"
+              aria-label="Review with agent"
+            >
+              ⚖
+            </button>
           )}
         </div>
       </div>

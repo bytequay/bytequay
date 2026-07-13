@@ -142,7 +142,7 @@ class TestCodeGraphUpdateCoordinator
 
         private ChurningCodeGraphService()
         {
-            super(new CodeGraphRunner(), new GitRunner());
+            super(new CodeGraphRunner(new CodeGraphInstaller(false)), new GitRunner());
         }
 
         @Override
@@ -169,7 +169,7 @@ class TestCodeGraphUpdateCoordinator
 
         private FakeCodeGraphService(Fingerprint... fingerprints)
         {
-            super(new CodeGraphRunner(), new GitRunner());
+            super(new CodeGraphRunner(new CodeGraphInstaller(false)), new GitRunner());
             this.fingerprints = new ArrayDeque<>(Arrays.asList(fingerprints));
         }
 

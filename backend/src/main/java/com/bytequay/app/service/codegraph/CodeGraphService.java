@@ -76,7 +76,7 @@ public class CodeGraphService
     {
         Path root = normalize(checkout);
         if (!isAvailable()) {
-            return CodeGraphResult.error("CodeGraph CLI is not available on PATH.");
+            return CodeGraphResult.error("CodeGraph CLI is not ready yet (installing).");
         }
         try {
             ensureIgnored(root);

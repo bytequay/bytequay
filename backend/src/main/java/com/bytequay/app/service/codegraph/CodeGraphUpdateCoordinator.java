@@ -15,6 +15,7 @@ package com.bytequay.app.service.codegraph;
 
 import com.bytequay.app.service.codegraph.CodeGraphService.Fingerprint;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -36,6 +37,7 @@ public class CodeGraphUpdateCoordinator
     private final ExecutorService executor;
     private final ConcurrentHashMap<Path, Lane> lanes = new ConcurrentHashMap<>();
 
+    @Autowired
     public CodeGraphUpdateCoordinator(CodeGraphService codeGraph)
     {
         this(codeGraph, Executors.newFixedThreadPool(2, daemonFactory()));

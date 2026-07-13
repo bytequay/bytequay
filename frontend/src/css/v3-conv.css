@@ -115,7 +115,7 @@
   background: transparent;
 }
 .shell .ev .tx {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-1);
   line-height: 1.65;
 }
@@ -172,7 +172,7 @@
   background: var(--accent);
 }
 .shell .tool-block .head .desc {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-2);
   flex: 1;
   min-width: 0;
@@ -197,7 +197,7 @@
   background: var(--bg-code);
   border-top: 1px solid var(--code-border);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-1);
   line-height: 1.65;
   white-space: pre-wrap;
@@ -1564,10 +1564,11 @@
 .pr-details-view { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .pr-details-view__error { padding: 8px 16px; color: var(--red, #c0392b); font-size: 12.5px; flex-shrink: 0; }
 .pr-view { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow: hidden; }
-.pr-view .pr-header { padding: 16px 16px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; background: var(--bg); flex-shrink: 0; }
+.pr-view .pr-header { padding: 20px 20px 0 52px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; background: var(--bg); flex-shrink: 0; }
+.pr-view .pr-header > * { width: 100%; }
 .pr-view .pr-header .pr-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pr-view .pr-header .pr-title { font-size: 18px; font-weight: 700; color: var(--text-1); line-height: 1.3; min-width: 0; }
-.pr-view .pr-header .pr-num { font-size: 18px; color: var(--text-4); font-weight: 500; }
+.pr-view .pr-header .pr-title { font-size: 20px; font-weight: 700; color: var(--text-1); line-height: 1.3; min-width: 0; }
+.pr-view .pr-header .pr-num { font-size: 20px; color: var(--text-4); font-weight: 500; }
 .pr-view .pr-header button.pr-num-link { background: none; border: none; padding: 0; cursor: pointer; font: inherit; }
 .pr-view .pr-header button.pr-num-link:hover { color: var(--accent); text-decoration: underline; }
 .pr-view .pr-header .pr-header-action { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
@@ -1593,7 +1594,7 @@
 
 /* U13b — tab strip + delta meter. */
 .pr-tabs { display: flex; align-items: center; gap: 2px; padding-top: 4px; }
-.pr-tabs .pt { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); padding: 7px 12px 9px; border-bottom: 2px solid transparent;
+.pr-tabs .pt { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-md); color: var(--text-3); padding: 7px 12px 9px; border-bottom: 2px solid transparent;
   /* reset from <span> to <button> so real tab-switching doesn't change the look */
   background: none; border-left: none; border-right: none; border-top: none; font-family: inherit; cursor: pointer; }
 .pr-tabs .pt.on { font-weight: 600; color: var(--text-1); border-bottom-color: var(--orange); }
@@ -1606,7 +1607,8 @@
 .pr-delta-blocks i.g { background: var(--green); }
 .pr-delta-blocks i.r { background: var(--red); }
 
-.pr-body-scroll { flex: 1; overflow-y: auto; padding: 16px 18px 22px; display: flex; flex-direction: column; gap: 0; }
+.pr-body-scroll { flex: 1; overflow-y: auto; padding: 16px 20px 30px 52px; display: flex; flex-direction: column; gap: 0; }
+.pr-body-scroll:not(.pr-body-scroll--changes) > * { width: 100%; }
 .pr-body-scroll--changes { overflow: hidden; padding: 0; }
 .pr-changes-tab { display: flex; flex: 1; min-height: 0; }
 .pr-changes-tab .diff-viewer {
@@ -1662,7 +1664,7 @@
 .pr-bubble.hl-author .bh { border-bottom-color: var(--blue-border); }
 .pr-bubble .bh .who { font-weight: 600; color: var(--text-1); }
 .pr-bubble .bh .dots { margin-left: auto; color: var(--text-4); letter-spacing: 1px; font-weight: 700; }
-.pr-bubble .bb { padding: 6px 12px 12px; font-size: 14px; line-height: 1.6; color: var(--text-2); }
+.pr-bubble .bb { padding: 6px 12px 12px; font-size: var(--font-size-lg); line-height: 1.6; color: var(--text-2); }
 .pr-bubble .bb .drafting-hint { color: var(--text-4); font-style: italic; }
 
 /* U15 — compact one-line icon events (commits, checks, status, labels).
@@ -1672,7 +1674,7 @@
 .pr-tl-icon-row .tic { position: relative; z-index: 1; margin-left: 50px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
 .pr-tl-icon-row .tic.green { background: var(--green); color: #fff; }
 .pr-tl-icon-row .tic.fail { background: var(--red); color: #fff; }
-.pr-tl-icon-row .tb { font-size: 12px; color: var(--text-3); line-height: 1.55; padding-top: 5px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pr-tl-icon-row .tb { font-size: var(--font-size-md); color: var(--text-3); line-height: 1.55; padding-top: 5px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .pr-tl-icon-row .tb .who { color: var(--text-1); font-weight: 600; }
 .pr-tl-icon-row .tb .sha { font-family: var(--mono); font-size: 10.5px; color: var(--blue); }
 .pr-tl-icon-row .tb code { font-family: var(--mono); font-size: 10.5px; background: var(--bg-code); padding: 0 4px; border-radius: 3px; border: 1px solid var(--code-border); }
@@ -1743,7 +1745,7 @@
   background: var(--bg-input); border: 2px solid var(--bg);
 }
 .pr-person-event .eye.approved { background: var(--green); color: #fff; }
-.pr-person-event .tb { font-size: 12px; color: var(--text-3); }
+.pr-person-event .tb { font-size: 12.5px; color: var(--text-3); }
 .pr-person-event .tb .who { color: var(--text-1); font-weight: 600; }
 .pr-person-event .ts { margin-left: auto; font-size: 10.5px; color: var(--text-4); }
 .pr-link-btn { background: none; border: none; cursor: pointer; font-family: inherit; color: var(--accent); }
@@ -1769,44 +1771,51 @@
 .btn.amber { background: var(--amber); border-color: var(--amber-deep); color: #fff; }
 .btn .kbd { font-family: var(--mono); font-size: 9px; padding: 1px 4px; background: rgba(0,0,0,0.12); border-radius: 3px; opacity: 0.85; margin-left: 2px; }
 
-/* U13e — merge-box accordion (absorbs the old PRActionBar + PRChecksCard) */
-/* flex-shrink:0 matters here: .pr-body-scroll is a flex column, and a long
-   real activity feed (many comments/checks) is often taller than the pane,
-   so the flex algorithm shrinks children to fit. overflow:hidden (for the
-   rounded corners) resets this box's default min-height:auto to 0, making
-   it the item that gets crushed down to a hairline instead of the timeline
-   above it shrinking — flex-shrink:0 opts it out of that entirely. */
-.pr-merge-box { position: relative; z-index: 1; flex-shrink: 0; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin: 0 0 14px 40px; overflow: hidden; }
-.pr-merge-box.ok { border-color: var(--green-border); }
-.pr-merge-box .mb-sec { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-start; }
+/* U13e — GitHub-sized merge status box. The branch marker sits on the
+   timeline outside the bordered card, while every status/action state keeps
+   using this one shared MergeBox renderer. */
+.pr-merge-shell { position: relative; z-index: 1; flex-shrink: 0; margin-top: 38px; margin-bottom: 18px; padding-left: 54px; }
+.pr-merge-shell::before { content: ''; position: absolute; top: -28px; left: 0; right: 0; height: 2px; background: var(--border-mid); }
+.pr-merge-shell .mb-branch-icon { position: absolute; z-index: 2; top: 0; left: 0; width: 44px; height: 44px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+.pr-merge-shell .mb-branch-icon.green { background: #1f883d; }
+.pr-merge-shell .mb-branch-icon.amber { background: #bf8700; }
+.pr-merge-shell .mb-branch-icon.purple { background: var(--purple); }
+.pr-merge-box { position: relative; z-index: 1; background: #fff; border: 1px solid #d0d7de; border-radius: 7px; overflow: hidden; }
+.pr-merge-box.ok { border-color: #1f883d; }
+.pr-merge-box .mb-sec { width: 100%; min-height: 64px; padding: 16px 20px; border: 0; border-bottom: 1px solid #d8dee4; display: flex; gap: 12px; align-items: center; background: #fff; color: var(--text-1); font-family: inherit; text-align: left; }
 .pr-merge-box .mb-sec:last-child { border-bottom: none; }
 .pr-merge-box .mb-sec.clickable { cursor: pointer; }
-.pr-merge-box .mb-sec .btn.sm { align-self: center; flex-shrink: 0; font-size: 11.5px; padding: 5px 12px; }
-.pr-merge-box .mb-ic { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; font-size: 13px; }
-.pr-merge-box .mb-ic.green { background: var(--green); }
-.pr-merge-box .mb-ic.amber { background: var(--amber); }
+.pr-merge-box .mb-sec.clickable:hover { background: #f6f8fa; }
+.pr-merge-box .mb-sec .btn.sm { align-self: center; flex-shrink: 0; font-size: 13px; padding: 5px 14px; }
+.pr-merge-box .mb-ic { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; font-size: 16px; }
+.pr-merge-box .mb-ic.green { background: #1f883d; }
+.pr-merge-box .mb-ic.amber { background: #bf8700; }
 .pr-merge-box .mb-t { min-width: 0; flex: 1; }
-.pr-merge-box .mb-t .h { font-size: 13px; font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 8px; }
-.pr-merge-box .mb-t .h .chev { margin-left: auto; color: var(--text-4); font-size: 10px; }
-.pr-merge-box .mb-t .s { font-size: 11.5px; color: var(--text-3); margin-top: 1px; }
-.pr-merge-box .check-list { border-top: 1px solid var(--border); background: var(--bg); }
-.pr-merge-box .check-group { padding: 6px 14px 4px; font-size: 10.5px; font-weight: 600; color: var(--text-3); }
-.pr-merge-box .check-row { display: flex; align-items: center; gap: 8px; padding: 5px 14px; font-size: 12px; color: var(--text-2); }
-.pr-merge-box .check-row .st { width: 16px; display: inline-flex; justify-content: center; flex-shrink: 0; font-size: 12px; }
+.pr-merge-box .mb-t .h { font-size: 16px; line-height: 1.35; font-weight: 600; color: #1f2328; display: flex; align-items: center; gap: 8px; }
+.pr-merge-box .mb-t .s { font-size: 14px; line-height: 1.45; color: #656d76; margin-top: 1px; }
+.pr-merge-box .mb-chevron { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #57606a; transform: rotate(90deg); transition: transform .12s ease-out; }
+.pr-merge-box .mb-chevron.open { transform: rotate(-90deg); }
+.pr-merge-box .check-list { background: #f6f8fa; border-bottom: 1px solid #d8dee4; }
+.pr-merge-box .check-group { padding: 10px 20px 4px 64px; font-size: 12px; font-weight: 600; color: #656d76; }
+.pr-merge-box .check-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 20px 8px 64px; font-size: 13px; color: #424a53; }
+.pr-merge-box .check-row .st { width: 18px; display: inline-flex; justify-content: center; flex-shrink: 0; font-size: 14px; }
 .pr-merge-box .check-row .st.ok { color: var(--green); }
 .pr-merge-box .check-row .st.fail { color: var(--red); }
 .pr-merge-box .check-row .st.skip { color: var(--text-4); }
-.pr-merge-box .check-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; }
-.pr-merge-box .check-row .res { color: var(--text-4); font-size: 11px; margin-left: auto; flex-shrink: 0; }
-.pr-merge-box .mb-warn { margin: 0 14px 12px 50px; padding: 8px 11px; background: var(--amber-soft); border: 1px solid var(--amber-border); border-radius: 7px; font-size: 11.5px; color: var(--amber-deep); line-height: 1.5; }
-.pr-merge-box .mb-actions { display: flex; align-items: center; gap: 10px; padding: 12px 14px 14px 50px; flex-wrap: wrap; }
-.pr-merge-box .mb-actions .alt { font-size: 11.5px; color: var(--text-3); }
-.pr-merge-box .mb-cli-hint { padding: 0 14px 14px 50px; font-size: 11.5px; color: var(--text-3); }
+.pr-merge-box .check-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+.pr-merge-box .check-row .res { color: #656d76; font-size: 12px; margin-left: auto; flex-shrink: 0; }
+.pr-merge-box .mb-warn { margin: 0 20px 14px 64px; padding: 10px 12px; background: var(--amber-soft); border: 1px solid var(--amber-border); border-radius: 6px; font-size: 13px; color: var(--amber-deep); line-height: 1.5; }
+.pr-merge-box .mb-actions { display: flex; align-items: center; gap: 8px; padding: 16px 20px 10px 64px; flex-wrap: wrap; }
+.pr-merge-box .mb-actions .alt { font-size: 13px; color: #656d76; }
+.pr-merge-box .mb-cli-hint { padding: 0 20px 16px 64px; font-size: 13px; color: #656d76; }
+.pr-merge-box .btn { min-height: 32px; padding: 5px 16px; border-radius: 6px; font-size: 14px; line-height: 20px; }
+.pr-merge-box .btn.green { background: #1f883d; border-color: rgba(27, 31, 36, 0.15); box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1); }
+.pr-merge-box .btn.green:hover { background: #1a7f37; }
 
 /* Merge-flow terminal states (U13e follow-up: merge queue + post-merge
    branch cleanup) — the whole card tints amber/purple instead of the
    checks-based green once the PR is queued or merged. */
-.pr-merge-box.queued { border-color: var(--amber-border); }
+.pr-merge-box.queued { border-color: #bf8700; }
 .pr-merge-box.merged { border-color: var(--purple-border); }
 .pr-merge-box .mb-ic.purple { background: var(--purple); }
 
@@ -1815,7 +1824,8 @@
    render outside `.shell` (the standalone PR details page), so it can't
    rely on that rule being in scope. */
 .pr-merge-box .run-menu { position: relative; display: inline-flex; }
-.pr-merge-box .run-menu__chev { padding-left: 8px; padding-right: 8px; border-left: 1px solid rgba(255, 255, 255, 0.3); margin-left: -1px; }
+.pr-merge-box .run-menu__chev { width: 36px; padding: 0; justify-content: center; border-left: 1px solid rgba(255, 255, 255, 0.3); margin-left: -1px; }
+.pr-merge-box .run-menu__chev .chev { display: inline-flex; transform: rotate(90deg); }
 .pr-merge-box .run-menu__pop {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
   min-width: 180px; background: var(--bg-elev); border: 1px solid var(--border-mid);
@@ -1840,18 +1850,37 @@
 .brain-review-tag.warn { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid var(--amber-border); }
 
 /* U13f — composer */
-.pr-comment-composer { position: relative; z-index: 1; display: flex; gap: 10px; margin: 14px 0 0; }
-.pr-comment-composer .cc-box { flex: 1; min-width: 0; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; overflow: hidden; }
-.pr-comment-composer .cc-tabs { display: flex; align-items: center; background: var(--bg-code); border-bottom: 1px solid var(--border); padding: 0 8px; }
-.pr-comment-composer .cc-tab { padding: 8px 12px; font-size: 12px; color: var(--text-3); cursor: pointer; border: 0; background: transparent; font-weight: 600; }
-.pr-comment-composer .cc-tab.active { background: var(--bg-elev); border: 1px solid var(--border); border-bottom-color: var(--bg-elev); border-radius: 7px 7px 0 0; margin-bottom: -1px; color: var(--text-1); }
-.pr-comment-composer .cc-toolbar { margin-left: auto; display: flex; gap: 2px; color: var(--text-3); }
-.pr-comment-composer .cc-toolbar span { padding: 8px 6px; font-size: 11px; font-family: var(--mono); }
-.pr-comment-composer .cc-input { min-height: 60px; padding: 10px 12px; background: var(--bg-elev); border: none; font-size: 12.5px; color: var(--text-1); font-family: inherit; resize: vertical; width: 100%; }
-.pr-comment-composer textarea.cc-input::placeholder { color: var(--text-4); font-style: italic; }
-.pr-comment-composer .cc-footer { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px dashed var(--border-mid); font-size: 10.5px; color: var(--text-4); flex-wrap: wrap; }
-.pr-comment-composer .cc-footer .local-note { color: var(--amber-deep); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
-.pr-comment-composer .cc-footer .right { margin-left: auto; display: flex; gap: 8px; }
+.pr-comment-composer { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: 28px; margin: 26px 0 0; padding-left: 54px; padding-bottom: 10px; }
+.pr-comment-composer__avatar { width: 40px; height: 40px; margin-left: -60px; margin-top: 2px; border: 1px solid #d0d7de; }
+.pr-comment-composer .cc-main { flex: 1; min-width: 0; }
+.pr-comment-composer .cc-title { margin: 0 0 14px; color: #1f2328; font-size: 20px; font-weight: 600; line-height: 1.25; }
+.pr-comment-composer .cc-box { min-width: 0; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; overflow: hidden; }
+.pr-comment-composer .cc-tabs { min-height: 46px; display: flex; align-items: flex-end; background: #f6f8fa; border-bottom: 1px solid #d0d7de; padding: 0 16px; }
+.pr-comment-composer .cc-tab { height: 46px; padding: 0 16px; color: #57606a; cursor: pointer; border: 1px solid transparent; border-bottom: 0; background: transparent; font-family: inherit; font-size: 14px; font-weight: 400; }
+.pr-comment-composer .cc-tab.active { background: #fff; border-color: #d0d7de; border-radius: 6px 6px 0 0; margin-bottom: -1px; color: #1f2328; }
+.pr-comment-composer .cc-toolbar { align-self: center; margin-left: auto; display: flex; align-items: center; gap: 2px; color: #57606a; }
+.pr-comment-composer .cc-tool { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-family: var(--sans); font-size: 16px; line-height: 1; }
+.pr-comment-composer .cc-tool.text { font-size: 15px; }
+.pr-comment-composer .cc-tool.bold { font-weight: 700; }
+.pr-comment-composer .cc-tool.italic { font-family: Georgia, serif; font-style: italic; }
+.pr-comment-composer .cc-tool:not(.divider):hover { background: #eaeef2; }
+.pr-comment-composer .cc-tool.divider { width: 1px; height: 24px; margin: 0 7px; border-radius: 0; background: #d8dee4; }
+.pr-comment-composer .cc-tool > svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pr-comment-composer .cc-input { display: block; width: calc(100% - 32px); min-height: 152px; margin: 16px; padding: 12px 16px; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; color: #1f2328; font-family: inherit; font-size: 14px; line-height: 1.5; resize: vertical; }
+.pr-comment-composer textarea.cc-input:focus { border-color: #0969da; box-shadow: 0 0 0 3px rgba(9, 105, 218, .2); outline: none; }
+.pr-comment-composer textarea.cc-input::placeholder { color: #656d76; font-style: normal; }
+.pr-comment-composer .cc-preview { overflow-y: auto; }
+.pr-comment-composer .cc-empty-preview { color: #656d76; font-style: italic; }
+.pr-comment-composer .cc-footer { min-height: 48px; display: flex; align-items: center; gap: 20px; padding: 0 16px; border-top: 0; color: #57606a; font-size: 13px; flex-wrap: wrap; }
+.pr-comment-composer .cc-markdown { display: inline-flex; align-items: center; gap: 8px; color: #1f2328; font-weight: 500; }
+.pr-comment-composer .cc-markdown b { padding: 1px 3px; border-radius: 2px; background: #57606a; color: #fff; font-family: var(--mono); font-size: 9px; line-height: 1; }
+.pr-comment-composer .cc-footer .local-note { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--amber-border); border-radius: 999px; background: var(--amber-soft); color: var(--amber-deep); font-size: 12px; font-weight: 600; }
+.pr-comment-composer .cc-footer .local-note svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.pr-comment-composer .cc-destination { margin-left: auto; }
+.pr-comment-composer .cc-actions { display: flex; justify-content: flex-end; padding-top: 12px; }
+.pr-comment-composer .cc-actions .btn { min-height: 36px; padding: 7px 18px; border-radius: 6px; background: #1f883d; border-color: rgba(27, 31, 36, .15); color: #fff; font-size: 14px; font-weight: 600; }
+.pr-comment-composer .cc-actions .btn:hover:not(:disabled) { background: #1a7f37; }
+.pr-comment-composer .cc-actions .btn:disabled { background: #94d3a2; border-color: transparent; color: rgba(255,255,255,.8); }
 
 /* ── Push dialog (mockup frame 16) — namespaced to avoid the existing
    .modal / .modal-overlay in modals.css. Confirms the one-way local→remote

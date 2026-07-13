@@ -310,7 +310,11 @@ public class CodexCliThreadAgent
         if (!managed.isBlank()) {
             preamble.append(managed).append("\n\n");
         }
-        if (firstTurn && roleSkillText != null && !roleSkillText.isBlank()) {
+        // Task sessions already retain their frozen role in provider history.
+        // Repeat the trunk/brain boundary on resumed read-only turns so stale
+        // execution context cannot redefine the planning agent's identity.
+        if ((firstTurn || isReadOnlySession())
+                && roleSkillText != null && !roleSkillText.isBlank()) {
             preamble.append(roleSkillText.strip()).append("\n\n");
         }
         String workspaceMemory = firstTurn ? workspaceMemoryProvider.get() : null;

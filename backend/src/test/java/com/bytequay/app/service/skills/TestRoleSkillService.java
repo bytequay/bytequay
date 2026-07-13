@@ -39,6 +39,9 @@ class TestRoleSkillService
         assertThat(service.trunkTemplate())
                 .contains("Role · Trunk")
                 .contains("read-only")
+                .contains("not your responsibilities")
+                .contains("Running builds, tests, typechecks, validation, or commit gates")
+                .contains("Never claim implementation or validation work")
                 .contains("Do not call `create_task` in the")
                 .contains("immediately preceding reply")
                 // The trunk may cut tasks via create_task (its only write tool).

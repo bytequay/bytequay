@@ -17,6 +17,7 @@ import { PRTimeline } from './PRTimeline';
 import type { LocalPR, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
 import type { ActivityItemDto, PullRequestDetailDto, ReviewThreadDto } from '../../types';
 import type { GitHubThreadActions } from './GitHubTimelineRow';
+import { createAgentReviewFixture } from '../../review/agentReviewTestData';
 
 afterEach(cleanup);
 
@@ -132,6 +133,14 @@ describe('PRTimeline review rendering', () => {
     expect(screen.getByText(/approved these changes/)).toBeTruthy();
   });
 
+  it('falls back to the generic review event when agent-review data is unavailable', () => {
+    render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
+      payload: { reviewEvent: 'submitted', verdict: 'APPROVED' },
+    })]} />);
+
+    expect(screen.getByText(/approved these changes/)).toBeTruthy();
+  });
+
   it('renders the plan self-review branch with plan-specific copy, no "view changes" link', () => {
     render(<PRTimeline pr={pr()} comments={[]} events={[reviewEvent({
       actor: 'brain', isLocalOnly: true,
@@ -188,6 +197,30 @@ describe('PRTimeline composition', () => {
     expect(screen.getByText('src/Foo.java:42', { exact: false })).toBeTruthy();
     expect(screen.getByText('Fix this.')).toBeTruthy();
     expect(screen.getByText('Fixed.')).toBeTruthy();
+  });
+
+  it('interleaves review milestones with ordinary PR events by timestamp', () => {
+    const localPr = pr({ description: 'Review this change.' });
+    const reviewData = createAgentReviewFixture({
+      pr: localPr,
+      commits: [{ id: 'c1', localPrId: localPr.id, sha: 'abcdef012345', message: 'change', additions: 2, deletions: 1, authoredAt: 1, pushedAt: 1 }],
+      timeline: [], checks: [], comments: [],
+    }, [{
+      filename: 'src/ChangedFile.ts', status: 'modified', additions: 2, deletions: 1,
+      patch: '@@ -3,2 +3,3 @@\n-old\n+new\n context',
+    }]);
+    const completedAt = reviewData.pr_timeline_events.find(event => event.payload?.reviewEvent === 'round-complete')?.createdAt ?? 0;
+    const replyAt = reviewData.pr_timeline_events.find(event => event.payload?.reviewEvent === 'author-reply')?.createdAt ?? 0;
+    const between: LocalPRTimelineEvent = {
+      id: 'between', localPrId: localPr.id, eventType: 'commit', actor: 'maria', isLocalOnly: false,
+      strippedOnPushAt: null, createdAt: Math.floor((completedAt + replyAt) / 2),
+      payload: { sha: '123456789', message: 'landed between review events' },
+    };
+
+    const { container } = render(<PRTimeline pr={localPr} events={[between]} comments={[]} reviewData={reviewData} />);
+    const text = container.textContent ?? '';
+    expect(text.indexOf('Round 1 complete')).toBeLessThan(text.indexOf('landed between review events'));
+    expect(text.indexOf('landed between review events')).toBeLessThan(text.indexOf('Author replied on F1'));
   });
 });
 

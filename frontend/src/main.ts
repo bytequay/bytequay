@@ -1013,13 +1013,84 @@ function registerIpc(): void {
     }
     return res.json();
   });
-  ipcMain.handle('pr:publishReview', async (_event, prId: string) => {
+  ipcMain.handle('pr:publishReview', async (_event, prId: string, body?: unknown) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/publish-review`, {
       method: 'POST',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend PR publish-review returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:getSession', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/review-session`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend review-session returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:startSession', async (_event, prId: string, body?: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/review-session`, {
+      method: 'POST',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend start review-session returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:continueSession', async (_event, sessionId: string, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/review-sessions/${encodeURIComponent(sessionId)}/rounds`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend continue review-session returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:answerFinding', async (_event, findingId: string, text: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/answer`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend answer finding returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:mutateFinding', async (_event, findingId: string, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend mutate finding returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:getRoundLog', async (_event, roundId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/log`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend review-round log returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:cancelRound', async (_event, roundId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/cancel`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend cancel review-round returned ${res.status}: ${body}`);
     }
     return res.json();
   });

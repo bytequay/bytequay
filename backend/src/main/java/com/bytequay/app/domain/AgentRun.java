@@ -22,9 +22,9 @@ import java.time.Instant;
  * {@code panel_review}; {@code source} narrows {@code ci_fix} and {@code
  * branch_guard} to {@code local} / {@code remote} / {@code scheduled}.
  *
- * <p>Every run gets its OWN backing {@code task_stage} row ({@link
- * #stageId}) purely so its turns land in {@code stage_messages} through
- * the existing FK-scoped mechanism — no new message-storage path. {@link
+ * <p>Task/stage runs get their own backing {@code task_stage} row ({@link
+ * #stageId}) so turns land in {@code stage_messages}; artifact-owned runs
+ * such as external PR reviews are detached and leave it null. {@link
  * #parentStageId} is the separate, semantic stage the rail attaches this
  * run's lazy sub-row to (e.g. the Development stage for a local {@code
  * ci_fix}); it may differ from {@link #stageId} and may be null (a
@@ -84,6 +84,13 @@ public record AgentRun(
         return new AgentRun(
                 id, taskId, kind, source, parentStageId, reviewRoundId, stageId, status,
                 iterations, next, headline, metricsJson, startedAt, finishedAt);
+    }
+
+    public AgentRun withMetrics(String newMetricsJson)
+    {
+        return new AgentRun(
+                id, taskId, kind, source, parentStageId, reviewRoundId, stageId, status,
+                iterations, budget, headline, newMetricsJson, startedAt, finishedAt);
     }
 
     /** Copy transitioned to a terminal (or gated) status; stamps {@code

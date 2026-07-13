@@ -75,6 +75,7 @@ type Props<T extends PrLikeWithId> = {
   onHandle: (prId: T['id']) => void;
   onReopen: (prId: T['id']) => void;
   onSnooze?: (prId: T['id'], untilIso: string) => void;
+  onAgentReview?: (pr: T) => void;
   /** Wires the "View full merge history →" CTA pinned to the bottom
    *  of the Recently Merged column. When omitted, the CTA renders
    *  disabled (the placeholder we shipped before the page existed). */
@@ -256,6 +257,7 @@ function KanbanBoard<T extends PrLikeWithId>(props: Props<T>) {
             onHandle={props.onHandle}
             onReopen={props.onReopen}
             onSnooze={props.onSnooze}
+            onAgentReview={props.onAgentReview}
             onShowMergeHistory={props.onShowMergeHistory}
             onSetDraft={props.onSetDraft}
             cardMode={mode}
@@ -271,6 +273,7 @@ function KanbanBoard<T extends PrLikeWithId>(props: Props<T>) {
             onHandle={props.onHandle}
             onReopen={props.onReopen}
             onSnooze={props.onSnooze}
+            onAgentReview={props.onAgentReview}
             cardMode={mode}
             currentUserLogin={props.currentUserLogin ?? null}
           />
@@ -375,7 +378,7 @@ function translateMyPrsDrop(from: KanbanColumnKind, to: KanbanColumnKind): DropA
   return null;
 }
 
-function MyPrsBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, onShowMergeHistory, onSetDraft, cardMode }: BoardProps<T>) {
+function MyPrsBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, onAgentReview, onShowMergeHistory, onSetDraft, cardMode }: BoardProps<T>) {
   const groups = useMemo(() => groupMyPrs(prs), [prs]);
   const visibleCounts = MY_PR_COLUMNS.map(col =>
     col === 'recently_merged'
@@ -422,6 +425,7 @@ function MyPrsBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onTogg
           onHandle={onHandle}
           onReopen={onReopen}
           onSnooze={onSnooze}
+          onAgentReview={onAgentReview}
           draggable={!!onSetDraft}
           acceptDropFrom={acceptDropFrom(col)}
           onCardDrop={onCardDrop}
@@ -446,7 +450,7 @@ function MyPrsBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onTogg
   );
 }
 
-function ToReviewBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, currentUserLogin }: BoardProps<T>) {
+function ToReviewBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, onAgentReview, currentUserLogin }: BoardProps<T>) {
   const groups = useMemo(() => groupToReview(prs, undefined, currentUserLogin ?? null), [prs, currentUserLogin]);
   const gridTemplate = TO_REVIEW_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
   // Per-column urgent count — PRs with an attentionReason set. Only
@@ -477,6 +481,7 @@ function ToReviewBoard<T extends PrLikeWithId>({ prs, selectedId, collapsed, onT
           onHandle={onHandle}
           onReopen={onReopen}
           onSnooze={onSnooze}
+          onAgentReview={onAgentReview}
           /* To Review board: PRs here are always authored by other
              people. Force team mode so each card shows the author
              chip — see docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png. */

@@ -317,7 +317,7 @@ public class AgentScheduler
             futures.add(future);
             java.lang.Thread.startVirtualThread(() -> {
                 try {
-                    acquireApiSlot();
+                    acquireSlot(API);
                 }
                 catch (InterruptedException e) {
                     java.lang.Thread.currentThread().interrupt();
@@ -331,7 +331,7 @@ public class AgentScheduler
                     future.completeExceptionally(t);
                 }
                 finally {
-                    releaseApiSlot();
+                    releaseSlot(API);
                 }
             });
         }
@@ -355,14 +355,39 @@ public class AgentScheduler
         return results;
     }
 
-    /** Blocking-acquire one API-lane slot for out-of-band work
-     *  (invokeAll items). Shares {@link LaneState#running} with thread
-     *  turns so the lane cap is one number. */
-    private void acquireApiSlot()
+    /** Run one out-of-band CLI turn under the same CLI capacity gate used by
+     * durable thread turns. The owning AgentRun remains the durable status/log. */
+    public <T> T invokeCli(Callable<T> work)
+    {
+        requireNonNull(work, "work is null");
+        boolean acquired = false;
+        try {
+            acquireSlot(CLI);
+            acquired = true;
+            return work.call();
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted waiting for CLI capacity", e);
+        }
+        catch (RuntimeException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            throw new IllegalStateException("CLI work item failed", e);
+        }
+        finally {
+            if (acquired) {
+                releaseSlot(CLI);
+            }
+        }
+    }
+
+    private void acquireSlot(ThreadResourceLane resourceLane)
             throws InterruptedException
     {
         synchronized (lock) {
-            LaneState lane = lane(API);
+            LaneState lane = lane(resourceLane);
             while (lane.running >= lane.maxRunning) {
                 lock.wait();
             }
@@ -370,10 +395,10 @@ public class AgentScheduler
         }
     }
 
-    private void releaseApiSlot()
+    private void releaseSlot(ThreadResourceLane resourceLane)
     {
         synchronized (lock) {
-            LaneState lane = lane(API);
+            LaneState lane = lane(resourceLane);
             lane.running = Math.max(0, lane.running - 1);
             drainLocked();
             lock.notifyAll();

@@ -152,6 +152,9 @@ export interface LocalPRComment {
    *  (origin=external only — task-origin drafts are stripped on push
    *  instead and never reach this state). */
   publishedAt: number | null;
+  /** Investigation finding backing this comment. Null/absent for ordinary
+   * human and draft comments. */
+  findingId?: string | null;
 }
 
 /** Everything the `<PRView>` needs, as one bundle a bridge hook resolves. */

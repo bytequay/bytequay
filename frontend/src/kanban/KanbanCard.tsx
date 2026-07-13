@@ -30,6 +30,7 @@ type Props<T extends PrLikeWithId> = {
   onHandle: () => void;
   onReopen: () => void;
   onSnooze?: (untilIso: string) => void;
+  onAgentReview?: () => void;
   draggable?: boolean;
 };
 
@@ -39,7 +40,7 @@ type Props<T extends PrLikeWithId> = {
  * eventually layer back in column-specific actions (Mark handled, Reopen)
  * without bloating the rich-card component.
  */
-function KanbanCard<T extends PrLikeWithId>({ pr, column, mode, selected, onSelect, onHandle, onReopen, onSnooze, draggable }: Props<T>) {
+function KanbanCard<T extends PrLikeWithId>({ pr, column, mode, selected, onSelect, onHandle, onReopen, onSnooze, onAgentReview, draggable }: Props<T>) {
   return (
     <KanbanPrCard
       pr={pr}
@@ -50,6 +51,8 @@ function KanbanCard<T extends PrLikeWithId>({ pr, column, mode, selected, onSele
       onHandle={onHandle}
       onReopen={onReopen}
       onSnooze={onSnooze}
+      onAgentReview={onAgentReview}
+      reviewState={pr.reviewState}
       draggable={draggable}
     />
   );

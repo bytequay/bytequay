@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ReactNode } from 'react';
 import type { AgentRunDto } from '../../types/brainView';
-import { SpineNode } from './spine/Spine';
+import { SpineNode, type SpineColor } from './spine/Spine';
 
 const KIND_LABEL: Record<AgentRunDto['kind'], string> = {
   ci_fix: 'CI fix run',
@@ -26,9 +27,19 @@ const KIND_LABEL: Record<AgentRunDto['kind'], string> = {
  * Phase 5) — the Development feed's `ci_fix` runs and a live round's nested
  * re-run. Opens the run's own log (`RunLogPage`) on click.
  */
-export function RunEpisode({ run, onOpen }: {
-  run: AgentRunDto;
+type RunEpisodeRow = Pick<AgentRunDto, 'kind' | 'source' | 'status' | 'iterations' | 'headline'>;
+
+export function RunEpisode({ run, onOpen, onToggle, collapsed, name, state: stateOverride, meta: metaOverride, mark = '⚙', color, right }: {
+  run: RunEpisodeRow;
   onOpen?: () => void;
+  onToggle?: () => void;
+  collapsed?: boolean;
+  name?: ReactNode;
+  state?: ReactNode;
+  meta?: ReactNode;
+  mark?: ReactNode;
+  color?: SpineColor;
+  right?: ReactNode;
 }) {
   const live = run.status === 'running' || run.status === 'awaiting_gate';
   const state = run.status === 'succeeded' ? 'done'
@@ -36,15 +47,18 @@ export function RunEpisode({ run, onOpen }: {
       : run.status === 'cancelled' ? 'cancelled'
         : run.status === 'awaiting_gate' ? 'awaiting you'
           : 'running';
-  const meta = run.headline ?? (run.iterations > 0 ? `iter ${run.iterations}` : undefined);
+  const meta = metaOverride ?? run.headline ?? (run.iterations > 0 ? `iter ${run.iterations}` : undefined);
   return (
     <SpineNode
-      mark="⚙"
-      color={run.status === 'failed' ? 'orange' : 'amber'}
-      name={`${KIND_LABEL[run.kind]}${run.source !== null ? ` · ${run.source}` : ''}`}
-      state={state}
+      mark={mark}
+      color={color ?? (run.status === 'failed' ? 'orange' : 'amber')}
+      name={name ?? `${KIND_LABEL[run.kind]}${run.source !== null ? ` · ${run.source}` : ''}`}
+      state={stateOverride ?? state}
       meta={meta}
       onOpen={onOpen}
+      onToggle={onToggle}
+      collapsed={collapsed}
+      right={right}
       flash={live}
     />
   );

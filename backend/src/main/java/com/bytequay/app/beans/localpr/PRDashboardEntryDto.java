@@ -64,9 +64,15 @@ public record PRDashboardEntryDto(
         String headPushedAt,
         Map<String, String> reviewerVerdicts,
         String snoozedUntil,
-        String snoozeWakeReason)
+        String snoozeWakeReason,
+        String reviewState)
 {
     public static PRDashboardEntryDto from(PRDashboardEntry entry)
+    {
+        return from(entry, "none");
+    }
+
+    public static PRDashboardEntryDto from(PRDashboardEntry entry, String reviewState)
     {
         PR pr = entry.pr();
         PR.PRSyncSnapshot sync = pr.githubSync();
@@ -100,7 +106,8 @@ public record PRDashboardEntryDto(
                 sync == null ? null : isoOrNull(sync.headPushedAt()),
                 sync == null ? Map.of() : sync.reviewerVerdicts(),
                 isoOrNull(entry.triage().snoozedUntil()),
-                entry.triage().snoozeWakeReason());
+                entry.triage().snoozeWakeReason(),
+                reviewState);
     }
 
     private static String legacyState(String status)

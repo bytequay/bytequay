@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Chevron, FolderIcon } from '../diffTreeIcons';
 import { buildFileTree, flattenFileTree, treeOrderedFiles } from '../fileTree';
 import type { StatusBadge } from '../diffStatusBadge';
@@ -30,6 +30,7 @@ export type DiffFileTreePaneProps<T> = {
   onSelectPath: (path: string) => void;
   collapsedDirs: ReadonlySet<string>;
   onToggleDir: (path: string) => void;
+  trailingOf?: (item: T) => ReactNode;
 };
 
 /**
@@ -52,6 +53,7 @@ export function DiffFileTreePane<T>(props: DiffFileTreePaneProps<T>) {
     onSelectPath,
     collapsedDirs,
     onToggleDir,
+    trailingOf,
   } = props;
 
   const tree = useMemo(() => (files ? buildFileTree(files, pathOf) : []), [files, pathOf]);
@@ -104,6 +106,7 @@ export function DiffFileTreePane<T>(props: DiffFileTreePaneProps<T>) {
               {badge.letter}
             </span>
             <span className="diff-file-row__name">{row.name}</span>
+            {trailingOf?.(row.data)}
           </button>
         );
       })}
@@ -125,6 +128,7 @@ export function DiffFileTreePane<T>(props: DiffFileTreePaneProps<T>) {
               {badge.letter}
             </span>
             <span className="diff-file-row__name diff-file-row__name--path">{truncatePathMiddle(path)}</span>
+            {trailingOf?.(f)}
           </button>
         );
       })}

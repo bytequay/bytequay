@@ -40,6 +40,8 @@ class TestCliReviewRunner
     @Test
     void claudeArgvWiresTheMcpConfigAndPreAllowsTheReviewTools()
     {
+        assertThat(CliReviewRunner.ALLOWED_REVIEW_TOOLS.split(","))
+                .contains("mcp__bytequay__record_finding");
         assertThat(CliReviewRunner.buildArgv(
                 CliReviewRunner.Provider.CLAUDE, "claude", null, "/work", null, Path.of("/tmp/mcp.json")))
                 .containsExactly("claude", "-p", "--output-format", "stream-json", "--verbose",

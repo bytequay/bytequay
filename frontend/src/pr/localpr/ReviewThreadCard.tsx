@@ -14,6 +14,8 @@
 import type { LocalPR, LocalPRComment } from '../../types/localPr';
 import Avatar from '../../Avatar';
 import { actorRole, agoLabel, displayName } from './prViewMeta';
+import { AgentFindingContent, presentFinding } from '../../review/AgentEvidence';
+import type { AgentReviewData } from '../../review/agentReviewTypes';
 
 /**
  * A file-line comment thread (U13d): a mono file-header bar, the root
@@ -22,7 +24,7 @@ import { actorRole, agoLabel, displayName } from './prViewMeta';
  * which this milestone doesn't fetch yet (Code Diff / Files-changed page).
  */
 export function ReviewThreadCard({
-  pr, filePath, lineNumber, comments, resolved, onResolve, onDismiss,
+  pr, filePath, lineNumber, comments, resolved, onResolve, onDismiss, reviewData,
 }: {
   pr: LocalPR;
   filePath: string;
@@ -32,6 +34,7 @@ export function ReviewThreadCard({
   resolved: boolean;
   onResolve?: () => void;
   onDismiss?: () => void;
+  reviewData?: AgentReviewData;
 }) {
   return (
     <div className="pr-thread">
@@ -40,6 +43,9 @@ export function ReviewThreadCard({
         const role = actorRole(c.author, pr);
         const pending = c.origin === 'local' && c.publishedAt === null &&
           c.resolvedAt === null && c.dismissedAt === null;
+        const finding = c.findingId == null || reviewData === undefined
+          ? undefined
+          : presentFinding(reviewData, c.findingId);
         return (
           <div className="th-cmt" key={c.id}>
             <Avatar login={displayName(c.author)} size={22} className={`pr-avatar ${role === 'other' ? '' : role}`} />
@@ -50,7 +56,11 @@ export function ReviewThreadCard({
                 {role === 'author' && <span className="pr-badge author">Author</span>}
                 {pending && <span className="pr-badge pending">Pending</span>}
               </div>
-              <div className="mb">{c.body}</div>
+              <div className="mb">
+                {finding !== undefined
+                  ? <AgentFindingContent view={finding} body={c.body} pending={pending} />
+                  : c.body}
+              </div>
             </div>
           </div>
         );

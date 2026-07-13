@@ -26,4 +26,6 @@ interface AgentRunJpaRepository
      *  beats a derived-query permutation for every optional-filter
      *  combination. */
     List<AgentRunEntity> findByTaskIdOrderByStartedAtMsDesc(String taskId);
+
+    List<AgentRunEntity> findByReviewRoundIdOrderByStartedAtMsAsc(String reviewRoundId);
 }

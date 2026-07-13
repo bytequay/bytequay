@@ -1418,6 +1418,12 @@
   background: var(--amber-soft);
 }
 
+.kpr-card__agent-review:hover { color: #6d28d9; border-color: rgba(139, 92, 246, 0.35); background: rgba(139, 92, 246, 0.08); }
+.kpr-card__review-state { display: inline-flex; color: #767068; font-size: 12px; }
+.kpr-card__review-state--running { color: #7c3aed; }
+.kpr-card__review-state--done { color: #1f883d; }
+.kpr-card__review-state--stale { color: #9a6700; }
+
 .kpr-card__snooze-wrap {
   position: relative;
   /* Mirrors kpr-card__handle's hide-until-hover. Stays visible while

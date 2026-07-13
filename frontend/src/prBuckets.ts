@@ -49,6 +49,7 @@ export type PrLike = {
   mergeableState: string | null;
   reviewerVerdicts: Record<string, string> | null;
   requestedReviewers: string[];
+  reviewState?: 'none' | 'running' | 'done' | 'stale';
 };
 
 /** {@link PrLike} plus an id — the bound every card/list component in the

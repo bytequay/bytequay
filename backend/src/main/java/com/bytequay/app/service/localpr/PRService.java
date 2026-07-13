@@ -227,6 +227,12 @@ public interface PRService
      *  on push instead and never reach this state). */
     PRComment markPublished(String commentId, Instant when);
 
+    /** Link an ordinary local draft to its persisted investigation finding. */
+    PRComment attachFinding(String commentId, String findingId);
+
+    /** Edit a pending local draft without changing its anchor or provenance. */
+    PRComment editCommentBody(String commentId, String body);
+
     /** Advance the local-addressing marker to {@code through} — comments
      *  created at or before this instant are considered already accounted
      *  for by the addressing loop (see {@link PR#withLocalAddressedThrough}). */
@@ -249,4 +255,7 @@ public interface PRService
      *  {@link #hasRemoteEvent}. */
     void recordRemoteReview(
             String prId, String reviewer, String verdict, String body, Instant when, long remoteReviewId);
+
+    /** Append a local investigation-review event to the unified PR timeline. */
+    void recordReviewEvent(String prId, String actor, String payloadJson);
 }

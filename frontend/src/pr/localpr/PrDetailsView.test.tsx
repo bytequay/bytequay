@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PrDetailsView } from './PrDetailsView';
 import { useExternalPrActions } from './useExternalPrActions';
@@ -30,7 +31,7 @@ vi.mock('./LocalPrReviewScreen', () => ({
 }));
 
 vi.mock('./PRView', () => ({
-  PRView: () => <div />,
+  PRView: ({ headerAction }: { headerAction?: ReactNode }) => <div>{headerAction}</div>,
 }));
 
 vi.mock('./PushDialog', () => ({
@@ -82,6 +83,56 @@ function bundle(): LocalPRBundle {
 }
 
 describe('PrDetailsView', () => {
+  it('starts with the real PR untouched and exposes the review entry action', async () => {
+    const b = bundle();
+    vi.mocked(useExternalPrActions).mockReturnValue({
+      bundle: b,
+      refresh: vi.fn(),
+      syncing: false,
+      localPr: b.pr,
+      capabilities: {
+        draftLocalComments: true,
+        publishReview: true,
+        push: false,
+        merge: true,
+        chatAgent: false,
+        postRemoteComment: true,
+      },
+      localComment: '',
+      setLocalComment: vi.fn(),
+      submitLocalComment: vi.fn(),
+      confirmPush: vi.fn(),
+      confirmMerge: vi.fn(),
+      dequeuePr: vi.fn(),
+      deleteBranch: vi.fn(),
+      publishReview: vi.fn(),
+      publishBusy: false,
+      addLocalLineComment: vi.fn(),
+      replyLocalLineComment: vi.fn(),
+      resolveLocalComment: vi.fn(),
+      deleteLocalComment: vi.fn(),
+      dismissLocalComment: vi.fn(),
+      pushOpen: false,
+      setPushOpen: vi.fn(),
+      reviewOpen: false,
+      setReviewOpen: vi.fn(),
+      prBusy: false,
+      reviewFiles: [],
+      reviewError: null,
+      runLocalTests: vi.fn(),
+      testsBusy: false,
+    });
+
+    render(<PrDetailsView pr={{ id: 1, repo: 'owner/repo', number: 42 }} />);
+    const start = screen.getByRole('button', { name: /Review with agent/ });
+    expect(screen.queryByRole('button', { name: /Submit review/ })).toBeNull();
+
+    fireEvent.click(start);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /reviewing/ })).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /Submit review/ })).toBeNull();
+  });
+
   it('passes a PR-head blob fetcher to the review diff', async () => {
     const fetchFileBlob = vi.fn().mockResolvedValue({ lines: [] });
     (window as unknown as { bridge: { fetchFileBlob: typeof fetchFileBlob } }).bridge = { fetchFileBlob };

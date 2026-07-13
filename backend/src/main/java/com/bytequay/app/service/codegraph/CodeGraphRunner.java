@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
 
-/** Thin wrapper around the external {@code codegraph} CLI. */
+/** Thin wrapper around the ByteQuay-managed {@code codegraph} CLI. */
 @Component
 public class CodeGraphRunner
 {
@@ -33,10 +33,33 @@ public class CodeGraphRunner
     private static final long INDEX_TIMEOUT_SECONDS = 600;
     private static final long QUERY_TIMEOUT_SECONDS = 120;
 
+    private final CodeGraphInstaller installer;
+
+    public CodeGraphRunner(CodeGraphInstaller installer)
+    {
+        this.installer = requireNonNull(installer, "installer is null");
+    }
+
+    /**
+     * The managed binary's absolute path, falling back to the bare command
+     * name so a developer copy already on PATH still works. Callers hit this
+     * before the background install finishes; that is fine — {@link
+     * #isAvailable()} just reports {@code false} until it does.
+     */
+    private String bin()
+    {
+        return installer.installedBinary().map(Path::toString).orElse("codegraph");
+    }
+
     public boolean isAvailable()
     {
+        // Not installed yet → kick off the transparent background install so a
+        // later call finds it ready, and report unavailable for now.
+        if (installer.installedBinary().isEmpty()) {
+            installer.ensureInstalledAsync();
+        }
         try {
-            return run(List.of("codegraph", "version"), null, PROBE_TIMEOUT_SECONDS).exitCode() == 0;
+            return run(List.of(bin(), "version"), null, PROBE_TIMEOUT_SECONDS).exitCode() == 0;
         }
         catch (IOException e) {
             return false;
@@ -50,21 +73,21 @@ public class CodeGraphRunner
     public void init(Path project)
             throws IOException, InterruptedException
     {
-        run(List.of("codegraph", "init", project.toString()), project, INDEX_TIMEOUT_SECONDS)
+        run(List.of(bin(), "init", project.toString()), project, INDEX_TIMEOUT_SECONDS)
                 .requireSuccess();
     }
 
     public void sync(Path project)
             throws IOException, InterruptedException
     {
-        run(List.of("codegraph", "sync", project.toString()), project, INDEX_TIMEOUT_SECONDS)
+        run(List.of(bin(), "sync", project.toString()), project, INDEX_TIMEOUT_SECONDS)
                 .requireSuccess();
     }
 
     public void rebuild(Path project)
             throws IOException, InterruptedException
     {
-        run(List.of("codegraph", "index", project.toString(), "--force", "--quiet"),
+        run(List.of(bin(), "index", project.toString(), "--force", "--quiet"),
                 project, INDEX_TIMEOUT_SECONDS)
                 .requireSuccess();
     }
@@ -73,7 +96,7 @@ public class CodeGraphRunner
             throws IOException, InterruptedException
     {
         CodeGraphProcessResult result = run(
-                List.of("codegraph", "explore", query),
+                List.of(bin(), "explore", query),
                 project,
                 QUERY_TIMEOUT_SECONDS);
         result.requireSuccess();

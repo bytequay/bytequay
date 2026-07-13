@@ -277,17 +277,17 @@ public class McpServiceImpl
             return;
         }
         AgentRole role = permissions.roleFor(threadId, agentKey);
+        ThreadKind kind = kindFor(threadId);
         if (!spec.availableTo(role)) {
             // The roles array on @AgentTool is both a discovery filter
             // (tools/list hides tools the role can't see) and a call-
             // time guard (so a hand-crafted RPC can't reach a tool that
             // the catalog wouldn't have offered to this role).
             deferred.setResult(responses.toolResponse(id, responses.deny(
-                    "tool '" + name + "' is not available to the current role ("
-                            + role + ")")));
+                    deniedToolMessage(name, spec.security(), role, kind,
+                            "tool is not available to the current role"))));
             return;
         }
-        ThreadKind kind = kindFor(threadId);
         if (!spec.availableToKind(kind)
                 || (kind == ThreadKind.BRAIN_AGENT
                         && !ApprovalPromptHandler.NAME.equals(name)
@@ -303,9 +303,8 @@ public class McpServiceImpl
         Set<SecurityType> grants = permissions.grants(threadId, agentKey);
         if (!grants.contains(spec.security())) {
             deferred.setResult(responses.toolResponse(id, responses.deny(
-                    "tool '" + name + "' requires capability " + spec.security()
-                            + " which is not granted to the current role ("
-                            + role + ")")));
+                    deniedToolMessage(name, spec.security(), role, kind,
+                            "required capability " + spec.security() + " is not granted"))));
             return;
         }
         // Registry default path: tools whose @AgentTool method returns
@@ -345,5 +344,28 @@ public class McpServiceImpl
             return isError ? responses.toolResponse(id, responses.deny(text)) : responses.plainText(id, text);
         }
         throw new IllegalStateException("unhandled tool outcome: " + outcome);
+    }
+
+    private static String deniedToolMessage(
+            String name, SecurityType security, AgentRole role, ThreadKind kind, String reason)
+    {
+        if (role == AgentRole.TRUNK
+                && kind == ThreadKind.CLI_AGENT
+                && isImplementationCapability(security)) {
+            return "Tool '" + name + "' is denied: you are the TRUNK and may only research and "
+                    + "plan. Do not retry this tool or look for another write path. If the work "
+                    + "requires implementation, call ask_user_question to ask whether to cut a "
+                    + "task and end the turn. Only after the user's next explicit confirmation "
+                    + "may you call create_task.";
+        }
+        return "tool '" + name + "' is denied (" + reason + "; role=" + role + ")";
+    }
+
+    private static boolean isImplementationCapability(SecurityType security)
+    {
+        return switch (security) {
+            case CODE_WRITE, CODE_EXEC, GIT_LOCAL, GIT_PUSH, VCS_PUBLISH -> true;
+            default -> false;
+        };
     }
 }

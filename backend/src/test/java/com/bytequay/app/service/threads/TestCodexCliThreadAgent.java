@@ -174,6 +174,25 @@ class TestCodexCliThreadAgent
     }
 
     @Test
+    void freshTrunkTurnUsesAReadOnlySandbox()
+    {
+        List<String> cmd = trunkAgent(null, null).buildCommand("cut a task").command();
+
+        assertThat(cmd).containsSubsequence("-c", "sandbox_mode=\"read-only\"");
+        assertThat(cmd).containsSubsequence("--sandbox", "read-only");
+        assertThat(cmd).doesNotContain("workspace-write");
+    }
+
+    @Test
+    void resumedTrunkTurnOverridesAnOlderSessionsSandbox()
+    {
+        List<String> cmd = trunkAgent("sess-abc", null).buildCommand("continue").command();
+
+        assertThat(cmd).containsSubsequence("-c", "sandbox_mode=\"read-only\"");
+        assertThat(cmd).doesNotContain("--sandbox", "workspace-write");
+    }
+
+    @Test
     void metricsReportTheTasksOwnUsageNotTheThreadLifetime()
     {
         // A focused task agent must report the TASK's own spend, not the

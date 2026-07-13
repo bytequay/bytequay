@@ -58,6 +58,10 @@ public class ClaudeCodeCliThreadAgent
 {
     private static final Logger log = LoggerFactory.getLogger(ClaudeCodeCliThreadAgent.class);
 
+    /** Built-in tools exposed to the read-only trunk. MCP tools such as
+     *  create_task are configured separately and remain available. */
+    private static final String TRUNK_BUILTIN_TOOLS = "Read,Glob,Grep,WebFetch,WebSearch";
+
     /** {@code claude}'s default binary name on PATH. Overridable in case
      *  the user installed it under a different name. */
     private static final String DEFAULT_BINARY = "claude";
@@ -246,6 +250,12 @@ public class ClaudeCodeCliThreadAgent
                 .add("--include-partial-messages")
                 .add("--mcp-config", ensureMcpConfig().toString())
                 .add("--permission-prompt-tool", "mcp__bytequay__approval_prompt");
+        if (isReadOnlySession()) {
+            // The role prompt says the trunk is read-only, but a prompt is not
+            // a security boundary. Remove Bash/Edit/Write/Task from Claude's
+            // built-in catalog while leaving ByteQuay's create_task MCP tool.
+            argv.add("--tools", TRUNK_BUILTIN_TOOLS);
+        }
         // Resolved work-model cascade (or a CLI-reported model from a prior
         // turn) — mirrors CodexCliThreadAgent's -m flag. Sent on every turn,
         // same as --append-system-prompt below; --resume tolerates it.

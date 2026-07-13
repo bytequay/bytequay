@@ -382,6 +382,13 @@ public abstract class AbstractCliThreadAgent
         return agentSessionId.get();
     }
 
+    /** True for a trunk or task-brain session, which has no bound Task and
+     *  must never receive provider-native write or execution capabilities. */
+    protected final boolean isReadOnlySession()
+    {
+        return activeTaskId == null;
+    }
+
     // ---- ThreadAgent --------------------------------------------------
 
     @Override

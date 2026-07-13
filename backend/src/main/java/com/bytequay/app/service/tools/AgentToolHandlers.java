@@ -684,7 +684,8 @@ public class AgentToolHandlers
                     + "id, branch, worktree path, and seq. A thread may run several tasks at "
                     + "once — each gets its own branch and worktree — so this cuts immediately "
                     + "whether or not other tasks are already live. This is the only way to "
-                    + "start a task.",
+                    + "start a task. Call it only after presenting the plan, asking the user to "
+                    + "confirm, and receiving explicit approval in the immediately preceding turn.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)

@@ -51,11 +51,10 @@ public class CodexCliThreadAgent
     /** {@code codex}'s default binary name on PATH. */
     private static final String DEFAULT_BINARY = "codex";
 
-    /** Filesystem-write sandbox: Codex may read/write inside the working
-     *  directory (the task's worktree) but not touch the wider system.
-     *  The right default for a coding task agent; tighter than
-     *  {@code danger-full-access}, looser than {@code read-only}. */
-    private static final String SANDBOX_MODE = "workspace-write";
+    /** Task agents write only inside their worktree; trunk agents stay
+     *  read-only and hand implementation to a Task. */
+    private static final String TASK_SANDBOX_MODE = "workspace-write";
+    private static final String TRUNK_SANDBOX_MODE = "read-only";
 
     private final Supplier<String> workspaceMemoryProvider;
     private final String roleSkillText;
@@ -229,6 +228,12 @@ public class CodexCliThreadAgent
                 // and improvises with its built-in multi_agent spawn. The rmcp
                 // client does the streamable-HTTP tool discovery.
                 .add("-c", "experimental_use_rmcp_client=true");
+        if (isReadOnlySession()) {
+            // Repeat the policy as a config override so resumed sessions made
+            // before this guard was added are tightened too; exec resume does
+            // not accept the --sandbox flag itself.
+            argv.add("-c", "sandbox_mode=\"read-only\"");
+        }
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             argv.add("-c", "model_reasoning_effort=\"" + reasoningEffort + "\"");
         }
@@ -242,7 +247,7 @@ public class CodexCliThreadAgent
                     // Worktrees are detached checkouts; without this Codex
                     // refuses to run outside a "normal" git repo root.
                     .add("--skip-git-repo-check")
-                    .add("--sandbox", SANDBOX_MODE)
+                    .add("--sandbox", isReadOnlySession() ? TRUNK_SANDBOX_MODE : TASK_SANDBOX_MODE)
                     .add("-C", workingDir);
             String model = model();
             if (model != null && !model.isBlank()) {

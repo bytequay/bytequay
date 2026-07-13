@@ -27,7 +27,10 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.tools.PermissionResolver;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -132,6 +135,7 @@ public abstract class AbstractCliThreadAgent
      *  status alongside the thread's. */
     private final TaskStore taskStore;
     private final CliStreamParser parser;
+    private final ObjectMapper mapper;
     private final ToolFileOps fileOps;
     private final McpPermissionGate gate;
     private final ExecutorService executor;
@@ -235,7 +239,8 @@ public abstract class AbstractCliThreadAgent
         this.model.set(thread.model() == null ? "" : thread.model());
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
-        this.fileOps = new ToolFileOps(requireNonNull(mapper, "mapper is null"));
+        this.mapper = requireNonNull(mapper, "mapper is null");
+        this.fileOps = new ToolFileOps(mapper);
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
@@ -984,16 +989,18 @@ public abstract class AbstractCliThreadAgent
         ThreadMessage built = switch (event) {
             case StreamEvent.SessionStarted e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "system", "session_started",
-                    String.format("{\"sessionId\":\"%s\",\"cwd\":\"%s\",\"model\":\"%s\"}",
-                            jsonEscape(e.sessionId()), jsonEscape(e.cwd()), jsonEscape(e.model())),
+                    content(mapper.createObjectNode()
+                            .put("sessionId", e.sessionId())
+                            .put("cwd", e.cwd())
+                            .put("model", e.model())),
                     null, null, null, null, ts);
             case StreamEvent.UserMessage e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "user", "text",
-                    "{\"text\":\"" + jsonEscape(e.text()) + "\"}",
+                    content(mapper.createObjectNode().put("text", e.text())),
                     null, null, null, null, ts);
             case StreamEvent.AssistantText e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "assistant", "text",
-                    "{\"text\":\"" + jsonEscape(e.text()) + "\"}",
+                    content(mapper.createObjectNode().put("text", e.text())),
                     null, null, null, null, ts);
             // Live-only — deltas reach SSE subscribers and feed the
             // in-flight assistant card; the assembled AssistantText is the
@@ -1002,42 +1009,43 @@ public abstract class AbstractCliThreadAgent
             case StreamEvent.AssistantTextDelta ignored -> null;
             case StreamEvent.ThinkingStarted e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "assistant", "thinking",
-                    "{\"summary\":\"" + jsonEscape(e.summary()) + "\"}",
+                    content(mapper.createObjectNode().put("summary", e.summary())),
                     null, null, null, null, ts);
             case StreamEvent.ThinkingTextDelta ignored -> null;
             case StreamEvent.ThinkingDone ignored -> null;
             case StreamEvent.ToolCallStarted e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "tool", "tool_call",
-                    String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"input\":%s}",
-                            jsonEscape(e.callId()),
-                            jsonEscape(e.toolName()),
-                            e.inputJson().isEmpty() ? "null" : e.inputJson()),
+                    content(mapper.createObjectNode()
+                            .put("callId", e.callId())
+                            .put("toolName", e.toolName())
+                            .set("input", rawJson(e.inputJson()))),
                     null, null, null, null, ts);
             case StreamEvent.ToolCallDone e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "tool", "tool_result",
-                    String.format("{\"callId\":\"%s\",\"isError\":%s,\"output\":%s}",
-                            jsonEscape(e.callId()),
-                            e.isError(),
-                            e.outputJson().isEmpty() ? "null" : e.outputJson()),
+                    content(mapper.createObjectNode()
+                            .put("callId", e.callId())
+                            .put("isError", e.isError())
+                            .set("output", rawJson(e.outputJson()))),
                     null, null, null, null, ts);
             case StreamEvent.PermissionRequested e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "system", "permission_request",
-                    String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"summary\":\"%s\"}",
-                            jsonEscape(e.callId()),
-                            jsonEscape(e.toolName()),
-                            jsonEscape(e.summary())),
+                    content(mapper.createObjectNode()
+                            .put("callId", e.callId())
+                            .put("toolName", e.toolName())
+                            .put("summary", e.summary())),
                     null, null, null, null, ts);
             case StreamEvent.PermissionDecided e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "system", "permission_decision",
-                    String.format("{\"callId\":\"%s\",\"decision\":\"%s\"}",
-                            jsonEscape(e.callId()), e.decision().name()),
+                    content(mapper.createObjectNode()
+                            .put("callId", e.callId())
+                            .put("decision", e.decision().name())),
                     null, null, null, null, ts);
             case StreamEvent.PermissionAutoAllowed e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "system", "permission_auto_allowed",
-                    String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"remaining\":%d}",
-                            jsonEscape(e.callId()),
-                            jsonEscape(e.toolName()),
-                            e.remaining()),
+                    content(mapper.createObjectNode()
+                            .put("callId", e.callId())
+                            .put("toolName", e.toolName())
+                            .put("remaining", e.remaining())),
                     null, null, null, null, ts);
             // Live-only — in-flight token counters reach SSE subscribers
             // and overlay the metrics panel; TurnDone is the durable row.
@@ -1047,16 +1055,15 @@ public abstract class AbstractCliThreadAgent
                     e.durationMs(), e.tokensIn(), e.tokensOut(), e.costUsdMilli(), ts);
             case StreamEvent.ErrorOccurred e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "system", "error",
-                    String.format("{\"message\":\"%s\",\"recoverable\":%s}",
-                            jsonEscape(e.message()), e.recoverable()),
+                    content(mapper.createObjectNode()
+                            .put("message", e.message())
+                            .put("recoverable", e.recoverable())),
                     null, null, null, null, ts);
             case StreamEvent.SessionEnded e -> new ThreadMessage(
                     id, threadId, activeTaskId, seq, "system", "session_ended",
-                    String.format("{\"exitCode\":%d,\"errorMessage\":%s}",
-                            e.exitCode(),
-                            e.errorMessage() == null
-                                    ? "null"
-                                    : "\"" + jsonEscape(e.errorMessage()) + "\""),
+                    content(mapper.createObjectNode()
+                            .put("exitCode", e.exitCode())
+                            .put("errorMessage", e.errorMessage())),
                     null, null, null, null, ts);
         };
         // Stamp the explicit stage + scope for the turn this session is
@@ -1202,33 +1209,33 @@ public abstract class AbstractCliThreadAgent
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    protected static String jsonEscape(String s)
+    /** Serialize a built content node to its JSON string, falling back to
+     *  an empty object if Jackson can't render it (never expected for the
+     *  flat nodes built here). */
+    private String content(ObjectNode node)
     {
-        if (s == null) {
-            return "";
+        try {
+            return mapper.writeValueAsString(node);
         }
-        StringBuilder sb = new StringBuilder(s.length() + 8);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '\\' -> sb.append("\\\\");
-                case '"' -> sb.append("\\\"");
-                case '\n' -> sb.append("\\n");
-                case '\r' -> sb.append("\\r");
-                case '\t' -> sb.append("\\t");
-                case '\b' -> sb.append("\\b");
-                case '\f' -> sb.append("\\f");
-                default -> {
-                    if (c < 0x20) {
-                        sb.append(String.format("\\u%04x", (int) c));
-                    }
-                    else {
-                        sb.append(c);
-                    }
-                }
-            }
+        catch (JsonProcessingException e) {
+            return "{}";
         }
-        return sb.toString();
+    }
+
+    /** Parse a raw JSON string (a tool's input/output) into a node to embed
+     *  verbatim. Empty/null or unparseable input becomes a JSON null, matching
+     *  the prior "null" literal for absent tool payloads. */
+    private JsonNode rawJson(String s)
+    {
+        if (s == null || s.isEmpty()) {
+            return mapper.nullNode();
+        }
+        try {
+            return mapper.readTree(s);
+        }
+        catch (JsonProcessingException e) {
+            return mapper.nullNode();
+        }
     }
 
     /** Default executor for production use — daemon threads named per

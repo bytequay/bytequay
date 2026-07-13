@@ -99,6 +99,14 @@ class ThreadEntity
     @Column(name = "parent_task_id")
     private String parentTaskId;
 
+    /** Exact published source snapshot held stable for the trunk's current
+     * planning cycle. Both columns are null between task cuts. */
+    @Column(name = "planning_repo_root")
+    private String planningRepoRoot;
+
+    @Column(name = "planning_base_sha")
+    private String planningBaseSha;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -163,6 +171,12 @@ class ThreadEntity
 
     String getParentTaskId() { return parentTaskId; }
     void setParentTaskId(String parentTaskId) { this.parentTaskId = parentTaskId; }
+
+    String getPlanningRepoRoot() { return planningRepoRoot; }
+    void setPlanningRepoRoot(String planningRepoRoot) { this.planningRepoRoot = planningRepoRoot; }
+
+    String getPlanningBaseSha() { return planningBaseSha; }
+    void setPlanningBaseSha(String planningBaseSha) { this.planningBaseSha = planningBaseSha; }
 
     int getParallelSlots() { return parallelSlots; }
     void setParallelSlots(int parallelSlots) { this.parallelSlots = parallelSlots; }

@@ -480,16 +480,7 @@ public class TaskLifecycleDriver
         // close: the PR may be reopened, and closing already leaves the branch.
         if (merged) {
             worktrees.deleteRemoteBranch(task);
-            refreshPlanningAfterMerge(task);
         }
-    }
-
-    private void refreshPlanningAfterMerge(Task task)
-    {
-        if (task.workingDir() == null || task.workingDir().isBlank()) {
-            return;
-        }
-        worktrees.ensurePlanningWorktree(Path.of(task.workingDir()));
     }
 
     private static boolean isTerminal(TaskStatus status)

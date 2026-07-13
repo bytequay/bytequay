@@ -212,6 +212,46 @@ class SqliteThreadStore
     }
 
     @Override
+    public Optional<PlanningSnapshot> findPlanningSnapshot(String threadId)
+    {
+        return threads.findById(threadId)
+                .filter(entity -> entity.getPlanningRepoRoot() != null
+                        && !entity.getPlanningRepoRoot().isBlank()
+                        && entity.getPlanningBaseSha() != null
+                        && !entity.getPlanningBaseSha().isBlank())
+                .map(entity -> new PlanningSnapshot(
+                        entity.getPlanningRepoRoot(), entity.getPlanningBaseSha()));
+    }
+
+    @Override
+    @Transactional
+    public void setPlanningSnapshot(String threadId, PlanningSnapshot snapshot)
+    {
+        requireNonNull(snapshot, "snapshot is null");
+        ThreadEntity entity = threads.findById(threadId)
+                .orElseThrow(() -> new IllegalArgumentException("no thread: " + threadId));
+        entity.setPlanningRepoRoot(requireNonNull(snapshot.repoRoot(), "repoRoot is null"));
+        entity.setPlanningBaseSha(requireNonNull(snapshot.baseSha(), "baseSha is null"));
+        threads.save(entity);
+    }
+
+    @Override
+    @Transactional
+    public boolean clearPlanningSnapshot(String threadId, String expectedBaseSha)
+    {
+        Optional<ThreadEntity> found = threads.findById(threadId);
+        if (found.isEmpty() || expectedBaseSha == null
+                || !expectedBaseSha.equals(found.get().getPlanningBaseSha())) {
+            return false;
+        }
+        ThreadEntity entity = found.get();
+        entity.setPlanningRepoRoot(null);
+        entity.setPlanningBaseSha(null);
+        threads.save(entity);
+        return true;
+    }
+
+    @Override
     public Optional<Thread> findBrainThreadByTask(String taskId)
     {
         return threads.findFirstByKindAndParentTaskId(ThreadKind.BRAIN_AGENT.name(), taskId)

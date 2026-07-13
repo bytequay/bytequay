@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.codegraph.CodeGraphResult;
 import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.local.GitRunner;
 import org.slf4j.Logger;
@@ -68,9 +69,8 @@ public class WorktreeService
      *  ({@code docs/mockups/workspace-thread-task-design.md}) names this
      *  exact path: {@code <repo>/.worktrees/<task-id>/}. */
     static final String WORKTREE_ROOT_REL = ".worktrees";
-    /** Dir name (under {@link #WORKTREE_ROOT_REL}) of the shared trunk
-     *  planning worktree. Distinct from any task id, so the task-orphan
-     *  sweeper never mistakes it for a task worktree. */
+    /** Parent directory (under {@link #WORKTREE_ROOT_REL}) for the
+     *  per-thread detached planning worktrees. */
     static final String PLANNING_WORKTREE_REL = "_planning";
 
     /** Branch-name prefix for dev branches. The branch is named for the
@@ -97,8 +97,8 @@ public class WorktreeService
     private final GitRunner git;
     private final WatchedRepoStore watchedRepos;
     private final CodeGraphUpdateCoordinator codeGraph;
-    /** Per-clone monitors so concurrent trunk turns serialise their
-     *  fetch + reset of the shared planning worktree. */
+    /** Per-clone monitors so concurrent snapshot refreshes serialize git's
+     *  shared worktree metadata and remote-tracking refs. */
     private final ConcurrentHashMap<String, Object> planningLocks = new ConcurrentHashMap<>();
 
     @Autowired
@@ -125,6 +125,18 @@ public class WorktreeService
      */
     public Optional<WorktreeHandle> create(Path repoRoot, String taskId, String title)
     {
+        return create(repoRoot, taskId, title, null);
+    }
+
+    /**
+     * Creates a task worktree, optionally from an exact commit selected by
+     * the trunk's planning snapshot. Supplying {@code baseCommit} deliberately
+     * skips a fetch: the task must start from the code that was planned, not
+     * from a newer remote tip discovered while cutting the branch.
+     */
+    public Optional<WorktreeHandle> create(
+            Path repoRoot, String taskId, String title, String baseCommit)
+    {
         requireNonNull(repoRoot, "repoRoot is null");
         requireNonNull(taskId, "taskId is null");
         if (!git.isAvailable()) {
@@ -138,11 +150,12 @@ public class WorktreeService
                     .resolve(taskId)
                     .toAbsolutePath()
                     .normalize();
-            ensurePlanningWorktree(repoRoot);
             // Name the branch for the task's purpose, not its id. The id
             // is the fallback only when the title yields no usable slug.
             String branchName = uniqueDevBranch(repoRoot, slug.isEmpty() ? taskId : slug);
-            String baseRef = resolveBaseRef(repoRoot);
+            String baseRef = baseCommit == null || baseCommit.isBlank()
+                    ? resolveBaseRef(repoRoot)
+                    : baseCommit.strip();
             if (baseRef == null) {
                 log.info("No base ref resolvable in {}; skipping worktree for task {}",
                         repoRoot, taskId);
@@ -154,10 +167,10 @@ public class WorktreeService
             // Pin the exact base commit the worktree was cut from, so the
             // task's diff is a fixed base..HEAD rather than a re-guessed
             // branch name on every request.
-            String baseCommit = git.resolveCommitSha(repoRoot, baseRef).orElse(null);
+            String resolvedBaseCommit = git.resolveCommitSha(repoRoot, baseRef).orElse(null);
             log.info("Created worktree at {} on branch {} (from {} @ {}) for task {}",
-                    worktreePath, branchName, baseRef, baseCommit, taskId);
-            return Optional.of(new WorktreeHandle(worktreePath, branchName, baseCommit));
+                    worktreePath, branchName, baseRef, resolvedBaseCommit, taskId);
+            return Optional.of(new WorktreeHandle(worktreePath, branchName, resolvedBaseCommit));
         }
         catch (IOException e) {
             log.warn("Worktree create failed for task {} in {}: {}",
@@ -430,38 +443,29 @@ public class WorktreeService
     }
 
     /**
-     * Ensures a shared, read-only <b>planning worktree</b> for {@code
-     * repoRoot}, checked out detached at the up-to-date base ref —
-     * {@code upstream/master} for a fork-based clone, {@code
-     * origin/<default>} for a direct clone. Fetches the base remote, then
-     * creates the worktree (first call) or hard-resets it to the fresh
-     * ref (subsequent calls). The trunk planning session runs here so its
-     * code search reflects the latest base instead of whatever branch the
-     * user's main checkout happens to be on — without disturbing that
-     * checkout.
-     *
-     * <p>One worktree per clone at {@code .worktrees/_planning}, shared
-     * across all trunk threads rooted in that clone (planning is
-     * read-only). Serialised per clone so concurrent trunk turns don't
-     * race on the fetch/reset. Best-effort: returns empty on any failure
-     * (no git, unresolvable base, add failed) so the caller can fall back
-     * to the clone root. Not a task worktree, so the orphan sweeper —
-     * which only reaps task rows — leaves it alone.
+     * Starts a new planning cycle for {@code threadId}: fetch the published
+     * base, reset that thread's detached planning worktree, synchronously
+     * refresh its CodeGraph index, and return the exact resulting SHA.
+     * Callers persist the SHA only when this method succeeds.
      */
-    public Optional<PlanningSync> ensurePlanningWorktree(Path repoRoot)
+    public Optional<PlanningSync> refreshPlanningWorktree(Path repoRoot, String threadId)
     {
         requireNonNull(repoRoot, "repoRoot is null");
+        requireNonNull(threadId, "threadId is null");
         if (!git.isAvailable()) {
             return Optional.empty();
         }
-        Path planningPath = repoRoot.resolve(WORKTREE_ROOT_REL).resolve(PLANNING_WORKTREE_REL)
-                .toAbsolutePath().normalize();
+        Path planningPath = planningPath(repoRoot, threadId);
         synchronized (planningLockFor(repoRoot)) {
             try {
+                preparePlanningRoot(repoRoot);
                 String baseRef = resolvePlanningBaseRef(repoRoot);
                 if (baseRef == null) {
                     return Optional.empty();
                 }
+                String previousSha = Files.isDirectory(planningPath)
+                        ? git.headSha(planningPath)
+                        : null;
                 if (Files.isDirectory(planningPath)) {
                     git.resetHard(planningPath, baseRef);
                 }
@@ -469,11 +473,19 @@ public class WorktreeService
                     appendToGitInfoExclude(repoRoot);
                     git.worktreeAddDetached(repoRoot, planningPath, baseRef);
                 }
-                codeGraph.ensureFreshSync(planningPath, "planning-worktree-synced");
-                return Optional.of(new PlanningSync(planningPath, baseRef));
+                String baseSha = git.headSha(planningPath);
+                CodeGraphResult indexed = codeGraph.ensureFreshSync(
+                        planningPath, "planning-snapshot-refreshed");
+                if (!indexed.ok()) {
+                    log.warn("Planning snapshot {} reached {} but CodeGraph failed: {}",
+                            threadId, baseSha, indexed.message());
+                    restorePreviousSnapshot(planningPath, previousSha);
+                    return Optional.empty();
+                }
+                return Optional.of(new PlanningSync(planningPath, baseRef, baseSha));
             }
             catch (IOException | RuntimeException e) {
-                log.warn("Planning worktree for {} unavailable ({}); trunk will use the clone root",
+                log.warn("Planning worktree for {} unavailable ({}); trunk planning is blocked",
                         repoRoot, e.getMessage());
                 return Optional.empty();
             }
@@ -482,6 +494,127 @@ public class WorktreeService
                 return Optional.empty();
             }
         }
+    }
+
+    /**
+     * Reopens an already-persisted planning snapshot without fetching,
+     * resetting, or re-indexing it. The common follow-up-turn path simply
+     * reuses the existing directory. If an app restart finds the directory
+     * missing, it is reconstructed from the persisted SHA and indexed once.
+     */
+    public Optional<PlanningSync> ensurePlanningWorktree(
+            Path repoRoot, String threadId, String baseSha)
+    {
+        requireNonNull(repoRoot, "repoRoot is null");
+        requireNonNull(threadId, "threadId is null");
+        requireNonNull(baseSha, "baseSha is null");
+        if (!git.isAvailable() || baseSha.isBlank()) {
+            return Optional.empty();
+        }
+        Path planningPath = planningPath(repoRoot, threadId);
+        synchronized (planningLockFor(repoRoot)) {
+            try {
+                if (Files.isDirectory(planningPath)
+                        && baseSha.equals(git.headSha(planningPath))) {
+                    return Optional.of(new PlanningSync(planningPath, baseSha, baseSha));
+                }
+                preparePlanningRoot(repoRoot);
+                if (Files.isDirectory(planningPath)) {
+                    git.resetHard(planningPath, baseSha);
+                }
+                else {
+                    appendToGitInfoExclude(repoRoot);
+                    git.worktreeAddDetached(repoRoot, planningPath, baseSha);
+                }
+                CodeGraphResult indexed = codeGraph.rebuildSync(
+                        planningPath, "planning-snapshot-restored");
+                if (!indexed.ok()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new PlanningSync(planningPath, baseSha, baseSha));
+            }
+            catch (IOException | RuntimeException e) {
+                log.warn("Planning snapshot {} for {} unavailable: {}",
+                        threadId, repoRoot, e.getMessage());
+                return Optional.empty();
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Optional.empty();
+            }
+        }
+    }
+
+    /** Best-effort cleanup when a thread is permanently deleted. */
+    public void removePlanningWorktree(Path repoRoot, String threadId)
+    {
+        Path path = planningPath(requireNonNull(repoRoot, "repoRoot is null"),
+                requireNonNull(threadId, "threadId is null"));
+        synchronized (planningLockFor(repoRoot)) {
+            if (Files.isDirectory(path)) {
+                try {
+                    git.worktreeRemove(repoRoot, path);
+                }
+                catch (IOException | RuntimeException e) {
+                    log.warn("Planning worktree remove failed for {}: {}", threadId, e.getMessage());
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            codeGraph.forget(path);
+        }
+    }
+
+    private Path planningPath(Path repoRoot, String threadId)
+    {
+        Path name = Path.of(threadId);
+        if (threadId.isBlank() || name.isAbsolute() || name.getNameCount() != 1
+                || ".".equals(threadId) || "..".equals(threadId)) {
+            throw new IllegalArgumentException("threadId must be a single path segment");
+        }
+        return repoRoot.resolve(WORKTREE_ROOT_REL)
+                .resolve(PLANNING_WORKTREE_REL)
+                .resolve(threadId)
+                .toAbsolutePath()
+                .normalize();
+    }
+
+    private void restorePreviousSnapshot(Path planningPath, String previousSha)
+    {
+        if (previousSha == null || previousSha.isBlank() || !Files.isDirectory(planningPath)) {
+            return;
+        }
+        try {
+            git.resetHard(planningPath, previousSha);
+            CodeGraphResult indexed = codeGraph.rebuildSync(
+                    planningPath, "planning-snapshot-rollback");
+            if (!indexed.ok()) {
+                log.warn("CodeGraph rollback failed for planning snapshot {}: {}",
+                        previousSha, indexed.message());
+            }
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Could not restore planning snapshot {} after refresh failure: {}",
+                    previousSha, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Replace the pre-refactor shared {@code .worktrees/_planning}
+     * worktree with a directory that can contain per-thread worktrees. */
+    private void preparePlanningRoot(Path repoRoot)
+            throws IOException, InterruptedException
+    {
+        Path root = repoRoot.resolve(WORKTREE_ROOT_REL).resolve(PLANNING_WORKTREE_REL)
+                .toAbsolutePath().normalize();
+        if (Files.isRegularFile(root.resolve(".git"))) {
+            git.worktreeRemove(repoRoot, root);
+            codeGraph.forget(root);
+        }
+        Files.createDirectories(root);
     }
 
     /**
@@ -559,7 +692,7 @@ public class WorktreeService
      */
     public record WorktreeHandle(Path worktreePath, String branchName, String baseCommit) {}
 
-    /** Outcome of {@link #ensurePlanningWorktree}: the planning worktree's
-     *  path and the base ref it was synced to (e.g. {@code upstream/master}). */
-    public record PlanningSync(Path worktree, String baseRef) {}
+    /** A planning snapshot after its source checkout and CodeGraph index are
+     * both ready. {@code baseSha} is the exact commit a later task must use. */
+    public record PlanningSync(Path worktree, String baseRef, String baseSha) {}
 }

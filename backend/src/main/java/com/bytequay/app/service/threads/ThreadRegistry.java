@@ -190,12 +190,11 @@ public class ThreadRegistry
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 thread -> workspaceMemory(workspaces, thread),
                 leaseService,
-                // The trunk runs in a read-only planning worktree pinned to the
-                // up-to-date base (upstream/master for a fork, origin/main for a
-                // direct clone), not the user's arbitrary checkout. Resolving the
-                // cwd also fetches + resets that worktree; the CLI trunk session
-                // re-runs it per turn via setPreTurnHook below.
-                thread -> resolveTrunkPlanningCwd(worktreeService, workspaces, watchedRepos, thread),
+                // The trunk runs in its own detached planning worktree. The first
+                // turn after a task cut fetches + indexes a stable snapshot;
+                // follow-up turns reuse it until the next task consumes it.
+                thread -> resolveTrunkPlanningCwd(
+                        store, worktreeService, workspaces, watchedRepos, thread),
                 skillMaterializer,
                 roleSkillService,
                 ponytailBundleService,
@@ -262,20 +261,38 @@ public class ThreadRegistry
     /**
      * Trunk cwd resolver that anchors planning to the base branch: resolve
      * the clone root as before, then fetch + checkout a read-only planning
-     * worktree at the up-to-date base ref and run the trunk there. Falls
-     * back to the clone root when no planning worktree can be cut (no git,
-     * unresolvable base) so planning still launches.
+     * worktree at the up-to-date base ref and run the trunk there. Refuses
+     * to fall back to the user's clone root: it may contain unrelated local
+     * edits, which are not a safe planning base.
      */
     private static String resolveTrunkPlanningCwd(
+            ThreadStore store,
             WorktreeService worktreeService,
             WorkspaceService workspaces,
             WatchedRepoStore watchedRepos,
             Thread thread)
     {
         String cloneRoot = resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread);
-        return worktreeService.ensurePlanningWorktree(Path.of(cloneRoot))
-                .map(sync -> sync.worktree().toString())
-                .orElse(cloneRoot);
+        Path repoRoot = Path.of(cloneRoot).toAbsolutePath().normalize();
+        Path fallback = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+        if (repoRoot.equals(fallback)) {
+            // A workspace with no managed local clone can still hold a general
+            // planning conversation. This is not a fallback to a dirty repo.
+            return fallback.toString();
+        }
+        Optional<ThreadStore.PlanningSnapshot> active = store.findPlanningSnapshot(thread.id())
+                .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()));
+        Optional<WorktreeService.PlanningSync> ready = active.isPresent()
+                ? worktreeService.ensurePlanningWorktree(
+                        repoRoot, thread.id(), active.get().baseSha())
+                : worktreeService.refreshPlanningWorktree(repoRoot, thread.id());
+        ready.filter(ignored -> active.isEmpty())
+                .ifPresent(sync -> store.setPlanningSnapshot(
+                        thread.id(), new ThreadStore.PlanningSnapshot(
+                                repoRoot.toString(), sync.baseSha())));
+        return ready.map(sync -> sync.worktree().toString())
+                .orElseThrow(() -> new IllegalStateException(
+                        "planning snapshot unavailable for thread " + thread.id()));
     }
 
     private static String workspaceMemory(WorkspaceService workspaces, Thread thread)
@@ -774,9 +791,8 @@ public class ThreadRegistry
     {
         return switch (thread.kind()) {
             case CLI_AGENT -> {
-                // trunkCwdResolver also fetches + resets the planning worktree
-                // (the cwd). Re-run it before every turn so each planning turn
-                // searches an up-to-date base.
+                // The resolver refreshes only when no planning snapshot is
+                // active; otherwise this is a cheap reuse of the same cwd/SHA.
                 String initialCwd = trunkCwdResolver.apply(thread);
                 AbstractCliThreadAgent agent = isCodex(thread)
                         ? new CodexCliThreadAgent(
@@ -795,18 +811,22 @@ public class ThreadRegistry
                                 PLANNING_REASONING_EFFORT);
                 agent.setPreTurnHook(() -> {
                     String synced = trunkCwdResolver.apply(thread);
-                    log.debug("trunk {} planning base synced at {}", thread.id(), synced);
+                    log.debug("trunk {} planning snapshot ready at {}", thread.id(), synced);
                 });
-                agent.setPostTurnHook(() -> codeGraph.requestRefreshAsync(Path.of(initialCwd), "after-trunk-turn"));
                 yield withManagedSkillBundle(agent);
             }
             case LOGIC_LOOP -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
-                yield withManagedSkillBundle(new LogicLoopThreadAgent(
+                LogicLoopThreadAgent agent = new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
                         roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                        toolRegistry, ds4, ds4Instrumentation, gate));
+                        toolRegistry, ds4, ds4Instrumentation, gate);
+                agent.setPreTurnHook(() -> {
+                    String ready = trunkCwdResolver.apply(thread);
+                    log.debug("trunk {} planning snapshot ready at {}", thread.id(), ready);
+                });
+                yield withManagedSkillBundle(agent);
             }
             // Brain turns carry no task id in the turn row, but the thread
             // kind still builds the task-brain runtime, not a trunk planner.

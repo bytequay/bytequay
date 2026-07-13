@@ -776,8 +776,9 @@ public abstract class AbstractCliThreadAgent
     }
 
     /** Wire a per-turn hook run before each turn's CLI spawn — the trunk
-     *  session uses it to refresh its planning worktree to the latest
-     *  base. Passing {@code null} clears it back to a no-op. */
+     * session uses it to ensure its stable planning snapshot is ready (and
+     * refreshes only after task creation consumed the prior snapshot).
+     * Passing {@code null} clears it back to a no-op. */
     public final void setPreTurnHook(Runnable hook)
     {
         this.preTurnHook = hook == null ? () -> {} : hook;
@@ -793,8 +794,8 @@ public abstract class AbstractCliThreadAgent
 
     private void runTurn(String userInput)
     {
-        // Trunk sessions sync their planning worktree to the latest base
-        // here (on this worker thread, not the scheduler lock). The user's
+        // Trunk sessions ensure their planning snapshot is ready here (on
+        // this worker thread, not the scheduler lock). The user's
         // prompt is already the tail message, so the UI shows "Syncing…"
         // for this window until the model streams its first output.
         try {

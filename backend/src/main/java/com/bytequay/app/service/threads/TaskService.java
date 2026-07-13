@@ -683,21 +683,12 @@ public class TaskService
                 // The PR merged, so its head branch is dead — delete the remote
                 // copy too (what GitHub's auto-delete-head-branch setting does).
                 worktreeService.deleteRemoteBranch(task);
-                refreshPlanningAfterMerge(task);
             }
         }
         catch (RuntimeException e) {
             log.warn("completing tasks for merged PR {} #{} failed: {}",
                     repoFullName, prNumber, e.getMessage());
         }
-    }
-
-    private void refreshPlanningAfterMerge(Task task)
-    {
-        if (task.workingDir() == null || task.workingDir().isBlank()) {
-            return;
-        }
-        worktreeService.ensurePlanningWorktree(Path.of(task.workingDir()));
     }
 
     /**

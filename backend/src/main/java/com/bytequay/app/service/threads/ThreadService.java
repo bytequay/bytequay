@@ -70,6 +70,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -522,8 +523,19 @@ public class ThreadService
         // The worktree directory is still named after the task id (one
         // worktree per task), so the on-disk dir matches the row; only the
         // branch is named for the purpose.
+        Path repoRoot = Path.of(request.workingDir()).toAbsolutePath().normalize();
+        Optional<ThreadStore.PlanningSnapshot> planningSnapshot =
+                store.findPlanningSnapshot(threadId);
+        String plannedBaseSha = planningSnapshot
+                .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()))
+                .map(ThreadStore.PlanningSnapshot::baseSha)
+                .orElse(null);
         Optional<WorktreeService.WorktreeHandle> handle = worktreeService.create(
-                Path.of(request.workingDir()), taskId, taskName);
+                repoRoot, taskId, taskName, plannedBaseSha);
+        if (plannedBaseSha != null && handle.isEmpty()) {
+            throw new IllegalStateException(
+                    "could not cut task from planned base " + plannedBaseSha);
+        }
         String branchName = handle
                 .map(WorktreeService.WorktreeHandle::branchName)
                 .orElse(request.branchName());
@@ -564,6 +576,11 @@ public class ThreadService
                 roleSkillText,
                 /* workModel */ null);
         taskStore.saveTask(task);
+        // Successful materialisation consumes this planning cycle. Null is
+        // now the only refresh signal, so the next trunk turn fetches a new
+        // base and updates CodeGraph before it plans another task.
+        planningSnapshot.ifPresent(snapshot ->
+                store.clearPlanningSnapshot(threadId, snapshot.baseSha()));
         // Open the PlanStage at creation and kick off planning. Guarded
         // because the publisher is only wired under Spring (see the field's
         // note). Planning is the brain's job: the opening prompt seeds a
@@ -931,6 +948,18 @@ public class ThreadService
                         task.worktreePath(), task.branchName());
             }
         }
+        // The planning checkout is thread-owned, so it outlives individual
+        // tasks but must not outlive a permanently deleted thread. A consumed
+        // snapshot no longer carries its repo root, so task working dirs are
+        // also valid roots to probe (the cleanup is idempotent).
+        Stream.concat(
+                        store.findPlanningSnapshot(threadId).stream()
+                                .map(ThreadStore.PlanningSnapshot::repoRoot),
+                        allTasks.stream().map(Task::workingDir))
+                .filter(root -> root != null && !root.isBlank())
+                .distinct()
+                .forEach(root -> worktreeService.removePlanningWorktree(
+                        Path.of(root), threadId));
         dataPurger.purgeThreadScoped(threadId, allTasks.stream().map(Task::id).toList());
         store.deleteThread(threadId);
     }

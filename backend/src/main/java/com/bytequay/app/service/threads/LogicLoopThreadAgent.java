@@ -159,6 +159,7 @@ public class LogicLoopThreadAgent
     private volatile String activeAgentRunId;
     private volatile ManagedSkillBundle managedSkillBundle = ManagedSkillBundle.empty();
     private volatile List<ManagedSkill> activeManagedSkills = List.of();
+    private volatile Runnable preTurnHook = () -> {};
     private final ObjectMapper mapper;
     private final ExecutorService executor;
     private final CredentialService credentialService;
@@ -259,8 +260,7 @@ public class LogicLoopThreadAgent
             // The trunk reads files so it can plan against real source — and
             // so a pasted image (saved to a path it's handed) can be opened.
             "read_file",
-            // Force a fresh fetch + reset of the planning worktree to the
-            // latest base mid-turn (planning also auto-syncs at turn start).
+            // Explicitly replace the stable planning snapshot mid-cycle.
             "sync_repo",
             "create_task",
             // Planning the queue is core trunk work — without these the
@@ -543,6 +543,12 @@ public class LogicLoopThreadAgent
 
     private void runTurn(String userInput)
     {
+        try {
+            preTurnHook.run();
+        }
+        catch (RuntimeException e) {
+            log.warn("Pre-turn hook for thread {} failed: {}", threadId, e.getMessage());
+        }
         Instant now = Instant.now();
         liveTurnTokensIn.set(0);
         liveTurnTokensOut.set(0);
@@ -585,6 +591,14 @@ public class LogicLoopThreadAgent
         finally {
             currentTurn.set(null);
         }
+    }
+
+    /** Run a lightweight lifecycle check before each API-lane turn. Trunk
+     * sessions use this to start a new planning snapshot only after the prior
+     * one was consumed by task creation. */
+    public void setPreTurnHook(Runnable hook)
+    {
+        this.preTurnHook = hook == null ? () -> {} : hook;
     }
 
     // ── Anthropic transport ───────────────────────────────────────────────

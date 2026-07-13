@@ -118,9 +118,21 @@ public class CodeGraphToolHandlers
         if (root.error() != null) {
             return root;
         }
-        return worktreeService.ensurePlanningWorktree(root.path())
-                .map(sync -> CheckoutChoice.found(sync.worktree()))
-                .orElse(root);
+        Path repoRoot = root.path().toAbsolutePath().normalize();
+        Optional<ThreadStore.PlanningSnapshot> active =
+                threadStore.findPlanningSnapshot(call.threadId())
+                        .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()));
+        Optional<WorktreeService.PlanningSync> ready = active.isPresent()
+                ? worktreeService.ensurePlanningWorktree(
+                        repoRoot, call.threadId(), active.get().baseSha())
+                : worktreeService.refreshPlanningWorktree(repoRoot, call.threadId());
+        ready.filter(ignored -> active.isEmpty())
+                .ifPresent(sync -> threadStore.setPlanningSnapshot(
+                        call.threadId(), new ThreadStore.PlanningSnapshot(
+                                repoRoot.toString(), sync.baseSha())));
+        return ready.map(sync -> CheckoutChoice.found(sync.worktree()))
+                .orElseGet(() -> CheckoutChoice.error(
+                        "planning snapshot unavailable; refusing to index the user's main checkout"));
     }
 
     private CheckoutChoice resolveTrunkCloneRoot(String workspaceId, String repoFullName)

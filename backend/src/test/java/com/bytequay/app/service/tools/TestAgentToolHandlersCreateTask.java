@@ -268,9 +268,11 @@ class TestAgentToolHandlersCreateTask
     {
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
-        when(worktreeService.ensurePlanningWorktree(Path.of("/tmp/clone")))
+        when(worktreeService.refreshPlanningWorktree(
+                Path.of("/tmp/clone").toAbsolutePath().normalize(), THREAD_ID))
                 .thenReturn(Optional.of(new WorktreeService.PlanningSync(
-                        Path.of("/tmp/clone/.worktrees/_planning"), "origin/main")));
+                        Path.of("/tmp/clone/.worktrees/_planning/thread-1"),
+                        "origin/main", "abc123")));
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.syncRepo(
                 new AgentToolHandlers.SyncRepoArgs(),
@@ -278,7 +280,11 @@ class TestAgentToolHandlersCreateTask
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("origin/main");
-        verify(worktreeService).ensurePlanningWorktree(Path.of("/tmp/clone"));
+        verify(worktreeService).refreshPlanningWorktree(
+                Path.of("/tmp/clone").toAbsolutePath().normalize(), THREAD_ID);
+        verify(threadStore).setPlanningSnapshot(THREAD_ID,
+                new ThreadStore.PlanningSnapshot(
+                        Path.of("/tmp/clone").toAbsolutePath().normalize().toString(), "abc123"));
     }
 
     @Test
@@ -292,7 +298,7 @@ class TestAgentToolHandlersCreateTask
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("nothing to sync");
-        verify(worktreeService, never()).ensurePlanningWorktree(any());
+        verify(worktreeService, never()).refreshPlanningWorktree(any(), any());
     }
 
     private ToolOutcome.Completed createTask(String repo)

@@ -37,12 +37,31 @@ public interface ThreadStore
 {
     // ── threads ────────────────────────────────────────────────────────
 
+    /** Stable source snapshot used by the trunk's current planning cycle. */
+    record PlanningSnapshot(String repoRoot, String baseSha) {}
+
     /** Insert or update a thread by primary key. The whole row is
      *  rewritten — callers should pass the full updated state. */
     void saveThread(Thread thread);
 
     /** Single-row lookup by id. Empty when no such thread exists. */
     Optional<Thread> findThreadById(String id);
+
+    /** Null-by-absence is the refresh signal: no separate stale flag. */
+    default Optional<PlanningSnapshot> findPlanningSnapshot(String threadId)
+    {
+        return Optional.empty();
+    }
+
+    default void setPlanningSnapshot(String threadId, PlanningSnapshot snapshot)
+    {
+    }
+
+    /** Consume the snapshot only if it is still the one the task used. */
+    default boolean clearPlanningSnapshot(String threadId, String expectedBaseSha)
+    {
+        return false;
+    }
 
     /** The brain thread bound 1:1 to a task, if one has been created.
      *  Empty default for test stores; the SQLite store overrides. */

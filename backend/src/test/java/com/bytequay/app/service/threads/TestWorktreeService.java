@@ -18,6 +18,8 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.codegraph.CodeGraphResult;
+import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.local.GitRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class TestWorktreeService
 {
@@ -329,12 +332,11 @@ class TestWorktreeService
                 .isNotEqualTo(revParse(clone, "main"));
     }
 
-    /** The trunk planning worktree is a detached checkout of the upstream
-     *  base, and re-running ensure fetches + resets it to the latest base
-     *  — so planning always searches an up-to-date upstream/master, not the
-     *  fork's stale main, without touching the user's checkout. */
+    /** One planning cycle stays pinned across follow-up turns. A task is cut
+     * from that exact SHA even if upstream advances, and only an explicit
+     * refresh starts the next cycle at the newer tip. */
     @Test
-    void testEnsurePlanningWorktreeTracksUpstreamBaseAndRefreshes(@TempDir Path tempDir)
+    void testPlanningSnapshotStaysStableUntilTaskCutAndRefresh(@TempDir Path tempDir)
             throws IOException, InterruptedException
     {
         GitRunner git = new GitRunner();
@@ -358,27 +360,90 @@ class TestWorktreeService
         WatchedRepoStore repos = Mockito.mock(WatchedRepoStore.class);
         Mockito.when(repos.findAll()).thenReturn(List.of(new WatchedRepo(
                 1L, "trinodb", "trino", 0, fork.toString(), "upstream", "upstream")));
-        WorktreeService service = new WorktreeService(git, repos);
+        CodeGraphUpdateCoordinator codeGraph = Mockito.mock(CodeGraphUpdateCoordinator.class);
+        when(codeGraph.ensureFreshSync(Mockito.any(), Mockito.any()))
+                .thenReturn(CodeGraphResult.ok("indexed"));
+        WorktreeService service = new WorktreeService(git, repos, codeGraph);
 
-        Optional<WorktreeService.PlanningSync> planning = service.ensurePlanningWorktree(fork);
+        Optional<WorktreeService.PlanningSync> planning =
+                service.refreshPlanningWorktree(fork, "thread-a");
         assertThat(planning).as("planning worktree should be created").isPresent();
-        assertThat(planning.get().worktree().toString()).endsWith("/.worktrees/_planning");
+        assertThat(planning.get().worktree().toString())
+                .endsWith("/.worktrees/_planning/thread-a");
         assertThat(planning.get().baseRef()).isEqualTo("upstream/master");
+        String plannedSha = planning.get().baseSha();
         // Detached at upstream/master's tip — not the fork's main.
         Path planningPath = planning.get().worktree();
         assertThat(revParse(planningPath, "HEAD")).isEqualTo(revParse(fork, "upstream/master"));
         assertThat(revParse(planningPath, "HEAD")).isNotEqualTo(revParse(fork, "main"));
 
-        // Upstream advances; re-ensuring fetches it and fast-forwards the
-        // planning worktree to the new tip.
+        // Upstream advances and the clone learns the new remote tip.
         Files.writeString(upstream.resolve("U2.md"), "2", StandardCharsets.UTF_8);
         runGit(upstream, List.of("git", "add", "U2.md"));
         runGit(upstream, List.of("git", "commit", "-m", "upstream c2"));
+        runGit(fork, List.of("git", "fetch", "upstream"));
 
-        Optional<WorktreeService.PlanningSync> refreshed = service.ensurePlanningWorktree(fork);
+        // A follow-up turn reuses the snapshot without reset/re-index.
+        Optional<WorktreeService.PlanningSync> reused =
+                service.ensurePlanningWorktree(fork, "thread-a", plannedSha);
+        assertThat(reused).isPresent();
+        assertThat(revParse(planningPath, "HEAD")).isEqualTo(plannedSha);
+        verify(codeGraph).ensureFreshSync(planningPath, "planning-snapshot-refreshed");
+
+        // Task creation uses the planned SHA, not the newer upstream tip.
+        WorktreeService.WorktreeHandle task = service.create(
+                fork, "task-a", "fix npe", plannedSha).orElseThrow();
+        assertThat(revParse(fork, task.branchName())).isEqualTo(plannedSha);
+        assertThat(revParse(fork, task.branchName()))
+                .isNotEqualTo(revParse(fork, "upstream/master"));
+
+        // Diff computation remains branch-based: the live merge-base with
+        // upstream/master is still the planned fork point, so upstream's U2
+        // commit is not misreported as task work.
+        Files.writeString(task.worktreePath().resolve("TASK.md"), "task", StandardCharsets.UTF_8);
+        runGit(task.worktreePath(), List.of("git", "add", "TASK.md"));
+        runGit(task.worktreePath(), List.of("git", "commit", "-m", "task change"));
+        String diffBase = git.resolveCommitBase(task.worktreePath(), "master");
+        assertThat(diffBase).isEqualTo(plannedSha);
+        assertThat(git.effectiveFiles(task.worktreePath(), diffBase))
+                .extracting(GitRunner.CommitFileChange::path)
+                .containsExactly("TASK.md");
+
+        // Consuming the snapshot makes the caller refresh the next cycle.
+        Optional<WorktreeService.PlanningSync> refreshed =
+                service.refreshPlanningWorktree(fork, "thread-a");
         assertThat(refreshed).isPresent();
         assertThat(refreshed.get().worktree()).isEqualTo(planningPath);
         assertThat(revParse(planningPath, "HEAD")).isEqualTo(revParse(fork, "upstream/master"));
+        assertThat(refreshed.get().baseSha()).isNotEqualTo(plannedSha);
+    }
+
+    @Test
+    void testPlanningWorktreesAreIsolatedPerThread(@TempDir Path tempDir)
+            throws IOException, InterruptedException
+    {
+        GitRunner git = new GitRunner();
+        if (!git.isAvailable()) {
+            return;
+        }
+        Path repo = initEmptyRepo(tempDir);
+        runGit(repo, List.of("git", "remote", "add", "origin", repo.toString()));
+        runGit(repo, List.of("git", "fetch", "origin"));
+        runGit(repo, List.of("git", "remote", "set-head", "origin", "main"));
+        WorktreeService service = new WorktreeService(git, Mockito.mock(WatchedRepoStore.class));
+
+        WorktreeService.PlanningSync first =
+                service.refreshPlanningWorktree(repo, "thread-one").orElseThrow();
+        WorktreeService.PlanningSync second =
+                service.refreshPlanningWorktree(repo, "thread-two").orElseThrow();
+
+        assertThat(first.worktree()).isNotEqualTo(second.worktree());
+        assertThat(first.worktree().toString()).endsWith("/_planning/thread-one");
+        assertThat(second.worktree().toString()).endsWith("/_planning/thread-two");
+
+        service.removePlanningWorktree(repo, "thread-one");
+        assertThat(Files.exists(first.worktree())).isFalse();
+        assertThat(Files.isDirectory(second.worktree())).isTrue();
     }
 
     // ── helpers ──────────────────────────────────────────────────

@@ -72,6 +72,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestThreadServiceScheduler
 {
@@ -738,6 +739,8 @@ class TestThreadServiceScheduler
         assertThat(tasks.byId).isEmpty();
 
         // Step 2 — materialiseTask is the branch-worthy step.
+        projecting.setPlanningSnapshot(thread.id(), new ThreadStore.PlanningSnapshot(
+                Path.of("/tmp/repo").toAbsolutePath().normalize().toString(), "planned-sha"));
         service.materialiseTask(thread.id(), new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
                 "claude-code",
@@ -763,8 +766,13 @@ class TestThreadServiceScheduler
         assertThat(scheduler.requests).isEmpty();
         assertThat(worktrees.createRequests)
                 .singleElement()
-                .extracting(WorktreeCreateRequest::repoRoot, WorktreeCreateRequest::title)
-                .containsExactly(Path.of("/tmp/repo"), "Fix tests");
+                .extracting(WorktreeCreateRequest::repoRoot,
+                        WorktreeCreateRequest::title,
+                        WorktreeCreateRequest::baseSha)
+                .containsExactly(
+                        Path.of("/tmp/repo").toAbsolutePath().normalize(),
+                        "Fix tests", "planned-sha");
+        assertThat(projecting.findPlanningSnapshot(thread.id())).isEmpty();
     }
 
     @Test
@@ -809,6 +817,42 @@ class TestThreadServiceScheduler
 
         Task active = tasks.activeTasksForThread(thread.id()).stream().findFirst().orElseThrow();
         assertThat(active.name()).isEqualTo("Remove dead skill routes");
+    }
+
+    @Test
+    void failedTaskCutKeepsThePlanningSnapshotForRetry()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
+        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
+        ThreadService service = new ThreadService(
+                projecting, tasks, new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
+                new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(), new RecordingWorktreeService(Optional.empty()),
+                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
+                Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        Thread thread = service.create(new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix NPE",
+                null, null, null, List.of(), "DEVELOP", null, null,
+                null, "ws-default", null));
+        String repoRoot = Path.of("/tmp/repo").toAbsolutePath().normalize().toString();
+        projecting.setPlanningSnapshot(thread.id(),
+                new ThreadStore.PlanningSnapshot(repoRoot, "planned-sha"));
+
+        assertThatThrownBy(() -> service.materialiseTask(thread.id(),
+                new ThreadService.NewTaskRequest(
+                        ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix NPE",
+                        repoRoot, null, "fix it", List.of(), "DEVELOP", null, null,
+                        null, "ws-default", null)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planned-sha");
+
+        assertThat(projecting.findPlanningSnapshot(thread.id()))
+                .contains(new ThreadStore.PlanningSnapshot(repoRoot, "planned-sha"));
+        assertThat(tasks.byId).isEmpty();
     }
 
     @Test
@@ -1081,7 +1125,8 @@ class TestThreadServiceScheduler
         assertThat(service.taskCumulativeDiff(thread.id(), null)).isEmpty();
     }
 
-    private record WorktreeCreateRequest(Path repoRoot, String sessionId, String title) {}
+    private record WorktreeCreateRequest(
+            Path repoRoot, String sessionId, String title, String baseSha) {}
 
     private record WorktreeRemoveRequest(Path repoRoot, String worktreePath, String localBranch) {}
 
@@ -1125,9 +1170,10 @@ class TestThreadServiceScheduler
         }
 
         @Override
-        public Optional<WorktreeHandle> create(Path repoRoot, String sessionId, String title)
+        public Optional<WorktreeHandle> create(
+                Path repoRoot, String sessionId, String title, String baseSha)
         {
-            createRequests.add(new WorktreeCreateRequest(repoRoot, sessionId, title));
+            createRequests.add(new WorktreeCreateRequest(repoRoot, sessionId, title, baseSha));
             return createResult;
         }
 
@@ -1135,6 +1181,11 @@ class TestThreadServiceScheduler
         public void remove(Path repoRoot, String worktreePath, String localBranch)
         {
             removeRequests.add(new WorktreeRemoveRequest(repoRoot, worktreePath, localBranch));
+        }
+
+        @Override
+        public void removePlanningWorktree(Path repoRoot, String threadId)
+        {
         }
     }
 
@@ -1698,6 +1749,15 @@ class TestThreadServiceScheduler
         @Override public Optional<Thread> findThreadById(String id) {
             return inner.findThreadById(id);
         }
+        @Override public Optional<PlanningSnapshot> findPlanningSnapshot(String threadId) {
+            return inner.findPlanningSnapshot(threadId);
+        }
+        @Override public void setPlanningSnapshot(String threadId, PlanningSnapshot snapshot) {
+            inner.setPlanningSnapshot(threadId, snapshot);
+        }
+        @Override public boolean clearPlanningSnapshot(String threadId, String expectedBaseSha) {
+            return inner.clearPlanningSnapshot(threadId, expectedBaseSha);
+        }
         @Override public List<Thread> listTasksByStatus(ThreadStatus status, int limit) {
             return inner.listTasksByStatus(status, limit);
         }
@@ -1755,6 +1815,7 @@ class TestThreadServiceScheduler
             implements ThreadStore
     {
         private final Map<String, Thread> threads = new LinkedHashMap<>();
+        private final Map<String, PlanningSnapshot> planningSnapshots = new LinkedHashMap<>();
 
         @Override
         public void saveThread(Thread thread)
@@ -1766,6 +1827,29 @@ class TestThreadServiceScheduler
         public Optional<Thread> findThreadById(String id)
         {
             return Optional.ofNullable(threads.get(id));
+        }
+
+        @Override
+        public Optional<PlanningSnapshot> findPlanningSnapshot(String threadId)
+        {
+            return Optional.ofNullable(planningSnapshots.get(threadId));
+        }
+
+        @Override
+        public void setPlanningSnapshot(String threadId, PlanningSnapshot snapshot)
+        {
+            planningSnapshots.put(threadId, snapshot);
+        }
+
+        @Override
+        public boolean clearPlanningSnapshot(String threadId, String expectedBaseSha)
+        {
+            PlanningSnapshot current = planningSnapshots.get(threadId);
+            if (current == null || !current.baseSha().equals(expectedBaseSha)) {
+                return false;
+            }
+            planningSnapshots.remove(threadId);
+            return true;
         }
 
         @Override

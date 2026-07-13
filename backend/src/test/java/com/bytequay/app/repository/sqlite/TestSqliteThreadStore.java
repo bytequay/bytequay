@@ -120,6 +120,22 @@ class TestSqliteThreadStore
     }
 
     @Test
+    void planningSnapshotPersistsAndClearsByExpectedSha()
+    {
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
+        store.saveThread(thread);
+        ThreadStore.PlanningSnapshot snapshot =
+                new ThreadStore.PlanningSnapshot("/tmp/repo", "abc123");
+
+        store.setPlanningSnapshot(thread.id(), snapshot);
+        assertThat(store.findPlanningSnapshot(thread.id())).contains(snapshot);
+        assertThat(store.clearPlanningSnapshot(thread.id(), "different-sha")).isFalse();
+        assertThat(store.findPlanningSnapshot(thread.id())).contains(snapshot);
+        assertThat(store.clearPlanningSnapshot(thread.id(), "abc123")).isTrue();
+        assertThat(store.findPlanningSnapshot(thread.id())).isEmpty();
+    }
+
+    @Test
     void saveTaskUpdatesInPlaceWhenIdMatches()
     {
         Thread initial = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);

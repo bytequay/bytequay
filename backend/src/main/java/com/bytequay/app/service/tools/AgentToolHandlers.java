@@ -329,8 +329,8 @@ public class AgentToolHandlers
             description = "Fetch the latest base branch and refresh the trunk's read-only "
                     + "planning worktree to it — upstream/master for a fork, origin's default "
                     + "branch for a direct clone — so your code search reflects the current "
-                    + "base. Trunk planning already auto-syncs at the start of every turn; call "
-                    + "this to force a fresh fetch mid-turn before searching or planning.",
+                    + "base. A planning snapshot normally stays fixed across follow-up turns; "
+                    + "call this only to explicitly replace it before continuing the plan.",
             security = SecurityType.GIT_LOCAL,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)
@@ -345,8 +345,15 @@ public class AgentToolHandlers
             return ToolOutcome.Completed.ok(
                     "No local clone is linked to this workspace — nothing to sync.");
         }
-        return worktreeService.ensurePlanningWorktree(Path.of(cloneRoot.get()))
-                .map(sync -> ToolOutcome.Completed.ok("Synced the planning base to " + sync.baseRef() + "."))
+        Path repoRoot = Path.of(cloneRoot.get()).toAbsolutePath().normalize();
+        return worktreeService.refreshPlanningWorktree(repoRoot, call.threadId())
+                .map(sync -> {
+                    threadStore.setPlanningSnapshot(call.threadId(),
+                            new ThreadStore.PlanningSnapshot(repoRoot.toString(), sync.baseSha()));
+                    return ToolOutcome.Completed.ok(
+                            "Synced the planning base to " + sync.baseRef()
+                                    + " at " + sync.baseSha() + ".");
+                })
                 .orElseGet(() -> ToolOutcome.Completed.ok(
                         "Could not sync the base (git unavailable or no resolvable base ref); "
                                 + "planning will use the last-known checkout."));

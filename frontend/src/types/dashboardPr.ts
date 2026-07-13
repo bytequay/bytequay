@@ -55,4 +55,5 @@ export type DashboardPR = {
   reviewerVerdicts: Record<string, string> | null;
   snoozedUntil: string | null;
   snoozeWakeReason: string | null;
+  reviewState?: 'none' | 'running' | 'done' | 'stale';
 };

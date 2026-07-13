@@ -72,6 +72,22 @@ class TestAgentRunService
     }
 
     @Test
+    void openDetachedCreatesAnArtifactRunOutsideTaskLifecycle()
+    {
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun run = service.openDetached(
+                AgentRun.KIND_PANEL_REVIEW, null, "round-1", 50);
+
+        assertThat(run.taskId()).isNull();
+        assertThat(run.stageId()).isNull();
+        assertThat(run.reviewRoundId()).isEqualTo("round-1");
+        assertThat(run.kind()).isEqualTo(AgentRun.KIND_PANEL_REVIEW);
+        assertThat(run.status()).isEqualTo(AgentRun.STATUS_RUNNING);
+        assertThat(run.budget()).isEqualTo(50);
+    }
+
+    @Test
     void openIsIdempotentWhenALiveRunOfTheSameKindExists()
     {
         AgentRun existing = new AgentRun(
@@ -220,6 +236,21 @@ class TestAgentRunService
     }
 
     @Test
+    void terminalRunCannotBeUncancelledByALateWorker()
+    {
+        AgentRun cancelled = new AgentRun(
+                "run1", null, AgentRun.KIND_PANEL_REVIEW, null, null, "round-1",
+                null, AgentRun.STATUS_CANCELLED, 0, 50, null, null, NOW, NOW);
+        when(store.findById("run1")).thenReturn(Optional.of(cancelled));
+
+        AgentRun unchanged = service.transition(
+                "run1", AgentRun.STATUS_SUCCEEDED, "late completion");
+
+        assertThat(unchanged).isSameAs(cancelled);
+        verify(store, never()).save(any());
+    }
+
+    @Test
     void liveRunsByTaskDelegatesToTheStore()
     {
         AgentRun run = new AgentRun(
@@ -228,5 +259,16 @@ class TestAgentRunService
         when(store.findLiveByTask("t1")).thenReturn(List.of(run));
 
         assertThat(service.liveRunsByTask("t1")).containsExactly(run);
+    }
+
+    @Test
+    void reviewRoundRunsDelegateToTheStore()
+    {
+        AgentRun run = new AgentRun(
+                "run1", null, AgentRun.KIND_PANEL_REVIEW, null, null, "round-1",
+                null, AgentRun.STATUS_RUNNING, 0, 50, null, null, NOW, null);
+        when(store.findByReviewRound("round-1")).thenReturn(List.of(run));
+
+        assertThat(service.findByReviewRound("round-1")).containsExactly(run);
     }
 }

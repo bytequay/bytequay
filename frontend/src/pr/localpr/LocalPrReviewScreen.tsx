@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
 import { DiffReviewShell, type DiffReviewExtraTab } from '../../diff/DiffReviewShell';
 import { ExpandableFileDiffBody } from '../../diff/ExpandableFileDiffBody';
@@ -25,6 +25,7 @@ import { useDiffRangeComposer } from '../../diff/useDiffRangeComposer';
 import { SubmitReviewDrawer, type ReviewVerdict } from '../../pages/SubmitReviewDrawer';
 import type { DiffFileDto } from '../../types';
 import type { LocalPRComment, LocalPRCommit } from '../../types/localPr';
+import type { AgentReviewData } from '../../review/agentReviewTypes';
 
 /** Read-only commit list for the Review tab's Commits view — this page's
  *  diff is always the cumulative local PR (no per-commit scoping), so unlike
@@ -62,7 +63,7 @@ function lineKey(filename: string, side: AnchorSide, ln: number): string {
  */
 function LocalFileDiff({
   file, comments, allowLocalComments, fetchFileBlob,
-  onAddComment, onReplyComment, onResolveComment, onDismissComment,
+  onAddComment, onReplyComment, onResolveComment, onDismissComment, reviewData,
 }: {
   file: DiffFileDto;
   comments: LocalPRComment[];
@@ -78,6 +79,7 @@ function LocalFileDiff({
   ) => void;
   onResolveComment?: (commentId: string) => void;
   onDismissComment?: (commentId: string) => void;
+  reviewData?: AgentReviewData;
 }) {
   const {
     composer,
@@ -107,7 +109,7 @@ function LocalFileDiff({
     if (lineComments.length === 0 && !composerHere) return null;
     return (
       <DiffInlineComments
-        comments={lineComments.map(diffInlineCommentFromLocalPr)}
+        comments={lineComments.map(comment => diffInlineCommentFromLocalPr(comment, reviewData))}
         allowLocalComments={allowLocalComments}
         onAdd={onAddComment !== undefined && composerHere
           ? body => {
@@ -134,6 +136,7 @@ function LocalFileDiff({
         composingOn={composerHere
           ? rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)
           : undefined}
+        singleActionLabel={reviewData === undefined ? undefined : 'Comment now'}
       />
     );
   };
@@ -176,6 +179,9 @@ export function LocalPrReviewScreen({
   onAddComment, onReplyComment, onResolveComment, onDismissComment,
   onBack, error = null, fetchFileBlob, onSubmitReview, submittingReview = false,
   embedded = false, showAuxTabs = true,
+  reviewData,
+  selectedFindingId, onSelectFinding,
+  submitReviewControl, onStartAgentReview,
 }: {
   title: string;
   /** Null = still loading. Empty array = nothing changed. */
@@ -205,10 +211,31 @@ export function LocalPrReviewScreen({
   submittingReview?: boolean;
   embedded?: boolean;
   showAuxTabs?: boolean;
+  reviewData?: AgentReviewData;
+  selectedFindingId?: string | null;
+  onSelectFinding?: (findingId: string, filePath: string | null, lineNumber: number | null) => void;
+  submitReviewControl?: ReactNode;
+  onStartAgentReview?: () => void;
 }) {
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('files');
   const pending = useMemo(() => comments.filter(isPendingLocalComment), [comments]);
+  const commentCountByFile = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const comment of comments) {
+      if (comment.filePath === null || comment.dismissedAt !== null) continue;
+      counts.set(comment.filePath, (counts.get(comment.filePath) ?? 0) + 1);
+    }
+    return counts;
+  }, [comments]);
+
+  useEffect(() => {
+    if (selectedFindingId == null || activeTab !== 'files') return;
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-finding-id="${CSS.escape(selectedFindingId)}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [activeTab, selectedFindingId]);
 
   const extraTabs: DiffReviewExtraTab[] = showAuxTabs ? [
     { key: 'commits', label: 'Commits', icon: 'commits', count: commits.length, content: <LocalCommitsList commits={commits} /> },
@@ -220,8 +247,12 @@ export function LocalPrReviewScreen({
       content: (
         <div className="diff-viewer__review-tab">
           <ReviewTabPendingList
-            comments={pending.map(diffInlineCommentFromLocalPr)}
+            comments={pending.map(comment => diffInlineCommentFromLocalPr(comment, reviewData))}
             onRemove={onDismissComment}
+            onJump={comment => {
+              setActiveTab('files');
+              if (comment.finding !== undefined) onSelectFinding?.(comment.finding.finding.id, comment.filePath, comment.lineNumber);
+            }}
             onOpenSubmitPanel={onSubmitReview !== undefined ? () => setSubmitReviewOpen(true) : undefined}
             emptyHint={(
               <>No pending comments yet.<br />Click a line in the diff to add one.</>
@@ -255,19 +286,21 @@ export function LocalPrReviewScreen({
             onReplyComment={onReplyComment}
             onResolveComment={onResolveComment}
             onDismissComment={onDismissComment}
+            reviewData={reviewData}
           />
         )}
-        toolbarActions={onSubmitReview !== undefined && (
+        fileDecoration={file => {
+          const count = commentCountByFile.get(file.filename) ?? 0;
+          return count > 0 ? <span className="diff-file-row__comment-count">{count}</span> : null;
+        }}
+        toolbarActions={submitReviewControl ?? ((onSubmitReview !== undefined || onStartAgentReview !== undefined) && (
           <div className="diff-viewer__review-actions">
-            <button
-              type="button"
-              className="button button--ai"
-              disabled
-              title="AI Review isn't wired up for local PRs yet."
-            >
-              ✨ AI Review
-            </button>
-            <div className="diff-viewer__submit-wrap">
+            {onStartAgentReview !== undefined && reviewData === undefined && (
+              <button type="button" className="button button--ai" onClick={onStartAgentReview}>
+                ⚖ Review with agent
+              </button>
+            )}
+            {onSubmitReview !== undefined && <div className="diff-viewer__submit-wrap">
               <button
                 type="button"
                 className="button button--submit"
@@ -277,15 +310,15 @@ export function LocalPrReviewScreen({
                 {submittingReview ? 'Submitting…' : 'Submit review'}
                 {pending.length > 0 && <span className="button--submit__count">{pending.length}</span>}
               </button>
-            </div>
+            </div>}
           </div>
-        )}
+        ))}
       />
       {onSubmitReview !== undefined && (
         <SubmitReviewDrawer
           open={submitReviewOpen}
           submitting={submittingReview}
-          pendingComments={pending.map(diffInlineCommentFromLocalPr)}
+          pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment, reviewData))}
           onRemovePending={onDismissComment}
           onClose={() => setSubmitReviewOpen(false)}
           onSubmit={(body, verdict) => {

@@ -310,6 +310,29 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     if (pr.snoozeWakeReason) handleClearSnoozeWakeReason(pr.id);
   };
 
+  const handleAgentReview = (pr: DashboardPR) => {
+    setPrs(current => current?.map(row => row.id === pr.id ? { ...row, reviewState: 'running' } : row) ?? null);
+    void (async () => {
+      try {
+        if (pr.reviewState !== undefined && pr.reviewState !== 'none') {
+          const session = await window.bridge.getAgentReviewSession(pr.id);
+          if (session !== null) {
+            if (session.rounds.some(round => round.status === 'RUNNING')) return;
+            await window.bridge.continueAgentReviewSession(session.session.id, {
+              kind: pr.reviewState === 'stale' ? 're-review' : 'continue',
+            });
+            return;
+          }
+        }
+        await window.bridge.startAgentReviewSession(pr.id);
+      }
+      catch (cause) {
+        setPrs(current => current?.map(row => row.id === pr.id ? { ...row, reviewState: pr.reviewState ?? 'none' } : row) ?? null);
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+  };
+
   // The PR the user was last reviewing, surfaced as a "Continue review"
   // shortcut on the Handled tab so they can jump back to it after browsing
   // their handled queue.
@@ -778,6 +801,8 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
                         onSelect={() => handleSelect(pr)}
                         onHandle={() => handleMarkHandled(pr.id)}
                         onSnooze={(untilIso) => handleSnooze(pr.id, untilIso)}
+                        onAgentReview={() => handleAgentReview(pr)}
+                        reviewState={pr.reviewState}
                       />
                     ))}
                   </div>
@@ -874,6 +899,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
               onHandle={handleMarkHandled}
               onReopen={handleReopen}
               onSnooze={handleSnooze}
+              onAgentReview={handleAgentReview}
               onShowMergeHistory={() => setMergeHistoryOpen(true)}
               onSetDraft={handleSetDraft}
             />
@@ -902,6 +928,8 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
                   onSelect={() => handleSelect(pr)}
                   onHandle={() => handleMarkHandled(pr.id)}
                   onSnooze={(untilIso) => handleSnooze(pr.id, untilIso)}
+                  onAgentReview={() => handleAgentReview(pr)}
+                  reviewState={pr.reviewState}
                 />
               ))}
             </div>

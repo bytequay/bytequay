@@ -24,6 +24,8 @@ import { TimelinePersonEvent } from './TimelinePersonEvent';
 import { TimelineIconEvent } from './TimelineIconEvent';
 import { TimelinePlanFinalized } from './TimelinePlanFinalized';
 import { ReviewThreadCard } from './ReviewThreadCard';
+import { buildAgentReviewTimelineEntries } from '../../review/AgentReviewTimeline';
+import type { AgentReviewData } from '../../review/agentReviewTypes';
 
 function str(payload: Record<string, unknown> | null, key: string): string | null {
   const v = payload?.[key];
@@ -167,6 +169,7 @@ function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]>
 export function PRTimeline({
   pr, events, comments, onReviewChanges, onResolveThread, onDismissThread, onOpenStage,
   commits = [], activity, reviewThreads, remoteDetail, threadActions, currentUserLogin,
+  reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
 }: {
   pr: LocalPR;
   events: LocalPRTimelineEvent[];
@@ -190,6 +193,10 @@ export function PRTimeline({
   remoteDetail?: PullRequestDetailDto | null;
   threadActions?: GitHubThreadActions;
   currentUserLogin?: string | null;
+  reviewData?: AgentReviewData;
+  onOpenReviewRound?: (roundId: string) => void;
+  onAnswerFinding?: (findingId: string, text: string) => void;
+  onReviewRoundAction?: (roundId: string) => void;
 }) {
   const rows: Row[] = [];
   const githubFeedActive = pr.remotePrNumber !== null && threadActions !== undefined;
@@ -233,6 +240,8 @@ export function PRTimeline({
   for (const event of events) {
     if (foldTaskLocalActivity) continue;
     if (event.eventType === 'comment') continue; // rendered from `comments` instead
+    if (reviewData !== undefined && event.eventType === 'review'
+      && typeof event.payload?.reviewEvent === 'string') continue;
     // Once GitHub's own feed is active it's the source for commits/reviews/
     // status changes too (it already includes "committed"/"reviewed"/
     // merged-closed-reopened) — only LOCAL checks (a local `mvn test` run,
@@ -311,6 +320,7 @@ export function PRTimeline({
           resolved={resolved}
           onResolve={onResolveThread !== undefined ? () => onResolveThread(root.id) : undefined}
           onDismiss={onDismissThread !== undefined ? () => onDismissThread(root.id) : undefined}
+          reviewData={reviewData}
         />
       ),
     });
@@ -329,6 +339,14 @@ export function PRTimeline({
         render: <GitHubTimelineRow key={`gh-${index}`} entry={entry} pr={pr} threadActions={threadActions} />,
       });
     });
+  }
+
+  if (reviewData !== undefined) {
+    rows.push(...buildAgentReviewTimelineEntries(reviewData, {
+      onOpenRound: onOpenReviewRound,
+      onAnswer: onAnswerFinding,
+      onRoundAction: onReviewRoundAction,
+    }));
   }
 
   rows.sort((a, b) => a.time - b.time);

@@ -58,9 +58,11 @@ describe('MergeBox checks summary', () => {
 
   it('collapses the check list by default, matching github.com', () => {
     const checks = [check('passed', 1)];
-    render(<MergeBox pr={pr()} capabilities={derivePRCapabilities(pr(), 'details')} localChecks={[]} remoteChecks={checks} openComments={0} pendingStripCount={0} draftCount={0} />);
+    const { container } = render(<MergeBox pr={pr()} capabilities={derivePRCapabilities(pr(), 'details')} localChecks={[]} remoteChecks={checks} openComments={0} pendingStripCount={0} draftCount={0} />);
 
     expect(screen.queryByText('check-1')).toBeNull();
+    expect(container.querySelector('.mb-branch-icon svg')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /All checks have passed/ }).getAttribute('aria-expanded')).toBe('false');
   });
 });
 
@@ -91,6 +93,14 @@ describe('MergeBox mergeable line', () => {
 });
 
 describe('MergeBox merge flow (task-origin, remote-open)', () => {
+  it('disables the merge action when GitHub reports branch conflicts', () => {
+    const p = taskPr({ syncedMergeable: false, syncedMergeableState: 'dirty' });
+    render(<MergeBox pr={p} capabilities={derivePRCapabilities(p, 'task')} localChecks={[]} remoteChecks={[]} openComments={0} pendingStripCount={0} draftCount={0} onMerge={vi.fn()} />);
+
+    expect(screen.getByText('Merge blocked')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Squash and merge' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('shows a method picker and command-line hint when the repo has no merge queue', () => {
     const p = taskPr();
     render(<MergeBox pr={p} capabilities={derivePRCapabilities(p, 'task')} localChecks={[]} remoteChecks={[]} openComments={0} pendingStripCount={0} draftCount={0} onMerge={vi.fn()} />);

@@ -14,7 +14,7 @@
 :root {
   --bg: #ffffff;
   --bg-elev: #ffffff;
-  --bg-sidebar: #ffffff;
+  --bg-sidebar: #f6f8fa;
   --bg-code: #f6f8fa;
   --bg-hover: rgba(0, 0, 0, 0.04);
 
@@ -369,6 +369,7 @@
 
 html {
   height: 100%;
+  font-size: 14px;
 }
 
 body {
@@ -377,6 +378,8 @@ body {
   height: 100%;
   color: inherit;
   background: var(--bg-base);
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
 }
 
 a {

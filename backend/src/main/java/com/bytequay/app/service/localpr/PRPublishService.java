@@ -48,6 +48,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -361,20 +362,51 @@ public class PRPublishService
      */
     public PR publishReview(String prId)
     {
+        return publishReview(prId, "COMMENT", null, null);
+    }
+
+    /** Publish only the explicitly included investigation findings/comments
+     * with the user's chosen GitHub review verdict. Null id lists preserve
+     * the legacy request-without-a-selection behavior; present empty lists
+     * explicitly select no comments. */
+    public PR publishReview(
+            String prId, String verdict, List<String> findingIds, List<String> commentIds)
+    {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
-        if (!PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "publish-review only applies to external PRs");
+        boolean external = PR.ORIGIN_EXTERNAL.equals(pr.origin());
+        if (!external && pr.taskId() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR has no review destination");
         }
-        if (pr.repo() == null || pr.remotePrNumber() == null) {
+        if (external && (pr.repo() == null || pr.remotePrNumber() == null)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
         }
+        Set<String> selectedFindings = findingIds == null ? Set.of() : Set.copyOf(findingIds);
+        Set<String> selectedComments = commentIds == null ? Set.of() : Set.copyOf(commentIds);
+        boolean selectAll = findingIds == null && commentIds == null;
         List<PRComment> drafts = prService.comments(prId).stream()
                 .filter(c -> PRComment.ORIGIN_LOCAL.equals(c.origin()))
                 .filter(c -> c.publishedAt() == null && c.dismissedAt() == null)
+                .filter(c -> selectAll || selectedComments.contains(c.id())
+                        || c.findingId() != null && selectedFindings.contains(c.findingId()))
                 .toList();
-        if (drafts.isEmpty()) {
+        String event = switch (verdict == null ? "COMMENT" : verdict.toUpperCase(Locale.ROOT)) {
+            case "APPROVE" -> "APPROVE";
+            case "REQUEST_CHANGES" -> "REQUEST_CHANGES";
+            default -> "COMMENT";
+        };
+        boolean explicitlySelectedNothing = !selectAll
+                && selectedFindings.isEmpty() && selectedComments.isEmpty();
+        if (drafts.isEmpty() && !(external && explicitlySelectedNothing && "APPROVE".equals(event))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "no draft comments to publish for PR " + prId);
+        }
+
+        if (!external) {
+            Instant when = Instant.now();
+            for (PRComment draft : drafts) {
+                prService.markPublished(draft.id(), when);
+            }
+            return prService.findById(prId).orElse(pr);
         }
 
         String[] ownerRepo = pr.repo().split("/", 2);
@@ -390,7 +422,7 @@ public class PRPublishService
                         c.filePath(), Optional.empty(), Optional.of(c.lineNumber()), "RIGHT", c.body()))
                 .toList();
         pullRequests.createReview(pat, ref, new CreateReviewCommand(
-                Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), "COMMENT", lineComments));
+                Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), event, lineComments));
 
         Instant when = Instant.now();
         for (PRComment draft : drafts) {

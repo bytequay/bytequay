@@ -95,12 +95,18 @@ describe('PRView', () => {
   });
 
   it('renders the green open state pill and the merge gate', () => {
-    renderView(bundle({ pr: pr('remote-open', { remotePrNumber: 145 }) }), { username: 'chenjian2664', onMerge: noop });
+    renderView(bundle({ pr: pr('remote-open', { remotePrNumber: 145 }) }), {
+      username: 'chenjian2664', onMerge: noop, onAddComment: noop,
+    });
     const pill = document.querySelector('.pr-state-pill');
     expect(pill?.className).toContain('open');
     expect(screen.getByText(/Squash and merge/)).toBeTruthy();
     expect(screen.getByText('#145')).toBeTruthy();
     expect(screen.getByText(/Posts to GitHub as @chenjian2664/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Add a comment' })).toBeTruthy();
+    expect(screen.getByAltText('chenjian2664')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Add your comment here...')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Comment' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('disables Merge while an open comment remains and enables Merge anyway', () => {

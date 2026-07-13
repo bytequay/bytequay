@@ -25,6 +25,9 @@ public interface AgentRunStore
 
     Optional<AgentRun> findById(String id);
 
+    /** Every run owned by one review round, including its verifier. */
+    List<AgentRun> findByReviewRound(String reviewRoundId);
+
     /** All runs for a task, newest-first. {@code kind} / {@code
      *  parentStageId} narrow when non-null; both null returns every run. */
     List<AgentRun> findByTask(String taskId, String kind, String parentStageId);

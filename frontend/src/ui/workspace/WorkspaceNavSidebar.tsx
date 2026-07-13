@@ -19,7 +19,7 @@ import { useFullScreen } from '../../useFullScreen';
 /** Drag-to-resize bounds + the persisted-width storage key. */
 const MIN_RAIL_WIDTH = 200;
 const MAX_RAIL_WIDTH = 460;
-const DEFAULT_RAIL_WIDTH = 232;
+const DEFAULT_RAIL_WIDTH = 222;
 const RAIL_WIDTH_KEY = 'bq.rail-width';
 
 const clampWidth = (w: number) => Math.min(MAX_RAIL_WIDTH, Math.max(MIN_RAIL_WIDTH, w));

@@ -75,6 +75,9 @@ class PrCommentEntity
     @Column(name = "published_at_ms")
     private Long publishedAtMs;
 
+    @Column(name = "finding_id")
+    private String findingId;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -125,4 +128,7 @@ class PrCommentEntity
 
     Long getPublishedAtMs() { return publishedAtMs; }
     void setPublishedAtMs(Long publishedAtMs) { this.publishedAtMs = publishedAtMs; }
+
+    String getFindingId() { return findingId; }
+    void setFindingId(String findingId) { this.findingId = findingId; }
 }

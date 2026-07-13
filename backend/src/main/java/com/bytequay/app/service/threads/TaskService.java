@@ -187,7 +187,7 @@ public class TaskService
     public int setMinApprovals(String threadId, String taskId, int minApprovals)
     {
         requireTask(threadId, taskId);
-        int clamped = Math.max(0, Math.min(2, minApprovals));
+        int clamped = Math.clamp(minApprovals, 0, 2);
         taskStore.setMinApprovals(taskId, clamped);
         return taskStore.minApprovals(taskId);
     }

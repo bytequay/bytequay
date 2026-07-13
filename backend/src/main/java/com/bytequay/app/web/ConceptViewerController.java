@@ -79,7 +79,7 @@ public class ConceptViewerController
         }
         int cap = limit == null
                 ? DEFAULT_LIMIT
-                : Math.max(1, Math.min(MAX_LIMIT, limit));
+                : Math.clamp(limit, 1, MAX_LIMIT);
         String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
 
         List<ConceptSpec> all = registry.list(kindFilter);

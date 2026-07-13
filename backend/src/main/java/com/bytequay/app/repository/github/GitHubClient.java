@@ -145,7 +145,7 @@ public class GitHubClient
     {
         requirePat(pat);
         int safePage = Math.max(1, page);
-        int safePerPage = Math.max(1, Math.min(100, perPage));
+        int safePerPage = Math.clamp(perPage, 1, 100);
         try {
             GitHubSearchResponse response = gitHubRestClient.get()
                     .uri(uri -> {

@@ -233,7 +233,7 @@ public class Ds4LifecycleService
      *  crash-diagnosis affordance and (later) the proxy follow-up. */
     public synchronized List<String> recentLogs(int limit)
     {
-        int take = Math.max(0, Math.min(limit, logRing.size()));
+        int take = Math.clamp(limit, 0, logRing.size());
         List<String> out = new ArrayList<>(take);
         int skip = logRing.size() - take;
         int i = 0;

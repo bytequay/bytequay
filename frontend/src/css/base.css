@@ -378,8 +378,11 @@ body {
   height: 100%;
   color: inherit;
   background: var(--bg-base);
-  letter-spacing: -0.005em;
-  -webkit-font-smoothing: antialiased;
+  /* ponytail: no -webkit-font-smoothing:antialiased and no negative
+     letter-spacing — both thinned strokes app-wide and made text read
+     lighter than github.com (Chromium + antialiased is the lightest
+     macOS rendering). Default smoothing renders fuller, GitHub-weight
+     strokes. Re-add antialiased here if a surface ever looks too heavy. */
 }
 
 a {

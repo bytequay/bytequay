@@ -747,7 +747,7 @@ public class ThreadRegistry
         if (agent instanceof AbstractCliThreadAgent cli && boundTask != null) {
             Optional<Path> checkout = taskCheckout(boundTask);
             checkout.ifPresent(path -> {
-                cli.setPreTurnHook(() -> codeGraph.ensureFreshSync(path, "before-agent-turn"));
+                cli.setPreTurnHook(() -> codeGraph.ensureFreshWithin(path, "before-agent-turn", 15_000));
                 cli.setPostTurnHook(() -> codeGraph.requestRefreshAsync(path, "after-agent-turn"));
             });
         }

@@ -28,11 +28,16 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Per-checkout serialization and coalescing for CodeGraph updates. */
 @Component
 public class CodeGraphUpdateCoordinator
 {
+    /** Cap on self-inflicted re-index passes when a checkout keeps changing under us. */
+    private static final int MAX_CHURN_REPASSES = 3;
+
     private final CodeGraphService codeGraph;
     private final ExecutorService executor;
     private final ConcurrentHashMap<Path, Lane> lanes = new ConcurrentHashMap<>();
@@ -56,17 +61,27 @@ public class CodeGraphUpdateCoordinator
 
     public CodeGraphResult ensureFreshSync(Path checkout, String reason)
     {
-        return request(checkout, reason, false, true);
+        return request(checkout, reason, false, true, 0);
+    }
+
+    /**
+     * Freshness with a wall-clock cap. If the index has not finished within
+     * {@code waitMillis}, the sync keeps running in the background and the
+     * caller proceeds rather than blocking (used on the agent turn's hot path).
+     */
+    public CodeGraphResult ensureFreshWithin(Path checkout, String reason, long waitMillis)
+    {
+        return request(checkout, reason, false, true, waitMillis);
     }
 
     public CodeGraphResult rebuildSync(Path checkout, String reason)
     {
-        return request(checkout, reason, true, true);
+        return request(checkout, reason, true, true, 0);
     }
 
     public void requestRefreshAsync(Path checkout, String reason)
     {
-        request(checkout, reason, false, false);
+        request(checkout, reason, false, false, 0);
     }
 
     public void forget(Path checkout)
@@ -98,7 +113,7 @@ public class CodeGraphUpdateCoordinator
         }
     }
 
-    private CodeGraphResult request(Path checkout, String reason, boolean force, boolean wait)
+    private CodeGraphResult request(Path checkout, String reason, boolean force, boolean wait, long waitMillis)
     {
         if (codeGraph == null || executor == null) {
             return CodeGraphResult.skipped("CodeGraph integration disabled.");
@@ -122,7 +137,10 @@ public class CodeGraphUpdateCoordinator
             return CodeGraphResult.ok("CodeGraph refresh queued for " + key);
         }
         try {
-            return future.get();
+            return waitMillis > 0 ? future.get(waitMillis, TimeUnit.MILLISECONDS) : future.get();
+        }
+        catch (TimeoutException e) {
+            return CodeGraphResult.ok("CodeGraph refresh still running for " + key);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -167,6 +185,7 @@ public class CodeGraphUpdateCoordinator
 
     private void drain(Path key, Lane lane)
     {
+        int churnRepasses = 0;
         while (true) {
             Fingerprint target;
             boolean force;
@@ -197,15 +216,24 @@ public class CodeGraphUpdateCoordinator
                 if (!result.ok()) {
                     lane.inFlight = null;
                     completeWaiters(lane, result);
+                    if (lane.pending != null) {
+                        // Newer work queued during this failed pass — attempt it
+                        // instead of orphaning it until the next request arrives.
+                        continue;
+                    }
                     lane.running = false;
                     return;
                 }
                 Fingerprint current = fingerprintOrNull(key);
-                if (current != null && !current.equals(target)) {
+                if (current != null && !current.equals(target) && churnRepasses < MAX_CHURN_REPASSES) {
+                    churnRepasses++;
                     lane.pending = current;
                     lane.pendingReason = reason == null ? "checkout-changed-during-index" : reason;
                     continue;
                 }
+                // ponytail: past MAX_CHURN_REPASSES a checkout that never settles is
+                // accepted as best-effort so the indexer thread (and any waiter) can't
+                // spin forever; the next explicit request re-syncs it.
                 if (lane.pending != null) {
                     continue;
                 }

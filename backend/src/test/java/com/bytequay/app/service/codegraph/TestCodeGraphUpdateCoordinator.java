@@ -109,6 +109,56 @@ class TestCodeGraphUpdateCoordinator
         }
     }
 
+    @Test
+    void testStopsRepassingWhenCheckoutNeverSettles(@TempDir Path tempDir)
+            throws Exception
+    {
+        Path checkout = tempDir.toAbsolutePath().normalize();
+        ChurningCodeGraphService service = new ChurningCodeGraphService();
+        ExecutorService indexExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService callerExecutor = Executors.newSingleThreadExecutor();
+        CodeGraphUpdateCoordinator coordinator = new CodeGraphUpdateCoordinator(service, indexExecutor);
+        try {
+            CompletableFuture<CodeGraphResult> result = CompletableFuture.supplyAsync(
+                    () -> coordinator.ensureFreshSync(checkout, "churn"),
+                    callerExecutor);
+
+            // Must terminate despite an ever-changing fingerprint: initial pass + at
+            // most the churn cap, and the waiter completes rather than hanging forever.
+            assertThat(result.get(5, TimeUnit.SECONDS).ok()).isTrue();
+            assertThat(service.indexCount).isLessThanOrEqualTo(4);
+        }
+        finally {
+            callerExecutor.shutdownNow();
+            indexExecutor.shutdownNow();
+        }
+    }
+
+    private static final class ChurningCodeGraphService
+            extends CodeGraphService
+    {
+        private int fingerprintCalls;
+        private volatile int indexCount;
+
+        private ChurningCodeGraphService()
+        {
+            super(new CodeGraphRunner(), new GitRunner());
+        }
+
+        @Override
+        public Fingerprint fingerprint(Path checkout)
+        {
+            return new Fingerprint("fp-" + fingerprintCalls++);
+        }
+
+        @Override
+        public CodeGraphResult ensureIndexed(Path checkout, Fingerprint target, boolean force)
+        {
+            indexCount++;
+            return CodeGraphResult.ok("synced");
+        }
+    }
+
     private static final class FakeCodeGraphService
             extends CodeGraphService
     {

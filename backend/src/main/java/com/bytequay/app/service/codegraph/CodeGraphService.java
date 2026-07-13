@@ -34,6 +34,7 @@ import static java.util.Objects.requireNonNull;
 public class CodeGraphService
 {
     private static final String CODEGRAPH_EXCLUDE = "/.codegraph/";
+    private static final long MAX_HASH_BYTES = 1L << 20;
 
     private final CodeGraphRunner codeGraph;
     private final GitRunner git;
@@ -64,7 +65,7 @@ public class CodeGraphService
             if (Files.isRegularFile(dirtyFile)) {
                 digest.update(root.relativize(dirtyFile).toString().getBytes(StandardCharsets.UTF_8));
                 digest.update((byte) 0);
-                hashFile(digest, dirtyFile);
+                hashContent(digest, dirtyFile);
                 digest.update((byte) 0);
             }
         }
@@ -146,6 +147,23 @@ public class CodeGraphService
             }
         }
         return out;
+    }
+
+    private static void hashContent(MessageDigest digest, Path file)
+            throws IOException
+    {
+        // ponytail: hash full contents only up to MAX_HASH_BYTES; larger dirty files
+        // fall back to size+mtime so one huge untracked blob can't stall the per-turn
+        // fingerprint. Raise the cap if content-level precision on big files matters.
+        long size = Files.size(file);
+        if (size > MAX_HASH_BYTES) {
+            digest.update(Long.toString(size).getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(Long.toString(Files.getLastModifiedTime(file).toMillis())
+                    .getBytes(StandardCharsets.UTF_8));
+            return;
+        }
+        hashFile(digest, file);
     }
 
     private static void hashFile(MessageDigest digest, Path file)

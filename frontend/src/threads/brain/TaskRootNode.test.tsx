@@ -13,8 +13,8 @@
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { PlanCardDto } from '../../types/brainView';
-import { TaskRootNode } from './TaskRootNode';
+import type { BrainFeedRow, PlanCardDto } from '../../types/brainView';
+import { planStepComments, TaskRootNode } from './TaskRootNode';
 
 afterEach(cleanup);
 
@@ -102,6 +102,19 @@ describe('TaskRootNode', () => {
     expect(risks).toEqual(['low', 'opt']);
     // Out-of-scope mini-card.
     expect(container.querySelector('.plan-mini__oos')?.textContent).toContain('stream/Optional rewrites');
+  });
+
+  it('shows comments entered from a plan step on that step', () => {
+    const feed: BrainFeedRow[] = [{
+      id: 'comment-1', messageSeq: 4, type: 'USER_MESSAGE', stageId: null, stageType: null,
+      ts: '2026-01-01T00:00:00Z', body: 'Re: step 2 — Why leave it?', referencedStageId: null,
+      images: [], managedSkills: [],
+    }];
+    render(<TaskRootNode plan={plan()} stepComments={planStepComments(feed)} />);
+
+    expect(screen.getByText('1 comment')).toBeTruthy();
+    fireEvent.click(screen.getByText('Replace 8 sites, preserving each bail value'));
+    expect(screen.getByText('Why leave it?')).toBeTruthy();
   });
 
   it('a locked plan is read-only (no review bar)', () => {

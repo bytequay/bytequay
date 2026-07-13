@@ -152,7 +152,21 @@ public interface PRService
      *  task has no local PR yet (the plan self-review, R20, predates it — its
      *  event is backfilled onto the timeline once {@link #createForTask}
      *  first creates the row). */
-    void recordBrainReview(String taskId, String scope, String verdict, int iteration);
+    void recordBrainReview(
+            String taskId, String scope, String verdict, int iteration, String roundId, String body);
+
+    /** Records the system-owned start of one adversarial code-review pass.
+     *  Unlike the verdict tool, this does not depend on the agent remembering
+     *  to call anything, so an interrupted review still leaves an honest
+     *  timeline trail. */
+    void recordBrainReviewStarted(String taskId, String scope, int iteration, String roundId);
+
+    /** Records that the dev agent has begun addressing the findings from one
+     *  adversarial-review pass. */
+    void recordBrainReviewAddressing(String taskId, String scope, int iteration, String roundId);
+
+    /** Append an auditable publish-gate decision to the PR timeline. */
+    void recordGateApproval(String prId, String gate, String reason);
 
     /** Records the user's plan approval as a {@code plan-finalized} timeline
      *  event carrying {@code planStageId} (so the row can link back to the

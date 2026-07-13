@@ -137,7 +137,11 @@ function RoundView({ round, tag, full, collapsedStage, threadId }: {
           clampAt={96}
         />
       )}
-      {/* A folded closed stage keeps only the user turn visible. */}
+      {/* A folded closed stage keeps the user's intervention and the final
+          answer visible, while hiding the intermediate agent work. */}
+      {collapsedStage && round.userTurn !== null && headline !== null && (
+        <Headline body={headline.body} reply />
+      )}
       {!collapsedStage && qna && headline !== null && (
         <Headline body={headline.body} reply />
       )}

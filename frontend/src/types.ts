@@ -1326,6 +1326,12 @@ export type WorkModelOptionsDto = {
   apiProviders: WorkModelProviderOptionDto[];
 };
 
+export type CodexCliUpdateResultDto = {
+  previousVersion: string;
+  version: string;
+  output: string;
+};
+
 /** Home-page daily card. Exactly one per day, picked deterministically
  *  by the backend from a curated pool. {@link author} / {@link role} are
  *  populated for {@code quote} cards and null for the other types. */
@@ -3217,6 +3223,8 @@ export type Bridge = {
   /** Forces the CLI detector to drop its memo and re-probe every
    *  binary. Backs the picker's "refresh" affordance. */
   refreshWorkModelOptions: () => Promise<WorkModelOptionsDto>;
+  getCodexCliVersion: () => Promise<{ version: string }>;
+  updateCodexCli: () => Promise<CodexCliUpdateResultDto>;
   /** Set (or clear) the workspace's default work model. Pass null
    *  to remove the override, after which the resolver falls back
    *  to the global default. Returns the updated workspace. */

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { isShellTool, shellCommand } from './toolDisplay';
 import { AskQuestionCard } from './AskQuestionCard';
+import { CodexUpdateAction } from './CodexUpdateAction';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
 import { ToolOutputBody } from './StructuredConversation';
@@ -469,7 +470,8 @@ function ErrorBlock({ message }: { message: ThreadMessageDto }) {
   return (
     <div style={errorBlockStyle}>
       <span style={errorGlyphStyle}>✕ </span>
-      {text}
+      <span>{text}</span>
+      <CodexUpdateAction message={text} />
     </div>
   );
 }

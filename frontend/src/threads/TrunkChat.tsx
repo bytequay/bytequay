@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderChatMarkdown } from '../markdown';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { assistantLabel, type AssistantLabel } from './assistantLabel';
+import { CodexUpdateAction } from './CodexUpdateAction';
 import type { TrunkActivity } from './trunkActivity';
 
 const SLATE = '#475569';
@@ -39,6 +40,9 @@ type Props = {
   userInitials: string;
   /** Click-through on a task-launch card. */
   onOpenTask: (taskId: string) => void;
+  /** Called after the in-app Codex updater succeeds. Trunk pages use
+   *  this to resume the failed session and queue a continuation. */
+  onCodexUpdated?: () => Promise<void>;
   /** When true, a thinking-pulse card renders at the bottom of the
    *  scrollback so the user has a visible "the agent is working"
    *  cue while the CLI subprocess spawns + spins up. */
@@ -86,7 +90,7 @@ export default function TrunkChat({
   messages, tasks, foregroundTaskId, userInitials, onOpenTask, isInFlight = false,
   activity, onInterrupt, interrupting = false, outerRef,
   canLoadOlder = false, loadingOlder = false, onLoadOlder,
-  thread = null,
+  thread = null, onCodexUpdated,
 }: Props) {
   const speaker = useMemo(() => assistantLabel(thread), [thread]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -165,6 +169,15 @@ export default function TrunkChat({
               ts={item.ts}
               speaker={speaker}
               activity={item.activity}
+            />
+          );
+        }
+        if (item.kind === 'error') {
+          return (
+            <ErrorCard
+              key={item.message.id}
+              text={item.text}
+              onCodexUpdated={onCodexUpdated}
             />
           );
         }
@@ -260,6 +273,7 @@ type TimelineItem =
   | { kind: 'date'; label: string; ts: number }
   | { kind: 'user'; message: ThreadMessageDto; text: string; ts: number }
   | AssistantItem
+  | { kind: 'error'; message: ThreadMessageDto; text: string; ts: number }
   | { kind: 'task-launch'; task: WorkUnitTaskDto; ts: number }
   | { kind: 'system'; text: string; ts: number };
 
@@ -302,6 +316,10 @@ function buildTimeline(
       const item: AssistantItem = { kind: 'assistant', message: m, text, ts };
       items.push(item);
       lastAnswer = item;
+    }
+    else if (m.type === 'error') {
+      flushTurn();
+      items.push({ kind: 'error', message: m, text: extractText(m), ts });
     }
     else if (m.type === 'tool_call') {
       // Hidden from the timeline, but counted for the badge. A file
@@ -364,9 +382,28 @@ function extractText(m: ThreadMessageDto): string {
     const parsed = JSON.parse(m.contentJson) as Record<string, unknown>;
     if (typeof parsed.text === 'string') return parsed.text;
     if (typeof parsed.summary === 'string') return parsed.summary;
+    if (typeof parsed.message === 'string') return parsed.message;
   }
   catch { /* fall through */ }
   return m.contentJson;
+}
+
+function ErrorCard({
+  text,
+  onCodexUpdated,
+}: {
+  text: string;
+  onCodexUpdated?: () => Promise<void>;
+}) {
+  return (
+    <div style={errorRowStyle}>
+      <span style={errorGlyphStyle}>!</span>
+      <div>
+        <div>{text}</div>
+        <CodexUpdateAction message={text} onUpdated={onCodexUpdated} />
+      </div>
+    </div>
+  );
 }
 
 /** Pull a file path out of a tool_call's input, if it's a file tool.
@@ -840,4 +877,15 @@ const systemLineStyle: React.CSSProperties = {
   fontSize: 10,
   color: 'var(--text-4)',
   fontStyle: 'italic',
+};
+
+const errorRowStyle: React.CSSProperties = {
+  display: 'flex', gap: 8, alignItems: 'flex-start',
+  padding: '10px 14px', margin: '4px 36px',
+  background: '#fef2f2', border: '1px solid #fca5a5',
+  borderRadius: 10, color: '#991b1b', fontSize: 12,
+};
+
+const errorGlyphStyle: React.CSSProperties = {
+  fontWeight: 700, fontSize: 14,
 };

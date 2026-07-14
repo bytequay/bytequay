@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Pins {@link CodexJsonParser} against the real {@code codex exec --json}
- * event shapes captured from the CLI (codex-cli 0.139.0).
+ * event shapes captured from the CLI (codex-cli 0.139.0 and 0.141.0).
  */
 class TestCodexJsonParser
 {
@@ -132,6 +132,21 @@ class TestCodexJsonParser
         // Codex bills against the OpenAI subscription — no per-turn dollar
         // cost is reported, so the cost field stays zero.
         assertThat(done.costUsdMilli()).isZero();
+    }
+
+    @Test
+    void mapsTurnFailureToErrorWithProviderMessage()
+    {
+        List<StreamEvent> events = parser.parse(
+                "{\"type\":\"turn.failed\",\"error\":{\"message\":"
+                        + "\"{\\\"type\\\":\\\"error\\\",\\\"status\\\":400,"
+                        + "\\\"error\\\":{\\\"message\\\":"
+                        + "\\\"The model requires a newer version of Codex.\\\"}}\"}}", NOW);
+
+        assertThat(events).hasSize(1);
+        StreamEvent.ErrorOccurred error = (StreamEvent.ErrorOccurred) events.get(0);
+        assertThat(error.message()).isEqualTo("The model requires a newer version of Codex.");
+        assertThat(error.recoverable()).isTrue();
     }
 
     @Test

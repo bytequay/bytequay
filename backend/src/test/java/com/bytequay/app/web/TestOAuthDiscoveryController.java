@@ -14,21 +14,26 @@
 package com.bytequay.app.web;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.test.web.servlet.MockMvc;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@WebMvcTest(OAuthDiscoveryController.class)
 class TestOAuthDiscoveryController
 {
-    @Test
-    void answersTheOauthDiscoveryProbeWithACleanNotFound()
-    {
-        ResponseEntity<Void> response = new OAuthDiscoveryController().noOauth();
+    @Autowired
+    private MockMvc mvc;
 
-        // 404 is the spec's "no auth required" signal — body-less so a strict
-        // MCP client doesn't choke on an HTML error page.
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(response.getBody()).isNull();
+    @Test
+    void answersTheAgentScopedOauthDiscoveryProbeWithACleanNotFound()
+            throws Exception
+    {
+        mvc.perform(get("/api/threads/t260713-5-nf/agents/trunk/mcp/.well-known/oauth-authorization-server"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string(""));
     }
 }

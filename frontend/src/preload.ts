@@ -20,6 +20,7 @@ import type {
   AiSettingsDto,
   Bridge,
   ColumnPageDto,
+  CodexCliUpdateResultDto,
   ContributionCalendarDto,
   InAppNavState,
   CreateTeamRequest,
@@ -382,6 +383,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workModels:options'),
   refreshWorkModelOptions: (): Promise<WorkModelOptionsDto> =>
     ipcRenderer.invoke('workModels:refresh'),
+  getCodexCliVersion: (): Promise<{ version: string }> =>
+    ipcRenderer.invoke('codex:version'),
+  updateCodexCli: (): Promise<CodexCliUpdateResultDto> =>
+    ipcRenderer.invoke('codex:update'),
   setWorkspaceWorkModel: (workspaceId: string, model: WorkModelDto | null): Promise<WorkspaceDto> =>
     ipcRenderer.invoke('workspaces:setWorkModel', { workspaceId, model }),
   getThreadWorkModel: (threadId: string): Promise<ResolvedWorkModelDto> =>

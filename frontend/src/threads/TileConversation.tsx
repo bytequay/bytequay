@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ThreadMessageDto } from '../types';
 import type { PendingPermission } from './ConversationPane';
+import { CodexUpdateAction } from './CodexUpdateAction';
 import { isShellTool, shellCommand } from './toolDisplay';
 import { ToolOutputBody } from './StructuredConversation';
 
@@ -330,13 +331,19 @@ function ErrorRow({ message, mode }: { message: ThreadMessageDto; mode: TileConv
   if (mode === 'terminal') {
     return (
       <div style={termAssistantRowStyle}>
-        <div style={termErrorStyle}>! {text}</div>
+        <div style={termErrorStyle}>
+          <div>! {text}</div>
+          <CodexUpdateAction message={text} />
+        </div>
       </div>
     );
   }
   return (
     <div style={chatAssistantRowStyle}>
-      <div style={chatErrorStyle}>! {text}</div>
+      <div style={chatErrorStyle}>
+        <div>! {text}</div>
+        <CodexUpdateAction message={text} />
+      </div>
     </div>
   );
 }

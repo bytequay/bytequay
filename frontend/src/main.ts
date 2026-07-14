@@ -5390,6 +5390,33 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  const codexVersion = async (): Promise<string> => {
+    const { stdout } = await execFileAsync('codex', ['--version'], {
+      encoding: 'utf8', timeout: 10_000,
+    });
+    return stdout.trim().replace(/^codex-cli\s+/, '');
+  };
+
+  ipcMain.handle('codex:version', async () => ({ version: await codexVersion() }));
+
+  ipcMain.handle('codex:update', async () => {
+    const previousVersion = await codexVersion();
+    try {
+      const { stdout, stderr } = await execFileAsync('codex', ['update'], {
+        encoding: 'utf8', timeout: 180_000,
+      });
+      return {
+        previousVersion,
+        version: await codexVersion(),
+        output: [stdout, stderr].filter(Boolean).join('\n').trim(),
+      };
+    }
+    catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      throw new Error(`Codex update failed: ${detail}`);
+    }
+  });
+
   ipcMain.handle('workspaces:setWorkModel', async (_event, args: unknown) => {
     const { workspaceId, model } = args as {
       workspaceId: string;

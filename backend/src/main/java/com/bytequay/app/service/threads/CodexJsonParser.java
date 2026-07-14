@@ -49,6 +49,9 @@ import static java.util.Objects.requireNonNull;
  *       {@link StreamEvent.TurnDone}. Codex bills against the user's
  *       OpenAI subscription, so no per-turn dollar cost is reported and
  *       the cost field is left at zero.</li>
+ *   <li>{@code turn.failed} — carries the provider's failure message;
+ *       mapped to {@link StreamEvent.ErrorOccurred} so the UI shows the
+ *       actual cause instead of only the CLI exit code.</li>
  * </ul>
  *
  * <p>Unrecognized line types, unknown item types, and malformed JSON all
@@ -92,8 +95,22 @@ public class CodexJsonParser
             case "item.started" -> parseItem(root.path("item"), now, /* started */ true);
             case "item.completed" -> parseItem(root.path("item"), now, /* started */ false);
             case "turn.completed" -> parseTurnCompleted(root.path("usage"), now);
+            case "turn.failed" -> ImmutableList.of(new StreamEvent.ErrorOccurred(
+                    now, errorMessage(root.path("error")), true));
             default -> ImmutableList.of();
         };
+    }
+
+    private String errorMessage(JsonNode error)
+    {
+        String message = error.path("message").asText("turn failed");
+        try {
+            String nested = mapper.readTree(message).path("error").path("message").asText("");
+            return nested.isBlank() ? message : nested;
+        }
+        catch (Exception ignored) {
+            return message;
+        }
     }
 
     private List<StreamEvent> parseItem(JsonNode item, Instant now, boolean started)

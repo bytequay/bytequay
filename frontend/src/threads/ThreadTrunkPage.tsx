@@ -496,6 +496,12 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     }
   }, [resuming, threadId, loadThread, refreshTasks]);
 
+  const retryAfterCodexUpdate = useCallback(async () => {
+    await window.bridge.resumeTask(threadId);
+    await window.bridge.sendTrunkMessage(threadId, 'continue');
+    await Promise.all([loadThread(), refreshMessages(), refreshTurns(), refreshTasks()]);
+  }, [threadId, loadThread, refreshMessages, refreshTurns, refreshTasks]);
+
   // A trunk whose own agent loop has gone terminal. Tasks have their own
   // lifecycle; this is purely the planning conversation's status.
   const threadTerminal = thread?.status === 'COMPLETED'
@@ -723,6 +729,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   foregroundTaskId={foreground?.id ?? null}
                   userInitials={userInitials}
                   onOpenTask={onOpenTask}
+                  onCodexUpdated={thread?.status === 'ERRORED' ? retryAfterCodexUpdate : undefined}
                   isInFlight={trunkInFlight || sending}
                   activity={deriveTrunkActivity(trunkMessages, pendingPermission, pendingQuestion !== null)}
                   onInterrupt={() => { void onInterrupt(); }}

@@ -72,7 +72,6 @@ final class AgentViews
         @Override public void setActiveManagedSkillNames(List<String> names) { delegate.setActiveManagedSkillNames(names); }
         @Override public void setMcpAgentKey(String agentKey) { delegate.setMcpAgentKey(agentKey); }
         @Override public void interrupt() { delegate.interrupt(); }
-        @Override public void pause() { delegate.pause(); }
         @Override public void resume() { delegate.resume(); }
         @Override public void stop() { delegate.stop(); }
         @Override public void notifyPermissionRequested(String callId, String toolName, String summary)

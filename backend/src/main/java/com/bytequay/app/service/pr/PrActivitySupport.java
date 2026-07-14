@@ -72,7 +72,7 @@ final class PrActivitySupport
     {
         return isAllTime(cutoff)
                 ? today.minusDays(DAILY_MAX_DAYS_ALL - 1L)
-                : cutoff.atZone(zone).toLocalDate();
+                : cutoff.atZone(zone).toLocalDate().plusDays(1);
     }
 
     static String formatDate(LocalDate date)

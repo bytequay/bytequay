@@ -22,6 +22,7 @@ import { buildTrunkTimeline, parseToolCall } from '../threads/trunkTimeline';
 import { toTaskCard } from '../threads/taskCardData';
 import { proposalAction } from '../threads/usePendingShipProposal';
 import { TrunkPage } from './TrunkPage';
+import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
 
 /** Terminal statuses — the task has landed (COMPLETED/merged) or been
@@ -303,6 +304,7 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
         placeholder: 'Discuss the next task, ask the brain, or paste an error…',
         images, onImagesChange: setImages,
+        modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} />,
       }}
       tasks={{ active, closed }}
       onOpenTask={onOpenTask}

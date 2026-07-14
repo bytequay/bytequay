@@ -13,14 +13,23 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ResolvedWorkModelDto, WorkModelDto } from '../types';
-import { WorkModelPicker } from './WorkModelPicker';
+import type { ResolvedWorkModelDto, WorkModelDto, WorkModelOptionsDto } from '../types';
+import { ComposerModelPicker } from './ComposerModelPicker';
 
 /** Fixed popover width — used both for the box and for clamping it
  *  inside the viewport when the pill sits near the right edge (the
  *  task rail lives on the right, so a left-anchored popover would
  *  otherwise spill off-screen). */
 const POPOVER_WIDTH = 380;
+
+/** Tallest the popover gets (search box + 300px list cap + hints/padding);
+ *  drives the flip-up decision when the trigger is near the viewport bottom. */
+const POPOVER_MAX_H = 380;
+
+/** Window event that opens the pill's picker — dispatched by the composer's
+ *  "/model" slash command. ponytail: global event, one pill per composer in
+ *  the live shell; scope by composer node if two pills ever coexist. */
+export const OPEN_WORK_MODEL_EVENT = 'bytequay:open-work-model';
 
 type Scope =
   | { kind: 'thread'; threadId: string }
@@ -51,10 +60,13 @@ type Props = {
  */
 export function WorkModelPill({ scope, onChange }: Props) {
   const [resolved, setResolved] = useState<ResolvedWorkModelDto | null>(null);
+  const [options, setOptions] = useState<WorkModelOptionsDto | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Viewport-fixed coordinates for the portaled popover (see below).
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // Viewport-fixed coordinates for the portaled popover (see below). Anchors
+  // by `top` (opens down) or `bottom` (opens up) depending on room — the pill
+  // lives at the bottom of the composer, so it usually opens up.
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,7 +80,13 @@ export function WorkModelPill({ scope, onChange }: Props) {
     if (trigger === null) return;
     const r = trigger.getBoundingClientRect();
     const left = Math.max(8, Math.min(r.left, window.innerWidth - POPOVER_WIDTH - 8));
-    setPos({ top: r.bottom + 6, left });
+    // Open upward when there isn't room for the popover below the trigger
+    // (the usual case in the composer). POPOVER_MAX_H is the tallest the
+    // popover gets — search box + the list's 300px cap + hints/padding.
+    const spaceBelow = window.innerHeight - r.bottom;
+    setPos(spaceBelow < POPOVER_MAX_H
+      ? { bottom: window.innerHeight - r.top + 6, left }
+      : { top: r.bottom + 6, left });
   }, []);
 
   const load = useCallback(async () => {
@@ -87,6 +105,27 @@ export function WorkModelPill({ scope, onChange }: Props) {
   }, [scope]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Options give the effective model's human name for the pill label and
+  // feed the picker. Non-refresh read — served from the backend's cached
+  // catalog+credentials merge, no CLI re-probe. ponytail: one read per
+  // composer mount; lift to a shared cache if that ever shows up hot.
+  useEffect(() => {
+    // Optional-chained: short-circuits when the bridge lacks the method
+    // (partial test bridges) instead of throwing; the label then falls
+    // back to the raw model id.
+    window.bridge.getWorkModelOptions?.()
+      .then(setOptions)
+      .catch(() => { /* label falls back to the raw id */ });
+  }, []);
+
+  // Open when the composer's "/model" command fires. place() reads the
+  // trigger rect, so run it before flipping open (same order as onClick).
+  useEffect(() => {
+    const onOpen = () => { place(); setOpen(true); };
+    window.addEventListener(OPEN_WORK_MODEL_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_WORK_MODEL_EVENT, onOpen);
+  }, [place]);
 
   // Keep the fixed popover glued to the trigger while it's open: the
   // rail scrolls and the window can resize under it. Capture-phase
@@ -145,14 +184,13 @@ export function WorkModelPill({ scope, onChange }: Props) {
     }
   }, [scope, onChange]);
 
-  const label = useMemo(() => formatLabel(resolved), [resolved]);
+  const label = useMemo(() => formatLabel(resolved, options), [resolved, options]);
   const hint = useMemo(() => formatHint(resolved), [resolved]);
 
   if (resolved === null && error === null) {
     return (
       <button type="button" style={pillStyle(false)} disabled>
-        <span style={pillGlyphStyle}>◇</span>
-        <span style={pillTextStyle}>Loading…</span>
+        <span style={pillTextStyle}>Model…</span>
       </button>
     );
   }
@@ -165,13 +203,11 @@ export function WorkModelPill({ scope, onChange }: Props) {
         onClick={() => { void load(); }}
         title={error}
       >
-        <span style={pillGlyphStyle}>!</span>
-        <span style={pillTextStyle}>Work model error</span>
+        <span style={pillTextStyle}>Model error</span>
       </button>
     );
   }
 
-  const isInherited = resolved !== null && resolved.override === null;
   return (
     <div style={wrapperStyle}>
       <button
@@ -188,45 +224,38 @@ export function WorkModelPill({ scope, onChange }: Props) {
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <span style={pillGlyphStyle}>◇</span>
         <span style={pillTextStyle}>{label}</span>
-        <span style={pillChevStyle} aria-hidden>▾</span>
+        <span style={pillChevStyle} aria-hidden>⌄</span>
       </button>
       {open && pos !== null && createPortal(
         <div
           ref={popoverRef}
-          style={{ ...popoverStyle, top: pos.top, left: pos.left }}
+          style={{ ...popoverStyle, top: pos.top, bottom: pos.bottom, left: pos.left }}
           role="dialog"
           aria-label="Work model picker"
         >
+          {options === null || resolved === null
+            ? <div style={loadingStyle}>Loading models…</div>
+            : (
+              <ComposerModelPicker
+                options={options}
+                override={resolved.override}
+                effective={resolved.effective}
+                onChange={(next) => { void commit(next); }}
+              />
+            )}
           {hint !== null && (
             <div style={inheritanceHintStyle}>
               <span aria-hidden style={inheritanceGlyphStyle}>↰</span>
               {hint}
             </div>
           )}
-          <WorkModelPicker
-            value={resolved?.override ?? null}
-            onChange={(next) => { void commit(next); }}
-          />
           {scope.kind === 'stage' && (
             <div style={inheritanceHintStyle}>
               <span aria-hidden style={inheritanceGlyphStyle}>⏳</span>
               A stage's agent runs one session for its whole lifetime —
               this applies next time this stage starts a new one, not to
               a session already running.
-            </div>
-          )}
-          {!isInherited && (
-            <div style={footerStyle}>
-              <button
-                type="button"
-                style={clearBtnStyle}
-                onClick={() => { void commit(null); }}
-                title="Clear the override on this scope"
-              >
-                Clear override
-              </button>
             </div>
           )}
         </div>,
@@ -236,14 +265,24 @@ export function WorkModelPill({ scope, onChange }: Props) {
   );
 }
 
-function formatLabel(resolved: ResolvedWorkModelDto | null): string {
-  if (resolved === null) return 'Work model';
+function formatLabel(resolved: ResolvedWorkModelDto | null, options: WorkModelOptionsDto | null): string {
+  if (resolved === null) return 'Model';
+  // Copilot-style: the model's human name alone (e.g. "Claude Sonnet
+  // 4.6"). Resolve the id through the catalog options; fall back to the
+  // raw id (then the agent id) before options land or for a custom model.
   const eff = resolved.effective;
-  // Compact: "Claude Sonnet 4.6 · CLI" — the agent / provider id
-  // alone is too cryptic; the model id alone hides whether it's CLI
-  // or API. Joining both keeps the pill scannable at a glance.
-  const modelLabel = eff.model ?? 'default';
-  return `${eff.agentOrProvider} · ${modelLabel} · ${eff.kind}`;
+  const list = options === null
+    ? []
+    : eff.kind === 'CLI'
+      ? options.cliAgents.find(a => a.id === eff.agentOrProvider)?.models ?? []
+      : options.apiProviders.find(p => p.id === eff.agentOrProvider)?.models ?? [];
+  const modelId = eff.model
+    ?? (eff.kind === 'CLI'
+      ? options?.cliAgents.find(a => a.id === eff.agentOrProvider)?.defaultModel
+      : options?.apiProviders.find(p => p.id === eff.agentOrProvider)?.defaultModel)
+    ?? null;
+  const named = modelId === null ? undefined : list.find(m => m.id === modelId);
+  return named?.displayName ?? modelId ?? eff.agentOrProvider;
 }
 
 function formatHint(resolved: ResolvedWorkModelDto | null): string | null {
@@ -275,27 +314,20 @@ function pillStyle(active: boolean): React.CSSProperties {
   return {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 6,
-    padding: '4px 10px',
+    gap: 4,
+    padding: '4px 8px',
     height: 26,
-    border: active
-      ? '1px solid rgba(124,58,237,0.55)'
-      : '1px solid rgba(124,58,237,0.25)',
-    background: active ? 'rgba(124,58,237,0.18)' : 'rgba(124,58,237,0.08)',
-    color: '#5b21b6',
-    borderRadius: 999,
+    border: '1px solid transparent',
+    background: active ? 'var(--bg-elev, rgba(0,0,0,0.06))' : 'transparent',
+    color: 'var(--text-2, #4b5563)',
+    borderRadius: 8,
     cursor: 'pointer',
     fontFamily: 'inherit',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 500,
     whiteSpace: 'nowrap',
   };
 }
-
-const pillGlyphStyle: React.CSSProperties = {
-  fontSize: 11,
-  lineHeight: 1,
-};
 
 const pillTextStyle: React.CSSProperties = {
   display: 'inline-block',
@@ -344,18 +376,8 @@ const inheritanceGlyphStyle: React.CSSProperties = {
   color: 'var(--text-3)',
 };
 
-const footerStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'flex-end',
-};
-
-const clearBtnStyle: React.CSSProperties = {
-  padding: '4px 10px',
-  fontSize: 11,
-  border: '1px solid var(--border)',
-  background: '#fff',
-  color: 'var(--text-2)',
-  borderRadius: 999,
-  cursor: 'pointer',
-  fontFamily: 'inherit',
+const loadingStyle: React.CSSProperties = {
+  padding: '10px 4px',
+  fontSize: 12,
+  color: 'var(--text-3)',
 };

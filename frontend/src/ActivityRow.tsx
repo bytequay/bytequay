@@ -99,6 +99,11 @@ function ActivityRow({ event, actor, showActorName, formatTime, onOpenUrl }: Pro
             <NarrativeText segments={segments} onLinkClick={onOpenUrl} />
           </span>
         </div>
+        {event.type === 'PushEvent' && event.prNumber > 0 && event.prTitle && (
+          <div className="home-following-item__prtitle" title={event.prTitle}>
+            {event.prTitle}
+          </div>
+        )}
         <div className="home-following-item__time">{formatTime(event.createdAt)}</div>
       </div>
     </div>

@@ -65,7 +65,7 @@ describe('ActivityRow', () => {
   it('PushEvent links the "N commits" phrase to the commits page (repo is plain text)', () => {
     const html = renderToStaticMarkup(
       <ActivityRow
-        event={event({ type: 'PushEvent', commitCount: 3 })}
+        event={event({ type: 'PushEvent', commitCount: 3, prNumber: 0 })}
         actor={{ login: 'octocat', profileUrl: 'https://github.com/octocat' }}
         showActorName={true}
         formatTime={(iso) => iso}

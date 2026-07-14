@@ -91,4 +91,23 @@ describe('TaskSidebar', () => {
     fireEvent.click(screen.getByText('Local Development'));
     expect(onOpenStage).toHaveBeenCalledWith('dev-1');
   });
+
+  it('renders AgentReview as a sibling track and opens its round', () => {
+    const onOpenRound = vi.fn();
+    render(
+      <TaskSidebar
+        task={{ title: 'x', branch: 'b' }}
+        nodes={nodes}
+        agentReview={{
+          status: 'questions',
+          rounds: [{ id: 'round-1', status: 'questions', findings: 2 }],
+          onOpenRound,
+        }}
+      />,
+    );
+    expect(screen.getByText('Agent review')).toBeTruthy();
+    expect(screen.getByText('Review and verify fixes')).toBeTruthy();
+    fireEvent.click(screen.getByText('Round 1'));
+    expect(onOpenRound).toHaveBeenCalledWith('round-1');
+  });
 });

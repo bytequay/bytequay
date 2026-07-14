@@ -189,21 +189,26 @@ describe('MergeBox merge flow (task-origin, remote-open)', () => {
     expect(onDeleteBranch).toHaveBeenCalledOnce();
   });
 
-  it('renders nothing for the merged state once the branch has already been deleted', () => {
+  it('keeps the GitHub-style merged state after the branch has been deleted', () => {
     const p = taskPr({ status: 'merged', mergedAt: 1, branchDeletedAt: 2 });
     render(
       <MergeBox
         pr={p}
         capabilities={derivePRCapabilities(p, 'task')}
-        localChecks={[]}
-        remoteChecks={[]}
+        localChecks={[check('passed', 1)]}
+        remoteChecks={[check('passed', 2)]}
         openComments={0}
         pendingStripCount={0}
         draftCount={0}
         onDeleteBranch={vi.fn()}
+        onRunTests={vi.fn()}
       />,
     );
 
-    expect(screen.queryByText('Pull request successfully merged and closed')).toBeNull();
+    expect(screen.getByText('Pull request successfully merged and closed')).toBeTruthy();
+    expect(screen.getByText("You're all set — the branch has been merged.")).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete branch' })).toBeNull();
+    expect(screen.queryByText('All checks have passed')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Run tests' })).toBeNull();
   });
 });

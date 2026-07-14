@@ -22,6 +22,7 @@ import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.threads.AgentScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -114,5 +116,10 @@ class TestLeadOrchestrator
         ArgumentCaptor<ReviewPass> saved = ArgumentCaptor.forClass(ReviewPass.class);
         verify(reviewStore).savePass(saved.capture());
         assertEquals(9L, saved.getValue().costUsdMilli());
+
+        ArgumentCaptor<TurnSpec> spec = ArgumentCaptor.forClass(TurnSpec.class);
+        verify(runner).runTurn(spec.capture(), any(), any());
+        assertTrue(spec.getValue().system().contains("Caveman is mandatory"));
+        assertTrue(spec.getValue().system().contains("dispatch_to_reviewer"));
     }
 }

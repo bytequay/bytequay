@@ -153,7 +153,18 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
     createInlineReviewComment: vi.fn().mockResolvedValue(undefined),
     replyToReviewThread: vi.fn().mockResolvedValue(undefined),
     setReviewThreadResolved: vi.fn().mockResolvedValue(undefined),
-    stageReviewComment: vi.fn(),
+    stageReviewComment: vi.fn().mockResolvedValue({
+      id: 1,
+      prId: 1,
+      summary: null,
+      providerId: 'anthropic',
+      model: 'claude',
+      headSha: 'abc123',
+      status: 'DRAFT',
+      createdAt: '2026-07-14T00:00:00Z',
+      updatedAt: '2026-07-14T00:00:00Z',
+      comments: [],
+    }),
     polishCommentText: vi.fn(),
     listAiProviders: vi.fn().mockResolvedValue([]),
     getLatestAiReview: vi.fn().mockResolvedValue(null),
@@ -162,11 +173,11 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
     editReviewFinding: vi.fn().mockResolvedValue(options.reviewDetail ?? { pass: { id: 'pass-1' }, findings: [] }),
     dropReviewFinding: vi.fn().mockResolvedValue({ pass: { id: 'pass-1' }, findings: [] }),
     addReviewFinding: vi.fn().mockResolvedValue(options.reviewDetail ?? { pass: { id: 'pass-1' }, findings: [] }),
-    // Used by AssignReviewTaskDialog when "Run AI review" opens the panel.
-    fetchPrs: vi.fn().mockResolvedValue([]),
-    listReviewRoster: vi.fn().mockResolvedValue([]),
-    listWorkspaceRepos: vi.fn().mockResolvedValue([]),
-    listSkills: vi.fn().mockResolvedValue([]),
+    // Used by the durable AgentReview launcher on the diff page.
+    getPrForRepoPull: vi.fn().mockResolvedValue({ id: 'local-pr-42' }),
+    startAgentReview: vi.fn().mockResolvedValue({
+      review: { owner_thread_id: 'review-owner-thread' },
+    }),
   };
 }
 
@@ -261,7 +272,7 @@ describe('RemotePrDiffReviewScreen freshness', () => {
     expect(onBack).toHaveBeenCalled();
   });
 
-  it('uses force-refresh reconciliation after posting a new inline comment', async () => {
+  it('stages an inline comment into the local draft without posting to GitHub', async () => {
     const bridge = await render(makeDetail(), {
       files: [makeDiffFile()],
       commits: [makeCommit()],
@@ -280,28 +291,30 @@ describe('RemotePrDiffReviewScreen freshness', () => {
       updateTextarea(textarea!, 'please adjust this line');
     });
 
-    const post = Array.from(container.querySelectorAll('button'))
-      .find(el => el.textContent === 'Add single comment');
-    expect(post).toBeTruthy();
+    const stage = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Add review comment');
+    expect(stage).toBeTruthy();
 
     await act(async () => {
-      post!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      stage!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     await act(async () => { await Promise.resolve(); });
 
-    expect(bridge.createInlineReviewComment).toHaveBeenCalledWith(
-      'trinodb/trino',
-      42,
-      'please adjust this line',
-      'src/foo.ts',
-      1,
-      'RIGHT',
-      'abc123',
-      null,
-      null,
+    // Inline comments stage into the local review draft — they must not be
+    // posted to GitHub until the user submits the batched review. An
+    // immediate post would leave a lingering pending-review comment that
+    // duplicates when the batched review is submitted.
+    expect(bridge.stageReviewComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repo: 'trinodb/trino',
+        number: 42,
+        filePath: 'src/foo.ts',
+        line: 1,
+        side: 'RIGHT',
+        body: 'please adjust this line',
+      }),
     );
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.createInlineReviewComment).not.toHaveBeenCalled();
   });
 
   it('keeps review-thread replies optimistic without fetching stale detail', async () => {
@@ -339,7 +352,7 @@ describe('RemotePrDiffReviewScreen freshness', () => {
     expect(container.innerHTML).toContain('thanks for the context');
   });
 
-  it('keeps review-thread resolution optimistic without fetching stale detail', async () => {
+  it('keeps review-thread resolution optimistic and refreshes resolver state', async () => {
     const bridge = await render(makeDetail({ reviewThreads: [makeThread()] }), {
       files: [makeDiffFile()],
       commits: [makeCommit()],
@@ -355,9 +368,10 @@ describe('RemotePrDiffReviewScreen freshness', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 1, 5001, true);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(container.innerHTML).toContain('Resolved');
+    expect(container.querySelector('.diff-thread--resolved')).toBeTruthy();
   });
 });
 
@@ -441,15 +455,16 @@ describe('RemotePrDiffReviewScreen panel-findings overlay', () => {
     expect(container.textContent).not.toContain('Drop me from the sidebar.');
   });
 
-  it('opens the assign-review panel dialog (scoped to this PR) from "Run AI review"', async () => {
+  it('starts the durable agent review from a PR-scoped dialog', async () => {
+    const onStartReview = vi.fn();
     await render(makeDetail(), {
       files: [makeDiffFile()],
       commits: [makeCommit()],
-      onStartReview: vi.fn(),
+      onStartReview,
     });
 
     const runBtn = Array.from(container.querySelectorAll('button'))
-      .find(b => b.textContent?.includes('Run AI review'));
+      .find(b => b.textContent?.includes('Review with agent'));
     expect(runBtn).toBeTruthy();
 
     await act(async () => {
@@ -457,11 +472,24 @@ describe('RemotePrDiffReviewScreen panel-findings overlay', () => {
     });
     await act(async () => { await Promise.resolve(); });
 
-    // The assign-review dialog opens, pre-scoped to this PR (its number
-    // shows in the fixed header rather than a searchable list).
-    const dialog = container.querySelector('[aria-label="Assign review task"]');
+    const dialog = container.querySelector('[aria-label="Start agent review"]');
     expect(dialog).toBeTruthy();
     expect(dialog!.textContent).toContain('#42');
+
+    const start = Array.from(dialog!.querySelectorAll('button'))
+      .find(button => button.textContent === 'Start review');
+    await act(async () => {
+      start!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(window.bridge.getPrForRepoPull).toHaveBeenCalledWith('trinodb', 'trino', 42);
+    expect(window.bridge.startAgentReview).toHaveBeenCalledWith('local-pr-42', {
+      runner: undefined,
+      workspaceId: 'ws-1',
+    });
+    expect(onStartReview).toHaveBeenCalledWith('review-owner-thread');
   });
 
   it('exposes an Add-finding affordance even when there are no findings yet', async () => {

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -48,16 +49,33 @@ final class DeterministicReviewCoverage
 
     static CoverageReport analyze(String diff)
     {
-        return analyze(diff, null);
+        return analyze(diff, (Path) null);
     }
 
     static CoverageReport analyze(String diff, Path localRoot)
+    {
+        Function<String, List<String>> references = localRoot == null
+                ? null : symbol -> repositoryReferences(localRoot, symbol, 21);
+        return analyze(diff, references);
+    }
+
+    static CoverageReport analyze(
+            String diff, InvestigationReviewContext context,
+            InvestigationReviewContext.Snapshot snapshot)
+    {
+        Function<String, List<String>> references = snapshot.repositoryRoot() == null
+                ? null : symbol -> context.repositoryReferences(snapshot, symbol, 21);
+        return analyze(diff, references);
+    }
+
+    private static CoverageReport analyze(
+            String diff, Function<String, List<String>> repositoryReferences)
     {
         Patch patch = parse(diff == null ? "" : diff);
         List<SweepResult> sweeps = List.of(
                 lineScan(patch),
                 removedBehavior(patch),
-                crossFileTrace(patch, localRoot),
+                crossFileTrace(patch, repositoryReferences),
                 languagePitfalls(patch),
                 extractionCorrectness(patch));
         return new CoverageReport(sweeps, failureClasses(patch));
@@ -94,7 +112,8 @@ final class DeterministicReviewCoverage
                 "Inspected every deleted or replaced non-blank line.");
     }
 
-    private static SweepResult crossFileTrace(Patch patch, Path localRoot)
+    private static SweepResult crossFileTrace(
+            Patch patch, Function<String, List<String>> repositoryReferences)
     {
         LinkedHashSet<String> symbols = new LinkedHashSet<>();
         for (ChangedLine line : patch.changedLines()) {
@@ -105,9 +124,9 @@ final class DeterministicReviewCoverage
         }
         List<String> candidates = new ArrayList<>();
         for (String symbol : symbols) {
-            List<String> references = localRoot == null
+            List<String> references = repositoryReferences == null
                     ? patch.referenceLocations(symbol, 21)
-                    : repositoryReferences(localRoot, symbol, 21);
+                    : repositoryReferences.apply(symbol);
             String fanIn = references.size() > 20 ? "HIGH_FAN_IN; use a blast-radius hypothesis"
                     : references.size() + " bounded static references";
             String sample = references.stream().limit(3).reduce("", (left, right) ->
@@ -115,9 +134,9 @@ final class DeterministicReviewCoverage
             addCandidate(candidates, symbol + " — trace direct callers/callees and payload consumers — "
                     + fanIn + (sample.isEmpty() ? "" : " — " + sample));
         }
-        boolean covered = localRoot != null || symbols.isEmpty();
+        boolean covered = repositoryReferences != null || symbols.isEmpty();
         return new SweepResult("cross-file-trace", !symbols.isEmpty(), covered, symbols.size(), candidates,
-                localRoot == null && !symbols.isEmpty()
+                repositoryReferences == null && !symbols.isEmpty()
                         ? "Repository-wide source is unavailable for this remote snapshot; patch references were recorded and the gap remains explicit."
                         : "Enumerated modified function symbols and bounded repository references at 20 per symbol.");
     }

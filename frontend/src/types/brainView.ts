@@ -361,14 +361,6 @@ export type BrainMessageResult = {
   brainThreadId: string;
 };
 
-/** Handles returned by spawning a panel review: the opened review stage,
- *  the seated pass, and the review thread the panel page routes by. */
-export type SpawnReviewResult = {
-  reviewStageId: string;
-  reviewPassId: string;
-  reviewThreadId: string;
-};
-
 // ── Stage detail (drill-in page) ─────────────────────────────────────
 
 export type StageDetailData = {

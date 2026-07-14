@@ -130,6 +130,11 @@ class PrReviewThreadMessageEntity
     @Column(name = "resolved")
     private Boolean resolved;
 
+    /** Login of whoever resolved the parent thread on GitHub. Null when
+     *  unresolved or only a REST pass has populated the row. */
+    @Column(name = "resolved_by")
+    private String resolvedBy;
+
     protected PrReviewThreadMessageEntity() {}
 
     Long getId() { return id; }
@@ -217,4 +222,7 @@ class PrReviewThreadMessageEntity
 
     Boolean getResolved() { return resolved; }
     void setResolved(Boolean resolved) { this.resolved = resolved; }
+
+    String getResolvedBy() { return resolvedBy; }
+    void setResolvedBy(String resolvedBy) { this.resolvedBy = resolvedBy; }
 }

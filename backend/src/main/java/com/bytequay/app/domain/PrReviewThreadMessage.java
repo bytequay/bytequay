@@ -34,6 +34,7 @@ import java.time.Instant;
  * @param authorAssociation author's association with the repo.
  * @param graphqlNodeId GraphQL node id for the thread this message is part of.
  * @param resolved true iff GitHub considers the parent thread resolved.
+ * @param resolvedBy login of whoever resolved the parent thread, or null.
  */
 public record PrReviewThreadMessage(
         long githubId,
@@ -55,4 +56,5 @@ public record PrReviewThreadMessage(
         Integer originalStartLine,
         String authorAssociation,
         String graphqlNodeId,
-        Boolean resolved) {}
+        Boolean resolved,
+        String resolvedBy) {}

@@ -13,13 +13,13 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.FindingEvidenceRow;
 import com.bytequay.app.domain.InvestigationReviewData.FindingRow;
 import com.bytequay.app.domain.InvestigationReviewData.FindingVerificationRow;
 import com.bytequay.app.domain.InvestigationReviewData.HypothesisRow;
 import com.bytequay.app.domain.InvestigationReviewData.InvestigationStepRow;
 import com.bytequay.app.domain.InvestigationReviewData.ObservationRow;
-import com.bytequay.app.domain.InvestigationReviewData.ReviewSessionRow;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.agents.ToolCall;
@@ -81,12 +81,12 @@ public class InvestigationReviewTools
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    public ToolExecutor executor(String sessionId, String assignmentId)
+    public ToolExecutor executor(String reviewId, String assignmentId)
     {
-        if (!store.assignmentBelongsToSession(assignmentId, sessionId)) {
-            throw new IllegalArgumentException("assignment does not belong to session");
+        if (!store.assignmentBelongsToReview(assignmentId, reviewId)) {
+            throw new IllegalArgumentException("assignment does not belong to review");
         }
-        return call -> execute(sessionId, assignmentId, call);
+        return call -> execute(reviewId, assignmentId, call);
     }
 
     public ArrayNode tools(TurnSpec.Transport transport, boolean verifier)
@@ -116,19 +116,19 @@ public class InvestigationReviewTools
         return tools;
     }
 
-    private ToolExecutor.ToolCallResult execute(String sessionId, String assignmentId, ToolCall call)
+    private ToolExecutor.ToolCallResult execute(String reviewId, String assignmentId, ToolCall call)
     {
         try {
             return switch (call.name()) {
                 case "record_assignment" -> recordAssignment(assignmentId, call.input());
                 case "record_hypothesis" -> recordHypothesis(assignmentId, call.input());
                 case "record_step" -> recordStep(assignmentId, call.input());
-                case "read_diff" -> readDiff(sessionId, assignmentId, call.input());
-                case "read_file" -> readFile(sessionId, assignmentId, call.input());
-                case "search_diff" -> searchDiff(sessionId, assignmentId, call.input());
-                case "record_finding" -> recordFinding(sessionId, assignmentId, call.input());
-                case "record_evidence" -> recordEvidence(sessionId, call.input());
-                case "record_verification" -> recordVerification(sessionId, call.input());
+                case "read_diff" -> readDiff(reviewId, assignmentId, call.input());
+                case "read_file" -> readFile(reviewId, assignmentId, call.input());
+                case "search_diff" -> searchDiff(reviewId, assignmentId, call.input());
+                case "record_finding" -> recordFinding(reviewId, assignmentId, call.input());
+                case "record_evidence" -> recordEvidence(reviewId, call.input());
+                case "record_verification" -> recordVerification(reviewId, call.input());
                 default -> error("unknown investigation tool: " + call.name());
             };
         }
@@ -175,10 +175,10 @@ public class InvestigationReviewTools
         return okJson("step_id", id);
     }
 
-    private ToolExecutor.ToolCallResult readDiff(String sessionId, String assignmentId, JsonNode input)
+    private ToolExecutor.ToolCallResult readDiff(String reviewId, String assignmentId, JsonNode input)
     {
         String stepId = requireStep(assignmentId, input);
-        InvestigationReviewContext.Snapshot snapshot = snapshot(sessionId, assignmentId);
+        InvestigationReviewContext.Snapshot snapshot = snapshot(reviewId, assignmentId);
         String path = optional(input, "path");
         String text = snapshot.diff();
         if (path != null) {
@@ -187,10 +187,10 @@ public class InvestigationReviewTools
         return observation(stepId, "source", snapshot.headCommit(), path, null, null, text);
     }
 
-    private ToolExecutor.ToolCallResult readFile(String sessionId, String assignmentId, JsonNode input)
+    private ToolExecutor.ToolCallResult readFile(String reviewId, String assignmentId, JsonNode input)
     {
         String stepId = requireStep(assignmentId, input);
-        InvestigationReviewContext.Snapshot snapshot = snapshot(sessionId, assignmentId);
+        InvestigationReviewContext.Snapshot snapshot = snapshot(reviewId, assignmentId);
         String path = required(input, "path");
         String content = contexts.readFile(snapshot, path);
         int start = Math.max(1, input.path("start_line").asInt(1));
@@ -200,10 +200,10 @@ public class InvestigationReviewTools
         return observation(stepId, type, snapshot.headCommit(), path, start, end, excerpt);
     }
 
-    private ToolExecutor.ToolCallResult searchDiff(String sessionId, String assignmentId, JsonNode input)
+    private ToolExecutor.ToolCallResult searchDiff(String reviewId, String assignmentId, JsonNode input)
     {
         String stepId = requireStep(assignmentId, input);
-        InvestigationReviewContext.Snapshot snapshot = snapshot(sessionId, assignmentId);
+        InvestigationReviewContext.Snapshot snapshot = snapshot(reviewId, assignmentId);
         String query = required(input, "query").toLowerCase(Locale.ROOT);
         List<String> matches = snapshot.diff().lines()
                 .filter(line -> line.toLowerCase(Locale.ROOT).contains(query))
@@ -213,15 +213,15 @@ public class InvestigationReviewTools
         return observation(stepId, "static-trace", snapshot.headCommit(), null, null, null, preview);
     }
 
-    private ToolExecutor.ToolCallResult recordFinding(String sessionId, String assignmentId, JsonNode input)
+    private ToolExecutor.ToolCallResult recordFinding(String reviewId, String assignmentId, JsonNode input)
     {
         if (store.countFindings(assignmentId) >= MAX_FINDINGS) {
             return error("finding budget exhausted (max " + MAX_FINDINGS + ")");
         }
         String objectiveId = required(input, "objective_id");
-        boolean objectiveExists = store.objectives(sessionId).stream().anyMatch(row -> row.id().equals(objectiveId));
+        boolean objectiveExists = store.objectives(reviewId).stream().anyMatch(row -> row.id().equals(objectiveId));
         if (!objectiveExists) {
-            return error("objective does not belong to session");
+            return error("objective does not belong to review");
         }
         String kind = input.path("criterion_kind").asText("hard-invariant");
         if (!CRITERION_KINDS.contains(kind)) {
@@ -231,31 +231,31 @@ public class InvestigationReviewTools
         if (severity < 1 || severity > 5) {
             return error("severity must be 1..5");
         }
-        ReviewSessionRow session = requireSession(sessionId);
+        AgentReviewRow review = requireReview(reviewId);
         String hypothesisId = required(input, "hypothesis_id");
         if (!store.hypothesisBelongsToAssignment(hypothesisId, assignmentId)) {
             return error("hypothesis does not belong to assignment");
         }
-        String roundId = store.assignments(sessionId).stream()
+        String roundId = store.assignments(reviewId).stream()
                 .filter(row -> row.id().equals(assignmentId)).findFirst().orElseThrow().roundId();
         String id = UUID.randomUUID().toString();
         store.insertFinding(new FindingRow(
-                id, sessionId, roundId, objectiveId, hypothesisId, kind,
+                id, reviewId, roundId, objectiveId, hypothesisId, kind,
                 required(input, "claim"), severity, "TENTATIVE", "unknown",
-                required(input, "requested_action"), "candidate", session.reviewedHeadCommit()));
+                required(input, "requested_action"), "candidate", review.reviewedHeadCommit()));
         return okJson("finding_id", id);
     }
 
-    private ToolExecutor.ToolCallResult recordEvidence(String sessionId, JsonNode input)
+    private ToolExecutor.ToolCallResult recordEvidence(String reviewId, JsonNode input)
     {
         String findingId = required(input, "finding_id");
         FindingRow finding = store.findFinding(findingId)
-                .filter(row -> row.sessionId().equals(sessionId))
-                .orElseThrow(() -> new IllegalArgumentException("finding does not belong to session"));
+                .filter(row -> row.reviewId().equals(reviewId))
+                .orElseThrow(() -> new IllegalArgumentException("finding does not belong to review"));
         ObservationRow observation = store.findObservation(required(input, "observation_id"))
                 .orElseThrow(() -> new IllegalArgumentException("unknown observation"));
-        if (!store.observationBelongsToSession(observation.id(), sessionId)) {
-            return error("observation does not belong to session");
+        if (!store.observationBelongsToReview(observation.id(), reviewId)) {
+            return error("observation does not belong to review");
         }
         String relation = input.path("relation").asText("");
         if (!Set.of("SUPPORTS", "REFUTES").contains(relation)) {
@@ -275,12 +275,12 @@ public class InvestigationReviewTools
         return okJson("strength_class", strength);
     }
 
-    private ToolExecutor.ToolCallResult recordVerification(String sessionId, JsonNode input)
+    private ToolExecutor.ToolCallResult recordVerification(String reviewId, JsonNode input)
     {
         String findingId = required(input, "finding_id");
         FindingRow finding = store.findFinding(findingId)
-                .filter(row -> row.sessionId().equals(sessionId))
-                .orElseThrow(() -> new IllegalArgumentException("finding does not belong to session"));
+                .filter(row -> row.reviewId().equals(reviewId))
+                .orElseThrow(() -> new IllegalArgumentException("finding does not belong to review"));
         String status = input.path("status").asText("");
         if (!Set.of("verified", "partially", "unknown", "rejected").contains(status)) {
             return error("invalid verification status");
@@ -333,20 +333,20 @@ public class InvestigationReviewTools
         return ok(result.toString());
     }
 
-    private InvestigationReviewContext.Snapshot snapshot(String sessionId, String assignmentId)
+    private InvestigationReviewContext.Snapshot snapshot(String reviewId, String assignmentId)
     {
         return snapshots.computeIfAbsent(assignmentId, id -> {
-            ReviewSessionRow session = requireSession(sessionId);
-            PR pr = prs.findById(session.prId())
-                    .orElseThrow(() -> new IllegalArgumentException("unknown PR " + session.prId()));
+            AgentReviewRow review = requireReview(reviewId);
+            PR pr = prs.findById(review.prId())
+                    .orElseThrow(() -> new IllegalArgumentException("unknown PR " + review.prId()));
             return contexts.load(pr);
         });
     }
 
-    private ReviewSessionRow requireSession(String sessionId)
+    private AgentReviewRow requireReview(String reviewId)
     {
-        return store.findSession(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("unknown review session"));
+        return store.findReview(reviewId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown review review"));
     }
 
     private String requireStep(String assignmentId, JsonNode input)

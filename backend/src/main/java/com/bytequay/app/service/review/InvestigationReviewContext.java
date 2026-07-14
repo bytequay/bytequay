@@ -14,10 +14,12 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewCapabilities;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -42,14 +44,17 @@ public class InvestigationReviewContext
     private final PRService prs;
     private final PullRequestService pullRequests;
     private final TaskStore tasks;
+    private final WatchedRepoStore watchedRepos;
     private final GitRunner git;
 
     public InvestigationReviewContext(
-            PRService prs, PullRequestService pullRequests, TaskStore tasks, GitRunner git)
+            PRService prs, PullRequestService pullRequests, TaskStore tasks,
+            WatchedRepoStore watchedRepos, GitRunner git)
     {
         this.prs = requireNonNull(prs, "prs is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.git = requireNonNull(git, "git is null");
     }
 
@@ -60,7 +65,12 @@ public class InvestigationReviewContext
         String head = commits.isEmpty() ? "unknown-head" : commits.get(commits.size() - 1).sha();
         if (pr.repo() != null && pr.remotePrNumber() != null) {
             List<DiffFile> files = pullRequests.getPullRequestDiffFiles(pr.repo(), pr.remotePrNumber());
-            return new Snapshot(pr, base, head, render(files), files, null);
+            Path taskRoot = taskRootAt(pr, head);
+            Path repositoryRoot = taskRoot == null ? watchedRootAt(pr.repo(), head) : taskRoot;
+            ReviewCapabilities capabilities = repositoryRoot == null
+                    ? ReviewCapabilities.remoteOnly() : ReviewCapabilities.localSource();
+            return new Snapshot(
+                    pr, base, head, render(files), files, null, repositoryRoot, capabilities);
         }
         Task task = tasks.findTaskById(pr.taskId())
                 .orElseThrow(() -> new IllegalArgumentException("no task for PR " + pr.id()));
@@ -70,7 +80,8 @@ public class InvestigationReviewContext
         Path root = Path.of(task.worktreePath()).toAbsolutePath().normalize();
         try {
             String diff = git.diff(root, pr.baseBranch(), "HEAD", MAX_DIFF_CHARS);
-            return new Snapshot(pr, base, head, diff, List.of(), root);
+            return new Snapshot(pr, base, head, diff, List.of(), root, root,
+                    ReviewCapabilities.localSource());
         }
         catch (IOException e) {
             throw new IllegalStateException("could not read local PR diff: " + e.getMessage(), e);
@@ -93,6 +104,20 @@ public class InvestigationReviewContext
             throw new IllegalArgumentException("path is required");
         }
         if (snapshot.localRoot() == null) {
+            if (snapshot.repositoryRoot() != null) {
+                try {
+                    return truncate(git.fileAtRef(
+                            snapshot.repositoryRoot(), snapshot.headCommit(), path));
+                }
+                catch (IOException e) {
+                    throw new IllegalStateException("could not read " + path + " at reviewed SHA: "
+                            + e.getMessage(), e);
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("interrupted reading " + path, e);
+                }
+            }
             if (snapshot.pr().repo() == null) {
                 throw new IllegalStateException("PR has no repository");
             }
@@ -119,6 +144,20 @@ public class InvestigationReviewContext
             throw new IllegalArgumentException("path is required");
         }
         if (snapshot.localRoot() == null) {
+            if (snapshot.repositoryRoot() != null) {
+                try {
+                    return toIntExact(git.fileAtRef(
+                            snapshot.repositoryRoot(), snapshot.headCommit(), path).lines().count());
+                }
+                catch (IOException e) {
+                    throw new IllegalStateException("could not count " + path + " at reviewed SHA: "
+                            + e.getMessage(), e);
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("interrupted reading " + path, e);
+                }
+            }
             if (snapshot.pr().repo() == null) {
                 throw new IllegalStateException("PR has no repository");
             }
@@ -160,7 +199,85 @@ public class InvestigationReviewContext
                 : value.substring(0, MAX_FILE_CHARS) + "\n... (file truncated)\n";
     }
 
+    /** Repository-wide literal references at the frozen reviewed SHA. Empty
+     * means the round is remote-only or the symbol has no matches. */
+    public List<String> repositoryReferences(Snapshot snapshot, String symbol, int limit)
+    {
+        if (snapshot.repositoryRoot() == null) {
+            return List.of();
+        }
+        try {
+            return git.grepAtRef(
+                    snapshot.repositoryRoot(), snapshot.headCommit(), symbol, limit);
+        }
+        catch (IOException e) {
+            return List.of();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return List.of();
+        }
+    }
+
+    private Path taskRootAt(PR pr, String head)
+    {
+        if (pr.taskId() == null || pr.taskId().isBlank()) {
+            return null;
+        }
+        return tasks.findTaskById(pr.taskId())
+                .map(Task::worktreePath)
+                .filter(path -> path != null && !path.isBlank())
+                .map(Path::of)
+                .map(Path::toAbsolutePath)
+                .map(Path::normalize)
+                .filter(Files::isDirectory)
+                .filter(root -> refExists(root, head))
+                .orElse(null);
+    }
+
+    private Path watchedRootAt(String repo, String head)
+    {
+        String[] parts = repo.split("/", 2);
+        if (parts.length != 2) {
+            return null;
+        }
+        return watchedRepos.find(parts[0], parts[1])
+                .map(watched -> watched.localClonePath())
+                .filter(path -> path != null && !path.isBlank())
+                .map(Path::of)
+                .map(Path::toAbsolutePath)
+                .map(Path::normalize)
+                .filter(Files::isDirectory)
+                .filter(root -> refExists(root, head))
+                .orElse(null);
+    }
+
+    private boolean refExists(Path root, String head)
+    {
+        try {
+            return git.refExists(root, head);
+        }
+        catch (IOException e) {
+            return false;
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     public record Snapshot(
             PR pr, String baseCommit, String headCommit, String diff,
-            List<DiffFile> files, Path localRoot) {}
+            List<DiffFile> files, Path localRoot, Path repositoryRoot,
+            ReviewCapabilities capabilities)
+    {
+        public Snapshot(
+                PR pr, String baseCommit, String headCommit, String diff,
+                List<DiffFile> files, Path localRoot)
+        {
+            this(pr, baseCommit, headCommit, diff, files, localRoot, localRoot,
+                    localRoot == null
+                            ? ReviewCapabilities.remoteOnly() : ReviewCapabilities.localSource());
+        }
+    }
 }

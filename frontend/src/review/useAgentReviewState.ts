@@ -17,13 +17,14 @@ import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import type { AgentReviewHeaderState, AgentReviewStartOptions } from './AgentReviewHeaderAction';
 import type { AgentReviewData } from './agentReviewTypes';
 
-/** Live review-session state shared by the PR page, Files view, and round
+/** Live AgentReview state shared by the PR page, Files view, and round
  * page. The backend aggregate is the sole source of review artifacts; this
  * hook only holds temporary UI state while mutations are in flight. */
 export function useAgentReviewState(
   bundle: LocalPRBundle | null | undefined,
   refreshPr: () => void,
   beforePublish?: (verdict: ReviewVerdict, comments: LocalPRComment[]) => Promise<void>,
+  workspaceId?: string | null,
 ) {
   const prId = bundle?.pr.id ?? null;
   const [data, setData] = useState<AgentReviewData | null>(null);
@@ -33,9 +34,9 @@ export function useAgentReviewState(
   const editTimers = useRef(new Map<string, number>());
 
   const load = useCallback(async () => {
-    if (prId === null || window.bridge?.getAgentReviewSession === undefined) return;
+    if (prId === null || window.bridge?.getAgentReview === undefined) return;
     try {
-      const next = await window.bridge.getAgentReviewSession(prId);
+      const next = await window.bridge.getAgentReview(prId);
       setData(next);
       setError(null);
     }
@@ -84,21 +85,22 @@ export function useAgentReviewState(
     if (prId === null) return;
     setStarting(true);
     if (data !== null) {
-      void mutate(() => window.bridge.continueAgentReviewSession(data.session.id, {
-        kind: data.session.status === 'STALE' ? 're-review' : 'continue',
+      void mutate(() => window.bridge.continueAgentReview(data.review.id, {
+        kind: data.review.status === 'STALE' ? 're-review' : 'continue',
         ...options,
       })).finally(() => setStarting(false));
       return;
     }
-    void mutate(() => options === undefined
-      ? window.bridge.startAgentReviewSession(prId)
-      : window.bridge.startAgentReviewSession(prId, options)).finally(() => setStarting(false));
-  }, [data, mutate, prId]);
+    void mutate(() => window.bridge.startAgentReview(prId, {
+      ...options,
+      workspaceId: workspaceId ?? undefined,
+    })).finally(() => setStarting(false));
+  }, [data, mutate, prId, workspaceId]);
 
   const roundAction = useCallback((roundId: string) => {
     if (data === null) return;
     const round = data.rounds.find(row => row.id === roundId);
-    void mutate(() => window.bridge.continueAgentReviewSession(data.session.id, {
+    void mutate(() => window.bridge.continueAgentReview(data.review.id, {
       kind: round?.status === 'CANCELLED' ? 're-review' : 'continue',
     }));
   }, [data, mutate]);
@@ -190,8 +192,8 @@ export function useAgentReviewState(
   const latestRound = data?.rounds.at(-1);
   const latestRun = latestRound === undefined ? undefined : data?.runs.find(run => run.id === latestRound.agent_run_id);
   const head = bundle?.commits.at(-1)?.sha;
-  const stale = data !== null && (data.session.status === 'STALE'
-    || (head !== undefined && data.session.reviewed_head_commit !== head));
+  const stale = data !== null && (data.review.status === 'STALE'
+    || (head !== undefined && data.review.reviewed_head_commit !== head));
   const headerState: AgentReviewHeaderState = starting ? 'running' : data === null ? 'never'
     : stale ? 'stale'
       : latestRound?.status === 'RUNNING' || latestRun?.status === 'running' ? 'running' : 'done';

@@ -21,10 +21,10 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
 import java.util.List;
 
-/** Frozen P0-P2 review-session aggregate returned to every review surface. */
+/** Frozen AgentReview aggregate returned to every review surface. */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record InvestigationReviewData(
-        ReviewSessionRow session,
+        AgentReviewRow review,
         List<ReviewRoundRow> rounds,
         List<AgentRun> runs,
         List<CriterionRow> criteria,
@@ -45,15 +45,49 @@ public record InvestigationReviewData(
         List<PRTimelineEntryDto> prTimelineEvents)
 {
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    public record ReviewSessionRow(
+    public record AgentReviewRow(
             String id, String repoId, String prId, String baseCommit,
-            String reviewedHeadCommit, String status) {}
+            String reviewedHeadCommit, String status, String workspaceId,
+            String ownerThreadId, String ownerTaskId) {}
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record ReviewRoundRow(
-            String id, String sessionId, String agentRunId, String trigger,
+            String id, String reviewId, String agentRunId, String trigger,
             String scope, String startCommit, String endCommit, String status,
-            RoundBudget budgetJson, int costCents) {}
+            RoundBudget budgetJson, int costCents, ReviewCapabilities capabilitiesJson,
+            String triggerStageId)
+    {
+        public ReviewRoundRow(
+                String id, String reviewId, String agentRunId, String trigger,
+                String scope, String startCommit, String endCommit, String status,
+                RoundBudget budgetJson, int costCents)
+        {
+            this(id, reviewId, agentRunId, trigger, scope, startCommit, endCommit,
+                    status, budgetJson, costCents, ReviewCapabilities.remoteOnly(), null);
+        }
+    }
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record ReviewCapabilities(
+            String sourceMode, List<String> available, List<String> unavailable)
+    {
+        public static ReviewCapabilities localSource()
+        {
+            return new ReviewCapabilities(
+                    "local-source",
+                    List.of("pr_diff", "file_blobs", "repository_source",
+                            "repository_callers", "git_history"),
+                    List.of("code_graph", "local_tests"));
+        }
+
+        public static ReviewCapabilities remoteOnly()
+        {
+            return new ReviewCapabilities(
+                    "remote-only",
+                    List.of("pr_diff", "file_blobs", "commits", "checks"),
+                    List.of("repository_callers", "code_graph", "local_tests", "git_history"));
+        }
+    }
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record RoundBudget(int costCapCents, int wallClockMinutes) {}
@@ -104,7 +138,7 @@ public record InvestigationReviewData(
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record FindingRow(
-            String id, String sessionId, String roundId, String objectiveId,
+            String id, String reviewId, String roundId, String objectiveId,
             String hypothesisId, String criterionKind, String claim, int severity,
             String confidenceClass, String verificationStatus, String requestedAction,
             String lifecycleStatus, String lastCheckedCommit) {}

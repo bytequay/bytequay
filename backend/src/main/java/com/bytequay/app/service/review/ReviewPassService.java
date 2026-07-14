@@ -176,16 +176,10 @@ public class ReviewPassService
     }
 
     /**
-     * Variant of {@link #startReviewOnPr(String, int)} that honours
-     * caller-specified panel selection + caps and returns as soon as
-     * the pass is seated. The LLM panel body runs on
-     * {@link AsyncConfig#REVIEW_EXECUTOR} so the interactive
-     * {@code POST /api/reviews/start} request doesn't block on the
-     * (multi-minute) model fan-out — and never holds the single SQLite
-     * connection across it. The mockup-facing "Assign review task"
-     * dialog calls this; the returned detail is the freshly-seated
-     * pass (phase INDEPENDENT, thread id populated), which the review-
-     * thread page then polls to live-fill.
+     * Legacy compatibility variant that honours caller-specified panel
+     * selection + caps and returns as soon as the pass is seated. Product
+     * entry points now create AgentReviews; this remains for historical-pass
+     * tests and interaction while those persisted records are readable.
      */
     public ReviewPassDetail startReviewOnPr(String repoFullName, int prNumber, StartOptions opts)
     {

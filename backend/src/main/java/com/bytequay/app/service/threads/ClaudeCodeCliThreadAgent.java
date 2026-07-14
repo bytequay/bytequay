@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.skills.CavemanPrompt;
 import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.tools.ToolContext;
@@ -272,6 +273,13 @@ public class ClaudeCodeCliThreadAgent
         // across turns. Skipped when null (legacy rows).
         if (roleSkillText != null && !roleSkillText.isBlank()) {
             argv.add("--append-system-prompt", roleSkillText.strip());
+        }
+        // Caveman's upstream description is trigger-based, so discovery
+        // alone does not guarantee activation. Inject the already-selected
+        // skill directly, matching Codex and the API lane.
+        String caveman = activeManagedSkillPrompt(CavemanPrompt.NAME);
+        if (!caveman.isBlank()) {
+            argv.add("--append-system-prompt", caveman);
         }
         // Inject the workspace memory as an appended system prompt so
         // every turn sees the distilled project brain. Skip the flag when

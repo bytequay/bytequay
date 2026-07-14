@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PRView } from './PRView';
-import { LocalPrReviewScreen } from './LocalPrReviewScreen';
+import { LocalPrReviewScreen, type GithubThreadContext } from './LocalPrReviewScreen';
+import { useGitHubActivityFeed } from '../useGitHubActivityFeed';
 import { PushDialog } from './PushDialog';
 import { useExternalPrActions } from './useExternalPrActions';
 import { AgentReviewHeaderAction } from '../../review/AgentReviewHeaderAction';
@@ -30,6 +31,15 @@ import { isPendingLocalComment } from '../../diff/DiffInlineComments';
  *  `DashboardPR`, the live merge-history search rows) satisfies this. */
 type DetailsPr = { id: number | string; repo: string; number: number };
 
+export type AgentReviewNavTarget = {
+  threadId: string;
+  taskId: string | null;
+  roundId: string;
+  workspaceId: string;
+  repo: string;
+  prNumber: number;
+};
+
 /**
  * The standalone PR details page (unified-pr-view.md U10): the same
  * `<PRView>` every other surface renders, plus the full-page Files-changed
@@ -41,7 +51,13 @@ type DetailsPr = { id: number | string; repo: string; number: number };
 // (callers still pass them) but no longer rendered — the top action bar
 // they drove was removed. Re-wire them into the UI if/when those actions
 // need a new home; drop them from the type if they end up genuinely dead.
-export function PrDetailsView<T extends DetailsPr>({ pr }: {
+export function PrDetailsView<T extends DetailsPr>({
+  pr,
+  workspaceId,
+  initialReviewRoundId,
+  onCloseReviewRound,
+  onOpenAgentReview,
+}: {
   pr: T;
   /** Fires once the agent review panel is created; the parent owns
    *  navigation to the freshly-created review thread. */
@@ -54,13 +70,23 @@ export function PrDetailsView<T extends DetailsPr>({ pr }: {
   onMarkHandled?: (prId: T['id']) => Promise<void>;
   onBack?: () => void;
   backLabel?: string;
+  /** Workspace that owns a standalone external-PR agent review. */
+  workspaceId?: string | null;
+  /** Opens this round immediately when the page is used as the durable
+   *  review thread's own route rather than as an embedded PR pane. */
+  initialReviewRoundId?: string;
+  onCloseReviewRound?: () => void;
+  /** Promotes a round from a PR surface into its durable owner: the task
+   *  page for development PRs or the review-thread route for external PRs.
+   *  Task pages omit this callback, so their own review remains inline. */
+  onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
   const [owner, repoName] = pr.repo.split('/');
   const {
     bundle, refresh, syncing, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch, publishReview, publishBusy,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment,
+    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy, reviewFiles, reviewError,
     runLocalTests, testsBusy,
@@ -70,13 +96,37 @@ export function PrDetailsView<T extends DetailsPr>({ pr }: {
     data: reviewData, displayedBundle, excludedFindings, pendingComments, latestRound, headerState,
     startReview, updateComment, dismissComment: dismissAgentComment, submitReview: submitAgentReview,
     answerFinding, roundAction, cancelRound, reopenFinding, toggleFinding, hasAgentComment, error: agentReviewError,
-  } = useAgentReviewState(bundle, refresh);
+  } = useAgentReviewState(bundle, refresh, undefined, workspaceId);
+  // Live GitHub review threads for the diff (reply / resolve / unresolve).
+  // The feed no-ops until the PR has a remote number; the same feed powers
+  // the conversation timeline inside <PRView>, and the ETag probe dedupes the
+  // extra fetch.
+  const remotePrNumber = displayedBundle?.pr.remotePrNumber ?? null;
+  const { reviewThreads, refresh: refreshGithubFeed } = useGitHubActivityFeed(pr.repo, remotePrNumber);
+  const githubThreads: GithubThreadContext | undefined = remotePrNumber === null ? undefined : {
+    threads: reviewThreads,
+    repo: displayedBundle?.pr.repo ?? pr.repo,
+    prNumber: remotePrNumber,
+    // The resolve path prefers this legacy id but falls back to deriving it
+    // from the thread's own comment id, so a best-effort value is fine.
+    prId: typeof pr.id === 'number' ? pr.id : Number(pr.id) || 0,
+    prAuthor: displayedBundle?.pr.author ?? null,
+    onChanged: () => refreshGithubFeed(true),
+  };
+
   const [roundOpen, setRoundOpen] = useState(false);
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [reviewCursor, setReviewCursor] = useState<ReviewCursor>(EMPTY_REVIEW_CURSOR);
   const submitComments = reviewData === null
     ? pendingComments
     : displayedBundle?.comments.filter(isPendingLocalComment) ?? pendingComments;
+
+  useEffect(() => {
+    if (initialReviewRoundId === undefined) return;
+    setReviewOpen(true);
+    setSelectedRoundId(initialReviewRoundId);
+    setRoundOpen(true);
+  }, [initialReviewRoundId, setReviewOpen]);
 
   const dismissComment = (commentId: string) => {
     if (hasAgentComment(commentId)) dismissAgentComment(commentId);
@@ -87,6 +137,19 @@ export function PrDetailsView<T extends DetailsPr>({ pr }: {
     if (reviewData == null) return;
     const selected = roundId ?? reviewData.rounds.at(-1)?.id;
     if (selected === undefined) return;
+    const ownerThreadId = reviewData.review.owner_thread_id;
+    const ownerWorkspaceId = reviewData.review.workspace_id;
+    if (onOpenAgentReview !== undefined && ownerThreadId !== null && ownerWorkspaceId !== null) {
+      onOpenAgentReview({
+        threadId: ownerThreadId,
+        taskId: reviewData.review.owner_task_id,
+        roundId: selected,
+        workspaceId: ownerWorkspaceId,
+        repo: pr.repo,
+        prNumber: pr.number,
+      });
+      return;
+    }
     setReviewOpen(true);
     setSelectedRoundId(selected);
     setRoundOpen(true);
@@ -150,6 +213,7 @@ export function PrDetailsView<T extends DetailsPr>({ pr }: {
       comments={displayedBundle.comments}
       commits={displayedBundle.commits}
       allowLocalComments={capabilities?.draftLocalComments === true}
+      github={githubThreads}
       onAddComment={addLocalLineComment}
       onReplyComment={replyLocalLineComment}
       onResolveComment={resolveLocalComment}
@@ -178,6 +242,7 @@ export function PrDetailsView<T extends DetailsPr>({ pr }: {
       runTestsBusy={testsBusy}
       onResolveThread={resolveLocalComment}
       onDismissThread={dismissComment}
+      onReplyThread={replyLocalPrComment}
       onPublishReview={publishBusy ? undefined : publishReview}
       syncedAt={displayedBundle.pr.syncedAt}
       syncing={syncing}
@@ -202,7 +267,11 @@ export function PrDetailsView<T extends DetailsPr>({ pr }: {
           data={reviewData}
           roundId={selectedRoundId}
           prView={prView}
-          onBack={() => { setRoundOpen(false); setReviewOpen(false); }}
+          onBack={() => {
+            if (onCloseReviewRound !== undefined) onCloseReviewRound();
+            else { setRoundOpen(false); setReviewOpen(false); }
+          }}
+          onSelectRound={setSelectedRoundId}
           onOpenFinding={openFinding}
           onOpenReviewList={openReviewList}
           onReopenFinding={reopenFinding}
@@ -225,6 +294,7 @@ export function PrDetailsView<T extends DetailsPr>({ pr }: {
         comments={displayedBundle.comments}
         commits={displayedBundle.commits}
         allowLocalComments={capabilities?.draftLocalComments === true}
+        github={githubThreads}
         fetchFileBlob={headSha === null
           ? undefined
           : (path) => window.bridge.fetchFileBlob(blobRepo, path, headSha)}

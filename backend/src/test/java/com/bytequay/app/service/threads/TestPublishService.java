@@ -363,8 +363,8 @@ class TestPublishService
         when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
         when(pullRequests.fetchReviewThreadResolution("ghp_secret", new PullRequestRef("acme", "widget", 42)))
                 .thenReturn(List.of(
-                        new PullRequestRepository.ReviewThreadMeta(111L, "NODE_OTHER", false),
-                        new PullRequestRepository.ReviewThreadMeta(555L, "NODE_TARGET", false)));
+                        new PullRequestRepository.ReviewThreadMeta(111L, "NODE_OTHER", false, null),
+                        new PullRequestRepository.ReviewThreadMeta(555L, "NODE_TARGET", false, null)));
 
         PublishResult result = service.approve("notif-res", null, "resolve_review_thread");
 
@@ -385,7 +385,7 @@ class TestPublishService
                 .thenReturn(Optional.of(taskAt("task-unres", TaskStatus.AWAITING_REVIEW)));
         when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
         when(pullRequests.fetchReviewThreadResolution("ghp_secret", new PullRequestRef("acme", "widget", 7)))
-                .thenReturn(List.of(new PullRequestRepository.ReviewThreadMeta(555L, "NODE_TARGET", true)));
+                .thenReturn(List.of(new PullRequestRepository.ReviewThreadMeta(555L, "NODE_TARGET", true, null)));
 
         PublishResult result = service.approve("notif-unres", null, "resolve_review_thread");
 
@@ -405,7 +405,7 @@ class TestPublishService
                 .thenReturn(Optional.of(taskAt("task-miss", TaskStatus.AWAITING_REVIEW)));
         when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
         when(pullRequests.fetchReviewThreadResolution("ghp_secret", new PullRequestRef("acme", "widget", 7)))
-                .thenReturn(List.of(new PullRequestRepository.ReviewThreadMeta(555L, "NODE_OTHER", false)));
+                .thenReturn(List.of(new PullRequestRepository.ReviewThreadMeta(555L, "NODE_OTHER", false, null)));
 
         assertThatThrownBy(() -> service.approve("notif-miss", null, "resolve_review_thread"))
                 .isInstanceOf(ResponseStatusException.class)

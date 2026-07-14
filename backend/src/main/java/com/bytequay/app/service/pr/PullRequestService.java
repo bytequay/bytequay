@@ -941,7 +941,15 @@ public class PullRequestService
     public void setReviewThreadResolved(String repo, long prId, long rootCommentId, boolean resolved)
     {
         String pat = patResolver.resolve(repo);
-        StoredPrDetail cached = detailStore.find(prId).orElse(null);
+        // Prefer the client-supplied prId, but fall back to resolving it from
+        // the thread's own root comment id. Unified-PR surfaces don't carry
+        // the legacy pull_requests id the client-passed prId assumes, so
+        // without this the cache lookup 404s for any PR opened outside the
+        // legacy dashboard path.
+        long detailPrId = detailStore.find(prId).isPresent()
+                ? prId
+                : detailStore.findPrIdByReviewCommentId(rootCommentId).orElse(prId);
+        StoredPrDetail cached = detailStore.find(detailPrId).orElse(null);
         String nodeId = cached == null ? null : cached.reviewComments().stream()
                 .filter(m -> m.githubId() == rootCommentId && m.graphqlNodeId() != null)
                 .findFirst()
@@ -958,7 +966,7 @@ public class PullRequestService
         else {
             gitHub.unresolveReviewThread(pat, nodeId);
         }
-        detailStore.save(prId, PullRequestDetailPatcher.withReviewThreadResolved(cached, rootCommentId, resolved));
+        detailStore.save(detailPrId, PullRequestDetailPatcher.withReviewThreadResolved(cached, rootCommentId, resolved));
     }
 
     /**

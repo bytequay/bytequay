@@ -22,6 +22,7 @@ import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.skills.CavemanPrompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -169,7 +170,7 @@ public class LeadOrchestrator
      *  a lead seat). Its whole job lives in this orchestration brief. */
     private String systemPrompt()
     {
-        return """
+        return CavemanPrompt.wrap("""
                 You are the LEAD of a multi-reviewer code-review panel. Your role is
                 fixed: summarize the PR, dispatch the reviewers, weigh what comes back,
                 and drive consensus. You orchestrate; the reviewers verify. Your tools:
@@ -183,7 +184,7 @@ public class LeadOrchestrator
                 mark_phase_done. BE TERSE in everything you write. Your own messages are a \
                 sentence or two — who you asked, what came back, what you concluded. When \
                 you dispatch a reviewer, give a SHORT directive: name the area to check in \
-                one or two sentences, never an essay or a long numbered checklist.""";
+                one or two sentences, never an essay or a long numbered checklist.""");
     }
 
     /** Provider-shaped conversation: pass header + full transcript,

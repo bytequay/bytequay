@@ -653,7 +653,8 @@ public class GitHubClient
                 c.originalStartLine(),
                 c.authorAssociation(),
                 /* graphqlNodeId */ null,
-                /* resolved */ null);
+                /* resolved */ null,
+                /* resolvedBy */ null);
     }
 
     private static Reactions toReactions(GitHubReviewComment.Reactions r)
@@ -1330,6 +1331,9 @@ public class GitHubClient
                     nodes {
                       id
                       isResolved
+                      resolvedBy {
+                        login
+                      }
                       comments(first: 50) {
                         nodes {
                           databaseId
@@ -1394,7 +1398,8 @@ public class GitHubClient
                 // to join back to the REST root.
                 Long rootDbId = t.comments().nodes().get(0).databaseId();
                 if (rootDbId == null) continue;
-                out.add(new ReviewThreadMeta(rootDbId, t.id(), Boolean.TRUE.equals(t.isResolved())));
+                out.add(new ReviewThreadMeta(rootDbId, t.id(), Boolean.TRUE.equals(t.isResolved()),
+                        t.resolvedBy() == null ? null : t.resolvedBy().login()));
             }
             if (threads.pageInfo() == null || !threads.pageInfo().hasNextPage()) {
                 break;
@@ -1471,7 +1476,7 @@ public class GitHubClient
     record GqlPageInfo(boolean hasNextPage, String endCursor) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record GqlThread(String id, Boolean isResolved, GqlComments comments) {}
+    record GqlThread(String id, Boolean isResolved, GqlActor resolvedBy, GqlComments comments) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlComments(List<GqlCommentNode> nodes) {}

@@ -13,8 +13,10 @@
  */
 import { useState, type ReactElement } from 'react';
 import { formatRelativeTime } from '../pr/utils';
+import { MarkdownProse } from '../threads/MarkdownProse';
 import { ToolBlock } from '../ui/conv/ToolBlock';
 import { WorkFold } from '../ui/conv/spine/WorkFold';
+import { AgentFindingContent, findingSummary, presentFinding } from './AgentEvidence';
 import type { AgentReviewData, InvestigationStepRow, ReviewAssignmentRow } from './agentReviewTypes';
 import { findingComment, formatCents, roundPlanObjectives } from './agentReviewTypes';
 
@@ -61,6 +63,16 @@ function assignmentLabel(assignment: ReviewAssignmentRow, delta: boolean): strin
   if (assignment.reviewer_def_id === 'independent-verifier') return 'independent verification';
   if (delta) return assignment.status === 'running' ? 'verifying the fix' : 'fix verification';
   return assignment.status === 'running' ? 'investigating' : 'investigation';
+}
+
+function capabilityLabel(capability: string): string {
+  const labels: Record<string, string> = {
+    repository_callers: 'repository callers',
+    code_graph: 'code graph',
+    local_tests: 'local tests',
+    git_history: 'git history',
+  };
+  return labels[capability] ?? capability.replaceAll('_', ' ');
 }
 
 function InvestigationGroup({ assignment, steps, delta }: {
@@ -129,18 +141,18 @@ function eventCopy(data: AgentReviewData, roundId: string) {
   });
 }
 
-export function AgentReviewRoundPage({ data, roundId, prView, onBack, onOpenFinding, onOpenReviewList, onReopenFinding, onStopRound }: {
+export function AgentReviewRoundPage({ data, roundId, prView, onBack, onSelectRound, onOpenFinding, onOpenReviewList, onReopenFinding, onStopRound }: {
   data: AgentReviewData;
   roundId: string;
   /** Must be the shared PRView element constructed by the owning PR page. */
   prView: ReactElement;
   onBack: () => void;
+  onSelectRound?: (roundId: string) => void;
   onOpenFinding: (findingId: string, filePath: string | null, lineNumber: number | null) => void;
   onOpenReviewList?: (findingId: string) => void;
   onReopenFinding?: (findingId: string) => void;
   onStopRound?: (roundId: string) => void;
 }) {
-  const [message, setMessage] = useState('');
   const [prOpen, setPrOpen] = useState(true);
   const round = data.rounds.find(row => row.id === roundId) ?? data.rounds[0];
   const objectives = roundPlanObjectives(data, round.id);
@@ -149,8 +161,9 @@ export function AgentReviewRoundPage({ data, roundId, prView, onBack, onOpenFind
   const roundFindings = data.findings.filter(row => row.round_id === round.id);
   const findings = roundFindings.filter(row => row.lifecycle_status !== 'dropped');
   const roundNumber = data.rounds.indexOf(round) + 1;
-  const sessionSpend = data.rounds.reduce((sum, row) => sum + row.cost_cents, 0);
+  const reviewSpend = data.rounds.reduce((sum, row) => sum + row.cost_cents, 0);
   const running = round.status === 'RUNNING';
+  const localSource = round.capabilities_json.source_mode === 'local-source';
   const delta = round.scope !== 'full';
   const narrativeEvents = eventCopy(data, round.id);
   const started = data.pr_timeline_events.find(event => event.payload?.roundId === round.id
@@ -178,46 +191,64 @@ export function AgentReviewRoundPage({ data, roundId, prView, onBack, onOpenFind
       <aside className="agent-round-rail">
         <div className="agent-round-rail__top">
           <button type="button" className="agent-round-back" onClick={onBack}>← Back to PR conversation</button>
-          <div className="agent-round-identity"><span>⚖</span><div><b>Round {roundNumber} — {round.scope} scope</b><small>panel_review run · {round.status.toLowerCase().replaceAll('_', ' ')}</small></div></div>
+          <div className="agent-round-identity"><span>⚖</span><div><b>Agent review</b><small>Round {roundNumber} · {round.scope} scope</small></div></div>
         </div>
-        <div className="agent-round-rail__section"><span>Round plan</span><small>{delta ? 'from round 1 graph' : `${objectives.length} objectives`}</small></div>
-        <div className="agent-round-objectives">
-          {objectives.map(objective => {
-            const criterion = data.criteria.find(row => row.id === objective.criterion_id);
+        <div className="agent-round-rail__section"><span>Rounds</span><small>{data.rounds.length}</small></div>
+        <div className="agent-round-list">
+          {data.rounds.map((row, index) => {
+            const count = data.findings.filter(finding => finding.round_id === row.id && finding.lifecycle_status !== 'dropped').length;
             return (
-              <div className={`agent-round-objective agent-round-objective--${objective.resolution_status}`} key={objective.id}>
-                <span>{objective.resolution_status === 'finding' || objective.resolution_status === 'investigated-clean'
-                  ? '✓' : objective.resolution_status === 'unknown' ? '?' : '○'}</span>
-                <div>{objective.statement}<small><span className={`agent-round-kind agent-round-kind--${criterion?.kind ?? 'repo-convention'}`}>{criterionLabel(criterion?.kind)}</span>{objective.resolution_status}</small></div>
-              </div>
+              <button type="button" className={row.id === round.id ? 'active' : ''} key={row.id} onClick={() => onSelectRound?.(row.id)} disabled={onSelectRound === undefined}>
+                <span>{row.status === 'RUNNING' ? '●' : row.status === 'ERRORED' ? '!' : '✓'}</span>
+                <div><b>Round {index + 1}</b><small>{row.scope} · {count} {count === 1 ? 'finding' : 'findings'}</small></div>
+                <small>{formatCents(row.cost_cents)}</small>
+              </button>
             );
           })}
         </div>
-        <div className="agent-round-rail__section"><span>Investigation queue</span><small>priority order</small></div>
-        <div className="agent-round-queue-list">
-          {steps.map(step => {
-            const status = displayedStepStatus(step.status, running);
-            return (
-              <div className={`agent-round-queue agent-round-queue--${status}`} key={step.id}>
-                <span>{status === 'completed' ? '✓' : status === 'running' ? '●' : '⊘'}</span>
-                <div>{step.action_type}<small>{status} · {formatCents(step.cost_cents)}</small></div>
-              </div>
-            );
-          })}
+        <details className="agent-round-rail__details">
+          <summary><span>Review plan</span><small>{delta ? 'delta scope' : `${objectives.length} objectives`}</small></summary>
+          <div className="agent-round-objectives">
+            {objectives.map(objective => {
+              const criterion = data.criteria.find(row => row.id === objective.criterion_id);
+              return (
+                <div className={`agent-round-objective agent-round-objective--${objective.resolution_status}`} key={objective.id}>
+                  <span>{objective.resolution_status === 'finding' || objective.resolution_status === 'investigated-clean'
+                    ? '✓' : objective.resolution_status === 'unknown' ? '?' : '○'}</span>
+                  <div>{objective.statement}<small><span className={`agent-round-kind agent-round-kind--${criterion?.kind ?? 'repo-convention'}`}>{criterionLabel(criterion?.kind)}</span>{objective.resolution_status}</small></div>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+        <div className="agent-round-rail__summary">
+          <span>Source coverage</span>
+          <b>{localSource ? 'Local source at reviewed SHA' : 'Remote-only review'}</b>
+          <small>{localSource
+            ? 'Repository source and direct caller search were available.'
+            : `Not assessed: ${round.capabilities_json.unavailable.map(capabilityLabel).join(', ')}.`}</small>
         </div>
+        <div className="agent-round-rail__summary">
+          <span>Run evidence</span>
+          <b>{assignments.length} reviewer{assignments.length === 1 ? '' : 's'} · {steps.length} steps</b>
+          <small>Open a reviewer in the main inspector to see its tool evidence.</small>
+        </div>
+        <div className="agent-round-rail__spacer" />
         <div className="agent-round-budget">
           <span>THIS ROUND</span><b>{formatCents(round.cost_cents)}</b>
-          <span>SESSION</span><b>{formatCents(sessionSpend)} · cap {formatCents(round.budget_json.cost_cap_cents)}</b>
+          <span>AGENT REVIEW</span><b>{formatCents(reviewSpend)} · round cap {formatCents(round.budget_json.cost_cap_cents)}</b>
           <div><span style={{ width: `${round.budget_json.cost_cap_cents === 0 ? 0 : Math.min(100, round.cost_cents / round.budget_json.cost_cap_cents * 100)}%` }} /></div>
           <small>wall {round.budget_json.wall_clock_minutes}m · runs never post (R9)</small>
         </div>
-        <div className="agent-round-rail__reviewer"><span>YOU</span><b>You · reviewer</b></div>
       </aside>
       <main className="agent-round-conversation">
         <div className="agent-round-conversation__head">
           <span className="agent-round-conversation__label">⚖ REVIEW ROUND</span>
           <b>Round {roundNumber} · {round.scope}{delta && objectives[0] !== undefined ? ` — ${objectives[0].statement}` : ''}</b>
           <span className={`agent-round-conversation__status ${running ? 'running' : 'terminal'}`}><i />{round.status.replaceAll('_', ' ')} · {formatCents(round.cost_cents)}</span>
+          <span className={`agent-round-capability agent-round-capability--${localSource ? 'local' : 'remote'}`}>
+            {localSource ? 'LOCAL SOURCE' : 'REMOTE ONLY'}
+          </span>
           {running && onStopRound !== undefined && <button type="button" className="agent-round-stop" onClick={() => onStopRound(round.id)}>Stop round</button>}
           <button type="button" className={`agent-round-pr-toggle${prOpen ? ' active' : ''}`} onClick={() => setPrOpen(value => !value)} aria-label={prOpen ? 'Hide PR panel' : 'Show PR panel'} title={prOpen ? 'Hide PR panel' : 'Show PR panel'}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
@@ -225,7 +256,7 @@ export function AgentReviewRoundPage({ data, roundId, prView, onBack, onOpenFind
         </div>
         <div className="agent-round-feed">
           <div className="agent-round-feed__inner">
-            <div className="agent-round-scope">⚖ Round {roundNumber} · {round.scope} scope{delta ? ` — cut by ${round.start_commit.slice(0, 7)}` : ' — changed code and its dependency spans'}</div>
+            <div className="agent-round-scope">⚖ Round {roundNumber} · {round.scope} scope{delta ? ` — cut by ${round.start_commit.slice(0, 7)}` : localSource ? ' — changed code and repository references' : ' — GitHub diff and file blobs'}</div>
             <section className="agent-round-reviewer agent-round-reviewer--planner">
               <div className="agent-round-message">
                 <span>PL</span>
@@ -237,7 +268,7 @@ export function AgentReviewRoundPage({ data, roundId, prView, onBack, onOpenFind
             </section>
             {narrativeEvents.map(event => (
               <div className="agent-round-event" key={event.id}>
-                <span>{event.glyph}</span><p>{event.text}</p><time>{event.time}</time>
+                <span>{event.glyph}</span><MarkdownProse text={event.text} /><time>{event.time}</time>
               </div>
             ))}
             {assignments.map(assignment => {
@@ -271,12 +302,31 @@ export function AgentReviewRoundPage({ data, roundId, prView, onBack, onOpenFind
                 </div>
               );
             })}
-            {pendingFindings.map(finding => {
+            {pendingFindings.map((finding, index) => {
               const comment = findingComment(data, finding.id);
+              const presentation = presentFinding(data, finding.id);
+              const location = comment?.filePath == null ? 'PR-level comment' : `${comment.filePath}:${comment.lineNumber ?? 1}`;
               return (
-                <button type="button" className="agent-round-pending-card" key={finding.id} onClick={() => onOpenFinding(finding.id, comment?.filePath ?? null, comment?.lineNumber ?? null)}>
-                  <span>☑</span><div><b>{finding.id} · {finding.claim}</b><small>{comment?.filePath}:{comment?.lineNumber} · jump to pending review thread</small></div><span>›</span>
-                </button>
+                <details className="agent-round-finding-card" key={finding.id}>
+                  <summary>
+                    <span>F{index + 1}</span>
+                    <b title={findingSummary(finding.claim)}>{findingSummary(finding.claim)}</b>
+                    <small>Pending · {location}</small>
+                    <i aria-hidden>⌄</i>
+                  </summary>
+                  <div className="agent-round-finding-card__body">
+                    {presentation === undefined
+                      ? <MarkdownProse text={comment?.body ?? finding.claim} />
+                      : <AgentFindingContent view={presentation} body={comment?.body ?? finding.claim} pending />}
+                    <button
+                      type="button"
+                      aria-label={comment?.filePath == null ? `View ${finding.id} in PR conversation` : `View ${finding.id} on diff`}
+                      onClick={() => onOpenFinding(finding.id, comment?.filePath ?? null, comment?.lineNumber ?? null)}
+                    >
+                      {comment?.filePath == null ? 'View in PR conversation →' : 'View on diff →'}
+                    </button>
+                  </div>
+                </details>
               );
             })}
             {round.status !== 'RUNNING' && (
@@ -284,13 +334,6 @@ export function AgentReviewRoundPage({ data, roundId, prView, onBack, onOpenFind
                 {terminalSummary}
               </div>
             )}
-          </div>
-        </div>
-        <div className="agent-round-composer">
-          <div className="agent-round-composer__inner">
-            <textarea value={message} onChange={event => setMessage(event.target.value)} placeholder={round.status === 'RUNNING' ? 'Steer the round — seed a hypothesis, answer a question, or @mention a reviewer…' : 'Ask about this round, or seed the next one…'} />
-            <button type="button" className="agent-round-composer__add" disabled title="Attachments are not available for review rounds">＋</button>
-            <button type="button" className="agent-round-composer__send" disabled title="Round steering is a later review phase">↑</button>
           </div>
         </div>
       </main>

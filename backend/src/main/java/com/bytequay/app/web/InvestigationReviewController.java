@@ -34,7 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
-/** Locked P0-P2 review-session REST contract. */
+/** Durable AgentReview REST contract. */
 @RestController
 public class InvestigationReviewController
 {
@@ -57,29 +57,37 @@ public class InvestigationReviewController
         return reviews.preflight(body.prId());
     }
 
-    @PostMapping("/api/prs/{prId}/review-session")
+    @PostMapping("/api/prs/{prId}/agent-review")
     public InvestigationReviewData start(
             @PathVariable String prId, @RequestBody(required = false) StartOptions body)
     {
         return reviews.start(prId, body);
     }
 
-    @GetMapping("/api/prs/{prId}/review-session")
+    @GetMapping("/api/prs/{prId}/agent-review")
     public InvestigationReviewData get(@PathVariable String prId)
     {
         return reviews.findByPr(prId)
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "PR has no review session"));
+                        HttpStatus.NOT_FOUND, "PR has no agent review"));
     }
 
-    @PostMapping("/api/review-sessions/{sessionId}/rounds")
+    @GetMapping("/api/agent-reviews/by-thread/{threadId}")
+    public InvestigationReviewData getByOwnerThread(@PathVariable String threadId)
+    {
+        return reviews.findByOwnerThread(threadId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Thread has no agent review"));
+    }
+
+    @PostMapping("/api/agent-reviews/{reviewId}/rounds")
     public InvestigationReviewData createRound(
-            @PathVariable String sessionId, @RequestBody(required = false) RoundRequest body)
+            @PathVariable String reviewId, @RequestBody(required = false) RoundRequest body)
     {
         String kind = body == null ? "continue" : body.kind();
         List<String> findingIds = body == null || body.findingIds() == null
                 ? List.of() : body.findingIds();
-        return reviews.createRound(sessionId, kind, findingIds,
+        return reviews.createRound(reviewId, kind, findingIds,
                 body == null ? null : new StartOptions(body.runner(), body.providerId()));
     }
 
@@ -136,12 +144,12 @@ public class InvestigationReviewController
         }
     }
 
-    @PostMapping("/api/review-sessions/{sessionId}/assignments/{assignmentId}/mcp")
+    @PostMapping("/api/agent-reviews/{reviewId}/assignments/{assignmentId}/mcp")
     public JsonNode mcp(
-            @PathVariable String sessionId, @PathVariable String assignmentId,
+            @PathVariable String reviewId, @PathVariable String assignmentId,
             @RequestBody JsonNode request)
     {
-        return mcp.handle(sessionId, assignmentId, request);
+        return mcp.handle(reviewId, assignmentId, request);
     }
 
     public record PreflightRequest(String prId) {}

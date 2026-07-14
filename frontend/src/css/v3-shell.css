@@ -967,6 +967,32 @@
 .shell .guard-chip.needs_attention .guard-label { color: var(--red); }
 
 .shell .task-sidebar .panel-actions { margin-top: auto; padding: 12px 12px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); }
+.shell .task-agent-review { border-top: 1px solid var(--border); padding-bottom: 14px; }
+.shell .task-agent-review__heading { padding-top: 13px; }
+.shell .task-agent-review__heading .plan-count { margin-left: auto; }
+.shell .task-agent-review__root {
+  width: calc(100% - 24px); margin: 10px 12px 0; padding: 7px 9px;
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 7px; align-items: center;
+  border: 1px solid rgba(139, 92, 246, 0.34); border-radius: 8px;
+  background: rgba(139, 92, 246, 0.09); color: var(--text-2); font: inherit; text-align: left; cursor: pointer;
+}
+.shell .task-agent-review__root:hover { border-color: #8b5cf6; }
+.shell .task-agent-review__root b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.shell .task-agent-review__root > span:last-child { color: var(--text-4); font-family: var(--mono); font-size: 9.5px; }
+.shell .task-agent-review__rounds { margin: 4px 12px 0 27px; border-left: 2px solid rgba(139, 92, 246, 0.24); padding-left: 8px; }
+.shell .task-agent-review__rounds button {
+  width: 100%; display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 5px;
+  padding: 5px 6px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--text-2); font: inherit; text-align: left; cursor: pointer;
+}
+.shell .task-agent-review__rounds button:hover { background: var(--bg-hover); }
+.shell .task-agent-review__rounds button > span:nth-child(2) { font-size: 11px; }
+.shell .task-agent-review__rounds small { color: var(--text-4); font-family: var(--mono); font-size: 9px; }
+.shell .task-agent-review__glyph { color: #16a34a; font-size: 9px; font-weight: 800; }
+.shell .task-agent-review__glyph--running { color: var(--orange); animation: working-pulse 1.4s infinite; }
+.shell .task-agent-review__glyph--questions { color: var(--orange); }
+.shell .task-agent-review__glyph--cancelled { color: var(--text-4); }
+.shell .task-agent-review__glyph--errored { color: var(--red); }
 .shell .task-sidebar .panel-action-btn {
   display: flex; align-items: center; gap: 7px; padding: 7px 11px; background: var(--bg-elev);
   border: 1px solid var(--border); border-radius: 7px; font-size: 11.5px; color: var(--text-2);

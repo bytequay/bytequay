@@ -138,6 +138,7 @@ final class PullRequestDetailMapper
                     root.diffHunk(),
                     ImmutableList.copyOf(messages),
                     root.resolved(),
+                    root.resolvedBy(),
                     root.outdated(),
                     root.startLine(),
                     root.startSide(),

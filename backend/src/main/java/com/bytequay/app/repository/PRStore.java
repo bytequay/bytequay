@@ -43,6 +43,38 @@ public interface PRStore
      *  if any — the dashboard/details-page resolver's idempotency check. */
     Optional<PR> findByRepoAndRemotePrNumber(String repo, int remotePrNumber);
 
+    /** The task-origin PR pushed to this (repo, remote PR number), if any —
+     *  lets the sync reuse a task's own PR row instead of minting a twin. */
+    Optional<PR> findTaskByRepoAndRemotePrNumber(String repo, int remotePrNumber);
+
+    /**
+     * Fold one PR aggregate into another: move {@code fromPrId}'s child rows
+     * (commits, checks, comments, non-redundant remote timeline events, triage)
+     * onto {@code toPrId}, dropping rows that would duplicate one the survivor
+     * already has (commits by sha, checks by run id, timeline by remote event
+     * id, triage kept only if the survivor has none). The caller deletes the
+     * emptied {@code fromPrId} row afterwards ({@link #deletePr}); its
+     * remaining (redundant) children cascade away. Used to reconcile a task's
+     * PR with the dashboard-synced twin for the same GitHub PR — see
+     * docs/mockups/pr-record-unification-design.md.
+     */
+    void reparentChildren(String fromPrId, String toPrId);
+
+    /** Delete a PR row; its child rows cascade (FK {@code ON DELETE CASCADE}). */
+    void deletePr(String prId);
+
+    /** Pushed task rows that carry a remote URL + number but a null {@code
+     *  repo} — legacy "half-pushed" rows the reconcile sweep repairs by
+     *  parsing the repo out of the URL. */
+    List<PR> findPushedTaskPrsMissingRepo();
+
+    /** Ids of task rows that share a (repo, remote PR number) with a separate
+     *  external row — the duplicate pairs the reconcile sweep folds. */
+    List<String> findTaskPrIdsWithExternalTwin();
+
+    /** Set a PR row's {@code repo} column (half-pushed-row repair). */
+    void setRepo(String prId, String repo);
+
     // ── dashboard ──────────────────────────────────────────────────
     /** Every PR currently watched by the dashboard sync (non-null {@code
      *  watch_reason}), each paired with its triage state (empty if the

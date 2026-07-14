@@ -47,6 +47,20 @@ public interface PRService
     /** The external PR already synced in for this (repo, remote PR number). */
     Optional<PR> findByRepoAndNumber(String repo, int remotePrNumber);
 
+    /** The task-origin PR that has been pushed to this (repo, remote PR
+     *  number), if any — a task's own PR once it's opened on GitHub. The
+     *  dashboard sync consults this so it reuses the task row instead of
+     *  minting a separate external twin for the same GitHub PR. */
+    Optional<PR> findTaskByRepoAndNumber(String repo, int remotePrNumber);
+
+    /**
+     * Fold the dashboard-synced external twin for this task PR's (repo,
+     * number) into the task row and delete it, so one GitHub PR maps to one
+     * aggregate row. No-op when the PR has no remote identity or no twin
+     * exists. See docs/mockups/pr-record-unification-design.md.
+     */
+    PR foldExternalTwinIntoTask(String taskPrId);
+
     List<PRCommit> commits(String prId);
 
     List<PRTimelineEntry> timeline(String prId);

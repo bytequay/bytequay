@@ -353,6 +353,10 @@ class TestPRService
 
         PR pushed = service.recordPush("pr1", "o/r", 145, "https://github.com/o/r/pull/145");
 
+        // No external twin existed, so nothing is folded away.
+        verify(store, never()).reparentChildren(any(), any());
+        verify(store, never()).deletePr(any());
+
         // The local event is stamped stripped (never migrates to GitHub).
         ArgumentCaptor<PRTimelineEntry> events = ArgumentCaptor.forClass(PRTimelineEntry.class);
         verify(store, times(2)).addEvent(events.capture()); // stripped event + status event
@@ -365,6 +369,39 @@ class TestPRService
         // The final status flip lands at remote-drafted, and a status event was written.
         assertThat(pushed.status()).isEqualTo(PR.STATUS_REMOTE_DRAFTED);
         assertThat(events.getAllValues().get(1).eventType()).isEqualTo(PRTimelineEntry.TYPE_STATUS);
+    }
+
+    @Test
+    void foldExternalTwinReparentsTheTwinsChildrenAndDeletesIt()
+    {
+        // A pushed task PR whose (repo, number) also has a dashboard twin.
+        PR task = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW)
+                .withRemote("o/r", 145, "https://github.com/o/r/pull/145", NOW);
+        when(store.findById("pr1")).thenReturn(Optional.of(task));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        PR external = PR.createExternal(
+                "ext1", "o/r", 145, "https://github.com/o/r/pull/145", "@octocat",
+                "head", "main", "T", "", PR.STATUS_REMOTE_OPEN, NOW, null, null);
+        when(store.findByRepoAndRemotePrNumber("o/r", 145)).thenReturn(Optional.of(external));
+
+        service.foldExternalTwinIntoTask("pr1");
+
+        verify(store).reparentChildren("ext1", "pr1");
+        verify(store).deletePr("ext1");
+    }
+
+    @Test
+    void foldExternalTwinIsANoOpWhenTheTaskPrHasNoTwin()
+    {
+        PR task = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW)
+                .withRemote("o/r", 145, "https://github.com/o/r/pull/145", NOW);
+        when(store.findById("pr1")).thenReturn(Optional.of(task));
+        when(store.findByRepoAndRemotePrNumber("o/r", 145)).thenReturn(Optional.empty());
+
+        service.foldExternalTwinIntoTask("pr1");
+
+        verify(store, never()).reparentChildren(any(), any());
+        verify(store, never()).deletePr(any());
     }
 
     @Test

@@ -520,6 +520,28 @@ class TestPRSyncService
     }
 
     @Test
+    void syncExternalPrReusesAPushedTaskRowInsteadOfMintingATwin()
+    {
+        // A ByteQuay task opened this PR, so its task-origin row already carries
+        // remote #99. The dashboard resolver must resolve to that row, not mint
+        // a separate external twin. See pr-record-unification-design.md.
+        PR taskRow = new PR(
+                "pr-task", "task-1", "dev/x", "main", "Add cache", "", PR.STATUS_REMOTE_OPEN, NOW,
+                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                PR.ORIGIN_TASK, "acme/widget", "@octocat", null, null, null);
+        PullRequestDetail refreshedDetail = detail("dev/x", "main", "", false, "open", false);
+        when(prService.findTaskByRepoAndNumber("acme/widget", 99)).thenReturn(Optional.of(taskRow));
+        when(prService.findById("pr-task")).thenReturn(Optional.of(taskRow));
+        when(pullRequests.refreshPullRequestDetail(eq("acme/widget"), eq(99), anyInt())).thenReturn(refreshedDetail);
+
+        service.syncExternalPR("acme/widget", 99);
+
+        verify(pullRequests, never()).lookupPullRequest(any(), anyInt());
+        verify(prService, never()).createExternal(
+                any(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void syncFlipsAnExternalPrToMergedOnceGitHubReportsIt()
     {
         PR pr = new PR(

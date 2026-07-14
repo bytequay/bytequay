@@ -41,7 +41,7 @@ const node = (nodes: ReturnType<typeof buildLivePlan>, key: string) =>
   nodes.find(n => n.key === key)!;
 
 const phase = (nodes: ReturnType<typeof buildLivePlan>, nodeKey: string, phaseKey: string) =>
-  node(nodes, nodeKey).phases?.find(p => p.key === phaseKey)!;
+  node(nodes, nodeKey).phases!.find(p => p.key === phaseKey)!;
 
 describe('buildLivePlan', () => {
   it('renders the four-stage lifecycle with local and remote phase rows', () => {

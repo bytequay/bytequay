@@ -34,7 +34,7 @@ describe('navHistory', () => {
   });
 
   it('is inert at both edges', () => {
-    let h = createHistory<N>({ view: 'home' });
+    const h = createHistory<N>({ view: 'home' });
     expect(back(h)).toBe(h);
     expect(forward(h)).toBe(h);
   });

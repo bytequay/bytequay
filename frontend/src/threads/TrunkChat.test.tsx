@@ -14,7 +14,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import TrunkChat from './TrunkChat';
-import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import type { Bridge, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 
 function launchTask(over: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
   return {
@@ -104,6 +104,20 @@ describe('TrunkChat tool-activity badge', () => {
     ]);
 
     expect(screen.queryByText(/tool call/)).toBeNull();
+  });
+
+  it('surfaces an incompatible Codex CLI error with an update action', () => {
+    (window as unknown as { bridge: Partial<Bridge> }).bridge = {
+      getCodexCliVersion: async () => ({ version: '0.141.0' }),
+    };
+    renderTrunk([
+      msg('system', 'error', {
+        message: "The 'gpt-5.6-terra' model requires a newer version of Codex.",
+      }),
+    ]);
+
+    expect(screen.getByText(/requires a newer version of Codex/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Update Codex CLI' })).toBeTruthy();
   });
 
   it('reads a COMPLETED-phase launch card as SHIPPED even when status lags', () => {

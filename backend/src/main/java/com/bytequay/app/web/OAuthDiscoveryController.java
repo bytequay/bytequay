@@ -41,6 +41,7 @@ public class OAuthDiscoveryController
             "/.well-known/openid-configuration/**",
             // Codex also probes the metadata APPENDED to the MCP URL itself.
             "/api/threads/*/mcp/.well-known/**",
+            "/api/threads/*/agents/*/mcp/.well-known/**",
             "/api/reviews/*/seats/*/mcp/.well-known/**"})
     public ResponseEntity<Void> noOauth()
     {

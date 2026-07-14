@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
+import { CodexUpdateAction } from './CodexUpdateAction';
 import type { PendingPermission } from './ConversationPane';
 import { isShellTool, shellCommand } from './toolDisplay';
 import { MarkdownProse } from './MarkdownProse';
@@ -826,7 +827,10 @@ function ErrorCard({ message }: { message: ThreadMessageDto }) {
   return (
     <article style={errorCardStyle}>
       <span style={errGlyphStyle}>✕</span>
-      <span>{text}</span>
+      <div>
+        <div>{text}</div>
+        <CodexUpdateAction message={text} />
+      </div>
     </article>
   );
 }

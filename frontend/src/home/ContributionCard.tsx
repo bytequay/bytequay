@@ -87,7 +87,6 @@ function ContributionCard({ profile, prs, onOpenPr, onSeeAllActivity }: Props) {
     <div className="home-card home-contrib">
       <div className="home-contrib__top">
         <div className="home-contrib__graph">
-          <div className="home-contrib__graph-title">Your year in code</div>
           {profile
             ? <YearInCodeHeatmap login={profile.login} />
             : <div className="hp-loading">Loading…</div>}

@@ -883,13 +883,6 @@
   padding: var(--space-3) var(--space-4);
 }
 
-.home-contrib__graph-title {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-1);
-  margin-bottom: var(--space-2);
-}
-
 .home-contrib__bio {
   width: 190px;
   flex-shrink: 0;

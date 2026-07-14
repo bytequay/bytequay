@@ -552,6 +552,23 @@ class TestPRPublishService
     }
 
     @Test
+    void postCommentPublishesToThePushedPrAfterMerge()
+            throws Exception
+    {
+        PR merged = pushedPr(PR.STATUS_MERGED);
+        when(prService.findById("pr1")).thenReturn(Optional.of(merged));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        PR result = service.postComment("pr1", "  Thanks!  ");
+
+        verify(pullRequests).createIssueComment(
+                "ghp", new PullRequestRef("acme", "widget", 145), "Thanks!");
+        assertThat(result).isSameAs(merged);
+        // remote comes off the PR row, not the task's (possibly-gone) working dir
+        verify(taskStore, never()).findTaskById(any());
+    }
+
+    @Test
     void mergeResolvesTheRemoteDirectlyForAnExternalPrWithoutTouchingAnyTask()
             throws Exception
     {

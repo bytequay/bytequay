@@ -337,7 +337,7 @@ export function StageDetailRoute({
   // token-by-token (and a non-delta event refreshes the canonical
   // transcript, which clears the live buffer). This is what makes the stage
   // feel alive between the periodic poll snapshots.
-  const { liveText } = useThreadStream(
+  const { liveText, liveActivities } = useThreadStream(
     threadId, state === 'CLOSED' ? 'COMPLETED' : 'RUNNING', refresh);
 
   // Poll the thread's run state. This is the signal that stays true through a
@@ -394,11 +394,15 @@ export function StageDetailRoute({
   // tool call, or the last transcript row — not a local mount time. Deriving
   // it from `data` (which is cached + polled) means leaving the tab and
   // coming back keeps counting instead of restarting at 0s.
-  const workingSince = epochOrNull((lastTool ?? data?.conversation.at(-1))?.ts);
-  const workingLabel = toolName === null
+  const currentLiveActivity = [...liveActivities].reverse().find(item => !item.done);
+  const workingSince = currentLiveActivity?.startedAt
+    ?? epochOrNull((lastTool ?? data?.conversation.at(-1))?.ts);
+  const workingLabel = currentLiveActivity !== undefined
+    ? `${currentLiveActivity.label}${currentLiveActivity.detail === null ? '…' : `: ${currentLiveActivity.detail}`}`
+    : toolName === null
     ? 'Agent is working…'
     : toolArg !== null ? `Running ${toolName}: ${toolArg}` : `Running ${toolName}…`;
-  const workingDetail = toolArg ?? undefined;
+  const workingDetail = currentLiveActivity?.detail ?? toolArg ?? undefined;
 
   // Answer a pending permission prompt that the agent raised on this stage
   // (e.g. a run_shell command), then refresh so the resolved card drops out.
@@ -476,6 +480,7 @@ export function StageDetailRoute({
           label={workingLabel}
           detail={workingDetail}
           since={workingSince ?? undefined}
+          activities={liveActivities}
           onStop={() => {
             const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
             void bridge?.interruptTask(threadId).then(refresh).catch(() => { /* poll reconciles */ });

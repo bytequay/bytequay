@@ -34,6 +34,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -99,6 +100,12 @@ class PRServiceImpl
     public Optional<PR> findByRepoAndNumber(String repo, int remotePrNumber)
     {
         return store.findByRepoAndRemotePrNumber(repo, remotePrNumber);
+    }
+
+    @Override
+    public Optional<PR> findTaskByRepoAndNumber(String repo, int remotePrNumber)
+    {
+        return store.findTaskByRepoAndRemotePrNumber(repo, remotePrNumber);
     }
 
     @Override
@@ -618,12 +625,48 @@ class PRServiceImpl
     public PR recordPushed(String prId, String repo, int remotePrNumber, String remotePrUrl)
     {
         PR pr = require(prId);
-        PR saved = store.save(pr.withRemote(repo, remotePrNumber, remotePrUrl, now()));
+        store.save(pr.withRemote(repo, remotePrNumber, remotePrUrl, now()));
+        // Reconcile: if the dashboard sync already minted an external twin for
+        // this (repo, number) before we stamped it here, fold it into this task
+        // row so one GitHub PR maps to one aggregate row.
+        PR result = foldExternalTwinIntoTask(prId);
         notifyUpdated(prId);
-        return saved;
+        return result;
     }
 
     @Override
+    @Transactional
+    public PR foldExternalTwinIntoTask(String taskPrId)
+    {
+        PR task = require(taskPrId);
+        if (task.repo() == null || task.remotePrNumber() == null) {
+            return task;
+        }
+        // The finder is scoped to origin='external', so this is the dashboard
+        // twin (if any) for the same GitHub PR — never the task row itself.
+        Optional<PR> twin = store.findByRepoAndRemotePrNumber(task.repo(), task.remotePrNumber());
+        if (twin.isEmpty() || twin.get().id().equals(taskPrId)) {
+            return task;
+        }
+        PR external = twin.get();
+        PR survivor = task;
+        // Carry the dashboard's watch/enrichment state onto the survivor so the
+        // PR stays on the dashboard. A freshly-pushed task row usually has no
+        // snapshot, but even one that does typically lacks watch_reason (only
+        // the dashboard sweep sets it) — so adopt the twin's snapshot whenever
+        // the survivor has no watch_reason of its own, not just when its whole
+        // snapshot is null. Caller (recordPushed) or the reconciler notifies.
+        boolean survivorLacksWatch = task.githubSync() == null || task.githubSync().watchReason() == null;
+        if (survivorLacksWatch && external.githubSync() != null && external.githubSync().watchReason() != null) {
+            survivor = store.save(task.withGithubSync(external.githubSync()));
+        }
+        store.reparentChildren(external.id(), taskPrId);
+        store.deletePr(external.id());
+        return survivor;
+    }
+
+    @Override
+    @Transactional
     public PR recordPush(String prId, String repo, int remotePrNumber, String remotePrUrl)
     {
         require(prId);

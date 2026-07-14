@@ -27,6 +27,7 @@ import com.bytequay.app.domain.PRTriageState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.repository.PRStore;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,7 @@ class SqlitePRStore
     private final PrCheckJpaRepository checks;
     private final PrCommentJpaRepository comments;
     private final PrTriageJpaRepository triage;
+    private final JdbcTemplate jdbc;
 
     SqlitePRStore(
             PrJpaRepository prs,
@@ -51,7 +53,8 @@ class SqlitePRStore
             PrTimelineEventJpaRepository events,
             PrCheckJpaRepository checks,
             PrCommentJpaRepository comments,
-            PrTriageJpaRepository triage)
+            PrTriageJpaRepository triage,
+            JdbcTemplate jdbc)
     {
         this.prs = prs;
         this.commits = commits;
@@ -59,6 +62,7 @@ class SqlitePRStore
         this.checks = checks;
         this.comments = comments;
         this.triage = triage;
+        this.jdbc = jdbc;
     }
 
     @Override
@@ -132,6 +136,80 @@ class SqlitePRStore
     public Optional<PR> findByRepoAndRemotePrNumber(String repo, int remotePrNumber)
     {
         return prs.findByRepoAndRemotePrNumber(repo, remotePrNumber).map(SqlitePRStore::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<PR> findTaskByRepoAndRemotePrNumber(String repo, int remotePrNumber)
+    {
+        return prs.findFirstByRepoAndRemotePrNumberAndOrigin(repo, remotePrNumber, PR.ORIGIN_TASK)
+                .map(SqlitePRStore::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public void reparentChildren(String fromPrId, String toPrId)
+    {
+        // Bulk moves via JDBC — one dedup rule per child table. Rows that would
+        // duplicate one the survivor already holds are left on the source row
+        // and cascade away when the caller deletes it.
+        // Commits: the same commit synced under both rows shares a sha.
+        jdbc.update("UPDATE pr_commit SET pr_id = ? WHERE pr_id = ? "
+                + "AND sha NOT IN (SELECT sha FROM pr_commit WHERE pr_id = ?)",
+                toPrId, fromPrId, toPrId);
+        // Checks: a synced GitHub check carries its run id; local checks (null
+        // run id) have no twin and always move.
+        jdbc.update("UPDATE pr_check SET pr_id = ? WHERE pr_id = ? "
+                + "AND (run_id IS NULL OR run_id NOT IN "
+                + "(SELECT run_id FROM pr_check WHERE pr_id = ? AND run_id IS NOT NULL))",
+                toPrId, fromPrId, toPrId);
+        // Comments: ids are unique UUIDs, so no collision — move them all.
+        jdbc.update("UPDATE pr_comment SET pr_id = ? WHERE pr_id = ?", toPrId, fromPrId);
+        // Timeline: move only genuine remote events the survivor lacks (keyed by
+        // remote_event_id). Redundant local-shaped rows (null remote_event_id,
+        // e.g. a bare "committed") are dropped — the survivor already owns the
+        // authoritative local history.
+        jdbc.update("UPDATE pr_timeline_event SET pr_id = ? WHERE pr_id = ? "
+                + "AND remote_event_id IS NOT NULL AND remote_event_id NOT IN "
+                + "(SELECT remote_event_id FROM pr_timeline_event WHERE pr_id = ? AND remote_event_id IS NOT NULL)",
+                toPrId, fromPrId, toPrId);
+        // Triage (pr_id is the PK): the source twin is the dashboard row, so
+        // its triage holds the snooze / handled state the user set there — the
+        // intentional one. Let it win: drop the survivor's (if any) to free the
+        // PK, then move the twin's over. When the twin has no triage both
+        // statements no-op and the survivor keeps its own.
+        jdbc.update("DELETE FROM pr_triage WHERE pr_id = ? "
+                + "AND EXISTS (SELECT 1 FROM pr_triage WHERE pr_id = ?)",
+                toPrId, fromPrId);
+        jdbc.update("UPDATE pr_triage SET pr_id = ? WHERE pr_id = ?", toPrId, fromPrId);
+    }
+
+    @Override
+    @Transactional
+    public void deletePr(String prId)
+    {
+        jdbc.update("DELETE FROM pr WHERE id = ?", prId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PR> findPushedTaskPrsMissingRepo()
+    {
+        return prs.findPushedTaskPrsMissingRepo().stream().map(SqlitePRStore::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> findTaskPrIdsWithExternalTwin()
+    {
+        return prs.findTaskPrIdsWithExternalTwin();
+    }
+
+    @Override
+    @Transactional
+    public void setRepo(String prId, String repo)
+    {
+        jdbc.update("UPDATE pr SET repo = ? WHERE id = ?", repo, prId);
     }
 
     @Override

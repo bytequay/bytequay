@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PRTriageState;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -105,6 +106,86 @@ class TestPRSchema
     }
 
     @Test
+    void findByRepoAndRemotePrNumberReturnsTheExternalRowWhenATaskSharesTheNumber()
+    {
+        // A task that publishes its PR stamps the same remote number onto its
+        // own origin='task' row, so (repo, number) matches two rows. The
+        // finder must return the single external row, not blow up with
+        // NonUniqueResultException. Distinct branch_name so these rows don't
+        // pollute the branch-scoped counts other tests assert on (the shared
+        // SQLite context isn't rolled back between tests).
+        insertDupPr("task", PR.STATUS_MERGED, "dup/repo", 42);
+        insertDupPr("external", PR.STATUS_REMOTE_OPEN, "dup/repo", 42);
+
+        PR found = prStore.findByRepoAndRemotePrNumber("dup/repo", 42).orElseThrow();
+
+        assertThat(found.origin()).isEqualTo(PR.ORIGIN_EXTERNAL);
+        assertThat(found.status()).isEqualTo(PR.STATUS_REMOTE_OPEN);
+    }
+
+    @Test
+    void reparentChildrenFoldsAnExternalTwinIntoTheTaskRowWithDedup()
+    {
+        String taskId = seedTask();
+        Instant t = Instant.parse("2026-07-01T00:00:00Z");
+        // Surviving (pushed) task row + the dashboard's external twin — same
+        // (repo, number).
+        prStore.save(PR.create("fold-task", taskId, "dev/x", "main", "T", "", t)
+                .withRemote("dup/repo", 77, "https://github.com/dup/repo/pull/77", t)
+                .withStatus(PR.STATUS_REMOTE_DRAFTED, t));
+        prStore.save(PR.createExternal("fold-ext", "dup/repo", 77,
+                "https://github.com/dup/repo/pull/77", "@octocat", "head", "main", "T", "",
+                PR.STATUS_REMOTE_OPEN, t, null, null));
+
+        // task owns a commit shared with the twin (same sha).
+        prStore.addCommit(new PRCommit("c-task", "fold-task", "sha-shared", "shared", 1, 0, t, null));
+        // twin: the same shared commit (a dup) + one only it has, plus a remote
+        // check and a triage row the survivor lacks.
+        prStore.addCommit(new PRCommit("c-ext-dup", "fold-ext", "sha-shared", "shared", 1, 0, t, null));
+        prStore.addCommit(new PRCommit("c-ext-new", "fold-ext", "sha-ext", "ext only", 2, 0, t, null));
+        prStore.addCheck(new PRCheck("chk-ext", "fold-ext", PRCheck.KIND_REMOTE, "build",
+                PRCheck.STATUS_PASSED, 1L, t, t, "run-ext"));
+        prStore.saveTriage(new PRTriageState("fold-ext", t, null, null, null, null, null));
+
+        prStore.reparentChildren("fold-ext", "fold-task");
+        prStore.deletePr("fold-ext");
+
+        // Shared commit deduped (not doubled); the twin-only commit moved → 2.
+        assertThat(prStore.commitsFor("fold-task")).extracting(PRCommit::sha)
+                .containsExactlyInAnyOrder("sha-shared", "sha-ext");
+        // The remote check moved onto the survivor.
+        assertThat(prStore.checksFor("fold-task")).extracting(PRCheck::runId).contains("run-ext");
+        // Triage moved (survivor had none).
+        assertThat(prStore.findTriage("fold-task")).isPresent();
+        // The twin row is gone (its redundant children cascaded away).
+        assertThat(prStore.findById("fold-ext")).isEmpty();
+    }
+
+    @Test
+    void reparentChildrenLetsTheTwinsDashboardTriageWinOverTheSurvivorsOwn()
+    {
+        String taskId = seedTask();
+        Instant t = Instant.parse("2026-07-01T00:00:00Z");
+        prStore.save(PR.create("t2-task", taskId, "dev/y", "main", "T", "", t)
+                .withRemote("dup/repo", 88, "https://github.com/dup/repo/pull/88", t)
+                .withStatus(PR.STATUS_REMOTE_DRAFTED, t));
+        prStore.save(PR.createExternal("t2-ext", "dup/repo", 88,
+                "https://github.com/dup/repo/pull/88", "@octocat", "head", "main", "T", "",
+                PR.STATUS_REMOTE_OPEN, t, null, null));
+        // Survivor was merely viewed on a task surface; the twin carries a snooze
+        // the user set from the dashboard — that intent must survive the fold.
+        prStore.saveTriage(new PRTriageState("t2-task", t, null, null, null, null, null));
+        Instant snoozeUntil = Instant.parse("2026-07-05T00:00:00Z");
+        prStore.saveTriage(new PRTriageState("t2-ext", t, null, null, snoozeUntil, t, "manual"));
+
+        prStore.reparentChildren("t2-ext", "t2-task");
+        prStore.deletePr("t2-ext");
+
+        assertThat(prStore.findTriage("t2-task")).get()
+                .extracting(PRTriageState::snoozedUntil).isEqualTo(snoozeUntil);
+    }
+
+    @Test
     void taskOriginPrRoundTripsThroughTheRealRepository()
     {
         String taskId = seedTask();
@@ -174,11 +255,21 @@ class TestPRSchema
 
     private void insertPr(String origin, String status, String repo, Integer remotePrNumber)
     {
+        insertPr("schema-test", origin, status, repo, remotePrNumber);
+    }
+
+    private void insertDupPr(String origin, String status, String repo, Integer remotePrNumber)
+    {
+        insertPr("dup-finder", origin, status, repo, remotePrNumber);
+    }
+
+    private void insertPr(String branch, String origin, String status, String repo, Integer remotePrNumber)
+    {
         jdbc.update(
                 "INSERT INTO pr(id, task_id, branch_name, base_branch, title, description, status, "
                         + "created_at_ms, origin, repo, remote_pr_number) "
-                        + "VALUES (?, NULL, 'schema-test', 'main', 'T', '', ?, ?, ?, ?, ?)",
-                UUID.randomUUID().toString(), status,
+                        + "VALUES (?, NULL, ?, 'main', 'T', '', ?, ?, ?, ?, ?)",
+                UUID.randomUUID().toString(), branch, status,
                 Instant.parse("2026-07-01T00:00:00Z").toEpochMilli(), origin, repo, remotePrNumber);
     }
 }

@@ -571,7 +571,7 @@ export function TaskBrainRoute({
       capabilities={prCapabilities}
       commentValue={localComment}
       onCommentChange={setLocalComment}
-      onAddComment={task.terminal ? undefined : submitLocalComment}
+      onAddComment={task.terminal && !prCapabilities.postRemoteComment ? undefined : submitLocalComment}
       onPush={() => setPushOpen(true)}
       onAskAgent={task.terminal ? undefined : askAgentToAddress}
       onMerge={confirmMerge}

@@ -58,21 +58,38 @@ const PINNED: ResolvedWorkModelDto = {
   },
 };
 
+const OPTIONS: WorkModelOptionsDto = {
+  cliAgents: [{
+    id: 'claude-code', displayName: 'Claude Code', installed: true, authed: true,
+    defaultModel: 'claude-opus-4-8',
+    models: [
+      { id: 'claude-opus-4-8', displayName: 'Claude Opus 4.8', isDefault: true },
+      { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', isDefault: false },
+    ],
+  }],
+  apiProviders: [{
+    id: 'anthropic', displayName: 'Anthropic', defaultModel: 'claude-opus-4-8',
+    models: [
+      { id: 'claude-opus-4-8', displayName: 'Claude Opus 4.8', isDefault: true },
+      { id: 'claude-opus-4-7', displayName: 'Claude Opus 4.7', isDefault: false },
+    ],
+    accounts: [{ name: 'team', isDefault: true, valid: true }],
+  }],
+};
+
 describe('WorkModelPill', () => {
-  it('reads the resolved model for a thread on mount and renders a compact label', async () => {
+  it('resolves the effective model id to its catalog display name for the pill label', async () => {
     const getThreadWorkModel = vi.fn(async () => INHERITED);
     installBridge({ getThreadWorkModel });
 
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
 
+    // The pill shows the human model name alone — no agent id, no "· CLI".
     await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('claude-code');
+      expect(screen.getByRole('button').textContent).toContain('Claude Sonnet 4.6');
     });
     expect(getThreadWorkModel).toHaveBeenCalledWith('thread-1');
-    // Label includes the effective model id + the kind so the user
-    // sees both at a glance.
-    expect(screen.getByRole('button').textContent).toContain('claude-sonnet-4-6');
-    expect(screen.getByRole('button').textContent).toContain('CLI');
+    expect(screen.getByRole('button').textContent).not.toContain('claude-code');
   });
 
   it('opens the picker popover on click and shows the inheritance hint', async () => {
@@ -83,9 +100,6 @@ describe('WorkModelPill', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
 
-    // The popover renders with an inheritance hint that names the
-    // winning scope so the user knows whether they're about to
-    // override a thread-, workspace-, or global-level value.
     await waitFor(() => {
       expect(screen.getByRole('dialog').textContent).toContain('workspace ByteQuay');
     });
@@ -108,7 +122,7 @@ describe('WorkModelPill', () => {
     });
   });
 
-  it('shows a Clear override button when an override is pinned and calls the bridge with null', async () => {
+  it('picking Auto clears the override through the thread bridge', async () => {
     const setThreadWorkModel = vi.fn(async () => INHERITED);
     installBridge({
       getThreadWorkModel: vi.fn(async () => PINNED),
@@ -118,12 +132,33 @@ describe('WorkModelPill', () => {
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
     await waitForLoadedPill();
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    await waitFor(() => screen.getByRole('dialog'));
 
-    const clearBtn = screen.getByRole('button', { name: /Clear override/i });
-    await act(async () => { fireEvent.click(clearBtn); });
+    const auto = await waitFor(() => screen.getByRole('option', { name: /Auto/i }));
+    // The list uses mousedown (keeps the composer caret), not click.
+    await act(async () => { fireEvent.mouseDown(auto); });
 
     expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', null);
+  });
+
+  it('picking a model row commits that model through the thread bridge', async () => {
+    const setThreadWorkModel = vi.fn(async () => INHERITED);
+    installBridge({
+      getThreadWorkModel: vi.fn(async () => INHERITED),
+      setThreadWorkModel,
+    });
+
+    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
+    await waitForLoadedPill();
+    await act(async () => { fireEvent.click(screen.getByRole('button')); });
+
+    const opus47 = await waitFor(() => screen.getByRole('option', { name: /Claude Opus 4\.7/i }));
+    await act(async () => { fireEvent.mouseDown(opus47); });
+
+    // Opus 4.7 lives under the Anthropic (API) provider and is not that
+    // provider's default, so the explicit id is committed.
+    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
+      kind: 'API', agentOrProvider: 'anthropic', model: 'claude-opus-4-7', account: null,
+    });
   });
 
   it('reads the resolved model for a task and writes through the task bridge', async () => {
@@ -134,14 +169,13 @@ describe('WorkModelPill', () => {
     render(<WorkModelPill scope={{ kind: 'task', threadId: 'thread-1', taskId: 'task-1' }} />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('anthropic');
+      expect(screen.getByRole('button').textContent).toContain('Claude Opus 4.7');
     });
     expect(getTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1');
 
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    await waitFor(() => screen.getByRole('dialog'));
-    const clearBtn = screen.getByRole('button', { name: /Clear override/i });
-    await act(async () => { fireEvent.click(clearBtn); });
+    const auto = await waitFor(() => screen.getByRole('option', { name: /Auto/i }));
+    await act(async () => { fireEvent.mouseDown(auto); });
 
     expect(setTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1', null);
   });
@@ -154,7 +188,7 @@ describe('WorkModelPill', () => {
     render(<WorkModelPill scope={{ kind: 'stage', stageId: 'stage-1' }} />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('anthropic');
+      expect(screen.getByRole('button').textContent).toContain('Claude Opus 4.7');
     });
     expect(getStageWorkModel).toHaveBeenCalledWith('stage-1');
 
@@ -165,17 +199,17 @@ describe('WorkModelPill', () => {
     // popover must warn that a change doesn't retroactively affect it.
     expect(screen.getByRole('dialog').textContent).toContain('applies next time this stage starts a new one');
 
-    const clearBtn = screen.getByRole('button', { name: /Clear override/i });
-    await act(async () => { fireEvent.click(clearBtn); });
+    const auto = screen.getByRole('option', { name: /Auto/i });
+    await act(async () => { fireEvent.mouseDown(auto); });
 
     expect(setStageWorkModel).toHaveBeenCalledWith('stage-1', null);
   });
 });
 
 /** Wait until the pill has finished its async load. The first render is a
- *  disabled "Loading…" button; clicking that no-ops, so opening the
- *  popover before the resolved model lands would race (and flakes under
- *  CI load). Block on the button becoming enabled. */
+ *  disabled "Model…" button; clicking that no-ops, so opening the popover
+ *  before the resolved model lands would race. Block on the button
+ *  becoming enabled. */
 async function waitForLoadedPill() {
   await waitFor(() => {
     const button = screen.getByRole('button') as HTMLButtonElement;
@@ -183,10 +217,6 @@ async function waitForLoadedPill() {
       throw new Error('pill is still loading');
     }
   });
-}
-
-function emptyOptions(): WorkModelOptionsDto {
-  return { cliAgents: [], apiProviders: [] };
 }
 
 function installBridge(overrides: Partial<Bridge>) {
@@ -197,10 +227,9 @@ function installBridge(overrides: Partial<Bridge>) {
     setTaskWorkModel: vi.fn(async () => INHERITED),
     getStageWorkModel: vi.fn(async () => INHERITED),
     setStageWorkModel: vi.fn(async () => INHERITED),
-    // The picker hits these on mount; return a minimal options
-    // payload so the rendered popover doesn't crash on empty refs.
-    getWorkModelOptions: vi.fn(async () => emptyOptions()),
-    refreshWorkModelOptions: vi.fn(async () => emptyOptions()),
+    // The pill reads options on mount for the label and the picker list.
+    getWorkModelOptions: vi.fn(async () => OPTIONS),
+    refreshWorkModelOptions: vi.fn(async () => OPTIONS),
     ...overrides,
   };
 }

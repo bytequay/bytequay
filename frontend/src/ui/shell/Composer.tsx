@@ -14,6 +14,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 import { CloseIcon, PlusIcon, SendUpIcon } from '../TaskBrainDesignIcons';
+import { useSlashCommands, type SlashCommand } from '../../useSlashCommands';
+import { OPEN_WORK_MODEL_EVENT } from '../../workspace/WorkModelPill';
 
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
 const MAX_INPUT_HEIGHT = 160;
@@ -75,7 +77,16 @@ export function Composer({
     if (canSend) onSubmit();
   };
 
+  // Slash commands. "/model" opens the work-model pill already rendered in
+  // this composer's footer (it listens for the window event). Only shown
+  // when a modePill is present, since that's the pill the event drives.
+  const commands: SlashCommand[] = modePill === undefined ? [] : [
+    { name: 'model', desc: 'Switch AI model', run: () => window.dispatchEvent(new Event(OPEN_WORK_MODEL_EVENT)) },
+  ];
+  const slash = useSlashCommands({ value, onChange, commands, textareaRef: taRef });
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slash.onKeyDown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       submit();
@@ -118,7 +129,8 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <div className="composer">
+      <div className="composer" style={{ position: 'relative' }}>
+        {slash.dropdown}
         {images.length > 0 && (
           <div className="composer-images">
             {images.map(src => (
@@ -141,8 +153,9 @@ export function Composer({
           rows={1}
           placeholder={placeholder}
           disabled={disabled}
-          onChange={e => onChange(e.target.value)}
+          onChange={slash.onChange}
           onKeyDown={onKeyDown}
+          onClick={slash.onClick}
           onPaste={onPaste}
         />
         <div className="footer">

@@ -43,7 +43,8 @@ function criterionLabel(kind: string | undefined): string {
   return 'CONVENTION';
 }
 
-function stepTarget(argumentsJson: Record<string, unknown>): string {
+function stepTarget(argumentsJson: Record<string, unknown> | null | undefined): string {
+  if (argumentsJson == null) return 'review context';
   const values = Object.values(argumentsJson).flatMap(value => {
     if (typeof value === 'string' || typeof value === 'number') return [String(value)];
     if (Array.isArray(value)) return value.filter(item => typeof item === 'string' || typeof item === 'number').map(String);

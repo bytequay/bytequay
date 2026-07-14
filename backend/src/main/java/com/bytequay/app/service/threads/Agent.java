@@ -80,8 +80,6 @@ public interface Agent
 
     void interrupt();
 
-    void pause();
-
     void resume();
 
     void stop();

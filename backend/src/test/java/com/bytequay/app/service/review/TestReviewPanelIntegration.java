@@ -169,7 +169,8 @@ class TestReviewPanelIntegration
     void panelOfFiveRoundTripsToTerminateWithBudgetsAndAttributionIntact()
     {
         ReviewPassDetail seated = service.startReviewOnPr(
-                "acme/widget", 42, ReviewPassService.StartOptions.DEFAULT);
+                "acme/widget", 42, new ReviewPassService.StartOptions(
+                        List.of(), 3, 500L, true, "ws-test", null, List.of()));
         ReviewPassDetail detail = service.findPassWithDetail(seated.pass().id()).orElseThrow();
 
         // Terminated cleanly with the agenda frozen all-DONE.

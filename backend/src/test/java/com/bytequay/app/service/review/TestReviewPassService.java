@@ -86,6 +86,12 @@ class TestReviewPassService
     private static final Pattern AGENDA_ID_IN_DIRECTIVE =
             Pattern.compile("Agenda phase '([^']+)'");
 
+    // Reviews now require an explicit host workspace; the value is
+    // opaque here (threadStore is mocked) — it just has to be non-blank.
+    private static final String WS = "ws-test";
+    private static final ReviewPassService.StartOptions WS_OPTS =
+            new ReviewPassService.StartOptions(List.of(), 3, 500L, true, WS, null, List.of());
+
     private ThreadStore threadStore;
     private InMemoryReviewStore reviewStore;
     private PullRequestRepository pullRequests;
@@ -183,7 +189,7 @@ class TestReviewPassService
         seatReportsFinding("src/foo.ts", 3, "nit", "Tidy this.");
 
         ReviewPassDetail seated = service.startReviewOnPr(
-                "acme/widget", 42, ReviewPassService.StartOptions.DEFAULT);
+                "acme/widget", 42, WS_OPTS);
 
         // The pass is seated with a thread id, and the body — dispatched
         // to the (same-thread, in this test) review executor — persisted
@@ -195,7 +201,7 @@ class TestReviewPassService
     @Test
     void standaloneReviewIsThreadHostedAndFresh()
     {
-        service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
 
         ReviewPass pass = reviewStore.findPassById(passId()).orElseThrow();
         assertThat(pass.hostKind()).isEqualTo(ReviewPassHostKind.THREAD);
@@ -208,7 +214,7 @@ class TestReviewPassService
     {
         service.startTaskPhaseReview(
                 "task-7", "acme/widget", 42, ReviewPassKind.RE_REVIEW,
-                ReviewPassService.StartOptions.DEFAULT);
+                WS_OPTS);
 
         ReviewPass pass = reviewStore.findPassById(passId()).orElseThrow();
         assertThat(pass.hostKind()).isEqualTo(ReviewPassHostKind.TASK_PHASE);
@@ -221,7 +227,7 @@ class TestReviewPassService
     {
         service.startTaskPhaseReview(
                 "task-7", "acme/widget", 42, ReviewPassKind.FRESH,
-                ReviewPassService.StartOptions.DEFAULT, "stage-abc");
+                WS_OPTS, "stage-abc");
 
         // The link is stamped during seating, before the (inline) body
         // settles to TERMINATE, so the terminate hook sees it and fires.
@@ -236,7 +242,7 @@ class TestReviewPassService
     @Test
     void standaloneReviewFiresNoTerminatedEvent()
     {
-        service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
 
         // A THREAD-hosted pass carries no stage link, so nothing closes.
         assertThat(publishedEvents).noneMatch(e -> e instanceof ReviewPassTerminatedEvent);
@@ -248,7 +254,7 @@ class TestReviewPassService
         LlmReviewer openai = configuredReviewer("openai", "GPT-5");
         when(registry.all()).thenReturn(List.of(reviewer, openai));
 
-        service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
 
         ArgumentCaptor<Thread> threadCaptor = ArgumentCaptor.forClass(Thread.class);
         verify(threadStore).saveThread(threadCaptor.capture());
@@ -290,7 +296,7 @@ class TestReviewPassService
         // A model-only lead + a reviewer carrying the skill: only the
         // reviewer's role resolves; the lead never takes a voice.
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, 7L, false))));
@@ -323,7 +329,7 @@ class TestReviewPassService
     {
         assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 42,
                 new ReviewPassService.StartOptions(
-                        List.of(), 3, 500L, true, null, null,
+                        List.of(), 3, 500L, true, WS, null,
                         List.of(
                                 new ReviewPassService.PanelSeat("claude-cli", null, null, true),
                                 new ReviewPassService.PanelSeat("claude", null, null, false)))))
@@ -345,7 +351,7 @@ class TestReviewPassService
                 "authored", null, "hash", Instant.now(), Instant.now())));
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, 7L, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -371,7 +377,7 @@ class TestReviewPassService
         // one REVIEWER — the lead coordinates, it is never also seated as a
         // reviewer (which produced the phantom extra reviewer).
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -392,7 +398,7 @@ class TestReviewPassService
                 "authored", null, "hash", Instant.now(), Instant.now())));
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, 11L, false))));
@@ -423,7 +429,7 @@ class TestReviewPassService
         // the start is refused rather than running an empty panel.
         assertThatThrownBy(() -> service.startReviewOnPr(
                 "acme/widget", 42, new ReviewPassService.StartOptions(
-                        List.of(), 3, 500L, true, null, null,
+                        List.of(), 3, 500L, true, WS, null,
                         List.of(new ReviewPassService.PanelSeat("claude", null, 8L, false)))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("No reviewers selected");
@@ -439,7 +445,7 @@ class TestReviewPassService
 
         assertThatThrownBy(() -> service.startReviewOnPr(
                 "acme/widget", 42, new ReviewPassService.StartOptions(
-                        List.of(), 3, 500L, true, null, null,
+                        List.of(), 3, 500L, true, WS, null,
                         List.of(new ReviewPassService.PanelSeat("claude", null, 9L, false)))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("build-surface skill");
@@ -452,7 +458,7 @@ class TestReviewPassService
         when(registry.all()).thenReturn(List.of(reviewer, openai));
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, "openai", List.of()));
+                List.of(), 3, 500L, true, WS, "openai", List.of()));
 
         ReviewParticipant lead = reviewStore.listParticipantsForPass(passId()).get(0);
         assertThat(lead.kind()).isEqualTo(ReviewParticipantKind.LEAD);
@@ -462,7 +468,11 @@ class TestReviewPassService
     @Test
     void spineWalksThePhasesAndFreezesTheAgendaDone()
     {
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
+        // The seat-then-run entry returns the seated snapshot; the body
+        // runs on the (inline, in this test) executor, so read the walked
+        // pass back from the store for terminal-phase assertions.
+        ReviewPassDetail detail = service.findPassWithDetail(passId()).orElseThrow();
 
         // Deterministic phase walk, persisted in order.
         assertThat(reviewStore.passHistory.stream().map(ReviewPass::phase).distinct())
@@ -513,7 +523,11 @@ class TestReviewPassService
     {
         seatReportsFinding("src/a.ts", 5, "major", "Suspicious null check.");
 
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
+        // The seat-then-run entry returns the seated snapshot; the body
+        // runs on the (inline, in this test) executor, so read the walked
+        // pass back from the store for terminal-phase assertions.
+        ReviewPassDetail detail = service.findPassWithDetail(passId()).orElseThrow();
 
         assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
         assertThat(detail.pass().endedAt()).isNull();
@@ -539,7 +553,11 @@ class TestReviewPassService
         }).when(leadOrchestrator).runRound(
                 any(), any(), any(), eq(ReviewPhase.CONSENSUS), anyInt(), anyString());
 
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
+        // The seat-then-run entry returns the seated snapshot; the body
+        // runs on the (inline, in this test) executor, so read the walked
+        // pass back from the store for terminal-phase assertions.
+        ReviewPassDetail detail = service.findPassWithDetail(passId()).orElseThrow();
 
         assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
         assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
@@ -555,7 +573,11 @@ class TestReviewPassService
                 .when(leadOrchestrator)
                 .runRound(any(), any(), any(), any(), anyInt(), anyString());
 
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
+        // The seat-then-run entry returns the seated snapshot; the body
+        // runs on the (inline, in this test) executor, so read the walked
+        // pass back from the store for terminal-phase assertions.
+        ReviewPassDetail detail = service.findPassWithDetail(passId()).orElseThrow();
 
         // 1 kickoff + 3 watchdog-bounded driven phases + 1 closing wrap-up.
         verify(leadOrchestrator, times(2 + 3 * ReviewPassService.MAX_LEAD_TURNS_PER_PHASE))
@@ -576,7 +598,7 @@ class TestReviewPassService
             return new TurnResult("", 0, 0, 0L, 1, TurnResult.End.COMPLETED);
         }).when(leadOrchestrator).runRound(any(), any(), any(), any(), anyInt(), anyString());
 
-        service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
 
         // The closing summary still runs — but via the UNBUDGETED overload
         // (enforceBudget=false) with the budget-aware directive — so a
@@ -590,7 +612,7 @@ class TestReviewPassService
     void steeringAReviewerPersistsTheHumanMessageAndRunsAnUnbudgetedReply()
     {
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -618,7 +640,7 @@ class TestReviewPassService
         when(pullRequests.fetchPrTitle(eq("ghp_secret"), any(PullRequestRef.class)))
                 .thenReturn("Add coordinator retry logic");
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -651,7 +673,7 @@ class TestReviewPassService
                 leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
                 mock(ReviewDiffCache.class), scheduler, skillStore, publishedEvents::add);
         async.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -691,7 +713,7 @@ class TestReviewPassService
                 leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
                 diffCache, scheduler, skillStore, publishedEvents::add);
         svc.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -716,7 +738,7 @@ class TestReviewPassService
         when(pullRequests.fetchPrDiff(eq("ghp_secret"), any(PullRequestRef.class)))
                 .thenReturn("diff --git a/F b/F\n+x");
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -792,7 +814,7 @@ class TestReviewPassService
                 });
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, null, null,
+                List.of(), 3, 500L, true, WS, null,
                 List.of(
                         new ReviewPassService.PanelSeat("claude", null, null, true),
                         new ReviewPassService.PanelSeat("claude", null, null, false))));
@@ -809,15 +831,17 @@ class TestReviewPassService
     }
 
     @Test
-    void everySeatFailingParksThePassAndSurfacesA502()
+    void everySeatFailingParksThePassTerminated()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))
                 .when(reviewerSeat).runDispatchedTurn(
                         any(), any(), anyString(), anyString(), any(), anyInt(), any());
 
-        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 99))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Review panel run failed");
+        // The seat-then-run entry hands the body to the executor, which
+        // parks the pass at TERMINATE on total failure and swallows the
+        // 502 (no HTTP caller is left to receive it); the run must not
+        // stall mid-flow.
+        service.startReviewOnPr("acme/widget", 99, WS_OPTS);
 
         // Pass is persisted terminated so the UI shows "review failed"
         // rather than "review running forever".
@@ -830,7 +854,7 @@ class TestReviewPassService
     {
         when(reviewer.isConfigured()).thenReturn(false);
 
-        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 1))
+        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 1, WS_OPTS))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("API key configured");
 

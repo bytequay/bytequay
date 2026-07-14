@@ -169,7 +169,11 @@ public class PRSyncService
      */
     public Optional<PR> syncExternalPR(String repo, int number)
     {
-        Optional<PR> existing = prService.findByRepoAndNumber(repo, number);
+        // Prefer a task's own PR row if it's been pushed to this number, so we
+        // resolve to the unified row rather than minting an external twin for a
+        // PR a ByteQuay task opened. See pr-record-unification-design.md.
+        Optional<PR> existing = prService.findTaskByRepoAndNumber(repo, number)
+                .or(() -> prService.findByRepoAndNumber(repo, number));
         if (existing.isPresent()) {
             return syncPR(existing.get().id(), DEFAULT_MAX_AGE_SECONDS);
         }
@@ -223,7 +227,11 @@ public class PRSyncService
         Set<String> freshKeys = new HashSet<>();
         for (PullRequest ghPr : fresh) {
             freshKeys.add(ghPr.repo() + "#" + ghPr.number());
-            PR pr = prService.findByRepoAndNumber(ghPr.repo(), ghPr.number())
+            // Reuse a task's own pushed PR row before falling back to (or
+            // creating) an external row, so a task-opened PR the dashboard
+            // re-discovers stays one aggregate row, not two.
+            PR pr = prService.findTaskByRepoAndNumber(ghPr.repo(), ghPr.number())
+                    .or(() -> prService.findByRepoAndNumber(ghPr.repo(), ghPr.number()))
                     .orElseGet(() -> prService.createExternal(
                             ghPr.repo(), ghPr.number(), ghPr.htmlUrl(), actorLabel(ghPr.author()),
                             ghPr.headRef() != null ? ghPr.headRef() : "unknown", DEFAULT_BASE,

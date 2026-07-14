@@ -659,6 +659,17 @@
   text-decoration: underline;
 }
 
+/* PR title shown under a merged push row — small, muted, single line with
+   ellipsis when it overflows the card width. */
+.home-following-item__prtitle {
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .home-following-item__time {
   font-size: var(--font-size-xs);
   color: var(--text-3);

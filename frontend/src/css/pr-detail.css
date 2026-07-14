@@ -1071,6 +1071,8 @@ button.prc-branches__ref--clickable:hover {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--font-size-sm);
   color: var(--text-1);
+  position: relative;
+  top: -2px;
 }
 .prc-review-thread__side {
   font-size: 9.5px;

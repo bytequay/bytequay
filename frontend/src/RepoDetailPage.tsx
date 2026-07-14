@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { IssueDto, PullRequestDto, UserProfileDto } from './types';
 import IssueDetailScreen from './IssueDetailScreen';
-import { PrDetailsView } from './pr/localpr/PrDetailsView';
+import { PrDetailsView, type AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
 import ReviewScreen from './ReviewScreen';
 import RemotePrDiffReviewScreen from './RemotePrDiffReviewScreen';
 import ResizeHandle from './ResizeHandle';
@@ -98,6 +98,8 @@ type Props = {
    *  affordance; the app shell routes the returned threadId into the
    *  review-thread page. */
   onStartReview?: (threadId: string) => void;
+  /** Open the workspace-owned route for a standalone PR agent review. */
+  onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
   /** Active workspace — required for starting a PR/diff review panel. */
   workspaceId?: string | null;
 };
@@ -121,7 +123,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, initialOpenDiff, onOpenLocalBranch, onOpenThread, onStartReview, workspaceId }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, initialOpenDiff, onOpenLocalBranch, onOpenThread, onStartReview, onOpenAgentReview, workspaceId }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -753,6 +755,8 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
           <PrDetailsView
             pr={selectedPr}
             onStartReview={onStartReview}
+            onOpenAgentReview={onOpenAgentReview}
+            workspaceId={workspaceId}
             onOpenReview={() => setReviewingPr(selectedPr)}
             onMarkHandled={handleMarkHandled}
           />

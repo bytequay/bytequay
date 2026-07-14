@@ -20,7 +20,6 @@ import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.service.review.ReviewBuildSpawnService;
 import com.bytequay.app.service.review.ReviewPassService;
 import com.bytequay.app.service.review.ScheduledReviewService;
-import com.bytequay.app.service.threads.PrTaskLinkService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,12 +38,9 @@ import java.util.Map;
 import static java.util.Objects.requireNonNull;
 
 /**
- * REST surface for the review flow-type. Three endpoints back the
- * Phase 1 panel UI: {@code POST /start} kicks a new pass off,
- * {@code GET /{passId}} returns the aggregated detail for a known
- * pass, {@code GET /by-thread/{threadId}} resolves the latest pass
- * on a review thread (the URL shape mirrors the thread-detail page
- * the panel UI lives in).
+ * Read/edit/publish surface for historical ReviewPass records. New work is
+ * created through the AgentReview API; these endpoints keep old records
+ * inspectable and actionable during migration.
  */
 @RestController
 @RequestMapping("/api/reviews")
@@ -54,20 +50,17 @@ public class ReviewController
     private final ScheduledReviewService scheduledReviews;
     private final AppSettingsStore appSettings;
     private final ReviewBuildSpawnService buildSpawn;
-    private final PrTaskLinkService prTaskLink;
 
     public ReviewController(
             ReviewPassService reviews,
             ScheduledReviewService scheduledReviews,
             AppSettingsStore appSettings,
-            ReviewBuildSpawnService buildSpawn,
-            PrTaskLinkService prTaskLink)
+            ReviewBuildSpawnService buildSpawn)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.scheduledReviews = requireNonNull(scheduledReviews, "scheduledReviews is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.buildSpawn = requireNonNull(buildSpawn, "buildSpawn is null");
-        this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
     }
 
     /** Read the workspace-level reviewer persona — a user-editable
@@ -90,19 +83,6 @@ public class ReviewController
     }
 
     public record PersonaRequest(String persona) {}
-
-    @PostMapping("/start")
-    public ReviewPassDetail start(@RequestBody StartReviewRequest body)
-    {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
-        }
-        // Author gate: a standalone review only targets someone else's
-        // PR — your own PR goes through the dev-task lifecycle.
-        prTaskLink.assertCanReview(body.repoFullName(), body.prNumber());
-        ReviewPassService.StartOptions opts = body.toOptions();
-        return reviews.startReviewOnPr(body.repoFullName(), body.prNumber(), opts);
-    }
 
     /**
      * Spawn a build thread from a TERMINATE-d pass to apply its AGREED
@@ -319,59 +299,6 @@ public class ReviewController
         }
         scheduledReviews.setEnabled(body.enabled());
         return Map.of("enabled", scheduledReviews.isEnabled());
-    }
-
-    /**
-     * Start-review body. {@code panelProviderIds}, {@code roundCap},
-     * {@code costCapMilli}, and {@code independentFirst} are optional
-     * — null/zero means "use the registry defaults" so the older
-     * one-click callers don't need to change. Today only the
-     * assign-review-task dialog populates them.
-     */
-    public record StartReviewRequest(
-            String repoFullName,
-            int prNumber,
-            List<String> panelProviderIds,
-            Integer roundCap,
-            Long costCapMilli,
-            Boolean independentFirst,
-            String workspaceId,
-            String leadId,
-            List<SeatRequest> seats)
-    {
-        public ReviewPassService.StartOptions toOptions()
-        {
-            ReviewPassService.StartOptions defaults = ReviewPassService.StartOptions.DEFAULT;
-            List<ReviewPassService.PanelSeat> seatList = seats == null ? List.of()
-                    : seats.stream()
-                            .filter(s -> s != null && s.providerId() != null && !s.providerId().isBlank())
-                            .map(SeatRequest::toSeat)
-                            .toList();
-            return new ReviewPassService.StartOptions(
-                    panelProviderIds == null ? List.of() : panelProviderIds,
-                    roundCap == null || roundCap <= 0 ? defaults.roundCap() : roundCap,
-                    costCapMilli == null || costCapMilli <= 0 ? defaults.costCapMilli() : costCapMilli,
-                    independentFirst == null ? defaults.independentFirst() : independentFirst,
-                    workspaceId,
-                    leadId == null || leadId.isBlank() ? null : leadId,
-                    seatList);
-        }
-    }
-
-    /** One composed reviewer seat from the dialog — a model plus an
-     *  optional review-skill voice or typed prompt, and whether it's the
-     *  lead. */
-    public record SeatRequest(
-            String providerId, String customPrompt, Long roleSkillId, Boolean lead)
-    {
-        ReviewPassService.PanelSeat toSeat()
-        {
-            return new ReviewPassService.PanelSeat(
-                    providerId,
-                    customPrompt == null || customPrompt.isBlank() ? null : customPrompt,
-                    roleSkillId,
-                    lead != null && lead);
-        }
     }
 
     public record PublishReviewRequest(String verdict, List<String> findingIds) {}

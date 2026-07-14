@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRTimeline } from './PRTimeline';
 import type { LocalPR, LocalPRComment, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
@@ -225,6 +225,63 @@ describe('PRTimeline composition', () => {
     expect(screen.getByText('src/Foo.java:42', { exact: false })).toBeTruthy();
     expect(screen.getByText('Fix this.')).toBeTruthy();
     expect(screen.getByText('Fixed.')).toBeTruthy();
+  });
+
+  it('renders a PR-level agent finding as Markdown and persists local replies', async () => {
+    const localPr = pr();
+    const data = createAgentReviewFixture({
+      pr: localPr,
+      commits: [{ id: 'c1', localPrId: localPr.id, sha: 'abcdef012345', message: 'change', additions: 2, deletions: 1, authoredAt: 1, pushedAt: null }],
+      timeline: [], checks: [], comments: [],
+    }, [{
+      filename: 'src/ChangedFile.ts', status: 'modified', additions: 2, deletions: 1,
+      patch: '@@ -3,2 +3,3 @@\n-old\n+new\n context',
+    }]);
+    data.pr_comments[0] = {
+      ...data.pr_comments[0], scope: 'pr', filePath: null, lineNumber: null,
+      body: 'DynamicTrinoCatalog should use **cleanup** around `connection.close()` instead of reusing ConnectorIdentity state.\n\nCould you clarify the intended behavior here? Keep the cache identity-safe.',
+    };
+    const onReply = vi.fn(async () => {});
+
+    const { container } = render(<PRTimeline
+      pr={localPr}
+      events={[]}
+      comments={data.pr_comments}
+      reviewData={data}
+      onReplyThread={onReply}
+    />);
+
+    expect(container.querySelector('strong')?.textContent).toBe('cleanup');
+    expect([...container.querySelectorAll('code')].map(node => node.textContent)).toEqual(expect.arrayContaining([
+      'DynamicTrinoCatalog', 'connection.close()', 'ConnectorIdentity',
+    ]));
+    expect([...container.querySelectorAll('strong')].map(node => node.textContent)).toContain('Question:');
+    fireEvent.click(screen.getByRole('button', { name: 'Reply locally…' }));
+    fireEvent.change(screen.getByPlaceholderText('Reply locally — Markdown supported.'), {
+      target: { value: 'I checked **this path**.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    await waitFor(() => expect(onReply).toHaveBeenCalledWith(data.pr_comments[0].id, 'I checked **this path**.'));
+  });
+
+  it('drops a published local draft when the GitHub feed renders it as a live thread', () => {
+    // A submitted review comment is marked publishedAt on the local row and
+    // also comes back from the GitHub feed. Rendering the local copy too
+    // would show the same comment twice (once as a "Discard draft" card,
+    // once as the published review).
+    render(<PRTimeline
+      pr={pr({ remotePrNumber: 42, repo: 'acme/widget', origin: 'external', author: '@octocat' })}
+      events={[]} activity={[]} reviewThreads={[]} threadActions={noopThreadActions}
+      comments={[{
+        id: 'c1', localPrId: 'pr1', origin: 'local', scope: 'file-line',
+        filePath: 'src/Foo.java', lineNumber: 42, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'you', body: 'Published note.',
+        createdAt: 2, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: 5,
+      }]}
+    />);
+
+    expect(screen.queryByText('Published note.')).toBeNull();
   });
 
   it('interleaves review milestones with ordinary PR events by timestamp', () => {

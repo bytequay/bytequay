@@ -211,35 +211,41 @@
 
 /* Existing thread — one bordered card per commented line/range, amber-headed
    while any comment in it is a still-open draft. */
-.ic-thread { margin: 4px 24px 10px 72px; max-width: 760px; border: 1px solid var(--border-mid); border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 1px 2px rgba(27, 31, 36, 0.06); }
+/* Local draft / agent-finding thread card. Kept visually identical to the
+   live GitHub review-thread card (.diff-thread in ai.css) so both kinds of
+   inline comment read as one system on the diff; the local-only affordances
+   (pending badge, Reply/Resolve/Discard links, the add composer) live inside
+   the same chrome. */
+.ic-thread { margin: 0 14px 8px 72px; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-card); font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
 .ic-thread--pending { border-color: rgba(212, 167, 44, 0.45); }
-.ic-thread__head { display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: var(--bg-input); border-bottom: 1px solid var(--border-light); font-size: 12px; }
+.ic-thread__head { display: flex; align-items: center; gap: var(--space-2); padding: 6px 10px 6px 8px; background: rgba(31, 111, 235, 0.06); border-bottom: 1px solid var(--border); font-size: var(--font-size-sm); color: var(--text-2); }
 .ic-thread--pending .ic-thread__head { background: #fffbeb; }
-.ic-thread__fold { appearance: none; border: 0; background: transparent; color: #57606a; cursor: pointer; font: inherit; font-size: 15px; line-height: 1; padding: 1px 2px; }
+.ic-thread__fold { appearance: none; border: 0; background: transparent; color: var(--text-3); cursor: pointer; font: inherit; font-size: var(--font-size-xs); line-height: 1; padding: 0 4px; }
 .ic-thread__fold:hover { color: var(--text-1); }
-.ic-thread__pending-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: #9a6700; background: #fff8c5; border: 1px solid rgba(212, 167, 44, 0.45); border-radius: 999px; padding: 1px 10px; flex-shrink: 0; }
+.ic-thread__pending-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: #9a6700; background: #fff8c5; border: 1px solid rgba(212, 167, 44, 0.45); border-radius: var(--radius-pill); padding: 1px 10px; flex-shrink: 0; }
 .ic-thread__pending-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #bf8700; }
-.ic-thread__label { color: #57606a; font-weight: 600; }
-.ic-thread__body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
-.ic-comment { display: flex; gap: 10px; align-items: flex-start; }
-.ic-comment__avatar { width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; }
-.ic-comment__avatar-img { flex-shrink: 0; }
+.ic-thread__label { color: var(--text-1); font-weight: 500; }
+.ic-thread__body { padding: 0; }
+.ic-comment { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-hairline, var(--border)); }
+.ic-comment:last-child { border-bottom: 0; }
+.ic-comment__avatar { width: 28px; height: 28px; flex-shrink: 0; margin-top: 2px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; }
+.ic-comment__avatar-img { flex-shrink: 0; margin-top: 2px; }
 .ic-comment__avatar--bot { border-radius: 6px; background: linear-gradient(135deg, #8b5cf6, #5b21b6); }
 .ic-comment__avatar--ext { background: linear-gradient(135deg, #0969da, #033d8b); }
 .ic-comment__avatar--you { background: linear-gradient(135deg, #fbbf24, #d97706); color: #78350f; }
-.ic-comment__col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ic-comment__meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.ic-comment__author { font-size: 13px; font-weight: 700; color: var(--text-1); }
+.ic-comment__col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ic-comment__meta { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.ic-comment__author { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-1); }
 .ic-comment__tag { font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
 .ic-comment__tag--resolved { background: var(--green-soft); color: var(--green); }
 .ic-comment__tag--dismissed { background: var(--bg-input); color: var(--text-3); border: 1px solid var(--border-mid); }
-.ic-comment__time { font-size: 12px; color: #57606a; }
+.ic-comment__time { font-size: var(--font-size-sm); color: var(--text-3); }
 .ic-comment__links { margin-left: auto; display: inline-flex; gap: 10px; flex-shrink: 0; }
-.ic-comment__links button { border: 0; background: transparent; padding: 0; font-size: 12px; font-weight: 600; color: #57606a; cursor: pointer; }
+.ic-comment__links button { border: 0; background: transparent; padding: 0; font-size: var(--font-size-sm); font-weight: 600; color: var(--text-3); cursor: pointer; }
 .ic-comment__links button:hover { color: var(--accent); }
-.ic-comment__text { font-size: 13px; color: var(--text-1); line-height: 1.55; }
-.ic-thread__reply-stub { appearance: none; width: 100%; text-align: left; margin-top: 2px; padding: 8px 10px; border: 1px solid var(--border-mid); border-radius: 8px; background: #fff; color: #57606a; cursor: pointer; font: inherit; font-size: 13px; }
-.ic-thread__reply-stub:hover { border-color: var(--accent-border); color: var(--text-1); }
+.ic-comment__text { font-size: var(--font-size-sm); color: var(--text-1); line-height: 1.5; }
+.ic-thread__reply-stub { appearance: none; display: block; width: 100%; text-align: left; padding: var(--space-2) var(--space-3); border: 0; border-top: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-3); cursor: pointer; font: inherit; font-size: var(--font-size-sm); }
+.ic-thread__reply-stub:hover { color: var(--text-1); background: var(--bg-card); }
 .shell .diff-line.add { background: rgba(34, 197, 94, 0.08); }
 .shell .diff-line.add .ln, .shell .diff-line.add .mark { color: rgba(22, 163, 74, 0.55); }
 .shell .diff-line.add .mark { color: #16a34a; }

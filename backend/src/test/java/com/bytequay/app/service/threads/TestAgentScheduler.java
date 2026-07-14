@@ -46,6 +46,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
+import com.bytequay.app.service.skills.CavemanPrompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -141,7 +142,7 @@ class TestAgentScheduler
     }
 
     @Test
-    void codingStageActivatesPonytailWithoutChangingUserInput()
+    void codingStageActivatesPonytailAndCavemanWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);
         Thread thread = thread("thread-1", CLI_AGENT);
@@ -156,11 +157,11 @@ class TestAgentScheduler
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
-        assertThat(session.skillNames).containsExactly(List.of("ponytail"));
+        assertThat(session.skillNames).containsExactly(List.of("ponytail", CavemanPrompt.NAME));
     }
 
     @Test
-    void apiCodingStageActivatesPonytailWithoutChangingUserInput()
+    void apiCodingStageActivatesPonytailAndCavemanWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);
         Thread thread = thread("thread-1", LOGIC_LOOP);
@@ -175,11 +176,11 @@ class TestAgentScheduler
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
-        assertThat(session.skillNames).containsExactly(List.of("ponytail"));
+        assertThat(session.skillNames).containsExactly(List.of("ponytail", CavemanPrompt.NAME));
     }
 
     @Test
-    void trunkPlanningTurnActivatesTrunkPlannerWithoutChangingUserInput()
+    void trunkPlanningTurnActivatesTrunkPlannerAndCavemanWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);
         Thread thread = thread("thread-1", CLI_AGENT);
@@ -188,7 +189,7 @@ class TestAgentScheduler
         harness.scheduler.enqueueTrunkTurn(thread, "go ahead and implement this");
 
         assertThat(session.inputs).containsExactly("go ahead and implement this");
-        assertThat(session.skillNames).containsExactly(List.of("trunk-planner"));
+        assertThat(session.skillNames).containsExactly(List.of("trunk-planner", CavemanPrompt.NAME));
     }
 
     @Test

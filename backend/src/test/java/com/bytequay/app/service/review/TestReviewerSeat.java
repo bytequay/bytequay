@@ -25,6 +25,7 @@ import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -131,6 +132,11 @@ class TestReviewerSeat
         ArgumentCaptor<ReviewPass> passCaptor = ArgumentCaptor.forClass(ReviewPass.class);
         verify(reviewStore).savePass(passCaptor.capture());
         assertEquals(7L, passCaptor.getValue().costUsdMilli());
+
+        ArgumentCaptor<TurnSpec> spec = ArgumentCaptor.forClass(TurnSpec.class);
+        verify(runner).runTurn(spec.capture(), any(), any());
+        assertTrue(spec.getValue().system().contains("Caveman is mandatory"));
+        assertTrue(spec.getValue().system().contains("report_finding"));
     }
 
     @Test

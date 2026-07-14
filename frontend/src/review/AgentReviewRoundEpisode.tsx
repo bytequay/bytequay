@@ -11,11 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
-import { RunEpisode } from '../ui/conv/RunEpisode';
-import { ToolBlock } from '../ui/conv/ToolBlock';
-import { Spine } from '../ui/conv/spine/Spine';
-import { WorkFold } from '../ui/conv/spine/WorkFold';
 import type { AgentReviewData, PanelReviewRunRow, ReviewRoundRow } from './agentReviewTypes';
 import { formatCents } from './agentReviewTypes';
 
@@ -49,14 +44,11 @@ export function AgentReviewRoundEpisode({ data, round, run, onOpen, onAction }: 
   onOpen?: () => void;
   onAction?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(run.status === 'running');
   const state = episodeState(
     run, round,
-    data.session.status === 'STALE' && data.rounds.at(-1)?.id === round.id,
+    data.review.status === 'STALE' && data.rounds.at(-1)?.id === round.id,
   );
   const copy = COPY[state];
-  const assignments = data.assignments.filter(assignment => assignment.round_id === round.id);
-  const steps = data.steps.filter(step => assignments.some(assignment => assignment.id === step.assignment_id));
   const findings = data.findings.filter(finding => finding.round_id === round.id);
   const ballotFindings = findings.filter(finding => finding.verification_status !== 'rejected'
     && finding.lifecycle_status !== 'dropped');
@@ -69,77 +61,32 @@ export function AgentReviewRoundEpisode({ data, round, run, onOpen, onAction }: 
         questions > 0 ? `${questions} needs judgement` : null,
       ].filter((part): part is string => part !== null).join(' · ')
     : run.headline ?? round.scope;
-  const pendingComments = data.pr_comments.filter(comment => comment.findingId !== null
-    && findings.some(finding => finding.id === comment.findingId)
-    && comment.publishedAt === null && comment.dismissedAt === null).length;
+  const roundNumber = data.rounds.indexOf(round) + 1;
 
   return (
-    <div className={`agent-review-run-episode agent-review-run-episode--${state}`}>
-      <Spine variant="trunk">
-        <RunEpisode
-          run={run}
-          mark={copy.glyph}
-          color={state === 'complete' ? 'green' : state === 'errored' ? 'orange' : state === 'halted' || state === 'stale' ? 'amber' : 'purple'}
-          name={`Round ${data.rounds.indexOf(round) + 1} · ${copy.title}`}
-          state={summary}
-          meta={`${formatCents(round.cost_cents)} of ${formatCents(round.budget_json.cost_cap_cents)}`}
-          collapsed={!expanded}
-          onToggle={() => setExpanded(value => !value)}
-        />
-        {expanded && (
-          <div className="agent-review-run-episode__body">
-            <ToolBlock
-              tag="planner"
-              plan
-              icon="⚑"
-              desc={`dispatched ${assignments.length} reviewer${assignments.length === 1 ? '' : 's'} — objectives and fixed budgets attached`}
-            />
-          {assignments.map(assignment => {
-            const assignmentSteps = steps.filter(step => step.assignment_id === assignment.id);
-            const assignmentCost = assignmentSteps.reduce((sum, step) => sum + step.cost_cents, 0);
-            return (
-              <WorkFold
-                key={assignment.id}
-                label={`${assignment.reviewer_def_id} — investigation`}
-                meta={`${assignmentSteps.length} steps · ${formatCents(assignmentCost)}`}
-                forceOpen
-                icon={assignment.reviewer_def_id.slice(0, 2).toUpperCase()}
-              >
-                {assignmentSteps.length === 0 ? <p>No step log recorded.</p> : assignmentSteps.map(step => (
-                  <ToolBlock
-                    key={step.id}
-                    tag={step.action_type}
-                    icon={step.status === 'completed' ? '✓' : step.status === 'running' ? '●' : step.status === 'skipped' ? '⊘' : '·'}
-                    desc={step.reason}
-                    meta={step.cost_cents > 0 ? formatCents(step.cost_cents) : step.status}
-                  />
-                ))}
-              </WorkFold>
-            );
-          })}
-          {findings.map(finding => (
-            <ToolBlock
-              key={finding.id}
-              tag={`F${data.findings.indexOf(finding) + 1}`}
-              icon={finding.verification_status === 'rejected' ? '✕' : finding.verification_status === 'unknown' ? '?' : finding.verification_status === 'partially' ? '◐' : '◈'}
-              desc={`${finding.claim} · ${finding.verification_status === 'partially' ? 'partially verified' : finding.verification_status}`}
-              meta={`priority ${finding.severity}`}
-            />
-          ))}
-          {pendingComments > 0 && (
-            <ToolBlock tag="pending" icon="→" desc={`${pendingComments} finding${pendingComments === 1 ? '' : 's'} landed as pending comments`} meta="local-only" />
-          )}
-          <div className="agent-review-run-episode__actions">
-            {onOpen !== undefined && <button type="button" onClick={onOpen}>Open round log →</button>}
-            {(copy.action !== undefined || state === 'errored') && (
-              <button type="button" className="primary" onClick={onAction}>
-                {state === 'errored' ? `Retry round ${data.rounds.indexOf(round) + 1}` : copy.action}
-              </button>
-            )}
-          </div>
-          </div>
-        )}
-      </Spine>
-    </div>
+    <section className={`agent-review-round-card agent-review-round-card--${state}`}>
+      <button
+        type="button"
+        className="agent-review-round-card__open"
+        onClick={onOpen}
+        disabled={onOpen === undefined}
+        aria-label={`Open round ${roundNumber}: ${copy.title}, ${summary}, ${formatCents(round.cost_cents)} of ${formatCents(round.budget_json.cost_cap_cents)}`}
+      >
+        <span className="agent-review-round-card__glyph" aria-hidden="true">{copy.glyph}</span>
+        <span className="agent-review-round-card__copy">
+          <b>Round {roundNumber} · {copy.title}</b>
+          <small>{summary}</small>
+        </span>
+        <span className="agent-review-round-card__cost">
+          {formatCents(round.cost_cents)} / {formatCents(round.budget_json.cost_cap_cents)}
+        </span>
+        <span className="agent-review-round-card__arrow" aria-hidden="true">→</span>
+      </button>
+      {(copy.action !== undefined || state === 'errored') && onAction !== undefined && (
+        <button type="button" className="agent-review-round-card__action" onClick={onAction}>
+          {state === 'errored' ? `Retry round ${roundNumber}` : copy.action}
+        </button>
+      )}
+    </section>
   );
 }

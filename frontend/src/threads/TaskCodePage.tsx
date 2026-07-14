@@ -23,8 +23,10 @@ import { contiguousRange } from '../diff/commitRange';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { statusBadge } from '../diffStatusBadge';
 import { ExpandableFileDiffBody } from '../diff/ExpandableFileDiffBody';
+import { InlineReviewThread } from '../diff/InlineReviewThread';
 import { useDiffRangeComposer } from '../diff/useDiffRangeComposer';
-import type { DiffFileDto, NotificationDto, ReviewCommentDto, ThreadCommitDto } from '../types';
+import { useGitHubActivityFeed } from '../pr/useGitHubActivityFeed';
+import type { DiffFileDto, NotificationDto, ReviewCommentDto, ReviewThreadDto, ThreadCommitDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 import { isLocalStatus } from '../types/localPr';
 import { useLocalPr } from './brain/useLocalPr';
@@ -252,8 +254,16 @@ export default function TaskCodePage({
   const localCommentMode = !reviewMode && !markReadyMode && localPhasePr !== null;
   const localByAnchor = useMemo(() => {
     const map = new Map<string, LocalPRComment[]>();
+    // Once the branch is pushed the live GitHub feed renders published
+    // comments as threads; a published local draft would then double on the
+    // diff, so drop published rows while the feed is active.
+    const feedActive = localPrBundle?.pr.repo != null && localPrBundle?.pr.remotePrNumber != null;
     for (const c of localPrBundle?.comments ?? []) {
-      if (c.scope !== 'file-line' || c.filePath === null || c.lineNumber === null) continue;
+      // Local drafts / agent findings only — GitHub review threads render via
+      // <InlineReviewThread>, so remote-origin rows would double on the diff.
+      if (c.scope !== 'file-line' || c.origin !== 'local'
+          || c.filePath === null || c.lineNumber === null
+          || (feedActive && c.publishedAt !== null)) continue;
       const key = `${c.filePath}:${c.side}:${c.lineNumber}`;
       const list = map.get(key) ?? [];
       list.push(c);
@@ -261,6 +271,44 @@ export default function TaskCodePage({
     }
     return map;
   }, [localPrBundle]);
+
+  // Live GitHub review threads on the pushed PR — reply / resolve / unresolve.
+  // The task-origin PR's repo is set on push (recordPush), so the feed only
+  // activates once the branch is pushed and a remote PR exists.
+  const remoteRepo = localPrBundle?.pr.repo ?? null;
+  const remotePrNumber = localPrBundle?.pr.remotePrNumber ?? null;
+  const { reviewThreads: githubThreads, refresh: refreshGithubFeed } =
+    useGitHubActivityFeed(remoteRepo, remotePrNumber);
+  const githubActive = remoteRepo !== null && remotePrNumber !== null;
+  const githubThreadsByAnchor = useMemo(() => {
+    const map = new Map<string, ReviewThreadDto[]>();
+    for (const t of githubThreads) {
+      if (t.filePath === null || t.line === null || t.outdated) continue;
+      const side = t.side === 'LEFT' ? 'LEFT' : 'RIGHT';
+      const key = `${t.filePath}:${side}:${t.line}`;
+      const list = map.get(key) ?? [];
+      list.push(t);
+      map.set(key, list);
+    }
+    return map;
+  }, [githubThreads]);
+  const renderGithubThreads = useCallback((filename: string, side: 'LEFT' | 'RIGHT', line: number) => {
+    if (!githubActive || remoteRepo === null || remotePrNumber === null) return null;
+    const threads = githubThreadsByAnchor.get(`${filename}:${side}:${line}`);
+    if (threads === undefined || threads.length === 0) return null;
+    return threads.map(thread => (
+      <InlineReviewThread
+        key={thread.rootGithubId}
+        thread={thread}
+        prAuthor={localPrBundle?.pr.author ?? null}
+        repo={remoteRepo}
+        prId={0 /* backend derives the detail id from the thread's comment id */}
+        prNumber={remotePrNumber}
+        onReplied={() => refreshGithubFeed(true)}
+      />
+    ));
+  }, [githubActive, githubThreadsByAnchor, localPrBundle?.pr.author, remoteRepo, remotePrNumber, refreshGithubFeed]);
+
   const addLocalComment = useCallback((
     filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
     startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string,
@@ -904,8 +952,12 @@ export default function TaskCodePage({
                         && composer.file === file.filename
                         && composer.side === anchorSide
                         && composer.line === anchorLine;
-                      if ((here === undefined || here.length === 0) && !composerHere) return null;
+                      const threads = renderGithubThreads(file.filename, anchorSide, anchorLine);
+                      if ((here === undefined || here.length === 0) && !composerHere && threads === null) return null;
                       return (
+                        <>
+                        {threads}
+                        {((here !== undefined && here.length > 0) || composerHere) && (
                         <DiffInlineComments
                           comments={(here ?? []).map(diffInlineCommentFromReviewDto)}
                           allowLocalComments
@@ -918,6 +970,8 @@ export default function TaskCodePage({
                             : undefined}
                           placeholder="Leave a comment — markdown supported."
                         />
+                        )}
+                        </>
                       );
                     }}
                   />
@@ -955,8 +1009,12 @@ export default function TaskCodePage({
                         && composer.file === file.filename
                         && composer.side === anchorSide
                         && composer.line === anchorLine;
-                      if (here.length === 0 && !composerHere) return null;
+                      const threads = renderGithubThreads(file.filename, anchorSide, anchorLine);
+                      if (here.length === 0 && !composerHere && threads === null) return null;
                       return (
+                        <>
+                        {threads}
+                        {(here.length > 0 || composerHere) && (
                         <DiffInlineComments
                           comments={here.map(diffInlineCommentFromLocalPr)}
                           allowLocalComments
@@ -979,6 +1037,8 @@ export default function TaskCodePage({
                             ? rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)
                             : undefined}
                         />
+                        )}
+                        </>
                       );
                     }}
                   />
@@ -986,6 +1046,7 @@ export default function TaskCodePage({
                   <ExpandableFileDiffBody
                     file={file}
                     fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
+                    renderAfterRow={(anchorSide, anchorLine) => renderGithubThreads(file.filename, anchorSide, anchorLine)}
                   />
                 ))}
               />

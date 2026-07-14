@@ -255,7 +255,8 @@ final class PullRequestDetailFetcher
                 message.originalLine(), message.originalStartLine(),
                 message.authorAssociation(),
                 meta.graphqlNodeId(),
-                meta.resolved());
+                meta.resolved(),
+                meta.resolvedBy());
     }
 
     private void logDetailFetchDone(

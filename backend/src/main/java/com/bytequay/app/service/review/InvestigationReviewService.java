@@ -18,6 +18,7 @@ import com.bytequay.app.beans.localpr.PRTimelineEntryDto;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.InvestigationReviewData;
 import com.bytequay.app.domain.InvestigationReviewData.ActivityFactRow;
+import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.AssignmentBudget;
 import com.bytequay.app.domain.InvestigationReviewData.CriterionRow;
 import com.bytequay.app.domain.InvestigationReviewData.FindingEvidenceRow;
@@ -31,11 +32,16 @@ import com.bytequay.app.domain.InvestigationReviewData.ReviewAssignmentRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewOutcomeRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
-import com.bytequay.app.domain.InvestigationReviewData.ReviewSessionRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.CoverageReport;
@@ -51,7 +57,9 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -79,7 +87,7 @@ import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
-/** P0-P2 review-session lifecycle and deterministic orchestration. */
+/** AgentReview lifecycle and deterministic orchestration. */
 @Service
 public class InvestigationReviewService
 {
@@ -95,6 +103,8 @@ public class InvestigationReviewService
     private final InvestigationReviewRunner runner;
     private final AgentRunService runs;
     private final PRService prs;
+    private final TaskStore tasks;
+    private final ThreadStore threads;
     private final ObjectMapper mapper;
     private final ConcurrentHashMap<String, CachedPlan> preflightPlans = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<String>> preflightAugments =
@@ -104,13 +114,15 @@ public class InvestigationReviewService
     public InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
             InvestigationReviewRunner runner, AgentRunService runs,
-            PRService prs, ObjectMapper mapper)
+            PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper)
     {
         this.store = requireNonNull(store, "store is null");
         this.contexts = requireNonNull(contexts, "contexts is null");
         this.runner = requireNonNull(runner, "runner is null");
         this.runs = requireNonNull(runs, "runs is null");
         this.prs = requireNonNull(prs, "prs is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.threads = requireNonNull(threads, "threads is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -126,23 +138,26 @@ public class InvestigationReviewService
 
     public InvestigationReviewData start(String prId, StartOptions options)
     {
-        Optional<ReviewSessionRow> existing = store.findActiveSessionByPr(prId);
+        Optional<AgentReviewRow> existing = store.findActiveReviewByPr(prId);
         if (existing.isPresent()) {
-            return detail(existing.get());
+            PR pr = requirePr(prId);
+            return detail(ensureOwnership(existing.get(), pr, options));
         }
         PR pr = requirePr(prId);
+        ReviewOwnership ownership = ownershipFor(pr, options);
         InvestigationReviewContext.Snapshot snapshot = contexts.load(pr);
         PlanDraft plan = cachedPlan(snapshot);
         List<PanelSeat> panel = panel(plan.reviewClass(), options);
         Instant now = Instant.now();
-        ReviewSessionRow session = new ReviewSessionRow(
+        AgentReviewRow review = new AgentReviewRow(
                 UUID.randomUUID().toString(), pr.repo() == null ? "local" : pr.repo(), pr.id(),
-                snapshot.baseCommit(), snapshot.headCommit(), "ACTIVE");
-        store.insertSession(session, now);
-        RoundWork work = createRound(session, pr, snapshot, plan, panel,
+                snapshot.baseCommit(), snapshot.headCommit(), "ACTIVE", ownership.workspaceId(),
+                ownership.threadId(), ownership.taskId());
+        store.insertReview(review, now);
+        RoundWork work = createRound(review, pr, snapshot, plan, panel,
                 "initial", "full", List.of());
         reviewEvent(pr.id(), "started", "you", node -> {
-            node.put("sessionId", session.id());
+            node.put("reviewId", review.id());
             node.put("roundId", work.round().id());
             node.put("reviewClass", plan.reviewClass());
         });
@@ -155,40 +170,110 @@ public class InvestigationReviewService
                 });
             }
         });
-        return detail(session);
+        return detail(review);
     }
 
     public Optional<InvestigationReviewData> findByPr(String prId)
     {
-        return store.findActiveSessionByPr(prId).map(session -> {
+        return store.findActiveReviewByPr(prId).map(found -> {
             PR pr = requirePr(prId);
+            AgentReviewRow review = ensureOwnership(found, pr, null);
             String head = contexts.headCommit(pr);
-            if (!session.reviewedHeadCommit().equals(head)
-                    && !"STALE".equals(session.status())) {
-                store.rounds(session.id()).stream().reduce((first, second) -> second)
+            if (!review.reviewedHeadCommit().equals(head)
+                    && !"STALE".equals(review.status())) {
+                store.rounds(review.id()).stream().reduce((first, second) -> second)
                         .ifPresent(round -> stopRound(round, "review evidence became stale"));
-                store.updateSessionStatus(session.id(), "STALE");
-                session = new ReviewSessionRow(session.id(), session.repoId(), session.prId(),
-                        session.baseCommit(), session.reviewedHeadCommit(), "STALE");
+                store.updateReviewStatus(review.id(), "STALE");
+                review = new AgentReviewRow(review.id(), review.repoId(), review.prId(),
+                        review.baseCommit(), review.reviewedHeadCommit(), "STALE",
+                        review.workspaceId(), review.ownerThreadId(), review.ownerTaskId());
+                syncStandaloneOwner(review, ThreadStatus.NEEDS_ATTENTION, null);
             }
-            return detail(session);
+            return detail(review);
         });
     }
 
+    public Optional<InvestigationReviewData> findByOwnerThread(String threadId)
+    {
+        return store.findActiveReviewByOwnerThread(threadId).map(this::detail);
+    }
+
+    /** Stop and remove every AgentReview owned by a thread before that thread
+     * (or its workspace) is permanently deleted. */
+    public void purgeByOwnerThread(String threadId)
+    {
+        for (AgentReviewRow review : store.reviewsByOwnerThread(threadId)) {
+            store.rounds(review.id()).stream()
+                    .filter(round -> "RUNNING".equals(round.status()))
+                    .forEach(round -> stopRound(round, "owning thread was deleted"));
+            store.deleteReview(review.id());
+            log.info("deleted agent review {} with owner thread {}", review.id(), threadId);
+        }
+    }
+
+    private AgentReviewRow ensureOwnership(
+            AgentReviewRow review, PR pr, StartOptions options)
+    {
+        if (review.ownerThreadId() != null && !review.ownerThreadId().isBlank()
+                && review.workspaceId() != null && !review.workspaceId().isBlank()) {
+            return review;
+        }
+        ReviewOwnership owner = ownershipFor(pr, options);
+        store.updateReviewOwner(review.id(), owner.workspaceId(), owner.threadId(), owner.taskId());
+        return new AgentReviewRow(
+                review.id(), review.repoId(), review.prId(), review.baseCommit(),
+                review.reviewedHeadCommit(), review.status(), owner.workspaceId(),
+                owner.threadId(), owner.taskId());
+    }
+
+    private ReviewOwnership ownershipFor(PR pr, StartOptions options)
+    {
+        if (pr.taskId() != null && !pr.taskId().isBlank()) {
+            Task task = tasks.findTaskById(pr.taskId())
+                    .orElseThrow(() -> new IllegalStateException("review PR has no task " + pr.taskId()));
+            com.bytequay.app.domain.Thread thread = threads.findThreadById(task.threadId())
+                    .orElseThrow(() -> new IllegalStateException("review task has no thread " + task.threadId()));
+            return new ReviewOwnership(thread.workspaceId(), thread.id(), task.id());
+        }
+
+        String workspaceId = options == null ? null : blankToNull(options.workspaceId());
+        if (workspaceId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "workspaceId is required to start a standalone PR review");
+        }
+        String provider = options == null ? null : blankToNull(options.providerId());
+        if (provider == null) {
+            provider = "agent-review";
+        }
+        Instant now = Instant.now();
+        String ref = pr.repo() + "#" + pr.remotePrNumber();
+        String title = pr.title() == null || pr.title().isBlank()
+                ? "Review " + ref
+                : "Review " + ref + " — " + pr.title();
+        com.bytequay.app.domain.Thread thread = new com.bytequay.app.domain.Thread(
+                UUID.randomUUID().toString(), ThreadKind.LOGIC_LOOP, provider,
+                null, title,
+                ThreadStatus.RUNNING, provider,
+                0L, 0L, 0L, now, now, null, null,
+                ThreadFlow.REVIEW, workspaceId, null);
+        threads.saveThread(thread);
+        return new ReviewOwnership(workspaceId, thread.id(), null);
+    }
+
     /** Small persisted projection used by kanban cards; one query for the
-     * whole dashboard rather than session + rounds queries per PR. */
+     * whole dashboard rather than review + rounds queries per PR. */
     public Map<String, String> dashboardStates()
     {
         return store.dashboardStates();
     }
 
     public InvestigationReviewData createRound(
-            String sessionId, String kind, List<String> findingIds, StartOptions options)
+            String reviewId, String kind, List<String> findingIds, StartOptions options)
     {
-        ReviewSessionRow session = requireSession(sessionId);
-        RoundWork work = prepareRound(session, kind, findingIds, options);
+        AgentReviewRow review = requireReview(reviewId);
+        RoundWork work = prepareRound(review, kind, findingIds, options);
         launch(work);
-        return detail(session);
+        return detail(review);
     }
 
     public InvestigationReviewData answer(String findingId, String text)
@@ -198,10 +283,10 @@ public class InvestigationReviewService
         }
         FindingRow finding = store.findFinding(findingId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown finding " + findingId));
-        ReviewSessionRow session = requireSession(finding.sessionId());
-        RoundWork work = prepareRound(session, "continuation", List.of(findingId), null);
+        AgentReviewRow review = requireReview(finding.reviewId());
+        RoundWork work = prepareRound(review, "continuation", List.of(findingId), null);
         ReviewRoundRow round = work.round();
-        ReviewAssignmentRow assignment = store.assignments(session.id()).stream()
+        ReviewAssignmentRow assignment = store.assignments(review.id()).stream()
                 .filter(row -> row.roundId().equals(round.id())).findFirst().orElseThrow();
         String stepId = UUID.randomUUID().toString();
         store.insertStep(new InvestigationStepRow(
@@ -216,18 +301,18 @@ public class InvestigationReviewService
                 "Explicit user judgement.", "DIRECT_ONLY", mapper.createObjectNode()));
         store.updateFinding(findingId, "answered", finding.verificationStatus(),
                 "SUPPORTED", finding.claim(), finding.severity());
-        reviewEvent(session.prId(), "answered", "you",
+        reviewEvent(review.prId(), "answered", "you",
                 node -> node.put("findingId", findingId));
         launch(work);
-        return detail(session);
+        return detail(review);
     }
 
     public InvestigationReviewData mutateFinding(String findingId, FindingMutation mutation)
     {
         FindingRow finding = store.findFinding(findingId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown finding " + findingId));
-        ReviewSessionRow session = requireSession(finding.sessionId());
-        PRComment comment = prs.comments(session.prId()).stream()
+        AgentReviewRow review = requireReview(finding.reviewId());
+        PRComment comment = prs.comments(review.prId()).stream()
                 .filter(row -> findingId.equals(row.findingId()))
                 .findFirst().orElse(null);
         String action = mutation == null ? "" : mutation.action();
@@ -263,18 +348,19 @@ public class InvestigationReviewService
             }
             default -> throw new IllegalArgumentException("unknown finding action: " + action);
         }
-        reviewEvent(session.prId(), "dismiss".equals(action) ? "dismissed" : "finding-updated", "you",
+        reviewEvent(review.prId(), "dismiss".equals(action) ? "dismissed" : "finding-updated", "you",
                 node -> node.put("findingId", findingId));
-        return detail(session);
+        return detail(review);
     }
 
     public void recordPublished(
             String prId, String verdict, List<String> findingIds, List<String> commentIds)
     {
-        if (store.findActiveSessionByPr(prId).isEmpty()
-                || (findingIds == null && commentIds == null)) {
+        Optional<AgentReviewRow> found = store.findActiveReviewByPr(prId);
+        if (found.isEmpty() || (findingIds == null && commentIds == null)) {
             return;
         }
+        AgentReviewRow review = ensureOwnership(found.orElseThrow(), requirePr(prId), null);
         Set<String> publishedFindings = findingIds == null
                 ? Set.of() : new LinkedHashSet<>(findingIds);
         for (String findingId : publishedFindings) {
@@ -292,26 +378,28 @@ public class InvestigationReviewService
             node.put("count", count);
             node.put("verdict", verdict == null ? "COMMENT" : verdict);
         });
+        syncStandaloneOwner(review, ThreadStatus.COMPLETED, null);
     }
 
     public InvestigationReviewData roundLog(String roundId)
     {
         ReviewRoundRow round = store.findRound(roundId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown round " + roundId));
-        return detail(requireSession(round.sessionId()));
+        return detail(requireReview(round.reviewId()));
     }
 
     public InvestigationReviewData cancelRound(String roundId)
     {
         ReviewRoundRow round = store.findRound(roundId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown round " + roundId));
-        ReviewSessionRow session = requireSession(round.sessionId());
+        AgentReviewRow review = requireReview(round.reviewId());
         if (!stopRound(round, "review round stopped by user")) {
-            return detail(session);
+            return detail(review);
         }
-        reviewEvent(session.prId(), "round-cancelled", "you",
+        reviewEvent(review.prId(), "round-cancelled", "you",
                 node -> node.put("roundId", round.id()));
-        return detail(session);
+        syncStandaloneOwner(review, ThreadStatus.COMPLETED, null);
+        return detail(review);
     }
 
     private boolean stopRound(ReviewRoundRow round, String reason)
@@ -372,18 +460,17 @@ public class InvestigationReviewService
     }
 
     private RoundWork createRound(
-            ReviewSessionRow session, PR pr, InvestigationReviewContext.Snapshot snapshot,
+            AgentReviewRow review, PR pr, InvestigationReviewContext.Snapshot snapshot,
             PlanDraft plan, List<PanelSeat> panel, String trigger, String scope,
             List<String> findingIds)
     {
         String roundId = UUID.randomUUID().toString();
-        AgentRun run = runs.openDetached(AgentRun.KIND_PANEL_REVIEW, null,
-                roundId, plan.budget().costCapCents());
+        AgentRun run = openReviewRun(review, roundId, plan.budget().costCapCents());
         ReviewRoundRow round = new ReviewRoundRow(
-                roundId, session.id(), run.id(), trigger, scope, snapshot.headCommit(), null,
-                "RUNNING", plan.budget(), 0);
+                roundId, review.id(), run.id(), trigger, scope, snapshot.headCommit(), null,
+                "RUNNING", plan.budget(), 0, snapshot.capabilities(), null);
         store.insertRound(round, Instant.now());
-        List<ReviewObjectiveRow> objectives = persistPlan(session, round, plan, findingIds);
+        List<ReviewObjectiveRow> objectives = persistPlan(review, round, plan, findingIds);
         List<AssignmentWork> assignments = new ArrayList<>();
         for (PanelSeat seat : panel) {
             ProviderChoice investigator = seat.provider();
@@ -395,34 +482,45 @@ public class InvestigationReviewService
                     new AssignmentBudget(6, 3, 12, 5)));
             assignments.add(new AssignmentWork(assignmentId, investigator, reviewerDef));
         }
-        return new RoundWork(session, pr, snapshot, plan, round, run, objectives,
+        return new RoundWork(review, pr, snapshot, plan, round, run, objectives,
                 List.copyOf(assignments));
     }
 
-    private RoundWork prepareRound(
-            ReviewSessionRow session, String kind, List<String> findingIds, StartOptions options)
+    /** AgentReview is a task-owned artifact track, not a development stage. */
+    private AgentRun openReviewRun(AgentReviewRow review, String roundId, int budget)
     {
-        PR pr = requirePr(session.prId());
+        if (review.ownerTaskId() != null) {
+            return runs.openTaskArtifact(review.ownerTaskId(), AgentRun.KIND_PANEL_REVIEW,
+                    null, roundId, budget);
+        }
+        return runs.openDetached(AgentRun.KIND_PANEL_REVIEW, null, roundId, budget);
+    }
+
+    private RoundWork prepareRound(
+            AgentReviewRow review, String kind, List<String> findingIds, StartOptions options)
+    {
+        PR pr = requirePr(review.prId());
         InvestigationReviewContext.Snapshot snapshot = contexts.load(pr);
         PlanDraft plan = cachedPlan(snapshot);
         List<PanelSeat> panel = panel(plan.reviewClass(), options);
         List<String> selected = findingIds == null ? List.of() : findingIds;
-        RoundWork work = createRound(session, pr, snapshot, plan, panel,
+        RoundWork work = createRound(review, pr, snapshot, plan, panel,
                 normaliseRoundKind(kind), scopeFor(selected), selected);
-        store.updateSessionStatus(session.id(), "ACTIVE");
+        store.updateReviewStatus(review.id(), "ACTIVE");
+        syncStandaloneOwner(review, ThreadStatus.RUNNING, null);
         reviewEvent(pr.id(), "round-started", "you", node -> node.put("roundId", work.round().id()));
         return work;
     }
 
     private List<ReviewObjectiveRow> persistPlan(
-            ReviewSessionRow session, ReviewRoundRow round, PlanDraft plan,
+            AgentReviewRow review, ReviewRoundRow round, PlanDraft plan,
             List<String> findingIds)
     {
         List<ReviewObjectiveRow> rows = new ArrayList<>();
-        Map<String, ReviewObjectiveRow> priorObjectives = store.objectives(session.id()).stream()
+        Map<String, ReviewObjectiveRow> priorObjectives = store.objectives(review.id()).stream()
                 .collect(Collectors.toMap(
                         ReviewObjectiveRow::id, row -> row, (left, right) -> left));
-        Set<String> selectedCriterionIds = store.findings(session.id()).stream()
+        Set<String> selectedCriterionIds = store.findings(review.id()).stream()
                 .filter(finding -> findingIds.contains(finding.id()))
                 .map(FindingRow::objectiveId)
                 .map(priorObjectives::get)
@@ -430,14 +528,14 @@ public class InvestigationReviewService
                 .map(ReviewObjectiveRow::criterionId)
                 .collect(Collectors.toSet());
         for (PlanObjective objective : plan.objectives()) {
-            String criterionId = stableCriterionId(session.repoId(), objective);
+            String criterionId = stableCriterionId(review.repoId(), objective);
             if (!findingIds.isEmpty()) {
                 if (!selectedCriterionIds.contains(criterionId)) {
                     continue;
                 }
             }
             store.insertCriterion(new CriterionRow(
-                    criterionId, session.repoId(), objective.kind(), objective.statement(),
+                    criterionId, review.repoId(), objective.kind(), objective.statement(),
                     objective.sourceType(), objective.sourceRef()));
             String applicability = objective.applicable() ? "applicable" : "not-applicable";
             ReviewObjectiveRow row = new ReviewObjectiveRow(
@@ -450,9 +548,9 @@ public class InvestigationReviewService
         if (rows.isEmpty()) {
             PlanObjective fallback = plan.objectives().stream().filter(PlanObjective::applicable)
                     .findFirst().orElse(plan.objectives().get(0));
-            String criterionId = stableCriterionId(session.repoId(), fallback);
+            String criterionId = stableCriterionId(review.repoId(), fallback);
             store.insertCriterion(new CriterionRow(
-                    criterionId, session.repoId(), fallback.kind(), fallback.statement(),
+                    criterionId, review.repoId(), fallback.kind(), fallback.statement(),
                     fallback.sourceType(), fallback.sourceRef()));
             ReviewObjectiveRow row = new ReviewObjectiveRow(
                     UUID.randomUUID().toString(), round.id(), criterionId,
@@ -478,13 +576,13 @@ public class InvestigationReviewService
                     work.plan().budget().costCapCents() / work.assignments().size());
             for (AssignmentWork assignment : work.assignments()) {
                 RunOutcome investigation = runner.investigate(
-                        assignment.provider(), work.session().id(), assignment.id(),
+                        assignment.provider(), work.review().id(), assignment.id(),
                         work.snapshot(), applicableObjectives,
                         coverage.promptContext(), assignment.reviewerDef().persona(), assignmentCap);
                 ensureRunning(work);
                 investigations.add(investigation);
                 cost += investigation.costCents();
-                ReviewAssignmentRow recorded = store.assignments(work.session().id()).stream()
+                ReviewAssignmentRow recorded = store.assignments(work.review().id()).stream()
                         .filter(row -> row.id().equals(assignment.id()))
                         .findFirst()
                         .orElseThrow();
@@ -510,24 +608,25 @@ public class InvestigationReviewService
                 runs.transition(work.run().id(), AgentRun.STATUS_FAILED, "review budget cap hit");
                 reviewEvent(work.pr().id(), "round-budget-halted",
                         node -> node.put("roundId", work.round().id()));
+                syncStandaloneOwner(work.review(), ThreadStatus.ERRORED, "review budget cap hit");
                 return;
             }
-            List<FindingEvidenceRow> roundEvidence = store.evidence(work.session().id());
+            List<FindingEvidenceRow> roundEvidence = store.evidence(work.review().id());
             Map<String, List<FindingEvidenceRow>> roundEvidenceByFinding = roundEvidence.stream()
                     .collect(Collectors.groupingBy(FindingEvidenceRow::findingId));
-            Map<String, ObservationRow> roundObservationsById = observationsById(work.session().id());
+            Map<String, ObservationRow> roundObservationsById = observationsById(work.review().id());
             Set<String> findingsWithRefutes = roundEvidence.stream()
                     .filter(edge -> "REFUTES".equals(edge.relation()))
                     .map(FindingEvidenceRow::findingId)
                     .collect(Collectors.toSet());
-            List<FindingRow> missingRefutationPass = store.findings(work.session().id()).stream()
+            List<FindingRow> missingRefutationPass = store.findings(work.review().id()).stream()
                     .filter(finding -> finding.roundId().equals(work.round().id()))
                     .filter(finding -> !findingsWithRefutes.contains(finding.id()))
                     .toList();
             if (!missingRefutationPass.isEmpty()) {
                 AssignmentWork primary = work.assignments().get(0);
                 RunOutcome refutation = runner.selfRefute(
-                        primary.provider(), work.session().id(), primary.id(), work.snapshot(),
+                        primary.provider(), work.review().id(), primary.id(), work.snapshot(),
                         missingRefutationPass.stream()
                                 .map(finding -> findingBundle(
                                         finding,
@@ -543,7 +642,7 @@ public class InvestigationReviewService
                     throw new IllegalStateException("mandatory self-refutation pass exceeded its budget");
                 }
             }
-            List<FindingRow> candidates = consolidate(store.findings(work.session().id()).stream()
+            List<FindingRow> candidates = consolidate(store.findings(work.review().id()).stream()
                     .filter(finding -> finding.roundId().equals(work.round().id()))
                     .toList());
             VerificationOutcome verification = candidates.isEmpty()
@@ -552,7 +651,7 @@ public class InvestigationReviewService
                             ? verifyTrivial(work, candidates) : verify(work, candidates);
             ensureRunning(work);
             cost += verification.costCents();
-            List<FindingRow> finished = store.findings(work.session().id()).stream()
+            List<FindingRow> finished = store.findings(work.review().id()).stream()
                     .filter(finding -> finding.roundId().equals(work.round().id()))
                     .toList();
             materialiseComments(work, finished);
@@ -564,7 +663,7 @@ public class InvestigationReviewService
                     work.round().id(), status, work.snapshot().headCommit(), cost)) {
                 return;
             }
-            store.updateSessionHead(work.session().id(), work.snapshot().headCommit(), "ACTIVE");
+            store.updateReviewHead(work.review().id(), work.snapshot().headCommit(), "ACTIVE");
             runs.updateHeadline(work.run().id(), finished.size() + " findings");
             runs.updateMetrics(work.run().id(), metrics(
                     work, investigations, verification, finished, cost).toString());
@@ -573,6 +672,8 @@ public class InvestigationReviewService
                 node.put("roundId", work.round().id());
                 node.put("findingCount", finished.size());
             });
+            syncStandaloneOwner(work.review(), questions
+                    ? ThreadStatus.NEEDS_ATTENTION : ThreadStatus.AWAITING_REVIEW, null);
         }
         catch (RuntimeException e) {
             if (store.findRound(work.round().id())
@@ -588,7 +689,35 @@ public class InvestigationReviewService
                 node.put("roundId", work.round().id());
                 node.put("message", e.getMessage() == null ? "review failed" : e.getMessage());
             });
+            syncStandaloneOwner(work.review(), ThreadStatus.ERRORED,
+                    e.getMessage() == null ? "review failed" : e.getMessage());
         }
+    }
+
+    /** Mirror the standalone review lifecycle into its lightweight owner
+     * thread so workspace navigation, status filters, and spend metrics see
+     * the review. Task-owned reviews deliberately leave the development
+     * thread alone; their cost/status is presented by the task aggregate. */
+    private void syncStandaloneOwner(
+            AgentReviewRow review, ThreadStatus status, String errorMessage)
+    {
+        if (review.ownerTaskId() != null || review.ownerThreadId() == null) {
+            return;
+        }
+        threads.findThreadById(review.ownerThreadId()).ifPresent(current -> {
+            Instant now = Instant.now();
+            long costUsdMilli = store.rounds(review.id()).stream()
+                    .mapToLong(ReviewRoundRow::costCents)
+                    .sum() * 10L;
+            boolean terminal = status == ThreadStatus.COMPLETED || status == ThreadStatus.ERRORED;
+            threads.saveThread(new com.bytequay.app.domain.Thread(
+                    current.id(), current.kind(), current.provider(), current.agentSessionId(),
+                    current.title(), status, current.model(), costUsdMilli,
+                    current.tokensIn(), current.tokensOut(), current.createdAt(), now,
+                    terminal ? now : null, status == ThreadStatus.ERRORED ? errorMessage : null,
+                    current.flow(), current.workspaceId(), current.workModel(),
+                    current.parentReviewPassId(), current.parallelSlots(), current.parentTaskId()));
+        });
     }
 
     private void launch(RoundWork work)
@@ -617,7 +746,7 @@ public class InvestigationReviewService
     private CoverageReport persistMandatorySweeps(RoundWork work, String assignmentId)
     {
         CoverageReport coverage = DeterministicReviewCoverage.analyze(
-                work.snapshot().diff(), work.snapshot().localRoot());
+                work.snapshot().diff(), contexts, work.snapshot());
         for (SweepResult sweep : coverage.sweeps()) {
             String stepId = UUID.randomUUID().toString();
             ObjectNode arguments = mapper.createObjectNode();
@@ -653,8 +782,8 @@ public class InvestigationReviewService
     /** Returns true when at least one applicable objective could not be covered. */
     private boolean resolveObjectives(RoundWork work, List<FindingRow> findings)
     {
-        List<HypothesisRow> hypotheses = store.hypotheses(work.session().id());
-        List<InvestigationStepRow> steps = store.steps(work.session().id());
+        List<HypothesisRow> hypotheses = store.hypotheses(work.review().id());
+        List<InvestigationStepRow> steps = store.steps(work.review().id());
         boolean gaps = false;
         for (ReviewObjectiveRow objective : work.objectives()) {
             if (!"applicable".equals(objective.applicabilityStatus())) {
@@ -698,8 +827,8 @@ public class InvestigationReviewService
 
     private VerificationOutcome verify(RoundWork work, List<FindingRow> candidates)
     {
-        Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.session().id());
-        Map<String, ObservationRow> observationsById = observationsById(work.session().id());
+        Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.review().id());
+        Map<String, ObservationRow> observationsById = observationsById(work.review().id());
         ReviewerDefRow verifierDefinition = store.findReviewerDef("independent-verifier")
                 .filter(ReviewerDefRow::enabled)
                 .filter(row -> row.eligibleKinds().contains(work.plan().reviewClass()))
@@ -722,8 +851,8 @@ public class InvestigationReviewService
             }
             return VerificationOutcome.EMPTY;
         }
-        AgentRun verifierRun = runs.openDetached(AgentRun.KIND_PANEL_REVIEW, null,
-                work.round().id(), Math.max(10, work.plan().budget().costCapCents() / 3));
+        AgentRun verifierRun = openReviewRun(work.review(), work.round().id(),
+                Math.max(10, work.plan().budget().costCapCents() / 3));
         String verifierAssignment = UUID.randomUUID().toString();
         boolean assignmentInserted = false;
         boolean completed = false;
@@ -752,7 +881,7 @@ public class InvestigationReviewService
                 String blind = null;
                 if (finding.severity() >= 4) {
                     RunOutcome reconstruction = runner.reconstruct(
-                            verifier, work.session().id(), verifierAssignment, work.snapshot(),
+                            verifier, work.review().id(), verifierAssignment, work.snapshot(),
                             evidenceLocations(findingEvidence, observationsById),
                             verifierDefinition.persona(), 10);
                     ensureRunning(work);
@@ -763,7 +892,7 @@ public class InvestigationReviewService
                     providerRounds += reconstruction.providerRounds();
                 }
                 RunOutcome result = runner.verify(
-                        verifier, work.session().id(), verifierAssignment, work.snapshot(),
+                        verifier, work.review().id(), verifierAssignment, work.snapshot(),
                         verifierRun.id(), bundle, blind,
                         verifierDefinition.persona(),
                         Math.max(10, work.plan().budget().costCapCents() / 3));
@@ -774,7 +903,7 @@ public class InvestigationReviewService
                 providerRounds += result.providerRounds();
                 awaitingStructuredVerification.add(finding);
             }
-            Set<String> verifiedFindingIds = store.verifications(work.session().id()).stream()
+            Set<String> verifiedFindingIds = store.verifications(work.review().id()).stream()
                     .map(FindingVerificationRow::findingId).collect(Collectors.toSet());
             for (FindingRow finding : awaitingStructuredVerification) {
                 if (!verifiedFindingIds.contains(finding.id())) {
@@ -823,8 +952,8 @@ public class InvestigationReviewService
         if (candidates.isEmpty()) {
             return List.of();
         }
-        List<FindingEvidenceRow> evidence = store.evidence(candidates.get(0).sessionId());
-        Map<String, ObservationRow> observationsById = observationsById(candidates.get(0).sessionId());
+        List<FindingEvidenceRow> evidence = store.evidence(candidates.get(0).reviewId());
+        Map<String, ObservationRow> observationsById = observationsById(candidates.get(0).reviewId());
         Map<String, List<ObservationRow>> observationsByFinding = candidates.stream()
                 .collect(Collectors.toMap(
                         FindingRow::id,
@@ -922,8 +1051,8 @@ public class InvestigationReviewService
 
     private VerificationOutcome verifyTrivial(RoundWork work, List<FindingRow> candidates)
     {
-        Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.session().id());
-        Map<String, ObservationRow> observationsById = observationsById(work.session().id());
+        Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.review().id());
+        Map<String, ObservationRow> observationsById = observationsById(work.review().id());
         for (FindingRow finding : candidates) {
             if (!deterministicallyValid(
                     work, finding, evidenceByFinding.getOrDefault(finding.id(), List.of()), observationsById)) {
@@ -959,11 +1088,11 @@ public class InvestigationReviewService
         metrics.put("providerRounds", investigations.stream().mapToInt(RunOutcome::providerRounds).sum()
                 + verification.providerRounds());
         Set<String> roundAssignmentIds = new HashSet<>();
-        store.assignments(work.session().id()).stream()
+        store.assignments(work.review().id()).stream()
                 .filter(assignment -> assignment.roundId().equals(work.round().id()))
                 .map(ReviewAssignmentRow::id)
                 .forEach(roundAssignmentIds::add);
-        metrics.put("toolCalls", store.steps(work.session().id()).stream()
+        metrics.put("toolCalls", store.steps(work.review().id()).stream()
                 .filter(step -> roundAssignmentIds.contains(step.assignmentId()))
                 .count());
         metrics.put("costCents", totalCost);
@@ -1005,8 +1134,8 @@ public class InvestigationReviewService
 
     private void materialiseComments(RoundWork work, List<FindingRow> findings)
     {
-        Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.session().id());
-        Map<String, ObservationRow> observationsById = observationsById(work.session().id());
+        Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.review().id());
+        Map<String, ObservationRow> observationsById = observationsById(work.review().id());
         Set<String> materialisedFindingIds = new HashSet<>();
         prs.comments(work.pr().id()).stream()
                 .map(PRComment::findingId)
@@ -1044,39 +1173,39 @@ public class InvestigationReviewService
         }
     }
 
-    private InvestigationReviewData detail(ReviewSessionRow session)
+    private InvestigationReviewData detail(AgentReviewRow review)
     {
-        List<ReviewRoundRow> roundRows = store.rounds(session.id());
+        List<ReviewRoundRow> roundRows = store.rounds(review.id());
         Set<String> runIds = new LinkedHashSet<>();
         roundRows.forEach(round -> {
             runs.findByReviewRound(round.id()).forEach(run -> runIds.add(run.id()));
             runIds.add(round.agentRunId());
         });
-        store.verifications(session.id()).forEach(row -> runIds.add(row.verifierRunId()));
+        store.verifications(review.id()).forEach(row -> runIds.add(row.verifierRunId()));
         List<AgentRun> runRows = runIds.stream().map(runs::findById).flatMap(Optional::stream).toList();
-        List<PRCommentDto> comments = prs.comments(session.prId()).stream()
+        List<PRCommentDto> comments = prs.comments(review.prId()).stream()
                 .filter(comment -> comment.findingId() != null)
                 .map(PRCommentDto::from).toList();
-        List<PRTimelineEntryDto> timeline = prs.timeline(session.prId()).stream()
+        List<PRTimelineEntryDto> timeline = prs.timeline(review.prId()).stream()
                 .map(event -> PRTimelineEntryDto.from(event, mapper))
                 .filter(event -> event.payload().hasNonNull("reviewEvent"))
                 .toList();
         return new InvestigationReviewData(
-                session, roundRows, runRows, store.criteria(session.id()), store.objectives(session.id()),
-                store.assignments(session.id()), store.hypotheses(session.id()), store.steps(session.id()),
-                store.observations(session.id()), store.findings(session.id()), store.evidence(session.id()),
-                store.verifications(session.id()), store.relations(session.id()), store.outcomes(session.id()),
-                store.knowledge(session.repoId()), store.knowledgeProvenance(session.repoId()),
-                activityFacts(session.id()),
+                review, roundRows, runRows, store.criteria(review.id()), store.objectives(review.id()),
+                store.assignments(review.id()), store.hypotheses(review.id()), store.steps(review.id()),
+                store.observations(review.id()), store.findings(review.id()), store.evidence(review.id()),
+                store.verifications(review.id()), store.relations(review.id()), store.outcomes(review.id()),
+                store.knowledge(review.repoId()), store.knowledgeProvenance(review.repoId()),
+                activityFacts(review.id()),
                 comments, timeline);
     }
 
-    private List<ActivityFactRow> activityFacts(String sessionId)
+    private List<ActivityFactRow> activityFacts(String reviewId)
     {
-        List<InvestigationStepRow> steps = store.steps(sessionId);
-        List<ReviewObjectiveRow> objectives = store.objectives(sessionId);
-        List<ObservationRow> observations = store.observations(sessionId);
-        Map<String, CriterionRow> criteria = store.criteria(sessionId).stream()
+        List<InvestigationStepRow> steps = store.steps(reviewId);
+        List<ReviewObjectiveRow> objectives = store.objectives(reviewId);
+        List<ObservationRow> observations = store.observations(reviewId);
+        Map<String, CriterionRow> criteria = store.criteria(reviewId).stream()
                 .collect(Collectors.toMap(CriterionRow::id, row -> row));
         long hunks = sweepInspectedUnits(steps, "line-scan");
         long publicTraces = sweepInspectedUnits(steps, "cross-file-trace");
@@ -1123,7 +1252,7 @@ public class InvestigationReviewService
     private PlanDraft plan(InvestigationReviewContext.Snapshot snapshot)
     {
         String diff = snapshot.diff();
-        CoverageReport coverage = DeterministicReviewCoverage.analyze(diff, snapshot.localRoot());
+        CoverageReport coverage = DeterministicReviewCoverage.analyze(diff, contexts, snapshot);
         long changedLines = diff.lines().filter(line -> line.startsWith("+") || line.startsWith("-")).count();
         long files = diff.lines().filter(line -> line.startsWith("diff --git ")).count();
         String lower = diff.toLowerCase(Locale.ROOT);
@@ -1295,15 +1424,15 @@ public class InvestigationReviewService
         return out.toString();
     }
 
-    private Map<String, List<FindingEvidenceRow>> evidenceByFinding(String sessionId)
+    private Map<String, List<FindingEvidenceRow>> evidenceByFinding(String reviewId)
     {
-        return store.evidence(sessionId).stream()
+        return store.evidence(reviewId).stream()
                 .collect(Collectors.groupingBy(FindingEvidenceRow::findingId));
     }
 
-    private Map<String, ObservationRow> observationsById(String sessionId)
+    private Map<String, ObservationRow> observationsById(String reviewId)
     {
-        return store.observations(sessionId).stream()
+        return store.observations(reviewId).stream()
                 .collect(Collectors.toMap(ObservationRow::id, observation -> observation));
     }
 
@@ -1335,6 +1464,8 @@ public class InvestigationReviewService
     {
         ObjectNode payload = mapper.createObjectNode();
         payload.put("reviewEvent", event);
+        store.findActiveReviewByPr(prId)
+                .ifPresent(review -> payload.put("reviewId", review.id()));
         details.accept(payload);
         prs.recordReviewEvent(prId, actor, payload.toString());
     }
@@ -1345,10 +1476,10 @@ public class InvestigationReviewService
                 .orElseThrow(() -> new IllegalArgumentException("unknown PR " + prId));
     }
 
-    private ReviewSessionRow requireSession(String sessionId)
+    private AgentReviewRow requireReview(String reviewId)
     {
-        return store.findSession(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("unknown review session " + sessionId));
+        return store.findReview(reviewId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown agent review " + reviewId));
     }
 
     private List<PanelSeat> panel(String reviewClass, StartOptions options)
@@ -1471,10 +1602,10 @@ public class InvestigationReviewService
     {
         if ("unknown".equals(finding.verificationStatus())
                 || "SUPPORTED".equals(finding.confidenceClass())) {
-            return finding.claim() + "\n\nCould you clarify the intended behavior here? "
+            return finding.claim() + "\n\n**Question:** "
                     + finding.requestedAction();
         }
-        return finding.claim() + "\n\nRequested action: " + finding.requestedAction();
+        return finding.claim() + "\n\n**Requested action:** " + finding.requestedAction();
     }
 
     private static int editMagnitude(String before, String after)
@@ -1563,7 +1694,13 @@ public class InvestigationReviewService
         return Set.copyOf(lines);
     }
 
-    public record StartOptions(String runner, String providerId) {}
+    public record StartOptions(String runner, String providerId, String workspaceId)
+    {
+        public StartOptions(String runner, String providerId)
+        {
+            this(runner, providerId, null);
+        }
+    }
 
     public record FindingMutation(String action, String text) {}
 
@@ -1583,7 +1720,7 @@ public class InvestigationReviewService
             String plannerSuggestion) {}
 
     private record RoundWork(
-            ReviewSessionRow session, PR pr, InvestigationReviewContext.Snapshot snapshot,
+            AgentReviewRow review, PR pr, InvestigationReviewContext.Snapshot snapshot,
             PlanDraft plan, ReviewRoundRow round, AgentRun run,
             List<ReviewObjectiveRow> objectives, List<AssignmentWork> assignments) {}
 
@@ -1598,4 +1735,6 @@ public class InvestigationReviewService
     }
 
     private record CachedPlan(PlanDraft plan, Instant expiresAt) {}
+
+    private record ReviewOwnership(String workspaceId, String threadId, String taskId) {}
 }

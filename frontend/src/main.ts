@@ -1013,6 +1013,18 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('pr:postRemoteComment', async (_event, prId: string, body: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/remote-comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR comment returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('pr:publishReview', async (_event, prId: string, body?: unknown) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/publish-review`, {
       method: 'POST',
@@ -1025,34 +1037,43 @@ function registerIpc(): void {
     }
     return res.json();
   });
-  ipcMain.handle('agentReview:getSession', async (_event, prId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/review-session`);
+  ipcMain.handle('agentReview:get', async (_event, prId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/agent-review`);
     if (res.status === 404) return null;
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`backend review-session returned ${res.status}: ${body}`);
+      throw new Error(`backend agent review returned ${res.status}: ${body}`);
     }
     return res.json();
   });
-  ipcMain.handle('agentReview:startSession', async (_event, prId: string, body?: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/review-session`, {
+  ipcMain.handle('agentReview:start', async (_event, prId: string, body?: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/agent-review`, {
       method: 'POST',
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend start review-session returned ${res.status}: ${text}`);
+      throw new Error(`backend start agent review returned ${res.status}: ${text}`);
     }
     return res.json();
   });
-  ipcMain.handle('agentReview:continueSession', async (_event, sessionId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/review-sessions/${encodeURIComponent(sessionId)}/rounds`, {
+  ipcMain.handle('agentReview:getByThread', async (_event, threadId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/agent-reviews/by-thread/${encodeURIComponent(threadId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend agent review by thread returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:continue', async (_event, reviewId: string, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/agent-reviews/${encodeURIComponent(reviewId)}/rounds`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend continue review-session returned ${res.status}: ${text}`);
+      throw new Error(`backend continue agent review returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -1236,18 +1257,6 @@ function registerIpc(): void {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(body || `backend steer returned ${res.status}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('stages:spawnReview', async (_event, parentStageId: string) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/stages/${encodeURIComponent(parentStageId)}/spawn-review`,
-      { method: 'POST' },
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend spawn-review returned ${res.status}: ${body}`);
     }
     return res.json();
   });
@@ -4045,78 +4054,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST memory/proposal/discard returned ${res.status}: ${text}`);
     }
-  });
-
-  ipcMain.handle('reviews:start', async (_event, args: unknown) => {
-    if (typeof args !== 'object' || args === null) {
-      throw new Error('reviews:start args must be an object');
-    }
-    const a = args as {
-      repoFullName?: unknown;
-      prNumber?: unknown;
-      panelProviderIds?: unknown;
-      roundCap?: unknown;
-      costCapMilli?: unknown;
-      independentFirst?: unknown;
-      workspaceId?: unknown;
-      leadId?: unknown;
-      seats?: unknown;
-    };
-    if (typeof a.repoFullName !== 'string' || a.repoFullName.trim().length === 0) {
-      throw new Error('repoFullName must be a non-empty string');
-    }
-    if (typeof a.prNumber !== 'number' || !Number.isInteger(a.prNumber) || a.prNumber <= 0) {
-      throw new Error('prNumber must be a positive integer');
-    }
-    const body: Record<string, unknown> = {
-      repoFullName: a.repoFullName,
-      prNumber: a.prNumber,
-    };
-    if (Array.isArray(a.panelProviderIds)) {
-      body.panelProviderIds = a.panelProviderIds.filter((s): s is string => typeof s === 'string');
-    }
-    if (typeof a.roundCap === 'number' && Number.isInteger(a.roundCap) && a.roundCap > 0) {
-      body.roundCap = a.roundCap;
-    }
-    if (typeof a.costCapMilli === 'number' && a.costCapMilli > 0) {
-      body.costCapMilli = a.costCapMilli;
-    }
-    if (typeof a.independentFirst === 'boolean') {
-      body.independentFirst = a.independentFirst;
-    }
-    if (typeof a.workspaceId === 'string' && a.workspaceId.length > 0) {
-      body.workspaceId = a.workspaceId;
-    }
-    if (typeof a.leadId === 'string' && a.leadId.length > 0) {
-      body.leadId = a.leadId;
-    }
-    if (Array.isArray(a.seats)) {
-      const seats = a.seats
-        .filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
-        .filter(s => typeof s.providerId === 'string' && s.providerId.length > 0)
-        .map(s => ({
-          providerId: s.providerId as string,
-          customPrompt:
-            typeof s.customPrompt === 'string' && s.customPrompt.length > 0 ? s.customPrompt : null,
-          roleSkillId:
-            typeof s.roleSkillId === 'number' && Number.isFinite(s.roleSkillId)
-              ? s.roleSkillId : null,
-          lead: s.lead === true,
-        }));
-      if (seats.length > 0) {
-        body.seats = seats;
-      }
-    }
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/reviews/start returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:roster', async () => {

@@ -126,6 +126,20 @@ describe('PRView', () => {
     expect((screen.getByRole('button', { name: 'Comment' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('shows the merged footer and GitHub comment composer after branch deletion', () => {
+    renderView(bundle({
+      pr: pr('merged', { remotePrNumber: 145, mergedAt: 1, branchDeletedAt: 2 }),
+      checks: [check({ kind: 'remote', status: 'passed' })],
+    }), { username: 'chenjian2664', onAddComment: noop, onRunTests: noop });
+
+    expect(screen.getByText('Pull request successfully merged and closed')).toBeTruthy();
+    expect(screen.getByText("You're all set — the branch has been merged.")).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Add a comment' })).toBeTruthy();
+    expect(screen.getByText(/Posts to GitHub as @chenjian2664/)).toBeTruthy();
+    expect(screen.queryByText('All checks have passed')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Run tests' })).toBeNull();
+  });
+
   it('disables Merge while an open comment remains and enables Merge anyway', () => {
     const onMerge = vi.fn();
     renderView(

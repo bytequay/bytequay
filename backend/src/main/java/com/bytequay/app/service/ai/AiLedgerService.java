@@ -15,6 +15,7 @@ package com.bytequay.app.service.ai;
 
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadStore.AiSpendRow;
+import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -38,10 +39,12 @@ import static java.util.Objects.requireNonNull;
 public class AiLedgerService
 {
     private final ThreadStore threadStore;
+    private final InvestigationReviewStore reviewStore;
 
-    public AiLedgerService(ThreadStore threadStore)
+    public AiLedgerService(ThreadStore threadStore, InvestigationReviewStore reviewStore)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
     }
 
     public record AiLedger(
@@ -69,6 +72,13 @@ public class AiLedgerService
         for (AiSpendRow r : threadStore.aggregateAiSpend(start, end)) {
             accumulate(byProvider, canonicalProvider(r.provider()), r.calls(), r.costMilli());
             accumulate(byType, taskType(r.flow(), r.kind()), r.calls(), r.costMilli());
+            totalMilli += r.costMilli();
+            totalCalls += r.calls();
+        }
+        for (InvestigationReviewStore.AgentReviewSpend r
+                : reviewStore.agentReviewSpend(start, end)) {
+            accumulate(byProvider, canonicalProvider(r.provider()), r.calls(), r.costMilli());
+            accumulate(byType, "review", r.calls(), r.costMilli());
             totalMilli += r.costMilli();
             totalCalls += r.calls();
         }

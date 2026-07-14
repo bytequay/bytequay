@@ -28,7 +28,7 @@ import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working }
 import { SparkIcon } from '../ui/TaskBrainDesignIcons';
 import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed, planStepComments } from '../threads/brain/TaskRootNode';
-import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { buildTaskAgentReviewTrack, TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import { WorkModelPill } from '../workspace/WorkModelPill';
@@ -86,7 +86,7 @@ export function TaskBrainRoute({
     bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment,
+    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
@@ -113,6 +113,12 @@ export function TaskBrainRoute({
   const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
   const [agentRoundId, setAgentRoundId] = useState<string | null>(null);
   const [selectedAgentFinding, setSelectedAgentFinding] = useState<string | null>(null);
+  const openAgentRound = (roundId?: string) => {
+    const selected = roundId ?? agentReview.latestRound?.id;
+    if (selected === undefined) return;
+    setReviewOpen(true);
+    setAgentRoundId(selected);
+  };
   const pendingReviewComments = useMemo(
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
@@ -522,6 +528,9 @@ export function TaskBrainRoute({
       onOpenPr={pr?.onOpen}
       onOpenTab={openTab}
       onOpenRun={onOpenRun}
+      agentReview={agentReview.data === null
+        ? undefined
+        : buildTaskAgentReviewTrack(agentReview.data, openAgentRound)}
       onToggleGuard={enabled => {
         void window.bridge.updateTaskGuard(taskId, { enabled }).then(pollFast).catch(() => { /* poll reconciles */ });
       }}
@@ -529,12 +538,6 @@ export function TaskBrainRoute({
   );
 
   const displayedTaskBundle = agentReview.displayedBundle ?? localPrBundle;
-  const openAgentRound = (roundId?: string) => {
-    const selected = roundId ?? agentReview.latestRound?.id;
-    if (selected === undefined) return;
-    setReviewOpen(true);
-    setAgentRoundId(selected);
-  };
   const openAgentFinding = (findingId: string, filePath: string | null = null) => {
     setSelectedAgentFinding(findingId);
     setPrSubTabRequest(prev => ({
@@ -610,6 +613,7 @@ export function TaskBrainRoute({
         if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
         else deleteLocalComment(commentId);
       }}
+      onReplyThread={task.terminal ? undefined : replyLocalPrComment}
       onOpenStage={onOpenStage}
       syncedAt={displayedTaskBundle.pr.syncedAt}
       syncing={prSyncing}
@@ -630,6 +634,7 @@ export function TaskBrainRoute({
         roundId={agentRoundId}
         prView={taskPrView}
         onBack={() => { setAgentRoundId(null); setReviewOpen(false); }}
+        onSelectRound={setAgentRoundId}
         onOpenFinding={(findingId, filePath) => openAgentFinding(findingId, filePath)}
         onOpenReviewList={openAgentReviewList}
         onReopenFinding={agentReview.reopenFinding}

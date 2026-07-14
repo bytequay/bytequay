@@ -60,11 +60,12 @@ describe('derivePRCapabilities', () => {
     expect(derivePRCapabilities(pr('task', 'local-open'), 'details').chatAgent).toBe(false);
   });
 
-  it('allows postRemoteComment only in a remote-* status', () => {
+  it('allows postRemoteComment for remote and merged pull requests', () => {
     expect(derivePRCapabilities(pr('external', 'remote-drafted'), 'details').postRemoteComment).toBe(true);
     expect(derivePRCapabilities(pr('external', 'remote-open'), 'details').postRemoteComment).toBe(true);
     expect(derivePRCapabilities(pr('task', 'local-open'), 'task').postRemoteComment).toBe(false);
-    expect(derivePRCapabilities(pr('external', 'merged'), 'details').postRemoteComment).toBe(false);
+    expect(derivePRCapabilities(pr('external', 'merged'), 'details').postRemoteComment).toBe(true);
+    expect(derivePRCapabilities(pr('external', 'closed'), 'details').postRemoteComment).toBe(false);
   });
 
   // Exhaustive matrix — every (origin, status, surface) cell the unified PR
@@ -92,6 +93,7 @@ describe('derivePRCapabilities', () => {
   ]);
   const POST_REMOTE_COMMENT_TRUE = new Set([
     'task/remote-drafted', 'task/remote-open', 'external/remote-drafted', 'external/remote-open',
+    'task/merged', 'external/merged',
   ]);
   const DRAFT_LOCAL_COMMENTS_FALSE = new Set([
     'task/merged', 'task/closed', 'external/merged', 'external/closed',

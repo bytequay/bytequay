@@ -581,7 +581,7 @@ export function StageDetailRoute({
       capabilities={prCapabilities}
       commentValue={localComment}
       onCommentChange={setLocalComment}
-      onAddComment={taskTerminal ? undefined : submitLocalComment}
+      onAddComment={taskTerminal && !prCapabilities.postRemoteComment ? undefined : submitLocalComment}
       onPush={() => setPushOpen(true)}
       onAskAgent={taskTerminal ? undefined : askAgentToAddress}
       onMerge={confirmMerge}

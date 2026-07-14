@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import type { LiveActivity } from '../../threads/liveActivity';
 
 /**
  * A live "agent is working" row — a pulsing dot + label shown at the foot
@@ -22,7 +23,7 @@ import { useEffect, useState } from 'react';
  * that a long, quiet turn (e.g. extended thinking) is still alive, not
  * dead.
  */
-export function Working({ label = 'Working…', detail, since, onStop }: {
+export function Working({ label = 'Working…', detail, since, onStop, activities = [] }: {
   label?: string;
   /** Full text shown on hover — e.g. the complete shell command when the
    *  label is truncated to one line. */
@@ -30,6 +31,9 @@ export function Working({ label = 'Working…', detail, since, onStop }: {
   since?: number;
   /** When set, a Stop button appears that interrupts the running turn. */
   onStop?: () => void;
+  /** Recent tool calls from the live stream. These are deliberately
+   * ephemeral: they clear at the end of the active turn. */
+  activities?: LiveActivity[];
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -42,13 +46,25 @@ export function Working({ label = 'Working…', detail, since, onStop }: {
 
   return (
     <div className="working" role="status" aria-live="polite">
-      <span className="working__dot" aria-hidden />
-      <span className="working__label" title={detail ?? label}>{label}</span>
-      {since !== undefined && <span className="working__elapsed">{formatElapsed(elapsed)}</span>}
-      {onStop !== undefined && (
-        <button type="button" className="working__stop" onClick={onStop} title="Stop the agent">
-          Stop
-        </button>
+      <div className="working__summary">
+        <span className="working__dot" aria-hidden />
+        <span className="working__label" title={detail ?? label}>{label}</span>
+        {since !== undefined && <span className="working__elapsed">{formatElapsed(elapsed)}</span>}
+        {onStop !== undefined && (
+          <button type="button" className="working__stop" onClick={onStop} title="Stop the agent">
+            Stop
+          </button>
+        )}
+      </div>
+      {activities.length > 0 && (
+        <div className="working__log" aria-label="Live agent activity">
+          {activities.map(activity => (
+            <div key={activity.callId} className="working__log-row" title={activity.detail ?? activity.label}>
+              <span aria-hidden>{activity.failed ? '×' : activity.done ? '✓' : '›'}</span>
+              <span>{activity.label}{activity.detail === null ? '' : ` · ${activity.detail}`}</span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

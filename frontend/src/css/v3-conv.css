@@ -238,13 +238,20 @@
 /* ── "Agent is working" live indicator ───────────────────────── */
 .shell .working {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   padding: 4px 0;
   font-size: 12.5px;
   color: var(--text-3);
   font-style: italic;
   max-width: 100%;
+}
+.shell .working__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 /* The label can carry a full shell command — clamp it to one line so the
    elapsed counter + Stop stay put; the full text is on hover (title). */
@@ -406,6 +413,25 @@
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-4);
+}
+.shell .working__log {
+  display: grid;
+  gap: 2px;
+  margin-left: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--text-4);
+}
+.shell .working__log-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.shell .working__log-row span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── "Thought for Xs" indicator ──────────────────────────────── */

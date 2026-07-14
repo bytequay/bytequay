@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ThreadStreamEvent } from '../types';
+import { type LiveActivity, updateLiveActivities } from './liveActivity';
 
 /** Debounce before pulling canonical messages on a non-delta event —
  *  wide enough to coalesce a burst (tool call + result + turn done) into
@@ -39,19 +40,21 @@ export function useThreadStream(
   threadId: string,
   status: string | undefined,
   onCanonicalRefresh: () => void | Promise<void>,
-): { liveText: string; liveThinking: string; liveUsage: LiveUsage | null } {
+): { liveText: string; liveThinking: string; liveUsage: LiveUsage | null; liveActivities: LiveActivity[] } {
   const [liveText, setLiveText] = useState('');
   const liveTextRef = useRef('');
   const [liveThinking, setLiveThinking] = useState('');
   const liveThinkingRef = useRef('');
   const [liveUsage, setLiveUsage] = useState<LiveUsage | null>(null);
   const liveUsageRef = useRef<LiveUsage | null>(null);
+  const [liveActivities, setLiveActivities] = useState<LiveActivity[]>([]);
   // Keep the latest refresh callback in a ref so a new closure each render
   // doesn't tear down and re-open the SSE subscription.
   const refreshRef = useRef(onCanonicalRefresh);
   refreshRef.current = onCanonicalRefresh;
 
   useEffect(() => {
+    setLiveActivities([]);
     if (!status || status === 'COMPLETED' || status === 'ARCHIVED' || status === 'ERRORED') return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -73,6 +76,7 @@ export function useThreadStream(
       }, STREAM_REFRESH_DEBOUNCE_MS);
     };
     const onEvent = (event: ThreadStreamEvent) => {
+      setLiveActivities(current => updateLiveActivities(current, event));
       if (event.name === 'AssistantTextDelta') {
         const chunk = typeof event.data.textChunk === 'string' ? event.data.textChunk : '';
         if (chunk.length === 0) return;
@@ -116,5 +120,5 @@ export function useThreadStream(
     };
   }, [threadId, status]);
 
-  return { liveText, liveThinking, liveUsage };
+  return { liveText, liveThinking, liveUsage, liveActivities };
 }

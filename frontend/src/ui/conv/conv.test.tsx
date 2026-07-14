@@ -78,6 +78,14 @@ describe('Working', () => {
     expect(screen.getByText('Brain is thinking…')).toBeTruthy();
     expect(container.querySelector('.working')?.getAttribute('role')).toBe('status');
   });
+
+  it('shows live tool activity below the current status', () => {
+    render(<Working activities={[{
+      callId: 'call-1', label: 'Running command', detail: 'git status',
+      startedAt: 0, done: false, failed: false,
+    }]} />);
+    expect(screen.getByLabelText('Live agent activity').textContent).toContain('Running command · git status');
+  });
 });
 
 describe('Thought / Callout / InlineAction', () => {

@@ -159,7 +159,7 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   // Live SSE stream: the agent's reasoning + reply appear token-by-token as
   // they're generated, instead of only when a poll fires after the turn. The
   // canonical messages refresh + the live buffers flush once the turn lands.
-  const { liveText, liveThinking } = useThreadStream(threadId, thread?.status, load);
+  const { liveText, liveThinking, liveActivities } = useThreadStream(threadId, thread?.status, load);
 
   const sendNow = useCallback((body: string, sendImages: string[] = []) => {
     setBusy(true);
@@ -221,15 +221,19 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   // Elapsed ticks from the last activity's SERVER timestamp (from the polled
   // `messages`), not a local mount time — so leaving the tab and coming back
   // keeps counting instead of restarting at 0s.
-  const workingSince = epochOrNull(lastActivity?.ts);
-  const workingLabel = activity === null
+  const currentLiveActivity = [...liveActivities].reverse().find(item => !item.done);
+  const workingSince = currentLiveActivity?.startedAt ?? epochOrNull(lastActivity?.ts);
+  const workingLabel = currentLiveActivity !== undefined
+    ? `${currentLiveActivity.label}${currentLiveActivity.detail === null ? '…' : `: ${currentLiveActivity.detail}`}`
+    : activity === null
     ? 'Trunk is working…'
     : activity.summary.length > 0
       ? `Running ${activity.name}: ${activity.summary}`
       : `Running ${activity.name}…`;
-  const workingDetail = activity !== null && activity.summary.length > 0
+  const workingDetail = currentLiveActivity?.detail
+    ?? (activity !== null && activity.summary.length > 0
     ? activity.summary
-    : undefined;
+    : undefined);
 
   // Scroll host for the conversation-index rail's click-to-jump.
   const conversationRef = useRef<HTMLDivElement | null>(null);
@@ -273,6 +277,7 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
                 label={workingLabel}
                 detail={workingDetail}
                 since={workingSince ?? undefined}
+                activities={liveActivities}
                 onStop={() => { void window.bridge?.interruptTask(threadId).then(load).catch(() => { /* poll reconciles */ }); }}
               />
             )}

@@ -1564,8 +1564,14 @@ public class GitRunner
      *
      * Output shape mirrors {@link #listCommits}: NUL between records,
      * {@link #US_SEP} between fields. {@code %gs} is the reflog
-     * subject ("commit:", "checkout:", "merge:") and {@code %gd} is
-     * the reflog selector ({@code HEAD@{0}}).
+     * subject ("commit:", "checkout:", "merge:"). {@code %gd} is
+     * requested with {@code --date=iso-strict} so it carries the
+     * reflog event's own timestamp ({@code HEAD@{<iso date>}}) rather
+     * than the pointed-to commit's author date — a reset/checkout to
+     * an old commit must show "just now", not the old commit's date.
+     * The numeric selector ({@code HEAD@{0}}) is reconstructed from
+     * each record's position since {@code --date} repurposes {@code
+     * %gd}'s own numeric form.
      */
     public List<ReflogEntry> listReflog(Path workingDir, int limit)
             throws IOException, InterruptedException
@@ -1573,11 +1579,11 @@ public class GitRunner
         if (limit <= 0) {
             return List.of();
         }
-        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%gd" + US_SEP
-                + "%gs" + US_SEP + "%aI";
+        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%gd" + US_SEP + "%gs";
         List<String> args = List.of(
                 "git", "reflog",
                 "--max-count=" + limit,
+                "--date=iso-strict",
                 "-z",
                 "--pretty=format:" + fmt);
         GitResult result = run(args, workingDir);
@@ -1587,18 +1593,31 @@ public class GitRunner
             return List.of();
         }
         List<ReflogEntry> entries = new ArrayList<>();
+        int index = 0;
         for (String record : stdout.split(NUL_SEP, -1)) {
             if (record.isEmpty()) {
                 continue;
             }
             String[] parts = record.split(US_SEP, -1);
-            if (parts.length < 5) {
+            if (parts.length < 4) {
                 continue;
             }
             entries.add(new ReflogEntry(
-                    parts[0], parts[1], parts[2], parts[3], parts[4]));
+                    parts[0], parts[1], "HEAD@{" + index + "}", parts[3], reflogDate(parts[2])));
+            index++;
         }
         return List.copyOf(entries);
+    }
+
+    /**
+     * Extracts the ISO timestamp {@code --date=iso-strict} embeds in
+     * {@code %gd}'s {@code HEAD@{<date>}} form.
+     */
+    private static String reflogDate(String gd)
+    {
+        int open = gd.indexOf('{');
+        int close = gd.lastIndexOf('}');
+        return open >= 0 && close > open ? gd.substring(open + 1, close) : null;
     }
 
     /**
@@ -1606,14 +1625,14 @@ public class GitRunner
      *
      * @param selector relative selector git uses to address this entry.
      * @param subject human-readable reflog description.
-     * @param authoredAt author timestamp of the commit the entry points at.
+     * @param reflogAt timestamp the reflog event (HEAD move) itself happened.
      */
     public record ReflogEntry(
             String sha,
             String shortSha,
             String selector,
             String subject,
-            String authoredAt) {}
+            String reflogAt) {}
 
     /**
      * Lists all configured remotes for the working tree at

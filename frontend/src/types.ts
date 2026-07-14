@@ -868,6 +868,13 @@ export type RecentEventDto = {
   prNumber: number;
   refType: string | null;
   actorLogin: string | null;
+  /** Set by {@link groupRecentEvents} when consecutive pushes to the same
+   *  repo/PR are collapsed into one row; absent for un-merged events. */
+  pushCount?: number;
+  /** Set by {@link groupRecentEvents} when consecutive PR review comments
+   *  on the same repo/PR are collapsed into one row; absent for un-merged
+   *  events. */
+  commentCount?: number;
 };
 
 /** The kinds of surface a footprint visit can land on — mirrors the

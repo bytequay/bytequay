@@ -16,6 +16,7 @@ import type { RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } f
 import type { DashboardPR } from '../types/dashboardPr';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
+import { groupRecentEvents } from '../activityNarrative';
 import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
@@ -264,7 +265,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
             <div className="hp-empty">No recent activity yet.</div>
           ) : (
             <div className="home-following-list">
-              {events.slice(0, 10).map((e, i) => (
+              {groupRecentEvents(events).slice(0, 10).map((e, i) => (
                 <ActivityRow
                   key={i}
                   event={e}
@@ -284,7 +285,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
             <div className="hp-empty">No recent activity from people you follow.</div>
           ) : (
             <div className="home-following-list">
-              {followingEvents.map((e, i) => (
+              {groupRecentEvents(followingEvents).map((e, i) => (
                 <ActivityRow
                   key={i}
                   event={e}

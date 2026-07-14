@@ -17,7 +17,13 @@ import com.bytequay.app.domain.FootprintStop;
 import com.bytequay.app.domain.FootprintsTrail;
 import com.bytequay.app.domain.SurfaceType;
 import com.bytequay.app.domain.SurfaceVisit;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.SurfaceVisitStore;
+import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,6 +49,8 @@ class TestFootprintsService
     @Autowired
     private SurfaceVisitStore store;
     @Autowired
+    private ThreadStore threadStore;
+    @Autowired
     private FootprintsService service;
 
     @Test
@@ -67,6 +75,7 @@ class TestFootprintsService
     void ordersStopsChronologicallyOldestFirst()
     {
         LocalDate day = LocalDate.of(2030, 1, 3);
+        saveReviewThread("th-1", instant(day, 9));
         insert(day, 11, SurfaceType.TASK, "th/k", "task");
         insert(day, 9, SurfaceType.THREAD, "th-1", "thread");
         insert(day, 10, SurfaceType.PR, "o/r#2", "pr");
@@ -74,6 +83,56 @@ class TestFootprintsService
         assertThat(service.trailForDay(day, ZONE).stops())
                 .extracting(FootprintStop::surfaceId)
                 .containsExactly("th-1", "o/r#2", "th/k");
+    }
+
+    @Test
+    void hidesUntouchedBuildThreadsButShowsReviewThreadsAndTypedIntoBuildThreads()
+    {
+        LocalDate day = LocalDate.of(2030, 1, 6);
+        saveReviewThread("review-thread", instant(day, 9));
+        saveBuildThread("untouched-build-thread", instant(day, 10));
+        saveBuildThread("typed-build-thread", instant(day, 11));
+        threadStore.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), "typed-build-thread", null, 1,
+                "user", "text", "{\"text\":\"steer this\"}", null, null, null, null,
+                instant(day, 11)));
+        insert(day, 9, SurfaceType.THREAD, "review-thread", "review");
+        insert(day, 10, SurfaceType.THREAD, "untouched-build-thread", "build, no messages");
+        insert(day, 11, SurfaceType.THREAD, "typed-build-thread", "build, human typed");
+
+        assertThat(service.trailForDay(day, ZONE).stops())
+                .extracting(FootprintStop::surfaceId)
+                .containsExactly("review-thread", "typed-build-thread");
+    }
+
+    @Test
+    void hidesThePrKanbanBookmarkRow()
+    {
+        LocalDate day = LocalDate.of(2030, 1, 7);
+        insert(day, 9, SurfaceType.PR_KANBAN, "my-prs", "PR kanban");
+        insert(day, 10, SurfaceType.PR, "o/r#1", "pr");
+
+        assertThat(service.trailForDay(day, ZONE).stops())
+                .extracting(FootprintStop::surfaceId)
+                .containsExactly("o/r#1");
+    }
+
+    private void saveReviewThread(String id, Instant createdAt)
+    {
+        saveThread(id, ThreadFlow.REVIEW, createdAt);
+    }
+
+    private void saveBuildThread(String id, Instant createdAt)
+    {
+        saveThread(id, ThreadFlow.BUILD, createdAt);
+    }
+
+    private void saveThread(String id, ThreadFlow flow, Instant createdAt)
+    {
+        threadStore.saveThread(new Thread(
+                id, ThreadKind.LOGIC_LOOP, "claude-code", null, "Thread", ThreadStatus.COMPLETED,
+                "claude-sonnet-4.6", 0, 0, 0, createdAt, createdAt, null, null, flow, "ws-default",
+                null, null, 1, null));
     }
 
     @Test

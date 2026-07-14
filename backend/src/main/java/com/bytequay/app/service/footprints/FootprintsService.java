@@ -17,7 +17,9 @@ import com.bytequay.app.domain.FootprintStop;
 import com.bytequay.app.domain.FootprintsTrail;
 import com.bytequay.app.domain.SurfaceType;
 import com.bytequay.app.domain.SurfaceVisit;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.repository.SurfaceVisitStore;
+import com.bytequay.app.repository.ThreadStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -45,10 +47,12 @@ public class FootprintsService
     static final int HOME_STOP_CAP = 8;
 
     private final SurfaceVisitStore store;
+    private final ThreadStore threadStore;
 
-    public FootprintsService(SurfaceVisitStore store)
+    public FootprintsService(SurfaceVisitStore store, ThreadStore threadStore)
     {
         this.store = requireNonNull(store, "store is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
     }
 
     /**
@@ -71,6 +75,9 @@ public class FootprintsService
         // surface key is its latest — that's the snapshot we keep.
         Map<String, FootprintStop> bySurface = new LinkedHashMap<>();
         for (SurfaceVisit visit : store.findVisitedBetween(start, end)) {
+            if (!isVisible(visit)) {
+                continue;
+            }
             String key = visit.surfaceType().name() + '\0' + visit.surfaceId();
             FootprintStop prior = bySurface.get(key);
             int count = prior == null ? 1 : prior.visitCount() + 1;
@@ -90,6 +97,30 @@ public class FootprintsService
                 .sorted(comparing(FootprintStop::latestVisitAt))
                 .collect(toImmutableList());
         return new FootprintsTrail(date, stops, totalStops);
+    }
+
+    /**
+     * The {@link SurfaceType#PR_KANBAN} bookmark row (visits to the My-PRs
+     * board) never earns a trail spot — it's a static nav shortcut, not
+     * activity. A {@link SurfaceType#THREAD} visit only earns a spot when
+     * it's a review thread, or a build thread the human has actually
+     * typed into — an untouched build thread's plain work is already
+     * represented by its Task rows elsewhere, so surfacing it here too
+     * would just be noise. Every other surface type is always visible. A
+     * thread that's since been deleted is dropped rather than risk a
+     * stale/misleading row.
+     */
+    private boolean isVisible(SurfaceVisit visit)
+    {
+        if (visit.surfaceType() == SurfaceType.PR_KANBAN) {
+            return false;
+        }
+        if (visit.surfaceType() != SurfaceType.THREAD) {
+            return true;
+        }
+        return threadStore.findThreadById(visit.surfaceId())
+                .map(t -> t.flow() == ThreadFlow.REVIEW || threadStore.countUserMessages(t.id()) > 0)
+                .orElse(false);
     }
 
     /**

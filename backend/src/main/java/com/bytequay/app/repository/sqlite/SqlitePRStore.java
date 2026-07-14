@@ -147,6 +147,19 @@ class SqlitePRStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public boolean hasRunningAgentReview(String prId)
+    {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM review_round r
+                JOIN review_session s ON s.id = r.session_id
+                WHERE s.pr_id = ? AND r.status = 'RUNNING'
+                """, Long.class, prId);
+        return count != null && count > 0;
+    }
+
+    @Override
     @Transactional
     public void reparentChildren(String fromPrId, String toPrId)
     {
@@ -163,15 +176,16 @@ class SqlitePRStore
                 + "AND (run_id IS NULL OR run_id NOT IN "
                 + "(SELECT run_id FROM pr_check WHERE pr_id = ? AND run_id IS NOT NULL))",
                 toPrId, fromPrId, toPrId);
+        reparentAgentReviews(fromPrId, toPrId);
         // Comments: ids are unique UUIDs, so no collision — move them all.
         jdbc.update("UPDATE pr_comment SET pr_id = ? WHERE pr_id = ?", toPrId, fromPrId);
-        // Timeline: move only genuine remote events the survivor lacks (keyed by
-        // remote_event_id). Redundant local-shaped rows (null remote_event_id,
-        // e.g. a bare "committed") are dropped — the survivor already owns the
-        // authoritative local history.
+        // Timeline: move genuine remote events the survivor lacks, plus local
+        // AgentReview events whose history was just reparented. Other local-only
+        // history belongs to the task survivor and remains authoritative.
         jdbc.update("UPDATE pr_timeline_event SET pr_id = ? WHERE pr_id = ? "
-                + "AND remote_event_id IS NOT NULL AND remote_event_id NOT IN "
-                + "(SELECT remote_event_id FROM pr_timeline_event WHERE pr_id = ? AND remote_event_id IS NOT NULL)",
+                + "AND ((remote_event_id IS NOT NULL AND remote_event_id NOT IN "
+                + "(SELECT remote_event_id FROM pr_timeline_event WHERE pr_id = ? AND remote_event_id IS NOT NULL)) "
+                + "OR (json_valid(payload_json) AND json_extract(payload_json, '$.reviewEvent') IS NOT NULL))",
                 toPrId, fromPrId, toPrId);
         // Triage (pr_id is the PK): the source twin is the dashboard row, so
         // its triage holds the snooze / handled state the user set there — the
@@ -183,6 +197,93 @@ class SqlitePRStore
                 toPrId, fromPrId);
         jdbc.update("UPDATE pr_triage SET pr_id = ? WHERE pr_id = ?", toPrId, fromPrId);
     }
+
+    private void reparentAgentReviews(String fromPrId, String toPrId)
+    {
+        List<String> reviewThreadIds = jdbc.queryForList("""
+                SELECT DISTINCT owner_thread_id
+                FROM review_session
+                WHERE pr_id = ? AND owner_task_id IS NULL AND owner_thread_id IS NOT NULL
+                """, String.class, fromPrId);
+        if (reviewThreadIds.isEmpty() && jdbc.queryForObject(
+                "SELECT COUNT(*) FROM review_session WHERE pr_id = ?", Long.class, fromPrId) == 0) {
+            return;
+        }
+
+        Optional<TaskReviewOwner> owner = jdbc.query("""
+                SELECT p.task_id, t.thread_id, th.workspace_id
+                FROM pr p
+                JOIN tasks t ON t.id = p.task_id
+                JOIN threads th ON th.id = t.thread_id
+                WHERE p.id = ?
+                """, (rs, row) -> new TaskReviewOwner(
+                rs.getString("task_id"), rs.getString("thread_id"), rs.getString("workspace_id")),
+                toPrId).stream().findFirst();
+
+        owner.ifPresent(taskOwner -> {
+            // Runs are accounted to the surviving development task once the
+            // formerly standalone review becomes part of that task's history.
+            jdbc.update("""
+                    UPDATE agent_run SET task_id = ?
+                    WHERE id IN (
+                        SELECT r.agent_run_id
+                        FROM review_round r
+                        JOIN review_session s ON s.id = r.session_id
+                        WHERE s.pr_id = ?)
+                    """, taskOwner.taskId(), fromPrId);
+            jdbc.update("""
+                    UPDATE agent_run SET task_id = ?
+                    WHERE id IN (
+                        SELECT v.verifier_run_id
+                        FROM finding_verification v
+                        JOIN finding f ON f.id = v.finding_id
+                        JOIN review_session s ON s.id = f.session_id
+                        WHERE s.pr_id = ?)
+                    """, taskOwner.taskId(), fromPrId);
+        });
+
+        Optional<String> targetReviewId = jdbc.queryForList("""
+                SELECT id FROM review_session
+                WHERE pr_id = ? AND status IN ('ACTIVE', 'STALE')
+                ORDER BY created_at_ms DESC LIMIT 1
+                """, String.class, toPrId).stream().findFirst();
+        if (targetReviewId.isPresent()) {
+            // The partial unique index permits only one active review per PR.
+            // Merge the twin's rounds/findings into the task-owned review before
+            // removing its now-empty session rows.
+            jdbc.update("""
+                    UPDATE review_round SET session_id = ?
+                    WHERE session_id IN (SELECT id FROM review_session WHERE pr_id = ?)
+                    """, targetReviewId.get(), fromPrId);
+            jdbc.update("""
+                    UPDATE finding SET session_id = ?
+                    WHERE session_id IN (SELECT id FROM review_session WHERE pr_id = ?)
+                    """, targetReviewId.get(), fromPrId);
+            jdbc.update("DELETE FROM review_session WHERE pr_id = ?", fromPrId);
+        }
+        else if (owner.isPresent()) {
+            TaskReviewOwner taskOwner = owner.get();
+            jdbc.update("""
+                    UPDATE review_session
+                    SET pr_id = ?, workspace_id = ?, owner_thread_id = ?, owner_task_id = ?
+                    WHERE pr_id = ?
+                    """, toPrId, taskOwner.workspaceId(), taskOwner.threadId(), taskOwner.taskId(), fromPrId);
+        }
+        else {
+            jdbc.update("UPDATE review_session SET pr_id = ? WHERE pr_id = ?", toPrId, fromPrId);
+        }
+
+        for (String threadId : reviewThreadIds) {
+            jdbc.update("""
+                    DELETE FROM threads
+                    WHERE id = ? AND flow = 'review'
+                      AND NOT EXISTS (SELECT 1 FROM review_session WHERE owner_thread_id = ?)
+                      AND NOT EXISTS (SELECT 1 FROM tasks WHERE thread_id = ?)
+                    """, threadId, threadId, threadId);
+        }
+    }
+
+    private record TaskReviewOwner(String taskId, String threadId, String workspaceId) {}
 
     @Override
     @Transactional

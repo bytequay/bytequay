@@ -139,6 +139,7 @@ public class PonytailBundleService
     private ManagedSkillBundle withBundledInternalSkills(ManagedSkillBundle bundle)
     {
         Map<String, ManagedSkill> skills = new LinkedHashMap<>(bundle.skills());
+        skills.put(CavemanPrompt.NAME, new ManagedSkill(CavemanPrompt.NAME, CavemanPrompt.body()));
         skills.put(ManagedSkillPolicy.TRUNK_PLANNER, new ManagedSkill(
                 ManagedSkillPolicy.TRUNK_PLANNER,
                 readResource("managed-skills/bytequay/trunk-planner/SKILL.md")));

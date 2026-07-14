@@ -25,6 +25,7 @@ import { TimelinePersonEvent } from './TimelinePersonEvent';
 import { TimelineIconEvent } from './TimelineIconEvent';
 import { TimelinePlanFinalized } from './TimelinePlanFinalized';
 import { ReviewThreadCard } from './ReviewThreadCard';
+import { PRCommentThreadBubble } from './PRCommentThreadBubble';
 import { buildAgentReviewTimelineEntries } from '../../review/AgentReviewTimeline';
 import type { AgentReviewData } from '../../review/agentReviewTypes';
 
@@ -222,6 +223,23 @@ function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]>
   return threads;
 }
 
+function groupPrCommentThreads(comments: LocalPRComment[]): LocalPRComment[][] {
+  const prComments = comments.filter(comment => comment.scope === 'pr');
+  const byId = new Map(prComments.map(comment => [comment.id, comment]));
+  const groups = new Map<string, LocalPRComment[]>();
+  for (const comment of prComments) {
+    const rootId = comment.parentCommentId !== null && byId.has(comment.parentCommentId)
+      ? comment.parentCommentId
+      : comment.id;
+    const group = groups.get(rootId);
+    if (group === undefined) groups.set(rootId, [comment]);
+    else group.push(comment);
+  }
+  return [...groups.values()]
+    .map(group => group.sort((a, b) => a.createdAt - b.createdAt))
+    .sort((a, b) => (a[0]?.createdAt ?? 0) - (b[0]?.createdAt ?? 0));
+}
+
 /**
  * The unified PR timeline (U13c/U15): a rail of speech-bubble comments,
  * person-events for reviews, one-line icon rows for compact events, and
@@ -229,7 +247,7 @@ function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]>
  * The description renders as the first bubble.
  */
 export function PRTimeline({
-  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread, onOpenStage,
+  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread, onReplyThread, onOpenStage,
   commits = [], activity, reviewThreads, remoteDetail, threadActions, currentUserLogin,
   reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
 }: {
@@ -240,6 +258,7 @@ export function PRTimeline({
   onReviewChanges?: () => void;
   onResolveThread?: (rootCommentId: string) => void;
   onDismissThread?: (rootCommentId: string) => void;
+  onReplyThread?: (rootCommentId: string, body: string) => void | Promise<void>;
   /** Jumps to a stage's detail view — wired to the "View the plan" link card
    *  on a `plan-finalized` row so it can jump back to the Plan node. */
   onOpenStage?: (stageId: string) => void;
@@ -400,24 +419,31 @@ export function PRTimeline({
 
   // Remote-origin comments now come from the GitHub feed's `commented`
   // activity instead. Task-origin pushed PRs fold their local-only history
-  // into the summary above; external PRs still render local draft comments.
+  // into the summary above; external PRs still render local draft comments —
+  // but only while they're *unpublished* drafts. Once a draft is submitted it
+  // becomes a real GitHub review comment and renders live via the feed below;
+  // keeping the local copy too would show the same comment twice.
   const localComments = (foldTaskLocalActivity
     ? comments.filter(comment => comment.author === 'brain')
-    : githubFeedActive ? comments.filter(comment => comment.origin === 'local') : comments)
+    : githubFeedActive
+      ? comments.filter(comment => comment.origin === 'local' && comment.publishedAt === null)
+      : comments)
     .filter(comment => !commentsInBrainReviews.has(comment.id));
 
-  for (const comment of localComments) {
-    if (comment.scope !== 'pr') continue;
-    const role = actorRole(comment.author, pr);
-    const pending = comment.origin === 'local' && comment.publishedAt === null &&
-      comment.resolvedAt === null && comment.dismissedAt === null;
+  for (const thread of groupPrCommentThreads(localComments)) {
+    const root = thread[0];
+    if (root === undefined) continue;
     rows.push({
-      key: comment.id,
-      time: comment.createdAt,
+      key: root.id,
+      time: root.createdAt,
       render: (
-        <TimelineBubble key={comment.id} actor={comment.author} role={role} action="commented" time={comment.createdAt} pending={pending}>
-          {comment.body}
-        </TimelineBubble>
+        <PRCommentThreadBubble
+          key={root.id}
+          pr={pr}
+          comments={thread}
+          reviewData={reviewData}
+          onReply={onReplyThread}
+        />
       ),
     });
   }

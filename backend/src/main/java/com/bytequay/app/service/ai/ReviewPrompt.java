@@ -14,6 +14,7 @@
 package com.bytequay.app.service.ai;
 
 import com.bytequay.app.domain.ReviewRequest;
+import com.bytequay.app.service.skills.CavemanPrompt;
 
 import static java.util.Objects.requireNonNullElse;
 
@@ -45,7 +46,7 @@ final class ReviewPrompt
         if (skill != null && !skill.isBlank()) {
             out.append("\n\nRepository-specific review context:\n").append(skill.strip()).append("\n");
         }
-        return out.toString();
+        return CavemanPrompt.wrap(out.toString());
     }
 
     static final String SYSTEM = """

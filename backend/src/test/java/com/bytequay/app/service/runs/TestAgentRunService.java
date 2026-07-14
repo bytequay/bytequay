@@ -88,6 +88,24 @@ class TestAgentRunService
     }
 
     @Test
+    void openTaskArtifactAttributesTheRunWithoutCreatingAStage()
+    {
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun run = service.openTaskArtifact(
+                "task-1", AgentRun.KIND_PANEL_REVIEW, null, "round-1", 50);
+
+        assertThat(run.taskId()).isEqualTo("task-1");
+        assertThat(run.stageId()).isNull();
+        assertThat(run.parentStageId()).isNull();
+        assertThat(run.reviewRoundId()).isEqualTo("round-1");
+        assertThat(run.kind()).isEqualTo(AgentRun.KIND_PANEL_REVIEW);
+        assertThat(run.status()).isEqualTo(AgentRun.STATUS_RUNNING);
+        assertThat(run.budget()).isEqualTo(50);
+        verify(stageStore, never()).openStage(any(), any(), any());
+    }
+
+    @Test
     void openIsIdempotentWhenALiveRunOfTheSameKindExists()
     {
         AgentRun existing = new AgentRun(

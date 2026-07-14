@@ -41,7 +41,7 @@ import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
 import { PlanCard, planStepComments } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
-import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { buildTaskAgentReviewTrack, TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
 import { AgentReviewHeaderAction } from '../review/AgentReviewHeaderAction';
@@ -133,7 +133,7 @@ export function StageDetailRoute({
     bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment,
+    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
@@ -158,6 +158,10 @@ export function StageDetailRoute({
     pollFast();
   }, [pollFast, taskId]);
   const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
+  const openAgentRound = useCallback((_roundId?: string) => {
+    setReviewOpen(true);
+    setPrSubTabRequest(prev => ({ subTab: 'changes', token: (prev?.token ?? 0) + 1 }));
+  }, [setReviewOpen]);
   const pendingReviewComments = useMemo(
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
@@ -568,7 +572,7 @@ export function StageDetailRoute({
       excluded={agentReview.excludedFindings}
       error={agentReview.error}
       onStart={agentReview.startReview}
-      onOpenRound={() => { setReviewOpen(true); setPrSubTabRequest(prev => ({ subTab: 'changes', token: (prev?.token ?? 0) + 1 })); }}
+      onOpenRound={() => openAgentRound()}
       onToggle={agentReview.toggleFinding}
       onEdit={agentReview.updateComment}
       onRemove={agentReview.dismissComment}
@@ -618,6 +622,7 @@ export function StageDetailRoute({
         if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
         else deleteLocalComment(commentId);
       }}
+      onReplyThread={taskTerminal ? undefined : replyLocalPrComment}
       onOpenStage={onOpenStage}
       syncedAt={displayedLocalPrBundle.pr.syncedAt}
       syncing={prSyncing}
@@ -697,6 +702,9 @@ export function StageDetailRoute({
       onOpenTab={openTab}
       onOpenBrain={onOpenBrain}
       onOpenRun={onOpenRun}
+      agentReview={agentReview.data === null
+        ? undefined
+        : buildTaskAgentReviewTrack(agentReview.data, openAgentRound)}
       onToggleGuard={enabled => {
         void window.bridge.updateTaskGuard(taskId, { enabled })
           .then(() => { pollFast(); refresh(); })

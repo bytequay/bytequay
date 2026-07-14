@@ -13,11 +13,91 @@
  */
 import type { ReactNode } from 'react';
 import { initials } from '../../diff/DiffInlineComments';
+import type { AgentReviewData } from '../../review/agentReviewTypes';
 import { Avatar, MergeIcon } from '../primitives';
 import { BackChevronIcon, CheckIcon, TaskBranchIcon, ThreadBubbleIcon, UpArrowIcon } from '../TaskBrainDesignIcons';
 import { LivePlan } from './LivePlan';
 import type { GuardChipData, LivePlanNode } from './livePlanModel';
 import { TrafficLights } from './Sidebar';
+
+export type TaskAgentReviewTrack = {
+  status: 'running' | 'questions' | 'complete' | 'stale' | 'errored';
+  rounds: Array<{
+    id: string;
+    status: 'running' | 'questions' | 'complete' | 'cancelled' | 'errored';
+    findings: number;
+  }>;
+  onOpenRound: (roundId: string) => void;
+};
+
+export function buildTaskAgentReviewTrack(
+  data: AgentReviewData,
+  onOpenRound: (roundId: string) => void,
+): TaskAgentReviewTrack {
+  const roundStatus = (status: string): TaskAgentReviewTrack['rounds'][number]['status'] =>
+    status === 'RUNNING' ? 'running'
+      : status === 'COMPLETED_WITH_QUESTIONS' ? 'questions'
+        : status === 'ERRORED' ? 'errored'
+          : status === 'CANCELLED' ? 'cancelled'
+            : 'complete';
+  const latest = data.rounds.at(-1);
+  const status: TaskAgentReviewTrack['status'] = data.review.status === 'STALE' ? 'stale'
+    : data.rounds.some(round => round.status === 'RUNNING') ? 'running'
+      : latest?.status === 'ERRORED' ? 'errored'
+        : latest?.status === 'COMPLETED_WITH_QUESTIONS'
+          || data.findings.some(finding => finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT')
+          ? 'questions'
+          : 'complete';
+  return {
+    status,
+    rounds: data.rounds.map(round => ({
+      id: round.id,
+      status: roundStatus(round.status),
+      findings: data.findings.filter(finding => finding.round_id === round.id
+        && finding.lifecycle_status !== 'dropped').length,
+    })),
+    onOpenRound,
+  };
+}
+
+function AgentReviewTrack({ track }: { track: TaskAgentReviewTrack }) {
+  const latest = track.rounds.at(-1);
+  const glyph = (status: TaskAgentReviewTrack['rounds'][number]['status']) =>
+    status === 'running' ? '●' : status === 'errored' ? '!' : status === 'cancelled' ? '■' : '✓';
+  const label = (status: TaskAgentReviewTrack['status']) =>
+    status === 'running' ? 'reviewing'
+      : status === 'questions' ? 'needs judgement'
+        : status === 'stale' ? 'new changes'
+          : status;
+  return (
+    <section className={`task-agent-review task-agent-review--${track.status}`}>
+      <div className="plan-section-h task-agent-review__heading">
+        <span>Agent review</span>
+        {track.status === 'running' && <span className="live-dot" aria-hidden />}
+        <span className="plan-count">{label(track.status)}</span>
+      </div>
+      <button
+        type="button"
+        className="task-agent-review__root"
+        disabled={latest === undefined}
+        onClick={() => latest !== undefined && track.onOpenRound(latest.id)}
+      >
+        <span aria-hidden>⚖</span>
+        <b>Review and verify fixes</b>
+        <span>{track.rounds.length} {track.rounds.length === 1 ? 'round' : 'rounds'}</span>
+      </button>
+      <div className="task-agent-review__rounds">
+        {track.rounds.map((round, index) => (
+          <button type="button" key={round.id} onClick={() => track.onOpenRound(round.id)}>
+            <span className={`task-agent-review__glyph task-agent-review__glyph--${round.status}`} aria-hidden>{glyph(round.status)}</span>
+            <span>Round {index + 1}</span>
+            <small>{round.findings} {round.findings === 1 ? 'finding' : 'findings'}</small>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /**
  * The task-scoped left sidebar for the brain + stage pages (frames 2/6/7):
@@ -30,7 +110,8 @@ import { TrafficLights } from './Sidebar';
 export function TaskSidebar({
   task, threadLabel, nodes, guard, defaultExpandPhases = false,
   onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
-  onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard, actions, user,
+  onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
+  agentReview, actions, user,
 }: {
   task: {
     title: string; branch: string;
@@ -64,6 +145,9 @@ export function TaskSidebar({
   onOpenRun?: (runId: string) => void;
   /** Enable/disable the branch guard from its chip's toggle. */
   onToggleGuard?: (enabled: boolean) => void;
+  /** Parallel review track owned by the task, deliberately outside the
+   * delivery lifecycle's stage tree. */
+  agentReview?: TaskAgentReviewTrack;
   actions?: ReactNode;
   /** GitHub login shown in the sidebar footer; omitted → no footer. */
   user?: string;
@@ -129,6 +213,7 @@ export function TaskSidebar({
         onOpenRun={onOpenRun}
         onToggleGuard={onToggleGuard}
       />
+      {agentReview !== undefined && <AgentReviewTrack track={agentReview} />}
       {actions !== undefined && <div className="panel-actions">{actions}</div>}
       {user !== undefined && (
         <div className="ts-footer">

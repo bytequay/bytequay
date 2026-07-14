@@ -15,6 +15,7 @@ package com.bytequay.app.service.ai;
 
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadStore.AiSpendRow;
+import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.YearMonth;
@@ -31,25 +32,30 @@ class TestAiLedgerService
     void rollsUpSpendByProviderAndTaskType()
     {
         ThreadStore threadStore = mock(ThreadStore.class);
+        InvestigationReviewStore reviewStore = mock(InvestigationReviewStore.class);
         when(threadStore.aggregateAiSpend(any(), any())).thenReturn(List.of(
                 new AiSpendRow("claude-code", "build", "CLI_AGENT", 3000, 12),
                 new AiSpendRow("claude-sonnet-4-6", "review", "LOGIC_LOOP", 2000, 8),
                 new AiSpendRow("openai/gpt-5", "build", "BRAIN_AGENT", 1000, 4)));
-        AiLedgerService service = new AiLedgerService(threadStore);
+        when(reviewStore.agentReviewSpend(any(), any())).thenReturn(List.of(
+                new InvestigationReviewStore.AgentReviewSpend("openai/gpt-5", 500, 2)));
+        AiLedgerService service = new AiLedgerService(threadStore, reviewStore);
 
         AiLedgerService.AiLedger ledger = service.ledger(YearMonth.of(2026, 6));
 
         assertThat(ledger.month()).isEqualTo("2026-06");
-        assertThat(ledger.totalCents()).isEqualTo(600);  // 6000 milli / 10
-        assertThat(ledger.totalCalls()).isEqualTo(24);
+        assertThat(ledger.totalCents()).isEqualTo(650);  // 6500 milli / 10
+        assertThat(ledger.totalCalls()).isEqualTo(26);
         // Both claude rows collapse to the anthropic provider.
         assertThat(ledger.byProvider()).anySatisfy(p -> {
             assertThat(p.provider()).isEqualTo("anthropic");
             assertThat(p.costCents()).isEqualTo(500);     // 3000 + 2000 milli
             assertThat(p.callsCount()).isEqualTo(20);
         });
-        assertThat(ledger.byProvider()).anySatisfy(p ->
-                assertThat(p.provider()).isEqualTo("openai"));
+        assertThat(ledger.byProvider()).anySatisfy(p -> {
+            assertThat(p.provider()).isEqualTo("openai");
+            assertThat(p.costCents()).isEqualTo(150);
+        });
         // Task type: build→dev, review→review, BRAIN_AGENT kind→brain.
         assertThat(ledger.byTaskType()).extracting(AiLedgerService.TaskTypeEntry::type)
                 .containsExactlyInAnyOrder("dev", "review", "brain");

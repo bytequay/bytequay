@@ -18,12 +18,13 @@ import { ExpandableFileDiffBody } from '../../diff/ExpandableFileDiffBody';
 import {
   DiffInlineComments, diffInlineCommentFromLocalPr, isPendingLocalComment, rangeLabel,
 } from '../../diff/DiffInlineComments';
+import { InlineReviewThread } from '../../diff/InlineReviewThread';
 import { ReviewTabPendingList } from '../../diff/PendingCommentsList';
 import { commitSubject, formatShortSha } from '../../diff/commitDisplay';
 import { formatRelativeTime } from '../utils';
 import { useDiffRangeComposer } from '../../diff/useDiffRangeComposer';
 import { SubmitReviewDrawer, type ReviewVerdict } from '../../pages/SubmitReviewDrawer';
-import type { DiffFileDto } from '../../types';
+import type { DiffFileDto, ReviewThreadDto } from '../../types';
 import type { LocalPRComment, LocalPRCommit } from '../../types/localPr';
 import type { AgentReviewData } from '../../review/agentReviewTypes';
 
@@ -55,6 +56,21 @@ function lineKey(filename: string, side: AnchorSide, ln: number): string {
   return `${filename}:${side}:${ln}`;
 }
 
+/** Everything {@link InlineReviewThread} needs to render live GitHub review
+ *  threads (reply / resolve / unresolve) on this diff. Absent for a PR with no
+ *  remote identity — the diff then shows only local draft comments. */
+export type GithubThreadContext = {
+  threads: ReviewThreadDto[];
+  repo: string;
+  prNumber: number;
+  /** Legacy PR primary key the resolve path prefers; the backend falls back
+   *  to resolving it from the thread's own comment id when this is stale. */
+  prId: number;
+  prAuthor: string | null;
+  /** Re-fetch the GitHub feed after a reply / resolve so the thread updates. */
+  onChanged: () => void;
+};
+
 /**
  * One file's diff body for the local review page. It renders through the
  * shared expandable diff body and injects local {@code file-line} comments
@@ -63,11 +79,12 @@ function lineKey(filename: string, side: AnchorSide, ln: number): string {
  */
 function LocalFileDiff({
   file, comments, allowLocalComments, fetchFileBlob,
-  onAddComment, onReplyComment, onResolveComment, onDismissComment, reviewData,
+  onAddComment, onReplyComment, onResolveComment, onDismissComment, reviewData, github,
 }: {
   file: DiffFileDto;
   comments: LocalPRComment[];
   allowLocalComments: boolean;
+  github?: GithubThreadContext;
   fetchFileBlob?: (path: string) => Promise<{ lines: string[] }>;
   onAddComment?: (
     filePath: string, side: AnchorSide, line: number,
@@ -93,21 +110,71 @@ function LocalFileDiff({
   const byLine = useMemo(() => {
     const m = new Map<string, LocalPRComment[]>();
     for (const c of comments) {
-      if (c.scope !== 'file-line' || c.filePath !== file.filename || c.lineNumber === null) continue;
+      // Only LOCAL drafts / agent findings render here; GitHub review threads
+      // (origin=remote) render via <InlineReviewThread> from the live feed, so
+      // including them would double every synced thread on the diff. Once a
+      // local draft is published it becomes one of those live threads, so drop
+      // it here too when the feed is active — otherwise the same comment shows
+      // both as a local draft and as its published thread.
+      if (c.scope !== 'file-line' || c.origin !== 'local'
+          || c.filePath !== file.filename || c.lineNumber === null
+          || (github !== undefined && c.publishedAt !== null)) continue;
       const k = lineKey(file.filename, c.side, c.lineNumber);
       const lineComments = m.get(k);
       if (lineComments !== undefined) lineComments.push(c);
       else m.set(k, [c]);
     }
     return m;
-  }, [comments, file.filename]);
+  }, [comments, file.filename, github]);
+
+  // Live GitHub review threads anchored in this file, keyed by side:line so
+  // they render under the same rows as local comments. Threads whose line no
+  // longer exists (force-push) have no anchor row, so they surface in a
+  // separate section above the diff (matching the remote-PR diff screen).
+  const threadsByLine = useMemo(() => {
+    const m = new Map<string, ReviewThreadDto[]>();
+    for (const t of github?.threads ?? []) {
+      if (t.filePath !== file.filename || t.line === null || t.outdated) continue;
+      const side: AnchorSide = t.side === 'LEFT' ? 'LEFT' : 'RIGHT';
+      const k = `${side}:${t.line}`;
+      const list = m.get(k);
+      if (list !== undefined) list.push(t);
+      else m.set(k, [t]);
+    }
+    return m;
+  }, [github?.threads, file.filename]);
+  const outdatedThreads = useMemo(
+    () => (github?.threads ?? []).filter(t => t.filePath === file.filename && (t.outdated || t.line === null)),
+    [github?.threads, file.filename],
+  );
+
+  const renderThreads = (side: AnchorSide, line: number) => {
+    if (github === undefined) return null;
+    const threads = threadsByLine.get(`${side}:${line}`);
+    if (threads === undefined || threads.length === 0) return null;
+    return threads.map(thread => (
+      <InlineReviewThread
+        key={thread.rootGithubId}
+        thread={thread}
+        prAuthor={github.prAuthor}
+        repo={github.repo}
+        prId={github.prId}
+        prNumber={github.prNumber}
+        onReplied={github.onChanged}
+      />
+    ));
+  };
 
   const renderAfterRow = (side: AnchorSide, line: number) => {
     const key = lineKey(file.filename, side, line);
     const lineComments = byLine.get(key) ?? [];
     const composerHere = composer !== null && composer.side === side && composer.line === line;
-    if (lineComments.length === 0 && !composerHere) return null;
+    const threads = renderThreads(side, line);
+    if (lineComments.length === 0 && !composerHere && threads === null) return null;
     return (
+      <>
+      {threads}
+      {(lineComments.length > 0 || composerHere) && (
       <DiffInlineComments
         comments={lineComments.map(comment => diffInlineCommentFromLocalPr(comment, reviewData))}
         allowLocalComments={allowLocalComments}
@@ -138,6 +205,8 @@ function LocalFileDiff({
           : undefined}
         singleActionLabel={reviewData === undefined ? undefined : 'Comment now'}
       />
+      )}
+      </>
     );
   };
 
@@ -158,12 +227,32 @@ function LocalFileDiff({
   };
 
   return (
-    <ExpandableFileDiffBody
-      file={file}
-      fetchFileBlob={fetchFileBlob}
-      renderAfterRow={renderAfterRow}
-      rowDecoration={rowDecoration}
-    />
+    <>
+      {github !== undefined && outdatedThreads.length > 0 && (
+        <div className="diff-outdated diff-outdated--inline">
+          <div className="diff-outdated__hint">
+            Outdated review {outdatedThreads.length === 1 ? 'thread' : 'threads'} — anchored to lines no longer in the diff
+          </div>
+          {outdatedThreads.map(thread => (
+            <InlineReviewThread
+              key={thread.rootGithubId}
+              thread={thread}
+              prAuthor={github.prAuthor}
+              repo={github.repo}
+              prId={github.prId}
+              prNumber={github.prNumber}
+              onReplied={github.onChanged}
+            />
+          ))}
+        </div>
+      )}
+      <ExpandableFileDiffBody
+        file={file}
+        fetchFileBlob={fetchFileBlob}
+        renderAfterRow={renderAfterRow}
+        rowDecoration={rowDecoration}
+      />
+    </>
   );
 }
 
@@ -179,11 +268,14 @@ export function LocalPrReviewScreen({
   onAddComment, onReplyComment, onResolveComment, onDismissComment,
   onBack, error = null, fetchFileBlob, onSubmitReview, submittingReview = false,
   embedded = false, showAuxTabs = true,
-  reviewData,
+  reviewData, github,
   selectedFindingId, onSelectFinding,
   submitReviewControl, onStartAgentReview,
 }: {
   title: string;
+  /** Live GitHub review threads to render on the diff (reply / resolve /
+   *  unresolve). Omit for a PR with no remote identity. */
+  github?: GithubThreadContext;
   /** Null = still loading. Empty array = nothing changed. */
   files: DiffFileDto[] | null;
   comments: LocalPRComment[];
@@ -281,6 +373,7 @@ export function LocalPrReviewScreen({
             file={file}
             comments={comments}
             allowLocalComments={allowLocalComments}
+            github={github}
             fetchFileBlob={fetchFileBlob}
             onAddComment={onAddComment}
             onReplyComment={onReplyComment}

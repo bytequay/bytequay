@@ -51,22 +51,22 @@ describe('useAgentReviewState', () => {
       author: 'you', body: 'Manual reviewer draft', createdAt: 2, resolvedAt: null,
       dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
     });
-    const getAgentReviewSession = vi.fn(async (): Promise<ReturnType<typeof data> | null> => null);
-    const startAgentReviewSession = vi.fn(async () => live);
+    const getAgentReview = vi.fn(async (): Promise<ReturnType<typeof data> | null> => null);
+    const startAgentReview = vi.fn(async () => live);
     const mutateAgentReviewFinding = vi.fn(async () => live);
     const cancelAgentReviewRound = vi.fn(async () => live);
     const publishLocalPrReview = vi.fn(async () => bundle().pr);
     window.bridge = {
-      getAgentReviewSession, startAgentReviewSession, mutateAgentReviewFinding,
+      getAgentReview, startAgentReview, mutateAgentReviewFinding,
       publishLocalPrReview, cancelAgentReviewRound,
     } as unknown as typeof window.bridge;
     const refresh = vi.fn();
     const { result } = renderHook(() => useAgentReviewState(source, refresh));
-    await waitFor(() => expect(getAgentReviewSession).toHaveBeenCalledWith('pr-live'));
+    await waitFor(() => expect(getAgentReview).toHaveBeenCalledWith('pr-live'));
 
     act(() => result.current.startReview());
-    await waitFor(() => expect(result.current.data?.session.id).toBe(live.session.id));
-    expect(startAgentReviewSession).toHaveBeenCalledWith('pr-live');
+    await waitFor(() => expect(result.current.data?.review.id).toBe(live.review.id));
+    expect(startAgentReview).toHaveBeenCalledWith('pr-live', { workspaceId: undefined });
 
     act(() => result.current.toggleFinding('finding-1'));
     await waitFor(() => expect(mutateAgentReviewFinding).toHaveBeenCalledWith(

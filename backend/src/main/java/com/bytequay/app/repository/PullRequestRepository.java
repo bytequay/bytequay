@@ -452,7 +452,7 @@ public interface PullRequestRepository
      * Joined back to REST root comment ids by databaseId so callers can
      * persist this alongside the REST-fetched data.
      */
-    record ReviewThreadMeta(long rootCommentDatabaseId, String graphqlNodeId, boolean resolved) {}
+    record ReviewThreadMeta(long rootCommentDatabaseId, String graphqlNodeId, boolean resolved, String resolvedBy) {}
 
     /**
      * Lists per-thread resolution metadata via GraphQL — the REST API

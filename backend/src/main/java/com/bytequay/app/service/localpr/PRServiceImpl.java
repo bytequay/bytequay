@@ -649,6 +649,12 @@ class PRServiceImpl
             return task;
         }
         PR external = twin.get();
+        // A running round keeps the source PR id in its in-memory work item and
+        // may still append findings, comments, and timeline events. Reconcile
+        // on the next sweep rather than deleting that aggregate mid-run.
+        if (store.hasRunningAgentReview(external.id())) {
+            return task;
+        }
         PR survivor = task;
         // Carry the dashboard's watch/enrichment state onto the survivor so the
         // PR stays on the dashboard. A freshly-pushed task row usually has no

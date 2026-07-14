@@ -499,6 +499,15 @@ public abstract class AbstractCliThreadAgent
         return ManagedSkillPrompt.render(activeManagedSkills);
     }
 
+    /** Render one named managed skill for provider paths that need a
+     *  guaranteed system-prompt injection instead of best-effort discovery. */
+    protected final String activeManagedSkillPrompt(String name)
+    {
+        return ManagedSkillPrompt.render(activeManagedSkills.stream()
+                .filter(skill -> skill.name().equals(name))
+                .toList());
+    }
+
     @Override
     public final void setMcpAgentKey(String agentKey)
     {

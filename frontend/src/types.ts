@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type {
-  AgentRunDto, BrainMessageResult, BranchGuardDto, ReviewRoundDto, SpawnReviewResult, StageDetailData,
+  AgentRunDto, BrainMessageResult, BranchGuardDto, ReviewRoundDto, StageDetailData,
   TaskBrainViewData,
 } from './types/brainView';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
@@ -348,6 +348,10 @@ export type ReviewThreadDto = {
    *  this — null/false until a GraphQL pass populates it. The UI
    *  defaults resolved threads to folded. */
   resolved: boolean | null;
+  /** Login of whoever resolved the thread, for the "X marked this
+   *  conversation as resolved" attribution. Null/absent when unresolved or
+   *  when only a REST pass (no GraphQL) has run. */
+  resolvedBy?: string | null;
   /** True iff the thread anchors to a line that no longer exists in
    *  the current diff (typically after a force-push). Drives the
    *  "Outdated" badge on the thread header. */
@@ -3541,39 +3545,6 @@ export type Bridge = {
   /** Drop the pending proposal without writing anything. */
   discardWorkspaceMemoryProposal: (workspaceId: string) => Promise<void>;
 
-  /** Kick off a new single-reviewer review pass against {@code prNumber}
-   *  in {@code repoFullName}. Creates a {@code flow=REVIEW} thread,
-   *  runs the active LLM reviewer synchronously, and returns the
-   *  populated panel state. */
-  startReview: (
-    repoFullName: string,
-    prNumber: number,
-    opts?: {
-      panelProviderIds?: string[];
-      roundCap?: number;
-      costCapMilli?: number;
-      independentFirst?: boolean;
-      /** Workspace the review thread is created in, so it surfaces in
-       *  that workspace's thread list. */
-      workspaceId?: string;
-      /** Per-run lead override — a providerId. Null/omitted falls back
-       *  to the first panel member. The lead runs consensus + the
-       *  convergence moderator. */
-      leadId?: string | null;
-      /** Explicit panel composition — one entry per reviewer seat, each
-       *  pairing a model with an optional review-skill voice or typed
-       *  prompt. When set, this is the authoritative panel. Exactly one
-       *  seat should be flagged lead. */
-      seats?: {
-        providerId: string;
-        customPrompt?: string | null;
-        /** A review-usage skill row used as this seat's voice; mutually
-         *  exclusive with customPrompt. */
-        roleSkillId?: number | null;
-        lead?: boolean;
-      }[];
-    },
-  ) => Promise<ReviewPassDetailDto>;
   /** List configured LLM reviewers (and unconfigured ones the
    *  assign-review-task dialog surfaces as disabled chips). */
   listReviewRoster: () => Promise<ReviewRosterEntryDto[]>;
@@ -4042,6 +4013,8 @@ export type Bridge = {
   dequeueLocalPr: (prId: string) => Promise<LocalPR>;
   /** User-gated deletion of a merged PR's head branch on GitHub. */
   deleteLocalPrBranch: (prId: string) => Promise<LocalPR>;
+  /** Explicitly post a top-level PR comment to GitHub. */
+  postRemotePrComment: (prId: string, body: string) => Promise<LocalPR>;
   /** Batch every unpublished draft comment into one GitHub review
    *  (external PRs only — see {@code PRCapabilities.publishReview}). */
   publishLocalPrReview: (
@@ -4050,13 +4023,14 @@ export type Bridge = {
   ) => Promise<LocalPR>;
   /** Persisted investigation-review aggregate; null means this PR has never
    *  been reviewed. Every review surface consumes this exact payload. */
-  getAgentReviewSession: (prId: string) => Promise<AgentReviewData | null>;
-  startAgentReviewSession: (
+  getAgentReview: (prId: string) => Promise<AgentReviewData | null>;
+  startAgentReview: (
     prId: string,
-    body?: { runner?: 'api' | 'cli'; providerId?: string },
+    body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },
   ) => Promise<AgentReviewData>;
-  continueAgentReviewSession: (
-    sessionId: string,
+  getAgentReviewByThread: (threadId: string) => Promise<AgentReviewData | null>;
+  continueAgentReview: (
+    reviewId: string,
     body: { kind: 'continue' | 're-review' | 'continuation'; findingIds?: string[]; runner?: 'api' | 'cli'; providerId?: string },
   ) => Promise<AgentReviewData>;
   answerAgentReviewFinding: (findingId: string, text: string) => Promise<AgentReviewData>;
@@ -4114,10 +4088,6 @@ export type Bridge = {
   /** Submits a GitHub approval review, then records it as handled locally. */
   approveDashboardPr: (prId: string) => Promise<void>;
 
-  /** Spawn a panel review as a callable sub-stage of {@code parentStageId}.
-   *  Returns the opened review stage, the seated pass, and the review
-   *  thread the panel page navigates to. */
-  spawnReview: (parentStageId: string) => Promise<SpawnReviewResult>;
   /** Steer a stage's dev agent: enqueue the user's message as a turn on the
    *  task's dev thread. `images` are pasted-screenshot data URLs, saved and
    *  folded into the turn the same way trunk/task-brain sends do. Returns

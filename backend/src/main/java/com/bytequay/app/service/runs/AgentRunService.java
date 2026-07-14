@@ -21,11 +21,9 @@ import java.util.Optional;
 
 /**
  * Owns the {@link AgentRun} status machine — the containment-without-
- * lifecycle-position entity (plan-rail-runs.md R6). Every run gets its
- * own backing {@code task_stage} row so its turns land in {@code
- * stage_messages} through the mechanism that already exists for stages
- * (see {@link #open}); this is an implementation detail callers never
- * touch directly.
+ * lifecycle-position entity (plan-rail-runs.md R6). Lifecycle runs opened
+ * through {@link #open} get a backing {@code task_stage}; artifact runs such
+ * as AgentReview rounds deliberately do not occupy the task's stage spine.
  */
 public interface AgentRunService
 {
@@ -64,6 +62,16 @@ public interface AgentRunService
 
     /** Open a run for an external review round that has no task/stage container. */
     AgentRun openDetached(String kind, String source, String reviewRoundId, Integer budget);
+
+    /**
+     * Open an artifact run owned by a task but outside its lifecycle stages.
+     * Unlike {@link #open}, this never creates or reuses a {@code task_stage}.
+     * Multiple runs of the same kind may belong to one review round (for
+     * example the investigator and independent verifier), so it is not
+     * deduplicated by task/kind.
+     */
+    AgentRun openTaskArtifact(
+            String taskId, String kind, String source, String reviewRoundId, Integer budget);
 
     /** Record one more iteration, optionally updating the fold-bar headline. */
     AgentRun recordIteration(String runId, String headlineOrNull);

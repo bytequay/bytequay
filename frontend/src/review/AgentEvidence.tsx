@@ -70,6 +70,41 @@ function displayCeiling(view: AgentFindingPresentation): number {
   return confidenceCeiling(strongest, view.finding.verification_status, view.finding.criterion_kind);
 }
 
+const TYPE_NAME_RE = /\b[A-Z][A-Za-z0-9_]*\b/g;
+const PRODUCT_NAMES = new Set(['GitHub', 'JavaScript', 'Markdown', 'OpenAI', 'PostgreSQL', 'TypeScript']);
+
+/**
+ * Older findings were stored as plain prose even though the shared renderer
+ * understands Markdown. Add only unambiguous type-name markup here so those
+ * comments remain scannable too; future findings are prompted to supply their
+ * own Markdown.
+ */
+export function findingMarkdown(text: string): string {
+  const withTypes = text.split(/(`[^`\n]*`)/g).map(part => {
+    if (part.startsWith('`')) return part;
+    return part.replace(TYPE_NAME_RE, (token, offset, source: string) => {
+      const before = source.slice(0, offset);
+      if (PRODUCT_NAMES.has(token) || /https?:\/\/\S*$/i.test(before)) return token;
+      const uppercase = [...token].filter(character => character >= 'A' && character <= 'Z').length;
+      return uppercase >= 2 && /[a-z]/.test(token) ? `\`${token}\`` : token;
+    });
+  }).join('');
+
+  return withTypes
+    .replace(/(^|\n\n)Requested action:\s*/gi, '$1**Requested action:** ')
+    .replace(/(^|\n\n)Could you clarify the intended behavior here\?\s*/gi, '$1**Question:** ');
+}
+
+/** Plain, single-line copy for a folded finding summary. */
+export function findingSummary(text: string): string {
+  return text
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/\[([^\]]+)]\([^\s)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function AgentFindingContent({ view, body, pending = false }: {
   view: AgentFindingPresentation;
   body: string;
@@ -90,7 +125,7 @@ export function AgentFindingContent({ view, body, pending = false }: {
         <span className="agent-finding-chip confidence">{view.finding.confidence_class} · ≤{displayCeiling(view).toFixed(2)}</span>
         {pending && <span className="agent-finding-chip pending">Pending</span>}
       </div>
-      <MarkdownProse text={body} />
+      <MarkdownProse text={findingMarkdown(body)} />
       <div className={`agent-verifier agent-verifier--${view.finding.verification_status}`}>
         <span>{verificationLabel(view)}</span>
         <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}>

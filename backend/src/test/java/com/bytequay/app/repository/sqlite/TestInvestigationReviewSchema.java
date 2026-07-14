@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.AssignmentBudget;
 import com.bytequay.app.domain.InvestigationReviewData.CriterionRow;
 import com.bytequay.app.domain.InvestigationReviewData.FindingEvidenceRow;
@@ -22,14 +23,22 @@ import com.bytequay.app.domain.InvestigationReviewData.ObservationRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewAssignmentRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
-import com.bytequay.app.domain.InvestigationReviewData.ReviewSessionRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.PRStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.InvestigationReviewService;
+import com.bytequay.app.service.review.InvestigationReviewService.StartOptions;
+import com.bytequay.app.service.threads.ThreadService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +49,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -47,6 +57,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -66,6 +77,12 @@ class TestInvestigationReviewSchema
     private PRStore prs;
     @Autowired
     private InvestigationReviewService investigationReviews;
+    @Autowired
+    private PRService localPrs;
+    @Autowired
+    private ThreadStore threads;
+    @Autowired
+    private ThreadService threadService;
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -96,8 +113,9 @@ class TestInvestigationReviewSchema
         String stepId = UUID.randomUUID().toString();
         String observationId = UUID.randomUUID().toString();
         String findingId = UUID.randomUUID().toString();
-        reviews.insertSession(new ReviewSessionRow(
-                sessionId, "acme/widget", prId, "base", "head", "ACTIVE"), Instant.now());
+        reviews.insertReview(new AgentReviewRow(
+                sessionId, "acme/widget", prId, "base", "head", "ACTIVE",
+                null, null, null), Instant.now());
         reviews.insertRound(new ReviewRoundRow(
                 roundId, sessionId, runId, "initial", "full", "head", null,
                 "RUNNING", new RoundBudget(50, 10), 0), Instant.now());
@@ -133,8 +151,12 @@ class TestInvestigationReviewSchema
                 findingId, observationId, "SUPPORTS", "The return path accepts missing values",
                 "E1", "Local source interpretation.", "DIRECT_ONLY", mapper.createObjectNode()));
 
-        assertThat(reviews.findSession(sessionId)).isPresent();
-        assertThat(reviews.rounds(sessionId)).singleElement().extracting(ReviewRoundRow::agentRunId).isEqualTo(runId);
+        assertThat(reviews.findReview(sessionId)).isPresent();
+        assertThat(reviews.rounds(sessionId)).singleElement().satisfies(persistedRound -> {
+            assertThat(persistedRound.agentRunId()).isEqualTo(runId);
+            assertThat(persistedRound.capabilitiesJson().sourceMode()).isEqualTo("remote-only");
+            assertThat(persistedRound.triggerStageId()).isNull();
+        });
         assertThat(reviews.findings(sessionId)).singleElement().extracting(FindingRow::id).isEqualTo(findingId);
         assertThat(reviews.evidence(sessionId)).singleElement().extracting(FindingEvidenceRow::observationId)
                 .isEqualTo(observationId);
@@ -162,6 +184,13 @@ class TestInvestigationReviewSchema
             assertThat(cancelled.status()).isEqualTo("CANCELLED");
             assertThat(cancelled.costCents()).isEqualTo(7);
         });
+        assertThat(reviews.sumRoundCostCentsSince(Instant.EPOCH)).isEqualTo(7);
+        assertThat(reviews.agentReviewSpend(
+                Instant.EPOCH, Instant.now().plusSeconds(60))).singleElement().satisfies(spend -> {
+                    assertThat(spend.provider()).isEqualTo("agent-review");
+                    assertThat(spend.costMilli()).isEqualTo(70L);
+                    assertThat(spend.calls()).isEqualTo(1L);
+                });
         assertThat(reviews.dashboardStates()).containsEntry(prId, "done");
     }
 
@@ -174,8 +203,10 @@ class TestInvestigationReviewSchema
                 prId, "acme/widget", 8, "https://example.test/8", "octocat",
                 "feature", "main", "Change behavior", "", PR.STATUS_REMOTE_OPEN,
                 Instant.parse("2026-07-01T00:00:00Z"), null, null));
-        reviews.insertSession(new ReviewSessionRow(
-                UUID.randomUUID().toString(), "acme/widget", prId, "base", "head", "ACTIVE"),
+        String ownerThreadId = saveReviewThread();
+        reviews.insertReview(new AgentReviewRow(
+                UUID.randomUUID().toString(), "acme/widget", prId, "base", "head", "ACTIVE",
+                "ws-default", ownerThreadId, null),
                 Instant.now());
 
         investigationReviews.recordPublished(
@@ -185,10 +216,79 @@ class TestInvestigationReviewSchema
         assertThat(mapper.readTree(submitted.payloadJson()).path("reviewEvent").asText())
                 .isEqualTo("submitted");
         assertThat(mapper.readTree(submitted.payloadJson()).path("count").asInt()).isEqualTo(1);
+        assertThat(mapper.readTree(submitted.payloadJson()).path("reviewId").asText()).isNotBlank();
+    }
+
+    @Test
+    void standaloneReviewRequiresAnExplicitWorkspace()
+    {
+        String prId = UUID.randomUUID().toString();
+        prs.save(PR.createExternal(
+                prId, "acme/standalone-" + prId, 10, "https://example.test/10", "octocat",
+                "feature", "main", "Change behavior", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+
+        assertThatThrownBy(() -> investigationReviews.start(
+                prId, new StartOptions(null, null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("workspaceId is required");
+    }
+
+    @Test
+    void deletingReviewOwnerThreadPurgesLocalReviewDataButKeepsThePr()
+    {
+        String prId = UUID.randomUUID().toString();
+        String reviewId = UUID.randomUUID().toString();
+        String roundId = UUID.randomUUID().toString();
+        String runId = UUID.randomUUID().toString();
+        String criterionId = UUID.randomUUID().toString();
+        String objectiveId = UUID.randomUUID().toString();
+        String findingId = UUID.randomUUID().toString();
+        String ownerThreadId = saveReviewThread();
+        prs.save(PR.createExternal(
+                prId, "acme/purge-" + prId, 11, "https://example.test/11", "octocat",
+                "feature", "main", "Change behavior", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        jdbc.update("INSERT INTO agent_run (id,kind,status,iterations,budget,started_at_ms) VALUES (?,?,?,?,?,?)",
+                runId, "panel_review", "completed", 0, 50, 1L);
+        reviews.insertReview(new AgentReviewRow(
+                reviewId, "acme/widget", prId, "base", "head", "ACTIVE",
+                "ws-default", ownerThreadId, null), Instant.now());
+        reviews.insertRound(new ReviewRoundRow(
+                roundId, reviewId, runId, "initial", "full", "head", "head",
+                "COMPLETED", new RoundBudget(50, 10), 1), Instant.now());
+        reviews.insertCriterion(new CriterionRow(
+                criterionId, "acme/widget", "hard-invariant", "Preserve behavior", "test", null));
+        reviews.insertObjective(new ReviewObjectiveRow(
+                objectiveId, roundId, criterionId, "Preserve behavior", "test", "applicable", "finding"));
+        reviews.insertFinding(new FindingRow(
+                findingId, reviewId, roundId, objectiveId, null, "hard-invariant",
+                "The behavior regressed", 3, "VERIFIED", "verified",
+                "Restore it", "included", "head"));
+        PRComment root = localPrs.addComment(
+                prId, PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, "agent", "Finding", null);
+        localPrs.attachFinding(root.id(), findingId);
+        localPrs.addComment(
+                prId, PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, "you", "Follow-up", root.id());
+        localPrs.recordReviewEvent(
+                prId, "agent", "{\"reviewEvent\":\"round-complete\",\"reviewId\":\"" + reviewId + "\"}");
+
+        threadService.purge(ownerThreadId);
+
+        assertThat(threads.findThreadById(ownerThreadId)).isEmpty();
+        assertThat(reviews.findReview(reviewId)).isEmpty();
+        assertThat(prs.commentsFor(prId)).isEmpty();
+        assertThat(prs.timelineFor(prId)).isEmpty();
+        assertThat(prs.findById(prId)).isPresent();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM agent_run WHERE id = ?", Integer.class, runId)).isZero();
     }
 
     @Test
     void staleHeadCancelsTheRoundAndEveryOwnedRun()
+            throws Exception
     {
         String prId = UUID.randomUUID().toString();
         prs.save(PR.createExternal(
@@ -202,6 +302,7 @@ class TestInvestigationReviewSchema
         String roundId = UUID.randomUUID().toString();
         String roundRunId = UUID.randomUUID().toString();
         String verifierRunId = UUID.randomUUID().toString();
+        String ownerThreadId = saveReviewThread();
         jdbc.update("""
                 INSERT INTO agent_run
                 (id,kind,review_round_id,status,iterations,budget,started_at_ms)
@@ -212,20 +313,33 @@ class TestInvestigationReviewSchema
                 (id,kind,review_round_id,status,iterations,budget,started_at_ms)
                 VALUES (?,?,?,?,?,?,?)
                 """, verifierRunId, "panel_review", roundId, "running", 0, 20, 2L);
-        reviews.insertSession(new ReviewSessionRow(
-                sessionId, "acme/widget", prId, "base", "old-head", "ACTIVE"), Instant.now());
+        reviews.insertReview(new AgentReviewRow(
+                sessionId, "acme/widget", prId, "base", "old-head", "ACTIVE",
+                "ws-default", ownerThreadId, null), Instant.now());
         reviews.insertRound(new ReviewRoundRow(
                 roundId, sessionId, roundRunId, "initial", "full", "old-head", null,
                 "RUNNING", new RoundBudget(50, 10), 0), Instant.now());
 
         var detail = investigationReviews.findByPr(prId).orElseThrow();
 
-        assertThat(detail.session().status()).isEqualTo("STALE");
+        assertThat(detail.review().status()).isEqualTo("STALE");
+        assertThat(detail.review().workspaceId()).isEqualTo("ws-default");
+        assertThat(detail.review().ownerTaskId()).isNull();
+        assertThat(detail.review().ownerThreadId()).isNotBlank();
         assertThat(detail.rounds()).singleElement()
                 .extracting(ReviewRoundRow::status).isEqualTo("CANCELLED");
         assertThat(detail.runs()).extracting(run -> run.id() + ":" + run.status())
                 .containsExactlyInAnyOrder(
                         roundRunId + ":cancelled", verifierRunId + ":cancelled");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM threads WHERE id=?", String.class,
+                detail.review().ownerThreadId())).isEqualTo("NEEDS_ATTENTION");
+        mvc.perform(get("/api/agent-reviews/by-thread/{threadId}",
+                        detail.review().ownerThreadId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.review.owner_thread_id")
+                        .value(detail.review().ownerThreadId()))
+                .andExpect(jsonPath("$.review.workspace_id").value("ws-default"));
     }
 
     @Test
@@ -237,6 +351,10 @@ class TestInvestigationReviewSchema
         assertThat(tables).containsExactlyInAnyOrder("response_round", "review_round");
         assertThat(jdbc.query("PRAGMA table_info(pr_comment)", (rs, row) -> rs.getString("name")))
                 .contains("finding_id");
+        assertThat(jdbc.query("PRAGMA table_info(review_session)", (rs, row) -> rs.getString("name")))
+                .contains("workspace_id", "owner_thread_id", "owner_task_id");
+        assertThat(jdbc.query("PRAGMA table_info(review_round)", (rs, row) -> rs.getString("name")))
+                .contains("capabilities_json", "trigger_stage_id");
     }
 
     @Test
@@ -285,5 +403,16 @@ class TestInvestigationReviewSchema
                 .andExpect(status().isOk());
         assertThat(reviews.findReviewerDef(id)).get()
                 .extracting(ReviewerDefRow::enabled).isEqualTo(false);
+    }
+
+    private String saveReviewThread()
+    {
+        String id = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+        threads.saveThread(new Thread(
+                id, ThreadKind.LOGIC_LOOP, "agent-review", null, "Agent review",
+                ThreadStatus.COMPLETED, "agent-review", 0L, 0L, 0L,
+                now, now, now, null, ThreadFlow.REVIEW, "ws-default", null));
+        return id;
     }
 }

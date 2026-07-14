@@ -19,6 +19,7 @@ import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.skills.CavemanPrompt;
 import com.bytequay.app.service.threads.AgentScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -116,7 +117,7 @@ public class InvestigationReviewRunner
     }
 
     public RunOutcome investigate(
-            ProviderChoice provider, String sessionId, String assignmentId,
+            ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives, String coverageContext,
             String persona, int costCapCents)
@@ -126,6 +127,8 @@ public class InvestigationReviewRunner
                 First record_assignment. Work cheap-first: at most 6 hypotheses, triage to 3 active,
                 at most 11 investigation steps and 5 findings. Every finding must have SUPPORTS evidence and you must
                 actively seek REFUTES evidence before finishing. Observations come only from read tools.
+                Keep each finding concise: at most two sentences for the claim and one for the requested action.
+                In those fields, wrap code identifiers in backticks and bold only the key broken behavior or risk.
                 Do not post, edit, push, or call external services.
                 """;
         if (persona != null && !persona.isBlank()) {
@@ -139,11 +142,11 @@ public class InvestigationReviewRunner
                 execute read_diff/read_file/search_diff, record_finding only if actionable, then
                 record_evidence for both supporting and counter-evidence considered.
                 """;
-        return run(provider, sessionId, assignmentId, snapshot, system, prompt, false, costCapCents);
+        return run(provider, reviewId, assignmentId, snapshot, system, prompt, false, costCapCents);
     }
 
     public RunOutcome selfRefute(
-            ProviderChoice provider, String sessionId, String assignmentId,
+            ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String findingBundles,
             int costCapCents)
     {
@@ -155,11 +158,11 @@ public class InvestigationReviewRunner
                 """;
         String prompt = "Reviewed head: " + snapshot.headCommit()
                 + "\nFindings requiring an explicit counter-evidence pass:\n" + findingBundles;
-        return run(provider, sessionId, assignmentId, snapshot, system, prompt, false, costCapCents);
+        return run(provider, reviewId, assignmentId, snapshot, system, prompt, false, costCapCents);
     }
 
     public RunOutcome reconstruct(
-            ProviderChoice provider, String sessionId, String assignmentId,
+            ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String locations,
             String persona, int costCapCents)
     {
@@ -172,11 +175,11 @@ public class InvestigationReviewRunner
             system += "\nVerifier persona (method guidance only): " + persona.strip();
         }
         String prompt = "Reviewed head: " + snapshot.headCommit() + "\nLocations/evidence:\n" + locations;
-        return run(provider, sessionId, assignmentId, snapshot, system, prompt, true, costCapCents);
+        return run(provider, reviewId, assignmentId, snapshot, system, prompt, true, costCapCents);
     }
 
     public RunOutcome verify(
-            ProviderChoice provider, String sessionId, String assignmentId,
+            ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
             String findingBundle, String blindReconstruction,
             String persona, int costCapCents)
@@ -185,6 +188,8 @@ public class InvestigationReviewRunner
                 You are an independent evidence verifier. Audit whether the evidence says what is claimed,
                 the anchor and SHA are current, scope/severity are accurate, counter-evidence was sought,
                 and the requested action follows. You may narrow or reject; never strengthen unsupported work.
+                Keep any revised claim to at most two sentences. Use backticks for code identifiers and bold only
+                the key broken behavior or risk.
                 Finish by calling record_verification exactly once for the supplied finding.
                 """;
         if (persona != null && !persona.isBlank()) {
@@ -193,7 +198,7 @@ public class InvestigationReviewRunner
         String prompt = "Verifier run id (pass verbatim): " + verifierRunId
                 + "\n\nFinding bundle:\n" + findingBundle
                 + (blindReconstruction == null ? "" : "\n\nBlind reconstruction:\n" + blindReconstruction);
-        return run(provider, sessionId, assignmentId, snapshot, system, prompt, true, costCapCents);
+        return run(provider, reviewId, assignmentId, snapshot, system, prompt, true, costCapCents);
     }
 
     /** One cheap, non-blocking planning pass. Its output is presentation-only:
@@ -203,11 +208,11 @@ public class InvestigationReviewRunner
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives)
     {
-        String system = """
+        String system = CavemanPrompt.wrap("""
                 You are a bounded review planner. The deterministic plan has already started and cannot be changed.
                 Return at most one concise PR-specific missing objective as plain text, or return exactly NONE.
                 Do not restate an existing objective. Do not claim findings or correctness.
-                """;
+                """);
         String prompt = contextPrompt(snapshot, objectives);
         if ("cli".equals(provider.runner())) {
             Path workingDir = snapshot.localRoot() == null
@@ -228,22 +233,23 @@ public class InvestigationReviewRunner
     }
 
     private RunOutcome run(
-            ProviderChoice provider, String sessionId, String assignmentId,
+            ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String system,
             String prompt, boolean verifier, int costCapCents)
     {
+        String styledSystem = CavemanPrompt.wrap(system);
         return "cli".equals(provider.runner())
-                ? runCli(provider, sessionId, assignmentId, snapshot, system + "\n\n" + prompt)
-                : runApi(provider, sessionId, assignmentId, system, prompt, verifier, costCapCents);
+                ? runCli(provider, reviewId, assignmentId, snapshot, styledSystem + "\n\n" + prompt)
+                : runApi(provider, reviewId, assignmentId, styledSystem, prompt, verifier, costCapCents);
     }
 
     private RunOutcome runApi(
-            ProviderChoice provider, String sessionId, String assignmentId,
+            ProviderChoice provider, String reviewId, String assignmentId,
             String system, String prompt, boolean verifier, int costCapCents)
     {
         ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(provider.providerId());
         ArrayNode messages = messages(endpoint.transport(), system, prompt);
-        ToolExecutor executor = tools.executor(sessionId, assignmentId);
+        ToolExecutor executor = tools.executor(reviewId, assignmentId);
         TurnHooks hooks = new TurnHooks()
         {
             @Override
@@ -264,20 +270,20 @@ public class InvestigationReviewRunner
     }
 
     private RunOutcome runCli(
-            ProviderChoice provider, String sessionId, String assignmentId,
+            ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String prompt)
     {
         CliReviewRunner.Provider cli = CliReviewRunner.Provider.of(provider.providerId());
         if (cli != CliReviewRunner.Provider.CLAUDE) {
             throw new IllegalStateException("structured CLI investigation currently requires Claude CLI MCP");
         }
-        String url = MCP_BASE + "/api/review-sessions/" + sessionId
+        String url = MCP_BASE + "/api/agent-reviews/" + reviewId
                 + "/assignments/" + assignmentId + "/mcp";
         Path workingDir = snapshot.localRoot() == null
                 ? Path.of(System.getProperty("java.io.tmpdir")) : snapshot.localRoot();
         CliReviewRunner.Result result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
                 cli, prompt, null, workingDir,
-                new CliReviewRunner.McpEndpoint(sessionId, assignmentId, url)));
+                new CliReviewRunner.McpEndpoint(reviewId, assignmentId, url)));
         return new RunOutcome(provider, cents(result.costUsdMilli()), result.text(), 0, 0, 1, "COMPLETED");
     }
 

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.AssignmentBudget;
 import com.bytequay.app.domain.InvestigationReviewData.CriterionRow;
 import com.bytequay.app.domain.InvestigationReviewData.FindingEvidenceRow;
@@ -25,10 +26,10 @@ import com.bytequay.app.domain.InvestigationReviewData.KnowledgeItemRow;
 import com.bytequay.app.domain.InvestigationReviewData.KnowledgeProvenanceRow;
 import com.bytequay.app.domain.InvestigationReviewData.ObservationRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewAssignmentRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewCapabilities;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewOutcomeRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
-import com.bytequay.app.domain.InvestigationReviewData.ReviewSessionRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -53,6 +54,12 @@ public class InvestigationReviewStore
 {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
+    /** One task-owned review-round charge for workspace spend charts. */
+    public record TaskReviewSpend(long costMilli, Instant occurredAt) {}
+
+    /** One AgentReview round for the monthly AI usage ledger. */
+    public record AgentReviewSpend(String provider, long costMilli, long calls) {}
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
@@ -63,13 +70,14 @@ public class InvestigationReviewStore
     }
 
     @Transactional(readOnly = true)
-    public Optional<ReviewSessionRow> findActiveSessionByPr(String prId)
+    public Optional<AgentReviewRow> findActiveReviewByPr(String prId)
     {
         return jdbc.query("""
-                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status
+                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                       workspace_id, owner_thread_id, owner_task_id
                 FROM review_session WHERE pr_id = ? AND status IN ('ACTIVE','STALE')
                 ORDER BY created_at_ms DESC LIMIT 1
-                """, this::session, prId).stream().findFirst();
+                """, this::review, prId).stream().findFirst();
     }
 
     /** One-query projection for dashboard review-state badges. */
@@ -95,40 +103,181 @@ public class InvestigationReviewStore
         return Map.copyOf(states);
     }
 
+    /** Actual AgentReview spend in a rolling window, used by unattended
+     * automation before it reserves another round budget. */
     @Transactional(readOnly = true)
-    public Optional<ReviewSessionRow> findSession(String sessionId)
+    public long sumRoundCostCentsSince(Instant since)
+    {
+        Long value = jdbc.queryForObject(
+                "SELECT COALESCE(SUM(cost_cents), 0) FROM review_round WHERE created_at_ms >= ?",
+                Long.class, since.toEpochMilli());
+        return value == null ? 0L : value;
+    }
+
+    /**
+     * Review-only threads already expose their cumulative spend through the
+     * thread row. Development threads do not: AgentReview is a sibling
+     * artifact track, so task-owned rounds are added to Workspace Insights
+     * directly from their source of truth.
+     */
+    @Transactional(readOnly = true)
+    public List<TaskReviewSpend> taskReviewSpendSince(Instant since)
     {
         return jdbc.query("""
-                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status
+                SELECT r.cost_cents,
+                       COALESCE(r.finished_at_ms, r.created_at_ms) AS occurred_at_ms
+                FROM review_round r
+                JOIN review_session s ON s.id = r.session_id
+                WHERE s.owner_task_id IS NOT NULL
+                  AND r.cost_cents > 0
+                  AND COALESCE(r.finished_at_ms, r.created_at_ms) >= ?
+                """, (rs, row) -> new TaskReviewSpend(
+                        rs.getLong("cost_cents") * 10L,
+                        Instant.ofEpochMilli(rs.getLong("occurred_at_ms"))),
+                since.toEpochMilli());
+    }
+
+    /** AgentReview runs do not write synthetic conversation messages, so
+     * the monthly ledger reads their authoritative round rows separately. */
+    @Transactional(readOnly = true)
+    public List<AgentReviewSpend> agentReviewSpend(Instant start, Instant end)
+    {
+        return jdbc.query("""
+                SELECT COALESCE(json_extract(a.metrics_json, '$.provider'), 'agent-review') AS provider,
+                       r.cost_cents,
+                       COALESCE(CAST(json_extract(a.metrics_json, '$.providerRounds') AS INTEGER), 1) AS calls
+                FROM review_round r
+                LEFT JOIN agent_run a ON a.id = r.agent_run_id
+                WHERE r.cost_cents > 0
+                  AND COALESCE(r.finished_at_ms, r.created_at_ms) >= ?
+                  AND COALESCE(r.finished_at_ms, r.created_at_ms) < ?
+                """, (rs, row) -> new AgentReviewSpend(
+                        rs.getString("provider"), rs.getLong("cost_cents") * 10L,
+                        Math.max(1L, rs.getLong("calls"))),
+                start.toEpochMilli(), end.toEpochMilli());
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<AgentReviewRow> findReview(String reviewId)
+    {
+        return jdbc.query("""
+                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                       workspace_id, owner_thread_id, owner_task_id
                 FROM review_session WHERE id = ?
-                """, this::session, sessionId).stream().findFirst();
+                """, this::review, reviewId).stream().findFirst();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<AgentReviewRow> findActiveReviewByOwnerThread(String threadId)
+    {
+        return jdbc.query("""
+                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                       workspace_id, owner_thread_id, owner_task_id
+                FROM review_session
+                WHERE owner_thread_id = ? AND status IN ('ACTIVE','STALE')
+                ORDER BY created_at_ms DESC LIMIT 1
+                """, this::review, threadId).stream().findFirst();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentReviewRow> reviewsByOwnerThread(String threadId)
+    {
+        return jdbc.query("""
+                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                       workspace_id, owner_thread_id, owner_task_id
+                FROM review_session
+                WHERE owner_thread_id = ?
+                ORDER BY created_at_ms
+                """, this::review, threadId);
     }
 
     @Transactional
-    public void insertSession(ReviewSessionRow row, Instant now)
+    public void insertReview(AgentReviewRow row, Instant now)
     {
         jdbc.update("""
                 INSERT INTO review_session
-                (id, repo_id, pr_id, base_commit, reviewed_head_commit, status, created_at_ms, updated_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                 workspace_id, owner_thread_id, owner_task_id, created_at_ms, updated_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, row.id(), row.repoId(), row.prId(), row.baseCommit(), row.reviewedHeadCommit(),
-                row.status(), now.toEpochMilli(), now.toEpochMilli());
+                row.status(), row.workspaceId(), row.ownerThreadId(), row.ownerTaskId(),
+                now.toEpochMilli(), now.toEpochMilli());
     }
 
     @Transactional
-    public void updateSessionStatus(String sessionId, String status)
+    public void updateReviewOwner(
+            String reviewId, String workspaceId, String ownerThreadId, String ownerTaskId)
+    {
+        jdbc.update("""
+                UPDATE review_session
+                SET workspace_id = ?, owner_thread_id = ?, owner_task_id = ?, updated_at_ms = ?
+                WHERE id = ?
+                """, workspaceId, ownerThreadId, ownerTaskId, Instant.now().toEpochMilli(), reviewId);
+    }
+
+    /** Delete one AgentReview aggregate and the PR-local presentation rows it
+     * owns. GitHub data is not stored in these tables and is never touched. */
+    @Transactional
+    public void deleteReview(String reviewId)
+    {
+        jdbc.update("""
+                DELETE FROM pr_timeline_event
+                WHERE is_local_only = 1
+                  AND json_valid(payload_json)
+                  AND (
+                    json_extract(payload_json, '$.reviewId') = ?
+                    OR json_extract(payload_json, '$.sessionId') = ?
+                    OR json_extract(payload_json, '$.roundId') IN (
+                        SELECT id FROM review_round WHERE session_id = ?)
+                    OR json_extract(payload_json, '$.findingId') IN (
+                        SELECT id FROM finding WHERE session_id = ?)
+                    OR json_extract(payload_json, '$.commentId') IN (
+                        WITH RECURSIVE review_comments(id) AS (
+                            SELECT c.id FROM pr_comment c
+                            JOIN finding f ON f.id = c.finding_id
+                            WHERE f.session_id = ?
+                            UNION ALL
+                            SELECT child.id FROM pr_comment child
+                            JOIN review_comments parent ON child.parent_comment_id = parent.id
+                        )
+                        SELECT id FROM review_comments)
+                  )
+                """, reviewId, reviewId, reviewId, reviewId, reviewId);
+        jdbc.update("""
+                WITH RECURSIVE review_comments(id) AS (
+                    SELECT c.id FROM pr_comment c
+                    JOIN finding f ON f.id = c.finding_id
+                    WHERE f.session_id = ?
+                    UNION ALL
+                    SELECT child.id FROM pr_comment child
+                    JOIN review_comments parent ON child.parent_comment_id = parent.id
+                )
+                DELETE FROM pr_comment WHERE id IN (SELECT id FROM review_comments)
+                """, reviewId);
+        jdbc.update("""
+                DELETE FROM agent_run
+                WHERE review_round_id IN (
+                    SELECT id FROM review_round WHERE session_id = ?)
+                   OR id IN (
+                    SELECT agent_run_id FROM review_round WHERE session_id = ?)
+                """, reviewId, reviewId);
+        jdbc.update("DELETE FROM review_session WHERE id = ?", reviewId);
+    }
+
+    @Transactional
+    public void updateReviewStatus(String reviewId, String status)
     {
         jdbc.update("UPDATE review_session SET status = ?, updated_at_ms = ? WHERE id = ?",
-                status, Instant.now().toEpochMilli(), sessionId);
+                status, Instant.now().toEpochMilli(), reviewId);
     }
 
     @Transactional
-    public void updateSessionHead(String sessionId, String reviewedHeadCommit, String status)
+    public void updateReviewHead(String reviewId, String reviewedHeadCommit, String status)
     {
         jdbc.update("""
                 UPDATE review_session
                 SET reviewed_head_commit = ?, status = ?, updated_at_ms = ? WHERE id = ?
-                """, reviewedHeadCommit, status, Instant.now().toEpochMilli(), sessionId);
+                """, reviewedHeadCommit, status, Instant.now().toEpochMilli(), reviewId);
     }
 
     @Transactional
@@ -137,11 +286,12 @@ public class InvestigationReviewStore
         jdbc.update("""
                 INSERT INTO review_round
                 (id, session_id, agent_run_id, trigger, scope, start_commit, end_commit,
-                 status, budget_json, cost_cents, created_at_ms, finished_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                """, row.id(), row.sessionId(), row.agentRunId(), row.trigger(), row.scope(),
+                 status, budget_json, cost_cents, capabilities_json, trigger_stage_id,
+                 created_at_ms, finished_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """, row.id(), row.reviewId(), row.agentRunId(), row.trigger(), row.scope(),
                 row.startCommit(), row.endCommit(), row.status(), json(row.budgetJson()),
-                row.costCents(), now.toEpochMilli());
+                row.costCents(), json(row.capabilitiesJson()), row.triggerStageId(), now.toEpochMilli());
     }
 
     @Transactional
@@ -326,7 +476,7 @@ public class InvestigationReviewStore
                  claim, severity, confidence_class, verification_status, requested_action,
                  lifecycle_status, last_checked_commit)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, row.id(), row.sessionId(), row.roundId(), row.objectiveId(),
+                """, row.id(), row.reviewId(), row.roundId(), row.objectiveId(),
                 row.hypothesisId(), row.criterionKind(), row.claim(), row.severity(),
                 row.confidenceClass(), row.verificationStatus(), row.requestedAction(),
                 row.lifecycleStatus(), row.lastCheckedCommit());
@@ -340,13 +490,13 @@ public class InvestigationReviewStore
     }
 
     @Transactional(readOnly = true)
-    public boolean assignmentBelongsToSession(String assignmentId, String sessionId)
+    public boolean assignmentBelongsToReview(String assignmentId, String reviewId)
     {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM review_assignment a
                 JOIN review_round r ON r.id = a.round_id
                 WHERE a.id = ? AND r.session_id = ?
-                """, Integer.class, assignmentId, sessionId);
+                """, Integer.class, assignmentId, reviewId);
         return count != null && count > 0;
     }
 
@@ -367,7 +517,7 @@ public class InvestigationReviewStore
     }
 
     @Transactional(readOnly = true)
-    public boolean observationBelongsToSession(String observationId, String sessionId)
+    public boolean observationBelongsToReview(String observationId, String reviewId)
     {
         return count("""
                 SELECT COUNT(*) FROM observation o
@@ -375,7 +525,7 @@ public class InvestigationReviewStore
                 JOIN review_assignment a ON a.id = s.assignment_id
                 JOIN review_round r ON r.id = a.round_id
                 WHERE o.id = ? AND r.session_id = ?
-                """, observationId, sessionId) == 1;
+                """, observationId, reviewId) == 1;
     }
 
     @Transactional(readOnly = true)
@@ -482,14 +632,14 @@ public class InvestigationReviewStore
     }
 
     @Transactional(readOnly = true)
-    public List<ReviewRoundRow> rounds(String sessionId)
+    public List<ReviewRoundRow> rounds(String reviewId)
     {
         return jdbc.query("SELECT * FROM review_round WHERE session_id = ? ORDER BY created_at_ms",
-                this::round, sessionId);
+                this::round, reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<CriterionRow> criteria(String sessionId)
+    public List<CriterionRow> criteria(String reviewId)
     {
         return jdbc.query("""
                 SELECT DISTINCT c.* FROM criterion c
@@ -497,22 +647,22 @@ public class InvestigationReviewStore
                 JOIN review_round r ON r.id = o.round_id WHERE r.session_id = ? ORDER BY c.id
                 """, (rs, n) -> new CriterionRow(rs.getString("id"), rs.getString("repo_id"),
                 rs.getString("kind"), rs.getString("statement"), rs.getString("source_type"),
-                rs.getString("source_ref")), sessionId);
+                rs.getString("source_ref")), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<ReviewObjectiveRow> objectives(String sessionId)
+    public List<ReviewObjectiveRow> objectives(String reviewId)
     {
         return jdbc.query("""
                 SELECT o.* FROM review_objective o JOIN review_round r ON r.id = o.round_id
                 WHERE r.session_id = ? ORDER BY o.id
                 """, (rs, n) -> new ReviewObjectiveRow(rs.getString("id"), rs.getString("round_id"),
                 rs.getString("criterion_id"), rs.getString("statement"), rs.getString("source"),
-                rs.getString("applicability_status"), rs.getString("resolution_status")), sessionId);
+                rs.getString("applicability_status"), rs.getString("resolution_status")), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<ReviewAssignmentRow> assignments(String sessionId)
+    public List<ReviewAssignmentRow> assignments(String reviewId)
     {
         return jdbc.query("""
                 SELECT a.* FROM review_assignment a JOIN review_round r ON r.id = a.round_id
@@ -521,22 +671,22 @@ public class InvestigationReviewStore
                 rs.getString("reviewer_def_id"), rs.getString("runner"), rs.getString("status"),
                 rs.getString("understanding_summary"), strings(rs.getString("assumptions_json")),
                 strings(rs.getString("unknowns_json")), value(rs.getString("budget_json"), AssignmentBudget.class)),
-                sessionId);
+                reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<HypothesisRow> hypotheses(String sessionId)
+    public List<HypothesisRow> hypotheses(String reviewId)
     {
         return jdbc.query("""
                 SELECT h.* FROM hypothesis h JOIN review_assignment a ON a.id = h.assignment_id
                 JOIN review_round r ON r.id = a.round_id WHERE r.session_id = ? ORDER BY h.id
                 """, (rs, n) -> new HypothesisRow(rs.getString("id"), rs.getString("assignment_id"),
                 rs.getString("objective_id"), rs.getString("claim"), rs.getString("origin"),
-                rs.getString("status"), rs.getString("confidence_class")), sessionId);
+                rs.getString("status"), rs.getString("confidence_class")), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<InvestigationStepRow> steps(String sessionId)
+    public List<InvestigationStepRow> steps(String reviewId)
     {
         return jdbc.query("""
                 SELECT s.* FROM investigation_step s JOIN review_assignment a ON a.id = s.assignment_id
@@ -544,11 +694,11 @@ public class InvestigationReviewStore
                 """, (rs, n) -> new InvestigationStepRow(rs.getString("id"), rs.getString("assignment_id"),
                 rs.getString("hypothesis_id"), rs.getString("action_type"), tree(rs.getString("arguments_json")),
                 rs.getString("reason"), rs.getInt("planned") != 0, rs.getInt("cost_cents"),
-                rs.getString("status")), sessionId);
+                rs.getString("status")), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<ObservationRow> observations(String sessionId)
+    public List<ObservationRow> observations(String reviewId)
     {
         return jdbc.query("""
                 SELECT o.* FROM observation o JOIN investigation_step s ON s.id = o.step_id
@@ -558,17 +708,17 @@ public class InvestigationReviewStore
                 rs.getString("source_type"), rs.getString("commit_sha"), rs.getString("path"),
                 integer(rs, "start_line"), integer(rs, "end_line"), rs.getString("symbol"),
                 rs.getString("command"), integer(rs, "exit_code"), rs.getString("artifact_ref"),
-                rs.getString("content_digest"), rs.getString("preview")), sessionId);
+                rs.getString("content_digest"), rs.getString("preview")), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<FindingRow> findings(String sessionId)
+    public List<FindingRow> findings(String reviewId)
     {
-        return jdbc.query("SELECT * FROM finding WHERE session_id = ? ORDER BY rowid", this::finding, sessionId);
+        return jdbc.query("SELECT * FROM finding WHERE session_id = ? ORDER BY rowid", this::finding, reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<FindingEvidenceRow> evidence(String sessionId)
+    public List<FindingEvidenceRow> evidence(String reviewId)
     {
         return jdbc.query("""
                 SELECT e.* FROM finding_evidence e JOIN finding f ON f.id = e.finding_id
@@ -576,11 +726,11 @@ public class InvestigationReviewStore
                 """, (rs, n) -> new FindingEvidenceRow(rs.getString("finding_id"),
                 rs.getString("observation_id"), rs.getString("relation"), rs.getString("proposition"),
                 rs.getString("strength_class"), rs.getString("strength_reason"),
-                rs.getString("dependency_mode"), tree(rs.getString("dependency_json"))), sessionId);
+                rs.getString("dependency_mode"), tree(rs.getString("dependency_json"))), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<FindingVerificationRow> verifications(String sessionId)
+    public List<FindingVerificationRow> verifications(String reviewId)
     {
         return jdbc.query("""
                 SELECT v.* FROM finding_verification v JOIN finding f ON f.id = v.finding_id
@@ -589,21 +739,21 @@ public class InvestigationReviewStore
                 rs.getString("verifier_run_id"), rs.getInt("evidence_accurate") != 0,
                 rs.getInt("claim_scope_accurate") != 0, rs.getInt("severity_accurate") != 0,
                 strings(rs.getString("counter_evidence_json")), rs.getString("status"),
-                rs.getString("confidence_class"), rs.getString("explanation")), sessionId);
+                rs.getString("confidence_class"), rs.getString("explanation")), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<FindingRelationRow> relations(String sessionId)
+    public List<FindingRelationRow> relations(String reviewId)
     {
         return jdbc.query("""
                 SELECT rel.* FROM finding_relation rel JOIN finding f ON f.id = rel.source_finding_id
                 WHERE f.session_id = ? ORDER BY rel.source_finding_id
                 """, (rs, n) -> new FindingRelationRow(rs.getString("source_finding_id"),
-                rs.getString("target_finding_id"), rs.getString("relation")), sessionId);
+                rs.getString("target_finding_id"), rs.getString("relation")), reviewId);
     }
 
     @Transactional(readOnly = true)
-    public List<ReviewOutcomeRow> outcomes(String sessionId)
+    public List<ReviewOutcomeRow> outcomes(String reviewId)
     {
         return jdbc.query("""
                 SELECT o.* FROM review_outcome o JOIN finding f ON f.id = o.finding_id
@@ -611,7 +761,7 @@ public class InvestigationReviewStore
                 """, (rs, n) -> new ReviewOutcomeRow(rs.getString("finding_id"),
                 rs.getString("user_disposition"), rs.getString("author_response"),
                 rs.getString("epistemic_resolution"), rs.getString("utility_assessment"),
-                rs.getInt("style_edit_magnitude")), sessionId);
+                rs.getInt("style_edit_magnitude")), reviewId);
     }
 
     @Transactional(readOnly = true)
@@ -634,11 +784,13 @@ public class InvestigationReviewStore
                 rs.getString("source_kind"), rs.getString("source_ref")), repoId);
     }
 
-    private ReviewSessionRow session(ResultSet rs, int ignored) throws SQLException
+    private AgentReviewRow review(ResultSet rs, int ignored) throws SQLException
     {
-        return new ReviewSessionRow(rs.getString("id"), rs.getString("repo_id"),
+        return new AgentReviewRow(rs.getString("id"), rs.getString("repo_id"),
                 rs.getString("pr_id"), rs.getString("base_commit"),
-                rs.getString("reviewed_head_commit"), rs.getString("status"));
+                rs.getString("reviewed_head_commit"), rs.getString("status"),
+                rs.getString("workspace_id"), rs.getString("owner_thread_id"),
+                rs.getString("owner_task_id"));
     }
 
     private ReviewerDefRow reviewerDef(ResultSet rs, int ignored) throws SQLException
@@ -654,7 +806,9 @@ public class InvestigationReviewStore
         return new ReviewRoundRow(rs.getString("id"), rs.getString("session_id"),
                 rs.getString("agent_run_id"), rs.getString("trigger"), rs.getString("scope"),
                 rs.getString("start_commit"), rs.getString("end_commit"), rs.getString("status"),
-                value(rs.getString("budget_json"), RoundBudget.class), rs.getInt("cost_cents"));
+                value(rs.getString("budget_json"), RoundBudget.class), rs.getInt("cost_cents"),
+                value(rs.getString("capabilities_json"), ReviewCapabilities.class),
+                rs.getString("trigger_stage_id"));
     }
 
     private FindingRow finding(ResultSet rs, int ignored) throws SQLException

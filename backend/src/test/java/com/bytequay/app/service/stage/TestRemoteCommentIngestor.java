@@ -169,7 +169,7 @@ class TestRemoteCommentIngestor
     private static ReviewThread thread(String filePath, Integer line, boolean resolved, ReviewMessage message)
     {
         return new ReviewThread(1L, filePath, line, "RIGHT", null, List.of(message),
-                resolved, false, null, null, null, null);
+                resolved, null, false, null, null, null, null);
     }
 
     private static ReviewMessage message(long githubId, String body)

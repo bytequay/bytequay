@@ -25,6 +25,7 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.skills.CavemanPrompt;
 import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,6 +75,30 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
                     .contains("smallest working change");
             assertThat(command.command())
                     .containsSubsequence("--append-system-prompt", "TASK ROLE");
+        }
+        finally {
+            agent.cleanupProviderResources();
+        }
+    }
+
+    @Test
+    void activeCavemanIsInjectedAsAClaudeSystemPrompt()
+    {
+        ObjectMapper mapper = new ObjectMapper();
+        ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
+                thread(), new EmptyThreadStore(), new EmptyTaskStore(),
+                new StreamJsonParser(mapper), mapper, new McpPermissionGate(),
+                sameThreadExecutor(), CheckpointTrigger.NOOP,
+                () -> "", null, "TASK ROLE", CWD, ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+        agent.setManagedSkillBundle(new ManagedSkillBundle(
+                "test", "test", Map.of(CavemanPrompt.NAME,
+                        new ManagedSkill(CavemanPrompt.NAME, "CAVEMAN BODY"))));
+        agent.setActiveManagedSkillNames(List.of(CavemanPrompt.NAME));
+
+        try {
+            assertThat(agent.buildCommand("implement").command())
+                    .containsSubsequence("--append-system-prompt",
+                            "# ByteQuay managed runtime skills\n\n## caveman\n\nCAVEMAN BODY");
         }
         finally {
             agent.cleanupProviderResources();

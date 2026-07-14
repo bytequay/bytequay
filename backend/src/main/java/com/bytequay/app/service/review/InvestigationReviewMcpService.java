@@ -48,7 +48,7 @@ public class InvestigationReviewMcpService
         this.responses = responses;
     }
 
-    public JsonNode handle(String sessionId, String assignmentId, JsonNode request)
+    public JsonNode handle(String reviewId, String assignmentId, JsonNode request)
     {
         JsonNode rawId = request.path("id");
         try {
@@ -59,7 +59,7 @@ public class InvestigationReviewMcpService
                         protocolVersion(rpc.params()), Capabilities.empty(),
                         new ServerInfo("bytequay-investigation-review", "1.0.0")));
                 case "tools/list" -> listTools(id);
-                case "tools/call" -> call(sessionId, assignmentId, id, rpc.params());
+                case "tools/call" -> call(reviewId, assignmentId, id, rpc.params());
                 case "notifications/initialized", "notifications/cancelled" -> null;
                 default -> responses.error(id, -32601, "method not found: " + rpc.method());
             };
@@ -87,7 +87,7 @@ public class InvestigationReviewMcpService
     }
 
     private JsonNode call(
-            String sessionId, String assignmentId, JsonNode id, JsonNode paramsNode)
+            String reviewId, String assignmentId, JsonNode id, JsonNode paramsNode)
     {
         ToolCallParams params;
         try {
@@ -97,7 +97,7 @@ public class InvestigationReviewMcpService
             return responses.error(id, -32602, "invalid tools/call params: " + e.getMessage());
         }
         JsonNode arguments = params.arguments();
-        ToolExecutor.ToolCallResult result = tools.executor(sessionId, assignmentId).execute(new ToolCall(
+        ToolExecutor.ToolCallResult result = tools.executor(reviewId, assignmentId).execute(new ToolCall(
                 UUID.randomUUID().toString(), params.name(),
                 arguments == null ? "{}" : arguments.toString(),
                 arguments == null ? responses.mapper().createObjectNode() : arguments));

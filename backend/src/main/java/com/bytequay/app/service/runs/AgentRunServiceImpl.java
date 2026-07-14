@@ -138,6 +138,20 @@ class AgentRunServiceImpl
     }
 
     @Override
+    public AgentRun openTaskArtifact(
+            String taskId, String kind, String source, String reviewRoundId, Integer budget)
+    {
+        requireText(taskId, "taskId");
+        requireText(kind, "kind");
+        requireText(reviewRoundId, "reviewRoundId");
+        AgentRun run = new AgentRun(
+                UUID.randomUUID().toString(), taskId, kind, source,
+                null, reviewRoundId, null, AgentRun.STATUS_RUNNING,
+                0, budget, null, null, now(), null);
+        return store.save(run);
+    }
+
+    @Override
     public AgentRun recordIteration(String runId, String headlineOrNull)
     {
         AgentRun run = require(runId);

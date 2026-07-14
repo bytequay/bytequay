@@ -188,7 +188,8 @@ public class SqlitePrDetailStore
                         m.getOriginalStartLine(),
                         m.getAuthorAssociation(),
                         m.getGraphqlNodeId(),
-                        m.getResolved()))
+                        m.getResolved(),
+                        m.getResolvedBy()))
                 .collect(toImmutableList());
 
         List<PullRequestDetail.LinkedIssue> linkedIssues = linkedIssueRepo.findByPrIdOrderByIssueNumberAsc(prId).stream()
@@ -452,6 +453,7 @@ public class SqlitePrDetailStore
         e.setAuthorAssociation(m.authorAssociation());
         e.setGraphqlNodeId(m.graphqlNodeId());
         e.setResolved(m.resolved());
+        e.setResolvedBy(m.resolvedBy());
         return e;
     }
 

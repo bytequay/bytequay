@@ -33,56 +33,58 @@ class TestManagedSkillPolicy
     private final ManagedSkillPolicy policy = new ManagedSkillPolicy();
 
     @Test
-    void codingStageGetsPonytail()
+    void codingStageGetsPonytailAndCaveman()
     {
         assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), StageType.DEVELOPMENT_STAGE))
-                .containsExactly("ponytail");
+                .containsExactly("ponytail", CavemanPrompt.NAME);
     }
 
     @Test
-    void apiCodingStageGetsPonytail()
+    void apiCodingStageGetsPonytailAndCaveman()
     {
         assertThat(policy.skillNames(ThreadKind.LOGIC_LOOP, turn("user"), StageType.DEVELOPMENT_STAGE))
-                .containsExactly("ponytail");
+                .containsExactly("ponytail", CavemanPrompt.NAME);
     }
 
     @Test
-    void brainReviewGetsPonytailReview()
+    void brainReviewGetsPonytailReviewAndCaveman()
     {
         assertThat(policy.skillNames(ThreadKind.BRAIN_AGENT, turn("brain-review"), null))
-                .containsExactly("ponytail-review");
+                .containsExactly("ponytail-review", CavemanPrompt.NAME);
     }
 
     @Test
-    void trunkPlanningTurnGetsTrunkPlanner()
+    void trunkPlanningTurnGetsTrunkPlannerAndCaveman()
     {
         assertThat(policy.skillNames(
                 ThreadKind.CLI_AGENT, turn("user", "go ahead and implement this"), null))
-                .containsExactly("trunk-planner");
+                .containsExactly("trunk-planner", CavemanPrompt.NAME);
     }
 
     @Test
-    void explicitTrunkPlanningSourceGetsTrunkPlanner()
+    void explicitTrunkPlanningSourceGetsTrunkPlannerAndCaveman()
     {
         assertThat(policy.skillNames(
                 ThreadKind.LOGIC_LOOP, turn("backlog-start", "please review this"), null))
-                .containsExactly("trunk-planner");
+                .containsExactly("trunk-planner", CavemanPrompt.NAME);
     }
 
     @Test
-    void normalTrunkAndNormalBrainDoNotGetManagedSkills()
+    void normalTrunkAndNormalBrainGetCaveman()
     {
-        assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), null)).isEmpty();
+        assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), null))
+                .containsExactly(CavemanPrompt.NAME);
         assertThat(policy.skillNames(
-                ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this"), null)).isEmpty();
+                ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this"), null))
+                .containsExactly(CavemanPrompt.NAME);
     }
 
     @Test
-    void taskTurnWithoutStageDoesNotGetTrunkPlanner()
+    void taskTurnWithoutStageGetsCavemanButNotTrunkPlanner()
     {
         assertThat(policy.skillNames(
                 ThreadKind.CLI_AGENT, turn("user", "go ahead and implement this", "task-1"), null))
-                .isEmpty();
+                .containsExactly(CavemanPrompt.NAME);
     }
 
     @Test

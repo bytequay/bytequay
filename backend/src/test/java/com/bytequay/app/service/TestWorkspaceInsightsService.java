@@ -19,6 +19,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
+import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +37,7 @@ class TestWorkspaceInsightsService
     private static final Instant NOW = Instant.now();
 
     private TaskStore taskStore;
+    private InvestigationReviewStore reviewStore;
     private WorkspaceInsightsService service;
 
     @BeforeEach
@@ -43,9 +45,11 @@ class TestWorkspaceInsightsService
     {
         ThreadStore threadStore = mock(ThreadStore.class);
         taskStore = mock(TaskStore.class);
+        reviewStore = mock(InvestigationReviewStore.class);
         when(threadStore.listThreadsUpdatedSince(any())).thenReturn(List.of());
+        when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of());
         service = new WorkspaceInsightsService(
-                threadStore, taskStore, new GitHubRateLimitMonitor());
+                threadStore, taskStore, reviewStore, new GitHubRateLimitMonitor());
     }
 
     @Test
@@ -67,6 +71,19 @@ class TestWorkspaceInsightsService
                 .filter(r -> r.repoFullName().equals("acme/widget")).findFirst().orElseThrow();
         assertThat(widget.tasksShipped()).isEqualTo(1);
         assertThat(widget.tasksOpen()).isEqualTo(1);
+    }
+
+    @Test
+    void includesTaskOwnedAgentReviewSpend()
+    {
+        when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of(
+                new InvestigationReviewStore.TaskReviewSpend(1_160L, NOW.minusSeconds(60))));
+
+        WorkspaceInsightsService.Insights insights = service.get("7d");
+
+        assertThat(insights.spendInWindowMilli()).isEqualTo(1_160L);
+        assertThat(insights.spendByDay()).extracting(WorkspaceInsightsService.DayPoint::costUsdMilli)
+                .contains(1_160L);
     }
 
     private static Task task(String linkedPrRef, TaskPhase phase, TaskStatus status, Instant createdAt)

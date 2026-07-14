@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { UserProfileDto } from './types';
 import type { DashboardPR } from './types/dashboardPr';
-import { PrDetailsView } from './pr/localpr/PrDetailsView';
+import { PrDetailsView, type AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
 import ReviewScreen from './ReviewScreen';
 import ResizeHandle from './ResizeHandle';
 import { getCached, setCached } from './dataCache';
@@ -62,13 +62,15 @@ type Props = {
    *  Settings button is hidden. */
   onOpenSettings?: () => void;
   /** Navigate to a freshly-started review thread (its threadId) — wired
-   *  to the diff page's "Run AI review" panel launch. */
+   *  to the diff page's "Review with agent" launch. */
   onStartReview?: (threadId: string) => void;
+  /** Open the workspace-owned route for a standalone PR agent review. */
+  onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
   /** Active workspace the review panel lands in. */
   workspaceId?: string | null;
 };
 
-function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onStartReview, workspaceId }: Props) {
+function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onStartReview, onOpenAgentReview, workspaceId }: Props) {
   const cachedPrs = getCached<DashboardPR[]>(PRS_CACHE_KEY);
   const [prs, setPrs] = useState<DashboardPR[] | null>(cachedPrs ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -315,16 +317,16 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     void (async () => {
       try {
         if (pr.reviewState !== undefined && pr.reviewState !== 'none') {
-          const session = await window.bridge.getAgentReviewSession(pr.id);
-          if (session !== null) {
-            if (session.rounds.some(round => round.status === 'RUNNING')) return;
-            await window.bridge.continueAgentReviewSession(session.session.id, {
+          const review = await window.bridge.getAgentReview(pr.id);
+          if (review !== null) {
+            if (review.rounds.some(round => round.status === 'RUNNING')) return;
+            await window.bridge.continueAgentReview(review.review.id, {
               kind: pr.reviewState === 'stale' ? 're-review' : 'continue',
             });
             return;
           }
         }
-        await window.bridge.startAgentReviewSession(pr.id);
+        await window.bridge.startAgentReview(pr.id, { workspaceId: workspaceId ?? undefined });
       }
       catch (cause) {
         setPrs(current => current?.map(row => row.id === pr.id ? { ...row, reviewState: pr.reviewState ?? 'none' } : row) ?? null);
@@ -706,6 +708,8 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     <PrDetailsView
       pr={selected}
       onStartReview={onStartReview}
+      onOpenAgentReview={onOpenAgentReview}
+      workspaceId={workspaceId}
       onOpenReview={() => {
         setReviewingPr(selected);
         setSidebarCollapsedPersist(true);

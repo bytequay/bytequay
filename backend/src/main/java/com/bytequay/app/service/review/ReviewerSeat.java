@@ -24,6 +24,7 @@ import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.skills.CavemanPrompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -317,7 +318,7 @@ public class ReviewerSeat
         if (!mcp) {
             sb.append("\n\n").append(CliReviewFindings.INSTRUCTION);
         }
-        return sb.toString();
+        return CavemanPrompt.wrap(sb.toString());
     }
 
     /** Drop the trailing findings block from the prose shown in the

@@ -67,15 +67,15 @@ public class ManagedSkillPolicy
                 && turn != null
                 && turn.initiator() != null
                 && BRAIN_REVIEW_SOURCE.equals(turn.initiator().source())) {
-            return List.of(PONYTAIL_REVIEW);
+            return List.of(PONYTAIL_REVIEW, CavemanPrompt.NAME);
         }
         if (isTrunkPlanningTurn(kind, turn, stageType)) {
-            return List.of(TRUNK_PLANNER);
+            return List.of(TRUNK_PLANNER, CavemanPrompt.NAME);
         }
         if (stageType != null && CODING_STAGE_TYPES.contains(stageType)) {
-            return List.of(PONYTAIL);
+            return List.of(PONYTAIL, CavemanPrompt.NAME);
         }
-        return List.of();
+        return List.of(CavemanPrompt.NAME);
     }
 
     private static boolean isTrunkPlanningTurn(ThreadKind kind, ThreadTurn turn, StageType stageType)

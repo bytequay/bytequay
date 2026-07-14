@@ -21,6 +21,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
+import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -43,9 +44,9 @@ import static java.util.Objects.requireNonNull;
  * Insights surface renders. Active threads + tasks-in-flight come
  * straight from the existing status query; spend over the window
  * sums {@code costUsdMilli} from threads whose {@code updatedAt}
- * lands inside the window; the per-day breakdown buckets those
- * threads by local calendar day so the chart matches what the user
- * sees in their timezone.
+ * lands inside the window plus task-owned AgentReview round spend;
+ * the per-day breakdown buckets those charges by local calendar day
+ * so the chart matches what the user sees in their timezone.
  *
  * <p>Tasks-shipped-per-repo is intentionally absent from this commit
  * because {@code Task} doesn't carry an owner/repo column today —
@@ -67,13 +68,16 @@ public class WorkspaceInsightsService
 
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
+    private final InvestigationReviewStore reviewStore;
     private final GitHubRateLimitMonitor rateLimitMonitor;
 
     public WorkspaceInsightsService(
-            ThreadStore threadStore, TaskStore taskStore, GitHubRateLimitMonitor rateLimitMonitor)
+            ThreadStore threadStore, TaskStore taskStore,
+            InvestigationReviewStore reviewStore, GitHubRateLimitMonitor rateLimitMonitor)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.rateLimitMonitor = requireNonNull(rateLimitMonitor, "rateLimitMonitor is null");
     }
 
@@ -120,6 +124,15 @@ public class WorkspaceInsightsService
                 if (taskStore.hasActiveTask(t.id())) {
                     tasksInFlight++;
                 }
+            }
+        }
+        for (InvestigationReviewStore.TaskReviewSpend spend
+                : reviewStore.taskReviewSpendSince(windowStart)) {
+            spendInWindowMilli += spend.costMilli();
+            LocalDate day = LocalDate.ofInstant(spend.occurredAt(), zone);
+            spendByDay.merge(day, spend.costMilli(), Long::sum);
+            if (!spend.occurredAt().isBefore(today)) {
+                spendTodayMilli += spend.costMilli();
             }
         }
 

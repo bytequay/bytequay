@@ -671,25 +671,6 @@ const bridge: Bridge = {
   discardWorkspaceMemoryProposal: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke('workspaces:memory:proposal:discard', workspaceId),
 
-  startReview: (
-    repoFullName: string,
-    prNumber: number,
-    opts?: {
-      panelProviderIds?: string[];
-      roundCap?: number;
-      costCapMilli?: number;
-      independentFirst?: boolean;
-      workspaceId?: string;
-      leadId?: string | null;
-      seats?: {
-        providerId: string;
-        customPrompt?: string | null;
-        roleSkillId?: number | null;
-        lead?: boolean;
-      }[];
-    },
-  ) =>
-    ipcRenderer.invoke('reviews:start', { repoFullName, prNumber, ...(opts ?? {}) }),
   listReviewRoster: (): Promise<ReviewRosterEntryDto[]> =>
     ipcRenderer.invoke('reviews:roster'),
   getReviewPass: (passId: string) =>
@@ -977,7 +958,6 @@ const bridge: Bridge = {
   getAgentRun: (runId: string) => ipcRenderer.invoke('runs:get', runId),
   getTaskRounds: (taskId: string) => ipcRenderer.invoke('rounds:forTask', taskId),
   approveRound: (roundId: string) => ipcRenderer.invoke('rounds:approve', roundId),
-  spawnReview: (parentStageId: string) => ipcRenderer.invoke('stages:spawnReview', parentStageId),
   steerStage: (stageId: string, text: string, images?: string[]): Promise<{ turnId: string }> =>
     ipcRenderer.invoke('stages:steer', stageId, text, images),
   approvePlan: (planStageId: string) => ipcRenderer.invoke('plans:approve', planStageId),
@@ -992,19 +972,22 @@ const bridge: Bridge = {
   mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('pr:merge', prId, method),
   dequeueLocalPr: (prId: string) => ipcRenderer.invoke('pr:dequeue', prId),
   deleteLocalPrBranch: (prId: string) => ipcRenderer.invoke('pr:deleteBranch', prId),
+  postRemotePrComment: (prId: string, body: string) =>
+    ipcRenderer.invoke('pr:postRemoteComment', prId, body),
   publishLocalPrReview: (
     prId: string,
     body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[] },
   ) => ipcRenderer.invoke('pr:publishReview', prId, body),
-  getAgentReviewSession: (prId: string) => ipcRenderer.invoke('agentReview:getSession', prId),
-  startAgentReviewSession: (
+  getAgentReview: (prId: string) => ipcRenderer.invoke('agentReview:get', prId),
+  startAgentReview: (
     prId: string,
-    body?: { runner?: 'api' | 'cli'; providerId?: string },
-  ) => ipcRenderer.invoke('agentReview:startSession', prId, body),
-  continueAgentReviewSession: (
-    sessionId: string,
+    body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },
+  ) => ipcRenderer.invoke('agentReview:start', prId, body),
+  getAgentReviewByThread: (threadId: string) => ipcRenderer.invoke('agentReview:getByThread', threadId),
+  continueAgentReview: (
+    reviewId: string,
     body: { kind: 'continue' | 're-review' | 'continuation'; findingIds?: string[]; runner?: 'api' | 'cli'; providerId?: string },
-  ) => ipcRenderer.invoke('agentReview:continueSession', sessionId, body),
+  ) => ipcRenderer.invoke('agentReview:continue', reviewId, body),
   answerAgentReviewFinding: (findingId: string, text: string) =>
     ipcRenderer.invoke('agentReview:answerFinding', findingId, text),
   mutateAgentReviewFinding: (

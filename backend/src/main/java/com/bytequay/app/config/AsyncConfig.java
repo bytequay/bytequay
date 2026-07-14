@@ -78,9 +78,9 @@ public class AsyncConfig
     }
 
     /**
-     * Runs interactive review-pass bodies (the multi-minute LLM panel
-     * fan-out) off the HTTP request thread so {@code POST
-     * /api/reviews/start} can return as soon as the pass is seated.
+     * Runs legacy review-pass bodies and follow-up panel turns (the
+     * multi-minute LLM fan-out) off their caller thread. New reviews use
+     * AgentReview; this executor remains for historical pass interaction.
      * Bounded low on purpose: the heavy work is the model calls, and
      * the single-connection SQLite pool means we don't want many review
      * bodies persisting concurrently. Does not wait for in-flight bodies

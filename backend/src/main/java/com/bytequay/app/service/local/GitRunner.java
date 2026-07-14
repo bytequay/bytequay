@@ -509,6 +509,47 @@ public class GitRunner
         return result.exitCode() == 0;
     }
 
+    /** Read one file from an immutable commit without checking it out or
+     * changing the user's working tree. Used by standalone PR reviews when
+     * the watched clone already contains the reviewed GitHub SHA. */
+    public String fileAtRef(Path workingDir, String ref, String path)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(ref, "ref is null");
+        requireNonNull(path, "path is null");
+        Path relative = Path.of(path).normalize();
+        if (relative.isAbsolute() || relative.startsWith("..")) {
+            throw new IllegalArgumentException("path escapes repository");
+        }
+        GitResult result = run(
+                List.of("git", "show", ref + ":" + relative.toString().replace('\\', '/')),
+                workingDir,
+                30);
+        result.requireSuccess();
+        return result.stdout();
+    }
+
+    /** Find bounded literal references in the exact reviewed commit. This
+     * is intentionally read-only: no fetch, checkout, or worktree mutation. */
+    public List<String> grepAtRef(Path workingDir, String ref, String query, int limit)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(ref, "ref is null");
+        requireNonNull(query, "query is null");
+        if (query.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        GitResult result = run(
+                List.of("git", "grep", "-n", "-F", "-m", "5", "-e", query, ref, "--"),
+                workingDir,
+                30);
+        if (result.exitCode() == 1) {
+            return List.of();
+        }
+        result.requireSuccess();
+        return result.stdout().lines().limit(limit).toList();
+    }
+
     /** Resolve {@code ref} to the full commit SHA it points at, or empty when
      *  it doesn't resolve. Used to pin a task's base at cut time so the diff
      *  is a fixed {@code base..HEAD} instead of a re-guessed branch name. */

@@ -1119,7 +1119,7 @@ class TestPullRequestService
                 null,
                 "MEMBER",
                 null,
-                null);
+                null, null);
         when(gitHub.replyToReviewComment(
                 "pat",
                 PullRequestRef.of("trinodb", "trino", 7),
@@ -1158,7 +1158,7 @@ class TestPullRequestService
                         999L, 4357983764L, null, "bob", "thanks",
                         "src/Main.java", 12, "RIGHT", "@@", "abc123",
                         Instant.parse("2026-05-08T01:00:00Z"), Reactions.EMPTY,
-                        false, null, null, null, null, "MEMBER", null, null));
+                        false, null, null, null, null, "MEMBER", null, null, null));
         when(store.findIdByRepoAndNumber("trinodb/trino", 7)).thenReturn(Optional.empty());
 
         pullRequestService.replyToReviewThread("trinodb/trino", 7, 4357983764L, "thanks");
@@ -1236,7 +1236,7 @@ class TestPullRequestService
                 null,
                 "MEMBER",
                 "thread-node-id",
-                false);
+                false, null);
         when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.of(123L));
         when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
                 null,
@@ -1294,7 +1294,7 @@ class TestPullRequestService
                 null,
                 "MEMBER",
                 "thread-node-id",
-                false);
+                false, null);
         when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
                 null,
                 ImmutableList.of(),
@@ -1340,7 +1340,7 @@ class TestPullRequestService
                 null,
                 "MEMBER",
                 "thread-node-id",
-                true);
+                true, null);
         when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
                 null,
                 ImmutableList.of(),
@@ -1382,7 +1382,7 @@ class TestPullRequestService
                 null,
                 "MEMBER",
                 "thread-node-id",
-                false);
+                false, null);
         when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
                 null,
                 ImmutableList.of(),
@@ -1442,7 +1442,7 @@ class TestPullRequestService
                 null,
                 "MEMBER",
                 "thread-node-id",
-                false);
+                false, null);
         when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.of(123L));
         when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
                 null,

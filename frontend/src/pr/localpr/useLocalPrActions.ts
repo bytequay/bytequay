@@ -43,10 +43,14 @@ export function useLocalPrActions(taskId: string, opts: {
     const body = localComment.trim();
     if (body.length === 0 || localPr === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.addLocalPrComment(localPr.id, { scope: 'pr', body })
+    if (bridge === undefined) return;
+    const request = capabilities?.postRemoteComment === true
+      ? bridge.postRemotePrComment(localPr.id, body)
+      : bridge.addLocalPrComment(localPr.id, { scope: 'pr', body });
+    void request
       .then(() => { setLocalComment(''); refresh(); })
       .catch(() => { /* poll reconciles */ });
-  }, [localComment, localPr, refresh]);
+  }, [capabilities?.postRemoteComment, localComment, localPr, refresh]);
 
   const confirmPush = useCallback(() => {
     if (localPr === null) return;
@@ -110,6 +114,13 @@ export function useLocalPrActions(taskId: string, opts: {
       .catch(() => { /* poll reconciles */ });
   }, [localPr, refresh]);
 
+  const replyLocalPrComment = useCallback((parentCommentId: string, body: string) => {
+    if (localPr === null) return;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    return bridge?.addLocalPrComment(localPr.id, { scope: 'pr', body, parentCommentId })
+      .then(() => refresh());
+  }, [localPr, refresh]);
+
   const resolveLocalComment = useCallback((commentId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.resolveLocalPrComment(commentId)
@@ -145,7 +156,7 @@ export function useLocalPrActions(taskId: string, opts: {
     bundle, refresh, syncing, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, resolveLocalComment, deleteLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment, dismissLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,

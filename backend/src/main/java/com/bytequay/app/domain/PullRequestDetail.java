@@ -171,6 +171,8 @@ public record PullRequestDetail(
      * the code in question without re-loading the diff.
      *
      * @param resolved true iff GitHub considers this thread resolved.
+     * @param resolvedBy login of whoever resolved the thread, or null when
+     * unresolved / only a REST pass has run.
      * @param outdated true iff the thread is anchored to a line that no longer
      * exists in the current diff.
      * @param startLine first line of the multi-line range the thread anchors
@@ -188,6 +190,7 @@ public record PullRequestDetail(
             String diffHunk,
             List<ReviewMessage> messages,
             Boolean resolved,
+            String resolvedBy,
             boolean outdated,
             Integer startLine,
             String startSide,

@@ -84,7 +84,7 @@ final class PullRequestDetailPatcher
                                 message.filePath(), message.lineNumber(), message.side(), message.diffHunk(), message.commitId(),
                                 message.createdAt(), message.reactions(), message.outdated(), message.startLine(), message.startSide(),
                                 message.originalLine(), message.originalStartLine(), message.authorAssociation(),
-                                message.graphqlNodeId(), message.resolved())
+                                message.graphqlNodeId(), message.resolved(), message.resolvedBy())
                         : message)
                 .collect(toImmutableList());
         return new StoredPrDetail(
@@ -122,7 +122,7 @@ final class PullRequestDetailPatcher
                                 message.filePath(), message.lineNumber(), message.side(), message.diffHunk(), message.commitId(),
                                 message.createdAt(), message.reactions(), message.outdated(), message.startLine(), message.startSide(),
                                 message.originalLine(), message.originalStartLine(), message.authorAssociation(),
-                                message.graphqlNodeId(), resolved)
+                                message.graphqlNodeId(), resolved, message.resolvedBy())
                         : message)
                 .collect(toImmutableList());
         return new StoredPrDetail(
@@ -139,7 +139,7 @@ final class PullRequestDetailPatcher
                                 message.filePath(), message.lineNumber(), message.side(), message.diffHunk(), message.commitId(),
                                 message.createdAt(), bumpReaction(message.reactions(), content), message.outdated(),
                                 message.startLine(), message.startSide(), message.originalLine(), message.originalStartLine(),
-                                message.authorAssociation(), message.graphqlNodeId(), message.resolved())
+                                message.authorAssociation(), message.graphqlNodeId(), message.resolved(), message.resolvedBy())
                         : message)
                 .collect(toImmutableList());
         return new StoredPrDetail(

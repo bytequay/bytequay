@@ -25,10 +25,10 @@ export function createAgentReviewFixture(bundle: LocalPRBundle, files: DiffFileD
   const base = bundle.commits.at(0)?.sha ?? 'fixture-base';
   const anchor = findAnchor(files);
   const second = findAnchor(files, 1) ?? anchor;
-  const sessionId = `fixture-review-${bundle.pr.id}`;
-  const roundId = `${sessionId}-round-1`;
-  const observationId = `${sessionId}-observation-1`;
-  const counterObservationId = `${sessionId}-observation-2`;
+  const reviewId = `fixture-review-${bundle.pr.id}`;
+  const roundId = `${reviewId}-round-1`;
+  const observationId = `${reviewId}-observation-1`;
+  const counterObservationId = `${reviewId}-observation-2`;
 
   const comments: LocalPRComment[] = [
     findingComment('fixture-comment-1', 'finding-1', bundle.pr.id, anchor.path, anchor.line, now - 180_000,
@@ -42,9 +42,9 @@ export function createAgentReviewFixture(bundle: LocalPRBundle, files: DiffFileD
     strippedOnPushAt: null, createdAt: now - age, payload,
   });
   const timelineEvents: LocalPRTimelineEvent[] = [
-    timeline('fixture-review-started', 600_000, { reviewEvent: 'started', sessionId, roundId }),
+    timeline('fixture-review-started', 600_000, { reviewEvent: 'started', reviewId: reviewId, roundId }),
     timeline('fixture-rejected-dropped', 245_000, { reviewEvent: 'rejected-dropped', findingId: 'finding-3' }),
-    timeline('fixture-review-complete', 240_000, { reviewEvent: 'round-complete', sessionId, roundId }),
+    timeline('fixture-review-complete', 240_000, { reviewEvent: 'round-complete', reviewId: reviewId, roundId }),
     timeline('fixture-author-reply', 210_000, { reviewEvent: 'author-reply', findingId: 'finding-1', body: 'The strict behavior is intended for API callers.' }),
     timeline('fixture-addresses', 180_000, { reviewEvent: 'addresses', findingId: 'finding-1', sha: head.slice(0, 7) }),
     timeline('fixture-synthesizer', 150_000, { reviewEvent: 'synthesizer', count: 1 }),
@@ -63,7 +63,7 @@ export function createAgentReviewFixture(bundle: LocalPRBundle, files: DiffFileD
       strength_reason: 'Local code interpretation only.', dependency_mode: 'DIRECT_ONLY', dependency_json: {},
     },
     {
-      finding_id: 'finding-2', observation_id: `${sessionId}-observation-3`, relation: 'SUPPORTS',
+      finding_id: 'finding-2', observation_id: `${reviewId}-observation-3`, relation: 'SUPPORTS',
       proposition: 'No authoritative contract states whether the missing case should be lenient.', strength_class: 'E3',
       strength_reason: 'Repository contract and tests were searched.', dependency_mode: 'MODULE_CONTRACT',
       dependency_json: { contract_keys: ['missing-value-semantics'] },
@@ -97,11 +97,27 @@ export function createAgentReviewFixture(bundle: LocalPRBundle, files: DiffFileD
   ];
 
   return {
-    session: { id: sessionId, repo_id: bundle.pr.repo ?? 'fixture/repo', pr_id: bundle.pr.id, base_commit: base, reviewed_head_commit: head, status: 'ACTIVE' },
+    review: {
+      id: reviewId,
+      repo_id: bundle.pr.repo ?? 'fixture/repo',
+      pr_id: bundle.pr.id,
+      base_commit: base,
+      reviewed_head_commit: head,
+      status: 'ACTIVE',
+      workspace_id: 'ws-default',
+      owner_thread_id: 'review-thread-1',
+      owner_task_id: null,
+    },
     rounds: [{
-      id: roundId, session_id: sessionId, agent_run_id: 'fixture-panel-run', trigger: 'initial', scope: 'full',
+      id: roundId, review_id: reviewId, agent_run_id: 'fixture-panel-run', trigger: 'initial', scope: 'full',
       start_commit: head, end_commit: head, status: 'COMPLETED_WITH_QUESTIONS',
       budget_json: { cost_cap_cents: 50, wall_clock_minutes: 10 }, cost_cents: 19,
+      capabilities_json: {
+        source_mode: 'remote-only',
+        available: ['pr_diff', 'file_blobs', 'commits', 'checks'],
+        unavailable: ['repository_callers', 'code_graph', 'local_tests', 'git_history'],
+      },
+      trigger_stage_id: null,
     }],
     runs: [{
       id: 'fixture-panel-run', taskId: bundle.pr.taskId ?? '', kind: 'panel_review', source: null,
@@ -136,12 +152,12 @@ export function createAgentReviewFixture(bundle: LocalPRBundle, files: DiffFileD
     observations: [
       { id: observationId, step_id: 'step-1', source_type: 'source', commit_sha: head, path: anchor.path, start_line: anchor.line, end_line: anchor.line, symbol: 'changedSymbol', content_digest: 'fixture-digest-1', preview: 'Missing value is converted to an empty result.' },
       { id: counterObservationId, step_id: 'step-2', source_type: 'source', commit_sha: head, path: anchor.path, start_line: Math.max(1, anchor.line - 3), end_line: anchor.line, content_digest: 'fixture-digest-2', preview: 'An earlier guard narrows the path.' },
-      { id: `${sessionId}-observation-3`, step_id: 'step-3', source_type: 'test-search', commit_sha: head, path: second.path, command: 'searchTests missing-value', exit_code: 0, content_digest: 'fixture-digest-3', preview: 'No matching contract test found.' },
+      { id: `${reviewId}-observation-3`, step_id: 'step-3', source_type: 'test-search', commit_sha: head, path: second.path, command: 'searchTests missing-value', exit_code: 0, content_digest: 'fixture-digest-3', preview: 'No matching contract test found.' },
     ],
     findings: [
-      { id: 'finding-1', session_id: sessionId, round_id: roundId, objective_id: 'objective-1', hypothesis_id: 'hypothesis-1', criterion_kind: 'hard-invariant', claim: 'The missing case is now silently accepted.', severity: 4, confidence_class: 'VERIFIED', verification_status: 'verified', requested_action: 'Preserve the prior failure and add a regression test.', lifecycle_status: 'open', last_checked_commit: head },
-      { id: 'finding-2', session_id: sessionId, round_id: roundId, objective_id: 'objective-2', hypothesis_id: 'hypothesis-2', criterion_kind: 'engineering-principle', claim: 'The intended missing-value behavior is unclear.', severity: 2, confidence_class: 'UNKNOWN', verification_status: 'unknown', requested_action: 'Clarify the intended contract.', lifecycle_status: 'NEEDS_USER_JUDGEMENT', last_checked_commit: head },
-      { id: 'finding-3', session_id: sessionId, round_id: roundId, objective_id: 'objective-1', hypothesis_id: 'hypothesis-3', criterion_kind: 'hard-invariant', claim: 'A null input reaches object construction.', severity: 3, confidence_class: 'REJECTED', verification_status: 'rejected', requested_action: 'Add a redundant null guard.', lifecycle_status: 'dropped', last_checked_commit: head },
+      { id: 'finding-1', review_id: reviewId, round_id: roundId, objective_id: 'objective-1', hypothesis_id: 'hypothesis-1', criterion_kind: 'hard-invariant', claim: 'The missing case is now silently accepted.', severity: 4, confidence_class: 'VERIFIED', verification_status: 'verified', requested_action: 'Preserve the prior failure and add a regression test.', lifecycle_status: 'open', last_checked_commit: head },
+      { id: 'finding-2', review_id: reviewId, round_id: roundId, objective_id: 'objective-2', hypothesis_id: 'hypothesis-2', criterion_kind: 'engineering-principle', claim: 'The intended missing-value behavior is unclear.', severity: 2, confidence_class: 'UNKNOWN', verification_status: 'unknown', requested_action: 'Clarify the intended contract.', lifecycle_status: 'NEEDS_USER_JUDGEMENT', last_checked_commit: head },
+      { id: 'finding-3', review_id: reviewId, round_id: roundId, objective_id: 'objective-1', hypothesis_id: 'hypothesis-3', criterion_kind: 'hard-invariant', claim: 'A null input reaches object construction.', severity: 3, confidence_class: 'REJECTED', verification_status: 'rejected', requested_action: 'Add a redundant null guard.', lifecycle_status: 'dropped', last_checked_commit: head },
     ],
     evidence, verifications, relations: [], outcomes: [],
     knowledge_items: [{ id: 'knowledge-1', repo_id: bundle.pr.repo ?? 'fixture/repo', subtype: 'recipe', statement: 'Check missing-value behavior at public return paths.', steps_json: ['Read the changed symbol', 'Inspect direct callers', 'Search contract tests'], trigger_json: { paths: [anchor.path] }, state: 'pending' }],

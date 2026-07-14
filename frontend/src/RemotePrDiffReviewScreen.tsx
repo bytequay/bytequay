@@ -14,8 +14,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
 import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewFindingDto, ReviewFindingSeverityDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
-import { getCached } from './dataCache';
-import Avatar from './Avatar';
 import { parseUnifiedDiff } from './diffParse';
 import {
   computeGap,
@@ -23,6 +21,7 @@ import {
 } from './diffExpand';
 import { ContinuousDiff } from './diff/DiffFileList';
 import { ExpandableFileDiffBody } from './diff/ExpandableFileDiffBody';
+import { InlineReviewThread } from './diff/InlineReviewThread';
 import { useDiffRangeComposer } from './diff/useDiffRangeComposer';
 import { treeOrderedFiles } from './fileTree';
 import ResizeHandle from './ResizeHandle';
@@ -35,7 +34,7 @@ import { CommitsColumn } from './diff/CommitsColumn';
 import { contiguousRange } from './diff/commitRange';
 import { unionCommitFiles } from './diff/unionCommitFiles';
 import { MarkdownProse } from './threads/MarkdownProse';
-import AssignReviewTaskDialog from './workspace/AssignReviewTaskDialog';
+import StartAgentReviewDialog from './review/StartAgentReviewDialog';
 import { DiffInlineCommentComposer, rangeLabel } from './diff/DiffInlineComments';
 
 type FilesMode = 'tree' | 'flat';
@@ -103,8 +102,8 @@ type Props = {
   initialCommitSha?: string | null;
   /** Active workspace — required for launching a workspace-scoped review panel. */
   workspaceId?: string | null;
-  /** Navigate to a freshly-started review thread (its threadId). When
-   *  absent, the "Run AI review" panel affordance is hidden. */
+  /** Navigate to a freshly-started review task (its owner thread id). When
+   *  absent, the "Review with agent" affordance uses the legacy draft helper. */
   onStartReview?: (threadId: string) => void;
 };
 
@@ -114,17 +113,6 @@ type Props = {
  *  filenames or anchor values: backslash, dot, slash, colon, brackets. */
 function cssEscape(s: string): string {
   return s.replace(/(["\\\n])/g, '\\$1');
-}
-
-function formatRelative(iso: string | null): string {
-  if (!iso) return '';
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
 }
 
 function severityClass(s: string): string {
@@ -779,271 +767,6 @@ function FinishReviewPanel({
   );
 }
 
-// Per-message reaction emoji row. Inline copy of the bigger ReactionChips
-// component in PullRequestPreview to avoid a circular import — the inline
-// thread uses the same emoji map but renders a slightly tighter row to
-// match the mockup at docs/mockups/v2/codereview/comment-layout.png.
-const THREAD_REACTION_EMOJI: Record<string, string> = {
-  plusOne: '👍', minusOne: '👎', laugh: '😄', hooray: '🎉',
-  confused: '😕', heart: '❤️', rocket: '🚀', eyes: '👀',
-};
-
-function ThreadReactions({ reactions }: { reactions: ReviewThreadDto['messages'][number]['reactions'] }) {
-  if (!reactions) return null;
-  const items = Object.entries(reactions)
-    .filter(([, n]) => typeof n === 'number' && n > 0)
-    .filter(([k]) => THREAD_REACTION_EMOJI[k] !== undefined);
-  if (items.length === 0) return null;
-  return (
-    <div className="diff-thread__reactions">
-      {items.map(([k, n]) => (
-        <span key={k} className="diff-thread__reaction" title={`${n}`}>
-          <span aria-hidden="true">{THREAD_REACTION_EMOJI[k]}</span>
-          <span className="diff-thread__reaction-count">{n}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Renders one existing per-line review thread directly under the diff row
- * it anchors to. Layout follows
- * docs/mockups/v2/codereview/comment-layout.png:
- *   1. Top header with the line range, fold chevron, and Resolved /
- *      Outdated pill on the right.
- *   2. Each message: avatar + author/role/time header row + body +
- *      reactions chips below.
- *   3. Bottom: collapsed "Write a reply" stub that expands to the full
- *      reply composer (with Polish button) on click.
- *
- * Resolved threads default to folded — same behaviour as github.com.
- * Toggle via the chevron at the top.
- */
-function InlineExistingThread({
-  thread,
-  prAuthor,
-  repo,
-  prId,
-  prNumber,
-  onReplied,
-}: {
-  thread: ReviewThreadDto;
-  prAuthor: string | null;
-  repo: string;
-  /** PR primary key — required for the resolve / unresolve path. */
-  prId: number;
-  prNumber: number;
-  /** Called after a successful reply with a synthesised message so the
-   *  parent can patch local state immediately. */
-  onReplied: (optimisticReply?: ReviewMessageDto) => void;
-}) {
-  const [replying, setReplying] = useState(false);
-  const [body, setBody] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Collapse resolved threads up-front; the user can toggle them open.
-  // Derived from props (not a frozen useState initializer) so a late
-  // GraphQL refresh that flips `resolved` from null to true still
-  // auto-folds the thread. The override pins the user's manual choice
-  // once they touch the chevron, so later refreshes don't re-fold a
-  // thread they explicitly expanded.
-  const [foldOverride, setFoldOverride] = useState<boolean | null>(null);
-  const folded = foldOverride ?? (thread.resolved === true);
-  // Local optimistic mirror so the pill + button text flip immediately
-  // on click. Falls back to the prop when GraphQL hasn't given us a
-  // value yet. Sync with thread.resolved on every render so a fresh
-  // detail fetch overrides our local state.
-  const [resolvedLocal, setResolvedLocal] = useState<boolean | null>(thread.resolved ?? null);
-  const [resolving, setResolving] = useState(false);
-  useEffect(() => {
-    setResolvedLocal(thread.resolved ?? null);
-  }, [thread.resolved]);
-
-  const submit = async () => {
-    const trimmed = body.trim();
-    if (!trimmed) return;
-    setPending(true); setError(null);
-    try {
-      await window.bridge.replyToReviewThread(repo, prNumber, thread.rootGithubId, trimmed);
-      setBody('');
-      setReplying(false);
-      // Hand a synthesised optimistic message back so the parent can
-      // append it to local state right away. The full-detail refetch
-      // (also kicked off by onReplied) reconciles the temp id with
-      // GitHub's real one in the background.
-      const profile = getCached<UserProfileDto>('home:profile') ?? null;
-      const optimistic: ReviewMessageDto = {
-        githubId: -Date.now(),
-        author: profile?.login ?? null,
-        body: trimmed,
-        createdAt: new Date().toISOString(),
-        reactions: null,
-        reviewId: null,
-        authorAssociation: null,
-      };
-      onReplied(optimistic);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPending(false);
-    }
-  };
-
-  // Single-line vs. multi-line label. GitHub returns start_line +
-  // start_side on multi-line threads (V27 surfaces them); when both are
-  // set and the start differs from the end, we render the range. Falls
-  // through to "Comment" when line is missing (rare, only on stale
-  // threads).
-  const lineLabel = thread.line == null
-    ? 'Comment'
-    : (thread.startLine != null && thread.startLine !== thread.line
-      ? `Comment on lines ${(thread.startSide ?? thread.side) === 'LEFT' ? 'L' : 'R'}${thread.startLine} to ${thread.side === 'LEFT' ? 'L' : 'R'}${thread.line}`
-      : `Comment on line ${(thread.side === 'LEFT' ? 'L' : 'R')}${thread.line}`);
-
-  return (
-    <div
-      className={`diff-thread${thread.resolved === true ? ' diff-thread--resolved' : ''}${thread.outdated ? ' diff-thread--outdated' : ''}`}
-    >
-      <header className="diff-thread__header">
-        <button
-          type="button"
-          className="diff-thread__fold"
-          onClick={() => setFoldOverride(!folded)}
-          aria-expanded={!folded}
-          title={folded ? 'Expand thread' : 'Collapse thread'}
-        >
-          <span aria-hidden="true">{folded ? '▸' : '▾'}</span>
-        </button>
-        <span className="diff-thread__loc">{lineLabel}</span>
-        {folded && (
-          <span className="diff-thread__head-summary">
-            · {thread.messages.length} comment{thread.messages.length === 1 ? '' : 's'}
-          </span>
-        )}
-        {thread.outdated && (
-          <span className="diff-thread__pill diff-thread__pill--outdated" title="The line this thread anchors to no longer exists in the current diff.">Outdated</span>
-        )}
-        {resolvedLocal === true && (
-          <span className="diff-thread__pill diff-thread__pill--resolved">Resolved</span>
-        )}
-        <div className="diff-thread__head-pills">
-          {/* Resolve / Unresolve toggle. Hidden when GraphQL hasn't
-              populated the resolved flag yet (resolved == null), since
-              the mutation needs the GraphQL node id which arrives in
-              the same fetch. */}
-          {resolvedLocal != null && (
-            <button
-              type="button"
-              className={`diff-thread__resolve-btn${resolvedLocal ? ' diff-thread__resolve-btn--unresolve' : ''}`}
-              onClick={async () => {
-                if (resolving) return;
-                const next = !resolvedLocal;
-                setResolving(true);
-                setResolvedLocal(next);
-                try {
-                  await window.bridge.setReviewThreadResolved(repo, prId, thread.rootGithubId, next);
-                } catch (e) {
-                  setResolvedLocal(!next);
-                  setError(e instanceof Error ? e.message : String(e));
-                } finally {
-                  setResolving(false);
-                }
-              }}
-              disabled={resolving}
-              title={resolvedLocal ? 'Mark this conversation unresolved' : 'Mark this conversation resolved'}
-            >
-              {resolving ? '…' : resolvedLocal ? 'Unresolve' : 'Resolve'}
-            </button>
-          )}
-        </div>
-      </header>
-
-      {!folded && (
-        <>
-          {thread.messages.map(msg => (
-            <article key={msg.githubId} className="diff-thread__msg">
-              <Avatar login={msg.author ?? ''} size={28} className="diff-thread__msg-avatar" />
-              <div className="diff-thread__msg-body">
-                <header className="diff-thread__msg-head">
-                  {msg.author && <span className="diff-thread__msg-author">{msg.author}</span>}
-                  {prAuthor === msg.author && (
-                    <span className="diff-thread__msg-role">Author</span>
-                  )}
-                  {msg.createdAt && (
-                    <span className="diff-thread__msg-time">{formatRelative(msg.createdAt)}</span>
-                  )}
-                </header>
-                {msg.body && (() => {
-                  // `repo` here is GitHub's "owner/repo" form (see prop
-                  // declaration). Split so renderMarkdown can produce
-                  // clickable #N refs back into this repo's PR list.
-                  const [refOwner, refRepo] = repo.split('/');
-                  const ctx = refOwner && refRepo ? { owner: refOwner, repo: refRepo } : undefined;
-                  return (
-                    <div
-                      className="diff-thread__msg-text"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.body, ctx) }}
-                    />
-                  );
-                })()}
-                <ThreadReactions reactions={msg.reactions} />
-              </div>
-            </article>
-          ))}
-
-          {replying ? (
-            <div className="diff-thread__reply">
-              <MarkdownComposer
-                value={body}
-                onChange={setBody}
-                placeholder="Reply to this thread — markdown supported."
-                rows={2}
-                disabled={pending}
-                autoFocus
-                textareaClassName="diff-thread__reply-input"
-              />
-              <div className="diff-thread__reply-actions">
-                <button
-                  type="button"
-                  className="button button--primary"
-                  onClick={submit}
-                  disabled={pending || !body.trim()}
-                >
-                  {pending ? 'Sending…' : 'Reply'}
-                </button>
-                <PolishButtons
-                  value={body}
-                  onChange={setBody}
-                  onError={setError}
-                  disabled={pending}
-                />
-                <button
-                  type="button"
-                  className="pr-comment-box__cancel"
-                  onClick={() => { setReplying(false); setBody(''); setError(null); }}
-                  disabled={pending}
-                >
-                  Cancel
-                </button>
-              </div>
-              {error && <div className="diff-thread__reply-error">{error}</div>}
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="diff-thread__reply-stub"
-              onClick={() => setReplying(true)}
-            >
-              Write a reply…
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
 /**
  * Renders every changed file in the PR concatenated into one scroll
  * container — same UX as GitHub's "Files changed" tab. The active file in
@@ -1197,49 +920,12 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
   const [composerBody, setComposerBody] = useState('');
   const [composerPending, setComposerPending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [postedKeys, setPostedKeys] = useState<Set<string>>(new Set());
 
   const closeComposer = useCallback(() => {
     closeDiffComposer();
     setComposerBody('');
     setComposerError(null);
   }, [closeDiffComposer]);
-
-  const submitComposer = async () => {
-    if (!composerSlot || !headSha) return;
-    const trimmed = composerBody.trim();
-    if (!trimmed) return;
-    setComposerPending(true);
-    setComposerError(null);
-    try {
-      await window.bridge.createInlineReviewComment(
-        repo,
-        prNumber,
-        trimmed,
-        file.filename,
-        composerSlot.line,
-        composerSlot.side,
-        headSha,
-        // Multi-line range: pass start_line + start_side when present.
-        // The bridge / backend strip them when startLine === line, so
-        // single-line comments produce identical payloads to before.
-        composerSlot.startLine ?? null,
-        composerSlot.startSide ?? null,
-      );
-      const key = `${composerSlot.side}:${composerSlot.line}`;
-      setPostedKeys(prev => {
-        const next = new Set(prev);
-        next.add(key);
-        return next;
-      });
-      closeComposer();
-      onThreadReplied();
-    } catch (e) {
-      setComposerError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setComposerPending(false);
-    }
-  };
 
   /** Stages the composer body into the active review draft instead of
    *  posting a single comment. The refreshed draft flows back through
@@ -1415,7 +1101,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
           {showOutdated && (
             <div className="diff-outdated__list">
               {outdatedThreads.map(thread => (
-                <InlineExistingThread
+                <InlineReviewThread
                   key={thread.rootGithubId}
                   thread={thread}
                   prAuthor={prAuthor}
@@ -1442,7 +1128,6 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
           const composerHere = !!composerSlot
               && composerSlot.side === anchorSide
               && composerSlot.line === anchorLine;
-          const justPostedHere = postedKeys.has(`${anchorSide}:${anchorLine}`);
           return (
             <>
               {inline?.map(c => (
@@ -1458,7 +1143,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                 <PanelFinding key={f.id} finding={f} />
               ))}
               {threadsByAnchor.get(`${anchorSide}:${anchorLine}`)?.map(thread => (
-                <InlineExistingThread
+                <InlineReviewThread
                   key={thread.rootGithubId}
                   thread={thread}
                   prAuthor={prAuthor}
@@ -1497,16 +1182,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                         disabled={composerPending || !composerBody.trim()}
                         title="Stage this comment into your review — submit them all together when you're done."
                       >
-                        {composerPending ? 'Staging…' : 'Start a review'}
-                      </button>
-                      <button
-                        type="button"
-                        className="button button--secondary"
-                        onClick={submitComposer}
-                        disabled={composerPending || !composerBody.trim()}
-                        title="Post this comment now without starting a batched review."
-                      >
-                        {composerPending ? 'Posting…' : 'Add single comment'}
+                        {composerPending ? 'Staging…' : 'Add review comment'}
                       </button>
                       <PolishButtons
                         value={composerBody}
@@ -1528,11 +1204,6 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
                     <div className="diff-inline-composer__error">{composerError}</div>
                   )}
                 />
-              )}
-              {justPostedHere && !composerHere && (
-                <div className="diff-inline-composer__posted">
-                  ✓ Comment posted — open the PR detail to see it threaded.
-                </div>
               )}
             </>
           );
@@ -2045,11 +1716,11 @@ function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, wor
           disabled={!canOpenReviewDialog}
           title={onStartReview
             ? canOpenReviewDialog
-              ? 'Spin up a multi-agent review panel on this PR — pick the reviewers and lead, then watch them review.'
+              ? 'Start a durable agent review owned by the current workspace.'
               : 'Choose a workspace before starting a review.'
             : 'Ask Claude to draft a review — summary plus line-anchored comments. Stored locally until you publish.'}
         >
-          ✨ Run AI review
+          ⚖ Review with agent
         </button>
         <div className="diff-viewer__submit-wrap">
           {(() => {
@@ -2339,9 +2010,9 @@ function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, wor
         />
       </div>
       {assignReviewOpen && onStartReview && reviewWorkspaceId.length > 0 && (
-        <AssignReviewTaskDialog
+        <StartAgentReviewDialog
           workspaceId={reviewWorkspaceId}
-          initialPr={pr}
+          pr={pr}
           onClose={() => setAssignReviewOpen(false)}
           onStarted={(threadId) => { setAssignReviewOpen(false); onStartReview(threadId); }}
         />

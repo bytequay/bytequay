@@ -45,6 +45,7 @@ import PullRequestList from './PullRequestList';
 import HomePage from './home/HomePage';
 import PrActivityPage from './home/PrActivityPage';
 import RepoDetailPage from './RepoDetailPage';
+import { PrDetailsView, type AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
 import ReposPage from './repos/ReposPage';
 import RepositoryPage from './repos/RepositoryPage';
 import LocalRepoPage from './repos/LocalRepoPage';
@@ -92,6 +93,10 @@ export type Nav =
    *  from a "View code diff" button on the brain view or a stage detail. */
   | { view: 'task-code'; threadId: string; taskId: string; back?: Nav }
   | { view: 'review-thread'; threadId: string; back?: Nav }
+  /** Durable external-PR agent review. Unlike the legacy panel-review
+   *  route above, this is the AgentReview aggregate owned by a lightweight
+   *  workspace thread; the PR is supporting context, not the nav owner. */
+  | { view: 'agent-review'; threadId: string; workspaceId: string; owner: string; repo: string; prNumber: number; roundId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
@@ -310,16 +315,12 @@ function App() {
     return () => document.removeEventListener('click', onClick);
   }, []);
 
-  // Open a thread, routing review threads (flow=REVIEW) to the panel
-  // page and everything else to the trunk. A review thread exposes a
-  // review pass via getReviewPassByThread; build/trunk threads return
-  // null, so they fall through to the regular thread-detail view. Keeps
-  // the assign-review dialog, PR-row jumps, and the rail all landing on
-  // the right surface without each caller needing to know the flow.
+  // Open a thread, routing standalone AgentReview owners first, legacy
+  // review-pass threads second, and development threads to the trunk.
   //
   // This is every "open a thread" click's single entry point — the PR
   // page's linked-task chip, the sidebar's thread rows, footprint resume —
-  // and it's async (getReviewPassByThread is a network round-trip). If an
+  // and it's async (the ownership lookup is a network round-trip). If an
   // earlier click's lookup is still in flight when a newer one fires (e.g.
   // clicking a PR's linked task, then quickly clicking a different thread
   // in the sidebar before the first lookup returns), the earlier call must
@@ -329,17 +330,50 @@ function App() {
   const openThread = (threadId: string) => {
     const back = nav;
     openThreadRequestRef.current = threadId;
-    void window.bridge.getReviewPassByThread(threadId)
-      .then(pass => {
+    void (async () => {
+      try {
+        const review = await window.bridge.getAgentReviewByThread(threadId);
+        if (openThreadRequestRef.current !== threadId) return;
+        if (review !== null && review.review.owner_task_id !== null) {
+          setNav({
+            view: 'task-brain',
+            threadId,
+            taskId: review.review.owner_task_id,
+          });
+          return;
+        }
+        if (review !== null) {
+          const bundle = await window.bridge.getLocalPrBundle(review.review.pr_id);
+          if (openThreadRequestRef.current !== threadId) return;
+          const repoSlug = bundle?.pr.repo;
+          const prNumber = bundle?.pr.remotePrNumber;
+          const roundId = review.rounds.at(-1)?.id;
+          const workspaceId = review.review.workspace_id;
+          if (repoSlug !== null && repoSlug !== undefined && prNumber !== null
+              && prNumber !== undefined && roundId !== undefined && workspaceId !== null) {
+            const [owner, repo] = repoSlug.split('/');
+            if (owner && repo) {
+              setActiveWorkspaceId(workspaceId);
+              writeActiveWorkspaceId(workspaceId);
+              setNav({
+                view: 'agent-review', threadId, workspaceId,
+                owner, repo, prNumber, roundId, back,
+              });
+              return;
+            }
+          }
+        }
+
+        const pass = await window.bridge.getReviewPassByThread(threadId);
         if (openThreadRequestRef.current !== threadId) return;
         setNav(pass !== null
           ? { view: 'review-thread', threadId, back }
           : { view: 'thread-detail', threadId });
-      })
-      .catch(() => {
-        if (openThreadRequestRef.current !== threadId) return;
-        setNav({ view: 'thread-detail', threadId });
-      });
+      }
+      catch {
+        if (openThreadRequestRef.current === threadId) setNav({ view: 'thread-detail', threadId });
+      }
+    })();
   };
 
   /** Open a stage-backed run's own log. Detached artifact runs route through
@@ -457,6 +491,7 @@ function App() {
       case 'notifications':  return [{ label: 'notifications', kind: 'scope' }];
       case 'settings':       return [{ label: 'settings', kind: 'scope' }];
       case 'review-thread':  return [{ label: 'review-thread', kind: 'entity' }];
+      case 'agent-review':   return [{ label: 'agent-review', kind: 'entity' }];
       default:               return [];
     }
   })();
@@ -585,12 +620,15 @@ function App() {
   // change the hook count between renders and crash the whole app.
   const inWorkspaceFlow = nav.view === 'workspace'
     || nav.view === 'thread-detail' || nav.view === 'task-brain'
-    || nav.view === 'stage-detail' || nav.view === 'task-code';
+    || nav.view === 'stage-detail' || nav.view === 'task-code'
+    || nav.view === 'agent-review';
   // The viewed thread's own workspace wins once resolved (e.g. by
   // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
   // linked-task chip, footprint resume) shows ITS workspace's rail instead
   // of whatever workspace the landing grid was last pointed at.
-  const sidebarWorkspaceId = inWorkspaceFlow ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
+  const sidebarWorkspaceId = nav.view === 'agent-review'
+    ? nav.workspaceId
+    : inWorkspaceFlow ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
   const { activeWorkspace: sidebarWorkspace } = useWorkspaceNav(sidebarWorkspaceId);
 
   if (fatal) {
@@ -630,6 +668,7 @@ function App() {
       case 'home': case 'pr-activity': return 'home';
       case 'workspaces-landing': case 'workspace': return 'workspaces';
       case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'workspaces';
+      case 'agent-review': return 'workspaces';
       case 'my-prs': return 'my-work';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
@@ -644,6 +683,31 @@ function App() {
   // plain string so this alias doesn't narrow `nav` inside the rail JSX.
   const ownsTaskSidebar = (nav.view as string) === 'stage-detail'
     || (nav.view as string) === 'task-brain';
+
+  const openAgentReview = (target: AgentReviewNavTarget) => {
+    setActiveWorkspaceId(target.workspaceId);
+    writeActiveWorkspaceId(target.workspaceId);
+    if (target.taskId !== null) {
+      setNav({
+        view: 'task-brain',
+        threadId: target.threadId,
+        taskId: target.taskId,
+      });
+      return;
+    }
+    const [owner, repo] = target.repo.split('/');
+    if (!owner || !repo) return;
+    setNav({
+      view: 'agent-review',
+      threadId: target.threadId,
+      workspaceId: target.workspaceId,
+      owner,
+      repo,
+      prNumber: target.prNumber,
+      roundId: target.roundId,
+      back: nav,
+    });
+  };
 
   return (
     <div className="app-shell">
@@ -698,7 +762,7 @@ function App() {
               case 'settings': setNav({ view: 'settings' }); break;
             }
           }}
-          onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+          onOpenThread={openThread}
           onOpenTask={taskId => {
             if (navThreadId !== null) {
               setNav(lastTaskNav(navThreadId, taskId));
@@ -747,9 +811,8 @@ function App() {
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
             onOpenSettings={() => setNav({ view: 'settings' })}
-            onStartReview={threadId => setNav({
-              view: 'review-thread', threadId, back: nav,
-            })}
+            onStartReview={openThread}
+            onOpenAgentReview={openAgentReview}
             workspaceId={activeWorkspaceId}
           />
         )}
@@ -770,9 +833,8 @@ function App() {
             // The AI panel-review button on a PR row routes the user
             // to the new review thread; we preserve the repo nav as
             // the back target so the user can return.
-            onStartReview={threadId => setNav({
-              view: 'review-thread', threadId, back: nav,
-            })}
+            onStartReview={openThread}
+            onOpenAgentReview={openAgentReview}
             workspaceId={activeWorkspaceId}
           />
         )}
@@ -888,6 +950,20 @@ function App() {
             })}
             onOpenDiff={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber, openDiff: true, back: nav,
+            })}
+          />
+        )}
+        {nav.view === 'agent-review' && (
+          <PrDetailsView
+            pr={{
+              id: `${nav.owner}/${nav.repo}#${nav.prNumber}`,
+              repo: `${nav.owner}/${nav.repo}`,
+              number: nav.prNumber,
+            }}
+            workspaceId={nav.workspaceId}
+            initialReviewRoundId={nav.roundId}
+            onCloseReviewRound={() => setNav(nav.back ?? {
+              view: 'repo', owner: nav.owner, repo: nav.repo, prNumber: nav.prNumber,
             })}
           />
         )}
@@ -1026,9 +1102,8 @@ function App() {
             onBack={() => setNav({ view: 'team', teamId: nav.teamId })}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
-            onStartReview={threadId => setNav({
-              view: 'review-thread', threadId, back: nav,
-            })}
+            onStartReview={openThread}
+            onOpenAgentReview={openAgentReview}
             workspaceId={activeWorkspaceId}
           />
         )}

@@ -47,16 +47,16 @@ public interface PRStore
      *  lets the sync reuse a task's own PR row instead of minting a twin. */
     Optional<PR> findTaskByRepoAndRemotePrNumber(String repo, int remotePrNumber);
 
+    /** True while an AgentReview round is still writing against this PR id. */
+    boolean hasRunningAgentReview(String prId);
+
     /**
      * Fold one PR aggregate into another: move {@code fromPrId}'s child rows
-     * (commits, checks, comments, non-redundant remote timeline events, triage)
-     * onto {@code toPrId}, dropping rows that would duplicate one the survivor
-     * already has (commits by sha, checks by run id, timeline by remote event
-     * id, triage kept only if the survivor has none). The caller deletes the
-     * emptied {@code fromPrId} row afterwards ({@link #deletePr}); its
-     * remaining (redundant) children cascade away. Used to reconcile a task's
-     * PR with the dashboard-synced twin for the same GitHub PR — see
-     * docs/mockups/pr-record-unification-design.md.
+     * (commits, checks, comments, AgentReview history, non-redundant remote and
+     * review timeline events, triage) onto {@code toPrId}, dropping rows that
+     * would duplicate one the survivor already has. The caller deletes the
+     * emptied {@code fromPrId} row afterwards ({@link #deletePr}); its remaining
+     * redundant children cascade away.
      */
     void reparentChildren(String fromPrId, String toPrId);
 

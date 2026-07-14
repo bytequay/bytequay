@@ -42,7 +42,7 @@ import type { AgentReviewData } from '../../review/agentReviewTypes';
 export function PRView({
   bundle, capabilities, commentValue, onCommentChange, username,
   onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
-  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onOpenStage,
+  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onReplyThread, onOpenStage,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
   changesContent, reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
 }: {
@@ -70,6 +70,7 @@ export function PRView({
   runTestsBusy?: boolean;
   onResolveThread?: (commentId: string) => void;
   onDismissThread?: (commentId: string) => void;
+  onReplyThread?: (rootCommentId: string, body: string) => void | Promise<void>;
   /** Jumps to a stage's detail view — the timeline's "View the plan" link
    *  card on a `plan-finalized` row is the only thing that uses it today. */
   onOpenStage?: (stageId: string) => void;
@@ -227,6 +228,7 @@ export function PRView({
             onReviewChanges={onReviewChanges === undefined ? undefined : openChanges}
             onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
             onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
+            onReplyThread={capabilities.draftLocalComments ? onReplyThread : undefined}
             onOpenStage={onOpenStage}
             activity={activity}
             reviewThreads={reviewThreads}
@@ -282,7 +284,8 @@ export function PRView({
           />
         )}
 
-        {activeTab === 'conversation' && capabilities.draftLocalComments && (
+        {activeTab === 'conversation'
+          && (capabilities.draftLocalComments || capabilities.postRemoteComment) && (
           <PRCommentComposer
             local={local}
             username={username ?? currentUserLogin ?? undefined}

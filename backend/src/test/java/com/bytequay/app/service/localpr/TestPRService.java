@@ -391,6 +391,24 @@ class TestPRService
     }
 
     @Test
+    void foldExternalTwinWaitsForItsRunningAgentReview()
+    {
+        PR task = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW)
+                .withRemote("o/r", 145, "https://github.com/o/r/pull/145", NOW);
+        when(store.findById("pr1")).thenReturn(Optional.of(task));
+        PR external = PR.createExternal(
+                "ext1", "o/r", 145, "https://github.com/o/r/pull/145", "@octocat",
+                "head", "main", "T", "", PR.STATUS_REMOTE_OPEN, NOW, null, null);
+        when(store.findByRepoAndRemotePrNumber("o/r", 145)).thenReturn(Optional.of(external));
+        when(store.hasRunningAgentReview("ext1")).thenReturn(true);
+
+        service.foldExternalTwinIntoTask("pr1");
+
+        verify(store, never()).reparentChildren(any(), any());
+        verify(store, never()).deletePr(any());
+    }
+
+    @Test
     void foldExternalTwinIsANoOpWhenTheTaskPrHasNoTwin()
     {
         PR task = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW)

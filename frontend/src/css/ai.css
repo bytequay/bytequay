@@ -1767,6 +1767,19 @@
   color: var(--text-1);
   background: var(--bg-card);
 }
+/* "X marked this conversation as resolved" attribution, GitHub-style, shown
+   below the messages of a resolved thread. */
+.diff-thread__resolved-note {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+}
+.diff-thread__resolved-note b { color: var(--text-2); font-weight: 600; }
+/* Outdated-thread section rendered inline above a file's diff on the unified
+   PR / task pages (the standalone remote screen uses the collapsible toggle). */
+.diff-outdated--inline { padding: var(--space-2) var(--space-4); }
+.diff-outdated--inline .diff-outdated__hint { margin-bottom: var(--space-2); }
 
 .diff-thread__reply {
   padding: var(--space-2) var(--space-3);

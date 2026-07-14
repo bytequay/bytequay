@@ -186,6 +186,44 @@ class TestPRSchema
     }
 
     @Test
+    void reparentChildrenMergesAgentReviewHistoryIntoTheTaskOwnedReview()
+    {
+        String taskId = seedTask();
+        String taskThreadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        Instant t = Instant.parse("2026-07-01T00:00:00Z");
+        prStore.save(PR.create("review-task", taskId, "dev/review", "main", "T", "", t)
+                .withRemote("dup/repo", 99, "https://github.com/dup/repo/pull/99", t)
+                .withStatus(PR.STATUS_REMOTE_DRAFTED, t));
+        prStore.save(PR.createExternal("review-ext", "dup/repo", 99,
+                "https://github.com/dup/repo/pull/99", "@octocat", "head", "main", "T", "",
+                PR.STATUS_REMOTE_OPEN, t, null, null));
+
+        Thread reviewThread = new Thread(
+                "review-thread-ext", ThreadKind.LOGIC_LOOP, "codex", null,
+                "External review", ThreadStatus.COMPLETED, "codex",
+                10L, 0L, 0L, t, t, t, null, ThreadFlow.REVIEW, "ws-default", null);
+        threadStore.saveThread(reviewThread);
+        insertReview("review-session-task", "review-task", taskThreadId, taskId, t);
+        insertReview("review-session-ext", "review-ext", reviewThread.id(), null, t);
+        insertRound("review-round-task", "review-session-task", "review-run-task", taskId, t);
+        insertRound("review-round-ext", "review-session-ext", "review-run-ext", null, t);
+
+        prStore.reparentChildren("review-ext", "review-task");
+        prStore.deletePr("review-ext");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM review_session WHERE pr_id = 'review-task'", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForList(
+                "SELECT session_id FROM review_round WHERE id IN ('review-round-task','review-round-ext')",
+                String.class)).containsOnly("review-session-task");
+        assertThat(jdbc.queryForObject(
+                "SELECT task_id FROM agent_run WHERE id = 'review-run-ext'", String.class))
+                .isEqualTo(taskId);
+        assertThat(threadStore.findThreadById(reviewThread.id())).isEmpty();
+    }
+
+    @Test
     void taskOriginPrRoundTripsThroughTheRealRepository()
     {
         String taskId = seedTask();
@@ -251,6 +289,35 @@ class TestPRSchema
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, now, null, null, null, null, null));
         return taskId;
+    }
+
+    private void insertReview(
+            String id, String prId, String ownerThreadId, String ownerTaskId, Instant createdAt)
+    {
+        jdbc.update("""
+                INSERT INTO review_session(
+                    id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                    workspace_id, owner_thread_id, owner_task_id, created_at_ms, updated_at_ms)
+                VALUES (?, 'dup/repo', ?, 'base', 'head', 'ACTIVE',
+                        'ws-default', ?, ?, ?, ?)
+                """, id, prId, ownerThreadId, ownerTaskId,
+                createdAt.toEpochMilli(), createdAt.toEpochMilli());
+    }
+
+    private void insertRound(
+            String id, String sessionId, String runId, String taskId, Instant createdAt)
+    {
+        jdbc.update("""
+                INSERT INTO agent_run(id, task_id, kind, status, iterations, started_at_ms)
+                VALUES (?, ?, 'panel_review', 'succeeded', 0, ?)
+                """, runId, taskId, createdAt.toEpochMilli());
+        jdbc.update("""
+                INSERT INTO review_round(
+                    id, session_id, agent_run_id, trigger, scope, start_commit,
+                    status, budget_json, cost_cents, created_at_ms)
+                VALUES (?, ?, ?, 'manual', 'full', 'base',
+                        'COMPLETED', '{}', 1, ?)
+                """, id, sessionId, runId, createdAt.toEpochMilli());
     }
 
     private void insertPr(String origin, String status, String repo, Integer remotePrNumber)

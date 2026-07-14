@@ -226,7 +226,7 @@ export function MergeBox({
   // github.com shows either as the box's ENTIRE content (no checks summary
   // alongside), so these short-circuit before anything else below.
   const queued = capabilities.merge && pr.status === 'remote-open' && pr.syncedMergeQueueState === 'QUEUED';
-  const justMerged = pr.status === 'merged' && pr.branchDeletedAt === null && onDeleteBranch !== undefined;
+  const merged = pr.status === 'merged';
 
   if (queued) {
     return (
@@ -245,16 +245,23 @@ export function MergeBox({
     );
   }
 
-  if (justMerged) {
+  if (merged) {
+    const canDeleteBranch = pr.branchDeletedAt === null && onDeleteBranch !== undefined;
     return (
       <MergeBoxShell className="merged" tone="purple">
         <div className="mb-sec">
           <span className="mb-ic purple"><MergeBranchIcon size={13} strokeWidth={2.2} /></span>
           <div className="mb-t">
             <div className="h">Pull request successfully merged and closed</div>
-            <div className="s">You're all set — the <code>{pr.branchName}</code> branch can be safely deleted.</div>
+            <div className="s">
+              {canDeleteBranch
+                ? <>You're all set — the <code>{pr.branchName}</code> branch can be safely deleted.</>
+                : <>You're all set — the branch has been merged.</>}
+            </div>
           </div>
-          <button type="button" className="btn sm" onClick={onDeleteBranch}>Delete branch</button>
+          {canDeleteBranch && (
+            <button type="button" className="btn sm" onClick={onDeleteBranch}>Delete branch</button>
+          )}
         </div>
       </MergeBoxShell>
     );

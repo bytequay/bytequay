@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.beans.stage.SpawnReviewResult;
 import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
@@ -25,7 +24,6 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.stage.ReviewStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
@@ -47,8 +45,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Endpoints for the Task stages surface and the brain view. Mostly read
- * delegators to {@link StageService}, plus the writes that spawn a
- * callable review sub-stage, steer a running stage, and set a stage's
+ * delegators to {@link StageService}, plus the writes that steer a running
+ * stage and set a stage's
  * work-model override. No auth beyond the existing internal-API sanity
  * checks (the backend is a localhost sidecar).
  */
@@ -57,7 +55,6 @@ public class StageController
 {
     private final StageService service;
     private final StageDetailService detailService;
-    private final ReviewStageService reviewStageService;
     private final StageSteeringService steeringService;
     private final PlanStageService planStageService;
     private final StageStore stageStore;
@@ -67,7 +64,6 @@ public class StageController
     public StageController(
             StageService service,
             StageDetailService detailService,
-            ReviewStageService reviewStageService,
             StageSteeringService steeringService,
             PlanStageService planStageService,
             StageStore stageStore,
@@ -76,7 +72,6 @@ public class StageController
     {
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
-        this.reviewStageService = requireNonNull(reviewStageService, "reviewStageService is null");
         this.steeringService = requireNonNull(steeringService, "steeringService is null");
         this.planStageService = requireNonNull(planStageService, "planStageService is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
@@ -112,12 +107,6 @@ public class StageController
     public StageDetailData stageDetail(@PathVariable String stageId)
     {
         return detailService.getDetail(parseStageId(stageId));
-    }
-
-    @PostMapping("/api/stages/{parentStageId}/spawn-review")
-    public SpawnReviewResult spawnReview(@PathVariable String parentStageId)
-    {
-        return reviewStageService.spawnReview(parseStageId(parentStageId));
     }
 
     public record SteerRequest(String text, List<String> images) {}

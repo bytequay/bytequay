@@ -320,6 +320,7 @@ export function DiffInlineComments({
   const first = comments[0];
   const firstOpenRoot = comments.find(c => c.parentCommentId === null && isOpen(c));
   const threadLabel = first !== undefined ? commentLineLabel(first) ?? composingOn : composingOn;
+  const labelIsRange = threadLabel !== undefined && threadLabel.includes(' to ');
   return (
     <>
       {comments.length > 0 && (
@@ -335,8 +336,10 @@ export function DiffInlineComments({
             >
               {folded ? '▸' : '▾'}
             </button>
+            {threadLabel !== undefined && (
+              <span className="ic-thread__label">Comment on line{labelIsRange ? 's' : ''} {threadLabel}</span>
+            )}
             {hasPending && <span className="ic-thread__pending-badge">Pending review</span>}
-            {threadLabel !== undefined && <span className="ic-thread__label">Line {threadLabel}</span>}
           </div>
           {!folded && (
             <div className="ic-thread__body">
@@ -348,7 +351,7 @@ export function DiffInlineComments({
                       {avatarLogin !== null ? (
                         <Avatar
                           login={avatarLogin}
-                          size={26}
+                          size={28}
                           className={`ic-comment__avatar-img ic-comment__avatar--${avatarKind(c)}`}
                         />
                       ) : (

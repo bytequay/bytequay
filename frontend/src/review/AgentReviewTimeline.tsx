@@ -13,6 +13,7 @@
  */
 import { Fragment, type ReactNode } from 'react';
 import { formatRelativeTime } from '../pr/utils';
+import { MarkdownProse } from '../threads/MarkdownProse';
 import type { LocalPRTimelineEvent } from '../types/localPr';
 import type { AgentReviewData, FindingRow, ReviewRoundRow } from './agentReviewTypes';
 import { formatCents, roundPlanObjectives } from './agentReviewTypes';
@@ -248,7 +249,7 @@ function NarrativeEvent({ data, event, kind }: {
   }
   else if (kind === 'author-reply') {
     text = <>Author replied on <b>{finding}</b> — recorded as author evidence</>;
-    sub = body === null ? undefined : `“${body}”`;
+    sub = body === null ? undefined : <MarkdownProse text={body} />;
   }
   else if (kind === 'addresses') {
     text = <>Commit <code>{sha ?? 'unknown'}</code> addresses <b>{finding}</b> — relation recorded</>;
@@ -258,7 +259,8 @@ function NarrativeEvent({ data, event, kind }: {
   }
   else if (kind === 'plan-amendment-suggested') {
     text = <><b>Planner</b> suggested an amendment for the next round</>;
-    sub = payloadString(event, 'suggestion') ?? undefined;
+    const suggestion = payloadString(event, 'suggestion');
+    sub = suggestion === null ? undefined : <MarkdownProse text={suggestion} />;
   }
   else {
     return null;

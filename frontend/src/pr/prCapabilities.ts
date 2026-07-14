@@ -36,12 +36,13 @@ export interface PRCapabilities {
   merge: boolean;
   /** The composer belongs to the owning stage — task/stage surfaces only. */
   chatAgent: boolean;
-  /** Post a comment straight to GitHub (vs. drafting locally) — any remote-* status. */
+  /** Post a comment straight to GitHub (vs. drafting locally) — any remote-* status or merged PR. */
   postRemoteComment: boolean;
 }
 
 const TERMINAL_STATUSES = new Set(['merged', 'closed']);
 const REMOTE_STATUSES = new Set(['remote-drafted', 'remote-open']);
+const REMOTE_COMMENT_STATUSES = new Set(['remote-drafted', 'remote-open', 'merged']);
 
 /** The single source of truth for what a PR surface may do — derived purely
  *  from `(pr.origin, pr.status, surface)`, never re-tested inline by a
@@ -53,6 +54,6 @@ export function derivePRCapabilities(pr: LocalPR, surface: PRSurface): PRCapabil
     push: pr.origin === 'task' && pr.status === 'local-open',
     merge: REMOTE_STATUSES.has(pr.status),
     chatAgent: surface === 'task',
-    postRemoteComment: REMOTE_STATUSES.has(pr.status),
+    postRemoteComment: REMOTE_COMMENT_STATUSES.has(pr.status),
   };
 }

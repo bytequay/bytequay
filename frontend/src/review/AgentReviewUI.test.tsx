@@ -21,7 +21,7 @@ import { AgentReviewRoundEpisode, episodeState } from './AgentReviewRoundEpisode
 import { AgentReviewRoundPage } from './AgentReviewRoundPage';
 import { AgentReviewTimeline } from './AgentReviewTimeline';
 import { SubmitReviewPopover } from './SubmitReviewPopover';
-import { AgentFindingContent, presentFinding } from './AgentEvidence';
+import { AgentFindingContent, findingMarkdown, findingSummary, presentFinding } from './AgentEvidence';
 
 function bundle(): LocalPRBundle {
   return {
@@ -56,6 +56,14 @@ describe('agent review UI', () => {
     expect(screen.getByText('SUPPORTS · 1')).toBeTruthy();
     expect(screen.getByText('REFUTES · 1')).toBeTruthy();
     expect(screen.getByText(/ChangedFile\.ts:3@abcdef0/)).toBeTruthy();
+  });
+
+  it('adds conservative Markdown to legacy finding prose and keeps folded summaries plain', () => {
+    const prose = 'DynamicTrinoCatalog uses ConnectorIdentity.\n\nCould you clarify the intended behavior here? Keep `Session` isolated.';
+    expect(findingMarkdown(prose)).toContain('`DynamicTrinoCatalog` uses `ConnectorIdentity`');
+    expect(findingMarkdown(prose)).toContain('**Question:** Keep `Session` isolated.');
+    expect(findingMarkdown('GitHub links stay prose.')).toBe('GitHub links stay prose.');
+    expect(findingSummary('**Risk:** `DynamicTrinoCatalog` reuses identity.')).toBe('Risk: DynamicTrinoCatalog reuses identity.');
   });
 
   it('edits, excludes, removes, and submits fixture comments from one popover', () => {
@@ -121,13 +129,14 @@ describe('agent review UI', () => {
     )).toBe('stale');
   });
 
-  it('renders panel-review rounds through the shared run episode and tool-feed primitives', () => {
+  it('renders panel-review rounds as a compact, navigable timeline card', () => {
     const data = fixture();
-    const { container } = render(<AgentReviewRoundEpisode data={data} round={data.rounds[0]} run={data.runs[0]} />);
-    expect(container.querySelector('.sp-node')).not.toBeNull();
-    expect(container.querySelector('.agent-round-episode')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Round 1 · complete/ }));
-    expect(container.querySelectorAll('.tool-block').length).toBeGreaterThan(0);
+    const onOpen = vi.fn();
+    const { container } = render(<AgentReviewRoundEpisode data={data} round={data.rounds[0]} run={data.runs[0]} onOpen={onOpen} />);
+    expect(container.querySelector('.agent-review-round-card')).not.toBeNull();
+    expect(container.querySelector('.sp-node')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Open round 1: complete/ }));
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 
   it('renders the PR review history in event order with stable finding labels and round-scoped plan data', () => {
@@ -153,7 +162,7 @@ describe('agent review UI', () => {
     expect(text.indexOf('Round 1 complete')).toBeLessThan(text.indexOf('Author replied on F1'));
     expect(text.indexOf('Author replied on F1')).toBeLessThan(text.indexOf('Commit abcdef0 addresses F1'));
     expect(text).toContain('Round 1 complete — 2 findings');
-    expect(text).toContain('Round 1 · complete2 findings');
+    expect(container.querySelector('.agent-review-round-card')).not.toBeNull();
   });
 
   it('keeps a user-stopped round as a terminal PR timeline episode', () => {
@@ -191,12 +200,20 @@ describe('agent review UI', () => {
   it('keeps the round right panel supplied by the shared PRView owner and jumps pending cards by finding anchor', () => {
     const data = fixture();
     const onOpenFinding = vi.fn();
-    render(<AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div data-testid="shared-pr-view">shared PRView</div>} onBack={vi.fn()} onOpenFinding={onOpenFinding} />);
+    const { container } = render(<AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div data-testid="shared-pr-view">shared PRView</div>} onBack={vi.fn()} onOpenFinding={onOpenFinding} />);
     expect(screen.getByTestId('shared-pr-view')).toBeTruthy();
+    expect(screen.getByText('REMOTE ONLY')).toBeTruthy();
+    expect(screen.getByText(/Not assessed: repository callers, code graph, local tests, git history/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Hide PR panel' }));
     expect(screen.queryByTestId('shared-pr-view')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show PR panel' }));
     expect(screen.getByTestId('shared-pr-view')).toBeTruthy();
+    const findingCard = container.querySelector<HTMLDetailsElement>('.agent-round-finding-card');
+    expect(findingCard?.open).toBe(false);
+    expect(findingCard?.querySelector('summary')?.textContent).toContain(data.findings[0].claim);
+    if (findingCard === null) throw new Error('folded finding card missing');
+    fireEvent.click(findingCard.querySelector('summary') as HTMLElement);
+    expect(findingCard.open).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /finding-1/ }));
     expect(onOpenFinding).toHaveBeenCalledWith('finding-1', 'src/ChangedFile.ts', 3);
   });

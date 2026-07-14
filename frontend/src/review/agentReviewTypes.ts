@@ -25,18 +25,21 @@ export type ConfidenceClass =
   | 'REJECTED';
 export type VerificationStatus = 'verified' | 'partially' | 'unknown' | 'rejected';
 
-export type ReviewSessionRow = {
+export type AgentReviewRow = {
   id: string;
   repo_id: string;
   pr_id: string;
   base_commit: string;
   reviewed_head_commit: string;
   status: string;
+  workspace_id: string | null;
+  owner_thread_id: string | null;
+  owner_task_id: string | null;
 };
 
 export type ReviewRoundRow = {
   id: string;
-  session_id: string;
+  review_id: string;
   agent_run_id: string;
   trigger: string;
   scope: string;
@@ -45,6 +48,14 @@ export type ReviewRoundRow = {
   status: 'COMPLETED' | 'COMPLETED_WITH_QUESTIONS' | 'ERRORED' | 'CANCELLED' | 'RUNNING';
   budget_json: { cost_cap_cents: number; wall_clock_minutes: number };
   cost_cents: number;
+  capabilities_json: ReviewCapabilities;
+  trigger_stage_id: string | null;
+};
+
+export type ReviewCapabilities = {
+  source_mode: 'local-source' | 'remote-only';
+  available: string[];
+  unavailable: string[];
 };
 
 export type CriterionRow = {
@@ -118,7 +129,7 @@ export type ObservationRow = {
 
 export type FindingRow = {
   id: string;
-  session_id: string;
+  review_id: string;
   round_id: string;
   objective_id: string;
   hypothesis_id?: string;
@@ -204,7 +215,7 @@ export type PanelReviewRunRow = Omit<AgentRunDto, 'taskId' | 'stageId' | 'review
 };
 
 export type AgentReviewData = {
-  session: ReviewSessionRow;
+  review: AgentReviewRow;
   rounds: ReviewRoundRow[];
   runs: PanelReviewRunRow[];
   criteria: CriterionRow[];

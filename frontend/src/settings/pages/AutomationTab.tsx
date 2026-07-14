@@ -16,7 +16,7 @@ import SettingCard from '../shared/SettingCard';
 
 /** Toggle for the backend's ScheduledReviewService — when enabled,
  *  the scheduler walks PRs awaiting the user's review once per hour
- *  and runs a panel-review against each. Off by default per
+ *  and starts a durable AgentReview thread for each. Off by default per
  *  CLAUDE.md ("auto-fix that pushes commits is opt-in"). */
 function AutomationTab() {
   const [enabled, setEnabled] = useState(false);
@@ -85,15 +85,14 @@ function AutomationTab() {
   return (
     <>
       <SettingCard
-        title="Scheduled review panels"
+        title="Scheduled agent reviews"
         hint={
           <>
             When on, the app walks the "Review requested" queue once an hour
-            and spins up a panel review against each PR. Each pass runs
-            headlessly through INDEPENDENT → DEBATE, parks at the
-            arbitration ballot when the panel can't agree, and pings the
-            notifications screen. Read-only — no worktree lease, no PR
-            comments posted automatically.
+            and starts a workspace-owned AgentReview thread for each PR.
+            An unchanged head is reused; a changed head receives a delta
+            round. Read-only — no clone, push, or PR comments happen
+            automatically.
           </>
         }
       >

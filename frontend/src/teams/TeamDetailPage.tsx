@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ColumnPageDto, MyPrColumnSlug, PullRequestDto, TeamColumnsResponse, TeamDto } from '../types';
 import KanbanBoard from '../kanban/KanbanBoard';
-import { PrDetailsView } from '../pr/localpr/PrDetailsView';
+import { PrDetailsView, type AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
 import ReviewScreen from '../ReviewScreen';
 import ResizeHandle from '../ResizeHandle';
 import TeamEditorModal from './TeamEditorModal';
@@ -30,8 +30,10 @@ type Props = {
    *  from the team kanban preview to the local-repo Commits tab. */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
   /** Navigate to a freshly-started review thread — wired to the diff
-   *  page's "Run AI review" panel launch. */
+   *  page's "Review with agent" launch. */
   onStartReview?: (threadId: string) => void;
+  /** Open the workspace-owned route for a standalone PR agent review. */
+  onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
   /** Active workspace the review panel lands in. */
   workspaceId?: string | null;
 };
@@ -66,7 +68,7 @@ function loadSidebarWidth(): number {
   return Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, n));
 }
 
-function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, workspaceId }: Props) {
+function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, onOpenAgentReview, workspaceId }: Props) {
   const [team, setTeam] = useState<TeamDto | null>(() => getCached<TeamDto>(TEAM_KEY(teamId)) ?? null);
   const [columnsData, setColumnsData] = useState<TeamColumnsResponse>(() =>
     getCached<TeamColumnsResponse>(COLUMNS_KEY(teamId)) ?? EMPTY_COLUMNS,
@@ -334,6 +336,8 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, work
         <PrDetailsView
           pr={selectedPr}
           onStartReview={onStartReview}
+          onOpenAgentReview={onOpenAgentReview}
+          workspaceId={workspaceId}
           onOpenReview={enterReview}
           onMarkHandled={handleMarkHandled}
         />

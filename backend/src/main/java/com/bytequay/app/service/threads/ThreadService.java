@@ -41,11 +41,13 @@ import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.annotation.Lazy;
@@ -124,6 +126,9 @@ public class ThreadService
     private final IdGenerator idGenerator;
     private final WorkspaceDataPurger dataPurger;
     private final CheckpointSummariser titleSummariser;
+    /** Set by Spring; POJO unit tests construct this service directly and do
+     * not persist AgentReview-owned threads. */
+    private InvestigationReviewService investigationReviews;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
      *  task-creation side effects (stage init) aren't under test. */
@@ -163,6 +168,12 @@ public class ThreadService
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
         this.titleSummariser = requireNonNull(titleSummariser, "titleSummariser is null");
+    }
+
+    @Autowired
+    void setInvestigationReviews(@Lazy InvestigationReviewService investigationReviews)
+    {
+        this.investigationReviews = requireNonNull(investigationReviews, "investigationReviews is null");
     }
 
     @Override
@@ -960,6 +971,9 @@ public class ThreadService
                 .distinct()
                 .forEach(root -> worktreeService.removePlanningWorktree(
                         Path.of(root), threadId));
+        if (investigationReviews != null) {
+            investigationReviews.purgeByOwnerThread(threadId);
+        }
         dataPurger.purgeThreadScoped(threadId, allTasks.stream().map(Task::id).toList());
         store.deleteThread(threadId);
     }

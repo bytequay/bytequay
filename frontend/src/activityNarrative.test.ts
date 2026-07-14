@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, it, expect } from 'vitest';
-import { followingNarrativeSegments, repoUrl, prUrl, issueUrl, commitsUrl } from './activityNarrative';
+import { followingNarrativeSegments, groupRecentEvents, repoUrl, prUrl, issueUrl, commitsUrl } from './activityNarrative';
 import type { RecentEventDto } from './types';
 
 function event(overrides: Partial<RecentEventDto> = {}): RecentEventDto {
@@ -73,13 +73,32 @@ describe('followingNarrativeSegments', () => {
   });
 
   it('PushEvent links the "N commits" phrase to the commits page, not the repo', () => {
-    const single = followingNarrativeSegments(event({ type: 'PushEvent', commitCount: 1 }));
+    const single = followingNarrativeSegments(event({ type: 'PushEvent', commitCount: 1, prNumber: 0 }));
     expect(single.map(s => s.text).join('')).toBe('pushed 1 commit to trinodb/trino');
     expect(links(single)).toEqual(['https://github.com/trinodb/trino/commits']);
 
-    const many = followingNarrativeSegments(event({ type: 'PushEvent', commitCount: 4 }));
+    const many = followingNarrativeSegments(event({ type: 'PushEvent', commitCount: 4, prNumber: 0 }));
     expect(many.map(s => s.text).join('')).toBe('pushed 4 commits to trinodb/trino');
     expect(links(many)).toEqual(['https://github.com/trinodb/trino/commits']);
+  });
+
+  it('merged PushEvent (pushCount>1) counts pushes and links the PR when present', () => {
+    const merged = followingNarrativeSegments(event({ type: 'PushEvent', prNumber: 0, pushCount: 4 }));
+    expect(merged.map(s => s.text).join('')).toBe('pushed 4 times to trinodb/trino');
+    expect(links(merged)).toEqual(['https://github.com/trinodb/trino/commits']);
+
+    const withPr = followingNarrativeSegments(event({ type: 'PushEvent', prNumber: 2342, pushCount: 4 }));
+    expect(withPr.map(s => s.text).join('')).toBe('pushed 4 times to PR #2342 in trinodb/trino');
+    expect(links(withPr)).toEqual(['https://github.com/trinodb/trino/pull/2342']);
+  });
+
+  it('merged PullRequestReviewCommentEvent (commentCount>1) counts comments', () => {
+    const merged = followingNarrativeSegments(event({ type: 'PullRequestReviewCommentEvent', prNumber: 4043, commentCount: 3 }));
+    expect(merged.map(s => s.text).join('')).toBe('commented on PR #4043 3 times in trinodb/trino');
+    expect(links(merged)).toEqual(['https://github.com/trinodb/trino/pull/4043']);
+
+    const single = followingNarrativeSegments(event({ type: 'PullRequestReviewCommentEvent', prNumber: 4043, commentCount: 1 }));
+    expect(single.map(s => s.text).join('')).toBe('commented on PR #4043 in trinodb/trino');
   });
 
   it('IssueCommentEvent + IssuesEvent link only the issue, not the repo', () => {
@@ -117,5 +136,57 @@ describe('followingNarrativeSegments', () => {
     const unknown = followingNarrativeSegments(event({ type: 'GollumEvent' }));
     expect(unknown.map(s => s.text).join('')).toBe('activity in trinodb/trino');
     expect(links(unknown)).toEqual([]);
+  });
+});
+
+describe('groupRecentEvents', () => {
+  const push = (repo: string, prNumber = 0) =>
+    event({ type: 'PushEvent', repo, prNumber, commitCount: 1, action: null });
+
+  it('collapses consecutive same-repo/PR pushes and counts them', () => {
+    const grouped = groupRecentEvents([
+      push('a/x'), push('a/x'), push('a/x'),
+      event({ type: 'PullRequestReviewEvent', repo: 'a/x', prNumber: 5 }),
+    ]);
+    expect(grouped).toHaveLength(2);
+    expect(grouped[0].pushCount).toBe(3);
+    expect(grouped[0].commitCount).toBe(3);
+    expect(grouped[1].type).toBe('PullRequestReviewEvent');
+  });
+
+  it('does not merge across a different repo, PR, or an interrupting event', () => {
+    const grouped = groupRecentEvents([
+      push('a/x', 1),
+      push('a/x', 2),        // different PR
+      push('b/y', 2),        // different repo
+      event({ type: 'WatchEvent', repo: 'b/y' }),
+      push('b/y', 2),        // separated by the watch event
+    ]);
+    expect(grouped).toHaveLength(5);
+    expect(grouped.every(e => e.pushCount === undefined)).toBe(true);
+  });
+
+  const comment = (repo: string, prNumber: number) =>
+    event({ type: 'PullRequestReviewCommentEvent', repo, prNumber });
+
+  it('collapses consecutive same-repo/PR review comments and counts them', () => {
+    const grouped = groupRecentEvents([
+      comment('a/x', 4043), comment('a/x', 4043), comment('a/x', 4043),
+      event({ type: 'PullRequestReviewEvent', repo: 'a/x', prNumber: 30944 }),
+    ]);
+    expect(grouped).toHaveLength(2);
+    expect(grouped[0].commentCount).toBe(3);
+    expect(grouped[1].type).toBe('PullRequestReviewEvent');
+  });
+
+  it('does not merge comments across a different PR or an interrupting event', () => {
+    const grouped = groupRecentEvents([
+      comment('a/x', 1),
+      comment('a/x', 2),               // different PR
+      event({ type: 'WatchEvent', repo: 'a/x' }),
+      comment('a/x', 2),                // separated by the watch event
+    ]);
+    expect(grouped).toHaveLength(4);
+    expect(grouped.every(e => e.commentCount === undefined)).toBe(true);
   });
 });

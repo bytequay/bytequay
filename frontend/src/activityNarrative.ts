@@ -19,6 +19,41 @@ import type { RecentEventDto } from './types';
  *  mentions in the home-page activity feeds tappable. */
 export type NarrativeSegment = { text: string; url?: string };
 
+/** Collapses runs of consecutive PushEvents, and separately runs of
+ *  consecutive PullRequestReviewCommentEvents, to the same repo (and same
+ *  PR, when the payload carries one) into a single row that carries a
+ *  {@code pushCount} / {@code commentCount}. Events are assumed
+ *  newest-first; the merged row keeps the newest timestamp, sums commits,
+ *  and inherits the group's PR title. Events of other types, or matching
+ *  events separated by other activity, pass through unmerged. */
+export function groupRecentEvents(events: RecentEventDto[]): RecentEventDto[] {
+  const out: RecentEventDto[] = [];
+  for (const e of events) {
+    const prev = out[out.length - 1];
+    if (e.type === 'PushEvent' && prev && prev.type === 'PushEvent'
+        && prev.repo === e.repo && prev.prNumber === e.prNumber) {
+      out[out.length - 1] = {
+        ...prev,
+        commitCount: prev.commitCount + e.commitCount,
+        pushCount: (prev.pushCount ?? 1) + 1,
+        prTitle: prev.prTitle ?? e.prTitle,
+      };
+    }
+    else if (e.type === 'PullRequestReviewCommentEvent' && prev && prev.type === e.type
+        && prev.repo === e.repo && prev.prNumber === e.prNumber) {
+      out[out.length - 1] = {
+        ...prev,
+        commentCount: (prev.commentCount ?? 1) + 1,
+        prTitle: prev.prTitle ?? e.prTitle,
+      };
+    }
+    else {
+      out.push(e);
+    }
+  }
+  return out;
+}
+
 export function repoUrl(repo: string): string { return `https://github.com/${repo}`; }
 export function prUrl(repo: string, number: number): string { return `https://github.com/${repo}/pull/${number}`; }
 export function issueUrl(repo: string, number: number): string { return `https://github.com/${repo}/issues/${number}`; }
@@ -57,18 +92,29 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
     }
     case 'PullRequestReviewCommentEvent': {
       const pr = prSeg();
+      // Merged rows (multiple consecutive comments on the same PR) count
+      // comments — "commented on PR #4043 3 times".
+      const countPhrase = e.commentCount && e.commentCount > 1 ? ` ${e.commentCount} times` : '';
       return pr
-        ? [{ text: 'commented on PR ' }, pr, { text: ' in ' }, repoSeg]
-        : [{ text: 'commented on a PR in ' }, repoSeg];
+        ? [{ text: 'commented on PR ' }, pr, { text: `${countPhrase} in ` }, repoSeg]
+        : [{ text: `commented on a PR${countPhrase} in ` }, repoSeg];
     }
     case 'PushEvent': {
       const n = e.commitCount || 1;
-      // The commits phrase is the click target — links to the repo's
-      // commits page since the event payload doesn't carry per-commit
-      // SHAs. The repo name afterwards is plain text.
+      // Merged rows (multiple consecutive pushes) count push events —
+      // "pushed 4 times"; a single row counts commits — "pushed 1 commit".
+      const countPhrase = e.pushCount && e.pushCount > 1
+        ? `${e.pushCount} times`
+        : `${n} commit${n !== 1 ? 's' : ''}`;
+      const pr = prSeg();
+      if (pr) {
+        return [{ text: `pushed ${countPhrase} to PR ` }, pr, { text: ' in ' }, repoSeg];
+      }
+      // No PR: link the count phrase to the repo's commits page since the
+      // event payload doesn't carry per-commit SHAs. Repo name is plain text.
       return [
         { text: 'pushed ' },
-        { text: `${n} commit${n !== 1 ? 's' : ''}`, url: commitsUrl(e.repo) },
+        { text: countPhrase, url: commitsUrl(e.repo) },
         { text: ' to ' },
         repoSeg,
       ];

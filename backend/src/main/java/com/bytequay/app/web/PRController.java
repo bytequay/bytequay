@@ -316,6 +316,19 @@ public class PRController
         return PRDto.from(publish.deleteBranch(prId));
     }
 
+    public record PostRemoteCommentRequest(String body) {}
+
+    /** Explicitly posts a top-level comment to GitHub, including after the
+     * PR has merged, then refreshes the conversation timeline. */
+    @PostMapping("/api/prs/{prId}/remote-comments")
+    public PRDto postRemoteComment(
+            @PathVariable String prId, @RequestBody PostRemoteCommentRequest body)
+    {
+        publish.postComment(prId, body.body());
+        return PRDto.from(sync.syncPR(prId, 0)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
+    }
+
     /** Batch every draft comment on an {@code origin=external} PR into one
      *  GitHub review, then re-sync so the review appears on the timeline. */
     @PostMapping("/api/prs/{prId}/publish-review")

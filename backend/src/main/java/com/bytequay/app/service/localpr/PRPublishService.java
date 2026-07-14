@@ -318,7 +318,7 @@ public class PRPublishService
 
     /** User-gated deletion of a merged PR's head branch on GitHub — mirrors
      *  github.com's post-merge "Delete branch" button. Stamps {@code
-     *  branchDeletedAt} so the merge-box hides the button afterward. */
+     *  branchDeletedAt} so the button disappears afterward. */
     public PR deleteBranch(String prId)
     {
         PR pr = prService.findById(prId)
@@ -331,25 +331,37 @@ public class PRPublishService
         return prService.recordBranchDeleted(prId);
     }
 
-    /** Resolves the (PAT, GraphQL/REST ref) pair for a pushed PR of either
-     *  origin — a task-origin PR's remote lives on its task's git remote,
-     *  while an external PR already carries {@code repo}/{@code
-     *  remotePrNumber} directly (mirrors {@link #publishReview}'s own
-     *  external-PR resolution). */
+    /** Explicit user action from the GitHub-style PR composer. Posts a
+     * top-level issue comment to the pushed PR for either origin. */
+    public PR postComment(String prId, String body)
+    {
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        if (pr.remotePrNumber() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity");
+        }
+        if (body == null || body.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment body is empty");
+        }
+        RemoteTarget target = resolveRemoteTarget(pr);
+        pullRequests.createIssueComment(target.pat(), target.ref(), body.trim());
+        return pr;
+    }
+
+    /** Resolves the (PAT, REST ref) pair for a pushed PR of either origin. A
+     *  pushed PR carries {@code repo}/{@code remotePrNumber} directly on its
+     *  row (a task row is stamped at push time and repaired on startup), so
+     *  the remote no longer needs re-deriving from the task's working dir —
+     *  which may be gone once the PR is merged. */
     private RemoteTarget resolveRemoteTarget(PR pr)
     {
-        if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
-            String[] ownerRepo = pr.repo().split("/", 2);
-            return new RemoteTarget(
-                    patResolver.resolve(pr.repo()),
-                    new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber()));
+        if (pr.repo() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + pr.id() + " has no repo");
         }
-        Task task = taskStore.findTaskById(pr.taskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "no task for local PR " + pr.id()));
-        RepoRef repo = remoteSlug(task);
+        String[] ownerRepo = pr.repo().split("/", 2);
         return new RemoteTarget(
-                patResolver.resolve(repo.owner() + "/" + repo.repo()),
-                new PullRequestRef(repo.owner(), repo.repo(), pr.remotePrNumber()));
+                patResolver.resolve(pr.repo()),
+                new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber()));
     }
 
     private record RemoteTarget(String pat, PullRequestRef ref) {}

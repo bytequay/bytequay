@@ -19,8 +19,11 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.WatchedRepoStore;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,6 +53,22 @@ class TestThreadServiceTrunkSession
     private TaskStore taskStore;
     @Autowired
     private ThreadRegistry registry;
+    @Autowired
+    private WatchedRepoStore watchedRepos;
+
+    @BeforeEach
+    void clearWatchedRepos()
+    {
+        // These fixtures use a workspace with no pinned repo, so trunk-cwd
+        // resolution should fall back to the tmpdir (no planning worktree).
+        // The @SpringBootTest context (and its SQLite file) is cached and
+        // shared, so a repo left behind by another suite would otherwise be
+        // picked as the global fallback clone root and fail to produce a
+        // planning worktree ("planning snapshot unavailable").
+        for (WatchedRepo repo : watchedRepos.findAll()) {
+            watchedRepos.remove(repo.owner(), repo.repo());
+        }
+    }
 
     @Test
     void subscribeAtTrunkBuildsTheTrunkAgentNotTheTaskAgent()

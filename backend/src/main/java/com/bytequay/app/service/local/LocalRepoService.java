@@ -1111,7 +1111,7 @@ public class LocalRepoService
                 e.selector(),
                 classifyReflogSubject(e.subject()),
                 e.subject(),
-                parseIsoOrNull(e.authoredAt()));
+                parseIsoOrNull(e.reflogAt()));
     }
 
     /**

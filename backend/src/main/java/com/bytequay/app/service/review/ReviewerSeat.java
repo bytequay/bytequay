@@ -172,7 +172,7 @@ public class ReviewerSeat
         }
 
         ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(seat.providerId());
-        String system = systemPrompt(seat);
+        String system = CavemanPrompt.wrap(systemPrompt(seat));
         ArrayNode messages = providerMessages(endpoint.transport(), system,
                 pass, participantId, directive, excludeMessageId);
 

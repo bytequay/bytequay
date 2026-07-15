@@ -265,7 +265,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
             <div className="hp-empty">No recent activity yet.</div>
           ) : (
             <div className="home-following-list">
-              {groupRecentEvents(events).slice(0, 10).map((e, i) => (
+              {groupRecentEvents(events).slice(0, 7).map((e, i) => (
                 <ActivityRow
                   key={i}
                   event={e}

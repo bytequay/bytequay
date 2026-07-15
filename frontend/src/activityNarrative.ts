@@ -27,8 +27,23 @@ export type NarrativeSegment = { text: string; url?: string };
  *  and inherits the group's PR title. Events of other types, or matching
  *  events separated by other activity, pass through unmerged. */
 export function groupRecentEvents(events: RecentEventDto[]): RecentEventDto[] {
+  // A submitted review surfaces as a PullRequestReviewEvent plus one
+  // PullRequestReviewCommentEvent per inline comment — the same action seen
+  // twice. When both are present for a PR, keep only "reviewed PR X" and drop
+  // the redundant "commented on PR X N times" row.
+  const reviewedPrs = new Set<string>();
+  for (const e of events) {
+    if (e.type === 'PullRequestReviewEvent' && typeof e.prNumber === 'number') {
+      reviewedPrs.add(`${e.repo}#${e.prNumber}`);
+    }
+  }
+
   const out: RecentEventDto[] = [];
   for (const e of events) {
+    if (e.type === 'PullRequestReviewCommentEvent' && typeof e.prNumber === 'number'
+        && reviewedPrs.has(`${e.repo}#${e.prNumber}`)) {
+      continue;
+    }
     const prev = out[out.length - 1];
     if (e.type === 'PushEvent' && prev && prev.type === 'PushEvent'
         && prev.repo === e.repo && prev.prNumber === e.prNumber) {

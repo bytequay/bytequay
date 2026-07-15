@@ -175,7 +175,7 @@ function WorkspacesLandingPage({
             card={card}
             isCurrent={card.id === currentWorkspaceId}
             onEnter={onEnterWorkspace}
-            onDelete={setDeleteId}
+            onDelete={card.id === 'ws-default' ? undefined : setDeleteId}
           />
         ))}
         {!loading && !error && (

@@ -40,6 +40,11 @@ export function useSurfaceVisitCapture(nav: Nav): void {
     const key = visitKey(visit);
     if (key === lastKey.current) return;
     lastKey.current = key;
-    void window.bridge.recordSurfaceVisit(visit).catch(() => { /* fire-and-forget */ });
+    // Nudge any mounted Recent list to refetch so the surface just visited
+    // shows up now, not on its next slow poll (it stays mounted across
+    // navigations, so a remount won't do it).
+    void window.bridge.recordSurfaceVisit(visit)
+      .then(() => window.dispatchEvent(new Event('footprint-recorded')))
+      .catch(() => { /* fire-and-forget */ });
   }, [nav]);
 }

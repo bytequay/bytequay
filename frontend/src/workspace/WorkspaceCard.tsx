@@ -87,7 +87,7 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
     <div className="workspace-landing-card-wrap">
     <button
       type="button"
-      className={`workspace-landing-card${isCurrent ? ' workspace-landing-card--current' : ''}`}
+      className={`workspace-landing-card${isCurrent ? ' workspace-landing-card--current' : ''}${card.id === 'ws-default' ? ' workspace-landing-card--default' : ''}`}
       onClick={() => onEnter(card.id)}
       aria-label={`Enter workspace ${card.name}`}
     >

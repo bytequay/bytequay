@@ -68,6 +68,11 @@ public class WorkspaceService
     public static final int MEMORY_MD_TARGET_CHARS = 8_000;
     public static final int MEMORY_MD_HARD_CAP_CHARS = 32_000;
 
+    /** The seeded, always-present workspace (V73). Kept undeletable so
+     *  test fixtures' FKs stay valid and there is always a home for
+     *  threads that don't declare their own workspace. */
+    public static final String DEFAULT_WORKSPACE_ID = "ws-default";
+
     /** Token budget the landing card's memory strip renders against.
      *  Matches the design's "~4k cap" — the chars hard cap above is
      *  intentionally laxer so a paste-and-distill workflow doesn't
@@ -287,6 +292,11 @@ public class WorkspaceService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         require(workspaceId);
+        if (DEFAULT_WORKSPACE_ID.equals(workspaceId)) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(403),
+                    "the default workspace cannot be deleted");
+        }
         List<Thread> threads = threadStore.listThreadsByWorkspace(workspaceId);
         for (Thread thread : threads) {
             try {

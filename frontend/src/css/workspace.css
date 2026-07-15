@@ -915,6 +915,14 @@
   border-color: var(--accent-a40);
 }
 
+/* The seeded default workspace ("ByteQuay") — a muted gray tile so it
+   reads as the always-present home rather than a user-created one. */
+.workspace-landing-card--default {
+  /* Translucent slate so it reads gray in light mode and stays muted
+     in dark; a solid token would need a per-theme override. */
+  background: rgba(148, 163, 184, 0.16);
+}
+
 /* Top accent strip on the current card, per the claude_design mockup. */
 .workspace-landing-card__strip {
   display: block;

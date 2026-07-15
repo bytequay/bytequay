@@ -200,14 +200,33 @@ export function RecentList({ onResume, onOpenPr }: {
     };
     refresh();
     const id = window.setInterval(refresh, 20_000);
+    // A visit was just recorded by the nav layer — pick it up immediately
+    // instead of waiting for the poll (this list stays mounted across
+    // navigations, so the newly visited surface would otherwise lag).
+    window.addEventListener('footprint-recorded', refresh);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      window.removeEventListener('footprint-recorded', refresh);
     };
   }, []);
 
   const buckets = useMemo(() => todayBuckets(prs), [prs]);
   const hasToday = buckets.workingOn.length > 0 || buckets.reviewed.length > 0 || buckets.merged.length > 0;
+
+  // A PR's stored footprint title is whatever the visit that recorded it
+  // knew — the kanban stores "PR title #num", but opening the same PR via
+  // the repo view (e.g. resuming from this list) re-records with only a
+  // generic "owner/repo #num". Prefer the real dashboard title at read time
+  // so the row keeps its name across entry points.
+  const prTitles = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of prs) m.set(`${p.repo}#${p.number}`, `${p.title} #${p.number}`);
+    return m;
+  }, [prs]);
+  const rowTitle = (stop: FootprintStopDto): string =>
+    (stop.surfaceType === 'PR' ? prTitles.get(stop.surfaceId) : undefined)
+    ?? stop.title ?? stop.surfaceId;
 
   const openPr = (pr: PullRequestDto) => {
     const slash = pr.repo.indexOf('/');
@@ -251,7 +270,7 @@ export function RecentList({ onResume, onOpenPr }: {
                   <FootprintIcon kind={iconFor(stop.surfaceType)} size={12} />
                 </span>
                 <span className="sb-recent__meta">
-                  <span className="sb-recent__title">{stop.title ?? stop.surfaceId}</span>
+                  <span className="sb-recent__title">{rowTitle(stop)}</span>
                   <span className="sb-recent__sub">{relativeTime(stop.latestVisitAt)}</span>
                 </span>
               </button>

@@ -54,6 +54,12 @@ export function groupRecentEvents(events: RecentEventDto[]): RecentEventDto[] {
         prTitle: prev.prTitle ?? e.prTitle,
       };
     }
+    else if (e.type === 'PullRequestReviewEvent' && prev && prev.type === e.type
+        && prev.repo === e.repo && prev.prNumber === e.prNumber) {
+      // Multiple reviews on the same PR (e.g. approve + comment submitted
+      // separately) collapse to one "reviewed PR X" row.
+      out[out.length - 1] = { ...prev, prTitle: prev.prTitle ?? e.prTitle };
+    }
     else if (e.type === 'PullRequestReviewCommentEvent' && prev && prev.type === e.type
         && prev.repo === e.repo && prev.prNumber === e.prNumber) {
       out[out.length - 1] = {

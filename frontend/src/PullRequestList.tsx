@@ -295,6 +295,22 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings, onSta
     return () => window.removeEventListener('keydown', onKey);
   }, [tabPrs, selected]);
 
+  // The kanban opens PR detail as local state (nav stays on the kanban), so
+  // App's nav-driven footprint capture never sees it. Record the visit here
+  // when a PR is selected — same PR surfaceId as the nav layer — so the
+  // opened PR lands in the home Recent list. Fire-and-forget like the nav path.
+  useEffect(() => {
+    if (selected === null) return;
+    void window.bridge.recordSurfaceVisit({
+      surfaceType: 'PR',
+      surfaceId: `${selected.repo}#${selected.number}`,
+      title: `${selected.title} #${selected.number}`,
+      context: selected.repo,
+    })
+      .then(() => window.dispatchEvent(new Event('footprint-recorded')))
+      .catch(() => { /* fire-and-forget */ });
+  }, [selected?.repo, selected?.number]);
+
   const handleSelect = (pr: DashboardPR) => {
     setSelected(pr);
     clearActiveScreen();

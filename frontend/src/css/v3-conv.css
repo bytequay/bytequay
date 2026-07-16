@@ -1910,7 +1910,7 @@
 .pr-comment-composer { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: 28px; margin: 26px 0 0; padding-left: 54px; padding-bottom: 10px; }
 .pr-comment-composer__avatar { width: 40px; height: 40px; margin-left: -60px; margin-top: 2px; border: 1px solid #d0d7de; }
 .pr-comment-composer .cc-main { flex: 1; min-width: 0; }
-.pr-comment-composer .cc-title { margin: 0 0 14px; color: #1f2328; font-size: 20px; font-weight: 600; line-height: 1.25; }
+.pr-comment-composer .cc-title { margin: 0 0 14px; color: #1f2328; font-size: 16px; font-weight: 600; line-height: 1.25; }
 .pr-comment-composer .cc-box { min-width: 0; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; overflow: hidden; }
 .pr-comment-composer .cc-tabs { min-height: 46px; display: flex; align-items: flex-end; background: #f6f8fa; border-bottom: 1px solid #d0d7de; padding: 0 16px; }
 .pr-comment-composer .cc-tab { height: 46px; padding: 0 16px; color: #57606a; cursor: pointer; border: 1px solid transparent; border-bottom: 0; background: transparent; font-family: inherit; font-size: 14px; font-weight: 400; }

@@ -44,8 +44,6 @@ function mockBridge(over: Record<string, unknown> = {}) {
   return bridge;
 }
 
-const footer = { initials: 'CJ', name: 'chenjian2664' };
-
 describe('useWorkspaceNav helpers', () => {
   it('logoColorFor is deterministic', () => {
     expect(logoColorFor('web')).toBe(logoColorFor('web'));
@@ -66,7 +64,7 @@ describe('WorkspaceNavShell', () => {
   it('shows the recently-visited list when no workspace is active', async () => {
     mockBridge();
     const onResumeVisit = vi.fn();
-    render(<WorkspaceNavShell activeWorkspaceId={null} footer={footer} onResumeVisit={onResumeVisit} />);
+    render(<WorkspaceNavShell activeWorkspaceId={null} onResumeVisit={onResumeVisit} />);
     // The footprint stop shows once, as a Recent row. (The Today "Working on"
     // line is PR-derived now, and this mock has no PRs.)
     const rows = await screen.findAllByText('org/web #42');
@@ -79,7 +77,7 @@ describe('WorkspaceNavShell', () => {
     const bridge = mockBridge();
     const onOpenThread = vi.fn();
     const { container } = render(
-      <WorkspaceNavShell activeWorkspaceId="bq" selectedThreadId="t1" footer={footer} onOpenThread={onOpenThread} />,
+      <WorkspaceNavShell activeWorkspaceId="bq" selectedThreadId="t1" onOpenThread={onOpenThread} />,
     );
     await waitFor(() => expect(bridge.listTasks).toHaveBeenCalledWith({ workspaceId: 'bq' }));
     // Switcher shows the active workspace.
@@ -96,7 +94,7 @@ describe('WorkspaceNavShell', () => {
     mockBridge();
     const onSwitchWorkspace = vi.fn();
     const { container } = render(
-      <WorkspaceNavShell activeWorkspaceId="bq" footer={footer} onSwitchWorkspace={onSwitchWorkspace} />,
+      <WorkspaceNavShell activeWorkspaceId="bq" onSwitchWorkspace={onSwitchWorkspace} />,
     );
     await waitFor(() => expect(container.querySelector('.ws-switcher')).toBeTruthy());
     fireEvent.click(container.querySelector('.ws-switcher') as HTMLElement);

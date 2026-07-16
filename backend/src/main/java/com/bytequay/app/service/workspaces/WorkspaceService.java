@@ -315,9 +315,10 @@ public class WorkspaceService
      * clone; the id is generated server-side so concurrent creates cannot
      * collide.
      */
-    public Workspace create(NewWorkspaceRequest request)
+    public synchronized Workspace create(NewWorkspaceRequest request)
     {
         requireNonNull(request, "request is null");
+        String name = normaliseWorkspaceName(request.name());
         String memoryMd = request.promptContext() == null
                 ? ""
                 : request.promptContext().trim();
@@ -338,12 +339,17 @@ public class WorkspaceService
         }
         String repoFullName = repos.getFirst();
         requireVerifiedClone(repoFullName);
-        // A repository identity is the workspace identity. Do not accept a
-        // free-form project name that can drift away from the local clone.
-        String workspaceId = allocateWorkspaceId(request.slug(), repoFullName);
+        boolean alreadyMapped = store.listWorkspaces().stream()
+                .flatMap(workspace -> store.listRepos(workspace.id()).stream())
+                .anyMatch(repo -> repo.repoFullName().equalsIgnoreCase(repoFullName));
+        if (alreadyMapped) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "repository is already mapped to a workspace: " + repoFullName);
+        }
+        String workspaceId = allocateWorkspaceId(request.slug(), name);
         Workspace workspace = new Workspace(
                 workspaceId,
-                repoFullName,
+                name,
                 memoryMd,
                 false,
                 /* workModel */ null,
@@ -564,16 +570,7 @@ public class WorkspaceService
     public Workspace rename(String workspaceId, String newName)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        if (newName == null || newName.isBlank()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400), "name is required");
-        }
-        String trimmed = newName.trim();
-        if (trimmed.length() > NAME_MAX_CHARS) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(413),
-                    "workspace name exceeds " + NAME_MAX_CHARS + " chars");
-        }
+        String trimmed = normaliseWorkspaceName(newName);
         Workspace current = require(workspaceId);
         if (trimmed.equals(current.name())) {
             return current;
@@ -584,6 +581,19 @@ public class WorkspaceService
                 current.createdAt(), Instant.now());
         store.saveWorkspace(next);
         return next;
+    }
+
+    private static String normaliseWorkspaceName(String name)
+    {
+        if (name == null || name.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "name is required");
+        }
+        String trimmed = name.trim();
+        if (trimmed.length() > NAME_MAX_CHARS) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(413),
+                    "workspace name exceeds " + NAME_MAX_CHARS + " chars");
+        }
+        return trimmed;
     }
 
     public String getMemory(String workspaceId)

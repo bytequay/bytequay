@@ -368,9 +368,7 @@ public class PRPublishService
 
     /**
      * Batch every unpublished, unresolved-and-not-dismissed local draft on an
-     * {@code origin=external} PR into one GitHub review, then mark each
-     * published (design #9 — "Submit review" is a draft's other exit door,
-     * alongside stripped-on-push for task-origin comments). File-line drafts
+     * remote PR into one GitHub review, then mark each published. File-line drafts
      * become the review's inline comments (against the RIGHT/added side —
      * ByteQuay doesn't track diff side per draft); pr-scoped drafts join into
      * the review's summary body.
@@ -387,13 +385,17 @@ public class PRPublishService
     public PR publishReview(
             String prId, String verdict, List<String> findingIds, List<String> commentIds)
     {
+        return publishReview(prId, verdict, findingIds, commentIds, null);
+    }
+
+    /** Publishes the selected draft comments plus an optional overall review
+     * body. Task-owned PRs are valid once they have a remote identity. */
+    public PR publishReview(
+            String prId, String verdict, List<String> findingIds, List<String> commentIds, String reviewBody)
+    {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
-        boolean external = PR.ORIGIN_EXTERNAL.equals(pr.origin());
-        if (!external && pr.taskId() == null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR has no review destination");
-        }
-        if (external && (pr.repo() == null || pr.remotePrNumber() == null)) {
+        if (pr.repo() == null || pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
         }
         Set<String> selectedFindings = findingIds == null ? Set.of() : Set.copyOf(findingIds);
@@ -414,25 +416,21 @@ public class PRPublishService
         };
         boolean explicitlySelectedNothing = !selectAll
                 && selectedFindings.isEmpty() && selectedComments.isEmpty();
-        if (drafts.isEmpty() && !(external && explicitlySelectedNothing && "APPROVE".equals(event))) {
+        String requestedBody = reviewBody == null ? "" : reviewBody.strip();
+        if (drafts.isEmpty() && requestedBody.isEmpty()
+                && !(explicitlySelectedNothing && "APPROVE".equals(event))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "no draft comments to publish for PR " + prId);
-        }
-
-        if (!external) {
-            Instant when = Instant.now();
-            for (PRComment draft : drafts) {
-                prService.markPublished(draft.id(), when);
-            }
-            return prService.findById(prId).orElse(pr);
         }
 
         String[] ownerRepo = pr.repo().split("/", 2);
         PullRequestRef ref = new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber());
         String pat = patResolver.resolve(pr.repo());
-        String body = drafts.stream()
+        String draftBody = drafts.stream()
                 .filter(c -> PRComment.SCOPE_PR.equals(c.scope()))
                 .map(PRComment::body)
                 .collect(Collectors.joining("\n\n"));
+        String body = requestedBody.isEmpty() ? draftBody
+                : draftBody.isEmpty() ? requestedBody : requestedBody + "\n\n" + draftBody;
         List<ReviewLineComment> lineComments = drafts.stream()
                 .filter(c -> PRComment.SCOPE_FILE_LINE.equals(c.scope()))
                 .map(c -> new ReviewLineComment(

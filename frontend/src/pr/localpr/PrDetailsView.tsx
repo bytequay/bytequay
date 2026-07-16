@@ -340,7 +340,7 @@ export function PrDetailsView<T extends DetailsPr>({
         onToggleFindingPromotion={toggleFinding}
         canPromoteFindings={capabilities?.publishReview === true}
         onBack={() => setReviewOpen(false)}
-        onSubmitReview={pendingComments.length > 0 ? undefined : () => publishReview()}
+        onSubmitReview={pendingComments.length > 0 ? undefined : (body, verdict) => publishReview(verdict, body)}
         submittingReview={publishBusy}
         submitReviewControl={submitReviewControl}
         reviewData={reviewData ?? undefined}

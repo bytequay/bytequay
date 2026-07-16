@@ -30,13 +30,12 @@ describe('Logo', () => {
 });
 
 describe('WorkspaceNavSidebar', () => {
-  it('renders the four nav items (no Search) and fires onNavigate', () => {
+  it('renders the reduced nav without Automations, Email, or a user footer', () => {
     const onNavigate = vi.fn();
     const { container } = render(
       <WorkspaceNavSidebar
         activeNav="workspaces"
         onNavigate={onNavigate}
-        footer={{ initials: 'CJ', name: 'chenjian2664' }}
       >
         <div data-testid="body" />
       </WorkspaceNavSidebar>,
@@ -45,8 +44,10 @@ describe('WorkspaceNavSidebar', () => {
     expect(items.some(t => t?.includes('Home'))).toBe(true);
     expect(items.some(t => t?.includes('Workspaces'))).toBe(true);
     expect(items.some(t => t?.includes('My work'))).toBe(true);
-    expect(items.some(t => t?.includes('Automations'))).toBe(true);
+    expect(items.some(t => t?.includes('Automations'))).toBe(false);
+    expect(items.some(t => t?.includes('Email'))).toBe(false);
     expect(items.some(t => t?.includes('Search'))).toBe(false);
+    expect(container.querySelector('.sb-footer')).toBeNull();
     expect(container.querySelector('.sb-nav-item.active')?.textContent).toContain('Workspaces');
     fireEvent.click(screen.getByText('Home'));
     expect(onNavigate).toHaveBeenCalledWith('home');
@@ -54,11 +55,11 @@ describe('WorkspaceNavSidebar', () => {
 
   it('shows the back hint on Workspaces only when backHint is set', () => {
     const { rerender, queryByText } = render(
-      <WorkspaceNavSidebar footer={{ initials: 'CJ', name: 'x' }}><div /></WorkspaceNavSidebar>,
+      <WorkspaceNavSidebar><div /></WorkspaceNavSidebar>,
     );
     expect(queryByText('← back')).toBeNull();
     rerender(
-      <WorkspaceNavSidebar backHint footer={{ initials: 'CJ', name: 'x' }}><div /></WorkspaceNavSidebar>,
+      <WorkspaceNavSidebar backHint><div /></WorkspaceNavSidebar>,
     );
     expect(queryByText('← back')).toBeTruthy();
   });
@@ -69,7 +70,7 @@ describe('WorkspaceNavSidebar', () => {
       onFullScreenChange: vi.fn().mockReturnValue(() => {}),
     };
     const { container } = render(
-      <WorkspaceNavSidebar footer={{ initials: 'CJ', name: 'x' }}><div /></WorkspaceNavSidebar>,
+      <WorkspaceNavSidebar><div /></WorkspaceNavSidebar>,
     );
     await waitFor(() => expect(container.querySelector('.shell-rail.is-fullscreen')).toBeTruthy());
     // The dots + the collapse toggle live in the chrome row.
@@ -79,7 +80,7 @@ describe('WorkspaceNavSidebar', () => {
 
   it('stays windowed (no fullscreen flag) by default', () => {
     const { container } = render(
-      <WorkspaceNavSidebar footer={{ initials: 'CJ', name: 'x' }}><div /></WorkspaceNavSidebar>,
+      <WorkspaceNavSidebar><div /></WorkspaceNavSidebar>,
     );
     expect(container.querySelector('.shell-rail.is-fullscreen')).toBeNull();
     expect(container.querySelector('.shell-rail')).toBeTruthy();
@@ -88,7 +89,7 @@ describe('WorkspaceNavSidebar', () => {
   it('folds to the chrome row when collapsed and the toggle fires onToggleCollapse', () => {
     const onToggleCollapse = vi.fn();
     const { container, rerender } = render(
-      <WorkspaceNavSidebar footer={{ initials: 'CJ', name: 'x' }} onToggleCollapse={onToggleCollapse}>
+      <WorkspaceNavSidebar onToggleCollapse={onToggleCollapse}>
         <div data-testid="body" />
       </WorkspaceNavSidebar>,
     );
@@ -97,7 +98,7 @@ describe('WorkspaceNavSidebar', () => {
     expect(screen.getByTestId('body')).toBeTruthy();
 
     rerender(
-      <WorkspaceNavSidebar collapsed footer={{ initials: 'CJ', name: 'x' }} onToggleCollapse={onToggleCollapse}>
+      <WorkspaceNavSidebar collapsed onToggleCollapse={onToggleCollapse}>
         <div data-testid="body" />
       </WorkspaceNavSidebar>,
     );

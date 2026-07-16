@@ -13,7 +13,7 @@
  */
 import { useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { SidebarFooter, TrafficLights } from '../shell';
+import { TrafficLights } from '../shell';
 import { useFullScreen } from '../../useFullScreen';
 
 /** Drag-to-resize bounds + the persisted-width storage key. */
@@ -41,7 +41,6 @@ const TOP_NAV: { key: WsNavKey; ic: string; label: string }[] = [
   { key: 'home', ic: '⌂', label: 'Home' },
   { key: 'workspaces', ic: '▦', label: 'Workspaces' },
   { key: 'my-work', ic: '▤', label: 'My work' },
-  { key: 'automations', ic: '⚙', label: 'Automations' },
 ];
 
 /** The Workspaces nav row's icon, as a crisp SVG — the ▦ glyph above
@@ -60,21 +59,20 @@ export const WORKSPACES_ICON = (
 
 const BOTTOM_NAV: { key: WsNavKey; ic: string; label: string }[] = [
   { key: 'repos', ic: '⎇', label: 'Repos' },
-  { key: 'email', ic: '✉', label: 'Email' },
   { key: 'notifications', ic: '🔔', label: 'Notifications' },
   { key: 'settings', ic: '⚙', label: 'Settings' },
 ];
 
 /**
  * The workspace-model sidebar shell: traffic lights, the fixed top nav
- * (Home / Workspaces / My work / Automations), a body that swaps between
- * the workspace list and a workspace's threads, and the user footer.
+ * (Home / Workspaces / My work), a body that swaps between the workspace
+ * list and a workspace's threads, and a compact secondary nav.
  * Identical across every frame — built once. When a workspace is open the
  * Workspaces item shows a "← back" hint (it's the way back to the
  * overview).
  */
 export function WorkspaceNavSidebar({
-  activeNav, onNavigate, backHint = false, children, footer, notificationCount,
+  activeNav, onNavigate, backHint = false, children, notificationCount,
   collapsed = false, onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
 }: {
   activeNav?: WsNavKey;
@@ -83,7 +81,6 @@ export function WorkspaceNavSidebar({
   backHint?: boolean;
   /** The body: a WorkspaceList, or a WorkspaceSwitcher + ThreadList. */
   children: ReactNode;
-  footer: { initials: string; name: string; onChat?: () => void; onSettings?: () => void };
   /** Unread badge on the bottom Notifications item. */
   notificationCount?: number;
   /** Folded to a narrow strip — only the chrome row (with the toggle to
@@ -166,7 +163,6 @@ export function WorkspaceNavSidebar({
             {children}
             <div className="sb-spacer" />
             <div className="sb-nav">{BOTTOM_NAV.map(navItem)}</div>
-            <SidebarFooter {...footer} />
           </>
         )}
       </aside>

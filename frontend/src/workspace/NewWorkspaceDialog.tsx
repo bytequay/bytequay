@@ -23,67 +23,9 @@ type Props = {
   onCreated?: (workspaceId: string) => void;
 };
 
-/** New-workspace modal. UI-first; the Create button is disabled
- *  while the app is single-workspace only — the backend
- *  WorkspaceStore today supports list / find but no create endpoint
- *  the dialog can route to, so wiring is gated on the multi-
- *  workspace migration. The form structure lives here now so when
- *  the backend lands, the only change is flipping the button on +
- *  forwarding the payload through a new bridge method. */
-/** Word cap on the optional prompt-context box that gets appended
- *  to WORKSPACE.md on creation. Small on purpose — it's a per-
- *  workspace nudge, not the workspace brain itself. */
-const PROMPT_CONTEXT_WORD_CAP = 100;
-const CODING_AGENT_OPTIONS = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex' },
-  { value: 'deepseek', label: 'DeepSeek API' },
-] as const;
-
-/** Frontend mirror of the backend's WorkspaceService.deriveSlug.
- *  Keep the two in sync — divergence would mean the live preview in
- *  the dialog disagrees with the slug the backend actually allocates. */
-const SLUG_MAX_CHARS = 24;
-function deriveSlug(name: string): string {
-  if (!name) return '';
-  const lowered = name.toLowerCase();
-  let out = '';
-  let lastDash = true;
-  for (const c of lowered) {
-    if (/[a-z0-9]/.test(c)) {
-      out += c;
-      lastDash = false;
-    }
-    else if (!lastDash) {
-      out += '-';
-      lastDash = true;
-    }
-  }
-  while (out.endsWith('-')) out = out.slice(0, -1);
-  if (out.length > SLUG_MAX_CHARS) {
-    out = out.slice(0, SLUG_MAX_CHARS);
-    while (out.endsWith('-')) out = out.slice(0, -1);
-  }
-  return out;
-}
-
 function NewWorkspaceDialog({ onClose, onCreated }: Props) {
-  const [name, setName] = useState('');
-  /** User-edited slug. Empty means "follow the name" — the input
-   *  shows the live-derived value but doesn't write back to state
-   *  until the user actually types here. Once they do, slugTouched
-   *  flips and editing the name no longer overrides their choice. */
-  const [slug, setSlug] = useState('');
-  const [slugTouched, setSlugTouched] = useState(false);
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
-  const [seedMemory, setSeedMemory] = useState(true);
-  const [codingAgent, setCodingAgent] = useState<string>(CODING_AGENT_OPTIONS[0].value);
-  // Empty string = "use the default". Non-empty = the user's
-  // override. We never auto-seed the textarea so the user's choice
-  // not to type stays a choice, not a hidden side-effect.
-  const [promptContext, setPromptContext] = useState<string>('');
-  const [promptExpanded, setPromptExpanded] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -106,56 +48,21 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
 
   const toggleRepo = (id: number) => {
     setPicked(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
+      return prev.has(id) ? new Set() : new Set([id]);
     });
   };
 
-  // The default prompt is computed from the typed name + picked
-  // repos. It's never written into the textarea — it shows up as
-  // the placeholder (when expanded) and the collapsed preview, so
-  // an empty textarea unambiguously means "use the default".
-  const pickedNames = repos
-      .filter(r => picked.has(r.id))
-      .map(r => r.repo);
-  const defaultPrompt = buildDefaultPrompt(name, pickedNames);
-  // The string that actually appends to WORKSPACE.md on create:
-  // user override if they typed one, otherwise the live default.
-  const effectivePrompt = promptContext.trim().length > 0
-      ? promptContext
-      : defaultPrompt;
-  const usingDefault = promptContext.trim().length === 0;
-  const promptWordCount = countWords(effectivePrompt);
-  const promptOverCap = promptWordCount > PROMPT_CONTEXT_WORD_CAP;
-
-  const trimmedName = name.trim();
-  // Effective slug shown in the field and sent to the backend. Follow
-  // the derived slug from the name until the user types in the slug
-  // field themselves — that flips slugTouched and the input becomes
-  // their override. Empty/unsluggable names produce an empty slug; the
-  // backend falls back to a UUID stub in that case.
-  const effectiveSlug = slugTouched ? slug.trim() : deriveSlug(trimmedName);
-  const canCreate = trimmedName.length > 0
-      && picked.size > 0
-      && !promptOverCap
-      && !submitting;
+  const localRepos = repos.filter(repo => repo.localClonePath !== null);
+  const canCreate = picked.size === 1 && !submitting;
 
   const onSubmit = async () => {
     if (!canCreate) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const pickedRepoFullNames = repos
-          .filter(r => picked.has(r.id))
-          .map(r => `${r.owner}/${r.repo}`);
-      const created = await window.bridge.createWorkspace({
-        name: trimmedName,
-        slug: effectiveSlug,
-        isScratch: false,
-        promptContext: effectivePrompt,
-        repoFullNames: pickedRepoFullNames,
-      });
+      const repo = localRepos.find(candidate => picked.has(candidate.id));
+      if (!repo) return;
+      const created = await window.bridge.ensureWorkspaceForRepo(repo.owner, repo.repo);
       onCreated?.(created.id);
       onClose();
     }
@@ -182,10 +89,10 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
           <div>
             <h2 id="new-workspace-title" style={dialogStyles.title}>
               <span aria-hidden style={purpleSquareIcon}>◆</span>
-              New workspace
+              Add repository
             </h2>
             <div style={dialogStyles.helperRow}>
-              A long-lived project brain — shared memory &amp; skills across its threads.
+              Choose one verified local clone. It gets one shared workspace.
             </div>
           </div>
           <button
@@ -199,146 +106,34 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
         </header>
 
         <div style={dialogStyles.field}>
-          <label style={dialogStyles.fieldLabel}>Name</label>
-          <div style={nameRowStyle}>
-            <span style={namePreviewBadgeStyle}>
-              {name.slice(0, 1).toUpperCase() || 'W'}
-            </span>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Trino-trace"
-              style={{ ...dialogStyles.input, flex: 1 }}
-            />
-          </div>
-        </div>
-
-        <div style={dialogStyles.field}>
-          <label style={dialogStyles.fieldLabel}>
-            Slug
-            <span style={pickHintStyle}>
-              immutable id segment · derived from name unless overridden
-            </span>
-          </label>
-          <div style={slugRowStyle}>
-            <span style={slugPrefixStyle} aria-hidden>ws-</span>
-            <input
-              type="text"
-              value={effectiveSlug}
-              onChange={e => {
-                setSlugTouched(true);
-                setSlug(e.target.value);
-              }}
-              placeholder="bytequay"
-              spellCheck={false}
-              style={{ ...dialogStyles.input, flex: 1, fontFamily: 'ui-monospace, monospace' }}
-            />
-          </div>
-        </div>
-
-        <div style={dialogStyles.field}>
           <label style={dialogStyles.fieldLabel}>
             Repositories
-            <span style={pickHintStyle}>watched repos · pick 1+</span>
+            <span style={pickHintStyle}>local clones · pick exactly one</span>
           </label>
           {loading ? (
             <div style={emptyStyle}>Loading repos…</div>
-          ) : repos.length === 0 ? (
+          ) : localRepos.length === 0 ? (
             <div style={emptyStyle}>
-              No watched repos yet — add one from Settings → Repositories first.
+              No local clones yet — clone or map a repository first.
             </div>
           ) : (
             <ul style={repoListStyle}>
-              {repos.map(r => (
+              {localRepos.map(r => (
                 <li key={r.id} style={repoRowStyle(picked.has(r.id))}>
                   <label style={repoLabelStyle}>
                     <input
-                      type="checkbox"
+                      type="radio"
                       checked={picked.has(r.id)}
                       onChange={() => toggleRepo(r.id)}
                     />
                     <span style={repoMetaStyle}>
                       <span style={repoFullNameStyle}>{r.owner}/{r.repo}</span>
-                      <span style={mutedStyle}>watched repo</span>
+                      <span style={mutedStyle}>verified local clone</span>
                     </span>
                   </label>
                 </li>
               ))}
             </ul>
-          )}
-        </div>
-
-        <div style={{ ...dialogStyles.field, ...seedMemoryRowStyle }}>
-          <div>
-            <div style={seedMemoryTitleStyle}>+ Seed memory from the repo</div>
-            <div style={mutedStyle}>
-              Read <code style={inlineCodeStyle}>CLAUDE.md</code> /{' '}
-              <code style={inlineCodeStyle}>AGENTS.md</code> on creation to
-              bootstrap <code style={inlineCodeStyle}>WORKSPACE.md</code> — then
-              AI + you maintain it.
-            </div>
-          </div>
-          <SeedToggle checked={seedMemory} onToggle={() => setSeedMemory(s => !s)} />
-        </div>
-
-        <div style={dialogStyles.field}>
-          <label style={dialogStyles.fieldLabel}>Default coding agent</label>
-          <select
-            style={dialogStyles.input}
-            value={codingAgent}
-            onChange={e => setCodingAgent(e.target.value)}
-          >
-            {CODING_AGENT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div style={dialogStyles.field}>
-          <button
-            type="button"
-            onClick={() => setPromptExpanded(v => !v)}
-            style={promptDisclosureStyle}
-            aria-expanded={promptExpanded}
-          >
-            <span style={promptDisclosureChevronStyle(promptExpanded)} aria-hidden>▸</span>
-            <span style={promptDisclosureLabelStyle}>Prompt context</span>
-            <span style={promptDisclosureMetaStyle}>
-              optional ·{' '}
-              {promptExpanded && !usingDefault && (
-                <span style={promptCounterStyle(promptOverCap)}>
-                  {promptWordCount}/{PROMPT_CONTEXT_WORD_CAP} words ·{' '}
-                </span>
-              )}
-              appended to <code style={inlineCodeStyle}>WORKSPACE.md</code>
-            </span>
-          </button>
-          {promptExpanded && (
-            <>
-              <textarea
-                value={promptContext}
-                onChange={e => setPromptContext(e.target.value)}
-                placeholder={defaultPrompt}
-                rows={4}
-                style={{ ...dialogStyles.textarea, marginTop: 8 }}
-              />
-              <div style={promptHelperRowStyle}>
-                <span style={mutedStyle}>
-                  Leave empty to use the default shown above. Typing
-                  overrides it.
-                </span>
-                {!usingDefault && (
-                  <button
-                    type="button"
-                    onClick={() => setPromptContext('')}
-                    style={promptResetBtnStyle}
-                  >
-                    Clear (use default)
-                  </button>
-                )}
-              </div>
-            </>
           )}
         </div>
 
@@ -348,8 +143,7 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
 
         <footer style={dialogStyles.footer}>
           <div style={dialogStyles.footerNote}>
-            Workspaces are deliberate &amp; long-lived — you'll have only a
-            handful. One-offs can stay in the scratch workspace.
+            A workspace always belongs to exactly one local repository.
           </div>
           <div style={dialogStyles.footerButtons}>
             <button type="button" style={dialogStyles.secondaryBtn} onClick={onClose}>
@@ -362,15 +156,9 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
               onClick={() => { void onSubmit(); }}
               title={canCreate
                 ? undefined
-                : trimmedName.length === 0
-                  ? 'Name is required'
-                  : picked.size === 0
-                    ? 'Pick at least one repo'
-                    : promptOverCap
-                      ? `Prompt context must be ≤${PROMPT_CONTEXT_WORD_CAP} words`
-                      : undefined}
+                : 'Pick one verified local clone'}
             >
-              ◆ {submitting ? 'Creating…' : 'Create workspace'}
+              ◆ {submitting ? 'Adding…' : 'Add repository'}
             </button>
           </div>
         </footer>

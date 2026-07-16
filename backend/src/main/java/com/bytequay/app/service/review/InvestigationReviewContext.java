@@ -60,13 +60,25 @@ public class InvestigationReviewContext
 
     public Snapshot load(PR pr)
     {
+        return load(pr, true);
+    }
+
+    /**
+     * Load review evidence without accidentally granting a remote-only review
+     * access to a watched clone. Task-owned reviews remain local through their
+     * task worktree; standalone reviews only use a clone after they have been
+     * explicitly attached to its workspace.
+     */
+    public Snapshot load(PR pr, boolean allowWorkspaceSource)
+    {
         List<PRCommit> commits = prs.commits(pr.id());
         String base = commits.isEmpty() ? "unknown-base" : commits.get(0).sha();
         String head = commits.isEmpty() ? "unknown-head" : commits.get(commits.size() - 1).sha();
         if (pr.repo() != null && pr.remotePrNumber() != null) {
             List<DiffFile> files = pullRequests.getPullRequestDiffFiles(pr.repo(), pr.remotePrNumber());
             Path taskRoot = taskRootAt(pr, head);
-            Path repositoryRoot = taskRoot == null ? watchedRootAt(pr.repo(), head) : taskRoot;
+            Path repositoryRoot = taskRoot == null && allowWorkspaceSource
+                    ? watchedRootAt(pr.repo(), head) : taskRoot;
             ReviewCapabilities capabilities = repositoryRoot == null
                     ? ReviewCapabilities.remoteOnly() : ReviewCapabilities.localSource();
             return new Snapshot(

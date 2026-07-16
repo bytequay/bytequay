@@ -120,6 +120,18 @@ public class WorkspaceController
                 body.repoFullNames() == null ? List.of() : body.repoFullNames()));
     }
 
+    /** Creates (or returns) the single workspace for an already verified
+     * local clone. Clone and locate flows call this after the filesystem
+     * operation succeeds. */
+    @PostMapping("/for-repo/{owner}/{repo}")
+    public Workspace ensureForRepo(
+            @PathVariable String owner, @PathVariable String repo)
+    {
+        requireNotBlank(owner, "owner is required");
+        requireNotBlank(repo, "repo is required");
+        return workspaces.ensureForVerifiedClone(owner, repo);
+    }
+
     /** PATCH /api/workspaces/{id} — partial update. Today only the
      *  display {@code name} is editable; the id is stable. */
     @PatchMapping("/{id}")

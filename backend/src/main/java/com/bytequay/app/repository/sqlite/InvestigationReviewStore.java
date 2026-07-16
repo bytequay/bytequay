@@ -172,6 +172,34 @@ public class InvestigationReviewStore
                 """, this::review, reviewId).stream().findFirst();
     }
 
+    /** Workspace-independent review queue. Task-owned internal passes stay
+     * on their task and never appear here. */
+    @Transactional(readOnly = true)
+    public List<AgentReviewRow> standaloneReviews()
+    {
+        return jdbc.query("""
+                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                       workspace_id, owner_thread_id, owner_task_id
+                FROM review_session
+                WHERE owner_task_id IS NULL
+                ORDER BY updated_at_ms DESC
+                """, this::review);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentReviewRow> remoteReviewsForRepo(String repoId)
+    {
+        return jdbc.query("""
+                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                       workspace_id, owner_thread_id, owner_task_id
+                FROM review_session
+                WHERE owner_task_id IS NULL
+                  AND workspace_id IS NULL
+                  AND lower(repo_id) = lower(?)
+                ORDER BY updated_at_ms DESC
+                """, this::review, repoId);
+    }
+
     @Transactional(readOnly = true)
     public Optional<AgentReviewRow> findActiveReviewByOwnerThread(String threadId)
     {

@@ -199,11 +199,24 @@ export function useAgentReviewState(
       })).finally(finish);
       return;
     }
-    void mutate(() => window.bridge.startAgentReview(prId, {
-      ...options,
-      workspaceId: workspaceId ?? undefined,
-    })).finally(finish);
-  }, [data, mutate, prId, workspaceId]);
+    void (async () => {
+      let workspaceRepos = [];
+      if (workspaceId != null && bundle != null) {
+        try {
+          workspaceRepos = await window.bridge.listWorkspaceRepos(workspaceId);
+        } catch {
+          // A deleted/missing workspace is remote-only, never another repo's clone.
+        }
+      }
+      const localWorkspaceId = workspaceRepos.some(repo =>
+        repo.repoFullName.toLowerCase() === bundle?.pr.repo.toLowerCase())
+        ? workspaceId : undefined;
+      await mutate(() => window.bridge.startAgentReview(prId, {
+        ...options,
+        workspaceId: localWorkspaceId,
+      }));
+    })().finally(finish);
+  }, [bundle, data, mutate, prId, workspaceId]);
 
   const roundAction = useCallback((roundId: string) => {
     if (data === null) return;

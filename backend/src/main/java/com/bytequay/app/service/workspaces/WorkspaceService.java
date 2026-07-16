@@ -19,6 +19,7 @@ import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.concepts.ConceptRegistry;
@@ -33,6 +34,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -68,11 +71,6 @@ public class WorkspaceService
     public static final int MEMORY_MD_TARGET_CHARS = 8_000;
     public static final int MEMORY_MD_HARD_CAP_CHARS = 32_000;
 
-    /** The seeded, always-present workspace (V73). Kept undeletable so
-     *  test fixtures' FKs stay valid and there is always a home for
-     *  threads that don't declare their own workspace. */
-    public static final String DEFAULT_WORKSPACE_ID = "ws-default";
-
     /** Token budget the landing card's memory strip renders against.
      *  Matches the design's "~4k cap" — the chars hard cap above is
      *  intentionally laxer so a paste-and-distill workflow doesn't
@@ -98,6 +96,7 @@ public class WorkspaceService
     private final WorkspaceGlossaryParser glossaryParser;
     private final ConceptRegistry concepts;
     private final ThreadStore threadStore;
+    private final WatchedRepoStore watchedRepos;
     private final ThreadService threadService;
     private final WorkspaceDataPurger dataPurger;
 
@@ -106,6 +105,7 @@ public class WorkspaceService
             WorkspaceGlossaryParser glossaryParser,
             ConceptRegistry concepts,
             ThreadStore threadStore,
+            WatchedRepoStore watchedRepos,
             // @Lazy breaks the cycle WorkspaceService → ThreadService →
             // ThreadRegistry → WorkspaceService (the registry reads workspace
             // context). The teardown only needs ThreadService at delete time.
@@ -116,6 +116,7 @@ public class WorkspaceService
         this.glossaryParser = requireNonNull(glossaryParser, "glossaryParser is null");
         this.concepts = requireNonNull(concepts, "concepts is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
     }
@@ -292,11 +293,6 @@ public class WorkspaceService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         require(workspaceId);
-        if (DEFAULT_WORKSPACE_ID.equals(workspaceId)) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(403),
-                    "the default workspace cannot be deleted");
-        }
         List<Thread> threads = threadStore.listThreadsByWorkspace(workspaceId);
         for (Thread thread : threads) {
             try {
@@ -314,25 +310,14 @@ public class WorkspaceService
 
     /**
      * Create a new workspace. Name is required; an optional
-     * {@code promptContext} block is appended to {@code memoryMd}
-     * (it lands at the top of WORKSPACE.md so every thread in the
-     * workspace reads it first), and the picked {@code repoFullNames}
-     * are pinned via {@code workspace_repos}. The id is generated
-     * server-side so concurrent creates can't collide.
+     * {@code promptContext} block is appended to {@code memoryMd}. Every
+     * workspace has exactly one watched repository with a verified local
+     * clone; the id is generated server-side so concurrent creates cannot
+     * collide.
      */
     public Workspace create(NewWorkspaceRequest request)
     {
         requireNonNull(request, "request is null");
-        if (request.name() == null || request.name().isBlank()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400), "name is required");
-        }
-        String trimmedName = request.name().trim();
-        if (trimmedName.length() > 80) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(413),
-                    "workspace name exceeds 80 chars");
-        }
         String memoryMd = request.promptContext() == null
                 ? ""
                 : request.promptContext().trim();
@@ -342,31 +327,95 @@ public class WorkspaceService
                     "prompt context exceeds " + MEMORY_MD_HARD_CAP_CHARS + " chars");
         }
         Instant now = Instant.now();
-        String workspaceId = allocateWorkspaceId(request.slug(), trimmedName);
+        List<String> repos = request.repoFullNames() == null
+                ? List.of()
+                : request.repoFullNames().stream()
+                        .filter(repo -> repo != null && !repo.isBlank())
+                        .map(String::trim).distinct().toList();
+        if (request.isScratch() || repos.size() != 1) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "a workspace requires exactly one locally cloned repository");
+        }
+        String repoFullName = repos.getFirst();
+        requireVerifiedClone(repoFullName);
+        // A repository identity is the workspace identity. Do not accept a
+        // free-form project name that can drift away from the local clone.
+        String workspaceId = allocateWorkspaceId(request.slug(), repoFullName);
         Workspace workspace = new Workspace(
                 workspaceId,
-                trimmedName,
+                repoFullName,
                 memoryMd,
-                request.isScratch(),
+                false,
                 /* workModel */ null,
                 now,
                 now);
         store.saveWorkspace(workspace);
-        List<String> repos = request.repoFullNames() == null
-                ? List.of()
-                : request.repoFullNames();
-        for (String repoFullName : repos) {
-            if (repoFullName == null || repoFullName.isBlank()) {
-                continue;
-            }
-            store.addRepo(new WorkspaceRepo(
-                    workspace.id(),
-                    repoFullName.trim(),
-                    /* defaultBaseBranch */ null,
-                    /* autoFixEnabled */ false,
-                    now));
-        }
+        store.addRepo(new WorkspaceRepo(
+                workspace.id(), repoFullName,
+                /* defaultBaseBranch */ null,
+                /* autoFixEnabled */ false,
+                now));
         return store.findWorkspaceById(workspace.id()).orElse(workspace);
+    }
+
+    /** Return the sole workspace for a verified local clone, creating it
+     * when the clone first becomes available. This is the only automatic
+     * workspace-creation path used by clone/locate flows. */
+    public synchronized Workspace ensureForVerifiedClone(String owner, String repo)
+    {
+        String fullName = owner + "/" + repo;
+        requireVerifiedClone(fullName);
+        List<Workspace> matches = store.listWorkspaces().stream()
+                .filter(workspace -> store.listRepos(workspace.id()).stream()
+                        .anyMatch(attached -> attached.repoFullName().equalsIgnoreCase(fullName)))
+                .toList();
+        if (matches.size() == 1) {
+            return matches.getFirst();
+        }
+        if (matches.size() > 1) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "multiple workspaces are attached to " + fullName);
+        }
+        return create(new NewWorkspaceRequest(fullName, null, false, "", List.of(fullName)));
+    }
+
+    /** True only when this workspace is the local working context for the
+     * given repository. */
+    public boolean ownsVerifiedLocalRepo(String workspaceId, String repoFullName)
+    {
+        return listRepos(workspaceId).stream()
+                .anyMatch(repo -> repo.repoFullName().equalsIgnoreCase(repoFullName))
+                && hasVerifiedClone(repoFullName);
+    }
+
+    private void requireVerifiedClone(String repoFullName)
+    {
+        if (!hasVerifiedClone(repoFullName)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "workspace repository must have a verified local clone: " + repoFullName);
+        }
+    }
+
+    private boolean hasVerifiedClone(String repoFullName)
+    {
+        int slash = repoFullName.indexOf('/');
+        return slash > 0 && slash < repoFullName.length() - 1
+                && watchedRepos.find(repoFullName.substring(0, slash), repoFullName.substring(slash + 1))
+                        .map(repo -> localCloneExists(repo.localClonePath()))
+                        .orElse(false);
+    }
+
+    private static boolean localCloneExists(String path)
+    {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        try {
+            return Files.isDirectory(Path.of(path));
+        }
+        catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     /**
@@ -636,13 +685,19 @@ public class WorkspaceService
     }
 
     /**
-     * Attach a repo to the workspace. Idempotent on
-     * {@code (workspaceId, repoFullName)}.
+     * One-repo workspaces never accept a second repository.
      */
     public WorkspaceRepo addRepo(String workspaceId, String repoFullName, String defaultBaseBranch)
     {
         require(workspaceId);
         requireNonNull(repoFullName, "repoFullName is null");
+        WorkspaceRepo existing = listRepos(workspaceId).stream().findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "workspace has no repository binding"));
+        if (!existing.repoFullName().equalsIgnoreCase(repoFullName.trim())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "a workspace is bound to exactly one repository");
+        }
         WorkspaceRepo repo = new WorkspaceRepo(
                 workspaceId, repoFullName.trim(),
                 trimToNull(defaultBaseBranch),

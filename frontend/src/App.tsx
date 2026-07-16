@@ -23,6 +23,7 @@ import ControlBar, { type PageContextTag } from './control/ControlBar';
 import { Ds4StatusWidget } from './components/Ds4StatusWidget';
 import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
+import ReviewQueuePage from './review/ReviewQueuePage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import { TrunkRoute } from './pages/TrunkRoute';
 import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
@@ -68,6 +69,7 @@ export type Nav =
    *  time filter. Reached from the home contribution card's strips. */
   | { view: 'pr-activity'; kind: 'reviewed' | 'contributed' }
   | { view: 'my-prs' }
+  | { view: 'reviews' }
   /** `back` carries the parent screen so the PR-detail breadcrumb
    *  returns the user where they came from — Repository home, Local
    *  repo, Team kanban, or just Home. Defaults to Home when unset. */
@@ -380,6 +382,14 @@ function App() {
     })();
   };
 
+  const openStartedReview = (threadId: string | null) => {
+    if (threadId !== null) {
+      openThread(threadId);
+      return;
+    }
+    setNav({ view: 'reviews' });
+  };
+
   /** Open a stage-backed run's own log. Detached artifact runs route through
    *  their owning surface and do not have a StageDetailRoute. */
   const openRun = (threadId: string, taskId: string) => (runId: string) => {
@@ -487,6 +497,7 @@ function App() {
       ];
       case 'workspaces-landing': return [{ label: 'workspaces', kind: 'scope' }];
       case 'my-prs':         return [{ label: 'pull-requests', kind: 'scope' }];
+      case 'reviews':        return [{ label: 'reviews', kind: 'scope' }];
       case 'thread-detail':  return [{ label: 'thread', kind: 'entity' }];
       case 'thread-create':  return [{ label: 'new-thread', kind: 'scope' }];
       case 'repos':          return [{ label: 'repos', kind: 'scope' }];
@@ -674,6 +685,7 @@ function App() {
       case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'workspaces';
       case 'agent-review': return 'workspaces';
       case 'my-prs': return 'my-work';
+      case 'reviews': return 'reviews';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
       case 'notifications': return 'notifications';
@@ -754,6 +766,7 @@ function App() {
                 // on its landing card.
                 setNav({ view: 'workspaces-landing' });
                 break;
+              case 'reviews': setNav({ view: 'reviews' }); break;
               case 'my-work': setNav({ view: 'my-prs' }); break;
               case 'automations': break; // no Automations surface yet
               case 'repos': setNav({ view: 'repos' }); break;
@@ -811,9 +824,20 @@ function App() {
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
             onOpenSettings={() => setNav({ view: 'settings' })}
-            onStartReview={openThread}
+            onStartReview={openStartedReview}
             onOpenAgentReview={openAgentReview}
             workspaceId={activeWorkspaceId}
+          />
+        )}
+        {nav.view === 'reviews' && (
+          <ReviewQueuePage
+            onOpenPr={(owner, repo, prNumber) =>
+              setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
+            onOpenWorkspace={workspaceId => {
+              setActiveWorkspaceId(workspaceId);
+              writeActiveWorkspaceId(workspaceId);
+              setNav({ view: 'workspace' });
+            }}
           />
         )}
         {nav.view === 'repo' && (
@@ -833,7 +857,7 @@ function App() {
             // The AI panel-review button on a PR row routes the user
             // to the new review thread; we preserve the repo nav as
             // the back target so the user can return.
-            onStartReview={openThread}
+            onStartReview={openStartedReview}
             onOpenAgentReview={openAgentReview}
             workspaceId={activeWorkspaceId}
           />
@@ -1107,7 +1131,7 @@ function App() {
             onBack={() => setNav({ view: 'team', teamId: nav.teamId })}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
-            onStartReview={openThread}
+            onStartReview={openStartedReview}
             onOpenAgentReview={openAgentReview}
             workspaceId={activeWorkspaceId}
           />

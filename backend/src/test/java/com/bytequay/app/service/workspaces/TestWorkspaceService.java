@@ -17,16 +17,19 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.WorkspaceStore.WorkspaceStats;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
 import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import java.time.Instant;
@@ -34,10 +37,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -49,6 +52,7 @@ class TestWorkspaceService
 {
     private final WorkspaceStore store = mock(WorkspaceStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
+    private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
     private final ThreadService threadService = mock(ThreadService.class);
     private final WorkspaceDataPurger dataPurger = mock(WorkspaceDataPurger.class);
     private final WorkspaceService service = new WorkspaceService(
@@ -56,6 +60,7 @@ class TestWorkspaceService
             new WorkspaceGlossaryParser(),
             new ConceptRegistry(),
             threadStore,
+            watchedRepos,
             threadService,
             dataPurger);
 
@@ -155,57 +160,37 @@ class TestWorkspaceService
     void listWithStatsReturnsCardForEachWorkspace()
     {
         Workspace one = new Workspace(
-                "ws-default", "ByteQuay",
+                "ws-bytequay", "chenjian2664/bytequay",
                 "## Decisions\n- decision a\n\n## Blockers\n- blocker x\n",
                 /* isScratch */ false,
                 /* workModel */ null,
                 Instant.parse("2026-05-22T08:00:00Z"),
                 Instant.parse("2026-05-22T09:00:00Z"));
-        Workspace scratch = new Workspace(
-                "ws-scratch", "Scratch", "",
-                /* isScratch */ true,
-                /* workModel */ null,
-                Instant.parse("2026-05-22T08:00:00Z"),
-                Instant.parse("2026-05-22T09:00:00Z"));
-        when(store.listWorkspaces()).thenReturn(List.of(one, scratch));
-        when(store.fetchStats(eq("ws-default"), anyLong()))
+        when(store.listWorkspaces()).thenReturn(List.of(one));
+        when(store.fetchStats(eq("ws-bytequay"), anyLong()))
                 .thenReturn(new WorkspaceStats(3, 2, 1, 1840L, 1716_300_000_000L));
-        when(store.listRepos("ws-default"))
+        when(store.listRepos("ws-bytequay"))
                 .thenReturn(List.of(
-                        new WorkspaceRepo("ws-default", "chenjian2664/bytequay",
-                                null, false, Instant.parse("2026-05-22T08:00:00Z")),
-                        new WorkspaceRepo("ws-default", "chenjian2664/docs",
+                        new WorkspaceRepo("ws-bytequay", "chenjian2664/bytequay",
                                 null, false, Instant.parse("2026-05-22T08:00:00Z"))));
-        when(store.listRepos("ws-scratch")).thenReturn(List.of());
 
         List<WorkspaceCardDto> cards = service.listWithStats();
 
-        assertThat(cards).hasSize(2);
+        assertThat(cards).hasSize(1);
 
-        WorkspaceCardDto defaultCard = cards.get(0);
-        assertThat(defaultCard.id()).isEqualTo("ws-default");
-        assertThat(defaultCard.name()).isEqualTo("ByteQuay");
-        assertThat(defaultCard.isScratch()).isFalse();
-        assertThat(defaultCard.repos()).containsExactly("bytequay", "docs");
-        assertThat(defaultCard.activeThreadCount()).isEqualTo(3);
-        assertThat(defaultCard.tasksInFlight()).isEqualTo(2);
-        assertThat(defaultCard.needsAttentionCount()).isEqualTo(1);
-        assertThat(defaultCard.spendTodayMilliUsd()).isEqualTo(1840L);
-        assertThat(defaultCard.lastActivityMs()).isEqualTo(1716_300_000_000L);
-        assertThat(defaultCard.memory().decisionCount()).isEqualTo(1);
-        assertThat(defaultCard.memory().blockerCount()).isEqualTo(1);
-        assertThat(defaultCard.color()).isNotBlank();
-
-        // Scratch workspaces skip the aggregate query and zero everything
-        // out; the card renders the "throwaway · no durable memory" copy.
-        WorkspaceCardDto scratchCard = cards.get(1);
-        assertThat(scratchCard.isScratch()).isTrue();
-        assertThat(scratchCard.activeThreadCount()).isZero();
-        assertThat(scratchCard.tasksInFlight()).isZero();
-        assertThat(scratchCard.spendTodayMilliUsd()).isZero();
-        assertThat(scratchCard.needsAttentionCount()).isZero();
-        assertThat(scratchCard.lastActivityMs()).isNull();
-        verify(store, never()).fetchStats(eq("ws-scratch"), anyLong());
+        WorkspaceCardDto card = cards.getFirst();
+        assertThat(card.id()).isEqualTo("ws-bytequay");
+        assertThat(card.name()).isEqualTo("chenjian2664/bytequay");
+        assertThat(card.isScratch()).isFalse();
+        assertThat(card.repos()).containsExactly("bytequay");
+        assertThat(card.activeThreadCount()).isEqualTo(3);
+        assertThat(card.tasksInFlight()).isEqualTo(2);
+        assertThat(card.needsAttentionCount()).isEqualTo(1);
+        assertThat(card.spendTodayMilliUsd()).isEqualTo(1840L);
+        assertThat(card.lastActivityMs()).isEqualTo(1716_300_000_000L);
+        assertThat(card.memory().decisionCount()).isEqualTo(1);
+        assertThat(card.memory().blockerCount()).isEqualTo(1);
+        assertThat(card.color()).isNotBlank();
     }
 
     @Test
@@ -282,86 +267,45 @@ class TestWorkspaceService
     }
 
     @Test
-    void createDerivesIdFromTheDisplayNameWhenNoSlugProvided()
+    void createRequiresExactlyOneVerifiedLocalClone()
     {
-        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
-
-        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
-                "ByteQuay", null, false, "", List.of()));
-
-        assertThat(created.id()).isEqualTo("ws-bytequay");
-        assertThat(created.name()).isEqualTo("ByteQuay");
+        assertThatThrownBy(() -> service.create(new WorkspaceService.NewWorkspaceRequest(
+                "ignored", null, false, "", List.of())))
+                .hasMessageContaining("exactly one locally cloned repository");
     }
 
     @Test
-    void createUsesAnExplicitSlugWhenProvided()
+    void ensureForVerifiedCloneCreatesOneWorkspaceNamedForItsRepository()
     {
+        WatchedRepo watched = new WatchedRepo(1, "acme", "widgets", 0,
+                System.getProperty("java.io.tmpdir"), null, null);
+        when(watchedRepos.find("acme", "widgets")).thenReturn(Optional.of(watched));
+        when(store.listWorkspaces()).thenReturn(List.of());
         when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
 
-        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
-                "ByteQuay — daily review app",
-                "bq", false, "", List.of()));
+        Workspace created = service.ensureForVerifiedClone("acme", "widgets");
 
-        assertThat(created.id()).isEqualTo("ws-bq");
-        // Display name is preserved verbatim — slug is independent of name.
-        assertThat(created.name()).isEqualTo("ByteQuay — daily review app");
+        assertThat(created.name()).isEqualTo("acme/widgets");
+        ArgumentCaptor<WorkspaceRepo> repo = ArgumentCaptor.forClass(WorkspaceRepo.class);
+        verify(store).addRepo(repo.capture());
+        assertThat(repo.getValue().repoFullName()).isEqualTo("acme/widgets");
     }
 
     @Test
-    void createStripsAUserSuppliedWsPrefix()
+    void ensureForVerifiedCloneReusesTheRepositoryWorkspace()
     {
-        // Users sometimes paste "ws-bytequay" into the slug field; we
-        // strip the prefix so the final id doesn't become "ws-ws-bytequay".
-        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+        WatchedRepo watched = new WatchedRepo(1, "acme", "widgets", 0,
+                System.getProperty("java.io.tmpdir"), null, null);
+        Workspace existing = workspace("ws-widgets", "acme/widgets");
+        when(watchedRepos.find("acme", "widgets")).thenReturn(Optional.of(watched));
+        when(store.listWorkspaces()).thenReturn(List.of(existing));
+        when(store.listRepos("ws-widgets")).thenReturn(List.of(
+                new WorkspaceRepo("ws-widgets", "acme/widgets", null, false, Instant.EPOCH)));
 
-        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
-                "ByteQuay", "ws-bytequay", false, "", List.of()));
+        Workspace ensured = service.ensureForVerifiedClone("acme", "widgets");
 
-        assertThat(created.id()).isEqualTo("ws-bytequay");
-    }
-
-    @Test
-    void createAppendsACounterSuffixOnSlugCollision()
-    {
-        // ws-bytequay is taken; next free slot is ws-bytequay-2.
-        when(store.findWorkspaceById("ws-bytequay")).thenReturn(
-                Optional.of(workspace("ws-bytequay", "ByteQuay")));
-        when(store.findWorkspaceById(startsWith("ws-bytequay-"))).thenReturn(Optional.empty());
-
-        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
-                "ByteQuay", null, false, "", List.of()));
-
-        assertThat(created.id()).isEqualTo("ws-bytequay-2");
-    }
-
-    @Test
-    void createFallsBackToARandomSlugWhenTheNameIsUnsluggable()
-    {
-        // Name slugs to "" so the service appends a short UUID stub —
-        // the workspace can still be created but the id is opaque.
-        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
-
-        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
-                "!!!", null, false, "", List.of()));
-
-        assertThat(created.id()).startsWith("ws-space-");
-        // 6-char base16 stub.
-        assertThat(created.id()).hasSize("ws-space-".length() + 6);
-    }
-
-    @Test
-    void createNormalisesAUserSuppliedSlugWithOutOfAlphabetChars()
-    {
-        // Uppercase + underscore + camelCase get normalised through the
-        // same deriver the name path uses, rather than rejected outright.
-        // The dialog shows the resulting slug live so the user sees what
-        // they're committing to.
-        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
-
-        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
-                "ByteQuay", "BadSlug_123", false, "", List.of()));
-
-        assertThat(created.id()).isEqualTo("ws-badslug-123");
+        assertThat(ensured).isEqualTo(existing);
+        verify(store, never()).saveWorkspace(any());
     }
 
     // ── cascade delete ──────────────────────────────────────────────

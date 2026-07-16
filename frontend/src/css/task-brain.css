@@ -920,7 +920,7 @@
 /* The task page embeds PRView in a clipped split pane. Keep the marker and
    avatar inside that pane while using the compact left gutter. */
 .task-brain .shell .pr-body-scroll:not(.pr-body-scroll--changes) { padding-left: 14px; padding-right: 20px; }
-.task-brain .shell .pr-merge-shell { width: 100%; max-width: none; margin-left: 0; padding-left: 52px; }
+.task-brain .shell .pr-merge-shell { width: 100%; max-width: none; margin-left: 0; padding-left: 44px; }
 .task-brain .shell .pr-merge-shell .mb-branch-icon { left: 0; }
 .task-brain .shell .pr-comment-composer { width: 100%; max-width: none; margin-left: 0; padding-left: 52px; gap: 0; }
 .task-brain .shell .pr-comment-composer__avatar { position: absolute; left: 0; margin: 0; }

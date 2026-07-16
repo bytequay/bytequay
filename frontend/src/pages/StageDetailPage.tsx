@@ -95,9 +95,8 @@ export function StageDetailPage({
    *  draft's CI is green and the mark-ready gate is parked — clicking it
    *  opens the Changes tab. */
   markReadyReminder?: boolean;
-  /** Submits the reviewer's comment + verdict (from the Submit-review
-   *  drawer), plus any unresolved comments on this stage's diff, to the dev
-   *  agent as a steering turn. Undefined hides the top-bar button. */
+  /** Publishes the reviewer's comment + verdict (from the Submit-review
+   *  drawer), plus unresolved comments on this stage's diff, to GitHub. */
   onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
   submittingReview?: boolean;
   /** Draft comments the drawer lists so the reviewer sees exactly what a
@@ -262,8 +261,8 @@ export function StageDetailPage({
           pendingComments={pendingReviewComments}
           onRemovePending={onRemovePendingReviewComment}
           onClose={() => setSubmitReviewOpen(false)}
-          onSubmit={(body, verdict) => {
-            onSubmitReview(body, verdict);
+          onSubmit={async (body, verdict) => {
+            await onSubmitReview(body, verdict);
             setSubmitReviewOpen(false);
           }}
         />

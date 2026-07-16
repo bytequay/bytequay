@@ -500,8 +500,8 @@ export function LocalPrReviewScreen({
           pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment, reviewData))}
           onRemovePending={onDismissComment}
           onClose={() => setSubmitReviewOpen(false)}
-          onSubmit={(body, verdict) => {
-            onSubmitReview(body, verdict);
+          onSubmit={async (body, verdict) => {
+            await onSubmitReview(body, verdict);
             setSubmitReviewOpen(false);
           }}
         />

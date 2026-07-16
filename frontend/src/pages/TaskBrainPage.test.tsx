@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TaskBrainPage } from './TaskBrainPage';
 
@@ -103,7 +103,7 @@ describe('TaskBrainPage', () => {
     expect(screen.queryByText('Mark ready for review')).toBeNull();
   });
 
-  it('the top-bar Submit review button opens the drawer; submitting it fires onSubmitReview', () => {
+  it('the top-bar Submit review button opens the drawer; submitting it fires onSubmitReview', async () => {
     renderBrain();
     expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();
     const onSubmitReview = vi.fn();
@@ -112,6 +112,6 @@ describe('TaskBrainPage', () => {
     const dialog = screen.getByRole('dialog', { name: 'Submit review' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Submit review' }));
     expect(onSubmitReview).toHaveBeenCalledWith('', 'COMMENT');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

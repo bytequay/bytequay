@@ -84,14 +84,24 @@ export function useExternalPrActions(owner: string, repo: string, number: number
       .catch(() => { /* poll reconciles */ });
   }, [localPr, refresh]);
 
-  const publishReview = useCallback(() => {
-    if (localPr === null) return;
+  const publishReview = useCallback(async (
+    verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES' = 'COMMENT', body?: string,
+  ) => {
+    if (localPr === null) throw new Error('Pull request is not loaded.');
     setPublishBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.publishLocalPrReview(localPr.id)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ })
-      .finally(() => setPublishBusy(false));
+    if (bridge === undefined) {
+      setPublishBusy(false);
+      throw new Error('Desktop bridge is unavailable.');
+    }
+    try {
+      await bridge.publishLocalPrReview(localPr.id, {
+        verdict, findingIds: [], comments: [], body: body ?? null,
+      });
+      refresh();
+    } finally {
+      setPublishBusy(false);
+    }
   }, [localPr, refresh]);
 
   const addLocalLineComment = useCallback((

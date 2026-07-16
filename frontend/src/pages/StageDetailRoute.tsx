@@ -142,17 +142,18 @@ export function StageDetailRoute({
     runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
-  // Bundles the Submit-review drawer's body/verdict, plus this task's
-  // unresolved diff comments, into a steering turn for the dev agent — same
-  // action as TaskCodePage's embedded "Submit review" button, surfaced here
-  // in the top bar too.
+  // Publishes the Submit-review drawer's body/verdict and this task's
+  // unresolved diff comments to GitHub — the same action as TaskCodePage's
+  // embedded "Submit review" button, surfaced here in the top bar too.
   const [submittingReview, setSubmittingReview] = useState(false);
-  const onSubmitReview = useCallback((body: string, verdict: ReviewVerdict) => {
+  const onSubmitReview = useCallback(async (body: string, verdict: ReviewVerdict) => {
     setSubmittingReview(true);
-    window.bridge.submitReview(taskId, { body, verdict })
-      .then(() => pollFast())
-      .catch(() => { /* poll reconciles */ })
-      .finally(() => setSubmittingReview(false));
+    try {
+      await window.bridge.submitReview(taskId, { body, verdict });
+      pollFast();
+    } finally {
+      setSubmittingReview(false);
+    }
   }, [taskId, pollFast]);
   const submitAgentFindingsToTask = useCallback(async (verdict: ReviewVerdict, comments: Array<{ body: string }>) => {
     await window.bridge.submitReview(taskId, {

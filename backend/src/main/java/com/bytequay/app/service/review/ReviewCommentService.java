@@ -28,9 +28,8 @@ import java.util.UUID;
  */
 public interface ReviewCommentService
 {
-    /** The handle {@link #submitReview} returns: how many unresolved
-     *  local comments were bundled into the steering turn, and the
-     *  enqueued turn id (null when there was nothing to submit). */
+    /** The handle {@link #submitReview} returns: how many unresolved local
+     *  comments were published. The turn id remains null for compatibility. */
     record SubmitResult(int submitted, String turnId) {}
 
     /** Add a new user-authored local PR comment on {@code taskId}'s diff at

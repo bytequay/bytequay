@@ -338,7 +338,8 @@ public class PRController
         String verdict = body == null ? "COMMENT" : body.verdict();
         List<String> findingIds = body == null ? null : body.findingIds();
         List<String> commentIds = body == null ? null : body.comments();
-        PR published = publish.publishReview(prId, verdict, findingIds, commentIds);
+        String reviewBody = body == null ? null : body.body();
+        PR published = publish.publishReview(prId, verdict, findingIds, commentIds, reviewBody);
         investigationReviews.recordPublished(prId, verdict, findingIds, commentIds);
         if (!PR.ORIGIN_EXTERNAL.equals(published.origin())) {
             return PRDto.from(published);
@@ -348,7 +349,7 @@ public class PRController
     }
 
     public record PublishReviewRequest(
-            String verdict, List<String> findingIds, List<String> comments) {}
+            String verdict, List<String> findingIds, List<String> comments, String body) {}
 
     @PatchMapping("/api/prs/{prId}")
     public PRDto update(@PathVariable String prId, @RequestBody(required = false) UpdatePRRequest body)

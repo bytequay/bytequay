@@ -979,7 +979,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('pr:postRemoteComment', prId, body),
   publishLocalPrReview: (
     prId: string,
-    body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[] },
+    body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[]; body?: string | null },
   ) => ipcRenderer.invoke('pr:publishReview', prId, body),
   getAgentReview: (prId: string) => ipcRenderer.invoke('agentReview:get', prId),
   startAgentReview: (

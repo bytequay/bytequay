@@ -714,7 +714,23 @@ class TestPRPublishService
     }
 
     @Test
-    void publishReviewMarksTaskOriginDraftsSubmittedWithoutCallingGitHub()
+    void publishReviewIncludesTheOverallReviewBody()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        when(prService.comments("pr-ext")).thenReturn(List.of());
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr-ext", "APPROVE", List.of(), List.of(), "Looks good to me.");
+
+        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
+        verify(pullRequests).createReview(
+                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
+        assertThat(command.getValue().event()).isEqualTo("APPROVE");
+        assertThat(command.getValue().body()).contains("Looks good to me.");
+    }
+
+    @Test
+    void publishReviewRejectsTaskPrWithoutARemoteIdentity()
     {
         when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
         PRComment local = new PRComment(
@@ -723,9 +739,11 @@ class TestPRPublishService
                 null, null, null, null, null, "RIGHT", null, null);
         when(prService.comments("pr1")).thenReturn(List.of(local));
 
-        service.publishReview("pr1");
+        assertThatThrownBy(() -> service.publishReview("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no remote identity");
 
-        verify(prService).markPublished(eq("cm-task"), any());
+        verify(prService, never()).markPublished(eq("cm-task"), any());
         verify(pullRequests, never()).createReview(any(), any(), any());
     }
 

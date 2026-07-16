@@ -36,8 +36,8 @@ import static java.util.Objects.requireNonNull;
  * user leaves inline comments before the branch is pushed
  * ({@code POST /api/tasks/{taskId}/review-comments}), the diff page lists
  * them, resolve/reopen flip a single comment, and
- * {@code POST /api/tasks/{taskId}/submit-review} hands the unresolved set to
- * the task's dev agent as a steering turn.
+ * {@code POST /api/tasks/{taskId}/submit-review} publishes the selected
+ * comments and verdict to the task's remote GitHub pull request.
  */
 @RestController
 public class ReviewCommentController

@@ -1073,6 +1073,16 @@
   flex-direction: column;
   gap: 2px;
 }
+.submit-review-drawer__error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-border, #cf222e);
+  border-radius: 7px;
+  color: var(--danger-text, #cf222e);
+  background: var(--danger-bg, #ffebe9);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .submit-review-verdict {
   display: flex;
   align-items: flex-start;

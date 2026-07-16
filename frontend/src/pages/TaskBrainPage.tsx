@@ -90,9 +90,8 @@ export function TaskBrainPage({
   markReadyReminder?: boolean;
   onOpenMarkReady?: () => void;
   onOpenCi?: () => void;
-  /** Submits the reviewer's comment + verdict (from the Submit-review
-   *  drawer), plus any unresolved comments on the task's diff, to the dev
-   *  agent as a steering turn. Undefined hides the top-bar button. */
+  /** Publishes the reviewer's comment + verdict (from the Submit-review
+   *  drawer), plus unresolved comments on the task's diff, to GitHub. */
   onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
   submittingReview?: boolean;
   /** Draft comments the drawer lists so the reviewer sees exactly what a
@@ -262,12 +261,12 @@ export function TaskBrainPage({
             open={submitReviewOpen}
             submitting={submittingReview}
             pendingComments={pendingReviewComments}
-            onRemovePending={onRemovePendingReviewComment}
-            onClose={() => setSubmitReviewOpen(false)}
-            onSubmit={(body, verdict) => {
-              onSubmitReview(body, verdict);
-              setSubmitReviewOpen(false);
-            }}
+          onRemovePending={onRemovePendingReviewComment}
+          onClose={() => setSubmitReviewOpen(false)}
+          onSubmit={async (body, verdict) => {
+            await onSubmitReview(body, verdict);
+            setSubmitReviewOpen(false);
+          }}
           />
         )}
       </Shell>

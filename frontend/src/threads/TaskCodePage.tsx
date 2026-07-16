@@ -359,12 +359,14 @@ export default function TaskCodePage({
   // fixes for the PR diff page, mirrored here with its own drawer instance.
   const [localSubmitOpen, setLocalSubmitOpen] = useState(false);
   const [localSubmitting, setLocalSubmitting] = useState(false);
-  const submitLocalReview = useCallback((body: string, verdict: ReviewVerdict) => {
+  const submitLocalReview = useCallback(async (body: string, verdict: ReviewVerdict) => {
     setLocalSubmitting(true);
-    window.bridge.submitReview(taskId, { body, verdict })
-      .then(() => refreshLocalPr())
-      .catch(() => { /* poll reconciles */ })
-      .finally(() => setLocalSubmitting(false));
+    try {
+      await window.bridge.submitReview(taskId, { body, verdict });
+      refreshLocalPr();
+    } finally {
+      setLocalSubmitting(false);
+    }
   }, [taskId, refreshLocalPr]);
   // Only the PR-opening gates carry a title/body to review + edit. A bare
   // `push` gate pushes the branch; the agent opens the PR (with its
@@ -502,7 +504,7 @@ export default function TaskCodePage({
       const { submitted } = await window.bridge.submitReview(taskId);
       setActionNote(submitted === 0
         ? 'No unresolved comments to submit.'
-        : `Submitted ${submitted} comment${submitted === 1 ? '' : 's'} to the agent.`);
+        : `Published ${submitted} comment${submitted === 1 ? '' : 's'} to GitHub.`);
       await refreshComments();
     }
     catch (e) { setActionNote(e instanceof Error ? e.message : String(e)); }
@@ -755,8 +757,8 @@ export default function TaskCodePage({
             pendingComments={localPendingComments}
             onRemovePending={deleteLocalComment}
             onClose={() => setLocalSubmitOpen(false)}
-            onSubmit={(body, verdict) => {
-              submitLocalReview(body, verdict);
+            onSubmit={async (body, verdict) => {
+              await submitLocalReview(body, verdict);
               setLocalSubmitOpen(false);
             }}
           />

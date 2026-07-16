@@ -26,10 +26,8 @@ const VERDICT_OPTIONS: Array<{ value: ReviewVerdict; label: string; desc: string
 /**
  * Right-side drawer for submitting a review on the task's own diff — a
  * top-level comment plus a verdict, mirroring github.com's "Finish your
- * review" panel. There's no GitHub API call here: the body/verdict are
- * folded into the same steering-turn message {@code submitReview} already
- * sends the dev agent (see StageDetailRoute/TaskBrainRoute), alongside any
- * unresolved local line comments.
+ * review" panel. It sends the selected verdict, overall body, and unresolved
+ * local line comments to GitHub as one review.
  */
 export function SubmitReviewDrawer({
   open, submitting = false, onClose, onSubmit, pendingComments = [], onRemovePending,
@@ -37,7 +35,7 @@ export function SubmitReviewDrawer({
   open: boolean;
   submitting?: boolean;
   onClose: () => void;
-  onSubmit: (body: string, verdict: ReviewVerdict) => void;
+  onSubmit: (body: string, verdict: ReviewVerdict) => void | Promise<void>;
   /** Draft comments not yet published — shown above the overall body so the
    *  reviewer sees exactly what this submission will send, and can drop one
    *  before submitting. Omit where no draft-comment source is wired up. */
@@ -46,6 +44,7 @@ export function SubmitReviewDrawer({
 }) {
   const [body, setBody] = useState('');
   const [verdict, setVerdict] = useState<ReviewVerdict>('COMMENT');
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -57,8 +56,17 @@ export function SubmitReviewDrawer({
   // Fresh draft each time the drawer opens, so a prior submission's text
   // doesn't linger the next time it's reopened.
   useEffect(() => {
-    if (open) { setBody(''); setVerdict('COMMENT'); }
+    if (open) { setBody(''); setVerdict('COMMENT'); setSubmitError(null); }
   }, [open]);
+
+  const submit = async () => {
+    setSubmitError(null);
+    try {
+      await onSubmit(body, verdict);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Could not submit the review.');
+    }
+  };
 
   if (!open) return null;
   return (
@@ -111,6 +119,7 @@ export function SubmitReviewDrawer({
             </label>
           ))}
         </div>
+        {submitError !== null && <p className="submit-review-drawer__error" role="alert">{submitError}</p>}
         <div className="submit-review-drawer__foot">
           <button type="button" className="submit-review-drawer__cancel" onClick={onClose} disabled={submitting}>
             Cancel
@@ -118,7 +127,7 @@ export function SubmitReviewDrawer({
           <button
             type="button"
             className="submit-review-drawer__submit"
-            onClick={() => onSubmit(body, verdict)}
+            onClick={() => { void submit(); }}
             disabled={submitting}
           >
             {submitting ? 'Submitting…' : 'Submit review'}

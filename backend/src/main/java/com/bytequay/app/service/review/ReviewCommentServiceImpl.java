@@ -17,21 +17,16 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
-import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.stage.StageSteeringService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,22 +38,22 @@ public class ReviewCommentServiceImpl
         implements ReviewCommentService
 {
     private final StageStore stageStore;
-    private final StageSteeringService steering;
     private final ReviewRoundService reviewRounds;
     private final PRService prService;
+    private final PRPublishService publish;
     private final TaskStore taskStore;
 
     public ReviewCommentServiceImpl(
             StageStore stageStore,
-            StageSteeringService steering,
             ReviewRoundService reviewRounds,
             PRService prService,
+            PRPublishService publish,
             TaskStore taskStore)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
-        this.steering = requireNonNull(steering, "steering is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.prService = requireNonNull(prService, "prService is null");
+        this.publish = requireNonNull(publish, "publish is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
@@ -160,37 +155,22 @@ public class ReviewCommentServiceImpl
             throw status(400, "taskId is required");
         }
         String bodyValue = nullToEmpty(body).strip();
-        PR pr = prService.findByTask(taskIdValue).orElse(null);
-        List<PRComment> unresolved = pr == null ? List.of() : prService.comments(pr.id()).stream()
+        PR pr = prService.findByTask(taskIdValue)
+                .orElseThrow(() -> status(409, "task " + taskIdValue + " has no pull request to review"));
+        List<PRComment> unresolved = prService.comments(pr.id()).stream()
                 .filter(ReviewCommentServiceImpl::isOpenUserComment)
                 .toList();
-        if (unresolved.isEmpty() && bodyValue.isEmpty()) {
+        String event = switch (nullToEmpty(verdict).strip()) {
+            case "APPROVE" -> "APPROVE";
+            case "REQUEST_CHANGES" -> "REQUEST_CHANGES";
+            default -> "COMMENT";
+        };
+        if (unresolved.isEmpty() && bodyValue.isEmpty() && !"APPROVE".equals(event)) {
             return new SubmitResult(0, null);
         }
-        UUID devStageId = activeDevelopmentStage(taskIdValue)
-                .orElseThrow(() -> status(422, "no active development stage for task " + taskIdValue))
-                .id();
-        String text = formatTurn(bodyValue, verdict, unresolved);
-        StageSteeringService.SteerResult result = steering.steer(devStageId, text, null);
-        newestCreatedAt(unresolved).ifPresent(through -> prService.markLocalAddressed(pr.id(), through));
-        return new SubmitResult(unresolved.size(), result.turnId());
-    }
-
-    /** The latest OPEN/ACTIVE {@code DEVELOPMENT_STAGE} for the task — the
-     *  one whose dev agent is still implementing and so can act on the
-     *  comments before the branch is pushed. */
-    private Optional<StageInstance> activeDevelopmentStage(String taskId)
-    {
-        StageInstance found = null;
-        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
-            if (stage.type() == StageType.DEVELOPMENT_STAGE
-                    && (stage.state() == StageState.OPEN || stage.state() == StageState.ACTIVE)) {
-                // findStagesByTask is oldest-first; keep walking so we land
-                // on the most recent open dev stage.
-                found = stage;
-            }
-        }
-        return Optional.ofNullable(found);
+        publish.publishReview(pr.id(), event, List.of(),
+                unresolved.stream().map(PRComment::id).toList(), bodyValue);
+        return new SubmitResult(unresolved.size(), null);
     }
 
     private PR localPrForTask(String taskId)
@@ -216,50 +196,6 @@ public class ReviewCommentServiceImpl
                 && comment.parentCommentId() == null
                 && comment.resolvedAt() == null
                 && comment.dismissedAt() == null;
-    }
-
-    private static Optional<Instant> newestCreatedAt(List<PRComment> comments)
-    {
-        return comments.stream()
-                .map(PRComment::createdAt)
-                .filter(Objects::nonNull)
-                .max(Instant::compareTo);
-    }
-
-    private static String formatTurn(String body, String verdict, List<PRComment> comments)
-    {
-        StringBuilder sb = new StringBuilder();
-        String verdictValue = nullToEmpty(verdict).strip();
-        if (!verdictValue.isEmpty()) {
-            sb.append("Review verdict: ").append(verdictLabel(verdictValue)).append('\n');
-        }
-        if (!body.isEmpty()) {
-            sb.append(body).append('\n');
-        }
-        if (!comments.isEmpty()) {
-            if (sb.length() > 0) {
-                sb.append('\n');
-            }
-            sb.append("Address these review comments before shipping:\n");
-            for (PRComment c : comments) {
-                sb.append("- ").append(c.id()).append(" `")
-                        .append(c.filePath()).append(':').append(c.lineNumber()).append("` - ")
-                        .append(c.body().strip()).append('\n');
-            }
-            sb.append("\nMark each one resolved with the resolve_review_comment tool "
-                    + "once you've addressed it in the code.\n");
-        }
-        return sb.toString();
-    }
-
-    /** Maps raw verdict strings to agent-facing labels. */
-    private static String verdictLabel(String verdict)
-    {
-        return switch (verdict) {
-            case "APPROVE" -> "Approve";
-            case "REQUEST_CHANGES" -> "Request changes";
-            default -> "Comment";
-        };
     }
 
     private static ResponseStatusException status(int code, String message)

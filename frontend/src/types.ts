@@ -3644,10 +3644,9 @@ export type Bridge = {
   resolveReviewComment: (id: string) => Promise<void>;
   /** Re-open a resolved review comment. */
   reopenReviewComment: (id: string) => Promise<void>;
-  /** Submit the task's unresolved local review comments — plus an optional
-   *  top-level body and verdict from the Submit-review drawer — to its dev
-   *  agent as a steering turn. Returns how many comments were submitted and
-   *  the enqueued turn id (null when there was nothing to submit). */
+  /** Publish the task's unresolved local review comments — plus an optional
+   *  top-level body and verdict from the Submit-review drawer — to GitHub.
+   *  Returns how many comments were submitted; turnId is always null. */
   submitReview: (
     taskId: string,
     payload?: { body?: string; verdict?: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' },
@@ -4021,7 +4020,7 @@ export type Bridge = {
    *  (external PRs only — see {@code PRCapabilities.publishReview}). */
   publishLocalPrReview: (
     prId: string,
-    body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[] },
+    body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[]; body?: string | null },
   ) => Promise<LocalPR>;
   /** Persisted investigation-review aggregate; null means this PR has never
    *  been reviewed. Every review surface consumes this exact payload. */

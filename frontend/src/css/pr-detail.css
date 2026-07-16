@@ -1418,6 +1418,8 @@ button.prc-branches__ref--clickable:hover {
    a final action rather than part of the composer chrome. */
 .prc-review-thread__resolve-row {
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin-top: 2px;
 }
 
@@ -1491,6 +1493,14 @@ button.prc-branches__ref--clickable:hover {
   color: #b45309;
   border-color: rgba(212, 160, 23, 0.4);
 }
+.prc-review-thread__promote-btn[aria-pressed="true"] {
+  color: #0969da;
+  border-color: rgba(9, 105, 218, 0.35);
+  background: rgba(9, 105, 218, 0.06);
+}
+.prc-review-thread__discard-btn { margin-left: auto; }
+.prc-comment-role--local { color: var(--text-2); background: var(--bg-input); }
+.prc-comment-role--queued { color: #0969da; border-color: rgba(9, 105, 218, 0.28); background: rgba(9, 105, 218, 0.06); }
 .prc-review-thread__outdated-pill {
   font-size: 9.5px;
   font-weight: 700;
@@ -2464,6 +2474,5 @@ button.prc-branches__ref--clickable:hover {
   flex: 1;
   min-width: 0;
 }
-
 
 

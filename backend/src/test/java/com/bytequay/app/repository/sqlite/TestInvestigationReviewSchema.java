@@ -22,7 +22,9 @@ import com.bytequay.app.domain.InvestigationReviewData.InvestigationStepRow;
 import com.bytequay.app.domain.InvestigationReviewData.ObservationRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewAssignmentRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundMessageRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewedCommitRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.domain.PR;
@@ -60,6 +62,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -94,6 +97,7 @@ class TestInvestigationReviewSchema
     void persistsTheFrozenTraceabilityChainAndDetachedPanelRun()
             throws Exception
     {
+        long spendBefore = reviews.sumRoundCostCentsSince(Instant.EPOCH);
         String prId = UUID.randomUUID().toString();
         prs.save(PR.createExternal(
                 prId, "acme/widget", 7, "https://example.test/7", "octocat",
@@ -184,14 +188,64 @@ class TestInvestigationReviewSchema
             assertThat(cancelled.status()).isEqualTo("CANCELLED");
             assertThat(cancelled.costCents()).isEqualTo(7);
         });
-        assertThat(reviews.sumRoundCostCentsSince(Instant.EPOCH)).isEqualTo(7);
+        assertThat(reviews.sumRoundCostCentsSince(Instant.EPOCH)).isEqualTo(spendBefore + 7);
         assertThat(reviews.agentReviewSpend(
-                Instant.EPOCH, Instant.now().plusSeconds(60))).singleElement().satisfies(spend -> {
+                Instant.EPOCH, Instant.now().plusSeconds(60))).anySatisfy(spend -> {
                     assertThat(spend.provider()).isEqualTo("agent-review");
                     assertThat(spend.costMilli()).isEqualTo(70L);
                     assertThat(spend.calls()).isEqualTo(1L);
                 });
+        reviews.markRoundFinalized(roundId);
         assertThat(reviews.dashboardStates()).containsEntry(prId, "done");
+    }
+
+    @Test
+    void atomicallyQueuesRoundsUntilTheEarlierLifecycleIsFinalized()
+    {
+        String prId = UUID.randomUUID().toString();
+        String reviewId = UUID.randomUUID().toString();
+        prs.save(PR.createExternal(
+                prId, "acme/queue-" + prId, 17, "https://example.test/17", "octocat",
+                "feature", "main", "Serialize review rounds", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        reviews.insertReview(new AgentReviewRow(
+                reviewId, "acme/widget", prId, "base", "head", "ACTIVE",
+                null, null, null), Instant.now());
+        String firstRun = insertRun();
+        String secondRun = insertRun();
+        ReviewRoundRow first = reviews.insertLiveRound(new ReviewRoundRow(
+                UUID.randomUUID().toString(), reviewId, firstRun, "continuation", "delta",
+                "head", null, "RUNNING", new RoundBudget(100, 10), 0), Instant.now());
+        ReviewRoundRow second = reviews.insertLiveRound(new ReviewRoundRow(
+                UUID.randomUUID().toString(), reviewId, secondRun, "continuation", "delta",
+                "head", null, "RUNNING", new RoundBudget(100, 10), 0), Instant.now());
+
+        assertThat(first.status()).isEqualTo("RUNNING");
+        assertThat(second.status()).isEqualTo("QUEUED");
+        assertThat(reviews.dashboardStates()).containsEntry(prId, "running");
+        assertThat(prs.hasRunningAgentReview(prId)).isTrue();
+        assertThat(reviews.queuedRoundCanStart(second.id())).isFalse();
+
+        assertThat(reviews.finishRunningRound(first.id(), "COMPLETED", "head", 25)).isTrue();
+        assertThat(reviews.queuedRoundCanStart(second.id())).isFalse();
+        assertThat(reviews.startQueuedRound(second.id())).isFalse();
+        reviews.markRoundFinalized(first.id());
+        assertThat(reviews.queuedRoundCanStart(second.id())).isTrue();
+        assertThat(reviews.startQueuedRound(second.id())).isTrue();
+        assertThat(reviews.queuedRoundCanStart(second.id())).isFalse();
+
+        String assignmentId = UUID.randomUUID().toString();
+        reviews.insertAssignment(new ReviewAssignmentRow(
+                assignmentId, second.id(), "general-api", "api", "investigating", "",
+                List.of(), List.of(), new AssignmentBudget(6, 3, 12, 5)));
+        reviews.settleRoundCost(second.id(), 40);
+        assertThat(reviews.cancelLiveRound(second.id(), 5)).isTrue();
+        assertThat(reviews.findRound(second.id())).get()
+                .extracting(ReviewRoundRow::costCents).isEqualTo(40);
+        assertThat(reviews.assignments(reviewId)).filteredOn(row -> row.id().equals(assignmentId))
+                .singleElement().extracting(ReviewAssignmentRow::status).isEqualTo("cancelled");
+        reviews.markRoundFinalized(second.id());
+        assertThat(prs.hasRunningAgentReview(prId)).isFalse();
     }
 
     @Test
@@ -232,6 +286,60 @@ class TestInvestigationReviewSchema
                 prId, new StartOptions(null, null, null)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("workspaceId is required");
+    }
+
+    @Test
+    void resolvingAndReopeningAFindingKeepsItsLocalCommentInSync()
+    {
+        String prId = UUID.randomUUID().toString();
+        String reviewId = UUID.randomUUID().toString();
+        String roundId = UUID.randomUUID().toString();
+        String runId = insertRun();
+        String criterionId = UUID.randomUUID().toString();
+        String objectiveId = UUID.randomUUID().toString();
+        String findingId = UUID.randomUUID().toString();
+        prs.save(PR.createExternal(
+                prId, "acme/lifecycle-" + prId, 18, "https://example.test/18", "octocat",
+                "feature", "main", "Synchronize review state", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        reviews.insertReview(new AgentReviewRow(
+                reviewId, "acme/widget", prId, "base", "head", "ACTIVE",
+                null, null, null), Instant.now());
+        reviews.insertRound(new ReviewRoundRow(
+                roundId, reviewId, runId, "initial", "full", "head", "head",
+                "COMPLETED", new RoundBudget(50, 10), 1), Instant.now());
+        reviews.insertCriterion(new CriterionRow(
+                criterionId, "acme/widget", "hard-invariant", "Preserve behavior", "test", null));
+        reviews.insertObjective(new ReviewObjectiveRow(
+                objectiveId, roundId, criterionId, "Preserve behavior", "test", "applicable", "finding"));
+        reviews.insertFinding(new FindingRow(
+                findingId, reviewId, roundId, objectiveId, null, "hard-invariant",
+                "The behavior regressed", 3, "VERIFIED", "verified",
+                "Restore it", "included", "head"));
+        PRComment root = localPrs.addComment(
+                prId, PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, "agent", "Finding", null);
+        localPrs.attachFinding(root.id(), findingId);
+
+        investigationReviews.mutateFinding(
+                findingId, new InvestigationReviewService.FindingMutation("resolve", null));
+
+        assertThat(reviews.findFinding(findingId)).get()
+                .extracting(FindingRow::lifecycleStatus).isEqualTo("resolved");
+        assertThat(prs.commentsFor(prId)).singleElement().satisfies(comment -> {
+            assertThat(comment.resolvedAt()).isNotNull();
+            assertThat(comment.dismissedAt()).isNull();
+        });
+
+        investigationReviews.mutateFinding(
+                findingId, new InvestigationReviewService.FindingMutation("reopen", null));
+
+        assertThat(reviews.findFinding(findingId)).get()
+                .extracting(FindingRow::lifecycleStatus).isEqualTo("open");
+        assertThat(prs.commentsFor(prId)).singleElement().satisfies(comment -> {
+            assertThat(comment.resolvedAt()).isNull();
+            assertThat(comment.dismissedAt()).isNull();
+        });
     }
 
     @Test
@@ -354,7 +462,154 @@ class TestInvestigationReviewSchema
         assertThat(jdbc.query("PRAGMA table_info(review_session)", (rs, row) -> rs.getString("name")))
                 .contains("workspace_id", "owner_thread_id", "owner_task_id");
         assertThat(jdbc.query("PRAGMA table_info(review_round)", (rs, row) -> rs.getString("name")))
-                .contains("capabilities_json", "trigger_stage_id");
+                .contains("capabilities_json", "trigger_stage_id", "message_gate_open");
+        assertThat(jdbc.queryForList("""
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name IN ('review_round_message', 'review_round_commit')
+                """, String.class))
+                .containsExactlyInAnyOrder("review_round_message", "review_round_commit");
+        assertThat(jdbc.query("PRAGMA table_info(review_round_message)",
+                (rs, row) -> rs.getString("name"))).contains("assignment_id");
+    }
+
+    @Test
+    void persistsRoundGuidanceAndCommitsWithoutLosingFinishRaces()
+    {
+        RunningRound running = insertRunningRound();
+        reviews.insertReviewedCommit(new ReviewedCommitRow(
+                running.roundId(), "commit-a", "First relevant change", 0));
+        reviews.insertReviewedCommit(new ReviewedCommitRow(
+                running.roundId(), "commit-b", "Second relevant change", 1));
+        ReviewRoundMessageRow message = new ReviewRoundMessageRow(
+                UUID.randomUUID().toString(), running.roundId(), "panel", "you",
+                "Check the retry boundary", "pending", null, 10L, null);
+
+        assertThat(reviews.insertPendingRoundMessage(message)).isTrue();
+        assertThat(reviews.closeMessageGateIfDrained(running.roundId())).isFalse();
+        assertThat(reviews.finishRunningRound(
+                running.roundId(), "COMPLETED", "head", 3)).isFalse();
+        assertThat(reviews.claimRoundMessage(message.id())).isTrue();
+        String guidanceAssignmentId = reviews.assignments(running.reviewId()).get(0).id();
+        assertThat(reviews.linkRoundMessageAssignment(
+                message.id(), guidanceAssignmentId)).isTrue();
+        assertThat(reviews.completeRoundMessage(
+                message.id(), "completed", "Boundary checked.", Instant.ofEpochMilli(20))).isTrue();
+        assertThat(reviews.closeMessageGateIfDrained(running.roundId())).isTrue();
+        assertThat(reviews.insertPendingRoundMessage(new ReviewRoundMessageRow(
+                UUID.randomUUID().toString(), running.roundId(), "panel", "you",
+                "Too late", "pending", null, 30L, null))).isFalse();
+        assertThat(reviews.updateRunningRoundBudget(
+                running.roundId(), new RoundBudget(75, 10))).isTrue();
+        assertThat(reviews.finishRunningRound(
+                running.roundId(), "COMPLETED", "head", 3)).isTrue();
+
+        assertThat(reviews.roundMessages(running.reviewId())).singleElement().satisfies(row -> {
+            assertThat(row.target()).isEqualTo("panel");
+            assertThat(row.sender()).isEqualTo("you");
+            assertThat(row.body()).isEqualTo("Check the retry boundary");
+            assertThat(row.status()).isEqualTo("completed");
+            assertThat(row.response()).isEqualTo("Boundary checked.");
+            assertThat(row.createdAt()).isEqualTo(10L);
+            assertThat(row.completedAt()).isEqualTo(20L);
+            assertThat(row.assignmentId()).isEqualTo(guidanceAssignmentId);
+        });
+        assertThat(reviews.reviewedCommits(running.reviewId()))
+                .extracting(ReviewedCommitRow::sha)
+                .containsExactly("commit-a", "commit-b");
+        assertThat(reviews.findRound(running.roundId())).get()
+                .satisfies(row -> {
+                    assertThat(row.budgetJson().costCapCents()).isEqualTo(75);
+                    assertThat(row.messageGateOpen()).isFalse();
+                });
+    }
+
+    @Test
+    void cancellingARoundAtomicallyCancelsAcceptedGuidance()
+    {
+        RunningRound running = insertRunningRound();
+        ReviewRoundMessageRow message = new ReviewRoundMessageRow(
+                UUID.randomUUID().toString(), running.roundId(), "general-api", "you",
+                "Inspect cancellation", "pending", null, 10L, null);
+        assertThat(reviews.insertPendingRoundMessage(message)).isTrue();
+
+        assertThat(reviews.finishRunningRound(
+                running.roundId(), "CANCELLED", null, 0)).isTrue();
+
+        assertThat(reviews.roundMessages(running.reviewId())).singleElement().satisfies(row -> {
+            assertThat(row.status()).isEqualTo("cancelled");
+            assertThat(row.response()).contains("cancelled");
+            assertThat(row.completedAt()).isNotNull();
+        });
+        assertThat(reviews.claimRoundMessage(message.id())).isFalse();
+    }
+
+    @Test
+    void cancelledRoundsRejectLaterChildArtifactMutations()
+    {
+        RunningRound running = insertRunningRound();
+        String assignmentId = reviews.assignments(running.reviewId()).get(0).id();
+        String firstStep = UUID.randomUUID().toString();
+        assertThat(reviews.mutateWhileAssignmentRoundRunning(assignmentId, () ->
+                reviews.insertStep(new InvestigationStepRow(
+                        firstStep, assignmentId, null, "read-diff", mapper.createObjectNode(),
+                        "Inspect the frozen diff", true, 0, "running")))).isTrue();
+
+        assertThat(reviews.cancelLiveRound(running.roundId(), 0)).isTrue();
+        assertThat(reviews.mutateWhileAssignmentRoundRunning(assignmentId, () ->
+                reviews.insertStep(new InvestigationStepRow(
+                        UUID.randomUUID().toString(), assignmentId, null, "late-write",
+                        mapper.createObjectNode(), "Must not persist", true, 0, "running"))))
+                .isFalse();
+
+        assertThat(reviews.steps(running.reviewId()))
+                .extracting(InvestigationStepRow::id)
+                .containsExactly(firstStep);
+    }
+
+    @Test
+    void exposesRoundGuidanceAndDynamicBudgetEndpoints()
+            throws Exception
+    {
+        RunningRound running = insertRunningRound();
+
+        mvc.perform(post("/api/review-rounds/{roundId}/messages", running.roundId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"panel\",\"text\":\"Trace the retry path\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.round_messages[0].round_id").value(running.roundId()))
+                .andExpect(jsonPath("$.round_messages[0].target").value("panel"))
+                .andExpect(jsonPath("$.round_messages[0].sender").value("you"))
+                .andExpect(jsonPath("$.round_messages[0].body").value("Trace the retry path"))
+                .andExpect(jsonPath("$.round_messages[0].status").value("pending"))
+                .andExpect(jsonPath("$.rounds[0].message_gate_open").value(true));
+        mvc.perform(post("/api/review-rounds/{roundId}/messages", running.roundId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"independent-verifier\",\"text\":\"Challenge the evidence\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/review-rounds/{roundId}/messages", running.roundId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"not-assigned\",\"text\":\"No\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/review-rounds/{roundId}/budget", running.roundId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"costCapCents\":60}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/review-rounds/{roundId}/budget", running.roundId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"costCapCents\":75}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rounds[0].budget_json.cost_cap_cents").value(75));
+
+        assertThat(reviews.finishRunningRound(
+                running.roundId(), "CANCELLED", null, 0)).isTrue();
+        mvc.perform(post("/api/review-rounds/{roundId}/messages", running.roundId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"panel\",\"text\":\"Late\"}"))
+                .andExpect(status().isConflict());
+        mvc.perform(patch("/api/review-rounds/{roundId}/budget", running.roundId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"costCapCents\":100}"))
+                .andExpect(status().isConflict());
     }
 
     @Test
@@ -415,4 +670,42 @@ class TestInvestigationReviewSchema
                 now, now, now, null, ThreadFlow.REVIEW, "ws-default", null));
         return id;
     }
+
+    private String insertRun()
+    {
+        String id = UUID.randomUUID().toString();
+        jdbc.update("""
+                INSERT INTO agent_run (id,kind,status,iterations,budget,started_at_ms)
+                VALUES (?,?,?,?,?,?)
+                """, id, "panel_review", "running", 0, 100, 1L);
+        return id;
+    }
+
+    private RunningRound insertRunningRound()
+    {
+        String prId = UUID.randomUUID().toString();
+        String reviewId = UUID.randomUUID().toString();
+        String roundId = UUID.randomUUID().toString();
+        String runId = UUID.randomUUID().toString();
+        prs.save(PR.createExternal(
+                prId, "acme/guidance-" + prId, 12, "https://example.test/12", "octocat",
+                "feature", "main", "Guide this review", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        jdbc.update("""
+                INSERT INTO agent_run (id,kind,status,iterations,budget,started_at_ms)
+                VALUES (?,?,?,?,?,?)
+                """, runId, "panel_review", "running", 0, 50, 1L);
+        reviews.insertReview(new AgentReviewRow(
+                reviewId, "acme/widget", prId, "base", "head", "ACTIVE",
+                null, null, null), Instant.now());
+        reviews.insertRound(new ReviewRoundRow(
+                roundId, reviewId, runId, "continuation", "full", "head", null,
+                "RUNNING", new RoundBudget(50, 10), 0), Instant.now());
+        reviews.insertAssignment(new ReviewAssignmentRow(
+                UUID.randomUUID().toString(), roundId, "general-api", "api", "running", "",
+                List.of(), List.of(), new AssignmentBudget(6, 3, 12, 5)));
+        return new RunningRound(reviewId, roundId);
+    }
+
+    private record RunningRound(String reviewId, String roundId) {}
 }

@@ -16,18 +16,19 @@ import Avatar from '../../Avatar';
 import type { ActorRole } from './prViewMeta';
 import { agoLabel, displayName } from './prViewMeta';
 
-/** A GitHub-style speech-bubble comment (U15): 32/28px avatar sitting ON the
- *  rail, a card with a caret pointing at it, a tinted header (agent-purple /
- *  author-blue / neutral) carrying who + what + when. Used for the
- *  description (the first bubble) and every PR-level comment. */
+/** A GitHub-style comment card (U15): avatar beside the timeline, with a
+ *  tinted header (agent-purple / author-blue / neutral) carrying who + what +
+ *  when. Used for the description and every PR-level comment. */
 export function TimelineBubble({
-  actor, role, action, time, pending = false, children,
+  actor, role, action, time, local = false, pending = false, children,
 }: {
   actor: string;
   role: ActorRole;
   /** e.g. "drafted the description", "commented", "left a comment". */
   action: string;
   time: number;
+  /** The comment exists only in ByteQuay and has not been posted to GitHub. */
+  local?: boolean;
   /** An unpublished/unresolved local draft — renders the amber Pending badge. */
   pending?: boolean;
   children: ReactNode;
@@ -42,6 +43,7 @@ export function TimelineBubble({
           <span><span className="who">{displayName(actor)}</span> {action} · {agoLabel(time)}</span>
           {role === 'agent' && <span className="pr-badge agent">Agent</span>}
           {role === 'author' && <span className="pr-badge author">Author</span>}
+          {local && <span className="pr-badge local">Local</span>}
           {pending && <span className="pr-badge pending">Pending</span>}
           <span className="dots">···</span>
         </div>

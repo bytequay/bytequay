@@ -35,14 +35,14 @@ export function buildTaskAgentReviewTrack(
   onOpenRound: (roundId: string) => void,
 ): TaskAgentReviewTrack {
   const roundStatus = (status: string): TaskAgentReviewTrack['rounds'][number]['status'] =>
-    status === 'RUNNING' ? 'running'
+    status === 'RUNNING' || status === 'QUEUED' ? 'running'
       : status === 'COMPLETED_WITH_QUESTIONS' ? 'questions'
         : status === 'ERRORED' ? 'errored'
           : status === 'CANCELLED' ? 'cancelled'
             : 'complete';
   const latest = data.rounds.at(-1);
   const status: TaskAgentReviewTrack['status'] = data.review.status === 'STALE' ? 'stale'
-    : data.rounds.some(round => round.status === 'RUNNING') ? 'running'
+    : data.rounds.some(round => round.status === 'RUNNING' || round.status === 'QUEUED') ? 'running'
       : latest?.status === 'ERRORED' ? 'errored'
         : latest?.status === 'COMPLETED_WITH_QUESTIONS'
           || data.findings.some(finding => finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT')
@@ -61,7 +61,10 @@ export function buildTaskAgentReviewTrack(
 }
 
 function AgentReviewTrack({ track }: { track: TaskAgentReviewTrack }) {
-  const latest = track.rounds.at(-1);
+  const latest = track.rounds.reduceRight<TaskAgentReviewTrack['rounds'][number] | undefined>(
+    (selected, round) => selected ?? (round.status === 'running' ? round : undefined),
+    undefined,
+  ) ?? track.rounds.at(-1);
   const glyph = (status: TaskAgentReviewTrack['rounds'][number]['status']) =>
     status === 'running' ? '●' : status === 'errored' ? '!' : status === 'cancelled' ? '■' : '✓';
   const label = (status: TaskAgentReviewTrack['status']) =>

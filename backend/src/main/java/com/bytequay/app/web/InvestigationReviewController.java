@@ -18,6 +18,7 @@ import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.service.review.InvestigationReviewMcpService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.review.InvestigationReviewService.FindingMutation;
+import com.bytequay.app.service.review.InvestigationReviewService.FindingOutcomeInput;
 import com.bytequay.app.service.review.InvestigationReviewService.PlanDraft;
 import com.bytequay.app.service.review.InvestigationReviewService.ReviewerDefInput;
 import com.bytequay.app.service.review.InvestigationReviewService.StartOptions;
@@ -25,6 +26,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -88,7 +90,25 @@ public class InvestigationReviewController
         List<String> findingIds = body == null || body.findingIds() == null
                 ? List.of() : body.findingIds();
         return reviews.createRound(reviewId, kind, findingIds,
-                body == null ? null : new StartOptions(body.runner(), body.providerId()));
+                body == null ? null : new StartOptions(body.runner(), body.providerId()),
+                body == null ? null : body.seed(),
+                body == null ? null : body.costCapCents());
+    }
+
+    @PostMapping("/api/review-rounds/{roundId}/messages")
+    public InvestigationReviewData postRoundMessage(
+            @PathVariable String roundId, @RequestBody RoundMessageRequest body)
+    {
+        return reviews.postRoundMessage(
+                roundId, body == null ? null : body.target(), body == null ? null : body.text());
+    }
+
+    @PatchMapping("/api/review-rounds/{roundId}/budget")
+    public InvestigationReviewData updateRoundBudget(
+            @PathVariable String roundId, @RequestBody RoundBudgetRequest body)
+    {
+        return reviews.updateRoundBudget(
+                roundId, body == null ? null : body.costCapCents());
     }
 
     @PostMapping("/api/findings/{findingId}/answer")
@@ -103,6 +123,13 @@ public class InvestigationReviewController
             @PathVariable String findingId, @RequestBody FindingMutation body)
     {
         return reviews.mutateFinding(findingId, body);
+    }
+
+    @PostMapping("/api/findings/{findingId}/outcome")
+    public InvestigationReviewData recordOutcome(
+            @PathVariable String findingId, @RequestBody FindingOutcomeInput body)
+    {
+        return reviews.recordFindingOutcome(findingId, body);
     }
 
     @GetMapping("/api/review-rounds/{roundId}/log")
@@ -155,7 +182,12 @@ public class InvestigationReviewController
     public record PreflightRequest(String prId) {}
 
     public record RoundRequest(
-            String kind, List<String> findingIds, String runner, String providerId) {}
+            String kind, List<String> findingIds, String runner, String providerId,
+            String seed, Integer costCapCents) {}
+
+    public record RoundMessageRequest(String target, String text) {}
+
+    public record RoundBudgetRequest(Integer costCapCents) {}
 
     public record AnswerRequest(String text) {}
 }

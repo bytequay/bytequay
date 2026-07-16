@@ -86,6 +86,7 @@ const KIND: Partial<Record<StageType, StageKind>> = {
 export function StageDetailRoute({
   threadId, taskId, stageId, onOpenCode, onOpenStage, onOpenRun,
   onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
+  onOpenAgentReview,
 }: {
   threadId: string;
   taskId: string;
@@ -107,6 +108,8 @@ export function StageDetailRoute({
   onToggleCollapse?: () => void;
   /** Navigate to this task's brain page — the live plan's Plan node. */
   onOpenBrain?: () => void;
+  /** Open the task-owned full review-round surface at the selected round. */
+  onOpenAgentReview?: (roundId: string) => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
   const shipProposal = usePendingShipProposal(threadId, taskId);
@@ -158,10 +161,15 @@ export function StageDetailRoute({
     pollFast();
   }, [pollFast, taskId]);
   const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
-  const openAgentRound = useCallback((_roundId?: string) => {
+  const openAgentRound = useCallback((roundId?: string) => {
+    const selected = roundId ?? agentReview.latestRound?.id;
+    if (selected !== undefined && onOpenAgentReview !== undefined) {
+      onOpenAgentReview(selected);
+      return;
+    }
     setReviewOpen(true);
     setPrSubTabRequest(prev => ({ subTab: 'changes', token: (prev?.token ?? 0) + 1 }));
-  }, [setReviewOpen]);
+  }, [agentReview.latestRound?.id, onOpenAgentReview, setReviewOpen]);
   const pendingReviewComments = useMemo(
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
@@ -571,7 +579,7 @@ export function StageDetailRoute({
   const agentReviewHeader = (
     <AgentReviewHeaderAction
       state={agentReview.headerState}
-      round={agentReview.data?.rounds.length ?? 1}
+      round={agentReview.latestRoundNumber}
       spendCents={agentReview.latestRound?.cost_cents ?? 0}
       comments={agentReview.pendingComments}
       excluded={agentReview.excludedFindings}
@@ -580,7 +588,10 @@ export function StageDetailRoute({
       onOpenRound={() => openAgentRound()}
       onToggle={agentReview.toggleFinding}
       onEdit={agentReview.updateComment}
-      onRemove={agentReview.dismissComment}
+      onRemove={commentId => {
+        if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
+        else deleteLocalComment(commentId);
+      }}
       onSubmit={agentReview.submitReview}
     />
   );
@@ -613,6 +624,8 @@ export function StageDetailRoute({
             if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
             else deleteLocalComment(commentId);
           }}
+          onAnswerFinding={agentReview.answerFinding}
+          onSetFindingResolved={agentReview.setFindingResolved}
           onBack={() => setReviewOpen(false)}
           onSubmitReview={onSubmitReview}
           submittingReview={submittingReview}
@@ -628,6 +641,7 @@ export function StageDetailRoute({
         else deleteLocalComment(commentId);
       }}
       onReplyThread={taskTerminal ? undefined : replyLocalPrComment}
+      onReplyLineThread={taskTerminal ? undefined : replyLocalLineComment}
       onOpenStage={onOpenStage}
       syncedAt={displayedLocalPrBundle.pr.syncedAt}
       syncing={prSyncing}
@@ -637,6 +651,8 @@ export function StageDetailRoute({
       reviewData={agentReview.data ?? undefined}
       onAnswerFinding={agentReview.answerFinding}
       onReviewRoundAction={agentReview.roundAction}
+      onSetFindingResolved={agentReview.setFindingResolved}
+      onToggleFindingPromotion={agentReview.toggleFinding}
     />
   ) : null;
 

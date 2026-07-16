@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DiffInlineComments, diffInlineCommentFromLocalPr } from '../diff/DiffInlineComments';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import { createAgentReviewFixture, createRoundStateFixtures, createVerificationStateFixture } from './agentReviewTestData';
@@ -22,6 +22,14 @@ import { AgentReviewRoundPage } from './AgentReviewRoundPage';
 import { AgentReviewTimeline } from './AgentReviewTimeline';
 import { SubmitReviewPopover } from './SubmitReviewPopover';
 import { AgentFindingContent, findingMarkdown, findingSummary, presentFinding } from './AgentEvidence';
+
+const ROUND_LEFT_WIDTH_KEY = 'bq.agentReviewRoundLeftWidth.v2';
+const ROUND_PR_WIDTH_KEY = 'bq.agentReviewRoundPrWidth.v2';
+
+afterEach(() => {
+  localStorage.removeItem(ROUND_LEFT_WIDTH_KEY);
+  localStorage.removeItem(ROUND_PR_WIDTH_KEY);
+});
 
 function bundle(): LocalPRBundle {
   return {
@@ -134,6 +142,10 @@ describe('agent review UI', () => {
     const onOpen = vi.fn();
     const { container } = render(<AgentReviewRoundEpisode data={data} round={data.rounds[0]} run={data.runs[0]} onOpen={onOpen} />);
     expect(container.querySelector('.agent-review-round-card')).not.toBeNull();
+    const row = container.querySelector('.agent-review-round-row');
+    expect(row?.querySelector('.agent-review-round-card__marker svg')).not.toBeNull();
+    expect(row?.querySelector('.agent-review-round-card__marker')?.textContent).not.toContain('✓');
+    expect(container.querySelector('.agent-review-round-card .agent-review-round-card__marker')).toBeNull();
     expect(container.querySelector('.sp-node')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Open round 1: complete/ }));
     expect(onOpen).toHaveBeenCalledOnce();
@@ -157,12 +169,16 @@ describe('agent review UI', () => {
     expect(text).toContain('Verifier rejected F3 — dropped');
     expect(text).toContain('The cited span contradicts the proposed finding.');
     expect(text).not.toContain('finding-3');
-    expect(text.indexOf('Verifier rejected F3')).toBeLessThan(text.indexOf('Needs your judgement'));
-    expect(text.indexOf('Needs your judgement')).toBeLessThan(text.indexOf('Round 1 complete'));
+    expect(text.indexOf('Verifier rejected F3')).toBeLessThan(text.indexOf('Round 1 complete'));
     expect(text.indexOf('Round 1 complete')).toBeLessThan(text.indexOf('Author replied on F1'));
     expect(text.indexOf('Author replied on F1')).toBeLessThan(text.indexOf('Commit abcdef0 addresses F1'));
     expect(text).toContain('Round 1 complete — 2 findings');
     expect(container.querySelector('.agent-review-round-card')).not.toBeNull();
+    expect(container.querySelector('.agent-judgement-card')).toBeNull();
+    const roundComplete = container.querySelector('.agent-review-event--round-complete');
+    expect(roundComplete?.querySelector('.agent-review-event__icon svg')).not.toBeNull();
+    expect(roundComplete?.querySelector('.agent-review-event__icon')?.classList.contains('green')).toBe(false);
+    expect(roundComplete?.querySelector('.agent-review-event__icon')?.textContent).not.toContain('✓');
   });
 
   it('keeps a user-stopped round as a terminal PR timeline episode', () => {
@@ -174,9 +190,17 @@ describe('agent review UI', () => {
         ? { ...event, payload: { ...event.payload, reviewEvent: 'round-cancelled' } }
         : event);
 
-    const { container } = render(<AgentReviewTimeline data={data} />);
+    const { container, rerender } = render(<AgentReviewTimeline data={data} />);
     expect(container.textContent).toContain('Round 1 · stopped');
     expect(container.textContent).toContain('You stopped round 1 — nothing was posted to GitHub');
+
+    data.pr_timeline_events = data.pr_timeline_events.map(event =>
+      event.payload?.reviewEvent === 'round-cancelled'
+        ? { ...event, actor: 'agent', payload: { ...event.payload, recovered: true } }
+        : event);
+    rerender(<AgentReviewTimeline data={data} />);
+    expect(container.textContent).toContain('Round 1 stopped after a backend restart');
+    expect(container.textContent).not.toContain('You stopped round 1');
   });
 
   it('renders all header entry states with review actions in page content', () => {
@@ -197,25 +221,98 @@ describe('agent review UI', () => {
     expect(props.onStart).toHaveBeenLastCalledWith({ runner: 'cli' });
   });
 
-  it('keeps the round right panel supplied by the shared PRView owner and jumps pending cards by finding anchor', () => {
+  it('keeps the round right panel supplied by the shared PRView owner and jumps timeline findings by anchor', () => {
     const data = fixture();
     const onOpenFinding = vi.fn();
     const { container } = render(<AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div data-testid="shared-pr-view">shared PRView</div>} onBack={vi.fn()} onOpenFinding={onOpenFinding} />);
     expect(screen.getByTestId('shared-pr-view')).toBeTruthy();
     expect(screen.getByText('REMOTE ONLY')).toBeTruthy();
-    expect(screen.getByText(/Not assessed: repository callers, code graph, local tests, git history/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Hide PR panel' }));
-    expect(screen.queryByTestId('shared-pr-view')).toBeNull();
+    expect(screen.getByTestId('shared-pr-view')).toBeTruthy();
+    expect(container.querySelector('.agent-round-pr-panel')?.classList.contains('is-folded')).toBe(true);
+    const prPanelContent = container.querySelector('.agent-round-pr-panel__content');
+    expect(prPanelContent?.getAttribute('aria-hidden')).toBe('true');
+    expect(prPanelContent?.hasAttribute('inert')).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Show PR panel' }));
     expect(screen.getByTestId('shared-pr-view')).toBeTruthy();
-    const findingCard = container.querySelector<HTMLDetailsElement>('.agent-round-finding-card');
-    expect(findingCard?.open).toBe(false);
-    expect(findingCard?.querySelector('summary')?.textContent).toContain(data.findings[0].claim);
-    if (findingCard === null) throw new Error('folded finding card missing');
-    fireEvent.click(findingCard.querySelector('summary') as HTMLElement);
-    expect(findingCard.open).toBe(true);
+    expect(prPanelContent?.hasAttribute('inert')).toBe(false);
+    expect(container.querySelector('.agent-round-finding-card')).toBeNull();
+    const findingEvent = container.querySelector<HTMLDetailsElement>('.agent-round-finding-event__content');
+    expect(findingEvent?.open).toBe(false);
+    expect(findingEvent?.querySelector('summary')?.textContent).toContain(data.findings[0].claim);
+    expect(findingEvent?.querySelector('summary > span')?.textContent).toBe('Finding 1');
+    if (findingEvent === null) throw new Error('folded finding event missing');
+    fireEvent.click(findingEvent.querySelector('summary') as HTMLElement);
+    expect(findingEvent.open).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /finding-1/ }));
     expect(onOpenFinding).toHaveBeenCalledWith('finding-1', 'src/ChangedFile.ts', 3);
+  });
+
+  it('resizes and persists both round workspace boundaries without changing the folded PR rail width', () => {
+    localStorage.removeItem(ROUND_LEFT_WIDTH_KEY);
+    localStorage.removeItem(ROUND_PR_WIDTH_KEY);
+    const data = fixture();
+    const { container, unmount } = render(
+      <AgentReviewRoundPage
+        data={data}
+        roundId={data.rounds[0].id}
+        prView={<div />}
+        onBack={vi.fn()}
+        onOpenFinding={vi.fn()}
+      />,
+    );
+    const view = within(container);
+    const page = container.querySelector<HTMLElement>('.agent-round-page');
+    if (page === null) throw new Error('round workspace missing');
+    const pageBounds = vi.spyOn(page, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, top: 0, right: 1500, bottom: 980, left: 0,
+      width: 1500, height: 980, toJSON: () => ({}),
+    });
+
+    expect(page.style.gridTemplateColumns).toBe('244px minmax(0, 1fr) 440px');
+    const leftHandle = view.getByRole('separator', { name: 'Resize review rounds sidebar' });
+    fireEvent.mouseDown(leftHandle, { clientX: 244 });
+    fireEvent.mouseMove(window, { clientX: 300 });
+    fireEvent.mouseUp(window);
+    expect(page.style.gridTemplateColumns).toBe('300px minmax(0, 1fr) 440px');
+    expect(localStorage.getItem(ROUND_LEFT_WIDTH_KEY)).toBe('300');
+
+    const rightHandle = view.getByRole('separator', { name: 'Resize pull request context' });
+    fireEvent.mouseDown(rightHandle, { clientX: 1060 });
+    fireEvent.mouseMove(window, { clientX: 980 });
+    fireEvent.mouseUp(window);
+    expect(page.style.gridTemplateColumns).toBe('300px minmax(0, 1fr) 520px');
+    expect(localStorage.getItem(ROUND_PR_WIDTH_KEY)).toBe('520');
+
+    pageBounds.mockReturnValue({
+      x: 0, y: 0, top: 0, right: 2020, bottom: 980, left: 0,
+      width: 2020, height: 980, toJSON: () => ({}),
+    });
+    fireEvent.mouseDown(rightHandle, { clientX: 1500 });
+    fireEvent.mouseMove(window, { clientX: 800 });
+    fireEvent.mouseUp(window);
+    expect(page.style.gridTemplateColumns).toBe('300px minmax(0, 1fr) 1200px');
+    expect(localStorage.getItem(ROUND_PR_WIDTH_KEY)).toBe('1200');
+
+    fireEvent.click(view.getByRole('button', { name: 'Hide PR panel' }));
+    expect(page.style.gridTemplateColumns).toBe('300px minmax(0, 1fr) 46px');
+    expect(view.queryByRole('separator', { name: 'Resize pull request context' })).toBeNull();
+    fireEvent.click(view.getByRole('button', { name: 'Show PR panel' }));
+    expect(page.style.gridTemplateColumns).toBe('300px minmax(0, 1fr) 1200px');
+    expect(view.getByRole('separator', { name: 'Resize pull request context' })).toBeTruthy();
+
+    unmount();
+    const restored = render(
+      <AgentReviewRoundPage
+        data={data}
+        roundId={data.rounds[0].id}
+        prView={<div />}
+        onBack={vi.fn()}
+        onOpenFinding={vi.fn()}
+      />,
+    );
+    expect(restored.container.querySelector<HTMLElement>('.agent-round-page')?.style.gridTemplateColumns)
+      .toBe('300px minmax(0, 1fr) 1200px');
   });
 
   it('keeps assignment bookkeeping out of the round conversation and groups steps with their reviewer', () => {
@@ -228,20 +325,25 @@ describe('agent review UI', () => {
     const view = within(container);
     expect(view.queryByText(/Re-recording assignment/)).toBeNull();
     expect(view.getByText('Investigating 3 hypotheses across 2 review objectives.')).toBeTruthy();
-    const investigation = view.getByText('correctness — investigation').closest('.sp-work');
+    const investigation = [...container.querySelectorAll('.agent-round-stage')]
+      .find(stage => stage.querySelector('.agent-round-stage__head')?.textContent?.includes('correctness'))
+      ?.querySelector<HTMLDetailsElement>('.agent-round-work');
     expect(investigation).not.toBeNull();
-    expect(investigation?.querySelectorAll('.tool-block')).toHaveLength(0);
-    fireEvent.click(view.getByRole('button', { name: /correctness — investigation/ }));
-    expect(investigation?.querySelectorAll('.tool-block')).toHaveLength(4);
+    expect(investigation?.textContent).toContain('read files');
+    expect(investigation?.open).toBe(false);
+    fireEvent.click((investigation as HTMLElement).querySelector('summary') as HTMLElement);
+    expect((investigation as HTMLDetailsElement).open).toBe(true);
+    expect(investigation?.querySelectorAll('.agent-round-step')).toHaveLength(4);
     expect(within(investigation as HTMLElement).getAllByText('src/ChangedFile.ts')).toHaveLength(3);
-    expect(view.getByText(/Full scope: 2 objectives assigned to correctness/)).toBeTruthy();
+    expect([...container.querySelectorAll('.agent-round-stage__prose')]
+      .some(stage => stage.textContent?.includes('Full scope — 2 objectives assigned to correctness'))).toBe(true);
     expect(view.getByText(/\(author\) replied on finding-1/)).toBeTruthy();
     expect(view.getByText(/acceptance criterion now includes the author’s clarification/)).toBeTruthy();
     expect(view.getByText(/pushed abcdef0.*addresses finding-1/)).toBeTruthy();
-    expect(view.getByText(/Round 1 complete.*3 findings/)).toBeTruthy();
+    expect(container.querySelector('.agent-round-outcome')?.textContent).toContain('Round 1 questions remain');
   });
 
-  it('renders a contract-backed fixed finding as the canonical local-only resolution card', () => {
+  it('renders a contract-backed fixed finding as a local-only timeline resolution', () => {
     const data = fixture();
     data.outcomes.push({
       finding_id: 'finding-1', user_disposition: 'published', author_response: 'fixed',
@@ -255,12 +357,77 @@ describe('agent review UI', () => {
     expect(view.getByText(/finding-1 fixed — fix verified · resolve \+ reply drafted/)).toBeTruthy();
     expect(view.getByText(/Nothing posts to GitHub until you submit/)).toBeTruthy();
     expect(view.queryByRole('button', { name: /finding-1 ·/ })).toBeNull();
-    fireEvent.click(view.getByRole('button', { name: 'View on diff →' }));
+    fireEvent.click(view.getByRole('button', { name: 'View on diff' }));
     expect(onOpenFinding).toHaveBeenCalledWith('finding-1', 'src/ChangedFile.ts', 3);
-    fireEvent.click(view.getByRole('button', { name: 'View in review list →' }));
+    fireEvent.click(view.getByRole('button', { name: 'View in review list' }));
     expect(onOpenReviewList).toHaveBeenCalledWith('finding-1');
     fireEvent.click(view.getByRole('button', { name: 'Reopen finding' }));
     expect(onReopenFinding).toHaveBeenCalledWith('finding-1');
+  });
+
+  it('renders a fixed outcome once and removes its stale pending event from its original round', () => {
+    const data = fixture();
+    const secondRound = { ...data.rounds[0], id: 'round-2', agent_run_id: 'run-2' };
+    data.rounds.push(secondRound);
+    data.runs.push({ ...data.runs[0], id: 'run-2', reviewRoundId: 'round-2' });
+    data.outcomes.push({
+      finding_id: 'finding-1', user_disposition: 'published', author_response: 'fixed',
+      epistemic_resolution: 'confirmed', utility_assessment: 'useful', style_edit_magnitude: 0,
+    });
+    const { container } = render(
+      <AgentReviewRoundPage data={data} roundId="round-2" prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} />,
+    );
+    const firstRoundHeader = container.querySelector<HTMLButtonElement>('.agent-round-section__header');
+    if (firstRoundHeader === null) throw new Error('first round header missing');
+    fireEvent.click(firstRoundHeader);
+
+    expect(container.querySelectorAll('.agent-round-resolution')).toHaveLength(1);
+    expect([...container.querySelectorAll('.agent-round-finding-event__content')]
+      .some(event => event.textContent?.includes(data.findings[0].claim))).toBe(false);
+  });
+
+  it('returns focus and the once-only fixed outcome to a running round when its queued successor is cancelled', async () => {
+    const data = fixture();
+    data.rounds[0] = { ...data.rounds[0], status: 'RUNNING' };
+    const queued = {
+      ...data.rounds[0], id: 'round-2', agent_run_id: 'run-2', scope: 'delta', status: 'QUEUED' as const,
+    };
+    data.rounds.push(queued);
+    data.runs.push({ ...data.runs[0], id: 'run-2', reviewRoundId: 'round-2', status: 'running' });
+    data.outcomes.push({
+      finding_id: 'finding-1', user_disposition: 'published', author_response: 'fixed',
+      epistemic_resolution: 'confirmed', utility_assessment: 'useful', style_edit_magnitude: 0,
+    });
+    const { container, rerender } = render(
+      <AgentReviewRoundPage data={data} roundId="round-2" prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} />,
+    );
+    expect(container.querySelector('.agent-round-list button.active')?.textContent).toContain('Round 2');
+
+    const cancelled = {
+      ...data,
+      rounds: [data.rounds[0], { ...queued, status: 'CANCELLED' as const }],
+    };
+    rerender(
+      <AgentReviewRoundPage data={cancelled} roundId="round-2" prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} />,
+    );
+
+    await waitFor(() => expect(container.querySelector('.agent-round-list button.active')?.textContent)
+      .toContain('Round 1'));
+    expect(container.querySelector('.agent-round-resolution')?.closest('[data-round-id]')
+      ?.getAttribute('data-round-id')).toBe(data.rounds[0].id);
+  });
+
+  it('labels published findings honestly instead of presenting them as pending drafts', () => {
+    const data = fixture();
+    data.findings[0] = { ...data.findings[0], lifecycle_status: 'published' };
+    data.pr_comments[0] = { ...data.pr_comments[0], publishedAt: Date.now() };
+    const { container } = render(
+      <AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} />,
+    );
+    const card = [...container.querySelectorAll('.agent-round-finding-event__content')]
+      .find(row => row.textContent?.includes(data.findings[0].claim));
+    expect(card?.querySelector('summary')?.textContent).toContain('Published');
+    expect(card?.querySelector('.agent-finding-chip.pending')).toBeNull();
   });
 
   it('lets the reviewer stop a running round from the canonical round header', () => {
@@ -270,6 +437,142 @@ describe('agent review UI', () => {
     render(<AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} onStopRound={onStopRound} />);
     fireEvent.click(screen.getByRole('button', { name: 'Stop round' }));
     expect(onStopRound).toHaveBeenCalledWith(data.rounds[0].id);
+  });
+
+  it('steers a live round, targets its agents, starts the next round, and updates the cap', async () => {
+    const data = fixture();
+    data.rounds[0] = { ...data.rounds[0], status: 'RUNNING' };
+    data.assignments[0] = { ...data.assignments[0], status: 'running' };
+    const onSendMessage = vi.fn(async () => true);
+    const onStartRound = vi.fn(async () => true);
+    const onUpdateBudget = vi.fn(async () => true);
+    const { container } = render(
+      <AgentReviewRoundPage
+        data={data}
+        roundId={data.rounds[0].id}
+        prView={<div />}
+        onBack={vi.fn()}
+        onOpenFinding={vi.fn()}
+        onSendMessage={onSendMessage}
+        onStartRound={onStartRound}
+        onUpdateBudget={onUpdateBudget}
+      />,
+    );
+    const view = within(container);
+
+    fireEvent.click(view.getByRole('button', { name: /Review panel/ }));
+    expect(view.getByRole('menuitemradio', { name: /independent-verifier/ })).toBeTruthy();
+    fireEvent.click(view.getByRole('menuitemradio', { name: /correctness/ }));
+    const direct = view.getByRole('textbox', { name: 'Message correctness' });
+    fireEvent.change(direct, { target: { value: 'Trace the cancellation path' } });
+    fireEvent.keyDown(direct, { key: 'Enter', shiftKey: true });
+    expect(onSendMessage).not.toHaveBeenCalled();
+    fireEvent.keyDown(direct, { key: 'Enter' });
+    await waitFor(() => expect(onSendMessage).toHaveBeenCalledWith(
+      data.rounds[0].id, 'correctness', 'Trace the cancellation path',
+    ));
+
+    fireEvent.click(view.getByRole('button', { name: 'Increase round budget' }));
+    expect(onUpdateBudget).toHaveBeenCalledWith(data.rounds[0].id, 75);
+
+    fireEvent.click(view.getByRole('button', { name: /Trigger next round/ }));
+    const nextRound = view.getByRole('textbox', { name: 'Describe round 2' });
+    fireEvent.change(nextRound, { target: { value: 'Check teardown ordering' } });
+    fireEvent.keyDown(nextRound, { key: 'Enter' });
+    await waitFor(() => expect(onStartRound).toHaveBeenCalledWith('Check teardown ordering'));
+  });
+
+  it('stops advertising steering once a running round enters finalization', () => {
+    const data = fixture();
+    data.rounds[0] = { ...data.rounds[0], status: 'RUNNING', message_gate_open: false };
+    const { container } = render(
+      <AgentReviewRoundPage
+        data={data}
+        roundId={data.rounds[0].id}
+        prView={<div />}
+        onBack={vi.fn()}
+        onOpenFinding={vi.fn()}
+        onSendMessage={vi.fn()}
+      />,
+    );
+    const view = within(container);
+    expect(view.getByText(/FINALIZING/)).toBeTruthy();
+    expect(view.queryByRole('button', { name: /Talk to/ })).toBeNull();
+    expect(view.getByRole('textbox', { name: 'Message panel' })).toHaveProperty('disabled', true);
+    fireEvent.click(view.getByRole('button', { name: /Review panel/ }));
+    expect(view.queryByRole('menuitemradio', { name: /planner/ })).toBeNull();
+  });
+
+  it('does not offer the independent verifier for a trivial round', () => {
+    const data = fixture();
+    data.rounds[0] = {
+      ...data.rounds[0], status: 'RUNNING',
+      budget_json: { cost_cap_cents: 50, wall_clock_minutes: 5 },
+    };
+    data.verifications = [];
+    const { container } = render(
+      <AgentReviewRoundPage
+        data={data}
+        roundId={data.rounds[0].id}
+        prView={<div />}
+        onBack={vi.fn()}
+        onOpenFinding={vi.fn()}
+        onSendMessage={vi.fn()}
+      />,
+    );
+    const view = within(container);
+    fireEvent.click(view.getByRole('button', { name: /Review panel/ }));
+    expect(view.queryByRole('menuitemradio', { name: /independent-verifier/ })).toBeNull();
+  });
+
+  it('renders guidance replies without duplicating their internal assignment stage', () => {
+    const data = fixture();
+    data.round_messages.push({
+      id: 'message-1', round_id: data.rounds[0].id, assignment_id: 'guidance-assignment',
+      target: 'correctness', sender: 'you', body: 'Check cancellation', status: 'completed',
+      response: 'Cancellation is covered.', created_at: 1, completed_at: 2,
+    });
+    data.assignments.push({
+      ...data.assignments[0], id: 'guidance-assignment',
+      understanding_summary: 'Duplicate guidance stage', status: 'completed',
+    });
+    const { container } = render(
+      <AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} />,
+    );
+    const view = within(container);
+    expect(view.getByText('Check cancellation')).toBeTruthy();
+    expect(view.getByText('Cancellation is covered.')).toBeTruthy();
+    expect(view.queryByText('Duplicate guidance stage')).toBeNull();
+    expect([...container.querySelectorAll('.agent-round-stage')]
+      .filter(stage => stage.querySelector('.agent-round-stage__head > span')?.textContent === 'correctness'
+        && stage.querySelector('.agent-round-work') !== null)).toHaveLength(1);
+  });
+
+  it('shows queued rounds as cancellable without a terminal outcome', () => {
+    const data = fixture();
+    data.rounds[0] = { ...data.rounds[0], status: 'QUEUED', message_gate_open: false };
+    const onStopRound = vi.fn();
+    const { container } = render(
+      <AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} onStopRound={onStopRound} />,
+    );
+    const view = within(container);
+    expect(view.getByText(/QUEUED/)).toBeTruthy();
+    expect(container.querySelector('.agent-round-outcome')).toBeNull();
+    fireEvent.click(view.getByRole('button', { name: 'Cancel queued round' }));
+    expect(onStopRound).toHaveBeenCalledWith(data.rounds[0].id);
+  });
+
+  it('does not lower a live budget below persisted spend', () => {
+    const data = fixture();
+    data.rounds[0] = {
+      ...data.rounds[0], status: 'RUNNING', cost_cents: 70,
+      budget_json: { ...data.rounds[0].budget_json, cost_cap_cents: 75 },
+    };
+    const { container } = render(
+      <AgentReviewRoundPage data={data} roundId={data.rounds[0].id} prView={<div />} onBack={vi.fn()} onOpenFinding={vi.fn()} onUpdateBudget={vi.fn()} />,
+    );
+    expect(within(container).getByRole('button', { name: 'Decrease round budget' }))
+      .toHaveProperty('disabled', true);
   });
 
   it.each([

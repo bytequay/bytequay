@@ -1077,6 +1077,26 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('agentReview:sendRoundMessage', async (_event, roundId: string, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend send review-round message returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:updateRoundBudget', async (_event, roundId: string, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/budget`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend update review-round budget returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('agentReview:answerFinding', async (_event, findingId: string, text: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/answer`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
@@ -1094,6 +1114,16 @@ function registerIpc(): void {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend mutate finding returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('agentReview:recordFindingOutcome', async (_event, findingId: string, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/outcome`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend record finding outcome returned ${res.status}: ${text}`);
     }
     return res.json();
   });

@@ -29,12 +29,14 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -132,8 +134,14 @@ public class CliReviewRunner
 
     /** Outcome of one CLI review turn. {@code sessionId} is null when the
      *  provider didn't announce one (then the next turn starts fresh). */
-    public record Result(String text, String sessionId, long costUsdMilli)
+    public record Result(
+            String text, String sessionId, long costUsdMilli,
+            String end, String errorMessage)
     {
+        public Result(String text, String sessionId, long costUsdMilli)
+        {
+            this(text, sessionId, costUsdMilli, "COMPLETED", null);
+        }
     }
 
     /** Points a Claude CLI seat at its review MCP server (the pass + seat
@@ -165,7 +173,7 @@ public class CliReviewRunner
             throw new CliReviewException("interrupted waiting for a CLI review slot", e);
         }
         try {
-            return runOnce(provider, prompt, resumeSessionId, workingDir, mcp);
+            return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null);
         }
         finally {
             slots.release();
@@ -178,11 +186,19 @@ public class CliReviewRunner
     Result runWithSchedulerCapacity(
             Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
     {
-        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp);
+        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null);
+    }
+
+    Result runWithSchedulerCapacity(
+            Provider provider, String prompt, String resumeSessionId, Path workingDir,
+            McpEndpoint mcp, int costCapCents)
+    {
+        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, costCapCents);
     }
 
     private Result runOnce(
-            Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
+            Provider provider, String prompt, String resumeSessionId, Path workingDir,
+            McpEndpoint mcp, Integer costCapCents)
     {
         String binary = provider.binary();
         // Codex takes the prompt as a trailing argv arg; Claude reads it
@@ -191,7 +207,8 @@ public class CliReviewRunner
         // Only Claude's CLI supports our --mcp-config bridge today.
         Path mcpConfig = (provider == Provider.CLAUDE && mcp != null) ? writeMcpConfig(mcp) : null;
         List<String> argv = buildArgv(
-                provider, binary, resumeSessionId, workingDir.toString(), argvPrompt, mcpConfig);
+                provider, binary, resumeSessionId, workingDir.toString(), argvPrompt,
+                mcpConfig, costCapCents);
 
         ProcessBuilder pb = new ProcessBuilder(argv);
         pb.directory(workingDir.toFile());
@@ -240,7 +257,7 @@ public class CliReviewRunner
         }
         stderrDrain.interrupt();
 
-        return assemble(parser, lines);
+        return withProcessExit(assemble(parser, lines), process.exitValue(), costCapCents);
     }
 
     /** Whether {@code binary} resolves to an executable on PATH — the
@@ -312,6 +329,14 @@ public class CliReviewRunner
             Provider provider, String binary, String resumeSessionId, String workingDir,
             String argvPrompt, Path mcpConfig)
     {
+        return buildArgv(
+                provider, binary, resumeSessionId, workingDir, argvPrompt, mcpConfig, null);
+    }
+
+    static List<String> buildArgv(
+            Provider provider, String binary, String resumeSessionId, String workingDir,
+            String argvPrompt, Path mcpConfig, Integer costCapCents)
+    {
         boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
         if (provider == Provider.CLAUDE) {
             // The prompt arrives on stdin. With an MCP config the seat gets
@@ -322,6 +347,13 @@ public class CliReviewRunner
                     .add("-p")
                     .add("--output-format", "stream-json")
                     .add("--verbose");
+            if (costCapCents != null) {
+                if (costCapCents <= 0) {
+                    throw new IllegalArgumentException("CLI review budget must be positive");
+                }
+                argv.add("--max-budget-usd", BigDecimal.valueOf(costCapCents, 2)
+                        .stripTrailingZeros().toPlainString());
+            }
             if (mcpConfig != null) {
                 argv.add("--mcp-config", mcpConfig.toString());
                 argv.add("--allowedTools", ALLOWED_REVIEW_TOOLS);
@@ -363,6 +395,8 @@ public class CliReviewRunner
         StringBuilder text = new StringBuilder();
         String sessionId = null;
         long costUsdMilli = 0;
+        String errorMessage = null;
+        int exitCode = 0;
         Instant now = Instant.EPOCH;
         for (String line : stdoutLines) {
             if (line == null || line.isBlank()) {
@@ -382,9 +416,45 @@ public class CliReviewRunner
                 else if (event instanceof StreamEvent.TurnDone done) {
                     costUsdMilli += done.costUsdMilli();
                 }
+                else if (event instanceof StreamEvent.ErrorOccurred error) {
+                    errorMessage = error.message();
+                }
+                else if (event instanceof StreamEvent.SessionEnded ended) {
+                    exitCode = ended.exitCode();
+                    if (ended.errorMessage() != null && !ended.errorMessage().isBlank()) {
+                        errorMessage = ended.errorMessage();
+                    }
+                }
             }
         }
-        return new Result(text.toString().strip(), sessionId, costUsdMilli);
+        String end = errorMessage == null && exitCode == 0 ? "COMPLETED"
+                : isBudgetFailure(errorMessage) ? "ABORTED" : "ERRORED";
+        return new Result(
+                text.toString().strip(), sessionId, costUsdMilli, end, errorMessage);
+    }
+
+    static Result withProcessExit(Result result, int exitCode, Integer costCapCents)
+    {
+        if (exitCode == 0 || !"COMPLETED".equals(result.end())) {
+            return result;
+        }
+        boolean capReached = costCapCents != null
+                && result.costUsdMilli() >= (long) costCapCents * 10;
+        return new Result(
+                result.text(), result.sessionId(), result.costUsdMilli(),
+                capReached ? "ABORTED" : "ERRORED",
+                capReached ? "CLI review reached its budget cap"
+                        : "CLI reviewer exited with code " + exitCode);
+    }
+
+    private static boolean isBudgetFailure(String message)
+    {
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase(Locale.ROOT);
+        return lower.contains("budget") || lower.contains("cost limit")
+                || lower.contains("spending limit");
     }
 
     private static void deliverPrompt(Process process, Provider provider, String prompt)

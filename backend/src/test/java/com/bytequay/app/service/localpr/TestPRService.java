@@ -208,6 +208,41 @@ class TestPRService
     }
 
     @Test
+    void replyInheritsItsParentsFileAnchor()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        PRComment parent = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Parent.java", 15, "brain", "question", NOW,
+                null, null, null, null, null, "LEFT", 12, "LEFT");
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(parent));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment reply = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, "RIGHT", null, null, "you", "answer", "cm1");
+
+        assertThat(reply)
+                .extracting(
+                        PRComment::scope,
+                        PRComment::filePath,
+                        PRComment::lineNumber,
+                        PRComment::side,
+                        PRComment::startLine,
+                        PRComment::startSide,
+                        PRComment::parentCommentId)
+                .containsExactly(
+                        PRComment.SCOPE_FILE_LINE,
+                        "src/Parent.java",
+                        15,
+                        "LEFT",
+                        12,
+                        "LEFT",
+                        "cm1");
+        verify(store, never()).addEvent(any());
+    }
+
+    @Test
     void addCommentRejectsAParentFromAnotherPr()
     {
         pr(PR.STATUS_LOCAL_DRAFTED);

@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
-import type { ReviewThreadDto } from '../types';
+import { useState, type ReactNode } from 'react';
+import type { ReviewMessageDto, ReviewThreadDto } from '../types';
 import type { MarkdownRepoContext } from '../markdown';
 import Avatar from '../Avatar';
 import PolishButtons from '../ai/PolishButtons';
@@ -43,6 +43,10 @@ export function ReviewThreadCard({
   onDeleteMessage,
   canDeleteMessage,
   repoContext,
+  locationLabel,
+  renderMessageBody,
+  renderMessageBadges,
+  footerActions,
 }: {
   thread: ReviewThreadDto;
   prAuthor: string | null;
@@ -51,7 +55,7 @@ export function ReviewThreadCard({
   /** Login of the authenticated user. Used to gate the per-message
    *  ✎ Edit affordance — only the message's own author sees it. */
   currentUserLogin?: string | null;
-  onReply: (body: string) => Promise<void>;
+  onReply?: (body: string) => Promise<void>;
   /** Add an emoji reaction to a specific message. Optional — when
    *  omitted, the smiley-add button is hidden (e.g. when the thread
    *  appears in a context where reactions don't make sense). */
@@ -72,6 +76,15 @@ export function ReviewThreadCard({
   /** Forwarded to the inner {@link EditableMarkdownBody} so {@code #N}
    *  issue chips know which repo they came from. */
   repoContext?: MarkdownRepoContext;
+  /** Overrides the file/line label for local PR-level review threads. */
+  locationLabel?: string;
+  /** Lets local findings keep their richer evidence rendering while using
+   *  this same GitHub-shaped thread chrome. */
+  renderMessageBody?: (message: ReviewMessageDto, index: number) => ReactNode;
+  /** Local-only status pills (for example Local / queued for review). */
+  renderMessageBadges?: (message: ReviewMessageDto, index: number) => ReactNode;
+  /** Extra local actions beside Resolve, without changing remote threads. */
+  footerActions?: ReactNode;
 }) {
   const [resolving, setResolving] = useState(false);
   // Which message is in edit mode (by GitHub id), so the per-message
@@ -100,7 +113,7 @@ export function ReviewThreadCard({
 
   const submit = async () => {
     const trimmed = body.trim();
-    if (!trimmed) return;
+    if (!trimmed || onReply === undefined) return;
     setPending(true);
     setError(null);
     try {
@@ -149,7 +162,7 @@ export function ReviewThreadCard({
           </svg>
         </button>
         <span className="prc-review-thread__loc">
-          <code>{thread.filePath ?? '?'}{thread.line != null ? `:${thread.line}` : ''}</code>
+          <code>{locationLabel ?? `${thread.filePath ?? '?'}${thread.line != null ? `:${thread.line}` : ''}`}</code>
         </span>
         {thread.outdated && (
           <span className="prc-review-thread__outdated-pill" title="Anchored to a line that no longer exists in the current diff">outdated</span>
@@ -188,7 +201,7 @@ export function ReviewThreadCard({
       })()}
       {!folded && (
         <div className="prc-review-thread__msgs">
-          {thread.messages.map((msg) => {
+          {thread.messages.map((msg, index) => {
             // GitHub-style head row: author + timestamp on the left,
             // role pills on the right (per
             // docs/mockups/issue/pr-details/pr-review-response.png).
@@ -217,6 +230,7 @@ export function ReviewThreadCard({
                       {isPrAuthor && (
                         <span className="prc-comment-role">AUTHOR</span>
                       )}
+                      {renderMessageBadges?.(msg, index)}
                       {msg.githubId > 0 && (
                         <CommentActionsMenu
                           linkHref={reviewCommentLink(prHtmlUrl, msg.githubId)}
@@ -231,7 +245,9 @@ export function ReviewThreadCard({
                       )}
                     </span>
                   </div>
-                  {msg.body && (
+                  {renderMessageBody !== undefined
+                    ? renderMessageBody(msg, index)
+                    : msg.body && (
                     <EditableMarkdownBody
                       body={msg.body}
                       canEdit={!!(onEditMessage && currentUserLogin && currentUserLogin === msg.author)}
@@ -258,9 +274,9 @@ export function ReviewThreadCard({
           full Write/Preview composer (with PolishButtons + Send) once
           the user clicks into it. The Resolve / Unresolve button lives
           on its own row underneath, matching github.com's placement. */}
-      {!folded && (
+      {!folded && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
         <div className="prc-review-thread__reply prc-review-thread__reply--inline">
-          {!replyExpanded && body.length === 0 ? (
+          {onReply !== undefined && (!replyExpanded && body.length === 0 ? (
             <input
               type="text"
               className="prc-review-thread__reply-stub-input"
@@ -305,16 +321,16 @@ export function ReviewThreadCard({
                 </button>
               </div>
             </>
-          )}
+          ))}
           {error && <div className="pr-comment-box__error">{error}</div>}
           {/* Resolve / Unresolve toggle. Only renders when the backend
               has a GraphQL node id for the thread (i.e. resolved is
               not null) — without it the GraphQL mutation has nothing
               to target. Button text mirrors github.com's
               "Resolve conversation" / "Unresolve conversation". */}
-          {onSetResolved && thread.resolved != null && (
+          {(footerActions !== undefined || (onSetResolved && thread.resolved != null)) && (
             <div className="prc-review-thread__resolve-row">
-              <button
+              {onSetResolved && thread.resolved != null && <button
                 type="button"
                 className={`prc-review-thread__resolve-btn${thread.resolved ? ' prc-review-thread__resolve-btn--unresolve' : ''}`}
                 onClick={async () => {
@@ -330,7 +346,8 @@ export function ReviewThreadCard({
                 title={thread.resolved ? 'Mark this conversation unresolved' : 'Mark this conversation resolved'}
               >
                 {resolving ? '…' : thread.resolved ? 'Unresolve conversation' : 'Resolve conversation'}
-              </button>
+              </button>}
+              {footerActions}
             </div>
           )}
         </div>

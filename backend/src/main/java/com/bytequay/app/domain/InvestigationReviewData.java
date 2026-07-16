@@ -20,12 +20,16 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
 import java.util.List;
+import java.util.Map;
 
 /** Frozen AgentReview aggregate returned to every review surface. */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record InvestigationReviewData(
         AgentReviewRow review,
         List<ReviewRoundRow> rounds,
+        List<ReviewRoundMessageRow> roundMessages,
+        List<ReviewedCommitRow> reviewedCommits,
+        Map<String, List<String>> roundMessageTargets,
         List<AgentRun> runs,
         List<CriterionRow> criteria,
         List<ReviewObjectiveRow> objectives,
@@ -44,6 +48,33 @@ public record InvestigationReviewData(
         List<PRCommentDto> prComments,
         List<PRTimelineEntryDto> prTimelineEvents)
 {
+    public InvestigationReviewData(
+            AgentReviewRow review,
+            List<ReviewRoundRow> rounds,
+            List<AgentRun> runs,
+            List<CriterionRow> criteria,
+            List<ReviewObjectiveRow> objectives,
+            List<ReviewAssignmentRow> assignments,
+            List<HypothesisRow> hypotheses,
+            List<InvestigationStepRow> steps,
+            List<ObservationRow> observations,
+            List<FindingRow> findings,
+            List<FindingEvidenceRow> evidence,
+            List<FindingVerificationRow> verifications,
+            List<FindingRelationRow> relations,
+            List<ReviewOutcomeRow> outcomes,
+            List<KnowledgeItemRow> knowledgeItems,
+            List<KnowledgeProvenanceRow> knowledgeProvenance,
+            List<ActivityFactRow> activityFacts,
+            List<PRCommentDto> prComments,
+            List<PRTimelineEntryDto> prTimelineEvents)
+    {
+        this(review, rounds, List.of(), List.of(), Map.of(), runs, criteria, objectives, assignments,
+                hypotheses, steps, observations, findings, evidence, verifications, relations,
+                outcomes, knowledgeItems, knowledgeProvenance, activityFacts, prComments,
+                prTimelineEvents);
+    }
+
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record AgentReviewRow(
             String id, String repoId, String prId, String baseCommit,
@@ -55,8 +86,19 @@ public record InvestigationReviewData(
             String id, String reviewId, String agentRunId, String trigger,
             String scope, String startCommit, String endCommit, String status,
             RoundBudget budgetJson, int costCents, ReviewCapabilities capabilitiesJson,
-            String triggerStageId)
+            String triggerStageId, boolean messageGateOpen)
     {
+        public ReviewRoundRow(
+                String id, String reviewId, String agentRunId, String trigger,
+                String scope, String startCommit, String endCommit, String status,
+                RoundBudget budgetJson, int costCents, ReviewCapabilities capabilitiesJson,
+                String triggerStageId)
+        {
+            this(id, reviewId, agentRunId, trigger, scope, startCommit, endCommit,
+                    status, budgetJson, costCents, capabilitiesJson, triggerStageId,
+                    "RUNNING".equals(status));
+        }
+
         public ReviewRoundRow(
                 String id, String reviewId, String agentRunId, String trigger,
                 String scope, String startCommit, String endCommit, String status,
@@ -91,6 +133,25 @@ public record InvestigationReviewData(
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record RoundBudget(int costCapCents, int wallClockMinutes) {}
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record ReviewRoundMessageRow(
+            String id, String roundId, String assignmentId,
+            String target, String sender, String body,
+            String status, String response, long createdAt, Long completedAt)
+    {
+        public ReviewRoundMessageRow(
+                String id, String roundId, String target, String sender, String body,
+                String status, String response, long createdAt, Long completedAt)
+        {
+            this(id, roundId, null, target, sender, body, status, response,
+                    createdAt, completedAt);
+        }
+    }
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record ReviewedCommitRow(
+            String roundId, String sha, String message, int position) {}
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record CriterionRow(

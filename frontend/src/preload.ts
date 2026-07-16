@@ -991,14 +991,31 @@ const bridge: Bridge = {
   getAgentReviewByThread: (threadId: string) => ipcRenderer.invoke('agentReview:getByThread', threadId),
   continueAgentReview: (
     reviewId: string,
-    body: { kind: 'continue' | 're-review' | 'continuation'; findingIds?: string[]; runner?: 'api' | 'cli'; providerId?: string },
+    body: {
+      kind: 'continue' | 're-review' | 'continuation'; findingIds?: string[];
+      runner?: 'api' | 'cli'; providerId?: string; seed?: string; costCapCents?: number;
+    },
   ) => ipcRenderer.invoke('agentReview:continue', reviewId, body),
+  sendAgentReviewRoundMessage: (roundId: string, body: { target: string; text: string }) =>
+    ipcRenderer.invoke('agentReview:sendRoundMessage', roundId, body),
+  updateAgentReviewRoundBudget: (roundId: string, body: { costCapCents: number }) =>
+    ipcRenderer.invoke('agentReview:updateRoundBudget', roundId, body),
   answerAgentReviewFinding: (findingId: string, text: string) =>
     ipcRenderer.invoke('agentReview:answerFinding', findingId, text),
   mutateAgentReviewFinding: (
     findingId: string,
-    body: { action: 'dismiss' | 'include' | 'exclude' | 'editDraft' | 'reopen'; text?: string },
+    body: { action: 'dismiss' | 'include' | 'exclude' | 'editDraft' | 'reopen' | 'resolve'; text?: string },
   ) => ipcRenderer.invoke('agentReview:mutateFinding', findingId, body),
+  recordAgentReviewFindingOutcome: (
+    findingId: string,
+    body: {
+      userDisposition: string;
+      authorResponse: 'fixed' | 'acknowledged' | 'disagreed' | 'ignored';
+      epistemicResolution: 'confirmed' | 'refuted' | 'unresolved';
+      utilityAssessment?: string;
+      styleEditMagnitude?: number;
+    },
+  ) => ipcRenderer.invoke('agentReview:recordFindingOutcome', findingId, body),
   getAgentReviewRoundLog: (roundId: string) => ipcRenderer.invoke('agentReview:getRoundLog', roundId),
   cancelAgentReviewRound: (roundId: string) => ipcRenderer.invoke('agentReview:cancelRound', roundId),
   addLocalPrComment: (

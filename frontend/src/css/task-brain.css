@@ -897,19 +897,10 @@
   color: #454c54;
 }
 
-/* Match github.com's author-comment header and keep its pointer visually
-   joined to the card instead of reading as a separate grey triangle. */
+/* Match github.com's author-comment header and border. */
 .task-brain .shell .pr-bubble.hl-author {
   --bh: #ddf4ff;
   border-color: #54aeff;
-}
-
-.task-brain .shell .pr-bubble.hl-author::before {
-  border-right-color: #54aeff;
-}
-
-.task-brain .shell .pr-bubble.hl-author::after {
-  border-right-color: #ddf4ff;
 }
 
 .task-brain .shell .pr-bubble.hl-author .bh {
@@ -927,8 +918,8 @@
 }
 
 /* The task page embeds PRView in a clipped split pane. Keep the marker and
-   avatar inside that pane by reserving their rail within each shared block. */
-.task-brain .shell .pr-body-scroll:not(.pr-body-scroll--changes) { padding-left: 20px; padding-right: 20px; }
+   avatar inside that pane while using the compact left gutter. */
+.task-brain .shell .pr-body-scroll:not(.pr-body-scroll--changes) { padding-left: 14px; padding-right: 20px; }
 .task-brain .shell .pr-merge-shell { width: 100%; max-width: none; margin-left: 0; padding-left: 52px; }
 .task-brain .shell .pr-merge-shell .mb-branch-icon { left: 0; }
 .task-brain .shell .pr-comment-composer { width: 100%; max-width: none; margin-left: 0; padding-left: 52px; gap: 0; }

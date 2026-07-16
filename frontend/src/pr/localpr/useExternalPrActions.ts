@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DiffFileDto } from '../../types';
 import { derivePRCapabilities } from '../prCapabilities';
 import { useExternalPr } from '../useExternalPr';
@@ -113,11 +113,10 @@ export function useExternalPrActions(owner: string, repo: string, number: number
   ) => {
     if (localPr === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.addLocalPrComment(
+    return bridge?.addLocalPrComment(
       localPr.id, { scope: 'file-line', filePath, lineNumber, side, startLine, startSide, body, parentCommentId },
     )
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
+      .then(() => refresh());
   }, [localPr, refresh]);
 
   const replyLocalPrComment = useCallback((parentCommentId: string, body: string) => {
@@ -163,7 +162,16 @@ export function useExternalPrActions(owner: string, repo: string, number: number
   // getTaskCumulativeDiff — see TaskBrainRoute).
   const [reviewFiles, setReviewFiles] = useState<DiffFileDto[] | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const reviewIdentity = `${owner}/${repo}#${number}`;
+  const loadedReviewIdentity = useRef(reviewIdentity);
+  if (loadedReviewIdentity.current !== reviewIdentity) {
+    loadedReviewIdentity.current = reviewIdentity;
+    if (reviewFiles !== null) setReviewFiles(null);
+    if (reviewError !== null) setReviewError(null);
+  }
   useEffect(() => {
+    setReviewFiles(null);
+    setReviewError(null);
     if (!reviewOpen) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (bridge?.fetchPrDiffFiles === undefined) return;

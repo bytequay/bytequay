@@ -42,9 +42,10 @@ import type { AgentReviewData } from '../../review/agentReviewTypes';
 export function PRView({
   bundle, capabilities, commentValue, onCommentChange, username,
   onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
-  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onReplyThread, onOpenStage,
+  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onReplyThread, onReplyLineThread, onOpenStage,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
   changesContent, reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
+  onSetFindingResolved, onToggleFindingPromotion,
 }: {
   bundle: LocalPRBundle;
   capabilities: PRCapabilities;
@@ -71,6 +72,10 @@ export function PRView({
   onResolveThread?: (commentId: string) => void;
   onDismissThread?: (commentId: string) => void;
   onReplyThread?: (rootCommentId: string, body: string) => void | Promise<void>;
+  onReplyLineThread?: (
+    rootCommentId: string, filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
+    startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string,
+  ) => void | Promise<void>;
   /** Jumps to a stage's detail view — the timeline's "View the plan" link
    *  card on a `plan-finalized` row is the only thing that uses it today. */
   onOpenStage?: (stageId: string) => void;
@@ -91,13 +96,16 @@ export function PRView({
   changesContent?: ReactNode;
   reviewData?: AgentReviewData;
   onOpenReviewRound?: (roundId: string) => void;
-  onAnswerFinding?: (findingId: string, text: string) => void;
+  onAnswerFinding?: (findingId: string, text: string) => void | Promise<unknown>;
   onReviewRoundAction?: (roundId: string) => void;
+  onSetFindingResolved?: (findingId: string, resolved: boolean) => void | Promise<unknown>;
+  onToggleFindingPromotion?: (findingId: string) => void | Promise<unknown>;
 }) {
   const { pr, commits, timeline, checks, comments } = bundle;
   const local = isLocalStatus(pr.status);
 
-  const openComments = comments.filter(c => c.resolvedAt === null && c.strippedOnPushAt === null).length;
+  const openComments = comments.filter(c => c.parentCommentId === null
+    && c.resolvedAt === null && c.strippedOnPushAt === null).length;
   // The brain's dev-end review outcome (plan-rail-runs.md R21/R23) — derived
   // from its own comments (author='brain'), never a separate fetch: a brain
   // review round always concludes before the PR flips to local-open, so by
@@ -114,7 +122,8 @@ export function PRView({
     (latest, c) => latest === undefined || c.startedAt > latest.startedAt ? c : latest, undefined);
   const localTestsFailing = latestLocalCheck?.status === 'failed';
   const draftCount = comments.filter(
-    c => c.origin === 'local' && c.publishedAt === null && c.resolvedAt === null && c.dismissedAt === null).length;
+    c => c.parentCommentId === null && c.origin === 'local' && c.publishedAt === null
+      && c.resolvedAt === null && c.dismissedAt === null).length;
   // GitHub's commit-list API has no per-commit stats, so an external PR's
   // synced commits always sum to 0 — use the PR-level total GitHub reports
   // instead. Task-origin commits carry real per-commit stats, so summing
@@ -229,6 +238,9 @@ export function PRView({
             onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
             onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
             onReplyThread={capabilities.draftLocalComments ? onReplyThread : undefined}
+            onReplyLineThread={capabilities.draftLocalComments ? onReplyLineThread : undefined}
+            onReplyFindingThread={onReplyThread}
+            onReplyFindingLineThread={onReplyLineThread}
             onOpenStage={onOpenStage}
             activity={activity}
             reviewThreads={reviewThreads}
@@ -239,6 +251,9 @@ export function PRView({
             onOpenReviewRound={onOpenReviewRound}
             onAnswerFinding={onAnswerFinding}
             onReviewRoundAction={onReviewRoundAction}
+            onSetFindingResolved={onSetFindingResolved}
+            onToggleFindingPromotion={onToggleFindingPromotion}
+            canPromoteFindings={capabilities.publishReview}
           />
         )}
 

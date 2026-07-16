@@ -26,6 +26,7 @@ import { TimelineIconEvent } from './TimelineIconEvent';
 import { TimelinePlanFinalized } from './TimelinePlanFinalized';
 import { ReviewThreadCard } from './ReviewThreadCard';
 import { PRCommentThreadBubble } from './PRCommentThreadBubble';
+import { RailReviewThread } from './RailReviewThread';
 import { buildAgentReviewTimelineEntries } from '../../review/AgentReviewTimeline';
 import type { AgentReviewData } from '../../review/agentReviewTypes';
 
@@ -206,28 +207,12 @@ function LocalActivityFold({
   );
 }
 
-/** Groups file-line comments into one thread per (filePath, lineNumber),
- *  root-first — this milestone doesn't track deeper threading than a single
- *  reply (design #47/#49), so grouping by anchor is equivalent to grouping
- *  by root comment. */
-function groupThreads(comments: LocalPRComment[]): Map<string, LocalPRComment[]> {
-  const threads = new Map<string, LocalPRComment[]>();
-  for (const c of comments) {
-    if (c.scope !== 'file-line' || c.filePath === null || c.lineNumber === null) continue;
-    const key = `${c.filePath}:${c.lineNumber}`;
-    const existing = threads.get(key);
-    if (existing === undefined) threads.set(key, [c]);
-    else existing.push(c);
-  }
-  for (const group of threads.values()) group.sort((a, b) => a.createdAt - b.createdAt);
-  return threads;
-}
-
-function groupPrCommentThreads(comments: LocalPRComment[]): LocalPRComment[][] {
-  const prComments = comments.filter(comment => comment.scope === 'pr');
-  const byId = new Map(prComments.map(comment => [comment.id, comment]));
+/** One conversation per root comment. Two findings can share an anchor and
+ * still remain separate review threads, just as they do on GitHub. */
+function groupLocalCommentThreads(comments: LocalPRComment[]): LocalPRComment[][] {
+  const byId = new Map(comments.map(comment => [comment.id, comment]));
   const groups = new Map<string, LocalPRComment[]>();
-  for (const comment of prComments) {
+  for (const comment of comments) {
     const rootId = comment.parentCommentId !== null && byId.has(comment.parentCommentId)
       ? comment.parentCommentId
       : comment.id;
@@ -247,9 +232,11 @@ function groupPrCommentThreads(comments: LocalPRComment[]): LocalPRComment[][] {
  * The description renders as the first bubble.
  */
 export function PRTimeline({
-  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread, onReplyThread, onOpenStage,
+  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread, onReplyThread, onReplyLineThread, onOpenStage,
   commits = [], activity, reviewThreads, remoteDetail, threadActions, currentUserLogin,
   reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
+  onReplyFindingThread, onReplyFindingLineThread,
+  onSetFindingResolved, onToggleFindingPromotion, canPromoteFindings = false,
 }: {
   pr: LocalPR;
   events: LocalPRTimelineEvent[];
@@ -259,6 +246,18 @@ export function PRTimeline({
   onResolveThread?: (rootCommentId: string) => void;
   onDismissThread?: (rootCommentId: string) => void;
   onReplyThread?: (rootCommentId: string, body: string) => void | Promise<void>;
+  onReplyLineThread?: (
+    rootCommentId: string, filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
+    startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string,
+  ) => void | Promise<void>;
+  /** Agent finding conversations remain local and interactive even after
+   *  the remote PR reaches a terminal state. Ordinary drafts still use the
+   *  capability-gated callbacks above. */
+  onReplyFindingThread?: (rootCommentId: string, body: string) => void | Promise<void>;
+  onReplyFindingLineThread?: (
+    rootCommentId: string, filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
+    startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string,
+  ) => void | Promise<void>;
   /** Jumps to a stage's detail view — wired to the "View the plan" link card
    *  on a `plan-finalized` row so it can jump back to the Plan node. */
   onOpenStage?: (stageId: string) => void;
@@ -276,8 +275,11 @@ export function PRTimeline({
   currentUserLogin?: string | null;
   reviewData?: AgentReviewData;
   onOpenReviewRound?: (roundId: string) => void;
-  onAnswerFinding?: (findingId: string, text: string) => void;
+  onAnswerFinding?: (findingId: string, text: string) => void | Promise<unknown>;
   onReviewRoundAction?: (roundId: string) => void;
+  onSetFindingResolved?: (findingId: string, resolved: boolean) => void | Promise<unknown>;
+  onToggleFindingPromotion?: (findingId: string) => void | Promise<unknown>;
+  canPromoteFindings?: boolean;
 }) {
   const rows: Row[] = [];
   const githubFeedActive = pr.remotePrNumber !== null && threadActions !== undefined;
@@ -423,20 +425,27 @@ export function PRTimeline({
   // but only while they're *unpublished* drafts. Once a draft is submitted it
   // becomes a real GitHub review comment and renders live via the feed below;
   // keeping the local copy too would show the same comment twice.
-  const localComments = (foldTaskLocalActivity
+  const localCommentCandidates = (foldTaskLocalActivity
     ? comments.filter(comment => comment.author === 'brain')
     : githubFeedActive
       ? comments.filter(comment => comment.origin === 'local' && comment.publishedAt === null)
       : comments)
     .filter(comment => !commentsInBrainReviews.has(comment.id));
+  const candidateIds = new Set(localCommentCandidates.map(comment => comment.id));
+  const allCommentIds = new Set(comments.map(comment => comment.id));
+  const localComments = localCommentCandidates.filter(comment => comment.parentCommentId === null
+    || !allCommentIds.has(comment.parentCommentId)
+    || candidateIds.has(comment.parentCommentId));
 
-  for (const thread of groupPrCommentThreads(localComments)) {
+  for (const thread of groupLocalCommentThreads(localComments)) {
     const root = thread[0];
     if (root === undefined) continue;
-    rows.push({
-      key: root.id,
-      time: root.createdAt,
-      render: (
+    const findingId = root.findingId ?? null;
+    if (root.scope === 'pr' && findingId === null) {
+      rows.push({
+        key: root.id,
+        time: root.createdAt,
+        render: (
         <PRCommentThreadBubble
           key={root.id}
           pr={pr}
@@ -444,29 +453,52 @@ export function PRTimeline({
           reviewData={reviewData}
           onReply={onReplyThread}
         />
-      ),
-    });
-  }
+        ),
+      });
+      continue;
+    }
 
-  for (const [key, thread] of groupThreads(localComments)) {
-    const root = thread[0];
-    const [filePath, lineNumberStr] = [root.filePath ?? '', root.lineNumber ?? 0];
     const resolved = root.resolvedAt !== null || root.dismissedAt !== null;
+    const finding = findingId === null ? undefined : reviewData?.findings.find(row => row.id === findingId);
+    const prReply = findingId === null ? onReplyThread : onReplyFindingThread ?? onReplyThread;
+    const lineReply = findingId === null ? onReplyLineThread : onReplyFindingLineThread ?? onReplyLineThread;
+    const reply = root.scope === 'file-line' && root.filePath !== null && root.lineNumber !== null
+      && lineReply !== undefined
+      ? (rootCommentId: string, body: string) => lineReply(
+          rootCommentId,
+          root.filePath!,
+          root.side,
+          root.lineNumber!,
+          root.startLine ?? undefined,
+          root.startSide ?? undefined,
+          body,
+        )
+      : prReply;
     rows.push({
-      key: `thread-${key}`,
+      key: `thread-${root.id}`,
       time: root.createdAt,
       render: (
-        <ReviewThreadCard
-          key={`thread-${key}`}
-          pr={pr}
-          filePath={filePath}
-          lineNumber={typeof lineNumberStr === 'number' ? lineNumberStr : 0}
-          comments={thread}
-          resolved={resolved}
-          onResolve={onResolveThread !== undefined ? () => onResolveThread(root.id) : undefined}
-          onDismiss={onDismissThread !== undefined ? () => onDismissThread(root.id) : undefined}
-          reviewData={reviewData}
-        />
+        <RailReviewThread key={`thread-${root.id}`}>
+          <ReviewThreadCard
+            pr={pr}
+            comments={thread}
+            resolved={resolved}
+            onSetResolved={findingId !== null && onSetFindingResolved !== undefined
+              ? next => onSetFindingResolved(findingId, next)
+              : onResolveThread !== undefined
+                ? next => { if (next) onResolveThread(root.id); }
+                : undefined}
+            onDismiss={onDismissThread !== undefined ? () => onDismissThread(root.id) : undefined}
+            onReply={reply}
+            onAnswerFinding={findingId !== null ? onAnswerFinding : undefined}
+            reviewData={reviewData}
+            canPromote={findingId !== null && !resolved && canPromoteFindings}
+            promoted={finding?.lifecycle_status === 'included'}
+            onTogglePromotion={findingId !== null && onToggleFindingPromotion !== undefined
+              ? () => onToggleFindingPromotion(findingId)
+              : undefined}
+          />
+        </RailReviewThread>
       ),
     });
   }
@@ -495,7 +527,6 @@ export function PRTimeline({
   if (reviewData !== undefined) {
     rows.push(...buildAgentReviewTimelineEntries(reviewData, {
       onOpenRound: onOpenReviewRound,
-      onAnswer: onAnswerFinding,
       onRoundAction: onReviewRoundAction,
     }));
   }

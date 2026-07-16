@@ -11,69 +11,150 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ReviewMessageDto, ReviewThreadDto } from '../../types';
 import type { LocalPR, LocalPRComment } from '../../types/localPr';
-import Avatar from '../../Avatar';
-import { actorRole, agoLabel, displayName } from './prViewMeta';
+import { MarkdownProse } from '../../threads/MarkdownProse';
 import { AgentFindingContent, presentFinding } from '../../review/AgentEvidence';
 import type { AgentReviewData } from '../../review/agentReviewTypes';
+import { ReviewThreadCard as GitHubReviewThreadCard } from '../ReviewThreadCard';
+import { actorRole, displayName } from './prViewMeta';
 
 /**
- * A file-line comment thread (U13d): a mono file-header bar, the root
- * comment plus its replies (avatar + name + badges + body), and a footer
- * offering resolve/dismiss. No diff snippet — that needs the diff itself,
- * which this milestone doesn't fetch yet (Code Diff / Files-changed page).
+ * Adapts a persisted local review conversation to the same card used by a
+ * live GitHub review thread. Local ids stay synthetic/non-positive so the
+ * shared card never exposes GitHub-only edit, reaction, or deep-link menus.
  */
 export function ReviewThreadCard({
-  pr, filePath, lineNumber, comments, resolved, onResolve, onDismiss, reviewData,
+  pr,
+  filePath,
+  lineNumber,
+  comments,
+  resolved: resolvedOverride,
+  onResolve,
+  onSetResolved,
+  onDismiss,
+  onReply,
+  onAnswerFinding,
+  reviewData,
+  canPromote = false,
+  promoted = false,
+  onTogglePromotion,
 }: {
   pr: LocalPR;
-  filePath: string;
-  lineNumber: number;
-  /** Root comment first, then replies, oldest-first. */
+  filePath?: string;
+  lineNumber?: number;
+  /** Root comment first, then direct replies, oldest-first. */
   comments: LocalPRComment[];
-  resolved: boolean;
-  onResolve?: () => void;
-  onDismiss?: () => void;
+  resolved?: boolean;
+  /** Legacy one-way resolve callback retained for read-only brain reviews. */
+  onResolve?: () => void | Promise<void>;
+  onSetResolved?: (resolved: boolean) => void | Promise<unknown>;
+  onDismiss?: () => void | Promise<void>;
+  onReply?: (rootCommentId: string, body: string) => void | Promise<void>;
+  onAnswerFinding?: (findingId: string, body: string) => void | Promise<unknown>;
   reviewData?: AgentReviewData;
+  canPromote?: boolean;
+  promoted?: boolean;
+  onTogglePromotion?: () => void | Promise<unknown>;
 }) {
+  const root = comments[0];
+  if (root === undefined) return null;
+
+  const resolved = resolvedOverride ?? (root.resolvedAt !== null || root.dismissedAt !== null);
+  const rootFinding = root.findingId == null || reviewData === undefined
+    ? undefined
+    : presentFinding(reviewData, root.findingId);
+  const thread: ReviewThreadDto = {
+    rootGithubId: -1,
+    filePath: root.filePath ?? filePath ?? null,
+    line: root.lineNumber ?? lineNumber ?? null,
+    side: root.side,
+    diffHunk: null,
+    messages: comments.map<ReviewMessageDto>((comment, index) => ({
+      githubId: -(index + 1),
+      author: displayName(comment.author),
+      body: comment.body,
+      createdAt: new Date(comment.createdAt).toISOString(),
+      reactions: null,
+      reviewId: null,
+      authorAssociation: null,
+    })),
+    resolved,
+    outdated: false,
+    startLine: root.startLine,
+    startSide: root.startSide,
+    originalLine: root.lineNumber ?? lineNumber ?? null,
+    originalStartLine: root.startLine,
+  };
+
+  // A resolved review conversation can still continue, matching GitHub's
+  // thread card. Discarded local drafts stay closed.
+  const canReply = root.dismissedAt === null && onReply !== undefined;
+  const setResolved = onSetResolved !== undefined || onResolve !== undefined
+    ? async (_rootId: number, next: boolean) => {
+        if (onSetResolved !== undefined) await onSetResolved(next);
+        else if (next) await onResolve?.();
+      }
+    : undefined;
+
   return (
-    <div className="pr-thread">
-      <div className="th-file">▾ {filePath}:{lineNumber}</div>
-      {comments.map(c => {
-        const role = actorRole(c.author, pr);
-        const pending = c.origin === 'local' && c.publishedAt === null &&
-          c.resolvedAt === null && c.dismissedAt === null;
-        const finding = c.findingId == null || reviewData === undefined
-          ? undefined
-          : presentFinding(reviewData, c.findingId);
+    <GitHubReviewThreadCard
+      thread={thread}
+      prAuthor={pr.author?.replace(/^@/, '') ?? null}
+      prHtmlUrl={pr.remotePrUrl ?? ''}
+      locationLabel={root.scope === 'pr'
+        ? 'Pull request review'
+        : `${thread.filePath ?? '?'}${thread.line === null ? '' : `:${thread.line}`}`}
+      onReply={canReply ? async body => {
+        await onReply(root.id, body);
+        if (root.findingId !== null && root.findingId !== undefined) {
+          await onAnswerFinding?.(root.findingId, body);
+        }
+      } : undefined}
+      onSetResolved={setResolved}
+      renderMessageBadges={(_message, index) => {
+        const comment = comments[index];
+        if (comment === undefined) return null;
+        const role = actorRole(comment.author, pr);
         return (
-          <div className="th-cmt" key={c.id}>
-            <Avatar login={displayName(c.author)} size={22} className={`pr-avatar ${role === 'other' ? '' : role}`} />
-            <div className="m">
-              <div className="mh">
-                <span className="who">{displayName(c.author)}</span> · {agoLabel(c.createdAt)}
-                {role === 'agent' && <span className="pr-badge agent">Agent</span>}
-                {role === 'author' && <span className="pr-badge author">Author</span>}
-                {pending && <span className="pr-badge pending">Pending</span>}
-              </div>
-              <div className="mb">
-                {finding !== undefined
-                  ? <AgentFindingContent view={finding} body={c.body} pending={pending} />
-                  : c.body}
-              </div>
-            </div>
-          </div>
+          <>
+            {role === 'agent' && <span className="prc-comment-role">AGENT</span>}
+            {comment.origin === 'local' && <span className="prc-comment-role prc-comment-role--local">LOCAL</span>}
+            {index === 0 && promoted && <span className="prc-comment-role prc-comment-role--queued">REMOTE REVIEW DRAFT</span>}
+            {index === 0 && comment.publishedAt !== null && <span className="prc-comment-role">PUBLISHED</span>}
+          </>
         );
-      })}
-      <div className="th-foot">
-        <span className="reply">Reply…</span>
-        {!resolved && onResolve !== undefined && (
-          <button type="button" className="btn sm" onClick={onResolve}>Resolve conversation</button>
-        )}
-        {!resolved && onDismiss !== undefined && (
-          <button type="button" className="btn sm" onClick={onDismiss}>Discard draft</button>
-        )}
-      </div>
-    </div>
+      }}
+      renderMessageBody={(_message, index) => {
+        const comment = comments[index];
+        if (comment === undefined) return null;
+        return index === 0 && rootFinding !== undefined
+          ? <AgentFindingContent view={rootFinding} body={comment.body} pending={!resolved && comment.publishedAt === null} />
+          : <MarkdownProse text={comment.body} />;
+      }}
+      footerActions={(canPromote && onTogglePromotion !== undefined) || (!resolved && onDismiss !== undefined) ? (
+        <>
+          {canPromote && onTogglePromotion !== undefined && (
+            <button
+              type="button"
+              className="prc-review-thread__resolve-btn prc-review-thread__promote-btn"
+              aria-pressed={promoted}
+              onClick={() => { void onTogglePromotion(); }}
+            >
+              {promoted ? 'Remove from remote review' : 'Add to remote review'}
+            </button>
+          )}
+          {!resolved && onDismiss !== undefined && (
+            <button
+              type="button"
+              className="prc-review-thread__resolve-btn prc-review-thread__discard-btn"
+              onClick={() => { void onDismiss(); }}
+            >
+              Discard local comment
+            </button>
+          )}
+        </>
+      ) : undefined}
+    />
   );
 }

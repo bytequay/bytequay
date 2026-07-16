@@ -85,7 +85,7 @@ export type Nav =
   /** Task brain view — the per-task "brain" surface (aggregate strip,
    *  stage navigator, brain feed, action rail). Sits alongside the
    *  older task-detail page; the back link returns to that page. */
-  | { view: 'task-brain'; threadId: string; taskId: string }
+  | { view: 'task-brain'; threadId: string; taskId: string; initialReviewRoundId?: string }
   /** Stage drill-in — the detailed per-stage view reached from a brain-
    *  view stage chip or a brain-agent response's drill-in chip. */
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
@@ -326,14 +326,14 @@ function App() {
   // in the sidebar before the first lookup returns), the earlier call must
   // not win the race and land the user on the wrong thread once it finally
   // resolves — only the MOST RECENT request may navigate.
-  const openThreadRequestRef = useRef<string | null>(null);
+  const openThreadRequestRef = useRef(0);
   const openThread = (threadId: string) => {
     const back = nav;
-    openThreadRequestRef.current = threadId;
+    const request = ++openThreadRequestRef.current;
     void (async () => {
       try {
         const review = await window.bridge.getAgentReviewByThread(threadId);
-        if (openThreadRequestRef.current !== threadId) return;
+        if (openThreadRequestRef.current !== request) return;
         if (review !== null && review.review.owner_task_id !== null) {
           setNav({
             view: 'task-brain',
@@ -344,10 +344,14 @@ function App() {
         }
         if (review !== null) {
           const bundle = await window.bridge.getLocalPrBundle(review.review.pr_id);
-          if (openThreadRequestRef.current !== threadId) return;
+          if (openThreadRequestRef.current !== request) return;
           const repoSlug = bundle?.pr.repo;
           const prNumber = bundle?.pr.remotePrNumber;
-          const roundId = review.rounds.at(-1)?.id;
+          const roundId = review.rounds.reduceRight<(typeof review.rounds)[number] | undefined>(
+            (selected, round) => selected
+              ?? (round.status === 'RUNNING' || round.status === 'QUEUED' ? round : undefined),
+            undefined,
+          )?.id ?? review.rounds.at(-1)?.id;
           const workspaceId = review.review.workspace_id;
           if (repoSlug !== null && repoSlug !== undefined && prNumber !== null
               && prNumber !== undefined && roundId !== undefined && workspaceId !== null) {
@@ -365,13 +369,13 @@ function App() {
         }
 
         const pass = await window.bridge.getReviewPassByThread(threadId);
-        if (openThreadRequestRef.current !== threadId) return;
+        if (openThreadRequestRef.current !== request) return;
         setNav(pass !== null
           ? { view: 'review-thread', threadId, back }
           : { view: 'thread-detail', threadId });
       }
       catch {
-        if (openThreadRequestRef.current === threadId) setNav({ view: 'thread-detail', threadId });
+        if (openThreadRequestRef.current === request) setNav({ view: 'thread-detail', threadId });
       }
     })();
   };
@@ -678,11 +682,12 @@ function App() {
     }
   })();
 
-  // Stage / brain pages render their own task-scoped sidebar (the live-plan
-  // diagram), so the global workspace rail steps aside for them. Cast to a
-  // plain string so this alias doesn't narrow `nav` inside the rail JSX.
+  // Task-owned full-page surfaces render their own sidebar, so the global
+  // workspace rail steps aside for them. Cast to a plain string so this alias
+  // doesn't narrow `nav` inside the rail JSX.
   const ownsTaskSidebar = (nav.view as string) === 'stage-detail'
-    || (nav.view as string) === 'task-brain';
+    || (nav.view as string) === 'task-brain'
+    || (nav.view as string) === 'agent-review';
 
   const openAgentReview = (target: AgentReviewNavTarget) => {
     setActiveWorkspaceId(target.workspaceId);
@@ -692,6 +697,7 @@ function App() {
         view: 'task-brain',
         threadId: target.threadId,
         taskId: target.taskId,
+        initialReviewRoundId: target.roundId,
       });
       return;
     }
@@ -888,6 +894,7 @@ function App() {
           <TaskBrainRoute
             threadId={nav.threadId}
             taskId={nav.taskId}
+            initialReviewRoundId={nav.initialReviewRoundId}
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
@@ -930,6 +937,10 @@ function App() {
             forwardEnabled={canGoForward(navHistoryRef.current)}
             onOpenBrain={() => setNav({
               view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
+            })}
+            onOpenAgentReview={roundId => setNav({
+              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
+              initialReviewRoundId: roundId,
             })}
           />
         )}

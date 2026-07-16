@@ -401,7 +401,9 @@ public class PRPublishService
         boolean selectAll = findingIds == null && commentIds == null;
         List<PRComment> drafts = prService.comments(prId).stream()
                 .filter(c -> PRComment.ORIGIN_LOCAL.equals(c.origin()))
-                .filter(c -> c.publishedAt() == null && c.dismissedAt() == null)
+                .filter(c -> c.parentCommentId() == null)
+                .filter(c -> c.publishedAt() == null
+                        && c.resolvedAt() == null && c.dismissedAt() == null)
                 .filter(c -> selectAll || selectedComments.contains(c.id())
                         || c.findingId() != null && selectedFindings.contains(c.findingId()))
                 .toList();

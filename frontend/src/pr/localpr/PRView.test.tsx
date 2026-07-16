@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRView } from './PRView';
 import { derivePRCapabilities } from '../prCapabilities';
 import { invalidate } from '../../dataCache';
+import { createAgentReviewFixture } from '../../review/agentReviewTestData';
 import type { PullRequestDetailDto } from '../../types';
 import type {
   LocalPR,
@@ -138,6 +139,50 @@ describe('PRView', () => {
     expect(screen.getByText(/Posts to GitHub as @chenjian2664/)).toBeTruthy();
     expect(screen.queryByText('All checks have passed')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Run tests' })).toBeNull();
+  });
+
+  it('keeps resolved agent conversations replyable on terminal PRs without reopening ordinary drafts', async () => {
+    const terminalPr = pr('merged');
+    const base = bundle({ pr: terminalPr });
+    const reviewData = createAgentReviewFixture(base, null);
+    reviewData.findings[0] = { ...reviewData.findings[0], lifecycle_status: 'resolved' };
+    const findingRoot: LocalPRComment = {
+      ...reviewData.pr_comments[0],
+      scope: 'pr' as const,
+      filePath: null,
+      lineNumber: null,
+      resolvedAt: Date.now(),
+    };
+    const ordinaryDraft = comment({ id: 'ordinary-draft', body: 'Ordinary local draft' });
+    const onReply = vi.fn(async () => {});
+    const onAnswer = vi.fn(async () => true);
+    const onSetResolved = vi.fn(async () => true);
+
+    renderView({ ...base, comments: [findingRoot, ordinaryDraft] }, {
+      reviewData,
+      onReplyThread: onReply,
+      onAnswerFinding: onAnswer,
+      onSetFindingResolved: onSetResolved,
+    });
+
+    expect(screen.queryByText('Reply locally…')).toBeNull();
+    fireEvent.click(screen.getByTitle('Expand thread'));
+    fireEvent.click(screen.getByPlaceholderText('Reply…'));
+    fireEvent.change(screen.getByPlaceholderText('Write a reply'), {
+      target: { value: 'Please re-check this after the merge.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+
+    await waitFor(() => expect(onReply).toHaveBeenCalledWith(
+      findingRoot.id, 'Please re-check this after the merge.',
+    ));
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith(
+      'finding-1', 'Please re-check this after the merge.',
+    ));
+    expect(onReply.mock.invocationCallOrder[0]).toBeLessThan(onAnswer.mock.invocationCallOrder[0]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unresolve conversation' }));
+    await waitFor(() => expect(onSetResolved).toHaveBeenCalledWith('finding-1', false));
   });
 
   it('disables Merge while an open comment remains and enables Merge anyway', () => {

@@ -50,6 +50,16 @@ class TestCliReviewRunner
     }
 
     @Test
+    void claudeArgvEnforcesTheAssignedDollarCap()
+    {
+        assertThat(CliReviewRunner.buildArgv(
+                CliReviewRunner.Provider.CLAUDE, "claude", null, "/work", null,
+                Path.of("/tmp/mcp.json"), 25))
+                .containsSequence("--max-budget-usd", "0.25")
+                .containsSequence("--mcp-config", "/tmp/mcp.json");
+    }
+
+    @Test
     void buildsTheReviewMcpUrlAndConfigForASeat()
     {
         CliReviewRunner.McpEndpoint mcp = new CliReviewRunner.McpEndpoint("pass-1", "seat-9");
@@ -95,6 +105,23 @@ class TestCliReviewRunner
         assertThat(result.sessionId()).isEqualTo("sess-9");
         assertThat(result.text()).isEqualTo("First part.\n\nSecond part.");
         assertThat(result.costUsdMilli()).isEqualTo(1234);
+        assertThat(result.end()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void assemblePreservesBudgetAbortAndNonzeroProcessFailure()
+    {
+        CliStreamParser budget = (line, now) -> List.of(
+                new StreamEvent.ErrorOccurred(
+                        now, "Maximum budget reached for this invocation", false));
+        CliReviewRunner.Result aborted = CliReviewRunner.assemble(budget, List.of("result"));
+        assertThat(aborted.end()).isEqualTo("ABORTED");
+        assertThat(aborted.errorMessage()).contains("budget");
+
+        CliReviewRunner.Result failed = CliReviewRunner.withProcessExit(
+                new CliReviewRunner.Result("", null, 0), 2, 25);
+        assertThat(failed.end()).isEqualTo("ERRORED");
+        assertThat(failed.errorMessage()).contains("code 2");
     }
 
     @Test

@@ -119,6 +119,9 @@ public class InvestigationReviewTools
     private ToolExecutor.ToolCallResult execute(String reviewId, String assignmentId, ToolCall call)
     {
         try {
+            if (!store.assignmentRoundIsRunning(assignmentId)) {
+                return error("review round is no longer running");
+            }
             return switch (call.name()) {
                 case "record_assignment" -> recordAssignment(assignmentId, call.input());
                 case "record_hypothesis" -> recordHypothesis(assignmentId, call.input());
@@ -127,8 +130,8 @@ public class InvestigationReviewTools
                 case "read_file" -> readFile(reviewId, assignmentId, call.input());
                 case "search_diff" -> searchDiff(reviewId, assignmentId, call.input());
                 case "record_finding" -> recordFinding(reviewId, assignmentId, call.input());
-                case "record_evidence" -> recordEvidence(reviewId, call.input());
-                case "record_verification" -> recordVerification(reviewId, call.input());
+                case "record_evidence" -> recordEvidence(reviewId, assignmentId, call.input());
+                case "record_verification" -> recordVerification(reviewId, assignmentId, call.input());
                 default -> error("unknown investigation tool: " + call.name());
             };
         }
@@ -140,8 +143,11 @@ public class InvestigationReviewTools
     private ToolExecutor.ToolCallResult recordAssignment(String assignmentId, JsonNode input)
     {
         String summary = required(input, "understanding_summary");
-        store.updateAssignment(assignmentId, "investigating", summary,
-                strings(input.path("assumptions")), strings(input.path("unknowns")));
+        if (!store.updateAssignmentWhileRoundRunning(
+                assignmentId, "investigating", summary,
+                strings(input.path("assumptions")), strings(input.path("unknowns")))) {
+            return error("review round is no longer running");
+        }
         return okJson("assignment_id", assignmentId);
     }
 
@@ -155,9 +161,12 @@ public class InvestigationReviewTools
             return error("active hypothesis budget exhausted (max " + MAX_ACTIVE_HYPOTHESES + ")");
         }
         String id = UUID.randomUUID().toString();
-        store.insertHypothesis(new HypothesisRow(
-                id, assignmentId, optional(input, "objective_id"), required(input, "claim"),
-                input.path("origin").asText("reviewer"), status, "TENTATIVE"));
+        if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () ->
+                store.insertHypothesis(new HypothesisRow(
+                        id, assignmentId, optional(input, "objective_id"), required(input, "claim"),
+                        input.path("origin").asText("reviewer"), status, "TENTATIVE")))) {
+            return error("review round is no longer running");
+        }
         return okJson("hypothesis_id", id);
     }
 
@@ -167,11 +176,14 @@ public class InvestigationReviewTools
             return error("adaptive step budget exhausted (one of 12 slots is reserved for self-refutation)");
         }
         String id = UUID.randomUUID().toString();
-        store.insertStep(new InvestigationStepRow(
-                id, assignmentId, optional(input, "hypothesis_id"),
-                required(input, "action_type"), input.path("arguments"),
-                required(input, "reason"), input.path("planned").asBoolean(true),
-                0, "running"));
+        if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () ->
+                store.insertStep(new InvestigationStepRow(
+                        id, assignmentId, optional(input, "hypothesis_id"),
+                        required(input, "action_type"), input.path("arguments"),
+                        required(input, "reason"), input.path("planned").asBoolean(true),
+                        0, "running")))) {
+            return error("review round is no longer running");
+        }
         return okJson("step_id", id);
     }
 
@@ -184,7 +196,8 @@ public class InvestigationReviewTools
         if (path != null) {
             text = diffFile(text, path);
         }
-        return observation(stepId, "source", snapshot.headCommit(), path, null, null, text);
+        return observation(
+                assignmentId, stepId, "source", snapshot.headCommit(), path, null, null, text);
     }
 
     private ToolExecutor.ToolCallResult readFile(String reviewId, String assignmentId, JsonNode input)
@@ -197,7 +210,8 @@ public class InvestigationReviewTools
         int end = Math.max(start, input.path("end_line").asInt(start + 199));
         String excerpt = lines(content, start, end);
         String type = isAuthoritativePath(path) ? "authoritative" : "source";
-        return observation(stepId, type, snapshot.headCommit(), path, start, end, excerpt);
+        return observation(
+                assignmentId, stepId, type, snapshot.headCommit(), path, start, end, excerpt);
     }
 
     private ToolExecutor.ToolCallResult searchDiff(String reviewId, String assignmentId, JsonNode input)
@@ -210,7 +224,9 @@ public class InvestigationReviewTools
                 .limit(80)
                 .toList();
         String preview = matches.isEmpty() ? "No matching changed lines." : String.join("\n", matches);
-        return observation(stepId, "static-trace", snapshot.headCommit(), null, null, null, preview);
+        return observation(
+                assignmentId, stepId, "static-trace", snapshot.headCommit(),
+                null, null, null, preview);
     }
 
     private ToolExecutor.ToolCallResult recordFinding(String reviewId, String assignmentId, JsonNode input)
@@ -239,14 +255,19 @@ public class InvestigationReviewTools
         String roundId = store.assignments(reviewId).stream()
                 .filter(row -> row.id().equals(assignmentId)).findFirst().orElseThrow().roundId();
         String id = UUID.randomUUID().toString();
-        store.insertFinding(new FindingRow(
-                id, reviewId, roundId, objectiveId, hypothesisId, kind,
-                required(input, "claim"), severity, "TENTATIVE", "unknown",
-                required(input, "requested_action"), "candidate", review.reviewedHeadCommit()));
+        if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () ->
+                store.insertFinding(new FindingRow(
+                        id, reviewId, roundId, objectiveId, hypothesisId, kind,
+                        required(input, "claim"), severity, "TENTATIVE", "unknown",
+                        required(input, "requested_action"), "candidate",
+                        review.reviewedHeadCommit())))) {
+            return error("review round is no longer running");
+        }
         return okJson("finding_id", id);
     }
 
-    private ToolExecutor.ToolCallResult recordEvidence(String reviewId, JsonNode input)
+    private ToolExecutor.ToolCallResult recordEvidence(
+            String reviewId, String assignmentId, JsonNode input)
     {
         String findingId = required(input, "finding_id");
         FindingRow finding = store.findFinding(findingId)
@@ -266,16 +287,21 @@ public class InvestigationReviewTools
             return error("invalid dependency_mode");
         }
         String strength = strength(observation.sourceType());
-        store.insertEvidence(new FindingEvidenceRow(
-                findingId, observation.id(), relation, required(input, "proposition"), strength,
-                strengthReason(strength), mode, input.path("dependency")));
         String confidence = confidence(strength, finding.criterionKind());
-        store.updateFinding(finding.id(), finding.lifecycleStatus(), finding.verificationStatus(),
-                confidence, finding.claim(), finding.severity());
+        if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () -> {
+            store.insertEvidence(new FindingEvidenceRow(
+                    findingId, observation.id(), relation, required(input, "proposition"), strength,
+                    strengthReason(strength), mode, input.path("dependency")));
+            store.updateFinding(finding.id(), finding.lifecycleStatus(), finding.verificationStatus(),
+                    confidence, finding.claim(), finding.severity());
+        })) {
+            return error("review round is no longer running");
+        }
         return okJson("strength_class", strength);
     }
 
-    private ToolExecutor.ToolCallResult recordVerification(String reviewId, JsonNode input)
+    private ToolExecutor.ToolCallResult recordVerification(
+            String reviewId, String assignmentId, JsonNode input)
     {
         String findingId = required(input, "finding_id");
         FindingRow finding = store.findFinding(findingId)
@@ -304,32 +330,41 @@ public class InvestigationReviewTools
         String lifecycle = "rejected".equals(status) ? "dropped"
                 : "unknown".equals(status) ? "NEEDS_AUTHOR_INPUT"
                 : userJudgement ? "NEEDS_USER_JUDGEMENT" : "ready";
-        store.insertVerification(new FindingVerificationRow(
-                UUID.randomUUID().toString(), findingId, required(input, "verifier_run_id"),
-                evidenceAccurate, scopeAccurate, severityAccurate,
-                strings(input.path("counter_evidence")), status, confidence,
-                required(input, "explanation")));
-        store.updateFinding(findingId, lifecycle, status, confidence, claim, severity);
+        if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () -> {
+            store.insertVerification(new FindingVerificationRow(
+                    UUID.randomUUID().toString(), findingId, required(input, "verifier_run_id"),
+                    evidenceAccurate, scopeAccurate, severityAccurate,
+                    strings(input.path("counter_evidence")), status, confidence,
+                    required(input, "explanation")));
+            store.updateFinding(findingId, lifecycle, status, confidence, claim, severity);
+        })) {
+            return error("review round is no longer running");
+        }
         return okJson("verification_status", status);
     }
 
     private ToolExecutor.ToolCallResult observation(
-            String stepId, String sourceType, String commitSha, String path,
+            String assignmentId, String stepId, String sourceType, String commitSha, String path,
             Integer startLine, Integer endLine, String raw)
     {
         String preview = raw == null ? "" : raw;
         if (preview.length() > MAX_TOOL_TEXT) {
             preview = preview.substring(0, MAX_TOOL_TEXT) + "\n... (observation truncated)";
         }
+        String observedPreview = preview;
         String id = UUID.randomUUID().toString();
-        store.insertObservation(new ObservationRow(
-                id, stepId, sourceType, commitSha, path, startLine, endLine,
-                null, null, null, null, digest(preview), preview));
-        store.updateStepStatus(stepId, "completed", 0);
+        if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () -> {
+            store.insertObservation(new ObservationRow(
+                    id, stepId, sourceType, commitSha, path, startLine, endLine,
+                    null, null, null, null, digest(observedPreview), observedPreview));
+            store.updateStepStatus(stepId, "completed", 0);
+        })) {
+            return error("review round is no longer running");
+        }
         ObjectNode result = mapper.createObjectNode();
         result.put("observation_id", id);
-        result.put("content_digest", digest(preview));
-        result.put("preview", preview);
+        result.put("content_digest", digest(observedPreview));
+        result.put("preview", observedPreview);
         return ok(result.toString());
     }
 

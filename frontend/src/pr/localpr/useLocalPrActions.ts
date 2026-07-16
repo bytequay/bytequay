@@ -107,11 +107,10 @@ export function useLocalPrActions(taskId: string, opts: {
   ) => {
     if (localPr === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.addLocalPrComment(
+    return bridge?.addLocalPrComment(
       localPr.id, { scope: 'file-line', filePath, lineNumber, side, startLine, startSide, body, parentCommentId },
     )
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
+      .then(() => refresh());
   }, [localPr, refresh]);
 
   const replyLocalPrComment = useCallback((parentCommentId: string, body: string) => {

@@ -4046,12 +4046,37 @@ export type Bridge = {
   getAgentReviewByThread: (threadId: string) => Promise<AgentReviewData | null>;
   continueAgentReview: (
     reviewId: string,
-    body: { kind: 'continue' | 're-review' | 'continuation'; findingIds?: string[]; runner?: 'api' | 'cli'; providerId?: string },
+    body: {
+      kind: 'continue' | 're-review' | 'continuation';
+      findingIds?: string[];
+      runner?: 'api' | 'cli';
+      providerId?: string;
+      seed?: string;
+      costCapCents?: number;
+    },
+  ) => Promise<AgentReviewData>;
+  sendAgentReviewRoundMessage: (
+    roundId: string,
+    body: { target: string; text: string },
+  ) => Promise<AgentReviewData>;
+  updateAgentReviewRoundBudget: (
+    roundId: string,
+    body: { costCapCents: number },
   ) => Promise<AgentReviewData>;
   answerAgentReviewFinding: (findingId: string, text: string) => Promise<AgentReviewData>;
   mutateAgentReviewFinding: (
     findingId: string,
-    body: { action: 'dismiss' | 'include' | 'exclude' | 'editDraft' | 'reopen'; text?: string },
+    body: { action: 'dismiss' | 'include' | 'exclude' | 'editDraft' | 'reopen' | 'resolve'; text?: string },
+  ) => Promise<AgentReviewData>;
+  recordAgentReviewFindingOutcome: (
+    findingId: string,
+    body: {
+      userDisposition: string;
+      authorResponse: 'fixed' | 'acknowledged' | 'disagreed' | 'ignored';
+      epistemicResolution: 'confirmed' | 'refuted' | 'unresolved';
+      utilityAssessment?: string;
+      styleEditMagnitude?: number;
+    },
   ) => Promise<AgentReviewData>;
   getAgentReviewRoundLog: (roundId: string) => Promise<AgentReviewData>;
   cancelAgentReviewRound: (roundId: string) => Promise<AgentReviewData>;

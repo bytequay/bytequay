@@ -45,11 +45,12 @@ export type ReviewRoundRow = {
   scope: string;
   start_commit: string;
   end_commit: string | null;
-  status: 'COMPLETED' | 'COMPLETED_WITH_QUESTIONS' | 'ERRORED' | 'CANCELLED' | 'RUNNING';
+  status: 'COMPLETED' | 'COMPLETED_WITH_QUESTIONS' | 'ERRORED' | 'CANCELLED' | 'QUEUED' | 'RUNNING';
   budget_json: { cost_cap_cents: number; wall_clock_minutes: number };
   cost_cents: number;
   capabilities_json: ReviewCapabilities;
   trigger_stage_id: string | null;
+  message_gate_open?: boolean;
 };
 
 export type ReviewCapabilities = {
@@ -176,7 +177,7 @@ export type FindingRelationRow = {
 export type ReviewOutcomeRow = {
   finding_id: string;
   user_disposition: 'published' | 'edited' | 'dismissed' | 'deferred';
-  author_response: 'fixed' | 'disputed' | 'acknowledged' | 'ignored';
+  author_response: 'fixed' | 'disagreed' | 'acknowledged' | 'ignored';
   epistemic_resolution: 'confirmed' | 'refuted' | 'unresolved';
   utility_assessment: string;
   style_edit_magnitude: number;
@@ -203,6 +204,26 @@ export type ActivityFactRow = {
     | 'applicable-classes-resolved' | 'objectives-resolved' | 'tests-inspected' | 'budget-gaps';
   count: number;
   detail: string;
+};
+
+export type RoundMessageRow = {
+  id: string;
+  round_id: string;
+  assignment_id?: string | null;
+  target: string;
+  sender: string;
+  body: string;
+  status: string;
+  response: string | null;
+  created_at: string | number;
+  completed_at: string | number | null;
+};
+
+export type ReviewedCommitRow = {
+  round_id: string;
+  sha: string;
+  message: string;
+  position: number;
 };
 
 /** Existing run rows plus the review-round FK the implemented AgentRun DTO
@@ -232,6 +253,9 @@ export type AgentReviewData = {
   knowledge_items: KnowledgeItemRow[];
   knowledge_provenance: KnowledgeProvenanceRow[];
   activity_facts: ActivityFactRow[];
+  round_messages: RoundMessageRow[];
+  reviewed_commits: ReviewedCommitRow[];
+  round_message_targets?: Record<string, string[]>;
   pr_comments: LocalPRComment[];
   pr_timeline_events: LocalPRTimelineEvent[];
 };

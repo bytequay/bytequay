@@ -729,6 +729,16 @@ class PRServiceImpl
         requireText(origin, "origin");
         requireText(author, "author");
         requireText(body, "body");
+        PRComment parent = resolveParentComment(pr, parentCommentId);
+        if (parent != null) {
+            scope = parent.scope();
+            filePath = parent.filePath();
+            lineNumber = parent.lineNumber();
+            side = parent.side();
+            startLine = parent.startLine();
+            startSide = parent.startSide();
+            parentCommentId = parent.id();
+        }
         if (PRComment.SCOPE_FILE_LINE.equals(scope)) {
             if (filePath == null || filePath.isBlank() || lineNumber == null) {
                 throw new IllegalArgumentException("file-line comment requires filePath + lineNumber");
@@ -741,7 +751,6 @@ class PRServiceImpl
         else {
             throw new IllegalArgumentException("scope must be 'pr' or 'file-line'");
         }
-        parentCommentId = normaliseParentComment(pr, parentCommentId);
         String resolvedSide = DiffSide.normalize(side);
         // Multi-line range: null unless a distinct startLine was given.
         Integer resolvedStartLine = null;
@@ -766,7 +775,7 @@ class PRServiceImpl
         return comment;
     }
 
-    private String normaliseParentComment(PR pr, String parentCommentId)
+    private PRComment resolveParentComment(PR pr, String parentCommentId)
     {
         if (parentCommentId == null || parentCommentId.isBlank()) {
             return null;
@@ -777,7 +786,7 @@ class PRServiceImpl
         if (!pr.id().equals(parent.prId())) {
             throw new IllegalArgumentException("parent comment " + id + " belongs to another PR");
         }
-        return id;
+        return parent;
     }
 
     @Override

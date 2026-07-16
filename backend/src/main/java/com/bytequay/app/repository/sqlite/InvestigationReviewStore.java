@@ -29,7 +29,9 @@ import com.bytequay.app.domain.InvestigationReviewData.ReviewAssignmentRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewCapabilities;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewOutcomeRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundMessageRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewedCommitRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -47,6 +49,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Compact JDBC store for the typed investigation-review artifact graph. */
 @Repository
@@ -89,7 +92,9 @@ public class InvestigationReviewStore
                 SELECT s.pr_id,
                        CASE WHEN s.status = 'STALE' THEN 'stale'
                             WHEN EXISTS (SELECT 1 FROM review_round r
-                                         WHERE r.session_id = s.id AND r.status = 'RUNNING')
+                                         WHERE r.session_id = s.id
+                                           AND (r.status IN ('QUEUED', 'RUNNING')
+                                                OR r.lifecycle_finalized = 0))
                             THEN 'running' ELSE 'done' END AS dashboard_state
                 FROM review_session s
                 WHERE s.status IN ('ACTIVE','STALE')
@@ -281,17 +286,191 @@ public class InvestigationReviewStore
     }
 
     @Transactional
+    public boolean updateReviewHeadUnlessStale(
+            String reviewId, String reviewedHeadCommit, String status)
+    {
+        return jdbc.update("""
+                UPDATE review_session
+                SET reviewed_head_commit = ?, status = ?, updated_at_ms = ?
+                WHERE id = ? AND status <> 'STALE'
+                """, reviewedHeadCommit, status, Instant.now().toEpochMilli(), reviewId) == 1;
+    }
+
+    /** Compare-and-set used by PR polling. A round may finish between the
+     * poll reading the old head and attempting to mark the review stale; in
+     * that case the freshly persisted reviewed head wins. */
+    @Transactional
+    public boolean markReviewStaleIfHeadDiffers(String reviewId, String currentHeadCommit)
+    {
+        return jdbc.update("""
+                UPDATE review_session
+                SET status = 'STALE', updated_at_ms = ?
+                WHERE id = ? AND reviewed_head_commit <> ?
+                """, Instant.now().toEpochMilli(), reviewId, currentHeadCommit) == 1;
+    }
+
+    @Transactional
     public void insertRound(ReviewRoundRow row, Instant now)
     {
         jdbc.update("""
                 INSERT INTO review_round
                 (id, session_id, agent_run_id, trigger, scope, start_commit, end_commit,
                  status, budget_json, cost_cents, capabilities_json, trigger_stage_id,
-                 created_at_ms, finished_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                 message_gate_open, lifecycle_finalized, created_at_ms, finished_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 """, row.id(), row.reviewId(), row.agentRunId(), row.trigger(), row.scope(),
                 row.startCommit(), row.endCommit(), row.status(), json(row.budgetJson()),
-                row.costCents(), json(row.capabilitiesJson()), row.triggerStageId(), now.toEpochMilli());
+                row.costCents(), json(row.capabilitiesJson()), row.triggerStageId(),
+                row.messageGateOpen() ? 1 : 0,
+                Set.of("QUEUED", "RUNNING").contains(row.status()) ? 0 : 1,
+                now.toEpochMilli());
+    }
+
+    /** Insert a newly launched round and derive its queue state in the same
+     * SQLite statement. Concurrent callers therefore cannot both publish a
+     * RUNNING round for one review session. */
+    @Transactional
+    public ReviewRoundRow insertLiveRound(ReviewRoundRow row, Instant now)
+    {
+        jdbc.update("""
+                INSERT INTO review_round
+                (id, session_id, agent_run_id, trigger, scope, start_commit, end_commit,
+                 status, budget_json, cost_cents, capabilities_json, trigger_stage_id,
+                 message_gate_open, lifecycle_finalized, created_at_ms, finished_at_ms)
+                SELECT ?, ?, ?, ?, ?, ?, ?,
+                       CASE WHEN EXISTS (
+                           SELECT 1 FROM review_round live
+                           WHERE live.session_id = ?
+                             AND (live.status IN ('QUEUED', 'RUNNING')
+                                  OR live.lifecycle_finalized = 0))
+                       THEN 'QUEUED' ELSE 'RUNNING' END,
+                       ?, ?, ?, ?,
+                       CASE WHEN EXISTS (
+                           SELECT 1 FROM review_round live
+                           WHERE live.session_id = ?
+                             AND (live.status IN ('QUEUED', 'RUNNING')
+                                  OR live.lifecycle_finalized = 0))
+                       THEN 0 ELSE 1 END,
+                       0, ?, NULL
+                """, row.id(), row.reviewId(), row.agentRunId(), row.trigger(), row.scope(),
+                row.startCommit(), row.endCommit(), row.reviewId(), json(row.budgetJson()),
+                row.costCents(), json(row.capabilitiesJson()), row.triggerStageId(),
+                row.reviewId(), now.toEpochMilli());
+        return findRound(row.id()).orElseThrow();
+    }
+
+    @Transactional
+    public boolean startQueuedRound(String roundId)
+    {
+        return jdbc.update("""
+                UPDATE review_round
+                SET status = 'RUNNING', message_gate_open = 1
+                WHERE id = ? AND status = 'QUEUED'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM review_round running
+                      WHERE running.session_id = review_round.session_id
+                        AND running.id <> review_round.id
+                        AND running.status = 'RUNNING')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM review_round earlier
+                      WHERE earlier.session_id = review_round.session_id
+                        AND earlier.id <> review_round.id
+                        AND earlier.lifecycle_finalized = 0
+                        AND earlier.rowid < review_round.rowid)
+                """, roundId) == 1;
+    }
+
+    /** Avoid taking SQLite's writer lock while an earlier round still owns
+     * the session. {@link #startQueuedRound(String)} remains the atomic guard
+     * for the race between this read and the update. */
+    @Transactional(readOnly = true)
+    public boolean queuedRoundCanStart(String roundId)
+    {
+        return count("""
+                SELECT COUNT(*) FROM review_round
+                WHERE id = ? AND status = 'QUEUED'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM review_round running
+                      WHERE running.session_id = review_round.session_id
+                        AND running.id <> review_round.id
+                        AND running.status = 'RUNNING')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM review_round earlier
+                      WHERE earlier.session_id = review_round.session_id
+                        AND earlier.id <> review_round.id
+                        AND earlier.lifecycle_finalized = 0
+                        AND earlier.rowid < review_round.rowid)
+                """, roundId) == 1;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReviewRoundRow> liveRounds()
+    {
+        return jdbc.query("""
+                SELECT * FROM review_round
+                WHERE status IN ('QUEUED', 'RUNNING') OR lifecycle_finalized = 0
+                ORDER BY rowid
+                """, this::round);
+    }
+
+    @Transactional
+    public void markRoundFinalized(String roundId)
+    {
+        jdbc.update(
+                "UPDATE review_round SET lifecycle_finalized = 1 WHERE id = ?",
+                roundId);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isRoundFinalized(String roundId)
+    {
+        Integer value = jdbc.queryForObject(
+                "SELECT lifecycle_finalized FROM review_round WHERE id = ?",
+                Integer.class, roundId);
+        return value != null && value != 0;
+    }
+
+    /** Last cancellation fence, invoked after the worker has exited. Tool
+     * callbacks that were already in flight may have written after the first
+     * cancellation update; terminalize them again before lifecycle finality. */
+    @Transactional
+    public void terminalizeCancelledRoundWork(String roundId)
+    {
+        Integer cancelled = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM review_round WHERE id = ? AND status = 'CANCELLED'",
+                Integer.class, roundId);
+        if (cancelled != null && cancelled > 0) {
+            terminalizeUnfinishedRoundWork(roundId, "cancelled");
+            jdbc.update("""
+                    UPDATE review_round_message
+                    SET status = 'cancelled',
+                        response = COALESCE(response, 'Round was cancelled before this message could be processed.'),
+                        completed_at_ms = COALESCE(completed_at_ms, ?)
+                    WHERE round_id = ? AND status IN ('pending', 'processing')
+                    """, Instant.now().toEpochMilli(), roundId);
+        }
+    }
+
+    @Transactional
+    public boolean cancelLiveRound(String roundId, int costCents)
+    {
+        int updated = jdbc.update("""
+                UPDATE review_round
+                SET status = 'CANCELLED', cost_cents = MAX(cost_cents, ?), finished_at_ms = ?,
+                    message_gate_open = 0
+                WHERE id = ? AND status IN ('QUEUED', 'RUNNING')
+                """, costCents, Instant.now().toEpochMilli(), roundId);
+        if (updated == 1) {
+            jdbc.update("""
+                    UPDATE review_round_message
+                    SET status = 'cancelled',
+                        response = COALESCE(response, 'Round was cancelled before this message could be processed.'),
+                        completed_at_ms = ?
+                    WHERE round_id = ? AND status IN ('pending', 'processing')
+                    """, Instant.now().toEpochMilli(), roundId);
+            terminalizeUnfinishedRoundWork(roundId, "cancelled");
+        }
+        return updated == 1;
     }
 
     @Transactional
@@ -299,10 +478,12 @@ public class InvestigationReviewStore
     {
         boolean terminal = !"RUNNING".equals(status);
         jdbc.update("""
-                UPDATE review_round SET status = ?, end_commit = ?, cost_cents = ?, finished_at_ms = ?
+                UPDATE review_round SET status = ?, end_commit = ?, cost_cents = ?, finished_at_ms = ?,
+                       message_gate_open = ?, lifecycle_finalized = ?
                 WHERE id = ?
                 """, status, endCommit, costCents,
-                terminal ? Instant.now().toEpochMilli() : null, roundId);
+                terminal ? Instant.now().toEpochMilli() : null, terminal ? 0 : 1,
+                terminal ? 1 : 0, roundId);
     }
 
     @Transactional
@@ -314,17 +495,87 @@ public class InvestigationReviewStore
     }
 
     @Transactional
+    public void settleRoundCost(String roundId, int costCents)
+    {
+        jdbc.update(
+                "UPDATE review_round SET cost_cents = MAX(cost_cents, ?) WHERE id = ?",
+                costCents, roundId);
+    }
+
+    @Transactional
     public boolean finishRunningRound(
             String roundId, String status, String endCommit, int costCents)
     {
         if ("RUNNING".equals(status)) {
             throw new IllegalArgumentException("terminal round status is required");
         }
-        return jdbc.update("""
+        boolean completed = status.startsWith("COMPLETED");
+        int updated = jdbc.update("""
                 UPDATE review_round
-                SET status = ?, end_commit = ?, cost_cents = ?, finished_at_ms = ?
+                SET status = ?, end_commit = ?, cost_cents = MAX(cost_cents, ?), finished_at_ms = ?,
+                    message_gate_open = 0
                 WHERE id = ? AND status = 'RUNNING'
-                """, status, endCommit, costCents, Instant.now().toEpochMilli(), roundId) == 1;
+                  AND (? = 0 OR NOT EXISTS (
+                      SELECT 1 FROM review_round_message m
+                      WHERE m.round_id = review_round.id
+                        AND m.status IN ('pending', 'processing')))
+                """, status, endCommit, costCents, Instant.now().toEpochMilli(), roundId,
+                completed ? 1 : 0);
+        if (updated == 1) {
+            terminalizeUnfinishedRoundWork(
+                    roundId, completed ? "skipped"
+                            : "CANCELLED".equals(status) ? "cancelled" : "errored");
+        }
+        if (updated == 1 && !completed) {
+            String messageStatus = "CANCELLED".equals(status) ? "cancelled" : "failed";
+            String response = "CANCELLED".equals(status)
+                    ? "Round was cancelled before this message could be processed."
+                    : "Round ended before this message could be processed.";
+            jdbc.update("""
+                    UPDATE review_round_message
+                    SET status = ?, response = COALESCE(response, ?), completed_at_ms = ?
+                    WHERE round_id = ? AND status IN ('pending', 'processing')
+                    """, messageStatus, response, Instant.now().toEpochMilli(), roundId);
+        }
+        return updated == 1;
+    }
+
+    /** Finish a successful round and advance its session head in the same
+     * transaction. This closes the poll window where a terminal round still
+     * appeared to have an old reviewed head. */
+    @Transactional
+    public boolean finishRunningRoundAndAdvanceReview(
+            String roundId, String status, String endCommit, int costCents)
+    {
+        if (!status.startsWith("COMPLETED")) {
+            throw new IllegalArgumentException("a completed round status is required");
+        }
+        if (!finishRunningRound(roundId, status, endCommit, costCents)) {
+            return false;
+        }
+        jdbc.update("""
+                UPDATE review_session
+                SET reviewed_head_commit = ?, status = 'ACTIVE', updated_at_ms = ?
+                WHERE id = (SELECT session_id FROM review_round WHERE id = ?)
+                """, endCommit, Instant.now().toEpochMilli(), roundId);
+        return true;
+    }
+
+    private void terminalizeUnfinishedRoundWork(String roundId, String assignmentStatus)
+    {
+        jdbc.update("""
+                UPDATE investigation_step
+                SET status = 'skipped'
+                WHERE assignment_id IN (
+                    SELECT id FROM review_assignment WHERE round_id = ?)
+                  AND status IN ('queued', 'running', 'planned', 'investigating', 'verifying')
+                """, roundId);
+        jdbc.update("""
+                UPDATE review_assignment
+                SET status = ?
+                WHERE round_id = ?
+                  AND status IN ('queued', 'running', 'investigating', 'verifying')
+                """, assignmentStatus, roundId);
     }
 
     @Transactional(readOnly = true)
@@ -332,6 +583,126 @@ public class InvestigationReviewStore
     {
         return jdbc.query("SELECT * FROM review_round WHERE id = ?", this::round, roundId)
                 .stream().findFirst();
+    }
+
+    @Transactional
+    public void insertRoundMessage(ReviewRoundMessageRow row)
+    {
+        jdbc.update("""
+                INSERT INTO review_round_message
+                (id, round_id, assignment_id, target, sender, body, status, response,
+                 created_at_ms, completed_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, row.id(), row.roundId(), row.assignmentId(), row.target(), row.sender(), row.body(),
+                row.status(), row.response(), row.createdAt(), row.completedAt());
+    }
+
+    /** Atomically accepts guidance only while the running round still has an
+     * open checkpoint before verification. */
+    @Transactional
+    public boolean insertPendingRoundMessage(ReviewRoundMessageRow row)
+    {
+        return jdbc.update("""
+                INSERT INTO review_round_message
+                (id, round_id, assignment_id, target, sender, body, status, response,
+                 created_at_ms, completed_at_ms)
+                SELECT ?, id, NULL, ?, ?, ?, 'pending', NULL, ?, NULL
+                FROM review_round
+                WHERE id = ? AND status = 'RUNNING' AND message_gate_open = 1
+                """, row.id(), row.target(), row.sender(), row.body(), row.createdAt(),
+                row.roundId()) == 1;
+    }
+
+    @Transactional
+    public boolean linkRoundMessageAssignment(String messageId, String assignmentId)
+    {
+        return jdbc.update("""
+                UPDATE review_round_message SET assignment_id = ?
+                WHERE id = ? AND status = 'processing' AND assignment_id IS NULL
+                """, assignmentId, messageId) == 1;
+    }
+
+    /** Keep the transient guidance assignment invisible until its message
+     * link exists. Both writes commit together, so aggregate polling cannot
+     * briefly render it as a normal review stage. */
+    @Transactional
+    public void insertGuidanceAssignment(
+            String messageId, ReviewAssignmentRow row)
+    {
+        insertAssignment(row);
+        if (!linkRoundMessageAssignment(messageId, row.id())) {
+            throw new IllegalStateException(
+                    "guidance message could not be linked to its assignment");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReviewRoundMessageRow> pendingRoundMessages(String roundId)
+    {
+        return jdbc.query("""
+                SELECT * FROM review_round_message
+                WHERE round_id = ? AND status = 'pending'
+                ORDER BY created_at_ms, id
+                """, this::roundMessage, roundId);
+    }
+
+    @Transactional
+    public boolean claimRoundMessage(String messageId)
+    {
+        return jdbc.update("""
+                UPDATE review_round_message
+                SET status = 'processing'
+                WHERE id = ? AND status = 'pending'
+                  AND EXISTS (
+                      SELECT 1 FROM review_round r
+                      WHERE r.id = review_round_message.round_id
+                        AND r.status = 'RUNNING')
+                """, messageId) == 1;
+    }
+
+    @Transactional
+    public boolean completeRoundMessage(
+            String messageId, String status, String response, Instant completedAt)
+    {
+        return jdbc.update("""
+                UPDATE review_round_message
+                SET status = ?, response = ?, completed_at_ms = ?
+                WHERE id = ? AND status = 'processing'
+                """, status, response, completedAt.toEpochMilli(), messageId) == 1;
+    }
+
+    /** Close the guidance gate exactly when no accepted message is waiting or
+     * in flight. A concurrent insert and this update cannot both cross the
+     * checkpoint unnoticed. */
+    @Transactional
+    public boolean closeMessageGateIfDrained(String roundId)
+    {
+        return jdbc.update("""
+                UPDATE review_round SET message_gate_open = 0
+                WHERE id = ? AND status = 'RUNNING'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM review_round_message m
+                      WHERE m.round_id = review_round.id
+                        AND m.status IN ('pending', 'processing'))
+                """, roundId) == 1;
+    }
+
+    @Transactional
+    public boolean updateRunningRoundBudget(String roundId, RoundBudget budget)
+    {
+        return jdbc.update("""
+                UPDATE review_round SET budget_json = ?
+                WHERE id = ? AND status = 'RUNNING'
+                """, json(budget), roundId) == 1;
+    }
+
+    @Transactional
+    public void insertReviewedCommit(ReviewedCommitRow row)
+    {
+        jdbc.update("""
+                INSERT INTO review_round_commit (round_id, sha, message, position)
+                VALUES (?, ?, ?, ?)
+                """, row.roundId(), row.sha(), row.message(), row.position());
     }
 
     @Transactional
@@ -418,6 +789,52 @@ public class InvestigationReviewStore
     }
 
     @Transactional
+    public boolean updateAssignmentWhileRoundRunning(
+            String assignmentId, String status, String summary,
+            List<String> assumptions, List<String> unknowns)
+    {
+        return jdbc.update("""
+                UPDATE review_assignment
+                SET status = ?, understanding_summary = ?, assumptions_json = ?, unknowns_json = ?
+                WHERE id = ? AND EXISTS (
+                    SELECT 1 FROM review_round r
+                    WHERE r.id = review_assignment.round_id AND r.status = 'RUNNING')
+                """, status, summary, json(assumptions), json(unknowns), assignmentId) == 1;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean assignmentRoundIsRunning(String assignmentId)
+    {
+        return count("""
+                SELECT COUNT(*) FROM review_assignment a
+                JOIN review_round r ON r.id = a.round_id
+                WHERE a.id = ? AND r.status = 'RUNNING'
+                """, assignmentId) == 1;
+    }
+
+    /** Run one artifact mutation behind the same SQLite write lock as round
+     * cancellation. If cancellation won first, no child artifact is written;
+     * if this mutation won, cancellation waits and its terminal fence runs
+     * after the mutation commits. */
+    @Transactional
+    public boolean mutateWhileAssignmentRoundRunning(
+            String assignmentId, Runnable mutation)
+    {
+        int locked = jdbc.update("""
+                UPDATE review_assignment
+                SET status = status
+                WHERE id = ? AND EXISTS (
+                    SELECT 1 FROM review_round r
+                    WHERE r.id = review_assignment.round_id AND r.status = 'RUNNING')
+                """, assignmentId);
+        if (locked != 1) {
+            return false;
+        }
+        mutation.run();
+        return true;
+    }
+
+    @Transactional
     public void insertHypothesis(HypothesisRow row)
     {
         jdbc.update("""
@@ -443,8 +860,13 @@ public class InvestigationReviewStore
     @Transactional
     public void updateStepStatus(String stepId, String status, int costCents)
     {
-        jdbc.update("UPDATE investigation_step SET status = ?, cost_cents = ? WHERE id = ?",
-                status, costCents, stepId);
+        jdbc.update("""
+                UPDATE investigation_step SET status = ?, cost_cents = ?
+                WHERE id = ? AND EXISTS (
+                    SELECT 1 FROM review_assignment a
+                    JOIN review_round r ON r.id = a.round_id
+                    WHERE a.id = investigation_step.assignment_id AND r.status = 'RUNNING')
+                """, status, costCents, stepId);
     }
 
     @Transactional
@@ -634,8 +1056,32 @@ public class InvestigationReviewStore
     @Transactional(readOnly = true)
     public List<ReviewRoundRow> rounds(String reviewId)
     {
-        return jdbc.query("SELECT * FROM review_round WHERE session_id = ? ORDER BY created_at_ms",
+        return jdbc.query("SELECT * FROM review_round WHERE session_id = ? ORDER BY created_at_ms, rowid",
                 this::round, reviewId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReviewRoundMessageRow> roundMessages(String reviewId)
+    {
+        return jdbc.query("""
+                SELECT m.* FROM review_round_message m
+                JOIN review_round r ON r.id = m.round_id
+                WHERE r.session_id = ?
+                ORDER BY r.created_at_ms, m.created_at_ms, m.id
+                """, this::roundMessage, reviewId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReviewedCommitRow> reviewedCommits(String reviewId)
+    {
+        return jdbc.query("""
+                SELECT c.* FROM review_round_commit c
+                JOIN review_round r ON r.id = c.round_id
+                WHERE r.session_id = ?
+                ORDER BY r.created_at_ms, c.position
+                """, (rs, n) -> new ReviewedCommitRow(
+                rs.getString("round_id"), rs.getString("sha"),
+                rs.getString("message"), rs.getInt("position")), reviewId);
     }
 
     @Transactional(readOnly = true)
@@ -808,7 +1254,19 @@ public class InvestigationReviewStore
                 rs.getString("start_commit"), rs.getString("end_commit"), rs.getString("status"),
                 value(rs.getString("budget_json"), RoundBudget.class), rs.getInt("cost_cents"),
                 value(rs.getString("capabilities_json"), ReviewCapabilities.class),
-                rs.getString("trigger_stage_id"));
+                rs.getString("trigger_stage_id"), rs.getInt("message_gate_open") != 0);
+    }
+
+    private ReviewRoundMessageRow roundMessage(ResultSet rs, int ignored) throws SQLException
+    {
+        long completedAt = rs.getLong("completed_at_ms");
+        boolean completedAtNull = rs.wasNull();
+        return new ReviewRoundMessageRow(
+                rs.getString("id"), rs.getString("round_id"), rs.getString("assignment_id"),
+                rs.getString("target"),
+                rs.getString("sender"), rs.getString("body"), rs.getString("status"),
+                rs.getString("response"), rs.getLong("created_at_ms"),
+                completedAtNull ? null : completedAt);
     }
 
     private FindingRow finding(ResultSet rs, int ignored) throws SQLException

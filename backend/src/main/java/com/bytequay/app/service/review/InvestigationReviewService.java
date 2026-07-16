@@ -31,11 +31,15 @@ import com.bytequay.app.domain.InvestigationReviewData.ObservationRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewAssignmentRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewOutcomeRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundMessageRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewedCommitRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRCommit;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -57,6 +61,9 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -77,7 +84,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -100,20 +106,32 @@ public class InvestigationReviewService
 
     private final InvestigationReviewStore store;
     private final InvestigationReviewContext contexts;
-    private final InvestigationReviewRunner runner;
+    private final InvestigationReviewModel runner;
     private final AgentRunService runs;
     private final PRService prs;
     private final TaskStore tasks;
     private final ThreadStore threads;
     private final ObjectMapper mapper;
     private final ConcurrentHashMap<String, CachedPlan> preflightPlans = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, CompletableFuture<String>> preflightAugments =
-            new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Thread> activeRounds = new ConcurrentHashMap<>();
+    private final Object budgetGuard = new Object();
+    private final ConcurrentHashMap<String, Integer> inFlightBudgetFloors =
+            new ConcurrentHashMap<>();
+    private final Set<String> cancellationSideEffectsDone = ConcurrentHashMap.newKeySet();
 
+    @Autowired
     public InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
             InvestigationReviewRunner runner, AgentRunService runs,
+            PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper)
+    {
+        this(store, contexts, (InvestigationReviewModel) runner, runs,
+                prs, tasks, threads, mapper);
+    }
+
+    InvestigationReviewService(
+            InvestigationReviewStore store, InvestigationReviewContext contexts,
+            InvestigationReviewModel runner, AgentRunService runs,
             PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper)
     {
         this.store = requireNonNull(store, "store is null");
@@ -126,14 +144,128 @@ public class InvestigationReviewService
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
+    /** A local provider process cannot survive a sidecar restart. Reconcile
+     * persisted live rows once the app is ready so they never remain queued
+     * forever or block a later round behind work that no longer exists. */
+    @EventListener(ApplicationReadyEvent.class)
+    public void reconcileInterruptedRounds()
+    {
+        for (ReviewRoundRow round : store.liveRounds()) {
+            try {
+                reconcileInterruptedRound(round);
+            }
+            catch (RuntimeException e) {
+                // Leave lifecycle_finalized=0 so a later restart retries the
+                // remaining idempotent side effects instead of releasing a
+                // queued successor behind an incomplete predecessor.
+                log.error("Could not reconcile review round {} after startup",
+                        round.id(), e);
+            }
+        }
+    }
+
+    private void reconcileInterruptedRound(ReviewRoundRow round)
+    {
+        AgentReviewRow review = store.findReview(round.reviewId()).orElse(null);
+        boolean wasLive = Set.of("QUEUED", "RUNNING").contains(round.status());
+        boolean cancelled = wasLive || "CANCELLED".equals(round.status());
+        if (wasLive && !store.cancelLiveRound(round.id(), round.costCents())) {
+            return;
+        }
+        if (cancelled) {
+            store.terminalizeCancelledRoundWork(round.id());
+        }
+        boolean completed = round.status().startsWith("COMPLETED");
+        AgentRun primary = runs.findById(round.agentRunId()).orElse(null);
+        int findingCount = review == null ? 0 : (int) store.findings(review.id()).stream()
+                .filter(finding -> round.id().equals(finding.roundId())).count();
+        if (primary != null) {
+            if (primary.headline() == null || primary.headline().isBlank()) {
+                runs.updateHeadline(primary.id(), completed
+                        ? findingCount + " findings" : wasLive
+                                ? "Interrupted by local backend restart" : cancelled
+                                        ? "Review round cancelled" : "Review round failed");
+            }
+            if (primary.metricsJson() == null || primary.metricsJson().isBlank()) {
+                ObjectNode recoveredMetrics = mapper.createObjectNode();
+                recoveredMetrics.put("recovered", true);
+                recoveredMetrics.put("costCents", round.costCents());
+                recoveredMetrics.put("findings", findingCount);
+                runs.updateMetrics(primary.id(), recoveredMetrics.toString());
+            }
+        }
+        Set<String> runIds = runs.findByReviewRound(round.id()).stream()
+                .map(AgentRun::id).collect(Collectors.toCollection(LinkedHashSet::new));
+        runIds.add(round.agentRunId());
+        runIds.stream().map(runs::findById).flatMap(Optional::stream)
+                .filter(AgentRun::isLive)
+                .forEach(run -> runs.transition(
+                        run.id(), completed ? AgentRun.STATUS_SUCCEEDED
+                                : "ERRORED".equals(round.status())
+                                        ? AgentRun.STATUS_FAILED : AgentRun.STATUS_CANCELLED,
+                        completed ? "review round finalized during startup recovery"
+                                : "local backend restarted before the review round finished"));
+
+        if (review != null && !hasTerminalReviewEvent(review.prId(), round.id())) {
+            boolean budgetHalt = "ERRORED".equals(round.status())
+                    && ((primary != null && "Budget cap hit".equals(primary.headline()))
+                    || round.costCents() >= round.budgetJson().costCapCents());
+            String event = completed ? "round-complete" : budgetHalt
+                    ? "round-budget-halted" : cancelled ? "round-cancelled" : "round-error";
+            reviewEvent(review.prId(), event, node -> {
+                node.put("roundId", round.id());
+                node.put("recovered", true);
+                if (completed) {
+                    node.put("findingCount", findingCount);
+                }
+                else if (!budgetHalt) {
+                    node.put("message", "Local backend restarted before the review round finished.");
+                }
+            });
+        }
+        if (review != null) {
+            if (completed && round.endCommit() != null) {
+                store.updateReviewHead(review.id(), round.endCommit(), "ACTIVE");
+            }
+            syncStandaloneOwnerAfterRound(
+                    review, completed
+                            ? "COMPLETED_WITH_QUESTIONS".equals(round.status())
+                                    ? ThreadStatus.NEEDS_ATTENTION : ThreadStatus.AWAITING_REVIEW
+                            : cancelled && !wasLive ? ThreadStatus.COMPLETED
+                                    : ThreadStatus.NEEDS_ATTENTION,
+                    completed || cancelled && !wasLive ? null
+                            : "local backend restarted before the review round finished");
+        }
+        store.markRoundFinalized(round.id());
+        log.info("reconciled interrupted review round {} after startup", round.id());
+    }
+
+    private boolean hasTerminalReviewEvent(String prId, String roundId)
+    {
+        Set<String> terminal = Set.of(
+                "round-complete", "round-error", "round-budget-halted", "round-cancelled");
+        return prs.timeline(prId).stream()
+                .filter(event -> PRTimelineEntry.TYPE_REVIEW.equals(event.eventType()))
+                .map(PRTimelineEntry::payloadJson)
+                .filter(Objects::nonNull)
+                .map(payload -> {
+                    try {
+                        return mapper.readTree(payload);
+                    }
+                    catch (Exception ignored) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .anyMatch(payload -> roundId.equals(payload.path("roundId").asText())
+                        && terminal.contains(payload.path("reviewEvent").asText()));
+    }
+
     public PlanDraft preflight(String prId)
     {
         PR pr = requirePr(prId);
         InvestigationReviewContext.Snapshot snapshot = contexts.load(pr);
-        PlanDraft draft = cachedPlan(snapshot);
-        CompletableFuture<String> augment = preflightAugment(snapshot, draft);
-        return new PlanDraft(
-                draft.reviewClass(), draft.budget(), draft.objectives(), augment.getNow(null));
+        return cachedPlan(snapshot);
     }
 
     public InvestigationReviewData start(String prId, StartOptions options)
@@ -154,22 +286,32 @@ public class InvestigationReviewService
                 snapshot.baseCommit(), snapshot.headCommit(), "ACTIVE", ownership.workspaceId(),
                 ownership.threadId(), ownership.taskId());
         store.insertReview(review, now);
-        RoundWork work = createRound(review, pr, snapshot, plan, panel,
-                "initial", "full", List.of());
-        reviewEvent(pr.id(), "started", "you", node -> {
-            node.put("reviewId", review.id());
-            node.put("roundId", work.round().id());
-            node.put("reviewClass", plan.reviewClass());
-        });
-        launch(work);
-        preflightAugment(snapshot, plan).thenAccept(suggestion -> {
-            if (suggestion != null) {
-                reviewEvent(work.pr().id(), "plan-amendment-suggested", node -> {
-                    node.put("roundId", work.round().id());
-                    node.put("suggestion", suggestion);
-                });
-            }
-        });
+        RoundWork work;
+        try {
+            work = createRound(review, pr, snapshot, plan, panel,
+                    "initial", "full", List.of(), null);
+        }
+        catch (RuntimeException e) {
+            store.deleteReview(review.id());
+            syncStandaloneOwner(review, ThreadStatus.ERRORED,
+                    e.getMessage() == null ? "review round setup failed" : e.getMessage());
+            throw e;
+        }
+        try {
+            reviewEvent(pr.id(), "started", "you", node -> {
+                node.put("reviewId", review.id());
+                node.put("roundId", work.round().id());
+                node.put("reviewClass", plan.reviewClass());
+            });
+            launch(work);
+        }
+        catch (RuntimeException e) {
+            abandonPreparedRound(work, "initial review setup failed");
+            store.deleteReview(review.id());
+            syncStandaloneOwner(review, ThreadStatus.ERRORED,
+                    e.getMessage() == null ? "initial review setup failed" : e.getMessage());
+            throw e;
+        }
         return detail(review);
     }
 
@@ -179,16 +321,29 @@ public class InvestigationReviewService
             PR pr = requirePr(prId);
             AgentReviewRow review = ensureOwnership(found, pr, null);
             String head = contexts.headCommit(pr);
+            List<ReviewRoundRow> liveRounds = store.rounds(review.id()).stream()
+                    .filter(round -> Set.of("QUEUED", "RUNNING").contains(round.status()))
+                    .toList();
+            List<ReviewRoundRow> stopped = liveRounds.stream()
+                    .filter(round -> !head.equals(round.startCommit()))
+                    .filter(round -> stopRound(round, "review evidence became stale"))
+                    .toList();
+            boolean liveRoundFrozenAtHead = liveRounds.stream()
+                    .anyMatch(round -> head.equals(round.startCommit()));
             if (!review.reviewedHeadCommit().equals(head)
-                    && !"STALE".equals(review.status())) {
-                store.rounds(review.id()).stream().reduce((first, second) -> second)
-                        .ifPresent(round -> stopRound(round, "review evidence became stale"));
-                store.updateReviewStatus(review.id(), "STALE");
-                review = new AgentReviewRow(review.id(), review.repoId(), review.prId(),
-                        review.baseCommit(), review.reviewedHeadCommit(), "STALE",
-                        review.workspaceId(), review.ownerThreadId(), review.ownerTaskId());
-                syncStandaloneOwner(review, ThreadStatus.NEEDS_ATTENTION, null);
+                    && !"STALE".equals(review.status())
+                    && !liveRoundFrozenAtHead) {
+                if (store.markReviewStaleIfHeadDiffers(review.id(), head)) {
+                    review = new AgentReviewRow(review.id(), review.repoId(), review.prId(),
+                            review.baseCommit(), review.reviewedHeadCommit(), "STALE",
+                            review.workspaceId(), review.ownerThreadId(), review.ownerTaskId());
+                    syncStandaloneOwner(review, ThreadStatus.NEEDS_ATTENTION, null);
+                }
+                else {
+                    review = store.findReview(review.id()).orElseThrow();
+                }
             }
+            stopped.forEach(round -> finalizeCancelledAfterSideEffects(round.id()));
             return detail(review);
         });
     }
@@ -204,7 +359,7 @@ public class InvestigationReviewService
     {
         for (AgentReviewRow review : store.reviewsByOwnerThread(threadId)) {
             store.rounds(review.id()).stream()
-                    .filter(round -> "RUNNING".equals(round.status()))
+                    .filter(round -> Set.of("QUEUED", "RUNNING").contains(round.status()))
                     .forEach(round -> stopRound(round, "owning thread was deleted"));
             store.deleteReview(review.id());
             log.info("deleted agent review {} with owner thread {}", review.id(), threadId);
@@ -270,9 +425,122 @@ public class InvestigationReviewService
     public InvestigationReviewData createRound(
             String reviewId, String kind, List<String> findingIds, StartOptions options)
     {
+        return createRound(reviewId, kind, findingIds, options, null, null);
+    }
+
+    public InvestigationReviewData createRound(
+            String reviewId, String kind, List<String> findingIds, StartOptions options,
+            String seed, Integer costCapCents)
+    {
         AgentReviewRow review = requireReview(reviewId);
-        RoundWork work = prepareRound(review, kind, findingIds, options);
-        launch(work);
+        RoundWork work = prepareRound(review, kind, findingIds, options, seed, costCapCents);
+        try {
+            launch(work);
+        }
+        catch (RuntimeException e) {
+            abandonPreparedRound(work, "review launch failed");
+            syncStandaloneOwnerAfterRound(review, ThreadStatus.ERRORED,
+                    e.getMessage() == null ? "review launch failed" : e.getMessage());
+            throw e;
+        }
+        return detail(review);
+    }
+
+    public InvestigationReviewData postRoundMessage(
+            String roundId, String target, String text)
+    {
+        ReviewRoundRow round = store.findRound(roundId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown round " + roundId));
+        AgentReviewRow review = requireReview(round.reviewId());
+        if (!"RUNNING".equals(round.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "review round is no longer running");
+        }
+        String cleanTarget = requiredText(target, "target");
+        String cleanText = requiredText(text, "text");
+        Set<String> allowedTargets = allowedMessageTargets(review.id(), round);
+        if (!allowedTargets.contains(cleanTarget)) {
+            throw new IllegalArgumentException(
+                    "target must be panel, planner, or an assigned reviewer");
+        }
+        ReviewRoundMessageRow message = new ReviewRoundMessageRow(
+                UUID.randomUUID().toString(), roundId, cleanTarget, "you", cleanText,
+                "pending", null, Instant.now().toEpochMilli(), null);
+        if (!store.insertPendingRoundMessage(message)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "review round is finalizing or no longer running");
+        }
+        return detail(review);
+    }
+
+    private Set<String> allowedMessageTargets(String reviewId, ReviewRoundRow round)
+    {
+        if (!"RUNNING".equals(round.status()) || !round.messageGateOpen()) {
+            return Set.of();
+        }
+        Set<String> guidanceAssignments = store.roundMessages(reviewId).stream()
+                .map(ReviewRoundMessageRow::assignmentId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        List<ReviewAssignmentRow> originalAssignments = store.assignments(reviewId).stream()
+                .filter(assignment -> round.id().equals(assignment.roundId()))
+                .filter(assignment -> !guidanceAssignments.contains(assignment.id()))
+                .toList();
+        Set<String> targets = new LinkedHashSet<>();
+        targets.add("panel");
+        store.findReviewerDef("review-planner")
+                .filter(ReviewerDefRow::enabled)
+                .filter(definition -> definition.eligibleKinds().contains(
+                        reviewClass(round.budgetJson())))
+                .ifPresent(definition -> targets.add("planner"));
+        originalAssignments.stream().map(ReviewAssignmentRow::reviewerDefId)
+                .filter(reviewerId -> !Set.of(
+                        "review-planner", "independent-verifier").contains(reviewerId))
+                .forEach(targets::add);
+        Optional<ReviewerDefRow> verifierDefinition = store.findReviewerDef("independent-verifier")
+                .filter(ReviewerDefRow::enabled)
+                .filter(definition -> definition.eligibleKinds().contains(
+                        reviewClass(round.budgetJson())));
+        if (verifierDefinition.isPresent() && !originalAssignments.isEmpty()) {
+            try {
+                ReviewerDefRow investigatorDefinition = store.findReviewerDef(
+                        originalAssignments.get(0).reviewerDefId()).orElseThrow();
+                verifierProvider(
+                        verifierDefinition.orElseThrow(), provider(investigatorDefinition));
+                targets.add("independent-verifier");
+            }
+            catch (RuntimeException unavailable) {
+                log.debug("Independent verifier is unavailable for round {}: {}",
+                        round.id(), unavailable.getMessage());
+            }
+        }
+        return targets;
+    }
+
+    public InvestigationReviewData updateRoundBudget(String roundId, Integer costCapCents)
+    {
+        int cap = validateCostCap(costCapCents);
+        AgentReviewRow review;
+        synchronized (budgetGuard) {
+            ReviewRoundRow round = store.findRound(roundId)
+                    .orElseThrow(() -> new IllegalArgumentException("unknown round " + roundId));
+            review = requireReview(round.reviewId());
+            if (!"RUNNING".equals(round.status())) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT, "review round is no longer running");
+            }
+            int protectedSpend = Math.max(
+                    round.costCents(), inFlightBudgetFloors.getOrDefault(roundId, 0));
+            if (cap < protectedSpend) {
+                throw new IllegalArgumentException(
+                        "costCapCents cannot be lower than current spend or an in-flight reservation");
+            }
+            RoundBudget budget = new RoundBudget(cap, round.budgetJson().wallClockMinutes());
+            if (!store.updateRunningRoundBudget(roundId, budget)) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT, "review round is no longer running");
+            }
+        }
         return detail(review);
     }
 
@@ -284,26 +552,39 @@ public class InvestigationReviewService
         FindingRow finding = store.findFinding(findingId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown finding " + findingId));
         AgentReviewRow review = requireReview(finding.reviewId());
-        RoundWork work = prepareRound(review, "continuation", List.of(findingId), null);
-        ReviewRoundRow round = work.round();
-        ReviewAssignmentRow assignment = store.assignments(review.id()).stream()
-                .filter(row -> row.roundId().equals(round.id())).findFirst().orElseThrow();
-        String stepId = UUID.randomUUID().toString();
-        store.insertStep(new InvestigationStepRow(
-                stepId, assignment.id(), null, "user-answer", mapper.createObjectNode(),
-                "User supplied explicit judgement.", false, 0, "completed"));
-        String observationId = UUID.randomUUID().toString();
-        store.insertObservation(new ObservationRow(
-                observationId, stepId, "user-answer", round.startCommit(), null, null, null,
-                null, null, null, null, digest(text), text.strip()));
-        store.insertEvidence(new FindingEvidenceRow(
-                findingId, observationId, "SUPPORTS", text.strip(), "E3",
-                "Explicit user judgement.", "DIRECT_ONLY", mapper.createObjectNode()));
-        store.updateFinding(findingId, "answered", finding.verificationStatus(),
-                "SUPPORTED", finding.claim(), finding.severity());
-        reviewEvent(review.prId(), "answered", "you",
-                node -> node.put("findingId", findingId));
-        launch(work);
+        RoundWork work = prepareRound(
+                review, "continuation", List.of(findingId), null, null, null);
+        try {
+            ReviewRoundRow round = work.round();
+            ReviewAssignmentRow assignment = store.assignments(review.id()).stream()
+                    .filter(row -> row.roundId().equals(round.id())).findFirst().orElseThrow();
+            String stepId = UUID.randomUUID().toString();
+            ObjectNode arguments = mapper.createObjectNode();
+            arguments.put("findingId", findingId);
+            arguments.put("originalFinding", renderComment(finding));
+            arguments.put("userReply", text.strip());
+            store.insertStep(new InvestigationStepRow(
+                    stepId, assignment.id(), null, "user-answer", arguments,
+                    "User supplied explicit judgement.", false, 0, "completed"));
+            String observationId = UUID.randomUUID().toString();
+            store.insertObservation(new ObservationRow(
+                    observationId, stepId, "user-answer", round.startCommit(), null, null, null,
+                    null, null, null, null, digest(text), text.strip()));
+            store.insertEvidence(new FindingEvidenceRow(
+                    findingId, observationId, "SUPPORTS", text.strip(), "E3",
+                    "Explicit user judgement.", "DIRECT_ONLY", mapper.createObjectNode()));
+            store.updateFinding(findingId, "answered", finding.verificationStatus(),
+                    "SUPPORTED", finding.claim(), finding.severity());
+            reviewEvent(review.prId(), "answered", "you",
+                    node -> node.put("findingId", findingId));
+            launch(work);
+        }
+        catch (RuntimeException e) {
+            abandonPreparedRound(work, "answer continuation setup failed");
+            syncStandaloneOwnerAfterRound(review, ThreadStatus.ERRORED,
+                    e.getMessage() == null ? "answer continuation setup failed" : e.getMessage());
+            throw e;
+        }
         return detail(review);
     }
 
@@ -330,9 +611,26 @@ public class InvestigationReviewService
                     finding.confidenceClass(), finding.claim(), finding.severity());
             case "exclude" -> store.updateFinding(findingId, "excluded", finding.verificationStatus(),
                     finding.confidenceClass(), finding.claim(), finding.severity());
-            case "reopen" -> {
-                store.updateFinding(findingId, "included", finding.verificationStatus(),
+            case "resolve" -> {
+                store.updateFinding(findingId, "resolved", finding.verificationStatus(),
                         finding.confidenceClass(), finding.claim(), finding.severity());
+                if (comment != null && comment.resolvedAt() == null) {
+                    if (comment.dismissedAt() != null) {
+                        prs.reopenComment(comment.id());
+                    }
+                    prs.resolveComment(comment.id());
+                }
+                store.insertOutcome(new ReviewOutcomeRow(
+                        findingId, "resolved", "ignored", "unresolved",
+                        "resolved locally by reviewer", 0));
+            }
+            case "reopen" -> {
+                store.updateFinding(findingId, "open", finding.verificationStatus(),
+                        finding.confidenceClass(), finding.claim(), finding.severity());
+                if (comment != null
+                        && (comment.resolvedAt() != null || comment.dismissedAt() != null)) {
+                    prs.reopenComment(comment.id());
+                }
                 store.insertOutcome(new ReviewOutcomeRow(
                         findingId, "deferred", "ignored", "unresolved",
                         "reopened by reviewer", 0));
@@ -350,6 +648,46 @@ public class InvestigationReviewService
         }
         reviewEvent(review.prId(), "dismiss".equals(action) ? "dismissed" : "finding-updated", "you",
                 node -> node.put("findingId", findingId));
+        return detail(review);
+    }
+
+    /** Persist an author disposition observed by PR synchronization. */
+    public InvestigationReviewData recordFindingOutcome(
+            String findingId, FindingOutcomeInput input)
+    {
+        FindingRow finding = store.findFinding(findingId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown finding " + findingId));
+        if (input == null) {
+            throw new IllegalArgumentException("finding outcome is required");
+        }
+        String disposition = requiredText(input.userDisposition(), "user_disposition");
+        String authorResponse = requiredText(input.authorResponse(), "author_response");
+        String resolution = requiredText(input.epistemicResolution(), "epistemic_resolution");
+        if (!Set.of("fixed", "acknowledged", "disagreed", "ignored").contains(authorResponse)) {
+            throw new IllegalArgumentException(
+                    "author_response must be fixed, acknowledged, disagreed, or ignored");
+        }
+        if (!Set.of("confirmed", "refuted", "unresolved").contains(resolution)) {
+            throw new IllegalArgumentException(
+                    "epistemic_resolution must be confirmed, refuted, or unresolved");
+        }
+        int magnitude = input.styleEditMagnitude() == null ? 0
+                : Math.max(0, Math.min(100, input.styleEditMagnitude()));
+        store.insertOutcome(new ReviewOutcomeRow(
+                findingId, disposition, authorResponse, resolution,
+                input.utilityAssessment() == null ? "not assessed"
+                        : input.utilityAssessment().strip(),
+                magnitude));
+        if ("fixed".equals(authorResponse)) {
+            store.updateFinding(findingId, "fixed", finding.verificationStatus(),
+                    finding.confidenceClass(), finding.claim(), finding.severity());
+        }
+        AgentReviewRow review = requireReview(finding.reviewId());
+        reviewEvent(review.prId(), "author-outcome", node -> {
+            node.put("findingId", findingId);
+            node.put("authorResponse", authorResponse);
+            node.put("epistemicResolution", resolution);
+        });
         return detail(review);
     }
 
@@ -398,25 +736,41 @@ public class InvestigationReviewService
         }
         reviewEvent(review.prId(), "round-cancelled", "you",
                 node -> node.put("roundId", round.id()));
-        syncStandaloneOwner(review, ThreadStatus.COMPLETED, null);
+        syncStandaloneOwnerAfterRound(review, ThreadStatus.COMPLETED, null);
+        finalizeCancelledAfterSideEffects(round.id());
         return detail(review);
     }
 
     private boolean stopRound(ReviewRoundRow round, String reason)
     {
-        boolean finished = store.finishRunningRound(
-                round.id(), "CANCELLED", null, round.costCents());
-        Set<String> runIds = runs.findByReviewRound(round.id()).stream()
-                .map(AgentRun::id).collect(Collectors.toCollection(LinkedHashSet::new));
-        runIds.add(round.agentRunId()); // Covers rows created before round ownership was persisted.
-        runIds.stream().map(runs::findById).flatMap(Optional::stream)
-                .filter(AgentRun::isLive)
-                .forEach(run -> runs.transition(run.id(), AgentRun.STATUS_CANCELLED, reason));
-        Thread worker = activeRounds.get(round.id());
-        if (worker != null) {
-            worker.interrupt();
+        boolean finished = store.cancelLiveRound(round.id(), round.costCents());
+        if (!finished) {
+            return false;
+        }
+        try {
+            Set<String> runIds = runs.findByReviewRound(round.id()).stream()
+                    .map(AgentRun::id).collect(Collectors.toCollection(LinkedHashSet::new));
+            runIds.add(round.agentRunId()); // Covers rows created before round ownership was persisted.
+            runIds.stream().map(runs::findById).flatMap(Optional::stream)
+                    .filter(AgentRun::isLive)
+                    .forEach(run -> runs.transition(run.id(), AgentRun.STATUS_CANCELLED, reason));
+        }
+        finally {
+            Thread worker = activeRounds.get(round.id());
+            if (worker != null) {
+                worker.interrupt();
+            }
         }
         return finished;
+    }
+
+    private void finalizeCancelledAfterSideEffects(String roundId)
+    {
+        cancellationSideEffectsDone.add(roundId);
+        if (!activeRounds.containsKey(roundId)) {
+            store.markRoundFinalized(roundId);
+            cancellationSideEffectsDone.remove(roundId);
+        }
     }
 
     public List<ReviewerDefRow> reviewerDefs()
@@ -462,28 +816,53 @@ public class InvestigationReviewService
     private RoundWork createRound(
             AgentReviewRow review, PR pr, InvestigationReviewContext.Snapshot snapshot,
             PlanDraft plan, List<PanelSeat> panel, String trigger, String scope,
-            List<String> findingIds)
+            List<String> findingIds, String seed)
     {
         String roundId = UUID.randomUUID().toString();
         AgentRun run = openReviewRun(review, roundId, plan.budget().costCapCents());
-        ReviewRoundRow round = new ReviewRoundRow(
+        ReviewRoundRow proposed = new ReviewRoundRow(
                 roundId, review.id(), run.id(), trigger, scope, snapshot.headCommit(), null,
-                "RUNNING", plan.budget(), 0, snapshot.capabilities(), null);
-        store.insertRound(round, Instant.now());
-        List<ReviewObjectiveRow> objectives = persistPlan(review, round, plan, findingIds);
-        List<AssignmentWork> assignments = new ArrayList<>();
-        for (PanelSeat seat : panel) {
-            ProviderChoice investigator = seat.provider();
-            ReviewerDefRow reviewerDef = seat.reviewerDef();
-            String assignmentId = UUID.randomUUID().toString();
-            store.insertAssignment(new ReviewAssignmentRow(
-                    assignmentId, roundId, reviewerDef.id(),
-                    investigator.runner(), "queued", "", List.of(), List.of(),
-                    new AssignmentBudget(6, 3, 12, 5)));
-            assignments.add(new AssignmentWork(assignmentId, investigator, reviewerDef));
+                "RUNNING", plan.budget(), 0,
+                snapshot.capabilities(), null, true);
+        ReviewRoundRow round = store.insertLiveRound(proposed, Instant.now());
+        try {
+            freezeReviewedCommits(review, pr, round, snapshot);
+            if (seed != null) {
+                long now = Instant.now().toEpochMilli();
+                store.insertRoundMessage(new ReviewRoundMessageRow(
+                        UUID.randomUUID().toString(), roundId, "panel", "you", seed,
+                        "completed", null, now, now));
+            }
+            List<ReviewObjectiveRow> objectives = persistPlan(review, round, plan, findingIds);
+            List<AssignmentWork> assignments = new ArrayList<>();
+            for (PanelSeat seat : panel) {
+                ProviderChoice investigator = seat.provider();
+                ReviewerDefRow reviewerDef = seat.reviewerDef();
+                String assignmentId = UUID.randomUUID().toString();
+                store.insertAssignment(new ReviewAssignmentRow(
+                        assignmentId, roundId, reviewerDef.id(),
+                        investigator.runner(), "queued", "", List.of(), List.of(),
+                        new AssignmentBudget(6, 3, 12, 5)));
+                assignments.add(new AssignmentWork(assignmentId, investigator, reviewerDef));
+            }
+            return new RoundWork(review, pr, snapshot, plan, round, run, objectives,
+                    List.copyOf(assignments), seed);
         }
-        return new RoundWork(review, pr, snapshot, plan, round, run, objectives,
-                List.copyOf(assignments));
+        catch (RuntimeException e) {
+            store.cancelLiveRound(round.id(), 0);
+            store.terminalizeCancelledRoundWork(round.id());
+            try {
+                runs.findById(run.id()).filter(AgentRun::isLive).ifPresent(row ->
+                        runs.transition(row.id(), AgentRun.STATUS_FAILED,
+                                "review round setup failed"));
+            }
+            catch (RuntimeException transitionFailure) {
+                log.warn("Could not transition failed setup run {}: {}",
+                        run.id(), transitionFailure.getMessage());
+            }
+            store.markRoundFinalized(round.id());
+            throw e;
+        }
     }
 
     /** AgentReview is a task-owned artifact track, not a development stage. */
@@ -497,19 +876,87 @@ public class InvestigationReviewService
     }
 
     private RoundWork prepareRound(
-            AgentReviewRow review, String kind, List<String> findingIds, StartOptions options)
+            AgentReviewRow review, String kind, List<String> findingIds, StartOptions options,
+            String seed, Integer costCapCents)
     {
         PR pr = requirePr(review.prId());
         InvestigationReviewContext.Snapshot snapshot = contexts.load(pr);
         PlanDraft plan = cachedPlan(snapshot);
+        String cleanSeed = seed == null ? null : requiredText(seed, "seed");
+        if (cleanSeed != null) {
+            plan = new PlanDraft(
+                    plan.reviewClass(), plan.budget(),
+                    List.of(new PlanObjective(
+                            "engineering-principle", cleanSeed,
+                            "user-guidance", "round-seed", true)),
+                    plan.plannerSuggestion());
+        }
+        if (costCapCents != null) {
+            plan = new PlanDraft(
+                    plan.reviewClass(),
+                    new RoundBudget(
+                            validateCostCap(costCapCents), plan.budget().wallClockMinutes()),
+                    plan.objectives(), plan.plannerSuggestion());
+        }
         List<PanelSeat> panel = panel(plan.reviewClass(), options);
         List<String> selected = findingIds == null ? List.of() : findingIds;
         RoundWork work = createRound(review, pr, snapshot, plan, panel,
-                normaliseRoundKind(kind), scopeFor(selected), selected);
-        store.updateReviewStatus(review.id(), "ACTIVE");
-        syncStandaloneOwner(review, ThreadStatus.RUNNING, null);
-        reviewEvent(pr.id(), "round-started", "you", node -> node.put("roundId", work.round().id()));
-        return work;
+                normaliseRoundKind(kind), scopeFor(selected, cleanSeed), selected, cleanSeed);
+        try {
+            store.updateReviewStatus(review.id(), "ACTIVE");
+            syncStandaloneOwner(review, ThreadStatus.RUNNING, null);
+            reviewEvent(pr.id(), "round-started", "you",
+                    node -> node.put("roundId", work.round().id()));
+            return work;
+        }
+        catch (RuntimeException e) {
+            abandonPreparedRound(work, "review round setup failed");
+            syncStandaloneOwnerAfterRound(review, ThreadStatus.ERRORED,
+                    e.getMessage() == null ? "review round setup failed" : e.getMessage());
+            throw e;
+        }
+    }
+
+    private void abandonPreparedRound(RoundWork work, String reason)
+    {
+        if (stopRound(work.round(), reason)) {
+            finalizeCancelledAfterSideEffects(work.round().id());
+        }
+    }
+
+    private void freezeReviewedCommits(
+            AgentReviewRow review, PR pr, ReviewRoundRow round,
+            InvestigationReviewContext.Snapshot snapshot)
+    {
+        List<PRCommit> commits = prs.commits(pr.id());
+        int head = -1;
+        for (int i = 0; i < commits.size(); i++) {
+            if (snapshot.headCommit().equals(commits.get(i).sha())) {
+                head = i;
+            }
+        }
+        if (head < 0) {
+            return;
+        }
+        int first = 0;
+        if (!"initial".equals(round.trigger())) {
+            int prior = -1;
+            for (int i = 0; i <= head; i++) {
+                if (review.reviewedHeadCommit().equals(commits.get(i).sha())) {
+                    prior = i;
+                }
+            }
+            first = prior < 0 ? 0 : prior + 1;
+            if (first > head) {
+                first = head;
+            }
+        }
+        int position = 0;
+        for (int i = first; i <= head; i++) {
+            PRCommit commit = commits.get(i);
+            store.insertReviewedCommit(new ReviewedCommitRow(
+                    round.id(), commit.sha(), commit.message(), position++));
+        }
     }
 
     private List<ReviewObjectiveRow> persistPlan(
@@ -572,33 +1019,74 @@ public class InvestigationReviewService
             List<ReviewObjectiveRow> applicableObjectives = work.objectives().stream()
                     .filter(objective -> "applicable".equals(objective.applicabilityStatus()))
                     .toList();
-            int assignmentCap = Math.max(5,
-                    work.plan().budget().costCapCents() / work.assignments().size());
-            for (AssignmentWork assignment : work.assignments()) {
-                RunOutcome investigation = runner.investigate(
-                        assignment.provider(), work.review().id(), assignment.id(),
-                        work.snapshot(), applicableObjectives,
-                        coverage.promptContext(), assignment.reviewerDef().persona(), assignmentCap);
-                ensureRunning(work);
-                investigations.add(investigation);
-                cost += investigation.costCents();
-                ReviewAssignmentRow recorded = store.assignments(work.review().id()).stream()
-                        .filter(row -> row.id().equals(assignment.id()))
-                        .findFirst()
-                        .orElseThrow();
-                boolean aborted = "ABORTED".equals(investigation.end());
-                store.skipRunningSteps(assignment.id());
-                store.updateAssignment(assignment.id(), aborted ? "aborted" : "completed",
-                        recorded.understandingSummary().isBlank()
-                                ? "Investigation complete." : recorded.understandingSummary(),
-                        recorded.assumptionsJson(), recorded.unknownsJson());
-                store.updateRunningRoundCost(work.round().id(), cost);
-                if (aborted) {
+            String investigationContext = investigationContext(work, coverage.promptContext());
+            boolean initialInvestigationAborted = false;
+            assignmentLoop:
+            for (int index = 0; index < work.assignments().size(); index++) {
+                AssignmentWork assignment = work.assignments().get(index);
+                int remainingAssignments = work.assignments().size() - index;
+                while (true) {
+                    int remaining = remainingBudget(work, cost);
+                    if (remaining == 0) {
+                        initialInvestigationAborted = true;
+                        break assignmentLoop;
+                    }
+                    BudgetReservation reservation = reserveProviderTurn(
+                            work, cost, Math.max(1, remaining / remainingAssignments));
+                    int capAtLaunch = reservation.roundCap();
+                    int assignmentCap = reservation.turnCap();
+                    if (assignmentCap == 0) {
+                        initialInvestigationAborted = true;
+                        break assignmentLoop;
+                    }
+                    RunOutcome investigation;
+                    try {
+                        investigation = runner.investigate(
+                                assignment.provider(), work.review().id(), assignment.id(),
+                                work.snapshot(), applicableObjectives,
+                                investigationContext, assignment.reviewerDef().persona(), assignmentCap);
+                    }
+                    catch (RuntimeException e) {
+                        releaseProviderTurn(work);
+                        throw e;
+                    }
+                    cost += investigation.costCents();
+                    completeProviderTurn(work, cost);
+                    ensureRunning(work);
+                    investigations.add(investigation);
+                    failIfProviderErrored(investigation, "investigation");
+                    boolean aborted = "ABORTED".equals(investigation.end());
+                    store.skipRunningSteps(assignment.id());
+                    cost = drainRoundMessages(
+                            work, investigations, applicableObjectives,
+                            coverage.promptContext(), cost);
+                    boolean retryWithRaisedBudget = aborted
+                            && investigation.costCents() > 0
+                            && currentCostCap(work) > capAtLaunch
+                            && remainingBudget(work, cost) > 0;
+                    if (retryWithRaisedBudget) {
+                        continue;
+                    }
+                    ReviewAssignmentRow recorded = store.assignments(work.review().id()).stream()
+                            .filter(row -> row.id().equals(assignment.id()))
+                            .findFirst()
+                            .orElseThrow();
+                    store.updateAssignmentWhileRoundRunning(
+                            assignment.id(), aborted ? "aborted" : "completed",
+                            recorded.understandingSummary().isBlank()
+                                    ? "Investigation complete." : recorded.understandingSummary(),
+                            recorded.assumptionsJson(), recorded.unknownsJson());
+                    if (aborted && remainingBudget(work, cost) == 0) {
+                        initialInvestigationAborted = true;
+                        break assignmentLoop;
+                    }
+                    // A panel seat owns only a slice of the round cap. Hitting
+                    // that slice must not discard the still-reserved budget
+                    // and skip the remaining independent seats.
                     break;
                 }
             }
-            if (investigations.stream().anyMatch(outcome -> "ABORTED".equals(outcome.end()))) {
-                cost = Math.max(cost, work.plan().budget().costCapCents());
+            if (initialInvestigationAborted) {
                 if (!store.finishRunningRound(work.round().id(), "ERRORED", null, cost)) {
                     return;
                 }
@@ -608,9 +1096,14 @@ public class InvestigationReviewService
                 runs.transition(work.run().id(), AgentRun.STATUS_FAILED, "review budget cap hit");
                 reviewEvent(work.pr().id(), "round-budget-halted",
                         node -> node.put("roundId", work.round().id()));
-                syncStandaloneOwner(work.review(), ThreadStatus.ERRORED, "review budget cap hit");
+                syncStandaloneOwnerAfterRound(
+                        work.review(), ThreadStatus.ERRORED, "review budget cap hit");
+                store.markRoundFinalized(work.round().id());
                 return;
             }
+            cost = drainAndCloseMessageGate(
+                    work, investigations, applicableObjectives,
+                    coverage.promptContext(), cost);
             List<FindingEvidenceRow> roundEvidence = store.evidence(work.review().id());
             Map<String, List<FindingEvidenceRow>> roundEvidenceByFinding = roundEvidence.stream()
                     .collect(Collectors.groupingBy(FindingEvidenceRow::findingId));
@@ -624,46 +1117,90 @@ public class InvestigationReviewService
                     .filter(finding -> !findingsWithRefutes.contains(finding.id()))
                     .toList();
             if (!missingRefutationPass.isEmpty()) {
-                AssignmentWork primary = work.assignments().get(0);
-                RunOutcome refutation = runner.selfRefute(
-                        primary.provider(), work.review().id(), primary.id(), work.snapshot(),
-                        missingRefutationPass.stream()
-                                .map(finding -> findingBundle(
-                                        finding,
-                                        roundEvidenceByFinding.getOrDefault(finding.id(), List.of()),
-                                        roundObservationsById))
-                                .reduce("", (left, right) -> left + "\n---\n" + right),
-                        Math.max(3, Math.min(10, assignmentCap / 4)));
-                ensureRunning(work);
-                investigations.add(refutation);
-                cost += refutation.costCents();
-                recordSelfRefutationPass(primary.id(), missingRefutationPass.size(), refutation);
-                if ("ABORTED".equals(refutation.end())) {
-                    throw new IllegalStateException("mandatory self-refutation pass exceeded its budget");
+                int remaining = remainingBudget(work, cost);
+                if (remaining == 0) {
+                    for (FindingRow finding : missingRefutationPass) {
+                        insertUnknownVerification(work.run().id(), finding,
+                                "Round cost cap was reached before the mandatory counter-evidence pass.");
+                    }
+                }
+                else {
+                    AssignmentWork primary = work.assignments().get(0);
+                    int refutationCap = reserveProviderTurn(
+                            work, cost, Math.max(1, Math.min(10, remaining / 4))).turnCap();
+                    if (refutationCap == 0) {
+                        for (FindingRow finding : missingRefutationPass) {
+                            insertUnknownVerification(work.run().id(), finding,
+                                    "Round cost cap was lowered before the mandatory counter-evidence pass.");
+                        }
+                    }
+                    else {
+                        RunOutcome refutation;
+                        try {
+                            refutation = runner.selfRefute(
+                                    primary.provider(), work.review().id(), primary.id(), work.snapshot(),
+                                    missingRefutationPass.stream()
+                                            .map(finding -> findingBundle(
+                                                    finding,
+                                                    roundEvidenceByFinding.getOrDefault(
+                                                            finding.id(), List.of()),
+                                                    roundObservationsById))
+                                            .reduce("", (left, right) -> left + "\n---\n" + right),
+                                    refutationCap);
+                        }
+                        catch (RuntimeException e) {
+                            releaseProviderTurn(work);
+                            throw e;
+                        }
+                        cost += refutation.costCents();
+                        completeProviderTurn(work, cost);
+                        ensureRunning(work);
+                        investigations.add(refutation);
+                        failIfProviderErrored(refutation, "self-refutation");
+                        recordSelfRefutationPass(
+                                primary.id(), missingRefutationPass.size(), refutation);
+                        if ("ABORTED".equals(refutation.end())) {
+                            throw new IllegalStateException(
+                                    "mandatory self-refutation pass exceeded its budget");
+                        }
+                    }
                 }
             }
             List<FindingRow> candidates = consolidate(store.findings(work.review().id()).stream()
                     .filter(finding -> finding.roundId().equals(work.round().id()))
                     .toList());
-            VerificationOutcome verification = candidates.isEmpty()
-                    ? VerificationOutcome.EMPTY
-                    : "trivial".equals(work.plan().reviewClass())
-                            ? verifyTrivial(work, candidates) : verify(work, candidates);
+            VerificationOutcome verification;
+            if (candidates.isEmpty()) {
+                verification = VerificationOutcome.EMPTY;
+            }
+            else if (remainingBudget(work, cost) == 0) {
+                Set<String> alreadyVerified = store.verifications(work.review().id()).stream()
+                        .map(FindingVerificationRow::findingId).collect(Collectors.toSet());
+                candidates.stream().filter(finding -> !alreadyVerified.contains(finding.id()))
+                        .forEach(finding -> insertUnknownVerification(
+                                work.run().id(), finding,
+                                "Round cost cap was reached before verification."));
+                verification = VerificationOutcome.EMPTY;
+            }
+            else {
+                verification = "trivial".equals(work.plan().reviewClass())
+                        ? verifyTrivial(work, candidates) : verify(work, candidates, cost);
+            }
             ensureRunning(work);
             cost += verification.costCents();
             List<FindingRow> finished = store.findings(work.review().id()).stream()
                     .filter(finding -> finding.roundId().equals(work.round().id()))
                     .toList();
             materialiseComments(work, finished);
+            appendAnswerReply(work, investigations);
             boolean coverageGaps = resolveObjectives(work, finished);
             boolean questions = coverageGaps || finished.stream()
                     .anyMatch(f -> "unknown".equals(f.verificationStatus()));
             String status = questions ? "COMPLETED_WITH_QUESTIONS" : "COMPLETED";
-            if (!store.finishRunningRound(
+            if (!store.finishRunningRoundAndAdvanceReview(
                     work.round().id(), status, work.snapshot().headCommit(), cost)) {
                 return;
             }
-            store.updateReviewHead(work.review().id(), work.snapshot().headCommit(), "ACTIVE");
             runs.updateHeadline(work.run().id(), finished.size() + " findings");
             runs.updateMetrics(work.run().id(), metrics(
                     work, investigations, verification, finished, cost).toString());
@@ -672,10 +1209,14 @@ public class InvestigationReviewService
                 node.put("roundId", work.round().id());
                 node.put("findingCount", finished.size());
             });
-            syncStandaloneOwner(work.review(), questions
+            syncStandaloneOwnerAfterRound(work.review(), questions
                     ? ThreadStatus.NEEDS_ATTENTION : ThreadStatus.AWAITING_REVIEW, null);
+            store.markRoundFinalized(work.round().id());
         }
         catch (RuntimeException e) {
+            // Providers preserve cancellation interrupts. Consume the flag so
+            // terminal database work can acquire the single SQLite connection.
+            Thread.interrupted();
             if (store.findRound(work.round().id())
                     .map(round -> "CANCELLED".equals(round.status())).orElse(false)) {
                 return;
@@ -689,8 +1230,9 @@ public class InvestigationReviewService
                 node.put("roundId", work.round().id());
                 node.put("message", e.getMessage() == null ? "review failed" : e.getMessage());
             });
-            syncStandaloneOwner(work.review(), ThreadStatus.ERRORED,
+            syncStandaloneOwnerAfterRound(work.review(), ThreadStatus.ERRORED,
                     e.getMessage() == null ? "review failed" : e.getMessage());
+            store.markRoundFinalized(work.round().id());
         }
     }
 
@@ -720,18 +1262,107 @@ public class InvestigationReviewService
         });
     }
 
+    private void syncStandaloneOwnerAfterRound(
+            AgentReviewRow review, ThreadStatus terminalStatus, String errorMessage)
+    {
+        AgentReviewRow current = store.findReview(review.id()).orElse(review);
+        if ("STALE".equals(current.status())) {
+            syncStandaloneOwner(current, ThreadStatus.NEEDS_ATTENTION, null);
+            return;
+        }
+        boolean anotherRoundIsLive = store.rounds(review.id()).stream()
+                .anyMatch(round -> Set.of("QUEUED", "RUNNING").contains(round.status()));
+        syncStandaloneOwner(
+                review, anotherRoundIsLive ? ThreadStatus.RUNNING : terminalStatus,
+                anotherRoundIsLive ? null : errorMessage);
+        store.findReview(review.id()).filter(row -> "STALE".equals(row.status()))
+                .ifPresent(row -> syncStandaloneOwner(
+                        row, ThreadStatus.NEEDS_ATTENTION, null));
+    }
+
+    private void resyncStandaloneOwnerCost(AgentReviewRow review)
+    {
+        if (review.ownerTaskId() != null || review.ownerThreadId() == null) {
+            return;
+        }
+        threads.findThreadById(review.ownerThreadId()).ifPresent(current ->
+                syncStandaloneOwner(review, current.status(), current.errorMessage()));
+    }
+
     private void launch(RoundWork work)
     {
         Thread worker = Thread.ofVirtual().unstarted(() -> {
             try {
-                execute(work);
+                while (true) {
+                    ReviewRoundRow current = store.findRound(work.round().id()).orElse(null);
+                    if (current == null || !Set.of("QUEUED", "RUNNING").contains(current.status())) {
+                        return;
+                    }
+                    if ("RUNNING".equals(current.status())) {
+                        execute(work);
+                        return;
+                    }
+                    if (store.queuedRoundCanStart(work.round().id())
+                            && store.startQueuedRound(work.round().id())) {
+                        syncStandaloneOwner(work.review(), ThreadStatus.RUNNING, null);
+                        execute(work);
+                        return;
+                    }
+                    try {
+                        Thread.sleep(25);
+                    }
+                    catch (InterruptedException e) {
+                        // Cancellation cleanup below still needs a database connection.
+                        return;
+                    }
+                }
             }
             finally {
+                // The worker is terminating; cleanup must not inherit an
+                // interrupt that makes Hikari reject connection acquisition.
+                Thread.interrupted();
+                inFlightBudgetFloors.remove(work.round().id());
+                String status = store.findRound(work.round().id())
+                        .map(ReviewRoundRow::status).orElse(null);
+                if ("CANCELLED".equals(status)) {
+                    // Keep the worker registered until the final write fence
+                    // is complete so the request-side finalizer cannot
+                    // release a queued successor into late callbacks.
+                    store.terminalizeCancelledRoundWork(work.round().id());
+                }
                 activeRounds.remove(work.round().id(), Thread.currentThread());
+                if ("CANCELLED".equals(status)) {
+                    resyncStandaloneOwnerCost(work.review());
+                    if (cancellationSideEffectsDone.remove(work.round().id())) {
+                        store.markRoundFinalized(work.round().id());
+                    }
+                }
+                else if (status != null && !"RUNNING".equals(status)
+                        && !"QUEUED".equals(status)
+                        && !store.isRoundFinalized(work.round().id())) {
+                    recoverTerminalLifecycleAfterWorker(work.round().id());
+                }
             }
         });
         activeRounds.put(work.round().id(), worker);
         worker.start();
+    }
+
+    void recoverTerminalLifecycleAfterWorker(String roundId)
+    {
+        RuntimeException failure = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                ReviewRoundRow round = store.findRound(roundId).orElseThrow();
+                reconcileInterruptedRound(round);
+                return;
+            }
+            catch (RuntimeException e) {
+                failure = e;
+            }
+        }
+        log.error("Review round {} terminal side effects failed after retries; "
+                + "leaving it fenced for startup recovery", roundId, failure);
     }
 
     private void ensureRunning(RoundWork work)
@@ -741,6 +1372,276 @@ public class InvestigationReviewService
         if (!running || Thread.currentThread().isInterrupted()) {
             throw new IllegalStateException("review round stopped");
         }
+    }
+
+    private int drainAndCloseMessageGate(
+            RoundWork work, List<RunOutcome> investigations,
+            List<ReviewObjectiveRow> objectives, String coverageContext, int cost)
+    {
+        int total = cost;
+        while (true) {
+            ensureRunning(work);
+            total = drainRoundMessages(
+                    work, investigations, objectives, coverageContext, total);
+            if (store.closeMessageGateIfDrained(work.round().id())) {
+                return total;
+            }
+        }
+    }
+
+    private int drainRoundMessages(
+            RoundWork work, List<RunOutcome> investigations,
+            List<ReviewObjectiveRow> objectives, String coverageContext, int cost)
+    {
+        int total = cost;
+        while (true) {
+            List<ReviewRoundMessageRow> pending =
+                    store.pendingRoundMessages(work.round().id());
+            if (pending.isEmpty()) {
+                return total;
+            }
+            for (ReviewRoundMessageRow message : pending) {
+                ensureRunning(work);
+                if (!store.claimRoundMessage(message.id())) {
+                    continue;
+                }
+                total = processRoundMessage(
+                        work, message, investigations, objectives, coverageContext, total);
+            }
+        }
+    }
+
+    private int processRoundMessage(
+            RoundWork work, ReviewRoundMessageRow message,
+            List<RunOutcome> investigations, List<ReviewObjectiveRow> objectives,
+            String coverageContext, int cost)
+    {
+        String assignmentId = null;
+        int chargedCost = cost;
+        try {
+            int remaining = remainingBudget(work, cost);
+            if (remaining == 0) {
+                store.completeRoundMessage(
+                        message.id(), "failed",
+                        "No round budget remains for this guidance. Increase the cap and send it again.",
+                        Instant.now());
+                return cost;
+            }
+            PanelSeat seat = messageReviewer(work, message.target());
+            assignmentId = UUID.randomUUID().toString();
+            store.insertGuidanceAssignment(message.id(), new ReviewAssignmentRow(
+                    assignmentId, work.round().id(), seat.reviewerDef().id(),
+                    seat.provider().runner(), "queued", "", List.of(), List.of(),
+                    new AssignmentBudget(6, 3, 12, 5)));
+            int messageCap = reserveProviderTurn(
+                    work, cost, Math.max(1, Math.min(25, remaining))).turnCap();
+            if (messageCap == 0) {
+                store.updateAssignment(
+                        assignmentId, "aborted", "Guidance did not start because the budget was lowered.",
+                        List.of(), List.of());
+                store.completeRoundMessage(
+                        message.id(), "failed",
+                        "The round budget was lowered before this guidance could start.",
+                        Instant.now());
+                return cost;
+            }
+            String promptContext = investigationContext(work, coverageContext)
+                    + "\n\nUser guidance checkpoint\n"
+                    + "Target: " + message.target() + "\n"
+                    + "Guidance: " + message.body() + "\n"
+                    + "Address this guidance within the frozen round scope. Use read-only evidence tools "
+                    + "and record any resulting artifacts before responding.";
+            RunOutcome outcome;
+            try {
+                outcome = switch (message.target()) {
+                    case "planner" -> runner.planGuidance(
+                            seat.provider(), work.snapshot(), objectives,
+                            message.body(), messageCap);
+                    case "independent-verifier" -> runner.verifyGuidance(
+                            seat.provider(), work.snapshot(), objectives,
+                            message.body(), messageCap);
+                    default -> runner.investigate(
+                            seat.provider(), work.review().id(), assignmentId, work.snapshot(),
+                            objectives, promptContext, seat.reviewerDef().persona(), messageCap);
+                };
+            }
+            catch (RuntimeException e) {
+                releaseProviderTurn(work);
+                throw e;
+            }
+            int updatedCost = cost + outcome.costCents();
+            chargedCost = updatedCost;
+            completeProviderTurn(work, updatedCost);
+            ensureRunning(work);
+            investigations.add(outcome);
+            failIfProviderErrored(outcome, "guidance");
+            String completedAssignmentId = assignmentId;
+            ReviewAssignmentRow recorded = store.assignments(work.review().id()).stream()
+                    .filter(row -> row.id().equals(completedAssignmentId))
+                    .findFirst().orElseThrow();
+            boolean aborted = "ABORTED".equals(outcome.end());
+            store.skipRunningSteps(assignmentId);
+            store.updateAssignmentWhileRoundRunning(
+                    assignmentId, aborted ? "aborted" : "completed",
+                    recorded.understandingSummary().isBlank()
+                            ? "Guidance processed." : recorded.understandingSummary(),
+                    recorded.assumptionsJson(), recorded.unknownsJson());
+            store.completeRoundMessage(
+                    message.id(), aborted ? "failed" : "completed",
+                    aborted
+                            ? "The assigned reviewer reached the current budget boundary before completing this guidance."
+                            : messageResponse(seat.reviewerDef(), outcome, recorded),
+                    Instant.now());
+            return updatedCost;
+        }
+        catch (RuntimeException e) {
+            boolean stopped = Thread.interrupted()
+                    || store.findRound(work.round().id())
+                            .map(round -> !"RUNNING".equals(round.status())).orElse(true);
+            if (assignmentId != null) {
+                store.skipRunningSteps(assignmentId);
+                store.updateAssignment(
+                        assignmentId, stopped ? "cancelled" : "errored",
+                        stopped ? "Guidance stopped with the round." : "Guidance could not be processed.",
+                        List.of(), List.of());
+            }
+            if (stopped) {
+                throw e;
+            }
+            store.completeRoundMessage(
+                    message.id(), "failed", concise(
+                            "Guidance could not be processed: "
+                                    + (e.getMessage() == null ? "reviewer failed" : e.getMessage()),
+                            600), Instant.now());
+            log.warn("Review round {} could not process message {}: {}",
+                    work.round().id(), message.id(), e.getMessage());
+            return chargedCost;
+        }
+    }
+
+    private PanelSeat messageReviewer(RoundWork work, String target)
+    {
+        AssignmentWork primary = work.assignments().get(0);
+        if ("panel".equals(target)) {
+            return new PanelSeat(primary.provider(), primary.reviewerDef());
+        }
+        if ("planner".equals(target)) {
+            ReviewerDefRow planner = store.findReviewerDef("review-planner")
+                    .filter(ReviewerDefRow::enabled)
+                    .filter(row -> row.eligibleKinds().contains(work.plan().reviewClass()))
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "review planner is no longer available for this round"));
+            return new PanelSeat(primary.provider(), planner);
+        }
+        Optional<AssignmentWork> assigned = work.assignments().stream()
+                .filter(row -> row.reviewerDef().id().equals(target))
+                .findFirst();
+        if (assigned.isPresent()) {
+            AssignmentWork reviewer = assigned.orElseThrow();
+            return new PanelSeat(reviewer.provider(), reviewer.reviewerDef());
+        }
+        ReviewerDefRow definition = store.findReviewerDef(target)
+                .filter(ReviewerDefRow::enabled)
+                .filter(row -> row.eligibleKinds().contains(work.plan().reviewClass()))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "target reviewer is no longer available for this round"));
+        ProviderChoice choice = "independent-verifier".equals(definition.id())
+                ? verifierProvider(definition, primary.provider())
+                : provider(definition);
+        return new PanelSeat(choice, definition);
+    }
+
+    private int currentCostCap(RoundWork work)
+    {
+        return store.findRound(work.round().id())
+                .orElseThrow(() -> new IllegalStateException("review round disappeared"))
+                .budgetJson().costCapCents();
+    }
+
+    /** Reserve the maximum billable amount of one provider turn before it is
+     * launched. Budget edits share the same guard and therefore cannot lower
+     * the cap underneath an in-flight CLI/API call. */
+    private BudgetReservation reserveProviderTurn(
+            RoundWork work, int spent, int requestedCap)
+    {
+        synchronized (budgetGuard) {
+            int roundCap = currentCostCap(work);
+            int reserved = Math.min(
+                    requestedCap, Math.max(0, roundCap - spent));
+            if (reserved > 0) {
+                inFlightBudgetFloors.put(work.round().id(), spent + reserved);
+            }
+            return new BudgetReservation(roundCap, reserved);
+        }
+    }
+
+    private void completeProviderTurn(RoundWork work, int spent)
+    {
+        synchronized (budgetGuard) {
+            try {
+                store.settleRoundCost(work.round().id(), spent);
+            }
+            finally {
+                inFlightBudgetFloors.remove(work.round().id());
+            }
+        }
+    }
+
+    private void releaseProviderTurn(RoundWork work)
+    {
+        synchronized (budgetGuard) {
+            inFlightBudgetFloors.remove(work.round().id());
+        }
+    }
+
+    private int remainingBudget(RoundWork work, int spent)
+    {
+        return Math.max(0, currentCostCap(work) - spent);
+    }
+
+    static String guidanceContext(String coverageContext, String seed)
+    {
+        if (seed == null) {
+            return coverageContext;
+        }
+        return coverageContext + "\n\nUser seed for this round\n"
+                + seed + "\n"
+                + "Use this seed to prioritize the investigation while preserving every evidence rule.";
+    }
+
+    private String investigationContext(RoundWork work, String coverageContext)
+    {
+        String context = guidanceContext(coverageContext, work.seed());
+        return answerStep(work).map(step -> context + "\n\nLocal review thread continuation\n"
+                + "Original finding:\n" + step.argumentsJson().path("originalFinding").asText()
+                + "\n\nUser reply:\n" + step.argumentsJson().path("userReply").asText()
+                + "\n\nRespond directly to the user after re-checking the evidence. "
+                + "Your final response will be appended to this local review thread.")
+                .orElse(context);
+    }
+
+    private static String messageResponse(
+            ReviewerDefRow reviewer, RunOutcome outcome, ReviewAssignmentRow assignment)
+    {
+        String detail = blankToNull(outcome.finalText());
+        if (detail == null) {
+            detail = blankToNull(assignment.understandingSummary());
+        }
+        String prefix = reviewer.name() + " processed the guidance.";
+        return detail == null ? prefix : concise(prefix + " " + detail, 600);
+    }
+
+    private static void failIfProviderErrored(RunOutcome outcome, String phase)
+    {
+        if ("ERRORED".equals(outcome.end())) {
+            throw new IllegalStateException("CLI provider failed during " + phase);
+        }
+    }
+
+    private static String concise(String value, int limit)
+    {
+        String stripped = value.strip().replaceAll("\\s+", " ");
+        return stripped.substring(0, Math.min(limit, stripped.length()));
     }
 
     private CoverageReport persistMandatorySweeps(RoundWork work, String assignmentId)
@@ -825,7 +1726,8 @@ public class InvestigationReviewService
         return inspected ? "investigated-clean" : "not-covered-budget";
     }
 
-    private VerificationOutcome verify(RoundWork work, List<FindingRow> candidates)
+    private VerificationOutcome verify(
+            RoundWork work, List<FindingRow> candidates, int priorCost)
     {
         Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.review().id());
         Map<String, ObservationRow> observationsById = observationsById(work.review().id());
@@ -852,7 +1754,7 @@ public class InvestigationReviewService
             return VerificationOutcome.EMPTY;
         }
         AgentRun verifierRun = openReviewRun(work.review(), work.round().id(),
-                Math.max(10, work.plan().budget().costCapCents() / 3));
+                Math.max(1, remainingBudget(work, priorCost) / 3));
         String verifierAssignment = UUID.randomUUID().toString();
         boolean assignmentInserted = false;
         boolean completed = false;
@@ -870,6 +1772,12 @@ public class InvestigationReviewService
             List<FindingRow> awaitingStructuredVerification = new ArrayList<>();
             for (FindingRow finding : candidates) {
                 ensureRunning(work);
+                int remaining = remainingBudget(work, priorCost + cost);
+                if (remaining == 0) {
+                    insertUnknownVerification(verifierRun.id(), finding,
+                            "Round cost cap was reached before independent verification.");
+                    continue;
+                }
                 List<FindingEvidenceRow> findingEvidence =
                         evidenceByFinding.getOrDefault(finding.id(), List.of());
                 String bundle = findingBundle(finding, findingEvidence, observationsById);
@@ -880,24 +1788,71 @@ public class InvestigationReviewService
                 }
                 String blind = null;
                 if (finding.severity() >= 4) {
-                    RunOutcome reconstruction = runner.reconstruct(
-                            verifier, work.review().id(), verifierAssignment, work.snapshot(),
-                            evidenceLocations(findingEvidence, observationsById),
-                            verifierDefinition.persona(), 10);
-                    ensureRunning(work);
-                    blind = reconstruction.finalText();
+                    int reconstructionCap = reserveProviderTurn(
+                            work, priorCost + cost,
+                            Math.max(1, Math.min(
+                                    10, remainingBudget(work, priorCost + cost)))).turnCap();
+                    if (reconstructionCap == 0) {
+                        insertUnknownVerification(verifierRun.id(), finding,
+                                "Round cost cap was lowered before blind reconstruction.");
+                        continue;
+                    }
+                    RunOutcome reconstruction;
+                    try {
+                        reconstruction = runner.reconstruct(
+                                verifier, work.review().id(), verifierAssignment, work.snapshot(),
+                                evidenceLocations(findingEvidence, observationsById),
+                                verifierDefinition.persona(), reconstructionCap);
+                    }
+                    catch (RuntimeException e) {
+                        releaseProviderTurn(work);
+                        throw e;
+                    }
                     cost += reconstruction.costCents();
+                    completeProviderTurn(work, priorCost + cost);
+                    ensureRunning(work);
+                    failIfProviderErrored(reconstruction, "blind reconstruction");
+                    blind = reconstruction.finalText();
                     tokensIn += reconstruction.tokensIn();
                     tokensOut += reconstruction.tokensOut();
                     providerRounds += reconstruction.providerRounds();
+                    if ("ABORTED".equals(reconstruction.end())) {
+                        insertUnknownVerification(verifierRun.id(), finding,
+                                "Blind reconstruction reached the current round budget boundary.");
+                        continue;
+                    }
                 }
-                RunOutcome result = runner.verify(
-                        verifier, work.review().id(), verifierAssignment, work.snapshot(),
-                        verifierRun.id(), bundle, blind,
-                        verifierDefinition.persona(),
-                        Math.max(10, work.plan().budget().costCapCents() / 3));
-                ensureRunning(work);
+                int verifyRemaining = remainingBudget(work, priorCost + cost);
+                if (verifyRemaining == 0) {
+                    insertUnknownVerification(verifierRun.id(), finding,
+                            "Round cost cap was reached before the evidence verdict.");
+                    continue;
+                }
+                int verificationCap = reserveProviderTurn(
+                        work, priorCost + cost,
+                        Math.max(1, Math.min(
+                                Math.max(1, currentCostCap(work) / 3),
+                                verifyRemaining))).turnCap();
+                if (verificationCap == 0) {
+                    insertUnknownVerification(verifierRun.id(), finding,
+                            "Round cost cap was lowered before the evidence verdict.");
+                    continue;
+                }
+                RunOutcome result;
+                try {
+                    result = runner.verify(
+                            verifier, work.review().id(), verifierAssignment, work.snapshot(),
+                            verifierRun.id(), bundle, blind,
+                            verifierDefinition.persona(), verificationCap);
+                }
+                catch (RuntimeException e) {
+                    releaseProviderTurn(work);
+                    throw e;
+                }
                 cost += result.costCents();
+                completeProviderTurn(work, priorCost + cost);
+                ensureRunning(work);
+                failIfProviderErrored(result, "verification");
                 tokensIn += result.tokensIn();
                 tokensOut += result.tokensOut();
                 providerRounds += result.providerRounds();
@@ -911,7 +1866,8 @@ public class InvestigationReviewService
                             "Verifier returned without a structured result.");
                 }
             }
-            store.updateAssignment(verifierAssignment, "completed", "Verification complete.",
+            store.updateAssignmentWhileRoundRunning(
+                    verifierAssignment, "completed", "Verification complete.",
                     List.of(), List.of());
             runs.updateHeadline(verifierRun.id(), candidates.size() + " findings verified");
             ObjectNode verifierMetrics = mapper.createObjectNode();
@@ -930,7 +1886,7 @@ public class InvestigationReviewService
         }
         finally {
             if (!completed) {
-                boolean cancelled = Thread.currentThread().isInterrupted()
+                boolean cancelled = Thread.interrupted()
                         || store.findRound(work.round().id())
                                 .map(round -> "CANCELLED".equals(round.status())).orElse(false);
                 if (assignmentInserted) {
@@ -1173,6 +2129,37 @@ public class InvestigationReviewService
         }
     }
 
+    private Optional<InvestigationStepRow> answerStep(RoundWork work)
+    {
+        Set<String> assignmentIds = work.assignments().stream()
+                .map(AssignmentWork::id).collect(Collectors.toSet());
+        return store.steps(work.review().id()).stream()
+                .filter(step -> assignmentIds.contains(step.assignmentId()))
+                .filter(step -> "user-answer".equals(step.actionType()))
+                .findFirst();
+    }
+
+    private void appendAnswerReply(RoundWork work, List<RunOutcome> investigations)
+    {
+        InvestigationStepRow answer = answerStep(work).orElse(null);
+        String response = investigations.isEmpty()
+                ? null : blankToNull(investigations.get(0).finalText());
+        if (answer == null || response == null) {
+            return;
+        }
+        String findingId = answer.argumentsJson().path("findingId").asText();
+        PRComment root = prs.comments(work.pr().id()).stream()
+                .filter(comment -> findingId.equals(comment.findingId()))
+                .findFirst().orElse(null);
+        if (root == null) {
+            return;
+        }
+        prs.addComment(
+                work.pr().id(), PRComment.ORIGIN_LOCAL, root.scope(), root.filePath(),
+                root.lineNumber(), root.side(), root.startLine(), root.startSide(),
+                "agent", response, root.id());
+    }
+
     private InvestigationReviewData detail(AgentReviewRow review)
     {
         List<ReviewRoundRow> roundRows = store.rounds(review.id());
@@ -1183,15 +2170,26 @@ public class InvestigationReviewService
         });
         store.verifications(review.id()).forEach(row -> runIds.add(row.verifierRunId()));
         List<AgentRun> runRows = runIds.stream().map(runs::findById).flatMap(Optional::stream).toList();
-        List<PRCommentDto> comments = prs.comments(review.prId()).stream()
+        List<PRComment> prComments = prs.comments(review.prId());
+        Set<String> findingCommentIds = prComments.stream()
                 .filter(comment -> comment.findingId() != null)
+                .map(PRComment::id).collect(Collectors.toSet());
+        List<PRCommentDto> comments = prComments.stream()
+                .filter(comment -> comment.findingId() != null
+                        || findingCommentIds.contains(comment.parentCommentId()))
                 .map(PRCommentDto::from).toList();
         List<PRTimelineEntryDto> timeline = prs.timeline(review.prId()).stream()
                 .map(event -> PRTimelineEntryDto.from(event, mapper))
                 .filter(event -> event.payload().hasNonNull("reviewEvent"))
                 .toList();
+        Map<String, List<String>> messageTargets = roundRows.stream()
+                .collect(Collectors.toMap(
+                        ReviewRoundRow::id,
+                        round -> List.copyOf(allowedMessageTargets(review.id(), round))));
         return new InvestigationReviewData(
-                review, roundRows, runRows, store.criteria(review.id()), store.objectives(review.id()),
+                review, roundRows, store.roundMessages(review.id()),
+                store.reviewedCommits(review.id()), messageTargets, runRows,
+                store.criteria(review.id()), store.objectives(review.id()),
                 store.assignments(review.id()), store.hypotheses(review.id()), store.steps(review.id()),
                 store.observations(review.id()), store.findings(review.id()), store.evidence(review.id()),
                 store.verifications(review.id()), store.relations(review.id()), store.outcomes(review.id()),
@@ -1263,7 +2261,7 @@ public class InvestigationReviewService
         String reviewClass = changedLines <= 30 && files <= 1 && !publicSurface
                 ? "trivial" : changedLines > 500 || highRisk ? "high-risk" : "standard";
         RoundBudget budget = switch (reviewClass) {
-            case "trivial" -> new RoundBudget(10, 5);
+            case "trivial" -> new RoundBudget(50, 5);
             case "high-risk" -> new RoundBudget(150, 20);
             default -> new RoundBudget(50, 10);
         };
@@ -1314,54 +2312,16 @@ public class InvestigationReviewService
                 .map(Map.Entry::getKey).collect(Collectors.toSet());
         expired.forEach(expiredKey -> {
             preflightPlans.remove(expiredKey);
-            preflightAugments.remove(expiredKey);
         });
         String prPrefix = snapshot.pr().id() + "@";
         preflightPlans.keySet().removeIf(existing -> existing.startsWith(prPrefix) && !existing.equals(key));
-        preflightAugments.keySet().removeIf(existing -> existing.startsWith(prPrefix) && !existing.equals(key));
         CachedPlan cached = preflightPlans.get(key);
         if (cached != null) {
             return cached.plan();
         }
         PlanDraft draft = plan(snapshot);
         preflightPlans.put(key, new CachedPlan(draft, now.plus(PREFLIGHT_TTL)));
-        preflightAugments.remove(key);
         return draft;
-    }
-
-    private CompletableFuture<String> preflightAugment(
-            InvestigationReviewContext.Snapshot snapshot, PlanDraft plan)
-    {
-        String key = preflightKey(snapshot);
-        CompletableFuture<String> existing = preflightAugments.get(key);
-        if (existing != null) {
-            return existing;
-        }
-        CompletableFuture<String> created = new CompletableFuture<>();
-        existing = preflightAugments.putIfAbsent(key, created);
-        if (existing != null) {
-            return existing;
-        }
-        Thread.startVirtualThread(() -> {
-            try {
-                String repoId = snapshot.pr().repo() == null ? "local" : snapshot.pr().repo();
-                List<ReviewObjectiveRow> objectives = plan.objectives().stream()
-                        .filter(PlanObjective::applicable)
-                        .map(objective -> new ReviewObjectiveRow(
-                                stableCriterionId(repoId, objective), "preflight",
-                                stableCriterionId(repoId, objective), objective.statement(),
-                                objective.sourceType(), "applicable", "pending"))
-                        .toList();
-                created.complete(runner.suggestPlanAmendment(
-                        runner.choose(null, null), snapshot, objectives));
-            }
-            catch (RuntimeException e) {
-                log.debug("Optional preflight augmentation failed for {}: {}",
-                        snapshot.pr().id(), e.getMessage());
-                created.complete(null);
-            }
-        });
-        return created;
     }
 
     private static String preflightKey(InvestigationReviewContext.Snapshot snapshot)
@@ -1491,7 +2451,7 @@ public class InvestigationReviewService
         };
         List<ReviewerDefRow> eligible = store.reviewerDefs().stream()
                 .filter(ReviewerDefRow::enabled)
-                .filter(row -> !"independent-verifier".equals(row.id()))
+                .filter(row -> !Set.of("independent-verifier", "review-planner").contains(row.id()))
                 .filter(row -> row.eligibleKinds().contains(reviewClass))
                 .toList();
         if (eligible.isEmpty()) {
@@ -1579,6 +2539,27 @@ public class InvestigationReviewService
         return value == null || value.isBlank() ? null : value.strip();
     }
 
+    private static int validateCostCap(Integer costCapCents)
+    {
+        if (costCapCents == null) {
+            throw new IllegalArgumentException("costCapCents is required");
+        }
+        if (costCapCents < 50 || costCapCents > 500 || costCapCents % 25 != 0) {
+            throw new IllegalArgumentException(
+                    "costCapCents must be between 50 and 500 in 25-cent increments");
+        }
+        return costCapCents;
+    }
+
+    private static String reviewClass(RoundBudget budget)
+    {
+        return switch (budget.wallClockMinutes()) {
+            case 5 -> "trivial";
+            case 20 -> "high-risk";
+            default -> "standard";
+        };
+    }
+
     private static String normaliseRoundKind(String kind)
     {
         return switch (kind == null ? "continue" : kind) {
@@ -1587,9 +2568,12 @@ public class InvestigationReviewService
         };
     }
 
-    private static String scopeFor(List<String> findingIds)
+    private static String scopeFor(List<String> findingIds, String seed)
     {
-        return findingIds == null || findingIds.isEmpty() ? "full" : "affected findings";
+        if (findingIds != null && !findingIds.isEmpty()) {
+            return "affected findings";
+        }
+        return seed == null ? "full" : "delta";
     }
 
     private static String stableCriterionId(String repoId, PlanObjective objective)
@@ -1704,6 +2688,11 @@ public class InvestigationReviewService
 
     public record FindingMutation(String action, String text) {}
 
+    public record FindingOutcomeInput(
+            String userDisposition, String authorResponse,
+            String epistemicResolution, String utilityAssessment,
+            Integer styleEditMagnitude) {}
+
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record ReviewerDefInput(
             String id, String name, String description, String runner,
@@ -1722,12 +2711,15 @@ public class InvestigationReviewService
     private record RoundWork(
             AgentReviewRow review, PR pr, InvestigationReviewContext.Snapshot snapshot,
             PlanDraft plan, ReviewRoundRow round, AgentRun run,
-            List<ReviewObjectiveRow> objectives, List<AssignmentWork> assignments) {}
+            List<ReviewObjectiveRow> objectives, List<AssignmentWork> assignments,
+            String seed) {}
 
     private record AssignmentWork(
             String id, ProviderChoice provider, ReviewerDefRow reviewerDef) {}
 
     private record PanelSeat(ProviderChoice provider, ReviewerDefRow reviewerDef) {}
+
+    private record BudgetReservation(int roundCap, int turnCap) {}
 
     private record VerificationOutcome(int costCents, long tokensIn, long tokensOut, int providerRounds)
     {

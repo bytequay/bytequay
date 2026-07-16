@@ -167,6 +167,13 @@ export function createAgentReviewFixture(bundle: LocalPRBundle, files: DiffFileD
       { kind: 'objectives-resolved', count: 2, detail: '2 of 2' },
       { kind: 'budget-gaps', count: 0, detail: 'Assignments that exhausted their step cap' },
     ],
+    round_messages: [],
+    reviewed_commits: bundle.commits.map((commit, position) => ({
+      round_id: roundId,
+      sha: commit.sha,
+      message: commit.message,
+      position,
+    })),
     pr_comments: comments, pr_timeline_events: timelineEvents,
   };
 }

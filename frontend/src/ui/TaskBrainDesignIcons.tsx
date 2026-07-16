@@ -151,6 +151,13 @@ export function EyeIcon(props: IconProps) {
   );
 }
 
+/** Neutral review-round marker. A round is workflow history, not a PR
+ * approval, so it deliberately uses an outlined diamond instead of a
+ * green check. */
+export function ReviewRoundIcon(props: IconProps) {
+  return <Icon size={12} strokeWidth={1.9} {...props}><path d="m12 3 9 9-9 9-9-9z" /></Icon>;
+}
+
 export function CommitIcon(props: IconProps) {
   return (
     <Icon size={12} strokeWidth={2} {...props}>

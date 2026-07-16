@@ -108,7 +108,8 @@ export function githubAvatarLogin(c: Pick<DiffInlineComment, 'sourceLabel' | 'au
 /** Still-open local drafts that would be swept into the next publish — the
  *  set the Submit-review drawer's pending list and toolbar count show. */
 export function isPendingLocalComment(c: LocalPRComment): boolean {
-  return c.origin === 'local' && c.publishedAt === null && c.resolvedAt === null && c.dismissedAt === null;
+  return c.parentCommentId === null && c.origin === 'local' && c.publishedAt === null
+    && c.resolvedAt === null && c.dismissedAt === null;
 }
 
 export function diffInlineCommentFromLocalPr(c: LocalPRComment, reviewOrIndex?: AgentReviewData | number): DiffInlineComment {
@@ -276,6 +277,8 @@ export function DiffInlineComments({
   onResolve,
   onDismiss,
   onReopen,
+  onToggleFindingPromotion,
+  canPromoteFindings = false,
   onCancel,
   composingOn,
   placeholder,
@@ -291,6 +294,8 @@ export function DiffInlineComments({
   onDismiss?: (commentId: string) => void;
   /** Reopen a resolved review comment when that backend path is available. */
   onReopen?: (commentId: string) => void;
+  onToggleFindingPromotion?: (findingId: string) => void;
+  canPromoteFindings?: boolean;
   /** Discard the open composer (Esc or the Cancel button). */
   onCancel?: () => void;
   /** {@link rangeLabel} of the line/range the open composer is anchored to
@@ -363,6 +368,7 @@ export function DiffInlineComments({
                         <div className="ic-comment__meta">
                           <span className="ic-comment__author">{c.author}</span>
                           {c.sourceLabel !== undefined && <span className="ic-comment__tag">{c.sourceLabel}</span>}
+                          {c.finding !== undefined && c.origin === 'local' && <span className="ic-comment__tag">LOCAL</span>}
                           {c.resolved && <span className="ic-comment__tag ic-comment__tag--resolved">resolved</span>}
                           {c.dismissed && <span className="ic-comment__tag ic-comment__tag--dismissed">dismissed</span>}
                           {c.createdAtMs !== undefined && (
@@ -383,6 +389,17 @@ export function DiffInlineComments({
                               )}
                               {!isOpen(c) && onReopen !== undefined && (
                                 <button type="button" onClick={() => onReopen(c.id)}>Reopen</button>
+                              )}
+                              {canPromoteFindings && isOpen(c) && c.finding !== undefined && onToggleFindingPromotion !== undefined && (
+                                <button
+                                  type="button"
+                                  aria-pressed={c.finding.finding.lifecycle_status === 'included'}
+                                  onClick={() => onToggleFindingPromotion(c.finding!.finding.id)}
+                                >
+                                  {c.finding.finding.lifecycle_status === 'included'
+                                    ? 'Remove from remote review'
+                                    : 'Add to remote review'}
+                                </button>
                               )}
                             </span>
                           )}

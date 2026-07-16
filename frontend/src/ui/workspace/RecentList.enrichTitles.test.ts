@@ -13,7 +13,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { enrichTitles } from './RecentList';
-import type { FootprintStopDto, ThreadDto, WorkUnitTaskDto } from '../../types';
+import type { FootprintStopDto, WorkUnitTaskDto } from '../../types';
 
 afterEach(() => {
   delete (window as unknown as { bridge?: unknown }).bridge;
@@ -32,10 +32,6 @@ function task(over: Partial<WorkUnitTaskDto> = {}): WorkUnitTaskDto {
     id: 'task-1', name: 'Replace two lambdas', branchName: 'dev/replace-two-lambdas',
     ...over,
   } as unknown as WorkUnitTaskDto;
-}
-
-function thread(over: Partial<ThreadDto> = {}): ThreadDto {
-  return { id: 'thread-1', title: 'Cost & tokens parser', ...over } as unknown as ThreadDto;
 }
 
 describe('enrichTitles', () => {
@@ -57,16 +53,6 @@ describe('enrichTitles', () => {
     const [enriched] = await enrichTitles([stop()]);
 
     expect(enriched.title).toBe('replace two lambdas');
-  });
-
-  it('swaps the placeholder thread title for the real thread title', async () => {
-    window.bridge = {
-      getTask: vi.fn(async () => thread()),
-    } as unknown as typeof window.bridge;
-
-    const [enriched] = await enrichTitles([stop({ surfaceType: 'THREAD', surfaceId: 'thread-1', title: 'Thread' })]);
-
-    expect(enriched.title).toBe('Cost & tokens parser');
   });
 
   it('keeps the placeholder when the lookup fails', async () => {

@@ -17,9 +17,7 @@ import com.bytequay.app.domain.FootprintStop;
 import com.bytequay.app.domain.FootprintsTrail;
 import com.bytequay.app.domain.SurfaceType;
 import com.bytequay.app.domain.SurfaceVisit;
-import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.repository.SurfaceVisitStore;
-import com.bytequay.app.repository.ThreadStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -47,12 +45,10 @@ public class FootprintsService
     static final int HOME_STOP_CAP = 8;
 
     private final SurfaceVisitStore store;
-    private final ThreadStore threadStore;
 
-    public FootprintsService(SurfaceVisitStore store, ThreadStore threadStore)
+    public FootprintsService(SurfaceVisitStore store)
     {
         this.store = requireNonNull(store, "store is null");
-        this.threadStore = requireNonNull(threadStore, "threadStore is null");
     }
 
     /**
@@ -100,27 +96,13 @@ public class FootprintsService
     }
 
     /**
-     * The {@link SurfaceType#PR_KANBAN} bookmark row (visits to the My-PRs
-     * board) never earns a trail spot — it's a static nav shortcut, not
-     * activity. A {@link SurfaceType#THREAD} visit only earns a spot when
-     * it's a review thread, or a build thread the human has actually
-     * typed into — an untouched build thread's plain work is already
-     * represented by its Task rows elsewhere, so surfacing it here too
-     * would just be noise. Every other surface type is always visible. A
-     * thread that's since been deleted is dropped rather than risk a
-     * stale/misleading row.
+     * Continue is deliberately limited to resumable work items: individual
+     * PRs and tasks. Thread trunks and the PR-kanban bookmark are navigation,
+     * not work items, so they never earn a trail spot.
      */
     private boolean isVisible(SurfaceVisit visit)
     {
-        if (visit.surfaceType() == SurfaceType.PR_KANBAN) {
-            return false;
-        }
-        if (visit.surfaceType() != SurfaceType.THREAD) {
-            return true;
-        }
-        return threadStore.findThreadById(visit.surfaceId())
-                .map(t -> t.flow() == ThreadFlow.REVIEW || threadStore.countUserMessages(t.id()) > 0)
-                .orElse(false);
+        return visit.surfaceType() == SurfaceType.PR || visit.surfaceType() == SurfaceType.TASK;
     }
 
     /**

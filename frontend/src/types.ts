@@ -503,7 +503,7 @@ export type RepoMetaDto = {
   parentDefaultBranch: string | null;
 };
 
-/** One entry in the right-pane "Recent activity" feed. */
+/** One entry in a GitHub activity feed. */
 export type RepoActivityItemDto = {
   type: string;
   actor: string | null;
@@ -2768,10 +2768,6 @@ export type Bridge = {
    *  + closed-without-merge). Used by the merge-history page — pages
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */
   fetchPrHistory: (page: number, perPage?: number) => Promise<PullRequestHistoryPageDto>;
-  /** Live GitHub search for the user's PR activity in a time window —
-   *  PRs reviewed or contributed (authored) with an update on or after
-   *  {@code since} (ISO YYYY-MM-DD). Newest-updated first. */
-  fetchPrActivity: (kind: 'reviewed' | 'contributed', since: string, page: number, perPage?: number) => Promise<PullRequestHistoryPageDto>;
   /** Aggregated KPIs for the PR-review Analytics page. Pure local read
    *  — no PAT, no GitHub call. {@code tz} is an IANA zone id; the
    *  renderer passes its own so the daily-bars and heatmap bucket in

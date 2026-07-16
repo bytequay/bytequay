@@ -43,15 +43,15 @@ describe('useSurfaceVisitCapture', () => {
   });
 
   it('does not re-record when re-rendered on the same surface', () => {
-    const nav: Nav = { view: 'my-prs' };
+    const nav: Nav = { view: 'thread-detail', threadId: 't1', taskId: 'k1' };
     const { rerender } = render(<Harness nav={nav} />);
-    rerender(<Harness nav={{ view: 'my-prs' }} />);
+    rerender(<Harness nav={{ view: 'thread-detail', threadId: 't1', taskId: 'k1' }} />);
     expect(recordSurfaceVisit).toHaveBeenCalledTimes(1);
   });
 
   it('records again after navigating to a different surface', () => {
-    const { rerender } = render(<Harness nav={{ view: 'my-prs' }} />);
-    rerender(<Harness nav={{ view: 'thread-detail', threadId: 't1' }} />);
+    const { rerender } = render(<Harness nav={{ view: 'thread-detail', threadId: 't1', taskId: 'k1' }} />);
+    rerender(<Harness nav={{ view: 'repo', owner: 'acme', repo: 'widget', prNumber: 42 }} />);
     expect(recordSurfaceVisit).toHaveBeenCalledTimes(2);
   });
 
@@ -61,9 +61,10 @@ describe('useSurfaceVisitCapture', () => {
   });
 
   it('re-records the same surface after leaving and returning to it', () => {
-    const { rerender } = render(<Harness nav={{ view: 'my-prs' }} />);
+    const task: Nav = { view: 'thread-detail', threadId: 't1', taskId: 'k1' };
+    const { rerender } = render(<Harness nav={task} />);
     rerender(<Harness nav={{ view: 'home' }} />);       // leave tracked surfaces
-    rerender(<Harness nav={{ view: 'my-prs' }} />);     // return
+    rerender(<Harness nav={task} />);                   // return
     expect(recordSurfaceVisit).toHaveBeenCalledTimes(2);
   });
 });

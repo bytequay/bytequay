@@ -16,10 +16,8 @@ import type { Nav } from '../App';
 import { navToSurfaceVisit, visitKey } from './surfaceVisit';
 
 describe('navToSurfaceVisit', () => {
-  it('maps the my-prs inbox to the PR kanban surface', () => {
-    expect(navToSurfaceVisit({ view: 'my-prs' })).toEqual({
-      surfaceType: 'PR_KANBAN', surfaceId: 'my-prs', title: 'PR kanban', context: null,
-    });
+  it('does not track the PR board itself', () => {
+    expect(navToSurfaceVisit({ view: 'my-prs' })).toBeNull();
   });
 
   it('maps an individual PR with owner/repo/number in the surfaceId', () => {
@@ -50,10 +48,8 @@ describe('navToSurfaceVisit', () => {
     expect(visitKey(brain!)).toBe(visitKey(detail!));
   });
 
-  it('maps a thread trunk (no taskId) to the THREAD surface', () => {
-    expect(navToSurfaceVisit({ view: 'thread-detail', threadId: 't1' })).toEqual({
-      surfaceType: 'THREAD', surfaceId: 't1', title: 'Thread', context: null,
-    });
+  it('does not track a thread trunk without a task', () => {
+    expect(navToSurfaceVisit({ view: 'thread-detail', threadId: 't1' })).toBeNull();
   });
 
   it('returns null for untracked surfaces', () => {

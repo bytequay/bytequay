@@ -1402,26 +1402,6 @@ public class PullRequestService
     }
 
     /**
-     * Live GitHub search for the user's PR activity in a time window:
-     * PRs the user reviewed ({@code kind=reviewed}) or authored
-     * ({@code kind=contributed}) with an update on or after {@code since}.
-     * Powers the home page's PR-activity view. Sorted by last update
-     * descending.
-     */
-    public PullRequestHistoryPage searchMyPrActivity(String kind, LocalDate since, int page, int perPage)
-    {
-        String qualifier = switch (kind) {
-            case "reviewed" -> "reviewed-by:@me -author:@me";
-            case "contributed" -> "author:@me";
-            default -> throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400), "kind must be 'reviewed' or 'contributed'");
-        };
-        String pat = patResolver.resolve();
-        String query = "is:pr %s updated:>=%s sort:updated-desc".formatted(qualifier, since);
-        return gitHub.searchPullRequestsPaged(pat, query, page, perPage);
-    }
-
-    /**
      * Walk every PR with a non-null {@code snoozedUntil} and decide
      * whether to wake it. The four wake conditions:
      *

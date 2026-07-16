@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SubmitReviewDrawer } from './SubmitReviewDrawer';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
@@ -76,5 +76,13 @@ describe('SubmitReviewDrawer', () => {
   it('shows the empty-pending hint when there are no drafts', () => {
     render(<SubmitReviewDrawer open onClose={() => {}} onSubmit={() => {}} />);
     expect(screen.getByText(/No pending comments/)).toBeTruthy();
+  });
+
+  it('keeps the drawer open and shows a submission error', async () => {
+    render(<SubmitReviewDrawer open onClose={() => {}} onSubmit={() => Promise.reject(new Error('GitHub rejected this approval.'))} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('GitHub rejected this approval.');
   });
 });

@@ -48,8 +48,6 @@ type Props = {
   onOpenTask?: (threadId: string, taskId: string) => void;
   /** Inbox "See all" — opens the notification center. */
   onOpenNotifications?: () => void;
-  /** Contribution-strip "See all" — opens the PR-activity view. */
-  onSeeAllActivity?: (kind: 'reviewed' | 'contributed') => void;
 };
 
 function openUrl(url: string) {
@@ -93,7 +91,7 @@ function formatRelativeTime(iso: string): string {
   return `${Math.round(hrs / 24)} days ago`;
 }
 
-function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenNotifications, onSeeAllActivity }: Props) {
+function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenNotifications }: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
    *  initialPrNumber), and only fall out to the system browser for
@@ -199,13 +197,8 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
     <div className="home-page">
       <main className="home-main">
 
-      {/* ── Contribution card: graph + bio + reviewed/contributed strip ── */}
-      <ContributionCard
-        profile={profile}
-        prs={prs}
-        onOpenPr={(owner, repo, prNumber) => onSelectRepo(owner, repo, prNumber)}
-        onSeeAllActivity={onSeeAllActivity}
-      />
+      {/* ── Contribution card: graph + bio ── */}
+      <ContributionCard profile={profile} />
 
       {/* ── Review CTA banner ── */}
       <button
@@ -257,10 +250,10 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
 
       </main>
 
-      {/* ── Right panel: Your recent activity + Following activity ── */}
+      {/* ── Right panel: GitHub activity + Following activity ── */}
       <aside className="home-side">
         <section className="home-side-section home-side-section--recent-activity">
-          <h3 className="home-side-section__title">Recent activity</h3>
+          <h3 className="home-side-section__title">GitHub activity</h3>
           {events.length === 0 ? (
             <div className="hp-empty">No recent activity yet.</div>
           ) : (

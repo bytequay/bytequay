@@ -178,8 +178,6 @@ const bridge: Bridge = {
   reopenPr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:reopenPr', prId),
   fetchPrHistory: (page: number, perPage?: number) =>
     ipcRenderer.invoke('backend:prHistory', page, perPage),
-  fetchPrActivity: (kind: 'reviewed' | 'contributed', since: string, page: number, perPage?: number) =>
-    ipcRenderer.invoke('backend:prActivity', kind, since, page, perPage),
   fetchPrAnalytics: (scope: string, tz?: string) =>
     ipcRenderer.invoke('backend:prAnalytics', scope, tz),
   fetchMyActivity: (scope: string, tz?: string) =>

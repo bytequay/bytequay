@@ -120,14 +120,10 @@ export function TodayGroupRows({ label, prs, onOpen }: {
  */
 export async function enrichTitles(stops: FootprintStopDto[]): Promise<FootprintStopDto[]> {
   const taskThreadIds = new Set<string>();
-  const threadIds = new Set<string>();
   for (const stop of stops) {
     const slash = stop.surfaceId.indexOf('/');
     if (stop.surfaceType === 'TASK' && slash > 0) {
       taskThreadIds.add(stop.surfaceId.slice(0, slash));
-    }
-    else if (stop.surfaceType === 'THREAD') {
-      threadIds.add(stop.surfaceId);
     }
   }
 
@@ -139,16 +135,6 @@ export async function enrichTitles(stops: FootprintStopDto[]): Promise<Footprint
     catch { /* non-fatal — this thread's task rows keep their placeholder */ }
   }));
 
-  const threadTitles = new Map<string, string>();
-  await Promise.all([...threadIds].map(async threadId => {
-    try {
-      // getTask is a legacy misnomer — it actually fetches the Thread.
-      const thread = await window.bridge.getTask(threadId);
-      if (thread !== null) threadTitles.set(threadId, thread.title);
-    }
-    catch { /* non-fatal — this row keeps its placeholder */ }
-  }));
-
   return stops.map(stop => {
     if (stop.surfaceType === 'TASK') {
       const slash = stop.surfaceId.indexOf('/');
@@ -158,18 +144,14 @@ export async function enrichTitles(stops: FootprintStopDto[]): Promise<Footprint
       const task = tasksByThread.get(threadId)?.find(t => t.id === taskId);
       return task === undefined ? stop : { ...stop, title: taskLabel(task) };
     }
-    if (stop.surfaceType === 'THREAD') {
-      const title = threadTitles.get(stop.surfaceId);
-      return title === undefined ? stop : { ...stop, title };
-    }
     return stop;
   });
 }
 
 /**
- * The sidebar's "Recent" section, shown on the Home surface in place
- * of the workspace list: the most recently visited surfaces (PRs,
- * tasks, threads), newest first, backed by the footprints visit
+ * The sidebar's "Continue" section, shown on the Home surface in place
+ * of the workspace list: the most recently visited PRs and tasks,
+ * newest first, backed by the footprints visit
  * capture, plus a compact "Today" summary (what's being worked on +
  * the latest PR reviewed today). Clicking a row resumes that surface.
  */
@@ -189,8 +171,10 @@ export function RecentList({ onResume, onOpenPr }: {
     let cancelled = false;
     const refresh = () => {
       void window.bridge.getFootprints()
+        .then(trail => trail.stops.filter(stop =>
+          stop.surfaceType === 'PR' || stop.surfaceType === 'TASK'))
         // The trail arrives oldest-first; the sidebar wants newest on top.
-        .then(trail => trail.stops.slice().reverse().slice(0, MAX_ROWS))
+        .then(stops => stops.slice().reverse().slice(0, MAX_ROWS))
         .then(enrichTitles)
         .then(enriched => { if (!cancelled) setStops(enriched); })
         .catch(() => { /* non-fatal — section renders empty */ });
@@ -252,10 +236,10 @@ export function RecentList({ onResume, onOpenPr }: {
     <>
       <div className="sb-section sb-section--recent">
         <div className="sb-section-h">
-          <span className="nm">Recent</span>
+          <span className="nm">Continue</span>
         </div>
         {stops.length === 0 ? (
-          <p className="sb-recent__empty">Nothing visited yet today.</p>
+          <p className="sb-recent__empty">Nothing to continue yet today.</p>
         ) : (
           <div className="sb-recent">
             {stops.map(stop => (

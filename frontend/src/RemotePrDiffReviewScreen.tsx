@@ -1716,10 +1716,9 @@ function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, wor
           }}
           disabled={!canOpenReviewDialog}
           title={onStartReview
-            ? canOpenReviewDialog
-              ? reviewWorkspaceId.length > 0
-                ? 'Start a local review in this workspace.'
-                : 'Start a remote-only review from GitHub data.'
+            ? reviewWorkspaceId.length > 0
+              ? 'Start a local review in this workspace.'
+              : 'Start a remote-only review from GitHub data.'
             : 'Ask Claude to draft a review — summary plus line-anchored comments. Stored locally until you publish.'}
         >
           ⚖ Review with agent

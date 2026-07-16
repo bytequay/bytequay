@@ -16,10 +16,10 @@ import type { PullRequestDto } from '../types';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from '../workspace/dialogStyles';
 
 type Props = {
-  workspaceId: string;
+  workspaceId?: string | null;
   pr: PullRequestDto;
   onClose: () => void;
-  onStarted: (ownerThreadId: string) => void;
+  onStarted: (ownerThreadId: string | null, reviewId: string) => void;
 };
 
 /** Starts the same durable AgentReview used by the PR details page. */
@@ -40,13 +40,12 @@ export default function StartAgentReviewDialog({ workspaceId, pr, onClose, onSta
       }
       const localPr = await window.bridge.getPrForRepoPull(
           pr.repo.slice(0, separator), pr.repo.slice(separator + 1), pr.number);
+      const localWorkspaceId = await matchingWorkspaceId(workspaceId, pr.repo);
       const review = await window.bridge.startAgentReview(localPr.id, {
         runner: runner === 'auto' ? undefined : runner,
-        workspaceId,
+        workspaceId: localWorkspaceId,
       });
-      const ownerThreadId = review.review.owner_thread_id;
-      if (ownerThreadId === null) throw new Error('The review started without an owning thread.');
-      onStarted(ownerThreadId);
+      onStarted(review.review.owner_thread_id, review.review.id);
     }
     catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -73,8 +72,9 @@ export default function StartAgentReviewDialog({ workspaceId, pr, onClose, onSta
           <small>{pr.repo}</small>
         </div>
         <p style={descriptionStyle}>
-          This creates a review thread in the current workspace. It uses an existing exact local
-          checkout when available; otherwise it runs remote-only and does not clone or fetch.
+          {workspaceId
+            ? 'This creates a local review in the matching workspace, using its verified clone and shared memory.'
+            : 'Remote only · GitHub data. It cannot use local source, history, tests, tasks, or workspace memory.'}
         </p>
         {error !== null && <div style={errorStyle} role="alert">{error}</div>}
 
@@ -98,6 +98,20 @@ export default function StartAgentReviewDialog({ workspaceId, pr, onClose, onSta
       </div>
     </div>
   );
+}
+
+async function matchingWorkspaceId(
+  workspaceId: string | null | undefined, repo: string,
+): Promise<string | undefined> {
+  if (workspaceId === null || workspaceId === undefined || workspaceId.trim() === '') return undefined;
+  try {
+    const repos = await window.bridge.listWorkspaceRepos(workspaceId);
+    return repos.some(candidate => candidate.repoFullName.toLowerCase() === repo.toLowerCase())
+      ? workspaceId
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function RunnerOption({ value, checked, onChange, title, detail }: {

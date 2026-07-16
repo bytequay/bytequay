@@ -1067,6 +1067,17 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('agentReview:getById', async (_event, reviewId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/agent-reviews/${encodeURIComponent(reviewId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`backend agent review returned ${res.status}: ${await res.text()}`);
+    return res.json();
+  });
+  ipcMain.handle('agentReview:queue', async (_event, scope: string = 'all') => {
+    const res = await fetch(`${BACKEND_BASE}/api/reviews/queue?scope=${encodeURIComponent(scope)}`);
+    if (!res.ok) throw new Error(`backend review queue returned ${res.status}: ${await res.text()}`);
+    return res.json();
+  });
   ipcMain.handle('agentReview:continue', async (_event, reviewId: string, body: unknown) => {
     const res = await fetch(`${BACKEND_BASE}/api/agent-reviews/${encodeURIComponent(reviewId)}/rounds`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -3947,6 +3958,17 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST /api/workspaces returned ${res.status}: ${text}`);
     }
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:ensureForRepo', async (_event, owner: string, repo: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/workspaces/for-repo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { method: 'POST' });
+    if (!res.ok) throw new Error(`backend workspace binding returned ${res.status}: ${await res.text()}`);
+    return res.json();
+  });
+  ipcMain.handle('workspaces:adoptRemoteReviews', async (_event, workspaceId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/adopt-remote-reviews`, { method: 'POST' });
+    if (!res.ok) throw new Error(`backend review adoption returned ${res.status}: ${await res.text()}`);
     return res.json();
   });
 

@@ -36,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -389,26 +390,33 @@ public class AgentToolHandlers
                                 + "planning will use the last-known checkout."));
     }
 
-    /** Repo the trunk plans in for {@code workspaceId}: the first pinned repo
-     *  with a local clone, else any watched repo with one. Mirrors the trunk
-     *  cwd resolution in ThreadRegistry. */
+    /** Repo the trunk plans in for {@code workspaceId}. Local tools are
+     * deliberately unavailable when the workspace clone has gone missing. */
     private Optional<WatchedRepo> resolveTrunkRepo(String workspaceId)
     {
-        List<String> pinned = workspaceId == null || workspaceId.isBlank()
-                ? List.of()
-                : workspaces.listRepos(workspaceId).stream()
-                        .map(r -> r.repoFullName())
-                        .toList();
-        Optional<WatchedRepo> pinnedClone = watchedRepos.findAll().stream()
-                .filter(wr -> pinned.contains(wr.fullName()))
-                .filter(wr -> wr.localClonePath() != null && !wr.localClonePath().isBlank())
-                .findFirst();
-        if (pinnedClone.isPresent()) {
-            return pinnedClone;
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return Optional.empty();
+        }
+        List<String> repos = workspaces.listRepos(workspaceId).stream()
+                .map(r -> r.repoFullName())
+                .toList();
+        if (repos.size() != 1) {
+            return Optional.empty();
         }
         return watchedRepos.findAll().stream()
-                .filter(wr -> wr.localClonePath() != null && !wr.localClonePath().isBlank())
+                .filter(wr -> repos.getFirst().equalsIgnoreCase(wr.fullName()))
+                .filter(wr -> localCloneExists(wr.localClonePath()))
                 .findFirst();
+    }
+
+    private static boolean localCloneExists(String path)
+    {
+        try {
+            return path != null && !path.isBlank() && Files.isDirectory(Path.of(path));
+        }
+        catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     /** Args record for {@code list_tools} — no args. */

@@ -34,12 +34,13 @@ function readStoredWidth(): number {
 /** Nav destinations. No Search (removed in this model). The first four
  *  are the primary (top) group; the rest sit in the bottom group. */
 export type WsNavKey =
-  | 'home' | 'workspaces' | 'my-work' | 'automations'
+  | 'home' | 'workspaces' | 'reviews' | 'my-work' | 'automations'
   | 'repos' | 'email' | 'notifications' | 'settings';
 
 const TOP_NAV: { key: WsNavKey; ic: string; label: string }[] = [
   { key: 'home', ic: '⌂', label: 'Home' },
   { key: 'workspaces', ic: '▦', label: 'Workspaces' },
+  { key: 'reviews', ic: '⚖', label: 'Reviews' },
   { key: 'my-work', ic: '▤', label: 'My work' },
 ];
 

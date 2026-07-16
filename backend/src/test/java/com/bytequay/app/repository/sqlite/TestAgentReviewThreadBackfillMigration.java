@@ -30,7 +30,7 @@ class TestAgentReviewThreadBackfillMigration
     private Path tempDir;
 
     @Test
-    void backfillRecreatesTheDeletedDefaultWorkspaceForAnUnattachedReview()
+    void unattachedReviewBecomesRemoteOnlyInsteadOfRecreatingDefaultWorkspace()
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("upgrade.db") + "?foreign_keys=ON";
@@ -62,15 +62,62 @@ class TestAgentReviewThreadBackfillMigration
         Flyway.configure().dataSource(url, "", "").load().migrate();
 
         try (Connection connection = DriverManager.getConnection(url)) {
+            assertThat(exists(connection,
+                    "SELECT 1 FROM workspaces WHERE id = 'ws-default'")).isFalse();
             assertThat(singleString(connection,
-                    "SELECT name FROM workspaces WHERE id = 'ws-default'"))
-                    .isEqualTo("ByteQuay");
-            assertThat(singleString(connection,
-                    "SELECT workspace_id FROM threads WHERE id = 'agent-review-review-external'"))
-                    .isEqualTo("ws-default");
+                    "SELECT workspace_id FROM review_session WHERE id = 'review-external'"))
+                    .isNull();
             assertThat(singleString(connection,
                     "SELECT owner_thread_id FROM review_session WHERE id = 'review-external'"))
-                    .isEqualTo("agent-review-review-external");
+                    .isNull();
+        }
+    }
+
+    @Test
+    void reviewWithAnUnambiguousLocalCloneMovesOutOfTheDefaultWorkspace()
+            throws Exception
+    {
+        String url = "jdbc:sqlite:" + tempDir.resolve("local-upgrade.db") + "?foreign_keys=ON";
+        Flyway.configure().dataSource(url, "", "").target("170").load().migrate();
+
+        try (Connection connection = DriverManager.getConnection(url)) {
+            connection.createStatement().executeUpdate("""
+                    INSERT INTO watched_repos(owner, repo, display_order, local_clone_path)
+                    VALUES ('acme', 'widget', 0, '/repos/widget')
+                    """);
+            connection.createStatement().executeUpdate("""
+                    INSERT INTO workspace_repos(
+                        workspace_id, repo_full_name, default_base_branch, auto_fix_enabled, added_at_ms)
+                    VALUES ('ws-default', 'acme/widget', NULL, 0, 1)
+                    """);
+            connection.createStatement().executeUpdate("""
+                    INSERT INTO pr(
+                        id, branch_name, base_branch, title, description, status,
+                        created_at_ms, remote_pr_number, origin, repo)
+                    VALUES ('pr-widget', 'head', 'main', 'Widget PR', '', 'remote-open',
+                            1, 8, 'external', 'acme/widget')
+                    """);
+            connection.createStatement().executeUpdate("""
+                    INSERT INTO review_session(
+                        id, repo_id, pr_id, base_commit, reviewed_head_commit,
+                        status, created_at_ms, updated_at_ms)
+                    VALUES ('review-widget', 'acme/widget', 'pr-widget',
+                            'base', 'head', 'ACTIVE', 1, 1)
+                    """);
+        }
+
+        Flyway.configure().dataSource(url, "", "").load().migrate();
+
+        try (Connection connection = DriverManager.getConnection(url)) {
+            assertThat(exists(connection,
+                    "SELECT 1 FROM workspaces WHERE id = 'ws-default'")).isFalse();
+            assertThat(singleString(connection,
+                    "SELECT workspace_id FROM review_session WHERE id = 'review-widget'"))
+                    .isEqualTo("ws-local-repo-1");
+            assertThat(singleString(connection,
+                    "SELECT workspace_id FROM threads WHERE id = "
+                            + "(SELECT owner_thread_id FROM review_session WHERE id = 'review-widget')"))
+                    .isEqualTo("ws-local-repo-1");
         }
     }
 
@@ -131,6 +178,13 @@ class TestAgentReviewThreadBackfillMigration
         try (ResultSet result = connection.createStatement().executeQuery(sql)) {
             assertThat(result.next()).isTrue();
             return result.getString(1);
+        }
+    }
+
+    private static boolean exists(Connection connection, String sql) throws Exception
+    {
+        try (ResultSet result = connection.createStatement().executeQuery(sql)) {
+            return result.next();
         }
     }
 }

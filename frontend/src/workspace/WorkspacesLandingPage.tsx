@@ -175,7 +175,7 @@ function WorkspacesLandingPage({
             card={card}
             isCurrent={card.id === currentWorkspaceId}
             onEnter={onEnterWorkspace}
-            onDelete={card.id === 'ws-default' ? undefined : setDeleteId}
+            onDelete={setDeleteId}
           />
         ))}
         {!loading && !error && (
@@ -183,13 +183,13 @@ function WorkspacesLandingPage({
             type="button"
             className="workspace-landing-card workspace-landing-card--new"
             onClick={() => setNewWorkspaceOpen(true)}
-            aria-label="New workspace"
+            aria-label="Add repository"
           >
             <span className="workspace-landing-card__new-plus" aria-hidden>+</span>
-            <span className="workspace-landing-card__new-label">New workspace</span>
+            <span className="workspace-landing-card__new-label">Add repository</span>
             <span className="workspace-landing-card__new-blurb">
-              Deliberate &amp; long-lived — you'll have only a handful. Seed
-              it from a repo's CLAUDE.md.
+              Connect one verified local clone. It becomes that repository's
+              shared workspace.
             </span>
           </button>
         )}

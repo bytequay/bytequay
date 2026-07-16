@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -82,6 +83,29 @@ public class InvestigationReviewController
                         HttpStatus.NOT_FOUND, "Thread has no agent review"));
     }
 
+    /** Global review progress, including remote sessions that deliberately do
+     * not have a workspace thread yet. */
+    @GetMapping("/api/reviews/queue")
+    public List<InvestigationReviewService.QueueItem> queue(
+            @RequestParam(name = "scope", required = false, defaultValue = "all") String scope)
+    {
+        return reviews.queue(scope);
+    }
+
+    @GetMapping("/api/agent-reviews/{reviewId}")
+    public InvestigationReviewData getById(@PathVariable String reviewId)
+    {
+        return reviews.findById(reviewId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Agent review not found"));
+    }
+
+    @PostMapping("/api/workspaces/{workspaceId}/adopt-remote-reviews")
+    public AdoptionResult adoptRemoteReviews(@PathVariable String workspaceId)
+    {
+        return new AdoptionResult(reviews.adoptRemoteReviews(workspaceId));
+    }
+
     @PostMapping("/api/agent-reviews/{reviewId}/rounds")
     public InvestigationReviewData createRound(
             @PathVariable String reviewId, @RequestBody(required = false) RoundRequest body)
@@ -110,6 +134,8 @@ public class InvestigationReviewController
         return reviews.updateRoundBudget(
                 roundId, body == null ? null : body.costCapCents());
     }
+
+    public record AdoptionResult(int adopted) {}
 
     @PostMapping("/api/findings/{findingId}/answer")
     public InvestigationReviewData answer(

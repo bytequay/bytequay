@@ -60,7 +60,7 @@ export function PrDetailsView<T extends DetailsPr>({
   pr: T;
   /** Fires once the agent review panel is created; the parent owns
    *  navigation to the freshly-created review thread. */
-  onStartReview?: (threadId: string) => void;
+  onStartReview?: (threadId: string | null, reviewId?: string) => void;
   /** Opens the embedded github.com review UI (a `WebContentsView`, not
    *  covered by `<PRView>`) — carried over from `PullRequestPreview`. */
   onOpenReview?: () => void;

@@ -1846,6 +1846,20 @@ export type WorkspaceRepoDto = {
   addedAt: string;
 };
 
+export type AgentReviewQueueItemDto = {
+  reviewId: string;
+  prId: string;
+  repo: string;
+  prNumber: number | null;
+  title: string | null;
+  status: string;
+  workspaceId: string | null;
+  ownerThreadId: string | null;
+  remoteOnly: boolean;
+  roundCount: number;
+  findingCount: number;
+};
+
 /** One unit of work inside a {@link ThreadDto} — a branch + worktree +
  *  agent run + (eventually) a PR. A thread accumulates these as it
  *  rolls through "ship & continue" hops; at most one is non-terminal
@@ -2959,6 +2973,8 @@ export type Bridge = {
     repo: string,
     writeMode: ManagedRepoWriteMode,
   ) => Promise<LocalRepoStatusDto>;
+  ensureWorkspaceForRepo: (owner: string, repo: string) => Promise<WorkspaceDto>;
+  adoptRemoteReviews: (workspaceId: string) => Promise<{ adopted: number }>;
   /** Local branches for the repo detail page's kanban. Each entry has
    *  enough metadata to decide column placement and render the inline
    *  ahead/behind + last-commit chips. */
@@ -4030,6 +4046,8 @@ export type Bridge = {
     body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },
   ) => Promise<AgentReviewData>;
   getAgentReviewByThread: (threadId: string) => Promise<AgentReviewData | null>;
+  getAgentReviewById: (reviewId: string) => Promise<AgentReviewData | null>;
+  listAgentReviewQueue: (scope?: 'all' | 'remote' | 'local') => Promise<AgentReviewQueueItemDto[]>;
   continueAgentReview: (
     reviewId: string,
     body: {

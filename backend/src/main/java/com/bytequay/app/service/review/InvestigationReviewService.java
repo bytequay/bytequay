@@ -54,6 +54,7 @@ import com.bytequay.app.service.review.DeterministicReviewCoverage.SweepResult;
 import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
 import com.bytequay.app.service.review.InvestigationReviewRunner.RunOutcome;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -111,6 +112,7 @@ public class InvestigationReviewService
     private final PRService prs;
     private final TaskStore tasks;
     private final ThreadStore threads;
+    private final WorkspaceService workspaces;
     private final ObjectMapper mapper;
     private final ConcurrentHashMap<String, CachedPlan> preflightPlans = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Thread> activeRounds = new ConcurrentHashMap<>();
@@ -123,16 +125,26 @@ public class InvestigationReviewService
     public InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
             InvestigationReviewRunner runner, AgentRunService runs,
-            PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper)
+            PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper,
+            WorkspaceService workspaces)
     {
         this(store, contexts, (InvestigationReviewModel) runner, runs,
-                prs, tasks, threads, mapper);
+                prs, tasks, threads, mapper, workspaces);
     }
 
     InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
             InvestigationReviewModel runner, AgentRunService runs,
             PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper)
+    {
+        this(store, contexts, runner, runs, prs, tasks, threads, mapper, null);
+    }
+
+    private InvestigationReviewService(
+            InvestigationReviewStore store, InvestigationReviewContext contexts,
+            InvestigationReviewModel runner, AgentRunService runs,
+            PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper,
+            WorkspaceService workspaces)
     {
         this.store = requireNonNull(store, "store is null");
         this.contexts = requireNonNull(contexts, "contexts is null");
@@ -142,6 +154,7 @@ public class InvestigationReviewService
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.threads = requireNonNull(threads, "threads is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.workspaces = workspaces;
     }
 
     /** A local provider process cannot survive a sidecar restart. Reconcile
@@ -264,7 +277,7 @@ public class InvestigationReviewService
     public PlanDraft preflight(String prId)
     {
         PR pr = requirePr(prId);
-        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr);
+        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr, false);
         return cachedPlan(snapshot);
     }
 
@@ -277,7 +290,8 @@ public class InvestigationReviewService
         }
         PR pr = requirePr(prId);
         ReviewOwnership ownership = ownershipFor(pr, options);
-        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr);
+        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr,
+                ownership.workspaceId() != null || ownership.taskId() != null);
         PlanDraft plan = cachedPlan(snapshot);
         List<PanelSeat> panel = panel(plan.reviewClass(), options);
         Instant now = Instant.now();
@@ -353,6 +367,11 @@ public class InvestigationReviewService
         return store.findActiveReviewByOwnerThread(threadId).map(this::detail);
     }
 
+    public Optional<InvestigationReviewData> findById(String reviewId)
+    {
+        return store.findReview(reviewId).map(this::detail);
+    }
+
     /** Stop and remove every AgentReview owned by a thread before that thread
      * (or its workspace) is permanently deleted. */
     public void purgeByOwnerThread(String threadId)
@@ -371,6 +390,11 @@ public class InvestigationReviewService
     {
         if (review.ownerThreadId() != null && !review.ownerThreadId().isBlank()
                 && review.workspaceId() != null && !review.workspaceId().isBlank()) {
+            return review;
+        }
+        // A remote review intentionally has no thread or workspace. Do not
+        // silently promote it just because the user opened its PR again.
+        if (options == null || blankToNull(options.workspaceId()) == null) {
             return review;
         }
         ReviewOwnership owner = ownershipFor(pr, options);
@@ -393,8 +417,12 @@ public class InvestigationReviewService
 
         String workspaceId = options == null ? null : blankToNull(options.workspaceId());
         if (workspaceId == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "workspaceId is required to start a standalone PR review");
+            return new ReviewOwnership(null, null, null);
+        }
+        if (workspaces == null || pr.repo() == null
+                || !workspaces.ownsVerifiedLocalRepo(workspaceId, pr.repo())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "workspace must be the verified local clone for this PR repository");
         }
         String provider = options == null ? null : blankToNull(options.providerId());
         if (provider == null) {
@@ -413,6 +441,49 @@ public class InvestigationReviewService
                 ThreadFlow.REVIEW, workspaceId, null);
         threads.saveThread(thread);
         return new ReviewOwnership(workspaceId, thread.id(), null);
+    }
+
+    /** Attach all remote sessions for this workspace's sole repository. The
+     * existing rounds remain remote-only; a later continuation starts with
+     * local workspace context. */
+    public int adoptRemoteReviews(String workspaceId)
+    {
+        String repo = workspaces.listRepos(workspaceId).stream().findFirst()
+                .map(r -> r.repoFullName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                        "workspace has no repository binding"));
+        if (!workspaces.ownsVerifiedLocalRepo(workspaceId, repo)) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "workspace repository no longer has a verified local clone");
+        }
+        int adopted = 0;
+        for (AgentReviewRow review : store.remoteReviewsForRepo(repo)) {
+            PR pr = requirePr(review.prId());
+            ReviewOwnership owner = ownershipFor(pr,
+                    new StartOptions(null, null, workspaceId));
+            store.updateReviewOwner(review.id(), owner.workspaceId(), owner.threadId(), null);
+            adopted++;
+        }
+        return adopted;
+    }
+
+    public List<QueueItem> queue(String scope)
+    {
+        String selected = scope == null ? "all" : scope.toLowerCase(Locale.ROOT);
+        if (!Set.of("all", "remote", "local").contains(selected)) {
+            throw new IllegalArgumentException("scope must be all, remote, or local");
+        }
+        return store.standaloneReviews().stream()
+                .filter(review -> "all".equals(selected)
+                        || ("remote".equals(selected) == (review.workspaceId() == null)))
+                .map(review -> {
+                    PR pr = requirePr(review.prId());
+                    int findings = store.findings(review.id()).size();
+                    return new QueueItem(review.id(), review.prId(), review.repoId(),
+                            pr.remotePrNumber(), pr.title(), review.status(), review.workspaceId(),
+                            review.ownerThreadId(), review.workspaceId() == null,
+                            store.rounds(review.id()).size(), findings);
+                }).toList();
     }
 
     /** Small persisted projection used by kanban cards; one query for the
@@ -880,7 +951,8 @@ public class InvestigationReviewService
             String seed, Integer costCapCents)
     {
         PR pr = requirePr(review.prId());
-        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr);
+        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr,
+                review.workspaceId() != null || review.ownerTaskId() != null);
         PlanDraft plan = cachedPlan(snapshot);
         String cleanSeed = seed == null ? null : requiredText(seed, "seed");
         if (cleanSeed != null) {
@@ -2685,6 +2757,12 @@ public class InvestigationReviewService
             this(runner, providerId, null);
         }
     }
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record QueueItem(
+            String reviewId, String prId, String repo, Integer prNumber, String title,
+            String status, String workspaceId, String ownerThreadId, boolean remoteOnly,
+            int roundCount, int findingCount) {}
 
     public record FindingMutation(String action, String text) {}
 

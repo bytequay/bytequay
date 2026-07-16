@@ -100,11 +100,12 @@ type Props = {
   /** When set, the viewer opens on this single commit's diff instead of
    *  the cumulative PR diff — used by the timeline's clickable SHA chips. */
   initialCommitSha?: string | null;
-  /** Active workspace — required for launching a workspace-scoped review panel. */
+  /** Active workspace when this PR has a matching local clone. */
   workspaceId?: string | null;
-  /** Navigate to a freshly-started review task (its owner thread id). When
+  /** Navigate to a freshly-started review task (or the global queue for a
+   * remote review). When
    *  absent, the "Review with agent" affordance uses the legacy draft helper. */
-  onStartReview?: (threadId: string) => void;
+  onStartReview?: (threadId: string | null, reviewId?: string) => void;
 };
 
 /** Minimal CSS attribute-selector escaper. Browsers ship CSS.escape but
@@ -1250,7 +1251,7 @@ function FileDiff({ file, comments, panelFindings, draftId, draftPublished, onDr
 function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, workspaceId, onStartReview }: Props) {
   const [assignReviewOpen, setAssignReviewOpen] = useState(false);
   const reviewWorkspaceId = workspaceId?.trim() ?? '';
-  const canOpenReviewDialog = !onStartReview || reviewWorkspaceId.length > 0;
+  const canOpenReviewDialog = true;
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [commits, setCommits] = useState<PullRequestCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1716,8 +1717,9 @@ function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, wor
           disabled={!canOpenReviewDialog}
           title={onStartReview
             ? canOpenReviewDialog
-              ? 'Start a durable agent review owned by the current workspace.'
-              : 'Choose a workspace before starting a review.'
+              ? reviewWorkspaceId.length > 0
+                ? 'Start a local review in this workspace.'
+                : 'Start a remote-only review from GitHub data.'
             : 'Ask Claude to draft a review — summary plus line-anchored comments. Stored locally until you publish.'}
         >
           ⚖ Review with agent
@@ -2009,12 +2011,16 @@ function RemotePrDiffReviewScreen({ pr, onBack, onApprove, initialCommitSha, wor
           draftSnapshot={aiDraft}
         />
       </div>
-      {assignReviewOpen && onStartReview && reviewWorkspaceId.length > 0 && (
+      {assignReviewOpen && onStartReview && (
         <StartAgentReviewDialog
-          workspaceId={reviewWorkspaceId}
+          workspaceId={reviewWorkspaceId || undefined}
           pr={pr}
           onClose={() => setAssignReviewOpen(false)}
-          onStarted={(threadId) => { setAssignReviewOpen(false); onStartReview(threadId); }}
+          onStarted={(threadId, reviewId) => {
+            setAssignReviewOpen(false);
+            if (threadId === null) onStartReview(null, reviewId);
+            else onStartReview(threadId);
+          }}
         />
       )}
     </div>

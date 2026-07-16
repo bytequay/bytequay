@@ -36,6 +36,7 @@ import static java.util.Objects.requireNonNull;
 /** One bounded API or CLI turn against the frozen investigation tools. */
 @Component
 public class InvestigationReviewRunner
+        implements InvestigationReviewModel
 {
     private static final int MAX_OUTPUT_TOKENS = 4_096;
     private static final int MAX_TOOL_ITERATIONS = 18;
@@ -63,6 +64,7 @@ public class InvestigationReviewRunner
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
+    @Override
     public ProviderChoice choose(String requestedRunner, String requestedProvider)
     {
         List<ReviewPassService.RosterEntry> configured = legacyRoster.roster().stream()
@@ -101,6 +103,7 @@ public class InvestigationReviewRunner
                                 "No API reviewer or Claude CLI is configured")));
     }
 
+    @Override
     public ProviderChoice chooseVerifier(ProviderChoice investigator, String requiredRunner)
     {
         return legacyRoster.roster().stream()
@@ -116,6 +119,7 @@ public class InvestigationReviewRunner
                         "Independent verification requires a configured cross-family provider"));
     }
 
+    @Override
     public RunOutcome investigate(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot,
@@ -145,6 +149,71 @@ public class InvestigationReviewRunner
         return run(provider, reviewId, assignmentId, snapshot, system, prompt, false, costCapCents);
     }
 
+    @Override
+    public RunOutcome planGuidance(
+            ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
+    {
+        return guidanceTurn(provider, snapshot, objectives, guidance, costCapCents, """
+                You are the bounded review planner for an active, frozen review round.
+                Re-evaluate the objectives, coverage, and investigation order in response to the user's guidance.
+                Return a concise planning response: what should be prioritized, narrowed, or explicitly checked next.
+                Do not claim findings or correctness, and do not impersonate an investigator or verifier.
+                """, "User guidance for the planner");
+    }
+
+    @Override
+    public RunOutcome verifyGuidance(
+            ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
+    {
+        return guidanceTurn(provider, snapshot, objectives, guidance, costCapCents, """
+                You are the independent evidence critic for an active, frozen review round.
+                Respond to the user's guidance by identifying what evidence, counter-evidence, scope, or severity
+                must be challenged during verification. Do not create findings, claim a verdict, or impersonate
+                an investigator. Return a concise independent verification plan.
+                """, "User guidance for the independent verifier");
+    }
+
+    private RunOutcome guidanceTurn(
+            ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives, String guidance, int costCapCents,
+            String rolePrompt, String heading)
+    {
+        String system = CavemanPrompt.wrap(rolePrompt);
+        String prompt = contextPrompt(snapshot, objectives)
+                + "\n\n" + heading + ":\n" + guidance;
+        if ("cli".equals(provider.runner())) {
+            Path workingDir = snapshot.localRoot() == null
+                    ? Path.of(System.getProperty("java.io.tmpdir")) : snapshot.localRoot();
+            CliReviewRunner.Result result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
+                    CliReviewRunner.Provider.of(provider.providerId()), system + "\n\n" + prompt,
+                    null, workingDir, null, costCapCents));
+            return new RunOutcome(
+                    provider, cents(result.costUsdMilli()), result.text(), 0, 0, 1, result.end());
+        }
+        ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(provider.providerId());
+        TurnHooks hooks = new TurnHooks()
+        {
+            @Override
+            public boolean abortTurn(long costSoFarMilliUsd)
+            {
+                return costSoFarMilliUsd >= (long) costCapCents * 10;
+            }
+        };
+        Callable<TurnResult> work = () -> turnRunner.runTurn(
+                new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
+                        endpoint.modelId(), endpoint.transport() == TurnSpec.Transport.ANTHROPIC
+                                ? system : null,
+                        messages(endpoint.transport(), system, prompt), mapper.createArrayNode(),
+                        1_024, 1),
+                call -> ToolExecutor.ToolCallResult.error("planning guidance has no tools"), hooks);
+        TurnResult result = scheduler.invokeAll(List.of(work)).get(0);
+        return new RunOutcome(provider, cents(result.costMilliUsd()), result.finalText(),
+                result.tokensIn(), result.tokensOut(), result.rounds(), result.end().name());
+    }
+
+    @Override
     public RunOutcome selfRefute(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String findingBundles,
@@ -161,6 +230,7 @@ public class InvestigationReviewRunner
         return run(provider, reviewId, assignmentId, snapshot, system, prompt, false, costCapCents);
     }
 
+    @Override
     public RunOutcome reconstruct(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String locations,
@@ -178,6 +248,7 @@ public class InvestigationReviewRunner
         return run(provider, reviewId, assignmentId, snapshot, system, prompt, true, costCapCents);
     }
 
+    @Override
     public RunOutcome verify(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
@@ -204,6 +275,7 @@ public class InvestigationReviewRunner
     /** One cheap, non-blocking planning pass. Its output is presentation-only:
      * the started round remains immutable and the service posts this as a
      * suggested amendment event. */
+    @Override
     public String suggestPlanAmendment(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives)
@@ -239,7 +311,8 @@ public class InvestigationReviewRunner
     {
         String styledSystem = CavemanPrompt.wrap(system);
         return "cli".equals(provider.runner())
-                ? runCli(provider, reviewId, assignmentId, snapshot, styledSystem + "\n\n" + prompt)
+                ? runCli(provider, reviewId, assignmentId, snapshot,
+                        styledSystem + "\n\n" + prompt, costCapCents)
                 : runApi(provider, reviewId, assignmentId, styledSystem, prompt, verifier, costCapCents);
     }
 
@@ -271,7 +344,7 @@ public class InvestigationReviewRunner
 
     private RunOutcome runCli(
             ProviderChoice provider, String reviewId, String assignmentId,
-            InvestigationReviewContext.Snapshot snapshot, String prompt)
+            InvestigationReviewContext.Snapshot snapshot, String prompt, int costCapCents)
     {
         CliReviewRunner.Provider cli = CliReviewRunner.Provider.of(provider.providerId());
         if (cli != CliReviewRunner.Provider.CLAUDE) {
@@ -283,8 +356,9 @@ public class InvestigationReviewRunner
                 ? Path.of(System.getProperty("java.io.tmpdir")) : snapshot.localRoot();
         CliReviewRunner.Result result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
                 cli, prompt, null, workingDir,
-                new CliReviewRunner.McpEndpoint(reviewId, assignmentId, url)));
-        return new RunOutcome(provider, cents(result.costUsdMilli()), result.text(), 0, 0, 1, "COMPLETED");
+                new CliReviewRunner.McpEndpoint(reviewId, assignmentId, url), costCapCents));
+        return new RunOutcome(
+                provider, cents(result.costUsdMilli()), result.text(), 0, 0, 1, result.end());
     }
 
     private ArrayNode messages(TurnSpec.Transport transport, String system, String prompt)

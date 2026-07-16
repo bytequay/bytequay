@@ -13,12 +13,16 @@
  */
 import type { AgentReviewData, PanelReviewRunRow, ReviewRoundRow } from './agentReviewTypes';
 import { formatCents } from './agentReviewTypes';
+import {
+  CloseIcon, ReviewRoundIcon, SparkIcon, UpArrowIcon, WarnTriangleIcon,
+} from '../ui/TaskBrainDesignIcons';
 
-type EpisodeState = 'complete' | 'live' | 'errored' | 'halted' | 'stale' | 'cancelled' | 'auto';
+type EpisodeState = 'complete' | 'queued' | 'live' | 'errored' | 'halted' | 'stale' | 'cancelled' | 'auto';
 
 export function episodeState(
   run: PanelReviewRunRow, round: ReviewRoundRow, stale = round.trigger === 'stale',
 ): EpisodeState {
+  if (round.status === 'QUEUED') return 'queued';
   if (run.status === 'running') return round.trigger === 'auto_continue' ? 'auto' : 'live';
   if (run.status === 'failed') return round.cost_cents >= round.budget_json.cost_cap_cents ? 'halted' : 'errored';
   if (run.status === 'cancelled') {
@@ -27,15 +31,24 @@ export function episodeState(
   return 'complete';
 }
 
-const COPY: Record<EpisodeState, { glyph: string; title: string; action?: string }> = {
-  complete: { glyph: '✓', title: 'complete' },
-  live: { glyph: '●', title: 'running' },
-  errored: { glyph: '✕', title: 'errored' },
-  halted: { glyph: '◼', title: 'halted · budget cap hit', action: 'Extend $0.50 & resume' },
-  stale: { glyph: '↑', title: 'stale', action: 'Continue review' },
-  cancelled: { glyph: '■', title: 'stopped' },
-  auto: { glyph: '●', title: 'auto-continue running' },
+const COPY: Record<EpisodeState, { title: string; action?: string }> = {
+  complete: { title: 'complete' },
+  queued: { title: 'queued' },
+  live: { title: 'running' },
+  errored: { title: 'errored' },
+  halted: { title: 'halted · budget cap hit', action: 'Start follow-up round' },
+  stale: { title: 'stale', action: 'Continue review' },
+  cancelled: { title: 'stopped' },
+  auto: { title: 'auto-continue running' },
 };
+
+function EpisodeIcon({ state }: { state: EpisodeState }) {
+  if (state === 'live' || state === 'auto') return <SparkIcon size={11} />;
+  if (state === 'errored' || state === 'cancelled') return <CloseIcon />;
+  if (state === 'halted') return <WarnTriangleIcon size={12} />;
+  if (state === 'stale') return <UpArrowIcon />;
+  return <ReviewRoundIcon />;
+}
 
 export function AgentReviewRoundEpisode({ data, round, run, onOpen, onAction }: {
   data: AgentReviewData;
@@ -53,7 +66,9 @@ export function AgentReviewRoundEpisode({ data, round, run, onOpen, onAction }: 
   const ballotFindings = findings.filter(finding => finding.verification_status !== 'rejected'
     && finding.lifecycle_status !== 'dropped');
   const rejected = findings.filter(finding => finding.verification_status === 'rejected').length;
-  const questions = findings.filter(finding => finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT').length;
+  const questions = findings.filter(finding => finding.verification_status === 'unknown'
+    || finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT'
+    || finding.lifecycle_status === 'NEEDS_AUTHOR_INPUT').length;
   const summary = state === 'complete'
     ? [
         `${ballotFindings.length} finding${ballotFindings.length === 1 ? '' : 's'}`,
@@ -64,29 +79,31 @@ export function AgentReviewRoundEpisode({ data, round, run, onOpen, onAction }: 
   const roundNumber = data.rounds.indexOf(round) + 1;
 
   return (
-    <section className={`agent-review-round-card agent-review-round-card--${state}`}>
-      <button
-        type="button"
-        className="agent-review-round-card__open"
-        onClick={onOpen}
-        disabled={onOpen === undefined}
-        aria-label={`Open round ${roundNumber}: ${copy.title}, ${summary}, ${formatCents(round.cost_cents)} of ${formatCents(round.budget_json.cost_cap_cents)}`}
-      >
-        <span className="agent-review-round-card__glyph" aria-hidden="true">{copy.glyph}</span>
-        <span className="agent-review-round-card__copy">
-          <b>Round {roundNumber} · {copy.title}</b>
-          <small>{summary}</small>
-        </span>
-        <span className="agent-review-round-card__cost">
-          {formatCents(round.cost_cents)} / {formatCents(round.budget_json.cost_cap_cents)}
-        </span>
-        <span className="agent-review-round-card__arrow" aria-hidden="true">→</span>
-      </button>
-      {(copy.action !== undefined || state === 'errored') && onAction !== undefined && (
-        <button type="button" className="agent-review-round-card__action" onClick={onAction}>
-          {state === 'errored' ? `Retry round ${roundNumber}` : copy.action}
+    <div className={`pr-tl-icon-row agent-review-round-row agent-review-round-row--${state}`}>
+      <span className="tic agent-review-round-card__marker" aria-hidden="true"><EpisodeIcon state={state} /></span>
+      <section className={`agent-review-round-card agent-review-round-card--${state}`}>
+        <button
+          type="button"
+          className="agent-review-round-card__open"
+          onClick={onOpen}
+          disabled={onOpen === undefined}
+          aria-label={`Open round ${roundNumber}: ${copy.title}, ${summary}, ${formatCents(round.cost_cents)} of ${formatCents(round.budget_json.cost_cap_cents)}`}
+        >
+          <span className="agent-review-round-card__copy">
+            <b>Round {roundNumber} · {copy.title}</b>
+            <small>{summary}</small>
+          </span>
+          <span className="agent-review-round-card__cost">
+            {formatCents(round.cost_cents)} / {formatCents(round.budget_json.cost_cap_cents)}
+          </span>
+          <span className="agent-review-round-card__arrow" aria-hidden="true">→</span>
         </button>
-      )}
-    </section>
+        {(copy.action !== undefined || state === 'errored') && onAction !== undefined && (
+          <button type="button" className="agent-review-round-card__action" onClick={onAction}>
+            {state === 'errored' ? `Retry round ${roundNumber}` : copy.action}
+          </button>
+        )}
+      </section>
+    </div>
   );
 }

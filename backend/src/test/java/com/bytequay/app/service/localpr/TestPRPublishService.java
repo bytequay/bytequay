@@ -648,6 +648,53 @@ class TestPRPublishService
     }
 
     @Test
+    void publishReviewSkipsResolvedLocalDrafts()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        PRComment pending = draft(
+                "cm1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Publish this.");
+        PRComment resolved = draft(
+                "cm2", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 43, "Already resolved.")
+                .withResolved(NOW);
+        when(prService.comments("pr-ext")).thenReturn(List.of(pending, resolved));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr-ext");
+
+        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
+        verify(pullRequests).createReview(
+                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
+        assertThat(command.getValue().comments()).singleElement()
+                .extracting(comment -> comment.body()).isEqualTo("Publish this.");
+        verify(prService).markPublished(eq("cm1"), any());
+        verify(prService, never()).markPublished(eq("cm2"), any());
+    }
+
+    @Test
+    void publishReviewSkipsThreadRepliesAsSeparateReviewRoots()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        PRComment root = draft(
+                "cm1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Publish this root.");
+        PRComment reply = new PRComment(
+                "cm2", "pr-ext", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 42, "you", "Keep this reply local.", NOW,
+                null, null, null, "cm1", null, "RIGHT", null, null);
+        when(prService.comments("pr-ext")).thenReturn(List.of(root, reply));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr-ext");
+
+        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
+        verify(pullRequests).createReview(
+                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
+        assertThat(command.getValue().comments()).singleElement()
+                .extracting(comment -> comment.body()).isEqualTo("Publish this root.");
+        verify(prService).markPublished(eq("cm1"), any());
+        verify(prService, never()).markPublished(eq("cm2"), any());
+    }
+
+    @Test
     void explicitEmptySelectionApprovesWithoutPublishingPendingDrafts()
     {
         when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));

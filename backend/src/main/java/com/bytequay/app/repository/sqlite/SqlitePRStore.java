@@ -154,7 +154,8 @@ class SqlitePRStore
                 SELECT COUNT(*)
                 FROM review_round r
                 JOIN review_session s ON s.id = r.session_id
-                WHERE s.pr_id = ? AND r.status = 'RUNNING'
+                WHERE s.pr_id = ?
+                  AND (r.status IN ('QUEUED', 'RUNNING') OR r.lifecycle_finalized = 0)
                 """, Long.class, prId);
         return count != null && count > 0;
     }

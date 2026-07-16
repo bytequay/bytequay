@@ -22,7 +22,6 @@ import { AgentReviewRoundPage } from '../../review/AgentReviewRoundPage';
 import { EMPTY_REVIEW_CURSOR, type ReviewCursor } from '../../review/reviewCursor';
 import { useAgentReviewState } from '../../review/useAgentReviewState';
 import { SubmitReviewPopover } from '../../review/SubmitReviewPopover';
-import { isPendingLocalComment } from '../../diff/DiffInlineComments';
 
 /** `PrDetailsView` only ever needs a (repo, number) to bootstrap the
  *  unified fetch, plus its own id back for the dashboard-triage
@@ -93,9 +92,11 @@ export function PrDetailsView<T extends DetailsPr>({
   } = useExternalPrActions(owner, repoName, pr.number);
 
   const {
-    data: reviewData, displayedBundle, excludedFindings, pendingComments, latestRound, headerState,
+    data: reviewData, displayedBundle, excludedFindings, pendingComments, latestRound, latestRoundNumber, headerState,
     startReview, updateComment, dismissComment: dismissAgentComment, submitReview: submitAgentReview,
-    answerFinding, roundAction, cancelRound, reopenFinding, toggleFinding, hasAgentComment, error: agentReviewError,
+    startRound, sendRoundMessage, updateRoundBudget,
+    answerFinding, roundAction, cancelRound, reopenFinding, setFindingResolved, toggleFinding, hasAgentComment,
+    loading: agentReviewBusy, error: agentReviewError,
   } = useAgentReviewState(bundle, refresh, undefined, workspaceId);
   // Live GitHub review threads for the diff (reply / resolve / unresolve).
   // The feed no-ops until the PR has a remote number; the same feed powers
@@ -117,16 +118,21 @@ export function PrDetailsView<T extends DetailsPr>({
   const [roundOpen, setRoundOpen] = useState(false);
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [reviewCursor, setReviewCursor] = useState<ReviewCursor>(EMPTY_REVIEW_CURSOR);
-  const submitComments = reviewData === null
-    ? pendingComments
-    : displayedBundle?.comments.filter(isPendingLocalComment) ?? pendingComments;
+  const [reviewTabRequest, setReviewTabRequest] = useState<{ tab: 'files' | 'review'; token: number }>();
+  const submitComments = pendingComments;
 
   useEffect(() => {
-    if (initialReviewRoundId === undefined) return;
-    setReviewOpen(true);
-    setSelectedRoundId(initialReviewRoundId);
-    setRoundOpen(true);
-  }, [initialReviewRoundId, setReviewOpen]);
+    setRoundOpen(false);
+    setSelectedRoundId(null);
+    setReviewCursor(EMPTY_REVIEW_CURSOR);
+    setReviewTabRequest(undefined);
+    setReviewOpen(false);
+    if (initialReviewRoundId !== undefined) {
+      setReviewOpen(true);
+      setSelectedRoundId(initialReviewRoundId);
+      setRoundOpen(true);
+    }
+  }, [pr.repo, pr.number, initialReviewRoundId, setReviewOpen]);
 
   const dismissComment = (commentId: string) => {
     if (hasAgentComment(commentId)) dismissAgentComment(commentId);
@@ -135,7 +141,7 @@ export function PrDetailsView<T extends DetailsPr>({
 
   const openRound = (roundId?: string) => {
     if (reviewData == null) return;
-    const selected = roundId ?? reviewData.rounds.at(-1)?.id;
+    const selected = roundId ?? latestRound?.id;
     if (selected === undefined) return;
     const ownerThreadId = reviewData.review.owner_thread_id;
     const ownerWorkspaceId = reviewData.review.workspace_id;
@@ -163,6 +169,9 @@ export function PrDetailsView<T extends DetailsPr>({
       activeTab: filePath === null ? 'conversation' : 'changes',
       token: current.token + 1,
     }));
+    if (filePath !== null) {
+      setReviewTabRequest(current => ({ tab: 'files', token: (current?.token ?? 0) + 1 }));
+    }
   };
 
   const openReviewList = (findingId: string) => {
@@ -173,13 +182,14 @@ export function PrDetailsView<T extends DetailsPr>({
       activeTab: 'changes',
       token: current.token + 1,
     }));
+    setReviewTabRequest(current => ({ tab: 'review', token: (current?.token ?? 0) + 1 }));
   };
 
 
   const headerAction = (
     <AgentReviewHeaderAction
       state={headerState}
-      round={reviewData?.rounds.length ?? 1}
+      round={latestRoundNumber}
       spendCents={latestRound?.cost_cents ?? 0}
       comments={submitComments}
       excluded={excludedFindings}
@@ -204,6 +214,8 @@ export function PrDetailsView<T extends DetailsPr>({
     />
   );
 
+  const reviewHeadSha = displayedBundle?.commits.at(-1)?.sha ?? null;
+  const reviewBlobRepo = displayedBundle?.pr.repo ?? pr.repo;
   const embeddedChanges = displayedBundle == null ? undefined : (
     <LocalPrReviewScreen
       embedded
@@ -214,15 +226,26 @@ export function PrDetailsView<T extends DetailsPr>({
       commits={displayedBundle.commits}
       allowLocalComments={capabilities?.draftLocalComments === true}
       github={githubThreads}
+      fetchFileBlob={reviewHeadSha === null
+        ? undefined
+        : (path) => window.bridge.fetchFileBlob(reviewBlobRepo, path, reviewHeadSha)}
       onAddComment={addLocalLineComment}
       onReplyComment={replyLocalLineComment}
       onResolveComment={resolveLocalComment}
       onDismissComment={dismissComment}
+      onAnswerFinding={answerFinding}
+      onSetFindingResolved={setFindingResolved}
+      onToggleFindingPromotion={toggleFinding}
+      canPromoteFindings={capabilities?.publishReview === true}
       onBack={() => {}}
       reviewData={reviewData ?? undefined}
       selectedFindingId={reviewCursor.selectedFinding}
+      selectedFindingRequestToken={reviewCursor.token}
+      selectedFindingFilePath={reviewCursor.anchoredFile}
+      selectedFindingLineNumber={reviewCursor.anchoredLine}
       onSelectFinding={openFinding}
       onStartAgentReview={startReview}
+      openTabRequest={reviewTabRequest}
     />
   );
 
@@ -243,6 +266,7 @@ export function PrDetailsView<T extends DetailsPr>({
       onResolveThread={resolveLocalComment}
       onDismissThread={dismissComment}
       onReplyThread={replyLocalPrComment}
+      onReplyLineThread={replyLocalLineComment}
       onPublishReview={publishBusy ? undefined : publishReview}
       syncedAt={displayedBundle.pr.syncedAt}
       syncing={syncing}
@@ -252,6 +276,8 @@ export function PrDetailsView<T extends DetailsPr>({
       onOpenReviewRound={openRound}
       onAnswerFinding={answerFinding}
       onReviewRoundAction={roundAction}
+      onSetFindingResolved={setFindingResolved}
+      onToggleFindingPromotion={toggleFinding}
       changesContent={inline ? embeddedChanges : undefined}
       openSubTabRequest={inline
         ? { subTab: reviewCursor.activeTab, token: reviewCursor.token }
@@ -267,25 +293,32 @@ export function PrDetailsView<T extends DetailsPr>({
           data={reviewData}
           roundId={selectedRoundId}
           prView={prView}
+          prTitle={`${displayedBundle.pr.title} · #${displayedBundle.pr.remotePrNumber ?? pr.number}`}
           onBack={() => {
             if (onCloseReviewRound !== undefined) onCloseReviewRound();
-            else { setRoundOpen(false); setReviewOpen(false); }
+            else {
+              setRoundOpen(false);
+              setReviewOpen(false);
+              setReviewCursor(EMPTY_REVIEW_CURSOR);
+              setReviewTabRequest(undefined);
+            }
           }}
           onSelectRound={setSelectedRoundId}
           onOpenFinding={openFinding}
           onOpenReviewList={openReviewList}
           onReopenFinding={reopenFinding}
           onStopRound={cancelRound}
+          onStartRound={startRound}
+          onSendMessage={sendRoundMessage}
+          onUpdateBudget={updateRoundBudget}
+          busy={agentReviewBusy}
+          error={agentReviewError}
         />
       );
     }
   }
 
   if (reviewOpen && displayedBundle != null) {
-    const headSha = displayedBundle.commits.length > 0
-      ? displayedBundle.commits[displayedBundle.commits.length - 1].sha
-      : null;
-    const blobRepo = displayedBundle.pr.repo ?? pr.repo;
     return (
       <LocalPrReviewScreen
         title={`Review · ${displayedBundle.pr.title}`}
@@ -295,19 +328,26 @@ export function PrDetailsView<T extends DetailsPr>({
         commits={displayedBundle.commits}
         allowLocalComments={capabilities?.draftLocalComments === true}
         github={githubThreads}
-        fetchFileBlob={headSha === null
+        fetchFileBlob={reviewHeadSha === null
           ? undefined
-          : (path) => window.bridge.fetchFileBlob(blobRepo, path, headSha)}
+          : (path) => window.bridge.fetchFileBlob(reviewBlobRepo, path, reviewHeadSha)}
         onAddComment={addLocalLineComment}
         onReplyComment={replyLocalLineComment}
         onResolveComment={resolveLocalComment}
         onDismissComment={dismissComment}
+        onAnswerFinding={answerFinding}
+        onSetFindingResolved={setFindingResolved}
+        onToggleFindingPromotion={toggleFinding}
+        canPromoteFindings={capabilities?.publishReview === true}
         onBack={() => setReviewOpen(false)}
         onSubmitReview={pendingComments.length > 0 ? undefined : () => publishReview()}
         submittingReview={publishBusy}
         submitReviewControl={submitReviewControl}
         reviewData={reviewData ?? undefined}
         selectedFindingId={reviewCursor.selectedFinding}
+        selectedFindingRequestToken={reviewCursor.token}
+        selectedFindingFilePath={reviewCursor.anchoredFile}
+        selectedFindingLineNumber={reviewCursor.anchoredLine}
         onSelectFinding={openFinding}
         onStartAgentReview={startReview}
       />

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRTimeline } from './PRTimeline';
 import type { LocalPR, LocalPRComment, LocalPRCommit, LocalPRTimelineEvent } from '../../types/localPr';
@@ -242,6 +242,9 @@ describe('PRTimeline composition', () => {
       body: 'DynamicTrinoCatalog should use **cleanup** around `connection.close()` instead of reusing ConnectorIdentity state.\n\nCould you clarify the intended behavior here? Keep the cache identity-safe.',
     };
     const onReply = vi.fn(async () => {});
+    const onAnswer = vi.fn(async () => true);
+    const onResolve = vi.fn(async () => true);
+    const onPromote = vi.fn();
 
     const { container } = render(<PRTimeline
       pr={localPr}
@@ -249,19 +252,76 @@ describe('PRTimeline composition', () => {
       comments={data.pr_comments}
       reviewData={data}
       onReplyThread={onReply}
+      onAnswerFinding={onAnswer}
+      onSetFindingResolved={onResolve}
+      onToggleFindingPromotion={onPromote}
+      canPromoteFindings
     />);
 
     expect(container.querySelector('strong')?.textContent).toBe('cleanup');
+    const findingCard = [...container.querySelectorAll<HTMLElement>('.rail-thread .prc-review-thread')]
+      .find(card => card.textContent?.includes('Pull request review'))!;
+    const card = within(findingCard);
+    expect(findingCard).toBeTruthy();
+    expect(card.getByText('Pull request review')).toBeTruthy();
+    expect(findingCard.querySelector('.prc-comment-role--local')?.textContent).toBe('LOCAL');
+    expect(container.querySelector('.rail-thread__agent-marker')).toBeNull();
     expect([...container.querySelectorAll('code')].map(node => node.textContent)).toEqual(expect.arrayContaining([
       'DynamicTrinoCatalog', 'connection.close()', 'ConnectorIdentity',
     ]));
     expect([...container.querySelectorAll('strong')].map(node => node.textContent)).toContain('Question:');
-    fireEvent.click(screen.getByRole('button', { name: 'Reply locally…' }));
-    fireEvent.change(screen.getByPlaceholderText('Reply locally — Markdown supported.'), {
+    fireEvent.click(card.getByTitle('Collapse thread'));
+    expect(screen.queryByText(/Could you clarify the intended behavior/)).toBeNull();
+    fireEvent.click(card.getByTitle('Expand thread'));
+    fireEvent.click(card.getByPlaceholderText('Reply…'));
+    fireEvent.change(card.getByPlaceholderText('Write a reply'), {
       target: { value: 'I checked **this path**.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.click(card.getByRole('button', { name: 'Reply' }));
     await waitFor(() => expect(onReply).toHaveBeenCalledWith(data.pr_comments[0].id, 'I checked **this path**.'));
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('finding-1', 'I checked **this path**.'));
+    fireEvent.click(card.getByRole('button', { name: 'Resolve conversation' }));
+    await waitFor(() => expect(onResolve).toHaveBeenCalledWith('finding-1', true));
+    fireEvent.click(card.getByRole('button', { name: 'Add to remote review' }));
+    expect(onPromote).toHaveBeenCalledWith('finding-1');
+  });
+
+  it('records judgement from the existing local file-line conversation instead of a duplicate card', async () => {
+    const localPr = pr();
+    const data = createAgentReviewFixture({
+      pr: localPr,
+      commits: [{ id: 'c1', localPrId: localPr.id, sha: 'abcdef012345', message: 'change', additions: 2, deletions: 1, authoredAt: 1, pushedAt: null }],
+      timeline: [], checks: [], comments: [],
+    }, [{
+      filename: 'src/ChangedFile.ts', status: 'modified', additions: 2, deletions: 1,
+      patch: '@@ -3,2 +3,3 @@\n-old\n+new\n context',
+    }]);
+    const question = data.pr_comments.find(comment => comment.findingId === 'finding-2');
+    if (question === undefined) throw new Error('question finding comment missing');
+    const onReply = vi.fn(async () => {});
+    const onAnswer = vi.fn();
+
+    const { container } = render(<PRTimeline
+      pr={localPr}
+      events={[]}
+      comments={[question]}
+      reviewData={data}
+      onReplyLineThread={onReply}
+      onAnswerFinding={onAnswer}
+    />);
+
+    expect(container.querySelector('.agent-judgement-card')).toBeNull();
+    expect(container.querySelector('.rail-thread .prc-review-thread')).not.toBeNull();
+    fireEvent.click(screen.getByPlaceholderText('Reply…'));
+    fireEvent.change(screen.getByPlaceholderText('Write a reply'), {
+      target: { value: 'The strict behavior is intentional.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    await waitFor(() => expect(onReply).toHaveBeenCalledWith(
+      question.id, question.filePath, question.side, question.lineNumber,
+      undefined, undefined, 'The strict behavior is intentional.',
+    ));
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('finding-2', 'The strict behavior is intentional.'));
   });
 
   it('drops a published local draft when the GitHub feed renders it as a live thread', () => {
@@ -532,6 +592,7 @@ describe('PRTimeline GitHub-native feed', () => {
     expect(screen.getByText(/started an adversarial code review/)).toBeTruthy();
     expect(screen.getByText(/Adversarial review finished with 1 finding/)).toBeTruthy();
     expect(screen.getByText(/final reviewer response is retained/)).toBeTruthy();
+    fireEvent.click(screen.getByTitle('Expand thread'));
     expect(screen.getByText('This null path loses the original error.')).toBeTruthy();
     expect(screen.getByText(/started addressing the adversarial review comments/)).toBeTruthy();
     expect(screen.getByText(/Push approved automatically because auto-merge is enabled/)).toBeTruthy();

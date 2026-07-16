@@ -23,11 +23,12 @@ import { TimelineBubble } from './TimelineBubble';
 
 /** One PR-level local conversation. Agent findings and ordinary comments share
  * the same Markdown/reply behavior instead of falling through to plain text. */
-export function PRCommentThreadBubble({ pr, comments, reviewData, onReply }: {
+export function PRCommentThreadBubble({ pr, comments, reviewData, onReply, onAnswerFinding }: {
   pr: LocalPR;
   comments: LocalPRComment[];
   reviewData?: AgentReviewData;
   onReply?: (rootCommentId: string, body: string) => void | Promise<void>;
+  onAnswerFinding?: (findingId: string, body: string) => void;
 }) {
   const root = comments[0];
   const replies = comments.slice(1);
@@ -42,15 +43,21 @@ export function PRCommentThreadBubble({ pr, comments, reviewData, onReply }: {
   const finding = root.findingId == null || reviewData === undefined
     ? undefined
     : presentFinding(reviewData, root.findingId);
-  const canReply = pending && onReply !== undefined;
+  const needsAnswer = finding !== undefined && (
+    finding.finding.verification_status === 'unknown'
+    || finding.finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT'
+    || finding.finding.lifecycle_status === 'NEEDS_AUTHOR_INPUT'
+  );
+  const canReply = pending && (onReply !== undefined || (needsAnswer && onAnswerFinding !== undefined));
 
   const submit = async () => {
     const text = body.trim();
-    if (text.length === 0 || onReply === undefined) return;
+    if (text.length === 0 || !canReply) return;
     setSending(true);
     setError(null);
     try {
-      await onReply(root.id, text);
+      await onReply?.(root.id, text);
+      if (needsAnswer && root.findingId !== null) onAnswerFinding?.(root.findingId, text);
       setBody('');
       setReplying(false);
     }
@@ -66,8 +73,9 @@ export function PRCommentThreadBubble({ pr, comments, reviewData, onReply }: {
     <TimelineBubble
       actor={root.author}
       role={actorRole(root.author, pr)}
-      action={finding === undefined ? 'commented' : 'opened an agent review finding'}
+      action={finding === undefined ? 'commented' : 'left a review comment'}
       time={root.createdAt}
+      local={root.origin === 'local'}
       pending={pending}
     >
       {finding === undefined
@@ -100,7 +108,7 @@ export function PRCommentThreadBubble({ pr, comments, reviewData, onReply }: {
           <MarkdownComposer
             value={body}
             onChange={setBody}
-            placeholder="Reply locally — Markdown supported."
+            placeholder={needsAnswer ? 'Answer locally — Markdown supported.' : 'Reply locally — Markdown supported.'}
             rows={3}
             disabled={sending}
             autoFocus
@@ -108,7 +116,7 @@ export function PRCommentThreadBubble({ pr, comments, reviewData, onReply }: {
           />
           <div className="pr-local-reply-composer__actions">
             <button type="button" className="btn sm primary" disabled={sending || body.trim().length === 0} onClick={() => { void submit(); }}>
-              {sending ? 'Replying…' : 'Reply'}
+              {sending ? 'Saving…' : needsAnswer ? 'Record answer' : 'Reply'}
             </button>
             <button type="button" className="btn sm" disabled={sending} onClick={() => { setReplying(false); setBody(''); setError(null); }}>
               Cancel
@@ -118,7 +126,7 @@ export function PRCommentThreadBubble({ pr, comments, reviewData, onReply }: {
         </div>
       ) : (
         <button type="button" className="pr-local-reply-stub" onClick={() => setReplying(true)}>
-          Reply locally…
+          {needsAnswer ? 'Answer locally…' : 'Reply locally…'}
         </button>
       ))}
     </TimelineBubble>

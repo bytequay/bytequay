@@ -15,15 +15,17 @@ import { Fragment, type ReactNode } from 'react';
 import { formatRelativeTime } from '../pr/utils';
 import { MarkdownProse } from '../threads/MarkdownProse';
 import type { LocalPRTimelineEvent } from '../types/localPr';
+import {
+  ChatBubbleIcon, CheckIcon, CloseIcon, CommitIcon, PlanIcon, ReviewRoundIcon,
+  SparkIcon, UpArrowIcon, WarnTriangleIcon,
+} from '../ui/TaskBrainDesignIcons';
 import type { AgentReviewData, FindingRow, ReviewRoundRow } from './agentReviewTypes';
 import { formatCents, roundPlanObjectives } from './agentReviewTypes';
 import { AgentReviewPlanCard } from './AgentReviewPlanCard';
 import { AgentReviewRoundEpisode } from './AgentReviewRoundEpisode';
-import { NeedsJudgementCard } from './NeedsJudgementCard';
 
 type TimelineCallbacks = {
   onOpenRound?: (roundId: string) => void;
-  onAnswer?: (findingId: string, text: string) => void;
   onRoundAction?: (roundId: string) => void;
 };
 
@@ -65,14 +67,22 @@ function reviewClass(event: LocalPRTimelineEvent, capCents: number): string {
   return capCents === 10 ? 'TRIVIAL' : capCents === 150 ? 'HIGH-RISK' : 'STANDARD';
 }
 
-function eventIcon(kind: string): string {
-  if (kind === 'submitted' || kind === 'round-complete' || kind === 'answered') return '✓';
-  if (kind === 'dismissed' || kind === 'rejected-dropped' || kind === 'round-cancelled') return '✕';
-  if (kind === 'synthesizer') return '✦';
-  if (kind === 'addresses') return '⌥';
-  if (kind === 'plan-amendment-suggested') return '⚖';
-  if (kind === 'round-started') return '↑';
-  return '↩';
+function eventIcon(kind: string): ReactNode {
+  if (kind === 'submitted') return <CheckIcon />;
+  if (kind === 'dismissed' || kind === 'rejected-dropped' || kind === 'round-cancelled') return <CloseIcon />;
+  if (kind === 'synthesizer') return <SparkIcon size={11} />;
+  if (kind === 'addresses') return <CommitIcon />;
+  if (kind === 'plan-amendment-suggested') return <PlanIcon size={12} />;
+  if (kind === 'round-started' || kind === 'round-complete') return <ReviewRoundIcon />;
+  if (kind === 'round-error' || kind === 'round-budget-halted') return <WarnTriangleIcon size={12} />;
+  if (kind === 'round-fallback') return <UpArrowIcon />;
+  return <ChatBubbleIcon />;
+}
+
+function eventTone(kind: string): string {
+  if (kind === 'submitted') return 'green';
+  if (kind === 'dismissed' || kind === 'rejected-dropped' || kind === 'round-error') return 'fail';
+  return '';
 }
 
 function ReviewEvent({ kind, time, children, sub }: {
@@ -82,15 +92,13 @@ function ReviewEvent({ kind, time, children, sub }: {
   sub?: ReactNode;
 }) {
   return (
-    <div className={`agent-review-event agent-review-event--${kind}`}>
-      <span className="agent-review-event__icon">{eventIcon(kind)}</span>
-      <div className="agent-review-event__body">
-        <div className="agent-review-event__line">
-          <span>{children}</span>
-          <time>{formatRelativeTime(new Date(time).toISOString())}</time>
-        </div>
+    <div className={`pr-tl-icon-row agent-review-event agent-review-event--${kind}`}>
+      <span className={`tic agent-review-event__icon ${eventTone(kind)}`}>{eventIcon(kind)}</span>
+      <div className="tb agent-review-event__body">
+        <div className="agent-review-event__line">{children}</div>
         {sub !== undefined && <div className="agent-review-event__sub">{sub}</div>}
       </div>
+      <time className="ts">{formatRelativeTime(new Date(time).toISOString())}</time>
     </div>
   );
 }
@@ -118,23 +126,23 @@ function StartedGroup({ data, event, round, callbacks, includeEpisode }: {
   const run = data.runs.find(row => row.id === round.agent_run_id);
   const objectives = roundPlanObjectives(data, round.id).length;
   const reviewers = data.assignments.filter(row => row.round_id === round.id).length;
+  const roundNumber = data.rounds.indexOf(round) + 1;
   return (
     <>
-      <div className="agent-review-event agent-review-event--started">
-        <span className="agent-review-event__icon">⚖</span>
-        <div className="agent-review-event__body">
-          <div className="agent-review-event__line">
-            <span><b>You</b> started an agent review — round 1 queued by the planner</span>
-            <time>{formatRelativeTime(new Date(event.createdAt).toISOString())}</time>
-          </div>
+      <ReviewEvent
+        kind="round-started"
+        time={event.createdAt}
+        sub={(
           <div className="agent-review-event__chips">
             <span>{reviewClass(event, round.budget_json.cost_cap_cents)}</span>
             <span>{plural(objectives, 'objective')}</span>
             <span>{plural(reviewers, 'reviewer')}</span>
             <span>cap {formatCents(round.budget_json.cost_cap_cents)}</span>
           </div>
-        </div>
-      </div>
+        )}
+      >
+        <><b>You</b> started an agent review — round {roundNumber} queued by the planner</>
+      </ReviewEvent>
       <AgentReviewPlanCard data={data} roundId={round.id} />
       {includeEpisode && run !== undefined && (
         <AgentReviewRoundEpisode
@@ -179,7 +187,9 @@ function RoundTerminalGroup({ data, event, round, callbacks, rejectedEvents }: {
   const findings = data.findings.filter(finding => finding.round_id === round.id);
   const ballotFindings = findings.filter(finding => finding.verification_status !== 'rejected'
     && finding.lifecycle_status !== 'dropped');
-  const questions = findings.filter(finding => finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT');
+  const questions = findings.filter(finding => finding.verification_status === 'unknown'
+    || finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT'
+    || finding.lifecycle_status === 'NEEDS_AUTHOR_INPUT');
   const rejected = rejectedEvents.flatMap(rejectedEvent => {
     const findingId = payloadString(rejectedEvent, 'findingId');
     const finding = findings.find(row => row.id === findingId);
@@ -191,6 +201,7 @@ function RoundTerminalGroup({ data, event, round, callbacks, rejectedEvents }: {
     questions.length > 0 ? `${questions.length} needs judgement` : null,
     formatCents(round.cost_cents),
   ].filter((part): part is string => part !== null).join(' · ');
+  const terminalKind = payloadString(event, 'reviewEvent');
   return (
     <>
       <AgentReviewRoundEpisode
@@ -201,21 +212,26 @@ function RoundTerminalGroup({ data, event, round, callbacks, rejectedEvents }: {
         onAction={() => callbacks.onRoundAction?.(round.id)}
       />
       {rejected.map(row => <RejectedEvent key={row.event.id} data={data} event={row.event} finding={row.finding} />)}
-      {questions.map(finding => (
-        <NeedsJudgementCard
-          key={finding.id}
-          finding={finding}
-          onAnswer={text => callbacks.onAnswer?.(finding.id, text)}
-        />
-      ))}
-      {payloadString(event, 'reviewEvent') === 'round-complete' && (
+      {terminalKind === 'round-complete' && (
         <ReviewEvent kind="round-complete" time={event.createdAt}>
           <b>Round {roundNumber} complete</b> — {summary}
         </ReviewEvent>
       )}
-      {payloadString(event, 'reviewEvent') === 'round-cancelled' && (
+      {terminalKind === 'round-cancelled' && (
         <ReviewEvent kind="round-cancelled" time={event.createdAt}>
-          <b>You</b> stopped round {roundNumber} — nothing was posted to GitHub
+          {event.payload?.recovered === true
+            ? <><b>Round {roundNumber} stopped after a backend restart</b> — interrupted work was finalized locally; nothing was posted to GitHub</>
+            : <><b>You</b> stopped round {roundNumber} — nothing was posted to GitHub</>}
+        </ReviewEvent>
+      )}
+      {terminalKind === 'round-budget-halted' && (
+        <ReviewEvent kind="round-budget-halted" time={event.createdAt} sub="Raise the round cap and start a follow-up round to continue the investigation.">
+          <b>Round {roundNumber} stopped at its budget cap</b> — {formatCents(round.cost_cents)} spent
+        </ReviewEvent>
+      )}
+      {terminalKind === 'round-error' && (
+        <ReviewEvent kind="round-error" time={event.createdAt} sub={payloadString(event, 'message') ?? 'The local review worker failed before the round could finish.'}>
+          <b>Round {roundNumber} failed</b> — review artifacts remain local
         </ReviewEvent>
       )}
     </>
@@ -371,13 +387,12 @@ export function buildAgentReviewTimelineEntries(
   return entries.sort((a, b) => a.time - b.time);
 }
 
-export function AgentReviewTimeline({ data, onOpenRound, onAnswer, onRoundAction }: {
+export function AgentReviewTimeline({ data, onOpenRound, onRoundAction }: {
   data: AgentReviewData;
   onOpenRound?: (roundId: string) => void;
-  onAnswer?: (findingId: string, text: string) => void;
   onRoundAction?: (roundId: string) => void;
 }) {
-  const entries = buildAgentReviewTimelineEntries(data, { onOpenRound, onAnswer, onRoundAction });
+  const entries = buildAgentReviewTimelineEntries(data, { onOpenRound, onRoundAction });
   return (
     <div className="agent-review-timeline">
       {entries.map(row => <Fragment key={row.key}>{row.render}</Fragment>)}

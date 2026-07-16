@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
 import { DiffReviewShell, type DiffReviewExtraTab } from '../../diff/DiffReviewShell';
 import { ExpandableFileDiffBody } from '../../diff/ExpandableFileDiffBody';
@@ -56,6 +56,20 @@ function lineKey(filename: string, side: AnchorSide, ln: number): string {
   return `${filename}:${side}:${ln}`;
 }
 
+function localThreads(comments: LocalPRComment[]): LocalPRComment[][] {
+  const byId = new Map(comments.map(comment => [comment.id, comment]));
+  const groups = new Map<string, LocalPRComment[]>();
+  for (const comment of comments) {
+    const rootId = comment.parentCommentId !== null && byId.has(comment.parentCommentId)
+      ? comment.parentCommentId
+      : comment.id;
+    const group = groups.get(rootId);
+    if (group === undefined) groups.set(rootId, [comment]);
+    else group.push(comment);
+  }
+  return [...groups.values()].map(group => group.sort((a, b) => a.createdAt - b.createdAt));
+}
+
 /** Everything {@link InlineReviewThread} needs to render live GitHub review
  *  threads (reply / resolve / unresolve) on this diff. Absent for a PR with no
  *  remote identity — the diff then shows only local draft comments. */
@@ -80,6 +94,7 @@ export type GithubThreadContext = {
 function LocalFileDiff({
   file, comments, allowLocalComments, fetchFileBlob,
   onAddComment, onReplyComment, onResolveComment, onDismissComment, reviewData, github,
+  onAnswerFinding, onSetFindingResolved, onToggleFindingPromotion, canPromoteFindings,
 }: {
   file: DiffFileDto;
   comments: LocalPRComment[];
@@ -93,10 +108,14 @@ function LocalFileDiff({
   onReplyComment?: (
     parentCommentId: string, filePath: string, side: AnchorSide, line: number,
     startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
-  ) => void;
+  ) => void | Promise<void>;
   onResolveComment?: (commentId: string) => void;
   onDismissComment?: (commentId: string) => void;
   reviewData?: AgentReviewData;
+  onAnswerFinding?: (findingId: string, text: string) => void | Promise<unknown>;
+  onSetFindingResolved?: (findingId: string, resolved: boolean) => void | Promise<unknown>;
+  onToggleFindingPromotion?: (findingId: string) => void;
+  canPromoteFindings?: boolean;
 }) {
   const {
     composer,
@@ -168,53 +187,79 @@ function LocalFileDiff({
   const renderAfterRow = (side: AnchorSide, line: number) => {
     const key = lineKey(file.filename, side, line);
     const lineComments = byLine.get(key) ?? [];
+    const threads = localThreads(lineComments);
     const composerHere = composer !== null && composer.side === side && composer.line === line;
-    const threads = renderThreads(side, line);
-    if (lineComments.length === 0 && !composerHere && threads === null) return null;
+    const githubThreadCards = renderThreads(side, line);
+    if (lineComments.length === 0 && !composerHere && githubThreadCards === null) return null;
     return (
       <>
-      {threads}
-      {(lineComments.length > 0 || composerHere) && (
-      <DiffInlineComments
-        comments={lineComments.map(comment => diffInlineCommentFromLocalPr(comment, reviewData))}
-        allowLocalComments={allowLocalComments}
-        onAdd={onAddComment !== undefined && composerHere
-          ? body => {
-            onAddComment(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body);
-            closeComposer();
-          }
-          : undefined}
-        onReply={onReplyComment !== undefined
-          ? (comment, body) => {
-            if (comment.filePath === null || comment.lineNumber === null) return;
-            onReplyComment(
-              comment.id,
-              comment.filePath,
-              comment.side,
-              comment.lineNumber,
-              comment.startLine ?? undefined,
-              comment.startSide ?? undefined,
-              body);
-          }
-          : undefined}
-        onResolve={onResolveComment}
-        onDismiss={onDismissComment}
-        onCancel={closeComposer}
-        composingOn={composerHere
-          ? rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)
-          : undefined}
-        singleActionLabel={reviewData === undefined ? undefined : 'Comment now'}
-      />
-      )}
+        {githubThreadCards}
+        {threads.map(thread => (
+          <DiffInlineComments
+            key={thread[0]?.id}
+            comments={thread.map(comment => diffInlineCommentFromLocalPr(comment, reviewData))}
+            allowLocalComments={allowLocalComments}
+            onReply={onReplyComment !== undefined
+              ? (comment, body) => {
+                  if (comment.filePath === null || comment.lineNumber === null) return;
+                  const persisted = onReplyComment(
+                    comment.id,
+                    comment.filePath,
+                    comment.side,
+                    comment.lineNumber,
+                    comment.startLine ?? undefined,
+                    comment.startSide ?? undefined,
+                    body);
+                  if (comment.finding !== undefined && onAnswerFinding !== undefined) {
+                    void Promise.resolve(persisted)
+                      .then(() => onAnswerFinding(comment.finding!.finding.id, body));
+                  }
+                }
+              : undefined}
+            onResolve={onResolveComment === undefined && onSetFindingResolved === undefined
+              ? undefined
+              : commentId => {
+                  const comment = comments.find(row => row.id === commentId);
+                  if (comment?.findingId != null && onSetFindingResolved !== undefined) {
+                    void onSetFindingResolved(comment.findingId, true);
+                  }
+                  else onResolveComment?.(commentId);
+                }}
+            onReopen={onSetFindingResolved === undefined
+              ? undefined
+              : commentId => {
+                  const comment = comments.find(row => row.id === commentId);
+                  if (comment?.findingId != null) void onSetFindingResolved(comment.findingId, false);
+                }}
+            onDismiss={onDismissComment}
+            onToggleFindingPromotion={onToggleFindingPromotion}
+            canPromoteFindings={canPromoteFindings}
+          />
+        ))}
+        {composerHere && (
+          <DiffInlineComments
+            comments={[]}
+            allowLocalComments={allowLocalComments}
+            onAdd={onAddComment === undefined ? undefined : body => {
+              onAddComment(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body);
+              closeComposer();
+            }}
+            onCancel={closeComposer}
+            composingOn={rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)}
+            singleActionLabel={reviewData === undefined ? undefined : 'Comment now'}
+          />
+        )}
       </>
     );
   };
 
   const rowDecoration = (side: AnchorSide, line: number): RowDecoration | null => {
-    if (!allowLocalComments) return null;
+    const dataAnchor = `${file.filename}:${side}:${line}`;
+    if (!allowLocalComments) return { dataAnchor };
     const hasComment = (byLine.get(lineKey(file.filename, side, line))?.length ?? 0) > 0;
     return {
       className: (hasComment ? ' has-comment' : '') + (isInRange({ side, line }) ? ' diff-row--in-range' : ''),
+      dataAnchor,
       addCommentAffordance: true,
       role: 'button',
       title: 'Comment on this line — shift-click or drag to select a range',
@@ -270,7 +315,9 @@ export function LocalPrReviewScreen({
   embedded = false, showAuxTabs = true,
   reviewData, github,
   selectedFindingId, onSelectFinding,
-  submitReviewControl, onStartAgentReview,
+  submitReviewControl, onStartAgentReview, openTabRequest,
+  selectedFindingRequestToken, selectedFindingFilePath, selectedFindingLineNumber,
+  onAnswerFinding, onSetFindingResolved, onToggleFindingPromotion, canPromoteFindings = false,
 }: {
   title: string;
   /** Live GitHub review threads to render on the diff (reply / resolve /
@@ -287,13 +334,17 @@ export function LocalPrReviewScreen({
   onAddComment?: (
     filePath: string, side: AnchorSide, line: number,
     startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
-  ) => void;
+  ) => void | Promise<void>;
   onReplyComment?: (
     parentCommentId: string, filePath: string, side: AnchorSide, line: number,
     startLine: number | undefined, startSide: AnchorSide | undefined, body: string,
   ) => void;
   onResolveComment?: (commentId: string) => void;
   onDismissComment?: (commentId: string) => void;
+  onAnswerFinding?: (findingId: string, text: string) => void | Promise<unknown>;
+  onSetFindingResolved?: (findingId: string, resolved: boolean) => void | Promise<unknown>;
+  onToggleFindingPromotion?: (findingId: string) => void;
+  canPromoteFindings?: boolean;
   onBack: () => void;
   error?: string | null;
   /** Submits the reviewer's body/verdict via the same Submit-review drawer
@@ -308,9 +359,14 @@ export function LocalPrReviewScreen({
   onSelectFinding?: (findingId: string, filePath: string | null, lineNumber: number | null) => void;
   submitReviewControl?: ReactNode;
   onStartAgentReview?: () => void;
+  openTabRequest?: { tab: 'files' | 'review'; token: number };
+  selectedFindingRequestToken?: number;
+  selectedFindingFilePath?: string | null;
+  selectedFindingLineNumber?: number | null;
 }) {
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('files');
+  const handledTabToken = useRef<number | undefined>(undefined);
   const pending = useMemo(() => comments.filter(isPendingLocalComment), [comments]);
   const commentCountByFile = useMemo(() => {
     const counts = new Map<string, number>();
@@ -322,12 +378,38 @@ export function LocalPrReviewScreen({
   }, [comments]);
 
   useEffect(() => {
+    if (openTabRequest === undefined || handledTabToken.current === openTabRequest.token) return;
+    handledTabToken.current = openTabRequest.token;
+    setActiveTab(openTabRequest.tab);
+  }, [openTabRequest]);
+
+  useEffect(() => {
     if (selectedFindingId == null || activeTab !== 'files') return;
     requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(`[data-finding-id="${CSS.escape(selectedFindingId)}"]`)
-        ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const finding = document.querySelector<HTMLElement>(
+        `[data-finding-id="${CSS.escape(selectedFindingId)}"]`,
+      );
+      const line = selectedFindingFilePath == null || selectedFindingLineNumber == null ? null
+        : document.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(
+          `${selectedFindingFilePath}:RIGHT:${selectedFindingLineNumber}`,
+        )}"]`);
+      const file = selectedFindingFilePath == null ? null : document.querySelector<HTMLElement>(
+        `[data-file-anchor="${CSS.escape(selectedFindingFilePath)}"]`,
+      );
+      if (finding !== null || line !== null) {
+        (finding ?? line)!.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+      const fold = file?.querySelector<HTMLButtonElement>('.diff-file-section__fold[aria-expanded="false"]');
+      fold?.click();
+      requestAnimationFrame(() => (document.querySelector<HTMLElement>(
+        `[data-finding-id="${CSS.escape(selectedFindingId)}"]`,
+      ) ?? (selectedFindingFilePath == null || selectedFindingLineNumber == null ? null
+        : document.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(
+          `${selectedFindingFilePath}:RIGHT:${selectedFindingLineNumber}`,
+        )}"]`)) ?? file)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
     });
-  }, [activeTab, selectedFindingId]);
+  }, [activeTab, files, selectedFindingFilePath, selectedFindingId, selectedFindingLineNumber, selectedFindingRequestToken]);
 
   const extraTabs: DiffReviewExtraTab[] = showAuxTabs ? [
     { key: 'commits', label: 'Commits', icon: 'commits', count: commits.length, content: <LocalCommitsList commits={commits} /> },
@@ -380,6 +462,10 @@ export function LocalPrReviewScreen({
             onResolveComment={onResolveComment}
             onDismissComment={onDismissComment}
             reviewData={reviewData}
+            onAnswerFinding={onAnswerFinding}
+            onSetFindingResolved={onSetFindingResolved}
+            onToggleFindingPromotion={onToggleFindingPromotion}
+            canPromoteFindings={canPromoteFindings}
           />
         )}
         fileDecoration={file => {

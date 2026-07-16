@@ -100,6 +100,33 @@ class TestInvestigationReviewContext
     }
 
     @Test
+    void remoteOnlyReviewNeverUsesAnOtherwiseAvailableWatchedClone()
+    {
+        PRService prs = mock(PRService.class);
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        TaskStore tasks = mock(TaskStore.class);
+        WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
+        GitRunner git = mock(GitRunner.class);
+        PR pr = PR.createExternal(
+                "pr-remote", "acme/widget", 4, "https://example.test/4", "octocat",
+                "feature", "main", "Remote review", "", PR.STATUS_REMOTE_OPEN,
+                Instant.EPOCH, null, null);
+        when(prs.commits(pr.id())).thenReturn(List.of(
+                new PRCommit("c1", pr.id(), "base", "base", 0, 0, Instant.EPOCH, Instant.EPOCH),
+                new PRCommit("c2", pr.id(), "head", "head", 1, 0, Instant.EPOCH, Instant.EPOCH)));
+        when(pullRequests.getPullRequestDiffFiles(pr.repo(), pr.remotePrNumber())).thenReturn(List.of());
+        when(watchedRepos.find("acme", "widget")).thenReturn(Optional.of(
+                new WatchedRepo(1, "acme", "widget", 0, root.toString(), null, null)));
+        InvestigationReviewContext context = new InvestigationReviewContext(
+                prs, pullRequests, tasks, watchedRepos, git);
+
+        InvestigationReviewContext.Snapshot snapshot = context.load(pr, false);
+
+        assertThat(snapshot.repositoryRoot()).isNull();
+        assertThat(snapshot.capabilities().sourceMode()).isEqualTo("remote-only");
+    }
+
+    @Test
     void readsATaskBackedRemotePrFromTheReviewedShaInsteadOfTheWorktree()
             throws Exception
     {

@@ -266,6 +266,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:managedClonePlan', owner, repo),
   cloneRepo: (owner: string, repo: string, writeMode: 'FORK' | 'DIRECT') =>
     ipcRenderer.invoke('repos:cloneRepo', owner, repo, writeMode),
+  ensureWorkspaceForRepo: (owner: string, repo: string) =>
+    ipcRenderer.invoke('workspaces:ensureForRepo', owner, repo),
+  adoptRemoteReviews: (workspaceId: string) =>
+    ipcRenderer.invoke('workspaces:adoptRemoteReviews', workspaceId),
   listLocalBranches: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:listLocalBranches', owner, repo),
   listLocalCommits: (owner: string, repo: string, revision?: string, limit?: number) =>
@@ -987,6 +991,9 @@ const bridge: Bridge = {
     body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },
   ) => ipcRenderer.invoke('agentReview:start', prId, body),
   getAgentReviewByThread: (threadId: string) => ipcRenderer.invoke('agentReview:getByThread', threadId),
+  getAgentReviewById: (reviewId: string) => ipcRenderer.invoke('agentReview:getById', reviewId),
+  listAgentReviewQueue: (scope?: 'all' | 'remote' | 'local') =>
+    ipcRenderer.invoke('agentReview:queue', scope ?? 'all'),
   continueAgentReview: (
     reviewId: string,
     body: {

@@ -31,7 +31,7 @@ type Props = {
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
   /** Navigate to a freshly-started review thread — wired to the diff
    *  page's "Review with agent" launch. */
-  onStartReview?: (threadId: string) => void;
+  onStartReview?: (threadId: string | null, reviewId?: string) => void;
   /** Open the workspace-owned route for a standalone PR agent review. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
   /** Active workspace the review panel lands in. */

@@ -97,7 +97,7 @@ type Props = {
   /** Forwarded to the standalone PR details page's "Review with agent"
    *  affordance; the app shell routes the returned threadId into the
    *  review-thread page. */
-  onStartReview?: (threadId: string) => void;
+  onStartReview?: (threadId: string | null, reviewId?: string) => void;
   /** Open the workspace-owned route for a standalone PR agent review. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
   /** Active workspace — required for starting a PR/diff review panel. */

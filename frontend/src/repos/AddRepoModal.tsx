@@ -56,6 +56,7 @@ function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
     setCloning(true);
     try {
       const status = await window.bridge.cloneRepo(owner, repo, writeMode);
+      await window.bridge.ensureWorkspaceForRepo(owner, repo);
       onMapped(status);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

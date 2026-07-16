@@ -42,6 +42,7 @@ import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.review.InvestigationReviewService.StartOptions;
 import com.bytequay.app.service.threads.ThreadService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -92,6 +93,15 @@ class TestInvestigationReviewSchema
     private ObjectMapper mapper;
     @Autowired
     private MockMvc mvc;
+
+    @BeforeEach
+    void createFixtureWorkspace()
+    {
+        jdbc.update("""
+                INSERT OR IGNORE INTO workspaces(id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
+                VALUES ('ws-test', 'test/repository', '', 0, 1, 1)
+                """);
+    }
 
     @Test
     void persistsTheFrozenTraceabilityChainAndDetachedPanelRun()
@@ -260,7 +270,7 @@ class TestInvestigationReviewSchema
         String ownerThreadId = saveReviewThread();
         reviews.insertReview(new AgentReviewRow(
                 UUID.randomUUID().toString(), "acme/widget", prId, "base", "head", "ACTIVE",
-                "ws-default", ownerThreadId, null),
+                "ws-test", ownerThreadId, null),
                 Instant.now());
 
         investigationReviews.recordPublished(
@@ -274,7 +284,7 @@ class TestInvestigationReviewSchema
     }
 
     @Test
-    void standaloneReviewRequiresAnExplicitWorkspace()
+    void standaloneReviewReachesTheRemoteReviewPath()
     {
         String prId = UUID.randomUUID().toString();
         prs.save(PR.createExternal(
@@ -285,7 +295,7 @@ class TestInvestigationReviewSchema
         assertThatThrownBy(() -> investigationReviews.start(
                 prId, new StartOptions(null, null, null)))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("workspaceId is required");
+                .hasMessageContaining("GitHub PAT not configured");
     }
 
     @Test
@@ -361,7 +371,7 @@ class TestInvestigationReviewSchema
                 runId, "panel_review", "completed", 0, 50, 1L);
         reviews.insertReview(new AgentReviewRow(
                 reviewId, "acme/widget", prId, "base", "head", "ACTIVE",
-                "ws-default", ownerThreadId, null), Instant.now());
+                "ws-test", ownerThreadId, null), Instant.now());
         reviews.insertRound(new ReviewRoundRow(
                 roundId, reviewId, runId, "initial", "full", "head", "head",
                 "COMPLETED", new RoundBudget(50, 10), 1), Instant.now());
@@ -423,7 +433,7 @@ class TestInvestigationReviewSchema
                 """, verifierRunId, "panel_review", roundId, "running", 0, 20, 2L);
         reviews.insertReview(new AgentReviewRow(
                 sessionId, "acme/widget", prId, "base", "old-head", "ACTIVE",
-                "ws-default", ownerThreadId, null), Instant.now());
+                "ws-test", ownerThreadId, null), Instant.now());
         reviews.insertRound(new ReviewRoundRow(
                 roundId, sessionId, roundRunId, "initial", "full", "old-head", null,
                 "RUNNING", new RoundBudget(50, 10), 0), Instant.now());
@@ -431,7 +441,7 @@ class TestInvestigationReviewSchema
         var detail = investigationReviews.findByPr(prId).orElseThrow();
 
         assertThat(detail.review().status()).isEqualTo("STALE");
-        assertThat(detail.review().workspaceId()).isEqualTo("ws-default");
+        assertThat(detail.review().workspaceId()).isEqualTo("ws-test");
         assertThat(detail.review().ownerTaskId()).isNull();
         assertThat(detail.review().ownerThreadId()).isNotBlank();
         assertThat(detail.rounds()).singleElement()
@@ -447,7 +457,7 @@ class TestInvestigationReviewSchema
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.review.owner_thread_id")
                         .value(detail.review().ownerThreadId()))
-                .andExpect(jsonPath("$.review.workspace_id").value("ws-default"));
+                .andExpect(jsonPath("$.review.workspace_id").value("ws-test"));
     }
 
     @Test
@@ -667,7 +677,7 @@ class TestInvestigationReviewSchema
         threads.saveThread(new Thread(
                 id, ThreadKind.LOGIC_LOOP, "agent-review", null, "Agent review",
                 ThreadStatus.COMPLETED, "agent-review", 0L, 0L, 0L,
-                now, now, now, null, ThreadFlow.REVIEW, "ws-default", null));
+                now, now, now, null, ThreadFlow.REVIEW, "ws-test", null));
         return id;
     }
 

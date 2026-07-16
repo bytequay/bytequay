@@ -48,6 +48,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,7 +60,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -214,48 +214,40 @@ public class ThreadRegistry
      * workspace's pinned repos so a thread in workspace X doesn't
      * end up rooted in a repo from workspace Y.
      *
-     * <p>Resolution order:
-     * <ol>
-     *   <li>If the thread carries a workspaceId, walk its pinned
-     *       {@code workspace_repos}, match each by {@code
-     *       repo_full_name = owner/repo} against {@code watched_repos},
-     *       and return the first non-blank {@code localClonePath}.</li>
-     *   <li>If no pinned repo has a local clone path, fall back to
-     *       the first watched repo with a local clone path (legacy
-     *       single-workspace behaviour).</li>
-     *   <li>Last resort: the JVM tmpdir so the CLI still launches.</li>
-     * </ol>
+     * <p>A trunk conversation is local-workspace work. It must have exactly
+     * one workspace repo with a verified local clone; never borrow another
+     * workspace's clone or launch the CLI from a temporary directory.
      */
     private static String resolveTrunkCwdForWorkspace(
             WorkspaceService workspaces, WatchedRepoStore watchedRepos, Thread thread)
     {
         String workspaceId = thread == null ? null : thread.workspaceId();
-        if (workspaceId != null && !workspaceId.isBlank()) {
-            try {
-                Set<String> pinned = workspaces.listRepos(workspaceId).stream()
-                        .map(WorkspaceRepo::repoFullName)
-                        .collect(Collectors.toSet());
-                if (!pinned.isEmpty()) {
-                    Optional<String> match = watchedRepos.findAll().stream()
-                            .filter(wr -> pinned.contains(wr.fullName()))
-                            .map(WatchedRepo::localClonePath)
-                            .filter(p -> p != null && !p.isBlank())
-                            .findFirst();
-                    if (match.isPresent()) {
-                        return match.get();
-                    }
-                }
-            }
-            catch (RuntimeException ignored) {
-                // Workspace lookup failed (deleted mid-session?) — drop
-                // to the legacy fallback rather than aborting the turn.
-            }
+        if (workspaceId == null || workspaceId.isBlank()) {
+            throw new IllegalStateException("a local agent thread requires a workspace");
         }
+        List<WorkspaceRepo> repos = workspaces.listRepos(workspaceId);
+        if (repos.size() != 1) {
+            throw new IllegalStateException("workspace " + workspaceId
+                    + " must be bound to exactly one repository");
+        }
+        String repo = repos.getFirst().repoFullName();
         return watchedRepos.findAll().stream()
+                .filter(watched -> repo.equalsIgnoreCase(watched.fullName()))
                 .map(WatchedRepo::localClonePath)
-                .filter(p -> p != null && !p.isBlank())
+                .filter(ThreadRegistry::isDirectory)
                 .findFirst()
-                .orElseGet(() -> System.getProperty("java.io.tmpdir"));
+                .orElseThrow(() -> new IllegalStateException("workspace " + workspaceId
+                        + " has no verified local clone for " + repo));
+    }
+
+    private static boolean isDirectory(String path)
+    {
+        try {
+            return path != null && !path.isBlank() && Files.isDirectory(Path.of(path));
+        }
+        catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     /**
@@ -274,12 +266,6 @@ public class ThreadRegistry
     {
         String cloneRoot = resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread);
         Path repoRoot = Path.of(cloneRoot).toAbsolutePath().normalize();
-        Path fallback = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
-        if (repoRoot.equals(fallback)) {
-            // A workspace with no managed local clone can still hold a general
-            // planning conversation. This is not a fallback to a dirty repo.
-            return fallback.toString();
-        }
         Optional<ThreadStore.PlanningSnapshot> active = store.findPlanningSnapshot(thread.id())
                 .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()));
         Optional<WorktreeService.PlanningSync> ready = active.isPresent()

@@ -374,7 +374,8 @@ public class InvestigationReviewTools
             AgentReviewRow review = requireReview(reviewId);
             PR pr = prs.findById(review.prId())
                     .orElseThrow(() -> new IllegalArgumentException("unknown PR " + review.prId()));
-            return contexts.load(pr);
+            return contexts.load(pr,
+                    review.workspaceId() != null || review.ownerTaskId() != null);
         });
     }
 

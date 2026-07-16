@@ -1833,41 +1833,44 @@
 /* U13e — GitHub-sized merge status box. The branch marker sits on the
    timeline outside the bordered card, while every status/action state keeps
    using this one shared MergeBox renderer. */
-.pr-merge-shell { position: relative; z-index: 1; flex-shrink: 0; margin-top: 38px; margin-bottom: 18px; padding-left: 54px; }
+.pr-merge-shell { position: relative; z-index: 1; flex-shrink: 0; margin-top: 34px; margin-bottom: 16px; padding-left: 46px; }
 .pr-merge-shell::before { content: ''; position: absolute; top: -28px; left: 0; right: 0; height: 2px; background: var(--border-mid); }
-.pr-merge-shell .mb-branch-icon { position: absolute; z-index: 2; top: 0; left: 0; width: 44px; height: 44px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+.pr-merge-shell .mb-branch-icon { position: absolute; z-index: 2; top: 0; left: 0; width: 36px; height: 36px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+.pr-merge-shell .mb-branch-icon svg { width: 20px; height: 20px; }
 .pr-merge-shell .mb-branch-icon.green { background: #1f883d; }
 .pr-merge-shell .mb-branch-icon.amber { background: #bf8700; }
 .pr-merge-shell .mb-branch-icon.purple { background: var(--purple); }
 .pr-merge-box { position: relative; z-index: 1; background: #fff; border: 1px solid #d0d7de; border-radius: 7px; overflow: hidden; }
 .pr-merge-box.ok { border-color: #1f883d; }
-.pr-merge-box .mb-sec { width: 100%; min-height: 64px; padding: 16px 20px; border: 0; border-bottom: 1px solid #d8dee4; display: flex; gap: 12px; align-items: center; background: #fff; color: var(--text-1); font-family: inherit; text-align: left; }
+.pr-merge-box .mb-sec { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid #d8dee4; display: flex; gap: 10px; align-items: center; background: #fff; color: var(--text-1); font-family: inherit; text-align: left; }
 .pr-merge-box .mb-sec:last-child { border-bottom: none; }
 .pr-merge-box .mb-sec.clickable { cursor: pointer; }
 .pr-merge-box .mb-sec.clickable:hover { background: #f6f8fa; }
-.pr-merge-box .mb-sec .btn.sm { align-self: center; flex-shrink: 0; font-size: 13px; padding: 5px 14px; }
-.pr-merge-box .mb-ic { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; font-size: 16px; }
+.pr-merge-box .mb-sec .btn.sm { align-self: center; flex-shrink: 0; font-size: 11.5px; padding: 4px 11px; }
+.pr-merge-box .mb-ic { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; font-size: 13px; }
+.pr-merge-box .mb-ic svg { width: 14px; height: 14px; }
 .pr-merge-box .mb-ic.green { background: #1f883d; }
 .pr-merge-box .mb-ic.amber { background: #bf8700; }
 .pr-merge-box .mb-t { min-width: 0; flex: 1; }
-.pr-merge-box .mb-t .h { font-size: 16px; line-height: 1.35; font-weight: 600; color: #1f2328; display: flex; align-items: center; gap: 8px; }
-.pr-merge-box .mb-t .s { font-size: 14px; line-height: 1.45; color: #656d76; margin-top: 1px; }
-.pr-merge-box .mb-chevron { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #57606a; transform: rotate(90deg); transition: transform .12s ease-out; }
+.pr-merge-box .mb-t .h { font-size: 13px; line-height: 1.35; font-weight: 600; color: #1f2328; display: flex; align-items: center; gap: 7px; }
+.pr-merge-box .mb-t .s { font-size: 11.5px; line-height: 1.45; color: #656d76; margin-top: 1px; }
+.pr-merge-box .mb-chevron { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #57606a; transform: rotate(90deg); transition: transform .12s ease-out; }
+.pr-merge-box .mb-chevron svg { width: 13px; height: 13px; }
 .pr-merge-box .mb-chevron.open { transform: rotate(-90deg); }
 .pr-merge-box .check-list { background: #f6f8fa; border-bottom: 1px solid #d8dee4; }
-.pr-merge-box .check-group { padding: 10px 20px 4px 64px; font-size: 12px; font-weight: 600; color: #656d76; }
-.pr-merge-box .check-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 20px 8px 64px; font-size: 13px; color: #424a53; }
-.pr-merge-box .check-row .st { width: 18px; display: inline-flex; justify-content: center; flex-shrink: 0; font-size: 14px; }
+.pr-merge-box .check-group { padding: 7px 14px 3px 50px; font-size: 10.5px; font-weight: 600; color: #656d76; }
+.pr-merge-box .check-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 14px 5px 50px; font-size: 12px; color: #424a53; }
+.pr-merge-box .check-row .st { width: 16px; display: inline-flex; justify-content: center; flex-shrink: 0; font-size: 12px; }
 .pr-merge-box .check-row .st.ok { color: var(--green); }
 .pr-merge-box .check-row .st.fail { color: var(--red); }
 .pr-merge-box .check-row .st.skip { color: var(--text-4); }
-.pr-merge-box .check-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
-.pr-merge-box .check-row .res { color: #656d76; font-size: 12px; margin-left: auto; flex-shrink: 0; }
-.pr-merge-box .mb-warn { margin: 0 20px 14px 64px; padding: 10px 12px; background: var(--amber-soft); border: 1px solid var(--amber-border); border-radius: 6px; font-size: 13px; color: var(--amber-deep); line-height: 1.5; }
-.pr-merge-box .mb-actions { display: flex; align-items: center; gap: 8px; padding: 16px 20px 10px 64px; flex-wrap: wrap; }
-.pr-merge-box .mb-actions .alt { font-size: 13px; color: #656d76; }
-.pr-merge-box .mb-cli-hint { padding: 0 20px 16px 64px; font-size: 13px; color: #656d76; }
-.pr-merge-box .btn { min-height: 32px; padding: 5px 16px; border-radius: 6px; font-size: 14px; line-height: 20px; }
+.pr-merge-box .check-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; }
+.pr-merge-box .check-row .res { color: #656d76; font-size: 11px; margin-left: auto; flex-shrink: 0; }
+.pr-merge-box .mb-warn { margin: 0 14px 12px 50px; padding: 8px 11px; background: var(--amber-soft); border: 1px solid var(--amber-border); border-radius: 6px; font-size: 11.5px; color: var(--amber-deep); line-height: 1.5; }
+.pr-merge-box .mb-actions { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px 50px; flex-wrap: wrap; }
+.pr-merge-box .mb-actions .alt { font-size: 11.5px; color: #656d76; }
+.pr-merge-box .mb-cli-hint { padding: 0 14px 14px 50px; font-size: 11.5px; color: #656d76; }
+.pr-merge-box .btn { min-height: 30px; padding: 4px 13px; border-radius: 6px; font-size: 12px; line-height: 20px; }
 .pr-merge-box .btn.green { background: #1f883d; border-color: rgba(27, 31, 36, 0.15); box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1); }
 .pr-merge-box .btn.green:hover { background: #1a7f37; }
 

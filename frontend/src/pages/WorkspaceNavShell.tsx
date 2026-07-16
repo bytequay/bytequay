@@ -28,7 +28,7 @@ import { useWorkspaceNav } from './useWorkspaceNav';
  */
 export function WorkspaceNavShell({
   activeWorkspaceId, selectedThreadId, tasks, selectedTaskId,
-  activeNav, footer, notificationCount,
+  activeNav, notificationCount,
   collapsed = false, onToggleCollapse,
   onResumeVisit, onOpenPr,
   onBack, onForward, backEnabled, forwardEnabled,
@@ -40,7 +40,6 @@ export function WorkspaceNavShell({
   tasks?: TaskNavRow[];
   selectedTaskId?: string;
   activeNav?: WsNavKey;
-  footer: { initials: string; name: string; onChat?: () => void; onSettings?: () => void };
   notificationCount?: number;
   /** Fold the rail to a narrow strip. */
   collapsed?: boolean;
@@ -90,7 +89,6 @@ export function WorkspaceNavShell({
       activeNav={activeNav}
       onNavigate={onNavigate}
       backHint={activeWorkspaceId !== null}
-      footer={footer}
       notificationCount={notificationCount}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}

@@ -744,12 +744,6 @@ function App() {
           })}
           onOpenPr={(owner, repo, prNumber) =>
             setNav({ view: 'repo', owner, repo, prNumber, back: { view: 'home' } })}
-          footer={{
-            initials: 'CJ',
-            name: 'You',
-            onSettings: () => setNav({ view: 'settings' }),
-            onChat: () => setNav({ view: 'notifications' }),
-          }}
           onNavigate={key => {
             switch (key) {
               case 'home': setNav({ view: 'home' }); break;

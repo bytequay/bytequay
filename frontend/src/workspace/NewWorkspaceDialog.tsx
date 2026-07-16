@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { WatchedRepoDto } from '../types';
+import type { WatchedRepoDto, WorkspaceRepoDto } from '../types';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
 
 type Props = {
@@ -25,14 +25,23 @@ type Props = {
 
 function NewWorkspaceDialog({ onClose, onCreated }: Props) {
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
+  const [mappedRepoNames, setMappedRepoNames] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [workspaceName, setWorkspaceName] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setRepos(await window.bridge.getWatchedRepos());
+      const [watched, workspaces] = await Promise.all([
+        window.bridge.getWatchedRepos(), window.bridge.listWorkspaces(),
+      ]);
+      const attached = await Promise.all(workspaces.map(workspace =>
+        window.bridge.listWorkspaceRepos(workspace.id).catch((): WorkspaceRepoDto[] => [])));
+      setRepos(watched);
+      setMappedRepoNames(new Set(attached.flat()
+        .map(repo => repo.repoFullName.toLowerCase())));
     }
     catch {
       // The list is informational; failure shouldn't block the modal
@@ -46,14 +55,16 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
 
   useEffect(() => { void load(); }, [load]);
 
-  const toggleRepo = (id: number) => {
-    setPicked(prev => {
-      return prev.has(id) ? new Set() : new Set([id]);
-    });
+  const toggleRepo = (repo: WatchedRepoDto) => {
+    const fullName = `${repo.owner}/${repo.repo}`;
+    if (mappedRepoNames.has(fullName.toLowerCase())) return;
+    const selected = picked.has(repo.id);
+    setPicked(selected ? new Set() : new Set([repo.id]));
+    setWorkspaceName(selected ? '' : fullName);
   };
 
   const localRepos = repos.filter(repo => repo.localClonePath !== null);
-  const canCreate = picked.size === 1 && !submitting;
+  const canCreate = picked.size === 1 && workspaceName.trim().length > 0 && !submitting;
 
   const onSubmit = async () => {
     if (!canCreate) return;
@@ -62,7 +73,10 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
     try {
       const repo = localRepos.find(candidate => picked.has(candidate.id));
       if (!repo) return;
-      const created = await window.bridge.ensureWorkspaceForRepo(repo.owner, repo.repo);
+      const created = await window.bridge.createWorkspace({
+        name: workspaceName.trim(),
+        repoFullNames: [`${repo.owner}/${repo.repo}`],
+      });
       onCreated?.(created.id);
       onClose();
     }
@@ -118,23 +132,42 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
             </div>
           ) : (
             <ul style={repoListStyle}>
-              {localRepos.map(r => (
-                <li key={r.id} style={repoRowStyle(picked.has(r.id))}>
-                  <label style={repoLabelStyle}>
-                    <input
-                      type="radio"
-                      checked={picked.has(r.id)}
-                      onChange={() => toggleRepo(r.id)}
-                    />
-                    <span style={repoMetaStyle}>
-                      <span style={repoFullNameStyle}>{r.owner}/{r.repo}</span>
-                      <span style={mutedStyle}>verified local clone</span>
-                    </span>
-                  </label>
-                </li>
-              ))}
+              {localRepos.map(r => {
+                const fullName = `${r.owner}/${r.repo}`;
+                const mapped = mappedRepoNames.has(fullName.toLowerCase());
+                return (
+                  <li key={r.id} style={repoRowStyle(picked.has(r.id), mapped)}>
+                    <label style={repoLabelStyle}>
+                      <input
+                        type="radio"
+                        checked={picked.has(r.id)}
+                        disabled={mapped}
+                        onChange={() => toggleRepo(r)}
+                      />
+                      <span style={repoMetaStyle}>
+                        <span style={repoFullNameStyle}>{fullName}</span>
+                        <span style={mutedStyle}>{mapped
+                          ? 'already mapped to a workspace'
+                          : 'verified local clone'}</span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           )}
+        </div>
+
+        <div style={dialogStyles.field}>
+          <label htmlFor="workspace-name" style={dialogStyles.fieldLabel}>Workspace name</label>
+          <input
+            id="workspace-name"
+            style={dialogStyles.input}
+            value={workspaceName}
+            disabled={picked.size === 0}
+            onChange={event => setWorkspaceName(event.target.value)}
+            placeholder="Choose a repository first"
+          />
         </div>
 
         {submitError !== null && (
@@ -156,7 +189,7 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
               onClick={() => { void onSubmit(); }}
               title={canCreate
                 ? undefined
-                : 'Pick one verified local clone'}
+                : 'Pick one verified local clone and name its workspace'}
             >
               ◆ {submitting ? 'Adding…' : 'Add repository'}
             </button>
@@ -275,14 +308,15 @@ const repoListStyle: React.CSSProperties = {
   overflowY: 'auto',
 };
 
-function repoRowStyle(picked: boolean): React.CSSProperties {
+function repoRowStyle(picked: boolean, mapped: boolean): React.CSSProperties {
   return {
     padding: '8px 10px',
     borderRadius: 8,
-    background: picked ? 'var(--ws-accent-soft)' : '#fff',
+    background: mapped ? 'rgba(124, 58, 237, 0.04)' : picked ? 'var(--ws-accent-soft)' : '#fff',
     border: picked
         ? '1px solid var(--ws-accent)'
         : '1px solid var(--ws-card-border)',
+    opacity: mapped ? 0.6 : 1,
     transition: 'background var(--ws-fast), border-color var(--ws-fast)',
   };
 }

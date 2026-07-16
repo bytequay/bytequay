@@ -308,6 +308,31 @@ class TestWorkspaceService
         verify(store, never()).saveWorkspace(any());
     }
 
+    @Test
+    void createUsesTheTypedWorkspaceNameAndRejectsAnExistingRepositoryMapping()
+    {
+        WatchedRepo watched = new WatchedRepo(1, "acme", "widgets", 0,
+                System.getProperty("java.io.tmpdir"), null, null);
+        when(watchedRepos.find("acme", "widgets")).thenReturn(Optional.of(watched));
+        when(store.listWorkspaces()).thenReturn(List.of());
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
+                "Widget delivery", null, false, "", List.of("acme/widgets")));
+
+        assertThat(created.name()).isEqualTo("Widget delivery");
+        assertThat(created.id()).isEqualTo("ws-widget-delivery");
+
+        Workspace existing = workspace("ws-existing", "Existing widgets");
+        when(store.listWorkspaces()).thenReturn(List.of(existing));
+        when(store.listRepos("ws-existing")).thenReturn(List.of(
+                new WorkspaceRepo("ws-existing", "acme/widgets", null, false, Instant.EPOCH)));
+
+        assertThatThrownBy(() -> service.create(new WorkspaceService.NewWorkspaceRequest(
+                "Another workspace", null, false, "", List.of("acme/widgets"))))
+                .hasMessageContaining("already mapped");
+    }
+
     // ── cascade delete ──────────────────────────────────────────────
 
     @Test

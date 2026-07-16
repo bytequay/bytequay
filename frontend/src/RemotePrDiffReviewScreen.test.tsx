@@ -175,6 +175,7 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
     addReviewFinding: vi.fn().mockResolvedValue(options.reviewDetail ?? { pass: { id: 'pass-1' }, findings: [] }),
     // Used by the durable AgentReview launcher on the diff page.
     getPrForRepoPull: vi.fn().mockResolvedValue({ id: 'local-pr-42' }),
+    listWorkspaceRepos: vi.fn().mockResolvedValue([{ repoFullName: 'trinodb/trino' }]),
     startAgentReview: vi.fn().mockResolvedValue({
       review: { owner_thread_id: 'review-owner-thread' },
     }),

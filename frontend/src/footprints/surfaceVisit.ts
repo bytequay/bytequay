@@ -16,8 +16,8 @@ import type { SurfaceVisitInput } from '../types';
 
 /**
  * Maps a navigation state to the footprint visit it should record, or
- * null when the surface isn't one footprints tracks (home, settings,
- * repo browsing, etc.).
+ * null when the surface isn't one footprints tracks (thread trunks,
+ * home, settings, repo browsing, etc.).
  *
  * `surfaceId` is the renderer's navigable key — the resume handler
  * ({@link surfaceVisitToNav}) parses it back into a Nav. Title/context
@@ -32,7 +32,7 @@ import type { SurfaceVisitInput } from '../types';
 export function navToSurfaceVisit(nav: Nav): SurfaceVisitInput | null {
   switch (nav.view) {
     case 'my-prs':
-      return { surfaceType: 'PR_KANBAN', surfaceId: 'my-prs', title: 'PR kanban', context: null };
+      return null;
     case 'repo':
       // Only an individual PR is a tracked surface; bare repo browsing
       // (pulls/issues lists) is not.
@@ -51,7 +51,6 @@ export function navToSurfaceVisit(nav: Nav): SurfaceVisitInput | null {
         context: nav.threadId,
       };
     case 'thread-detail':
-      // A task within the thread vs. the thread trunk itself.
       if (nav.taskId !== undefined) {
         return {
           surfaceType: 'TASK',
@@ -60,7 +59,7 @@ export function navToSurfaceVisit(nav: Nav): SurfaceVisitInput | null {
           context: nav.threadId,
         };
       }
-      return { surfaceType: 'THREAD', surfaceId: nav.threadId, title: 'Thread', context: null };
+      return null;
     default:
       return null;
   }

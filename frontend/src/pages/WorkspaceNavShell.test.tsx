@@ -65,7 +65,7 @@ describe('WorkspaceNavShell', () => {
     mockBridge();
     const onResumeVisit = vi.fn();
     render(<WorkspaceNavShell activeWorkspaceId={null} onResumeVisit={onResumeVisit} />);
-    // The footprint stop shows once, as a Recent row. (The Today "Working on"
+    // The footprint stop shows once, as a Continue row. (The Today "Working on"
     // line is PR-derived now, and this mock has no PRs.)
     const rows = await screen.findAllByText('org/web #42');
     expect(rows.length).toBe(1);

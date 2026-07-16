@@ -816,20 +816,6 @@ function registerIpc(): void {
     return res.json();
   });
 
-  ipcMain.handle('backend:prActivity', async (_event, kind: string, since: string, page: number, perPage?: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/activity`);
-    url.searchParams.set('kind', kind);
-    url.searchParams.set('since', since);
-    url.searchParams.set('page', String(page));
-    if (typeof perPage === 'number') url.searchParams.set('perPage', String(perPage));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/activity returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
   ipcMain.handle('backend:prAnalytics', async (_event, scope: string, tz?: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/analytics`);
     url.searchParams.set('scope', scope);

@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isPendingLocalComment } from '../diff/DiffInlineComments';
 import type { ReviewVerdict } from '../pages/SubmitReviewDrawer';
+import type { WorkspaceRepoDto } from '../types';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import type { AgentReviewHeaderState, AgentReviewStartOptions } from './AgentReviewHeaderAction';
 import type { AgentReviewData } from './agentReviewTypes';
@@ -200,7 +201,7 @@ export function useAgentReviewState(
       return;
     }
     void (async () => {
-      let workspaceRepos = [];
+      let workspaceRepos: WorkspaceRepoDto[] = [];
       if (workspaceId != null && bundle != null) {
         try {
           workspaceRepos = await window.bridge.listWorkspaceRepos(workspaceId);

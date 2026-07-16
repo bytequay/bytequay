@@ -146,7 +146,7 @@ export function ConvIndex({
     <aside
       style={{
         ...(expanded ? panelExpandedStyle(palette) : panelCollapsedStyle(palette)),
-        ...(side === 'left' ? { left: 14, right: 'auto' } : {}),
+        ...(side === 'left' ? { left: 6, right: 'auto' } : {}),
       }}
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
@@ -446,7 +446,7 @@ const DARK_PALETTE: Palette = {
 // gutter as a naked stack of dash marks; hover expands the preview panel.
 const baseAnchorStyle: React.CSSProperties = {
   position: 'absolute',
-  right: 4,
+  right: -4,
   top: '50%',
   transform: 'translateY(-50%)',
   zIndex: 10,

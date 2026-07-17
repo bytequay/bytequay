@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -25,6 +27,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.backlog.BacklogService;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
@@ -35,8 +38,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -70,8 +75,14 @@ class TestAgentToolHandlersCreateTask
     private final WorkspaceService workspaces = mock(WorkspaceService.class);
     private final WorktreeService worktreeService = mock(WorktreeService.class);
     private final BacklogService backlog = mock(BacklogService.class);
+    private final RepoService repoService = mock(RepoService.class);
+    private final ObjectMapper mapper =
+            new ObjectMapper().findAndRegisterModules();
 
     private AgentToolHandlers handlers;
+
+    @TempDir
+    private Path tempDir;
 
     @BeforeEach
     void setUp()
@@ -89,8 +100,9 @@ class TestAgentToolHandlersCreateTask
                 watchedRepos,
                 threads,
                 worktreeService,
-                new ObjectMapper(),
-                backlog);
+                mapper,
+                backlog,
+                repoService);
 
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(trunkThread()));
     }
@@ -129,20 +141,71 @@ class TestAgentToolHandlersCreateTask
     void readsTheWorkspaceRepositoryWithoutExposingItsClonePath()
             throws Exception
     {
+        Path clone = Files.createDirectories(tempDir.resolve("widgets"));
         when(workspaces.listRepos("ws-default")).thenReturn(List.of(
                 new WorkspaceRepo("ws-default", "acme/widgets", "main", false, NOW)));
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("other", "repo", "/tmp/other"),
-                watchedRepo("acme", "widgets", "/secret/local/widgets")));
+                watchedRepo("acme", "widgets", clone.toString())));
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.readCurrentRepository(
                 new AgentToolHandlers.ReadCurrentRepositoryArgs(),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         assertThat(result.isError()).isFalse();
-        assertThat(new ObjectMapper().readTree(result.text()).path("repo").asText())
+        assertThat(mapper.readTree(result.text()).path("repo").asText())
                 .isEqualTo("acme/widgets");
-        assertThat(result.text()).doesNotContain("/secret/local/widgets");
+        assertThat(result.text()).doesNotContain(clone.toString());
+    }
+
+    @Test
+    void readsFreshIssueContextFromTheCallingTrunksSoleRepository()
+            throws Exception
+    {
+        when(workspaces.listRepos("ws-default")).thenReturn(List.of(
+                new WorkspaceRepo(
+                        "ws-default", "acme/widgets", "main", false, NOW)));
+        IssueDetail fresh = new IssueDetail(
+                482L,
+                482,
+                "Fix workspace routing",
+                "Fresh body from GitHub",
+                "jack",
+                null,
+                "open",
+                "https://github.com/acme/widgets/issues/482",
+                NOW,
+                NOW,
+                null,
+                List.of(new IssueDetail.Label("bug", "ff0000")),
+                List.of(),
+                null,
+                List.of(new IssueDetail.Comment(
+                        1L,
+                        "reviewer",
+                        null,
+                        "Fresh comment",
+                        NOW,
+                        Reactions.EMPTY)),
+                List.of(),
+                false);
+        when(repoService.getIssueDetail("acme", "widgets", 482))
+                .thenReturn(fresh);
+
+        ToolOutcome.Completed result =
+                (ToolOutcome.Completed) handlers.readIssue(
+                        new AgentToolHandlers.ReadIssueArgs(482),
+                        new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        assertThat(result.isError()).isFalse();
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("title").asText())
+                .isEqualTo("Fix workspace routing");
+        assertThat(payload.path("body").asText())
+                .isEqualTo("Fresh body from GitHub");
+        assertThat(payload.path("comments").get(0).path("body").asText())
+                .isEqualTo("Fresh comment");
+        verify(repoService).getIssueDetail("acme", "widgets", 482);
     }
 
     @Test
@@ -151,7 +214,7 @@ class TestAgentToolHandlersCreateTask
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
         when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(mock(Task.class));
-        JsonNode plan = new ObjectMapper().createObjectNode().put("status", "finalized");
+        JsonNode plan = mapper.createObjectNode().put("status", "finalized");
 
         handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
@@ -286,13 +349,17 @@ class TestAgentToolHandlersCreateTask
 
     @Test
     void syncRepoRefreshesPlanningWorktreeAndReportsTheBaseRef()
+            throws Exception
     {
+        Path clone = Files.createDirectories(tempDir.resolve("clone"));
         when(watchedRepos.findAll()).thenReturn(List.of(
-                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+                watchedRepo("chenjian2664", "ByteQuay", clone.toString())));
+        when(workspaces.listRepos("ws-default")).thenReturn(List.of(
+                new WorkspaceRepo("ws-default", "chenjian2664/ByteQuay", "main", false, NOW)));
         when(worktreeService.refreshPlanningWorktree(
-                Path.of("/tmp/clone").toAbsolutePath().normalize(), THREAD_ID))
+                clone.toAbsolutePath().normalize(), THREAD_ID))
                 .thenReturn(Optional.of(new WorktreeService.PlanningSync(
-                        Path.of("/tmp/clone/.worktrees/_planning/thread-1"),
+                        clone.resolve(".worktrees/_planning/thread-1"),
                         "origin/main", "abc123")));
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.syncRepo(
@@ -302,10 +369,10 @@ class TestAgentToolHandlersCreateTask
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("origin/main");
         verify(worktreeService).refreshPlanningWorktree(
-                Path.of("/tmp/clone").toAbsolutePath().normalize(), THREAD_ID);
+                clone.toAbsolutePath().normalize(), THREAD_ID);
         verify(threadStore).setPlanningSnapshot(THREAD_ID,
                 new ThreadStore.PlanningSnapshot(
-                        Path.of("/tmp/clone").toAbsolutePath().normalize().toString(), "abc123"));
+                        clone.toAbsolutePath().normalize().toString(), "abc123"));
     }
 
     @Test

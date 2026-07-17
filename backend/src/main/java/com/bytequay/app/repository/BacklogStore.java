@@ -33,6 +33,17 @@ public interface BacklogStore
     /** One item by id. */
     Optional<BacklogItem> findById(String id);
 
+    default Optional<BacklogItem> findByWorkspaceAndItemKey(String workspaceId, String itemKey)
+    {
+        return Optional.empty();
+    }
+
+    /** Allocates the next stable BQ-N key for one workspace. */
+    default String nextItemKey(String workspaceId)
+    {
+        return null;
+    }
+
     /** Permanently remove an item. No-op when the id is unknown. */
     void delete(String id);
 }

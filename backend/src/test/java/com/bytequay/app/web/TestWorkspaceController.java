@@ -14,12 +14,14 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.WorkspaceRepo;
+import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,11 +43,17 @@ class TestWorkspaceController
     private WorkspaceController controller;
     @Autowired
     private WorkspaceService workspaces;
+    @Autowired
+    private WorkspaceStore workspaceStore;
 
     @Test
     void setAutoFixEnabledFlipsTheFlagAndPersists()
     {
-        workspaces.addRepo(WORKSPACE_ID, REPO, null);
+        // Repository binding is now established only by workspace creation;
+        // seed the aggregate directly instead of exercising the retired
+        // multi-repo attachment path.
+        workspaceStore.addRepo(new WorkspaceRepo(
+                WORKSPACE_ID, REPO, null, false, Instant.now()));
         // Sanity-check the default: V75 carried the column in with a
         // default of false, addRepo above also passed false explicitly.
         WorkspaceRepo seeded = findRepo(REPO);

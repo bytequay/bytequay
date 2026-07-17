@@ -13,19 +13,23 @@
  */
 package com.bytequay.app.service.workspaces;
 
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.ThreadCheckpointStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.CheckpointSummariser;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -63,8 +67,25 @@ public class WorkspaceMemoryDistiller
     private final WorkspaceMemoryProposalService proposals;
     private final ThreadCheckpointStore checkpoints;
     private final CheckpointSummariser summariser;
+    private final ThreadStore threads;
 
+    @Autowired
     public WorkspaceMemoryDistiller(
+            WorkspaceService workspaces,
+            WorkspaceMemoryProposalService proposals,
+            ThreadCheckpointStore checkpoints,
+            CheckpointSummariser summariser,
+            ThreadStore threads)
+    {
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.proposals = requireNonNull(proposals, "proposals is null");
+        this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
+        this.summariser = requireNonNull(summariser, "summariser is null");
+        this.threads = requireNonNull(threads, "threads is null");
+    }
+
+    /** Compatibility constructor for the isolated distiller tests. */
+    WorkspaceMemoryDistiller(
             WorkspaceService workspaces,
             WorkspaceMemoryProposalService proposals,
             ThreadCheckpointStore checkpoints,
@@ -74,6 +95,7 @@ public class WorkspaceMemoryDistiller
         this.proposals = requireNonNull(proposals, "proposals is null");
         this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.summariser = requireNonNull(summariser, "summariser is null");
+        this.threads = null;
     }
 
     /**
@@ -81,7 +103,6 @@ public class WorkspaceMemoryDistiller
      * minutes — cheap relative to per-segment summarisation since the
      * corpus is bounded by {@link #OVERALL_CORPUS_LIMIT}.
      */
-    @Scheduled(fixedDelay = 30L * 60 * 1000, initialDelay = 5L * 60 * 1000)
     public void distillAll()
     {
         for (Workspace w : workspaces.list()) {
@@ -115,7 +136,19 @@ public class WorkspaceMemoryDistiller
             // operator doesn't have to wonder why nothing changed.
             return Optional.empty();
         }
-        List<ThreadCheckpoint> corpus = checkpoints.listAllActiveOveralls(OVERALL_CORPUS_LIMIT);
+        List<ThreadCheckpoint> corpus =
+                checkpoints.listAllActiveOveralls(OVERALL_CORPUS_LIMIT * 4);
+        if (threads != null) {
+            Set<String> workspaceThreadIds =
+                    threads.listThreadsByWorkspace(workspaceId).stream()
+                            .map(Thread::id)
+                            .collect(Collectors.toSet());
+            corpus = corpus.stream()
+                    .filter(checkpoint -> workspaceThreadIds.contains(
+                            checkpoint.threadId()))
+                    .limit(OVERALL_CORPUS_LIMIT)
+                    .toList();
+        }
         if (corpus.isEmpty()) {
             log.debug("No Thread Overalls to distil for workspace {}; leaving memory untouched",
                     workspaceId);

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.distillation.DistillationSignalService;
@@ -61,6 +62,10 @@ class TestBacklogService
     @Test
     void createPersistsAFreshItem()
     {
+        Thread trunk = mock(Thread.class);
+        when(trunk.workspaceId()).thenReturn("ws-1");
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(trunk));
+
         BacklogItem saved = service.create("thread-1", "Add a cost meter", "body text", List.of("ui"), null);
 
         ArgumentCaptor<BacklogItem> captor = ArgumentCaptor.forClass(BacklogItem.class);
@@ -75,7 +80,7 @@ class TestBacklogService
         assertThat(persisted.id()).isNotBlank();
         // A manual create lands at the head of the lifecycle with the default
         // priority when none was supplied.
-        assertThat(persisted.status()).isEqualTo("created");
+        assertThat(persisted.status()).isEqualTo("open");
         assertThat(persisted.source()).isEqualTo("manual");
         assertThat(persisted.createdBy()).isEqualTo("user");
         assertThat(persisted.priority()).isEqualTo("medium");
@@ -151,14 +156,14 @@ class TestBacklogService
     }
 
     @Test
-    void cancelExplorationRestoresAnInProgressItemToCreated()
+    void cancelExplorationRestoresAnInProgressItemToOpen()
     {
         when(store.findById("b1")).thenReturn(
                 Optional.of(item("b1", false, null).markInProgress(NOW)));
 
         BacklogItem restored = service.cancelExploration("b1");
 
-        assertThat(restored.status()).isEqualTo("created");
+        assertThat(restored.status()).isEqualTo("open");
         verify(distillation).record(
                 eq("backlog-cancel-exploration"), eq("b1"), eq("cancelled"), any(), any(), any(), any());
     }
@@ -180,7 +185,7 @@ class TestBacklogService
     }
 
     @Test
-    void createBatchCreatesACrossLinkedTrunkSplitGroup()
+    void createBatchCreatesACrossLinkedAgentGroup()
     {
         List<BacklogService.NewBacklogItem> inputs = List.of(
                 new BacklogService.NewBacklogItem("Clean A", "body a", List.of("ui"), "high"),
@@ -195,9 +200,9 @@ class TestBacklogService
         verify(store, times(2)).save(captor.capture());
         List<BacklogItem> saved = captor.getAllValues();
         assertThat(saved).allSatisfy(it -> {
-            assertThat(it.source()).isEqualTo("trunk-split");
+            assertThat(it.source()).isEqualTo("agent");
             assertThat(it.createdBy()).isEqualTo("trunk-agent");
-            assertThat(it.status()).isEqualTo("created");
+            assertThat(it.status()).isEqualTo("open");
         });
         // Each item references its sibling; priority is carried through.
         assertThat(saved.get(0).relatedBacklogIds()).containsExactly(saved.get(1).id());
@@ -213,13 +218,13 @@ class TestBacklogService
     }
 
     @Test
-    void skipMovesToNotToProceedWithReason()
+    void skipMovesToDiscardedWithReason()
     {
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
 
         BacklogItem skipped = service.skip("b1", "out of scope");
 
-        assertThat(skipped.status()).isEqualTo("not-to-proceed");
+        assertThat(skipped.status()).isEqualTo("discarded");
         assertThat(skipped.rejectionReason()).isEqualTo("out of scope");
         assertThat(skipped.rejectedAt()).isNotNull();
         // The decision is recorded for the distillation log.
@@ -265,14 +270,14 @@ class TestBacklogService
     }
 
     @Test
-    void reviveRestoresANotToProceedItemToCreated()
+    void reviveRestoresADiscardedItemToOpen()
     {
         when(store.findById("b1")).thenReturn(
                 Optional.of(item("b1", false, null).markNotToProceed("nope", NOW)));
 
         BacklogItem revived = service.revive("b1");
 
-        assertThat(revived.status()).isEqualTo("created");
+        assertThat(revived.status()).isEqualTo("open");
         assertThat(revived.rejectionReason()).isNull();
         assertThat(revived.rejectedAt()).isNull();
     }
@@ -295,7 +300,7 @@ class TestBacklogService
         when(store.findByWorkspace("ws")).thenReturn(List.of(a, b));
 
         assertThat(service.listForWorkspace("ws", null, null, null, null)).containsExactly(a, b);
-        assertThat(service.listForWorkspace("ws", "created", null, null, null)).containsExactly(a);
+        assertThat(service.listForWorkspace("ws", "open", null, null, null)).containsExactly(a);
         assertThat(service.listForWorkspace("ws", null, "t2", null, null)).containsExactly(b);
         assertThat(service.listForWorkspace("ws", null, null, "ui", null)).containsExactly(a);
         assertThat(service.listForWorkspace("ws", null, null, null, "parser")).containsExactly(b);

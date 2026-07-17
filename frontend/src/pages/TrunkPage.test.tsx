@@ -13,146 +13,203 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentQuestionDto } from '../types';
+import type { TrunkActivityDto } from '../workspace/workspaceApi';
 import { TrunkPage } from './TrunkPage';
-import type { BacklogItemDto, ThreadSignalDto } from '../types';
 
-function backlog(overrides: Partial<BacklogItemDto> = {}): BacklogItemDto {
+const EMPTY_ACTIVITY: TrunkActivityDto = {
+  trunkId: 't1',
+  pinned: [],
+  timeline: [],
+  generatedAt: 0,
+};
+
+function activity(overrides: Partial<TrunkActivityDto> = {}): TrunkActivityDto {
   return {
-    id: 'b1', threadId: 't1', workspaceId: 'ws-1', title: 'Parked idea', body: 'do the thing',
-    tags: ['ui'], priority: 'medium', source: 'manual', status: 'created', createdBy: 'user',
-    createdAt: 1, inProgressAt: null, startedAt: null, resolvedAt: null, rejectedAt: null,
-    rejectionReason: null, linkedTaskId: null, relatedBacklogIds: [],
+    ...EMPTY_ACTIVITY,
+    generatedAt: 100,
     ...overrides,
   };
 }
 
-const BACKLOG: BacklogItemDto[] = [backlog()];
-const SIGNALS: ThreadSignalDto[] = [
-  { id: 's1', threadId: 't1', taskId: null, sourceKind: 'system', iconKind: 'success', title: 'Pushed branch', body: null, sourceUrl: null, createdAt: 2, readAt: null },
-];
+function question(): AgentQuestionDto {
+  return {
+    id: 'q1',
+    threadId: 't1',
+    taskId: null,
+    question: 'Keep the legacy field order?',
+    context: 'This affects serialized output.',
+    options: [{ id: 'keep', label: 'Keep it', extra: null }],
+    allowFreeForm: true,
+    status: 'open',
+    answerOptionId: null,
+    answerFreeForm: null,
+    createdAt: 1,
+    answeredAt: null,
+  };
+}
 
-function mockBridge(overrides: Record<string, unknown> = {}) {
+function mockBridge({
+  trunkActivity = EMPTY_ACTIVITY,
+  questions = [],
+}: {
+  trunkActivity?: TrunkActivityDto;
+  questions?: AgentQuestionDto[];
+} = {}) {
   const bridge = {
-    listBacklog: vi.fn().mockResolvedValue(BACKLOG),
-    listThreadSignals: vi.fn().mockResolvedValue(SIGNALS),
-    createBacklogItem: vi.fn().mockResolvedValue(BACKLOG[0]),
-    updateBacklogItem: vi.fn().mockResolvedValue(BACKLOG[0]),
-    deleteBacklogItem: vi.fn().mockResolvedValue(undefined),
-    startBacklogDevelopment: vi.fn().mockResolvedValue({ item: { ...BACKLOG[0], startedAt: 5 }, taskId: 'task-9' }),
-    markSignalRead: vi.fn().mockResolvedValue(undefined),
-    ...overrides,
+    listBacklog: vi.fn().mockResolvedValue([]),
+    listThreadSignals: vi.fn().mockResolvedValue([]),
+    listThreadQuestions: vi.fn().mockResolvedValue(questions),
+    workspaceApi: vi.fn().mockResolvedValue(trunkActivity),
+    answerQuestion: vi.fn().mockResolvedValue(undefined),
+    startBacklogDevelopment: vi.fn().mockResolvedValue({ item: null, taskId: null }),
+    skipBacklogItem: vi.fn().mockResolvedValue(undefined),
+    openExternal: vi.fn().mockResolvedValue(undefined),
   };
   (window as unknown as { bridge: unknown }).bridge = bridge;
   return bridge;
 }
 
-function renderTrunk() {
-  return render(
-    <TrunkPage
-      threadId="t1"
-      thread={{ title: 'Backend cleanup', createdLabel: '3d ago' }}
-      sidebar={<aside data-testid="sidebar" />}
-      conversation={<div data-testid="conv">conversation</div>}
-      composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
-      tasks={{
-        active: [{ id: 'ta', title: 'Active task', status: 'foreground' }],
-        closed: [{ id: 'tc', title: 'Closed task', status: 'closed' }],
-      }}
-    />,
-  );
+function renderTrunk(onOpenTask = vi.fn()) {
+  return {
+    onOpenTask,
+    ...render(
+      <TrunkPage
+        threadId="t1"
+        thread={{ title: 'Backend cleanup', createdLabel: '3d ago' }}
+        sidebar={<aside data-testid="sidebar" />}
+        conversation={<div data-testid="conv">conversation</div>}
+        composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
+        tasks={{
+          active: [{ id: 'ta', title: 'Active task', status: 'foreground' }],
+          closed: [{ id: 'tc', title: 'Closed task', status: 'closed' }],
+        }}
+        onOpenTask={onOpenTask}
+      />,
+    ),
+  };
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(window, 'bridge');
+});
 beforeEach(() => { mockBridge(); });
 
 describe('TrunkPage', () => {
-  it('renders the shell, THREAD pill, title, and the Tasks tab by default', async () => {
+  it('renders the trunk shell, conversation, and unified Activity rail', async () => {
     renderTrunk();
+
     expect(screen.getByTestId('sidebar')).toBeTruthy();
     expect(screen.getByTestId('conv')).toBeTruthy();
-    expect(screen.getByText('THREAD')).toBeTruthy();
     expect(screen.getByText('Backend cleanup')).toBeTruthy();
-    // Tasks tab active by default: Active sub-tab only shows unfinished work.
+    expect(screen.getAllByText('Activity').length).toBeGreaterThanOrEqual(1);
     expect(await screen.findByText('Active task')).toBeTruthy();
-    expect(screen.queryByText('Closed task')).toBeNull();
-    expect(screen.getByRole('button', { name: /Active/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Closed/ }));
-    expect(await screen.findByText('Closed task')).toBeTruthy();
+    expect(screen.getByText('Closed task')).toBeTruthy();
   });
 
-  it('loads backlog + signals from the bridge and shows them in their tabs', async () => {
-    const bridge = mockBridge();
-    renderTrunk();
-    await waitFor(() => expect(bridge.listBacklog).toHaveBeenCalledWith('t1'));
-    // "Backlog"/"Notifications" name both the pinned composer chip and the
-    // in-pane tab; either switches the tab, so click the first match.
-    fireEvent.click(screen.getAllByRole('button', { name: /Backlog/ })[0]);
-    expect(await screen.findByText('Parked idea')).toBeTruthy();
-    fireEvent.click(screen.getAllByRole('button', { name: /Notifications/ })[0]);
-    expect(await screen.findByText('Pushed branch')).toBeTruthy();
-  });
-
-  it('Start development on a backlog item calls the bridge', async () => {
-    const bridge = mockBridge();
-    renderTrunk();
-    fireEvent.click(screen.getAllByRole('button', { name: /Backlog/ })[0]);
-    fireEvent.click(await screen.findByRole('button', { name: /Start development/ }));
-    // Start development now opens a confirmation dialog; confirm to dispatch.
-    fireEvent.click(await screen.findByRole('button', { name: /Send to trunk/ }));
-    await waitFor(() => expect(bridge.startBacklogDevelopment).toHaveBeenCalledWith('b1'));
-  });
-
-  it('shows only ready backlog by default and keeps progressed items behind lifecycle subtabs', async () => {
+  it('pins actionable gates above the canonical timeline', async () => {
     mockBridge({
-      listBacklog: vi.fn().mockResolvedValue([
-        backlog({ id: 'ready', title: 'Ready idea', status: 'created' }),
-        backlog({
-          id: 'running', title: 'Trunk is exploring', status: 'in-progress',
-          inProgressAt: 5, startedAt: 5,
-        }),
-        backlog({
-          id: 'resolved', title: 'Task was cut', status: 'resolved',
-          inProgressAt: 4, startedAt: 4, resolvedAt: 6, linkedTaskId: 'task-1',
-        }),
-        backlog({
-          id: 'stopped', title: 'Rejected idea', status: 'not-to-proceed',
-          rejectedAt: 7, rejectionReason: 'not now',
-        }),
-      ]),
+      trunkActivity: activity({
+        pinned: [{
+          id: 'gate:1',
+          kind: 'approval',
+          title: 'Plan ready — 4 steps',
+          summary: 'Awaiting approval',
+          status: 'open',
+          itemPath: '#/workspace/ws-1/sessions/run-1',
+          taskId: null,
+          sessionId: 'run-1',
+          occurredAt: 10,
+          actionable: true,
+        }],
+        timeline: [{
+          id: 'session:1',
+          kind: 'session',
+          title: 'Dev session',
+          summary: 'Writing tests',
+          status: 'running',
+          itemPath: '#/workspace/ws-1/sessions/run-2',
+          taskId: 'task-1',
+          sessionId: 'run-2',
+          occurredAt: 9,
+          actionable: false,
+        }],
+      }),
     });
     renderTrunk();
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Backlog/ })[0]);
-    expect(await screen.findByText('Ready idea')).toBeTruthy();
-    expect(screen.queryByText('Trunk is exploring')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: /In progress/ }));
-    expect(await screen.findByText('Trunk is exploring')).toBeTruthy();
-    expect(screen.queryByText('Dropped')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: /Done \/ stopped/ }));
-    expect(await screen.findByText('Task was cut')).toBeTruthy();
-    expect(screen.getByText('Rejected idea')).toBeTruthy();
-    expect(screen.getByText('Dropped')).toBeTruthy();
+    expect(await screen.findByText('Needs you')).toBeTruthy();
+    expect(screen.getByText('Plan ready — 4 steps')).toBeTruthy();
+    expect(screen.getByText('Dev session')).toBeTruthy();
   });
 
-  it('opening a notification marks it read', async () => {
-    const bridge = mockBridge();
+  it('opens a task outcome from the activity timeline', async () => {
+    mockBridge({
+      trunkActivity: activity({
+        timeline: [{
+          id: 'task:9',
+          kind: 'task',
+          title: 'Tests shipped',
+          summary: null,
+          status: 'done',
+          itemPath: null,
+          taskId: 'task-9',
+          sessionId: null,
+          occurredAt: 9,
+          actionable: false,
+        }],
+      }),
+    });
+    const onOpenTask = vi.fn();
+    renderTrunk(onOpenTask);
+
+    fireEvent.click(await screen.findByText('Tests shipped'));
+    expect(onOpenTask).toHaveBeenCalledWith('task-9');
+  });
+
+  it('keeps unresolved agent questions pinned in the conversation', async () => {
+    const bridge = mockBridge({ questions: [question()] });
     renderTrunk();
-    fireEvent.click(screen.getAllByRole('button', { name: /Notifications/ })[0]);
-    fireEvent.click(await screen.findByText('Pushed branch'));
-    await waitFor(() => expect(bridge.markSignalRead).toHaveBeenCalledWith('s1'));
+
+    expect(await screen.findByText('Keep the legacy field order?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+    await waitFor(() =>
+      expect(bridge.answerQuestion).toHaveBeenCalledWith('q1', 'keep', undefined));
   });
 
-  it('collapsing the right pane surfaces inline chips that reopen a tab', async () => {
+  it('navigates canonical activity deep links', async () => {
+    window.location.hash = '#/home';
+    mockBridge({
+      trunkActivity: activity({
+        timeline: [{
+          id: 'review:4',
+          kind: 'review',
+          title: 'Review round complete',
+          summary: 'Six drafts are ready',
+          status: 'done',
+          itemPath: '#/workspace/ws-1/prs/148',
+          taskId: null,
+          sessionId: null,
+          occurredAt: 9,
+          actionable: false,
+        }],
+      }),
+    });
+    renderTrunk();
+
+    fireEvent.click(await screen.findByText('Review round complete'));
+    expect(window.location.hash).toBe('#/workspace/ws-1/prs/148');
+  });
+
+  it('collapses and reopens the unified activity rail from its inline chip', async () => {
     renderTrunk();
     await screen.findByText('Active task');
-    // Toggle the pane closed.
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle right pane' }));
-    // Inline chips appear; the right-pane tab strip is gone.
-    const backlogChip = await screen.findByRole('button', { name: /Backlog/ });
-    fireEvent.click(backlogChip);
-    // Pane reopens on the Backlog tab.
-    expect(await screen.findByText('Parked idea')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close activity' }));
+    expect(screen.queryByText('Active task')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Activity/ }));
+    expect(await screen.findByText('Active task')).toBeTruthy();
   });
 });

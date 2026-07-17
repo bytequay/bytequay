@@ -49,10 +49,7 @@ function ReposPage({ onSelectRepo }: Props) {
     return () => { cancelled = true; };
   }, []);
 
-  const onMapped = (status: LocalRepoStatusDto) => {
-    setRepos(prev => prev?.map(r =>
-      r.owner === status.owner && r.repo === status.repo ? status : r,
-    ) ?? null);
+  const onStarted = () => {
     setCloneTarget(null);
   };
 
@@ -150,7 +147,7 @@ function ReposPage({ onSelectRepo }: Props) {
           owner={cloneTarget.owner}
           repo={cloneTarget.repo}
           onClose={() => setCloneTarget(null)}
-          onMapped={onMapped}
+          onStarted={onStarted}
         />
       )}
 

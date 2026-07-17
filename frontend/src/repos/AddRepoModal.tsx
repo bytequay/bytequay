@@ -12,16 +12,17 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { LocalRepoStatusDto, ManagedClonePlanDto, ManagedRepoWriteMode } from '../types';
+import type { ManagedClonePlanDto, ManagedRepoWriteMode } from '../types';
+import { workspaceApi, type WorkspaceCreationDto } from '../workspace/workspaceApi';
 
 type Props = {
   owner: string;
   repo: string;
   onClose: () => void;
-  onMapped: (status: LocalRepoStatusDto) => void;
+  onStarted: (operation: WorkspaceCreationDto) => void;
 };
 
-function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
+function AddRepoModal({ owner, repo, onClose, onStarted }: Props) {
   const [plan, setPlan] = useState<ManagedClonePlanDto | null>(null);
   const [writeMode, setWriteMode] = useState<ManagedRepoWriteMode>('FORK');
   const [loading, setLoading] = useState(true);
@@ -55,9 +56,13 @@ function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
     setError(null);
     setCloning(true);
     try {
-      const status = await window.bridge.cloneRepo(owner, repo, writeMode);
-      await window.bridge.ensureWorkspaceForRepo(owner, repo);
-      onMapped(status);
+      const operation = await workspaceApi.createWorkspace(owner, repo, writeMode);
+      onStarted(operation);
+      window.dispatchEvent(new CustomEvent(
+        'bytequay:workspace-creation-started',
+        { detail: operation },
+      ));
+      onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -132,7 +137,7 @@ function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
                 onClick={() => { void submitClone(); }}
                 disabled={cloning || !selectedAvailable}
               >
-                {cloning ? cloneProgressLabel(writeMode) : 'Clone into ByteQuay'}
+                {cloning ? 'Starting…' : 'Clone into ByteQuay'}
               </button>
             </footer>
           </div>
@@ -184,10 +189,6 @@ function WriteModeChoice({
       <div className="add-repo-choice__sub">{detail}</div>
     </button>
   );
-}
-
-function cloneProgressLabel(writeMode: ManagedRepoWriteMode): string {
-  return writeMode === 'FORK' ? 'Preparing fork...' : 'Cloning...';
 }
 
 export default AddRepoModal;

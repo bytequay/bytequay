@@ -13,25 +13,33 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { BacklogItemDto, StartDevelopmentResponse } from '../types';
+import type { WorkspaceApiRequest } from '../types';
 import WorkspaceBacklogPage from './WorkspaceBacklogPage';
+import type {
+  WorkspaceBacklogItemDto,
+  WorkspaceTrunkDto,
+} from './workspaceApi';
 
 afterEach(() => {
   cleanup();
-  delete (window as unknown as { bridge?: unknown }).bridge;
+  Reflect.deleteProperty(window, 'bridge');
 });
 
-function item(over: Partial<BacklogItemDto>): BacklogItemDto {
+function item(overrides: Partial<WorkspaceBacklogItemDto> = {}): WorkspaceBacklogItemDto {
   return {
     id: 'b1',
+    key: 'BQ-1',
     threadId: 't1',
     workspaceId: 'w1',
     title: 'Reply templates',
+    summary: 'Draft from a reusable template',
+    detail: 'Preserve the original long-form proposal.',
+    impactRisk: null,
     body: 'draft from a template',
     tags: ['enhancement'],
     priority: 'low',
     source: 'manual',
-    status: 'created',
+    status: 'open',
     createdBy: 'user',
     createdAt: 0,
     inProgressAt: null,
@@ -41,17 +49,54 @@ function item(over: Partial<BacklogItemDto>): BacklogItemDto {
     rejectionReason: null,
     linkedTaskId: null,
     relatedBacklogIds: [],
-    ...over,
+    links: [{ type: 'trunk', id: 't1' }],
+    ...overrides,
   };
 }
 
+const TRUNKS: WorkspaceTrunkDto[] = [{
+  id: 't1',
+  workspaceId: 'w1',
+  title: 'Backend cleanup',
+  kind: 'dev',
+  status: 'ACTIVE',
+  provider: null,
+  model: null,
+  prRef: null,
+  costUsdMilli: 0,
+  tokensIn: 0,
+  tokensOut: 0,
+  createdAt: 1,
+  updatedAt: 1,
+  endedAt: null,
+}];
+
+function mockBridge(rows: WorkspaceBacklogItemDto[]) {
+  const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
+    if (request.path === '/api/workspaces/w1/backlog') return rows;
+    if (request.path === '/api/workspaces/w1/trunks') return TRUNKS;
+    if (request.path.endsWith('/start')) return { item: rows[0], taskId: 'task-1' };
+    throw new Error(`Unexpected workspace request: ${request.path}`);
+  });
+  (window as unknown as { bridge: unknown }).bridge = { workspaceApi };
+  return workspaceApi;
+}
+
 describe('WorkspaceBacklogPage', () => {
-  it('renders cards with the thread chip, source badge, and status', async () => {
-    const listWorkspaceBacklog = vi.fn(async (): Promise<BacklogItemDto[]> => [
-      item({ id: 'b1', status: 'created', source: 'manual' }),
-      item({ id: 'b2', title: 'Cost rollup', status: 'in-progress', source: 'trunk-split', threadId: 't2' }),
+  it('renders structured items with workspace keys, source, and lifecycle state', async () => {
+    const workspaceApi = mockBridge([
+      item(),
+      item({
+        id: 'b2',
+        key: 'BQ-2',
+        title: 'Cost rollup',
+        summary: 'Aggregate cost by provider',
+        status: 'in-progress',
+        source: 'agent',
+        threadId: 't2',
+        links: [{ type: 'trunk', id: 't2' }],
+      }),
     ]);
-    window.bridge = { listWorkspaceBacklog } as unknown as typeof window.bridge;
 
     render(
       <WorkspaceBacklogPage
@@ -60,38 +105,49 @@ describe('WorkspaceBacklogPage', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByText('Reply templates')).toBeTruthy());
-    expect(screen.getByText('Backend cleanup')).toBeTruthy();
-    expect(screen.getByText('Cost-meter telemetry')).toBeTruthy();
+    expect(await screen.findByText('Reply templates')).toBeTruthy();
+    expect(screen.getByText(/BQ-1/)).toBeTruthy();
     expect(screen.getByText('manual')).toBeTruthy();
-    expect(screen.getByText('trunk-split')).toBeTruthy();
-    // The in-progress item shows the exploring chip, not a Start button.
-    expect(screen.getByText('↗ Trunk exploring')).toBeTruthy();
-    expect(listWorkspaceBacklog).toHaveBeenCalledWith('w1', { status: undefined, q: undefined });
+    expect(screen.getByText('from Cost-meter telemetry')).toBeTruthy();
+    expect(screen.getByText('trunk exploring')).toBeTruthy();
+    expect(workspaceApi).toHaveBeenCalledWith({ path: '/api/workspaces/w1/backlog' });
   });
 
-  it('re-queries with the status filter when a pill is clicked', async () => {
-    const listWorkspaceBacklog = vi.fn(async (): Promise<BacklogItemDto[]> => [item({})]);
-    window.bridge = { listWorkspaceBacklog } as unknown as typeof window.bridge;
-
+  it('filters the loaded workspace backlog without another request', async () => {
+    const workspaceApi = mockBridge([
+      item(),
+      item({
+        id: 'b2',
+        key: 'BQ-2',
+        title: 'Shipped telemetry',
+        summary: 'Done',
+        status: 'resolved',
+      }),
+    ]);
     render(<WorkspaceBacklogPage workspaceId="w1" />);
-    await waitFor(() => expect(screen.getByText('Reply templates')).toBeTruthy());
+    await screen.findByText('Reply templates');
 
-    fireEvent.click(screen.getByText('Resolved'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Resolved' }));
+    expect(screen.queryByText('Reply templates')).toBeNull();
+    expect(screen.getByText('Shipped telemetry')).toBeTruthy();
+    expect(workspaceApi.mock.calls.filter(([request]) =>
+      (request as WorkspaceApiRequest).path === '/api/workspaces/w1/backlog')).toHaveLength(1);
+  });
+
+  it('starts work through the shared trunk picker', async () => {
+    const workspaceApi = mockBridge([item()]);
+    const onOpenThread = vi.fn();
+    render(<WorkspaceBacklogPage workspaceId="w1" onOpenThread={onOpenThread} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start dev →' }));
+    fireEvent.click(screen.getByRole('button', { name: /Backend cleanup/ }));
+
     await waitFor(() =>
-      expect(listWorkspaceBacklog).toHaveBeenCalledWith('w1', { status: 'resolved', q: undefined }));
-  });
-
-  it('starts development on a created item', async () => {
-    const listWorkspaceBacklog = vi.fn(async (): Promise<BacklogItemDto[]> => [item({})]);
-    const startBacklogDevelopment = vi.fn(
-      async (): Promise<StartDevelopmentResponse> => ({ item: item({}), taskId: null }));
-    window.bridge = { listWorkspaceBacklog, startBacklogDevelopment } as unknown as typeof window.bridge;
-
-    render(<WorkspaceBacklogPage workspaceId="w1" />);
-    await waitFor(() => expect(screen.getByText('Start →')).toBeTruthy());
-
-    fireEvent.click(screen.getByText('Start →'));
-    await waitFor(() => expect(startBacklogDevelopment).toHaveBeenCalledWith('b1'));
+      expect(workspaceApi).toHaveBeenCalledWith({
+        path: '/api/workspaces/w1/backlog/BQ-1/start',
+        method: 'POST',
+        body: { trunkId: 't1' },
+      }));
+    expect(onOpenThread).toHaveBeenCalledWith('t1');
   });
 });

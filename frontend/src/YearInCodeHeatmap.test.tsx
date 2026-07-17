@@ -13,7 +13,7 @@
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { invalidate, setCached } from './dataCache';
+import { invalidate } from './dataCache';
 import YearInCodeHeatmap from './YearInCodeHeatmap';
 import type { ContributionCalendarDto } from './types';
 
@@ -32,6 +32,7 @@ const calendar: ContributionCalendarDto = {
 afterEach(() => {
   cleanup();
   invalidate(CACHE_KEY);
+  window.localStorage.removeItem(CACHE_KEY);
   vi.restoreAllMocks();
   Reflect.deleteProperty(window, 'bridge');
 });
@@ -46,8 +47,8 @@ function mockBridge() {
 }
 
 describe('YearInCodeHeatmap', () => {
-  it('uses a fresh cached graph without refreshing GitHub', () => {
-    setCached(CACHE_KEY, calendar);
+  it('uses a fresh stored graph without refreshing GitHub', () => {
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify({ value: calendar, storedAt: Date.now() }));
     const bridge = mockBridge();
 
     render(<YearInCodeHeatmap login={LOGIN} />);
@@ -59,7 +60,7 @@ describe('YearInCodeHeatmap', () => {
   it('keeps the last successful graph visible when stale refresh fails', async () => {
     const now = new Date('2026-07-17T00:00:00Z').getTime();
     const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);
-    setCached(CACHE_KEY, calendar);
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify({ value: calendar, storedAt: now }));
     dateNow.mockReturnValue(now + 8 * 60 * 60 * 1000 + 1);
     mockBridge();
 

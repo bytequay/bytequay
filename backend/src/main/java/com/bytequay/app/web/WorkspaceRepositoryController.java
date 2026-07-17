@@ -1,0 +1,479 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.web;
+
+import com.bytequay.app.beans.backlog.BacklogItemDto;
+import com.bytequay.app.domain.BacklogItem;
+import com.bytequay.app.domain.InvestigationReviewData;
+import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.LocalBranch;
+import com.bytequay.app.domain.LocalCommit;
+import com.bytequay.app.domain.LocalCommitDetail;
+import com.bytequay.app.domain.LocalCommitFile;
+import com.bytequay.app.domain.LocalRepoStatus;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestCommit;
+import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoMeta;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.local.LocalRepoService;
+import com.bytequay.app.service.localpr.PRSyncService;
+import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.review.InvestigationReviewService;
+import com.bytequay.app.service.workspaces.ReviewTrunkLifecycleService;
+import com.bytequay.app.service.workspaces.WorkspaceCherryPickService;
+import com.bytequay.app.service.workspaces.WorkspaceIssueService;
+import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.util.List;
+
+import static java.util.Objects.requireNonNull;
+
+/** Renderer-facing one-repository workspace façades. */
+@RestController
+@RequestMapping("/api/workspaces/{workspaceId}")
+public class WorkspaceRepositoryController
+{
+    private final WorkspaceRepositoryResolver resolver;
+    private final RepoService repos;
+    private final PullRequestService pullRequests;
+    private final PRSyncService prSync;
+    private final InvestigationReviewService reviews;
+    private final LocalRepoService local;
+    private final WorkspaceIssueService issues;
+    private final BacklogService backlog;
+    private final ReviewTrunkLifecycleService reviewTrunks;
+    private final WorkspaceCherryPickService cherryPicks;
+    private final TaskStore tasks;
+    private final ThreadStore trunks;
+
+    public WorkspaceRepositoryController(
+            WorkspaceRepositoryResolver resolver,
+            RepoService repos,
+            PullRequestService pullRequests,
+            PRSyncService prSync,
+            InvestigationReviewService reviews,
+            LocalRepoService local,
+            WorkspaceIssueService issues,
+            BacklogService backlog,
+            ReviewTrunkLifecycleService reviewTrunks,
+            WorkspaceCherryPickService cherryPicks,
+            TaskStore tasks,
+            ThreadStore trunks)
+    {
+        this.resolver = requireNonNull(resolver, "resolver is null");
+        this.repos = requireNonNull(repos, "repos is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.prSync = requireNonNull(prSync, "prSync is null");
+        this.reviews = requireNonNull(reviews, "reviews is null");
+        this.local = requireNonNull(local, "local is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.backlog = requireNonNull(backlog, "backlog is null");
+        this.reviewTrunks = requireNonNull(reviewTrunks, "reviewTrunks is null");
+        this.cherryPicks = requireNonNull(cherryPicks, "cherryPicks is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.trunks = requireNonNull(trunks, "trunks is null");
+    }
+
+    @GetMapping("/repository")
+    public RepositoryDto repository(@PathVariable String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        LocalRepoStatus status = local.listAll().stream()
+                .filter(row -> row.owner().equalsIgnoreCase(repo.owner())
+                        && row.repo().equalsIgnoreCase(repo.repo()))
+                .findFirst()
+                .orElse(LocalRepoStatus.unmapped(repo.owner(), repo.repo()));
+        return new RepositoryDto(repo.fullName(), repo.owner(), repo.repo(),
+                repo.defaultBaseBranch(), status);
+    }
+
+    @GetMapping("/pull-requests")
+    public List<PullRequest> pullRequests(@PathVariable String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        List<PullRequest> result =
+                repos.getRepoPullRequests(repo.owner(), repo.repo());
+        result.forEach(pr -> reviewTrunks.reconcile(workspaceId, pr));
+        return result;
+    }
+
+    @GetMapping("/pull-requests/{number}")
+    public PullRequest pullRequest(
+            @PathVariable String workspaceId,
+            @PathVariable int number)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        PullRequest result =
+                repos.getRepoPullRequest(repo.owner(), repo.repo(), number);
+        reviewTrunks.reconcile(workspaceId, result);
+        return result;
+    }
+
+    @GetMapping("/pull-requests/{number}/detail")
+    public PullRequestDetail pullRequestDetail(
+            @PathVariable String workspaceId,
+            @PathVariable int number)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return pullRequests.getPullRequestDetail(repo.fullName(), number);
+    }
+
+    @GetMapping("/pull-requests/{number}/commits")
+    public List<PullRequestCommit> pullRequestCommits(
+            @PathVariable String workspaceId,
+            @PathVariable int number)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return pullRequests.getPullRequestCommits(repo.fullName(), number);
+    }
+
+    @PostMapping("/pull-requests/{number}/review")
+    public ReviewStartDto review(
+            @PathVariable String workspaceId,
+            @PathVariable int number)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        PR pr = prSync.syncExternalPR(repo.fullName(), number)
+                .orElseThrow(() -> new IllegalStateException(
+                        "pull request is unavailable: " + repo.fullName() + "#" + number));
+        boolean existing = reviews.findByPr(pr.id()).isPresent();
+        InvestigationReviewService.StartOptions options =
+                new InvestigationReviewService.StartOptions(
+                        null, null, workspaceId);
+        InvestigationReviewData review = reviews.start(
+                pr.id(), options);
+        boolean hasLiveRound = review.rounds().stream()
+                .anyMatch(round -> "QUEUED".equals(round.status())
+                        || "RUNNING".equals(round.status()));
+        if (existing && !hasLiveRound) {
+            review = reviews.createRound(
+                    review.review().id(),
+                    "re-review",
+                    List.of(),
+                    options);
+        }
+        InvestigationReviewData.ReviewRoundRow round = review.rounds().stream()
+                .reduce((first, second) -> second)
+                .orElse(null);
+        return new ReviewStartDto(
+                review.review().id(),
+                review.review().ownerThreadId(),
+                round == null ? null : round.id(),
+                round == null ? review.review().status() : round.status());
+    }
+
+    @GetMapping("/issues")
+    public List<RepoIssue> issues(
+            @PathVariable String workspaceId,
+            @RequestParam(defaultValue = "open") String state)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return repos.getRepoIssues(repo.owner(), repo.repo(), state);
+    }
+
+    @GetMapping("/issues/{number}")
+    public IssueDetail issue(
+            @PathVariable String workspaceId,
+            @PathVariable int number)
+    {
+        return issues.readFresh(workspaceId, number);
+    }
+
+    @PostMapping("/issues/{number}/comments")
+    public IssueDetail.Comment comment(
+            @PathVariable String workspaceId,
+            @PathVariable int number,
+            @RequestBody CommentBody body)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return repos.createIssueComment(
+                repo.owner(), repo.repo(), number, body.body());
+    }
+
+    @PatchMapping("/issues/{number}")
+    public IssueDetail setIssueState(
+            @PathVariable String workspaceId,
+            @PathVariable int number,
+            @RequestBody IssueStateBody body)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return repos.setIssueState(
+                repo.owner(), repo.repo(), number, body.state());
+    }
+
+    @PostMapping("/issues/{number}/start")
+    public WorkspaceIssueService.StartIssueResult startIssue(
+            @PathVariable String workspaceId,
+            @PathVariable int number,
+            @RequestBody(required = false) StartIssueBody body)
+    {
+        return issues.start(
+                workspaceId, number, body == null ? null : body.trunkId());
+    }
+
+    @GetMapping("/issues/{number}/trunks")
+    public List<String> issueTrunks(
+            @PathVariable String workspaceId,
+            @PathVariable int number)
+    {
+        return issues.linkedTrunks(workspaceId, number);
+    }
+
+    @PostMapping("/issues/{number}/backlog")
+    public BacklogItemDto addIssueToBacklog(
+            @PathVariable String workspaceId,
+            @PathVariable int number,
+            @RequestBody(required = false) StartIssueBody body)
+    {
+        IssueDetail issue = issues.readFresh(workspaceId, number);
+        String trunkId = issues.linkToTrunk(
+                workspaceId, number, body == null ? null : body.trunkId());
+        return BacklogItemDto.from(backlog.createForWorkspace(
+                workspaceId,
+                trunkId,
+                issue.title(),
+                firstParagraph(issue.body(), issue.title()),
+                issue.body(),
+                null,
+                List.of("issue"),
+                "medium",
+                List.of(new BacklogItem.Link("issue", String.valueOf(number)))));
+    }
+
+    private static String firstParagraph(String body, String fallback)
+    {
+        if (body == null || body.isBlank()) {
+            return fallback;
+        }
+        String stripped = body.strip();
+        int paragraph = stripped.indexOf("\n\n");
+        return paragraph < 0 ? stripped : stripped.substring(0, paragraph).strip();
+    }
+
+    @GetMapping("/branches")
+    public List<BranchDto> branches(@PathVariable String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.listBranches(
+                repo.owner(), repo.repo()).stream()
+                .map(this::branchDto)
+                .toList());
+    }
+
+    @GetMapping("/branches/comparison")
+    public LocalRepoService.BranchComparison compareBranch(
+            @PathVariable String workspaceId,
+            @RequestParam String branch,
+            @RequestParam(required = false) String base)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.compareBranches(
+                repo.owner(), repo.repo(), branch, base));
+    }
+
+    @DeleteMapping("/branches")
+    public List<String> deleteBranches(
+            @PathVariable String workspaceId,
+            @RequestBody DeleteBranchesBody body)
+    {
+        requireNonNull(body, "body is null");
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.deleteBranches(
+                repo.owner(), repo.repo(), body.names(), body.deleteRemote()));
+    }
+
+    @GetMapping("/commits")
+    public List<LocalCommit> commits(
+            @PathVariable String workspaceId,
+            @RequestParam(required = false) String revision,
+            @RequestParam(defaultValue = "100") int limit)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.listCommits(
+                repo.owner(), repo.repo(), revision,
+                Math.min(Math.max(limit, 1), 500)));
+    }
+
+    @GetMapping("/commits/{sha}")
+    public LocalCommitDetail commit(
+            @PathVariable String workspaceId,
+            @PathVariable String sha)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.commitDetail(
+                repo.owner(), repo.repo(), sha));
+    }
+
+    @GetMapping("/commits/{sha}/files")
+    public List<LocalCommitFile> commitFiles(
+            @PathVariable String workspaceId,
+            @PathVariable String sha)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.commitFiles(
+                repo.owner(), repo.repo(), sha));
+    }
+
+    @PostMapping("/commits/cherry-pick")
+    public WorkspaceCherryPickService.CherryPickResult cherryPick(
+            @PathVariable String workspaceId,
+            @RequestBody CherryPickBody body)
+    {
+        requireNonNull(body, "body is null");
+        return interrupted(() -> cherryPicks.cherryPick(
+                workspaceId,
+                body.sourceBranch(),
+                body.targetBranch(),
+                body.shas()));
+    }
+
+    @PostMapping("/refresh")
+    public LocalRepoStatus refresh(@PathVariable String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.fetch(repo.owner(), repo.repo()));
+    }
+
+    @GetMapping("/repository/meta")
+    public RepoMeta meta(@PathVariable String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return repos.getRepoMeta(repo.owner(), repo.repo());
+    }
+
+    private static <T> T interrupted(Interruptible<T> operation)
+    {
+        try {
+            return operation.run();
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            throw new IllegalStateException("git operation interrupted", e);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    private interface Interruptible<T>
+    {
+        T run()
+                throws IOException, InterruptedException;
+    }
+
+    public record RepositoryDto(
+            String fullName,
+            String owner,
+            String repo,
+            String defaultBaseBranch,
+            LocalRepoStatus local) {}
+
+    private BranchDto branchDto(LocalBranch branch)
+    {
+        Task task = tasks.findTaskByBranch(branch.name()).orElse(null);
+        Thread trunk = task == null
+                ? null
+                : trunks.findThreadById(task.threadId()).orElse(null);
+        return new BranchDto(
+                branch.name(),
+                branch.isCurrent(),
+                branch.lastCommitAt(),
+                branch.hasUpstream(),
+                branch.ahead(),
+                branch.behind(),
+                branch.linkedPrNumber(),
+                branch.cleanupReason(),
+                branch.commitCount(),
+                branch.rebasePreview(),
+                branch.remoteOnly(),
+                task == null ? null : task.id(),
+                task == null ? null : task.name(),
+                trunk == null ? null : trunk.id(),
+                trunk == null ? null : trunk.title());
+    }
+
+    public record BranchDto(
+            String name,
+            boolean isCurrent,
+            Instant lastCommitAt,
+            boolean hasUpstream,
+            Integer ahead,
+            Integer behind,
+            Integer linkedPrNumber,
+            LocalBranch.CleanupReason cleanupReason,
+            Integer commitCount,
+            LocalBranch.RebasePreview rebasePreview,
+            boolean remoteOnly,
+            String taskId,
+            String taskTitle,
+            String trunkId,
+            String trunkTitle) {}
+
+    public record CommentBody(String body) {}
+
+    public record IssueStateBody(String state) {}
+
+    public record StartIssueBody(String trunkId) {}
+
+    public record CherryPickBody(
+            String sourceBranch,
+            String targetBranch,
+            List<String> shas) {}
+
+    public record DeleteBranchesBody(
+            List<String> names,
+            boolean deleteRemote) {}
+
+    public record ReviewStartDto(
+            String reviewId,
+            String trunkId,
+            String roundId,
+            String status) {}
+}

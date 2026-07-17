@@ -39,6 +39,8 @@ type Props = {
   /** Navigate into the repo page in-app. {@code prNumber} is honoured by
    *  RepoDetailPage to auto-select that PR after the pulls load. */
   onSelectRepo: (owner: string, repo: string, prNumber?: number) => void;
+  onOpenWorkspacePr?: (workspaceId: string, prNumber: number) => void;
+  onOpenRemoteReview?: (owner: string, repo: string, prNumber: number) => void;
   onGoToMyPrs: () => void;
   /** Set by App.tsx — opens the team detail page for the given id. */
   onOpenTeam?: (teamId: number) => void;
@@ -91,7 +93,16 @@ function formatRelativeTime(iso: string): string {
   return `${Math.round(hrs / 24)} days ago`;
 }
 
-function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTask, onOpenNotifications }: Props) {
+function HomePage({
+  onSelectRepo,
+  onOpenWorkspacePr,
+  onOpenRemoteReview,
+  onGoToMyPrs,
+  onOpenTeam,
+  onGoToTeams,
+  onOpenTask,
+  onOpenNotifications,
+}: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
    *  initialPrNumber), and only fall out to the system browser for
@@ -227,13 +238,17 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams, onOpenTa
       </button>
 
       {/* ── Inbox: app notifications + PRs that need the user ── */}
-      <InboxSection
-        prs={prs}
-        onOpenPr={(owner, repo, prNumber) => onSelectRepo(owner, repo, prNumber)}
-        onOpenTask={onOpenTask}
-        onSeeAll={() => onOpenNotifications?.()}
-        onPrsChanged={v => { setPrs(v); setCached(KEY_PRS, v); }}
-      />
+      <div className="workspace-redesign">
+        <InboxSection
+          prs={prs}
+          onOpenPr={(owner, repo, prNumber) => onSelectRepo(owner, repo, prNumber)}
+          onOpenWorkspacePr={onOpenWorkspacePr}
+          onOpenRemoteReview={onOpenRemoteReview}
+          onOpenTask={onOpenTask}
+          onSeeAll={() => onOpenNotifications?.()}
+          onPrsChanged={v => { setPrs(v); setCached(KEY_PRS, v); }}
+        />
+      </div>
 
       {/* ── Repos you watch ── */}
       <WatchedReposGrid

@@ -11,54 +11,39 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import { Logo } from '../ui/primitives';
-import type { LogoColor } from '../ui/primitives';
-import { logoColorFor, monogram } from '../pages/useWorkspaceNav';
-import { resolveAvatarByRepoName } from '../threads/RepoAvatar';
+import { useState } from 'react';
 import type { WorkspaceCardDto } from '../types';
 
-/** Soft chip tint per logo colour, so a repo's pill chip matches its
- *  Logo badge. Reuses base.css's semantic soft/border tokens where one
- *  already exists (teal/orange/blue); the rest are the same hue as the
- *  matching .v3-logo--* gradient's dark stop (see css/v3.css). */
-const CHIP_STYLE: Record<LogoColor, React.CSSProperties> = {
-  purple: { background: 'rgba(139, 92, 246, 0.1)', color: '#7c3aed', border: '1px solid rgba(139, 92, 246, 0.22)' },
-  teal: { background: 'var(--teal-soft)', color: 'var(--teal)', border: '1px solid var(--teal-border)' },
-  orange: { background: 'var(--orange-soft)', color: 'var(--orange)', border: '1px solid var(--orange-border)' },
-  blue: { background: 'var(--blue-soft)', color: 'var(--blue)', border: '1px solid var(--blue-border)' },
-  pink: { background: 'rgba(219, 39, 119, 0.1)', color: '#db2777', border: '1px solid rgba(219, 39, 119, 0.24)' },
-  slate: { background: 'rgba(71, 85, 105, 0.1)', color: '#475569', border: '1px solid rgba(71, 85, 105, 0.22)' },
-};
+/** Render the repo owner's GitHub avatar on the first paint. The workspace
+ *  summary already carries the owner, so a second metadata lookup only
+ *  caused a coloured-letter flash before the same image appeared. */
+function RepoLogo({ repo, owner }: { repo: string; owner?: string }) {
+  const [failedOwner, setFailedOwner] = useState<string | null>(null);
 
-/** The card's primary-repo icon: the repo's real GitHub owner avatar
- *  when one's resolvable from the tracked local-repo list, falling
- *  back to the generic Logo badge (same as every other repo icon in
- *  the app) while it resolves or when there's no match. */
-function RepoLogo({ repo }: { repo: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    setUrl(null);
-    let cancelled = false;
-    void resolveAvatarByRepoName(repo).then(u => {
-      if (!cancelled) setUrl(u);
-    });
-    return () => { cancelled = true; };
-  }, [repo]);
-
-  if (url) {
+  if (owner !== undefined && owner !== '' && failedOwner !== owner) {
     return (
       <img
-        src={url}
+        src={`https://github.com/${encodeURIComponent(owner)}.png?size=72`}
         alt=""
         title={repo}
         className="workspace-landing-card__repo-avatar"
-        onError={() => setUrl(null)}
+        onError={() => setFailedOwner(owner)}
       />
     );
   }
-  return <Logo initials={monogram(repo)} color={logoColorFor(repo)} size="lg" title={repo} />;
+  return (
+    <span
+      className="workspace-landing-card__repo-fallback"
+      title={repo}
+      aria-label={`${repo} repository`}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6.5A2.5 2.5 0 0 1 4 18.5v-13Z" />
+        <path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20M8 3v13" />
+      </svg>
+    </span>
+  );
 }
 
 type Props = {
@@ -80,74 +65,88 @@ type Props = {
  *  affordance. The whole tile is a button so the keyboard hits it as
  *  one focusable affordance. */
 function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
+  const recentThreads = card.recentActivity ?? [];
+
   if (card.isScratch) {
     return <ScratchCard card={card} onEnter={onEnter} />;
   }
   return (
     <div className="workspace-landing-card-wrap">
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={`workspace-landing-card${isCurrent ? ' workspace-landing-card--current' : ''}`}
       onClick={() => onEnter(card.id)}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onEnter(card.id);
+        }
+      }}
       aria-label={`Enter workspace ${card.name}`}
     >
-      {isCurrent && <span className="workspace-landing-card__strip" aria-hidden />}
       <header className="workspace-landing-card__head">
-        <RepoLogo repo={card.repos[0] ?? card.name} />
+        <RepoLogo repo={card.repos[0] ?? card.name} owner={card.repository?.owner} />
         <div className="workspace-landing-card__heading">
           <div className="workspace-landing-card__name-row">
             <span className="workspace-landing-card__name" title={card.id}>{card.name}</span>
             {isCurrent && (
               <span className="workspace-landing-card__chip">CURRENT</span>
             )}
+            {!isCurrent && card.needsAttentionCount > 0 && (
+              <span className="workspace-landing-card__chip workspace-landing-card__chip--attention">
+                {card.needsAttentionCount} need you
+              </span>
+            )}
           </div>
           <div className="workspace-landing-card__meta">
-            <span
-              className={`workspace-landing-card__live-dot${
-                card.activeThreadCount === 0 ? ' workspace-landing-card__live-dot--idle' : ''}`}
-              aria-hidden
-            />
-            <span>{activeSummary(card.activeThreadCount)}</span>
+            {card.repository?.fullName ?? card.repos[0] ?? card.name}
           </div>
         </div>
       </header>
 
-      {card.repos.length > 0 && (
-        <div className="workspace-landing-card__repos" aria-label="Repos">
-          {card.repos.map(repo => (
-            <span
-              key={repo}
-              className="workspace-landing-card__repo"
-              style={CHIP_STYLE[logoColorFor(repo)]}
-            >
-              {repo}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="workspace-landing-card__stats">
-        <Stat label="threads" value={String(card.activeThreadCount)} />
-        <Stat label="in flight" value={String(card.tasksInFlight)} />
-        <Stat
-          label="today"
-          value={formatSpend(card.spendTodayMilliUsd)}
-          dimWhenZero={card.spendTodayMilliUsd === 0}
+      <div className={`workspace-landing-card__status${
+        card.tasksInFlight === 0 ? ' workspace-landing-card__status--idle' : ''}`}>
+        <span
+          className={`workspace-landing-card__live-dot${
+            card.tasksInFlight === 0 ? ' workspace-landing-card__live-dot--idle' : ''}`}
+          aria-hidden
         />
+        <span>{activeSummary(card)}</span>
+      </div>
+
+      <div className="workspace-landing-card__feed" aria-label="Recent activity">
+        {recentThreads.length === 0 ? (
+          <div className="workspace-landing-card__feed-row workspace-landing-card__feed-row--empty">
+            <span aria-hidden>·</span>
+            <span>No recent activity</span>
+          </div>
+        ) : recentThreads.map(thread => (
+          <div className="workspace-landing-card__feed-row" key={thread.id}>
+            <span
+              className={`workspace-landing-card__feed-mark ${activityTone(thread.title)}`}
+              aria-hidden
+            >
+              <ActivityIcon title={thread.title} />
+            </span>
+            <span className="workspace-landing-card__feed-title">{thread.title}</span>
+            <span className="workspace-landing-card__feed-time">
+              {relativeTime(thread.occurredAt)}
+            </span>
+          </div>
+        ))}
       </div>
 
       <footer className="workspace-landing-card__foot">
-        <span className="workspace-landing-card__edited">
-          edited {relativeTime(card.lastActivityMs)}
-        </span>
-        {card.needsAttentionCount > 0 && (
-          <span className="workspace-landing-card__attention">
-            {card.needsAttentionCount} {pluralize('needs', card.needsAttentionCount)} you
-          </span>
-        )}
+        <FooterBranchIcon />
+        <WorkspaceWorkSummary card={card} isCurrent={isCurrent} />
+        <span className="separator" aria-hidden>·</span>
+        <span>{formatSpend(card.spendTodayMilliUsd)} today</span>
+        <span className="separator" aria-hidden>·</span>
+        <span>{relativeTime(card.lastActivityMs)}</span>
         <span className="workspace-landing-card__enter">Enter →</span>
       </footer>
-    </button>
+    </div>
       {onDelete !== undefined && (
         <button
           type="button"
@@ -156,83 +155,135 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
           title="Delete workspace"
           onClick={() => onDelete(card.id)}
         >
-          ⌫
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 10v7M14 10v7" />
+          </svg>
         </button>
       )}
     </div>
   );
 }
 
-/** Muted card for a scratch workspace. Same outer shape so the grid
- *  reflow doesn't reorder, but no memory strip, dashed border, and
- *  zeroed stats — matches the design's "throwaway" treatment. */
+/** Muted card for a scratch workspace. Kept for compatibility while the
+ *  workspace≡repo migration retires scratch creation from the public UI. */
 function ScratchCard({
   card, onEnter,
 }: { card: WorkspaceCardDto; onEnter: (id: string) => void }) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className="workspace-landing-card workspace-landing-card--scratch"
       onClick={() => onEnter(card.id)}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onEnter(card.id);
+        }
+      }}
       aria-label={`Enter scratch workspace ${card.name}`}
     >
       <header className="workspace-landing-card__head">
-        <span className="workspace-landing-card__avatar--scratch" aria-hidden>
-          —
-        </span>
+        <span className="workspace-landing-card__avatar--scratch" aria-hidden>—</span>
         <div className="workspace-landing-card__heading">
           <div className="workspace-landing-card__name-row">
             <span className="workspace-landing-card__name">{card.name}</span>
           </div>
-          <div className="workspace-landing-card__meta">
-            throwaway · no durable memory
-          </div>
+          <div className="workspace-landing-card__meta">Temporary workspace</div>
         </div>
       </header>
-      <p className="workspace-landing-card__scratch-blurb">
-        One-off exploration lands here. Accrues no project memory and never
-        contaminates a real workspace — promote a thread out if it turns into
-        real work.
-      </p>
-      <div className="workspace-landing-card__stats">
-        <Stat label="threads" value="0" dimWhenZero />
-        <Stat label="tasks" value="0" dimWhenZero />
-        <Stat label="memory" value="—" dimWhenZero />
+      <div className="workspace-landing-card__feed">
+        <div className="workspace-landing-card__feed-row workspace-landing-card__feed-row--empty">
+          <span aria-hidden>·</span>
+          <span>No repository or durable memory</span>
+        </div>
       </div>
       <footer className="workspace-landing-card__foot">
-        <span className="workspace-landing-card__edited">idle</span>
+        <span>idle</span>
         <span className="workspace-landing-card__enter">Enter →</span>
       </footer>
-    </button>
-  );
-}
-
-function Stat({
-  label, value, dimWhenZero,
-}: { label: string; value: string; dimWhenZero?: boolean }) {
-  return (
-    <div
-      className={`workspace-landing-card__stat${
-        dimWhenZero ? ' workspace-landing-card__stat--dim' : ''}`}
-    >
-      <span className="workspace-landing-card__stat-value">{value}</span>
-      <span className="workspace-landing-card__stat-label">{label}</span>
     </div>
   );
 }
 
-function activeSummary(count: number): string {
-  if (count === 0) {
-    return 'no active threads · idle';
+function activeSummary(card: WorkspaceCardDto): string {
+  if (card.tasksInFlight > 0) {
+    if (card.activeThreadCount === 1) {
+      return '1 session running · review sweep';
+    }
+    return `Agent running · ${card.activeThreadCount} ${
+      pluralize('thread', card.activeThreadCount)} active`;
   }
-  return `${count} active ${pluralize('thread', count)} · active now`;
+  if (card.activeThreadCount > 0) {
+    return `${card.activeThreadCount} ${pluralize('thread', card.activeThreadCount)} active`;
+  }
+  return 'Idle · no active threads';
+}
+
+function WorkspaceWorkSummary({
+  card, isCurrent,
+}: { card: WorkspaceCardDto; isCurrent: boolean }) {
+  if (isCurrent) {
+    return (
+      <span>
+        {card.activeThreadCount} PRs ·{' '}
+        <strong className="attention">
+          {card.needsAttentionCount} {pluralize('review', card.needsAttentionCount)}
+        </strong>
+      </span>
+    );
+  }
+  if (card.needsAttentionCount > 0) {
+    return <strong className="attention">{card.needsAttentionCount} to review</strong>;
+  }
+  return <span>{card.activeThreadCount} open</span>;
+}
+
+function FooterBranchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <circle cx="18" cy="18" r="2.6" />
+      <circle cx="6" cy="6" r="2.6" />
+      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+      <path d="M6 9v12" />
+    </svg>
+  );
+}
+
+function ActivityIcon({ title }: { title: string }) {
+  if (title.startsWith('Brain replied')) {
+    return (
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+    );
+  }
+  if (title.includes('RELEASE-BLOCKER')) {
+    return <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><circle className="filled" cx="12" cy="12" r="2.6" /></svg>;
+  }
+  if (title.startsWith('Review round')) {
+    return <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg>;
+  }
+  if (title.startsWith('branch cleanup')) {
+    return <svg viewBox="0 0 24 24"><path d="m6 3 12 0" /><path d="M6 3v18" /><path d="M18 3v18" /></svg>;
+  }
+  if (title.includes('requested your review')) {
+    return (
+      <svg viewBox="0 0 24 24"><circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" /><path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12" /></svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24"><circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" /><path d="M6 21V9a9 9 0 0 0 9 9" /></svg>
+  );
+}
+
+function activityTone(title: string): string {
+  if (title.startsWith('Review round')) return 'success';
+  if (title.includes('requested your review')) return 'attention';
+  if (title.startsWith('Task merged')) return 'purple';
+  return 'muted';
 }
 
 function pluralize(word: string, count: number): string {
-  if (word === 'needs') {
-    // "1 needs you" / "3 need you" — match the design's chip copy.
-    return count === 1 ? 'needs' : 'need';
-  }
   return count === 1 ? word : `${word}s`;
 }
 
@@ -252,7 +303,7 @@ function formatSpend(milliUsd: number): string {
  *  on the narrowest grid cell. */
 function relativeTime(ms: number | null): string {
   if (ms == null) {
-    return 'no activity yet';
+    return 'not touched yet';
   }
   const diff = Date.now() - ms;
   if (diff < 60_000) {
@@ -260,15 +311,15 @@ function relativeTime(ms: number | null): string {
   }
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 60) {
-    return `${minutes}m ago`;
+    return `${minutes}m`;
   }
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return `${hours}h ago`;
+    return `${hours}h`;
   }
   const days = Math.floor(hours / 24);
   if (days < 30) {
-    return `${days}d ago`;
+    return `${days}d`;
   }
   return new Date(ms).toLocaleDateString();
 }

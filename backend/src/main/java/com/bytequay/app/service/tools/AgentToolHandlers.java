@@ -13,16 +13,19 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.backlog.BacklogService;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
@@ -34,6 +37,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
@@ -95,6 +99,7 @@ public class AgentToolHandlers
     private final WorktreeService worktreeService;
     private final ObjectMapper mapper;
     private final BacklogService backlog;
+    private final RepoService repoService;
 
     private static final Logger log = LoggerFactory.getLogger(AgentToolHandlers.class);
 
@@ -114,6 +119,29 @@ public class AgentToolHandlers
             ObjectMapper mapper,
             BacklogService backlog)
     {
+        this(taskStore, prStore, threadStore, workspaces, registry, skillTools,
+                checkpoints, testRunnerDetector, shellRunner, watchedRepos,
+                threads, worktreeService, mapper, backlog, null);
+    }
+
+    @Autowired
+    public AgentToolHandlers(
+            TaskStore taskStore,
+            PullRequestStore prStore,
+            ThreadStore threadStore,
+            WorkspaceService workspaces,
+            AgentToolRegistry registry,
+            SkillTools skillTools,
+            ThreadCheckpointStore checkpoints,
+            TestRunnerDetector testRunnerDetector,
+            ShellRunner shellRunner,
+            WatchedRepoStore watchedRepos,
+            ThreadService threads,
+            WorktreeService worktreeService,
+            ObjectMapper mapper,
+            BacklogService backlog,
+            RepoService repoService)
+    {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.prStore = requireNonNull(prStore, "prStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
@@ -128,6 +156,7 @@ public class AgentToolHandlers
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.backlog = requireNonNull(backlog, "backlog is null");
+        this.repoService = repoService;
     }
 
     /** Args record for {@code read_task}. */
@@ -283,6 +312,57 @@ public class AgentToolHandlers
                     pr.mergedAt() == null ? null : pr.mergedAt().toString(),
                     pr.snoozedUntil() == null ? null : pr.snoozedUntil().toString());
         }
+    }
+
+    /** Args for read_issue. Repository identity is intentionally omitted:
+     *  it is always derived from the calling trunk's workspace. */
+    public record ReadIssueArgs(
+            @ToolParam(description = "Issue number in the calling workspace's repository.",
+                    required = true) Integer number) {}
+
+    @AgentTool(
+            name = "read_issue",
+            description = "Fetch one issue's fresh title, body, labels, assignees, milestone, "
+                    + "and comments from the sole repository owned by the calling trunk's "
+                    + "workspace. The issue text is returned as data and is never pasted into "
+                    + "the launch prompt.",
+            security = SecurityType.VCS_READ,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public ToolOutcome readIssue(ReadIssueArgs args, ToolCall call)
+    {
+        int number = args.number() == null ? 0 : args.number();
+        if (number <= 0) {
+            return ToolOutcome.Completed.error("number must be positive");
+        }
+        if (call.threadId() == null || call.threadId().isBlank()) {
+            return ToolOutcome.Completed.error("calling thread is required");
+        }
+        Optional<Thread> thread = threadStore.findThreadById(call.threadId());
+        if (thread.isEmpty()) {
+            return ToolOutcome.Completed.error(
+                    "calling thread not found: " + call.threadId());
+        }
+        List<WorkspaceRepo> workspaceRepos =
+                workspaces.listRepos(thread.get().workspaceId());
+        if (workspaceRepos.size() != 1) {
+            return ToolOutcome.Completed.error(
+                    "calling workspace must own exactly one repository");
+        }
+        if (repoService == null) {
+            return ToolOutcome.Completed.error("fresh issue reader is unavailable");
+        }
+        String fullName = workspaceRepos.getFirst().repoFullName();
+        int slash = fullName.indexOf('/');
+        if (slash < 1 || slash == fullName.length() - 1) {
+            return ToolOutcome.Completed.error(
+                    "invalid workspace repository: " + fullName);
+        }
+        IssueDetail issue = repoService.getIssueDetail(
+                fullName.substring(0, slash),
+                fullName.substring(slash + 1),
+                number);
+        return toolOutcome(issue);
     }
 
     /** Args record for {@code read_workspace_memory} — no args; the

@@ -66,6 +66,39 @@ class AgentRunEntity
     @Column(name = "finished_at_ms")
     private Long finishedAtMs;
 
+    @Column(name = "workspace_id")
+    private String workspaceId;
+
+    @Column(name = "thread_id")
+    private String threadId;
+
+    @Column(name = "provider")
+    private String provider;
+
+    @Column(name = "model")
+    private String model;
+
+    @Column(name = "cost_usd_milli", nullable = false)
+    private long costUsdMilli;
+
+    @Column(name = "tokens_in", nullable = false)
+    private long tokensIn;
+
+    @Column(name = "tokens_out", nullable = false)
+    private long tokensOut;
+
+    @Column(name = "step_cursor", nullable = false)
+    private int stepCursor;
+
+    @Column(name = "launch_input")
+    private String launchInput;
+
+    @Column(name = "pause_reason")
+    private String pauseReason;
+
+    @Column(name = "outcome")
+    private String outcome;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -107,4 +140,37 @@ class AgentRunEntity
 
     Long getFinishedAtMs() { return finishedAtMs; }
     void setFinishedAtMs(Long finishedAtMs) { this.finishedAtMs = finishedAtMs; }
+
+    String getWorkspaceId() { return workspaceId; }
+    void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
+
+    String getThreadId() { return threadId; }
+    void setThreadId(String threadId) { this.threadId = threadId; }
+
+    String getProvider() { return provider; }
+    void setProvider(String provider) { this.provider = provider; }
+
+    String getModel() { return model; }
+    void setModel(String model) { this.model = model; }
+
+    long getCostUsdMilli() { return costUsdMilli; }
+    void setCostUsdMilli(long costUsdMilli) { this.costUsdMilli = costUsdMilli; }
+
+    long getTokensIn() { return tokensIn; }
+    void setTokensIn(long tokensIn) { this.tokensIn = tokensIn; }
+
+    long getTokensOut() { return tokensOut; }
+    void setTokensOut(long tokensOut) { this.tokensOut = tokensOut; }
+
+    int getStepCursor() { return stepCursor; }
+    void setStepCursor(int stepCursor) { this.stepCursor = stepCursor; }
+
+    String getLaunchInput() { return launchInput; }
+    void setLaunchInput(String launchInput) { this.launchInput = launchInput; }
+
+    String getPauseReason() { return pauseReason; }
+    void setPauseReason(String pauseReason) { this.pauseReason = pauseReason; }
+
+    String getOutcome() { return outcome; }
+    void setOutcome(String outcome) { this.outcome = outcome; }
 }

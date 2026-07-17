@@ -96,7 +96,10 @@ public record Thread(
          *  brain answers questions about (V122). Null for every other
          *  thread. A partial unique index enforces one brain thread per
          *  task. Entity-managed; the store maps it on INSERT. */
-        String parentTaskId)
+        String parentTaskId,
+        /** Public review-trunk identity, e.g. owner/repo#123. Null for dev
+         *  trunks and old unlinked review history. */
+        String prRef)
 {
     /** parallelSlots floors at 1. */
     public Thread
@@ -104,6 +107,35 @@ public record Thread(
         if (parallelSlots < 1) {
             parallelSlots = 1;
         }
+    }
+
+    /** Back-compat shape predating review-trunk PR ownership. */
+    public Thread(
+            String id,
+            ThreadKind kind,
+            String provider,
+            String agentSessionId,
+            String title,
+            ThreadStatus status,
+            String model,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant endedAt,
+            String errorMessage,
+            ThreadFlow flow,
+            String workspaceId,
+            WorkModel workModel,
+            String parentReviewPassId,
+            int parallelSlots,
+            String parentTaskId)
+    {
+        this(id, kind, provider, agentSessionId, title, status, model,
+                costUsdMilli, tokensIn, tokensOut, createdAt, updatedAt,
+                endedAt, errorMessage, flow, workspaceId, workModel,
+                parentReviewPassId, parallelSlots, parentTaskId, null);
     }
 
     /** Back-compat constructor for the shape that predates the
@@ -134,7 +166,7 @@ public record Thread(
     {
         this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
                 tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
-                workspaceId, workModel, parentReviewPassId, parallelSlots, null);
+                workspaceId, workModel, parentReviewPassId, parallelSlots, null, null);
     }
 
     /** Thread with a review-pass parent but the default single slot —
@@ -161,7 +193,7 @@ public record Thread(
     {
         this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
                 tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
-                workspaceId, workModel, parentReviewPassId, 1, null);
+                workspaceId, workModel, parentReviewPassId, 1, null, null);
     }
 
     /** Thread with no review-pass parent — the default for every
@@ -188,6 +220,6 @@ public record Thread(
     {
         this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
                 tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
-                workspaceId, workModel, null);
+                workspaceId, workModel, null, 1, null, null);
     }
 }

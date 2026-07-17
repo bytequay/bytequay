@@ -20,18 +20,27 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.WorkspaceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 
 /**
  * Regression coverage for the trunk-altitude session routing in
@@ -55,19 +64,33 @@ class TestThreadServiceTrunkSession
     private ThreadRegistry registry;
     @Autowired
     private WatchedRepoStore watchedRepos;
+    @Autowired
+    private WorkspaceStore workspaces;
+    @MockitoBean
+    private WorktreeService worktrees;
+
+    @TempDir
+    private Path cloneRoot;
 
     @BeforeEach
-    void clearWatchedRepos()
+    void linkVerifiedWorkspaceClone()
     {
-        // These fixtures use a workspace with no pinned repo, so trunk-cwd
-        // resolution should fall back to the tmpdir (no planning worktree).
-        // The @SpringBootTest context (and its SQLite file) is cached and
-        // shared, so a repo left behind by another suite would otherwise be
-        // picked as the global fallback clone root and fail to produce a
-        // planning worktree ("planning snapshot unavailable").
         for (WatchedRepo repo : watchedRepos.findAll()) {
             watchedRepos.remove(repo.owner(), repo.repo());
         }
+        watchedRepos.add("octocat", "auto-fix-fixture");
+        watchedRepos.setLocalClonePath(
+                "octocat", "auto-fix-fixture", cloneRoot.toString());
+        workspaces.addRepo(new WorkspaceRepo(
+                "ws-default", "octocat/auto-fix-fixture",
+                "main", false, Instant.now()));
+        when(worktrees.refreshPlanningWorktree(
+                eq(cloneRoot.toAbsolutePath().normalize()), any()))
+                .thenAnswer(invocation -> Optional.of(
+                        new WorktreeService.PlanningSync(
+                                cloneRoot,
+                                "origin/main",
+                                "fixture-base")));
     }
 
     @Test

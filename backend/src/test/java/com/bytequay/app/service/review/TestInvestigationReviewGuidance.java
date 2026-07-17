@@ -569,6 +569,12 @@ class TestInvestigationReviewGuidance
         }
 
         @Override
+        public Snapshot load(PR pr, boolean allowWorkspaceSource)
+        {
+            return load(pr);
+        }
+
+        @Override
         public String headCommit(PR pr)
         {
             return "new-head";

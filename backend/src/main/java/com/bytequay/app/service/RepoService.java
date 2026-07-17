@@ -132,12 +132,9 @@ public class RepoService
 
     /**
      * Last-12-months contribution heatmap for {@code login}, sourced from
-     * GitHub's GraphQL contribution calendar. The repository layer
-     * already swallows GraphQL failures into an empty calendar (since
-     * the home card can render a blank grid without breaking the page),
-     * so this method is a thin pass-through. {@code login} is required —
-     * GraphQL needs an explicit user, there's no "viewer" shorthand for
-     * contribution data.
+     * GitHub's GraphQL contribution calendar. {@code login} is required
+     * — GraphQL needs an explicit user, there's no "viewer" shorthand
+     * for contribution data.
      */
     public ContributionCalendar getContributionCalendar(String login)
     {

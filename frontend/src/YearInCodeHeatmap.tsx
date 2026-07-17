@@ -14,13 +14,14 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContributionCalendarDto, ContributionDayDto, UserCommitDto } from './types';
-import { getCached, setCached } from './dataCache';
+import { getCached, getCachedFresh, setCached } from './dataCache';
 
 const CELL = 12;
 const GAP = 2;
 const STRIDE = CELL + GAP;
 const ROW_PAD = 18;
 const COL_PAD = 28;
+const CONTRIBUTION_CACHE_TTL_MS = 8 * 60 * 60 * 1000;
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -77,6 +78,8 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
   const [data, setData] = useState<ContributionCalendarDto | null>(
     () => getCached<ContributionCalendarDto>(cacheKey(login)) ?? null,
   );
+  const [loadError, setLoadError] = useState(false);
+  const [refreshCount, setRefreshCount] = useState(0);
   // Hovered cell + cursor position for the custom tooltip. clientX/Y
   // pair with position:fixed CSS so we don't have to map SVG coords
   // back into DOM space when the heatmap is laid out fluidly.
@@ -131,17 +134,36 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    setLoadError(false);
+    const key = cacheKey(login);
+    if (refreshCount === 0 && getCachedFresh<ContributionCalendarDto>(key, CONTRIBUTION_CACHE_TTL_MS)) return;
     void window.bridge.getContributionCalendar(login)
       .then((c) => {
         if (cancelled) return;
+        if (c.weeks.length === 0) {
+          setLoadError(true);
+          return;
+        }
         setData(c);
-        setCached(cacheKey(login), c);
+        setCached(key, c);
       })
-      .catch(() => { /* non-fatal — leave any cached data visible */ });
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      });
     return () => { cancelled = true; };
-  }, [login]);
+  }, [login, refreshCount]);
+
+  const retry = () => setRefreshCount(count => count + 1);
 
   if (!data) {
+    if (loadError) {
+      return (
+        <div className="home-heatmap home-heatmap--empty home-heatmap--error">
+          <span>Contributions temporarily unavailable.</span>
+          <button type="button" className="home-heatmap__retry" onClick={retry}>Retry</button>
+        </div>
+      );
+    }
     return <div className="home-heatmap home-heatmap--loading" aria-hidden="true" />;
   }
 
@@ -157,8 +179,9 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
   // height. Bail to a placeholder instead.
   if (weekCount === 0) {
     return (
-      <div className="home-heatmap home-heatmap--empty">
-        No contributions in the last year.
+      <div className="home-heatmap home-heatmap--empty home-heatmap--error">
+        <span>Contributions temporarily unavailable.</span>
+        <button type="button" className="home-heatmap__retry" onClick={retry}>Retry</button>
       </div>
     );
   }
@@ -190,6 +213,12 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
 
   return (
     <div className="home-heatmap">
+      {loadError && (
+        <div className="home-heatmap__status">
+          <span>Contribution refresh failed. Showing the last successful graph.</span>
+          <button type="button" className="home-heatmap__retry" onClick={retry}>Retry</button>
+        </div>
+      )}
       <svg
         className="home-heatmap__svg"
         role="img"

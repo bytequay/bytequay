@@ -44,11 +44,18 @@ interface ThreadJpaRepository
      *  workspace row is dropped. */
     List<ThreadEntity> findByWorkspaceId(String workspaceId);
 
+    Optional<ThreadEntity> findFirstByWorkspaceIdAndPrRef(
+            String workspaceId, String prRef);
+
     /** Pulls every thread whose {@code updated_at_ms} lands at or
      *  after the supplied bound, ordered most-recent-first.
      *  Workspace Insights uses this to roll up spend / counts over
      *  a 24h / 7d / 30d window without slurping the whole table. */
     List<ThreadEntity> findByUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(long sinceMs);
+
+    List<ThreadEntity> findByWorkspaceIdAndUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(
+            String workspaceId,
+            long sinceMs);
 
     /** The brain thread bound to a task, if one exists. The partial
      *  unique index guarantees at most one BRAIN_AGENT thread per task. */

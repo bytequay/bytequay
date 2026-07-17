@@ -39,4 +39,9 @@ public enum NotificationKind
      *  ready state (de-duped on the task), re-armed if a condition breaks.
      *  Click → the PR. */
     READY_TO_MERGE,
+
+    /** Informational activity migrated from the former ThreadSignal feed.
+     *  Unlike approval gates and agent questions, passive rows may be hidden
+     *  by a workspace mute rule. */
+    PASSIVE,
 }

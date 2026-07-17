@@ -17,6 +17,7 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.StageStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +57,18 @@ class AgentRunServiceImpl
     public Optional<AgentRun> findById(String runId)
     {
         return store.findById(runId);
+    }
+
+    @Override
+    public List<AgentRun> findByWorkspace(String workspaceId)
+    {
+        return store.findByWorkspace(workspaceId);
+    }
+
+    @Override
+    public List<AgentRun> findByThread(String threadId)
+    {
+        return store.findByThread(threadId);
     }
 
     @Override
@@ -152,6 +165,63 @@ class AgentRunServiceImpl
     }
 
     @Override
+    public AgentRun openSchedulerSession(
+            Thread thread, String taskId, String stageId, String kind, String launchInput)
+    {
+        requireNonNull(thread, "thread is null");
+        requireText(kind, "kind");
+        requireText(launchInput, "launchInput");
+        if (taskId != null && !taskId.isBlank()) {
+            Optional<AgentRun> existing = store.findByTask(taskId, kind, stageId).stream()
+                    .filter(run -> Objects.equals(stageId, run.stageId()))
+                    .findFirst();
+            if (existing.isPresent()) {
+                AgentRun run = existing.get().isLive()
+                        ? existing.get()
+                        : store.save(existing.get().requeued());
+                if (run.workspaceId() == null || run.threadId() == null) {
+                    run = store.save(run.withOwnership(
+                            thread.workspaceId(), thread.id(), thread.provider(),
+                            thread.model(), run.launchInput() == null ? launchInput : run.launchInput()));
+                }
+                return run;
+            }
+        }
+        AgentRun run = new AgentRun(
+                UUID.randomUUID().toString(),
+                taskId,
+                kind,
+                AgentRun.SOURCE_SCHEDULED,
+                stageId,
+                null,
+                stageId,
+                AgentRun.STATUS_QUEUED,
+                0,
+                null,
+                null,
+                null,
+                now(),
+                null)
+                .withOwnership(
+                        thread.workspaceId(), thread.id(), thread.provider(),
+                        thread.model(), launchInput);
+        return store.save(run);
+    }
+
+    @Override
+    public AgentRun attachOwnership(
+            String runId, String workspaceId, String threadId,
+            String provider, String model, String launchInput)
+    {
+        requireText(runId, "runId");
+        requireText(workspaceId, "workspaceId");
+        requireText(threadId, "threadId");
+        requireText(launchInput, "launchInput");
+        return store.save(require(runId).withOwnership(
+                workspaceId, threadId, provider, model, launchInput));
+    }
+
+    @Override
     public AgentRun recordIteration(String runId, String headlineOrNull)
     {
         AgentRun run = require(runId);
@@ -179,10 +249,75 @@ class AgentRunServiceImpl
     }
 
     @Override
+    public AgentRun updateAccounting(
+            String runId, long costUsdMilli, long tokensIn, long tokensOut, int stepCursor)
+    {
+        return store.save(require(runId).withAccounting(
+                costUsdMilli, tokensIn, tokensOut, stepCursor));
+    }
+
+    @Override
+    public AgentRun pause(String runId, String reason)
+    {
+        AgentRun run = require(runId);
+        if (!run.isLive()) {
+            return run;
+        }
+        return store.save(run.paused(reason == null ? "paused by user" : reason));
+    }
+
+    @Override
+    public AgentRun resume(String runId)
+    {
+        AgentRun run = require(runId);
+        if (!AgentRun.STATUS_PAUSED.equals(run.status())) {
+            return run;
+        }
+        return store.save(run.requeued());
+    }
+
+    @Override
+    public AgentRun restart(String runId)
+    {
+        AgentRun prior = require(runId);
+        AgentRun restarted = new AgentRun(
+                UUID.randomUUID().toString(),
+                prior.taskId(),
+                prior.kind(),
+                prior.source(),
+                prior.parentStageId(),
+                prior.reviewRoundId(),
+                prior.stageId(),
+                AgentRun.STATUS_QUEUED,
+                0,
+                prior.budget(),
+                prior.headline(),
+                null,
+                now(),
+                null,
+                prior.workspaceId(),
+                prior.threadId(),
+                prior.provider(),
+                prior.model(),
+                0L,
+                0L,
+                0L,
+                0,
+                prior.launchInput(),
+                null,
+                null);
+        return store.save(restarted);
+    }
+
+    @Override
     public synchronized AgentRun transition(String runId, String status, String reason)
     {
         AgentRun run = require(runId);
         if (!run.isLive()) {
+            return run;
+        }
+        if (AgentRun.STATUS_PAUSED.equals(run.status())
+                && !AgentRun.STATUS_CANCELLED.equals(status)) {
             return run;
         }
         AgentRun updated = store.save(run.withStatus(status, now()));

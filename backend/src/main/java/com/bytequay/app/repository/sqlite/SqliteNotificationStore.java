@@ -51,6 +51,12 @@ class SqliteNotificationStore
         entity.setPayloadJson(notification.payloadJson() == null ? "{}" : notification.payloadJson());
         entity.setCreatedAtMs(notification.createdAt().toEpochMilli());
         entity.setReadAtMs(Timestamps.epochMilli(notification.readAt()));
+        entity.setWorkspaceId(notification.workspaceId());
+        entity.setPublicType(notification.publicType());
+        entity.setTitle(notification.title());
+        entity.setSummary(notification.summary());
+        entity.setItemPath(notification.itemPath());
+        entity.setDedupKey(notification.dedupKey());
         notifications.save(entity);
     }
 
@@ -123,6 +129,30 @@ class SqliteNotificationStore
     }
 
     @Override
+    public List<Notification> listForWorkspace(String workspaceId, int limit)
+    {
+        return notifications.findByWorkspaceIdOrderByCreatedAtMsDesc(
+                        workspaceId, firstPage(limit))
+                .stream()
+                .map(SqliteNotificationStore::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public int markAllReadForWorkspace(String workspaceId, long readAtMs)
+    {
+        return notifications.markAllReadForWorkspace(workspaceId, readAtMs);
+    }
+
+    @Override
+    public Optional<Notification> findByDedupKey(String dedupKey)
+    {
+        return notifications.findByDedupKey(dedupKey)
+                .map(SqliteNotificationStore::toDomain);
+    }
+
+    @Override
     @Transactional
     public void delete(String id)
     {
@@ -139,6 +169,12 @@ class SqliteNotificationStore
                 NotificationStatus.valueOf(e.getStatus()),
                 e.getPayloadJson(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                Timestamps.instant(e.getReadAtMs()));
+                Timestamps.instant(e.getReadAtMs()),
+                e.getWorkspaceId(),
+                e.getPublicType(),
+                e.getTitle(),
+                e.getSummary(),
+                e.getItemPath(),
+                e.getDedupKey());
     }
 }

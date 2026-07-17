@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { AgentQuestionDto, BacklogItemDto, ThreadSignalDto } from '../types';
+import type { TrunkActivityDto } from '../workspace/workspaceApi';
 
 /** Poll cadence so the trunk pane reflects live agent activity (a backlog
  *  item flipping in-progress, a new ask_user_question, a triage batch). */
@@ -25,6 +26,7 @@ export type TrunkPaneState = {
   backlog: BacklogItemDto[];
   signals: ThreadSignalDto[];
   questions: AgentQuestionDto[];
+  activity: TrunkActivityDto;
   loading: boolean;
   error: string | null;
   refresh: () => void;
@@ -47,6 +49,12 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
   const [backlog, setBacklog] = useState<BacklogItemDto[]>([]);
   const [signals, setSignals] = useState<ThreadSignalDto[]>([]);
   const [questions, setQuestions] = useState<AgentQuestionDto[]>([]);
+  const [activity, setActivity] = useState<TrunkActivityDto>({
+    trunkId: threadId,
+    pinned: [],
+    timeline: [],
+    generatedAt: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,14 +65,23 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
       return;
     }
     try {
-      const [b, s, q] = await Promise.all([
+      const [b, s, q, a] = await Promise.all([
         bridge.listBacklog(threadId),
         bridge.listThreadSignals(threadId),
         bridge.listThreadQuestions?.(threadId) ?? Promise.resolve([]),
+        bridge.workspaceApi?.<TrunkActivityDto>({
+          path: `/api/trunks/${encodeURIComponent(threadId)}/activity`,
+        }) ?? Promise.resolve({
+          trunkId: threadId,
+          pinned: [],
+          timeline: [],
+          generatedAt: 0,
+        }),
       ]);
       setBacklog(b);
       setSignals(s);
       setQuestions(q);
+      setActivity(a);
       setError(null);
     }
     catch (e) {
@@ -136,7 +153,7 @@ export function useTrunkPane(threadId: string): TrunkPaneState {
   }, [load]);
 
   return {
-    backlog, signals, questions, loading, error, refresh,
+    backlog, signals, questions, activity, loading, error, refresh,
     createItem, updateItem, deleteItem, startDevelopment, skip, revive, answerQuestion, markSignalRead,
   };
 }

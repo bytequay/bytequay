@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
@@ -38,6 +39,7 @@ import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.stage.AgentContextDigest;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
@@ -104,6 +106,9 @@ public class ThreadRegistry
     private final ExecutorService executor;
     private final CheckpointTrigger checkpointTrigger;
     private final Function<Thread, String> workspaceMemoryProvider;
+    /** Production-only audience-filtered brain + KB read path. Legacy tests
+     *  keep using workspaceMemoryProvider directly. */
+    private SessionKnowledgeProvider sessionKnowledge;
     /** Resolves the skills the CLI lane materializes for each session.
      *  May be null on legacy / test paths that don't care about skill
      *  materialization. */
@@ -172,6 +177,7 @@ public class ThreadRegistry
             McpPermissionGate gate,
             CheckpointTrigger checkpointTrigger,
             WorkspaceService workspaces,
+            SessionKnowledgeProvider sessionKnowledge,
             WorktreeLeaseService leaseService,
             WatchedRepoStore watchedRepos,
             WorktreeService worktreeService,
@@ -205,6 +211,8 @@ public class ThreadRegistry
                 ds4Instrumentation,
                 contextDigest,
                 codeGraph);
+        this.sessionKnowledge = requireNonNull(
+                sessionKnowledge, "sessionKnowledge is null");
     }
 
     /**
@@ -710,12 +718,12 @@ public class ThreadRegistry
             case CLI_AGENT -> isCodex(thread)
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemorySupplier(thread),
+                            workspaceMemorySupplier(thread, stageAudience(thread, stageId)),
                             resolveTaskRoleSkill(boundTask),
                             boundTask, cliModelOverride(resolved))
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemorySupplier(thread), skillMaterializer,
+                            workspaceMemorySupplier(thread, stageAudience(thread, stageId)), skillMaterializer,
                             resolveTaskRoleSkill(boundTask),
                             boundTask, cliModelOverride(resolved));
             case LOGIC_LOOP -> {
@@ -725,7 +733,10 @@ public class ThreadRegistry
                 yield new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
                         credentialService, resolved, workingDir,
-                        resolveTaskRoleSkill(boundTask), toolRegistry,
+                        roleWithKnowledge(
+                                resolveTaskRoleSkill(boundTask), thread,
+                                stageAudience(thread, stageId)),
+                        toolRegistry,
                         ds4, ds4Instrumentation, gate);
             }
             case BRAIN_AGENT -> buildBrain(thread);
@@ -783,14 +794,14 @@ public class ThreadRegistry
                 AbstractCliThreadAgent agent = isCodex(thread)
                         ? new CodexCliThreadAgent(
                                 thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemorySupplier(thread),
+                                workspaceMemorySupplier(thread, trunkAudience(thread)),
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                                 initialCwd,
                                 CodexCliThreadAgent.TrunkMode.ENABLED,
                                 PLANNING_REASONING_EFFORT)
                         : new ClaudeCodeCliThreadAgent(
                                 thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemorySupplier(thread), skillMaterializer,
+                                workspaceMemorySupplier(thread, trunkAudience(thread)), skillMaterializer,
                                 roleSkillService == null ? null : roleSkillService.trunkTemplate(),
                                 initialCwd,
                                 ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
@@ -806,7 +817,9 @@ public class ThreadRegistry
                 LogicLoopThreadAgent agent = new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
-                        roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                        roleWithKnowledge(
+                                roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                                thread, trunkAudience(thread)),
                         toolRegistry, ds4, ds4Instrumentation, gate);
                 agent.setPreTurnHook(() -> {
                     String ready = trunkCwdResolver.apply(thread);
@@ -843,7 +856,7 @@ public class ThreadRegistry
             // to the brain allowlist by the MCP server (ThreadKind=BRAIN_AGENT).
             return withManagedSkillBundle(new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemorySupplier(thread), skillMaterializer,
+                    workspaceMemorySupplier(thread, "plan"), skillMaterializer,
                     brainSystemPrompt(thread), workingDir,
                     ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
                     PLANNING_REASONING_EFFORT));
@@ -851,13 +864,67 @@ public class ThreadRegistry
         return withManagedSkillBundle(new LogicLoopThreadAgent(
                 thread, store, mapper, executor,
                 credentialService, resolved, workingDir,
-                brainSystemPrompt(thread), toolRegistry,
+                roleWithKnowledge(brainSystemPrompt(thread), thread, "plan"),
+                toolRegistry,
                 ds4, ds4Instrumentation, gate));
     }
 
-    private Supplier<String> workspaceMemorySupplier(Thread thread)
+    private Supplier<String> workspaceMemorySupplier(Thread thread, String audience)
     {
+        if (sessionKnowledge != null) {
+            return () -> sessionKnowledge.render(thread.workspaceId(), audience);
+        }
         return () -> workspaceMemoryProvider.apply(thread);
+    }
+
+    private String roleWithKnowledge(String role, Thread thread, String audience)
+    {
+        if (sessionKnowledge == null) {
+            return role;
+        }
+        String context = sessionKnowledge.render(thread.workspaceId(), audience);
+        if (context.isBlank()) {
+            return role;
+        }
+        if (role == null || role.isBlank()) {
+            return "# Workspace memory and knowledge\n\n" + context;
+        }
+        return role.strip() + "\n\n# Workspace memory and knowledge\n\n" + context;
+    }
+
+    private String trunkAudience(Thread thread)
+    {
+        return thread.flow() == ThreadFlow.REVIEW
+                ? "review"
+                : "plan";
+    }
+
+    private String stageAudience(Thread thread, String stageId)
+    {
+        if (thread.flow() == ThreadFlow.REVIEW) {
+            return "review";
+        }
+        if (stageStore == null || stageId == null || stageId.isBlank()) {
+            return "dev";
+        }
+        try {
+            StageType type = stageStore.findStageById(UUID.fromString(stageId))
+                    .map(stage -> stage.type())
+                    .orElse(null);
+            if (type == StageType.CI_FIXING_STAGE) {
+                return "ci-fix";
+            }
+            if (type == StageType.PLAN_STAGE) {
+                return "plan";
+            }
+            if (type == StageType.REVIEW_STAGE || type == StageType.REVIEW_ROUND_STAGE) {
+                return "review";
+            }
+        }
+        catch (IllegalArgumentException ignored) {
+            // A legacy non-UUID stage key is ordinary development work.
+        }
+        return "dev";
     }
 
     /**

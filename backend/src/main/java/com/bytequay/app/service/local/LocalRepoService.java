@@ -93,6 +93,10 @@ public class LocalRepoService
             WriteMode defaultWriteMode,
             String destination) {}
 
+    public record PreparedClone(
+            Path path,
+            String upstreamRemoteName) {}
+
     private final WatchedRepoStore watchedRepoStore;
     private final GitRunner gitRunner;
     private final PullRequestRepository gitHub;
@@ -255,10 +259,128 @@ public class LocalRepoService
         if (existing.isPresent()
                 && existing.get().localClonePath() != null
                 && Files.isDirectory(Path.of(existing.get().localClonePath()))) {
-            return statusOf(existing.get());
+            LocalRepoStatus status = statusOf(existing.get());
+            if (status.state() == LocalRepoStatus.State.CLEAN
+                    || status.state() == LocalRepoStatus.State.MODIFIED) {
+                return status;
+            }
         }
-        requireEmptyDestination(destination);
+        PreparedClone prepared = recoverPreparedClone(
+                owner, repo, mode, destination)
+                .orElse(null);
+        if (prepared == null) {
+            Path cloneDestination = recoveryDestination(destination);
+            prepared = prepareManagedClone(
+                    owner, repo, mode, cloneDestination);
+        }
+        ensureWatched(owner, repo);
+        activatePreparedClone(owner, repo, prepared);
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
 
+    /**
+     * Adopts a checkout that finished cloning before the creation operation
+     * could persist its mapping. A partial or unrelated directory is never
+     * deleted; the caller clones into a fresh sibling instead.
+     */
+    private Optional<PreparedClone> recoverPreparedClone(
+            String owner,
+            String repo,
+            WriteMode mode,
+            Path destination)
+            throws IOException, InterruptedException
+    {
+        if (!gitRunner.isGitWorkingTree(destination)) {
+            return Optional.empty();
+        }
+        List<GitRunner.Remote> remotes = gitRunner.listRemotes(destination);
+        GitRunner.Remote origin = remotes.stream()
+                .filter(remote -> "origin".equals(remote.name()))
+                .findFirst()
+                .orElse(null);
+        if (origin == null) {
+            return Optional.empty();
+        }
+
+        String pat = patResolver.resolve(owner + "/" + repo);
+        RepoRef watched = RepoRef.of(owner, repo);
+        if (mode == WriteMode.DIRECT) {
+            if (!LocalRepoRemote.remoteMatchesRepo(origin.url(), owner, repo)
+                    || !gitHub.fetchViewerCanWrite(pat, watched)) {
+                return Optional.empty();
+            }
+            return Optional.of(new PreparedClone(
+                    destination.toAbsolutePath().normalize(), null));
+        }
+
+        String viewer = gitHub.fetchUserProfile(pat).login();
+        if (owner.equalsIgnoreCase(viewer)
+                || !LocalRepoRemote.remoteMatchesRepo(
+                        origin.url(), viewer, repo)) {
+            return Optional.empty();
+        }
+        String upstream = remotes.stream()
+                .filter(remote -> LocalRepoRemote.remoteMatchesRepo(
+                        remote.url(), owner, repo))
+                .map(GitRunner.Remote::name)
+                .findFirst()
+                .orElse(null);
+        if (upstream == null) {
+            boolean upstreamNameAvailable = remotes.stream()
+                    .noneMatch(remote -> UPSTREAM_REMOTE.equals(remote.name()));
+            if (!upstreamNameAvailable) {
+                return Optional.empty();
+            }
+            gitRunner.addRemote(
+                    destination, UPSTREAM_REMOTE, githubCloneUrl(owner, repo));
+            gitRunner.fetchRemote(destination, UPSTREAM_REMOTE);
+            try {
+                gitRunner.setRemoteHead(destination, UPSTREAM_REMOTE);
+            }
+            catch (GitRunner.GitCommandException e) {
+                log.warn("Could not set {}/HEAD for {}: {}",
+                        UPSTREAM_REMOTE, destination, e.getMessage());
+            }
+            upstream = UPSTREAM_REMOTE;
+        }
+        return Optional.of(new PreparedClone(
+                destination.toAbsolutePath().normalize(), upstream));
+    }
+
+    private static Path recoveryDestination(Path destination)
+            throws IOException
+    {
+        if (!Files.exists(destination)) {
+            return destination;
+        }
+        if (Files.isDirectory(destination)) {
+            try (Stream<Path> entries = Files.list(destination)) {
+                if (entries.findAny().isEmpty()) {
+                    return destination;
+                }
+            }
+        }
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        return destination.resolveSibling(
+                destination.getFileName() + ".recovery-" + suffix);
+    }
+
+    /**
+     * Clones and verifies a replacement checkout without changing the live
+     * workspace mapping. The caller can safely leave the current checkout in
+     * use until {@link #activatePreparedClone} performs the one-row swap.
+     */
+    public PreparedClone prepareManagedClone(
+            String owner,
+            String repo,
+            WriteMode writeMode,
+            Path destination)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(repo, "repo is null");
+        WriteMode mode = requireNonNull(writeMode, "writeMode is null");
+        requireEmptyDestination(destination);
         String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef watched = RepoRef.of(owner, repo);
         String viewer = gitHub.fetchUserProfile(pat).login();
@@ -295,11 +417,40 @@ public class LocalRepoService
                 log.warn("Could not set {}/HEAD for {}: {}", upstreamRemoteName, destination, e.getMessage());
             }
         }
-        ensureWatched(owner, repo);
-        watchedRepoStore.setLocalClonePath(owner, repo, destination.toString());
-        watchedRepoStore.setUpstreamRemoteName(owner, repo, upstreamRemoteName);
-        codeGraph.requestRefreshAsync(destination, "repo-cloned");
+        if (!gitRunner.isGitWorkingTree(destination)) {
+            throw new IllegalStateException(
+                    "Replacement clone could not be verified at " + destination);
+        }
+        return new PreparedClone(destination.toAbsolutePath().normalize(),
+                upstreamRemoteName);
+    }
+
+    /** Makes a previously verified checkout live in one persisted update. */
+    public LocalRepoStatus activatePreparedClone(
+            String owner,
+            String repo,
+            PreparedClone prepared)
+    {
+        requireNonNull(prepared, "prepared is null");
+        watchedRepoStore.replaceClone(
+                owner,
+                repo,
+                prepared.path().toString(),
+                prepared.upstreamRemoteName());
+        codeGraph.requestRefreshAsync(prepared.path(), "repo-cloned");
         return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    public Optional<PreparedClone> verifiedPreparedClone(
+            Path path,
+            String upstreamRemoteName)
+    {
+        if (path == null || !gitRunner.isGitWorkingTree(path)) {
+            return Optional.empty();
+        }
+        return Optional.of(new PreparedClone(
+                path.toAbsolutePath().normalize(),
+                upstreamRemoteName));
     }
 
     private void ensureForkReady(String pat, String viewer, RepoRef watched)
@@ -751,6 +902,50 @@ public class LocalRepoService
         Optional<String> sha = gitRunner.mergeBase(path, resolvedBranch, resolvedBase);
         return new LocalMergeBase(sha.orElse(null), resolvedBase);
     }
+
+    public BranchComparison compareBranches(
+            String owner,
+            String repo,
+            String branch,
+            String base)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String resolvedBranch = resolveLogRevision(path, branch);
+        String resolvedBase = base == null || base.isBlank()
+                ? gitRunner.defaultBranch(path)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "repository has no resolvable default branch"))
+                : resolveLogRevision(path, base);
+        String forkPoint = gitRunner.mergeBase(
+                        path, resolvedBranch, resolvedBase)
+                .orElse(resolvedBase);
+        List<LocalCommit> commits = gitRunner
+                .listCommits(path, forkPoint + ".." + resolvedBranch, 500)
+                .stream()
+                .map(LocalRepoService::toLocalCommit)
+                .collect(toImmutableList());
+        List<LocalCommitFile> files = gitRunner
+                .rangeFiles(path, forkPoint, resolvedBranch)
+                .stream()
+                .map(file -> new LocalCommitFile(
+                        file.path(),
+                        file.status(),
+                        file.additions(),
+                        file.deletions()))
+                .collect(toImmutableList());
+        return new BranchComparison(
+                branch, resolvedBranch, resolvedBase, forkPoint,
+                commits, files);
+    }
+
+    public record BranchComparison(
+            String branch,
+            String resolvedBranch,
+            String base,
+            String mergeBase,
+            List<LocalCommit> commits,
+            List<LocalCommitFile> files) {}
 
     private String resolveLogRevision(Path workingDir, String requested)
             throws IOException, InterruptedException

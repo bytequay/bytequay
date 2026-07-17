@@ -15,6 +15,7 @@ package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Thread;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +29,10 @@ import java.util.Optional;
 public interface AgentRunService
 {
     Optional<AgentRun> findById(String runId);
+
+    List<AgentRun> findByWorkspace(String workspaceId);
+
+    List<AgentRun> findByThread(String threadId);
 
     List<AgentRun> findByReviewRound(String reviewRoundId);
 
@@ -73,6 +78,22 @@ public interface AgentRunService
     AgentRun openTaskArtifact(
             String taskId, String kind, String source, String reviewRoundId, Integer budget);
 
+    /**
+     * Open the scheduler episode backing a public Session. Trunk turns always
+     * get a fresh plan session; task/stage turns reuse the live session for
+     * that stage episode and correlate every turn through agentRunId.
+     */
+    AgentRun openSchedulerSession(
+            Thread thread, String taskId, String stageId, String kind, String launchInput);
+
+    /**
+     * Attach an artifact run (notably a review round) to its public
+     * workspace/trunk owner without creating a second run record.
+     */
+    AgentRun attachOwnership(
+            String runId, String workspaceId, String threadId,
+            String provider, String model, String launchInput);
+
     /** Record one more iteration, optionally updating the fold-bar headline. */
     AgentRun recordIteration(String runId, String headlineOrNull);
 
@@ -82,6 +103,16 @@ public interface AgentRunService
     AgentRun updateHeadline(String runId, String headline);
 
     AgentRun updateMetrics(String runId, String metricsJson);
+
+    AgentRun updateAccounting(
+            String runId, long costUsdMilli, long tokensIn, long tokensOut, int stepCursor);
+
+    AgentRun pause(String runId, String reason);
+
+    AgentRun resume(String runId);
+
+    /** Creates a new queued Session carrying the prior launch request. */
+    AgentRun restart(String runId);
 
     /** Transition a live run to {@code status}; terminal runs are immutable.
      * A terminal status ({@code succeeded} / {@code failed} / {@code

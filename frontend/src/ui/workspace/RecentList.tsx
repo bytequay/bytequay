@@ -13,23 +13,12 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { FootprintStopDto, PullRequestDto, SurfaceType } from '../../types';
-import { FootprintIcon, type IconKind } from '../../footprints/FootprintIcon';
-import { relativeTime } from '../../notificationDisplay';
 import { taskLabel } from '../../threads/taskLabel';
 
-const MAX_ROWS = 8;
+const MAX_ROWS = 4;
 // ponytail: a flat cap per bucket rather than a "+N more" overflow affordance —
 // bump this (or add overflow UI) if a bucket routinely needs more room.
 const TODAY_BUCKET_MAX = 5;
-
-function iconFor(surfaceType: SurfaceType): IconKind {
-  switch (surfaceType) {
-    case 'PR_KANBAN': return 'kanban';
-    case 'PR':        return 'pull-request';
-    case 'TASK':      return 'robot';
-    case 'THREAD':    return 'message';
-  }
-}
 
 function isToday(iso: string): boolean {
   const d = new Date(iso);
@@ -155,14 +144,13 @@ export async function enrichTitles(stops: FootprintStopDto[]): Promise<Footprint
  * capture, plus a compact "Today" summary (what's being worked on +
  * the latest PR reviewed today). Clicking a row resumes that surface.
  */
-export function RecentList({ onResume, onOpenPr }: {
+export function RecentList({ onResume }: {
   onResume?: (stop: FootprintStopDto) => void;
   /** Open a PR from the Today summary's "Reviewed" line. */
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
 }) {
   const [stops, setStops] = useState<FootprintStopDto[]>([]);
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
-  const [copied, setCopied] = useState(false);
 
   // The list is mounted for as long as the rail shows (i.e. across every
   // non-workspace surface), so refresh on a slow poll — visits recorded
@@ -172,7 +160,9 @@ export function RecentList({ onResume, onOpenPr }: {
     const refresh = () => {
       void window.bridge.getFootprints()
         .then(trail => trail.stops.filter(stop =>
-          stop.surfaceType === 'PR' || stop.surfaceType === 'TASK'))
+          stop.surfaceType === 'PR'
+          || stop.surfaceType === 'TASK'
+          || stop.surfaceType === 'THREAD'))
         // The trail arrives oldest-first; the sidebar wants newest on top.
         .then(stops => stops.slice().reverse().slice(0, MAX_ROWS))
         .then(enrichTitles)
@@ -195,9 +185,6 @@ export function RecentList({ onResume, onOpenPr }: {
     };
   }, []);
 
-  const buckets = useMemo(() => todayBuckets(prs), [prs]);
-  const hasToday = buckets.workingOn.length > 0 || buckets.reviewed.length > 0 || buckets.merged.length > 0;
-
   // A PR's stored footprint title is whatever the visit that recorded it
   // knew — the kanban stores "PR title #num", but opening the same PR via
   // the repo view (e.g. resuming from this list) re-records with only a
@@ -212,79 +199,84 @@ export function RecentList({ onResume, onOpenPr }: {
     (stop.surfaceType === 'PR' ? prTitles.get(stop.surfaceId) : undefined)
     ?? stop.title ?? stop.surfaceId;
 
-  const openPr = (pr: PullRequestDto) => {
-    const slash = pr.repo.indexOf('/');
-    if (slash > 0) onOpenPr?.(pr.repo.slice(0, slash), pr.repo.slice(slash + 1), pr.number);
-  };
-
-  const handleCopy = () => {
-    const md = todayMarkdown(buckets);
-    const done = () => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); };
-    navigator.clipboard.writeText(md).then(done).catch(() => {
-      // Clipboard can fail on a sandbox / permissions issue — fall back.
-      const ta = document.createElement('textarea');
-      ta.value = md;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      done();
-    });
-  };
-
   return (
-    <>
-      <div className="sb-section sb-section--recent">
-        <div className="sb-section-h">
-          <span className="nm">Continue</span>
-        </div>
-        {stops.length === 0 ? (
-          <p className="sb-recent__empty">Nothing to continue yet today.</p>
-        ) : (
-          <div className="sb-recent">
-            {stops.map(stop => (
-              <button
-                key={`${stop.surfaceType}:${stop.surfaceId}`}
-                type="button"
-                className="sb-recent__row"
-                onClick={() => onResume?.(stop)}
-                title={stop.context ?? stop.surfaceId}
-              >
-                <span className="sb-recent__icon" aria-hidden="true">
-                  <FootprintIcon kind={iconFor(stop.surfaceType)} size={12} />
-                </span>
-                <span className="sb-recent__meta">
-                  <span className="sb-recent__title">{rowTitle(stop)}</span>
-                  <span className="sb-recent__sub">{relativeTime(stop.latestVisitAt)}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+    <div className="sb-section sb-section--recent">
+      <div className="sb-section-h">
+        <span className="nm">Recent</span>
       </div>
-
-      {hasToday && (
-        <div className="sb-section">
-          <div className="sb-section-h">
-            <span className="nm">Today</span>
-            <div className="actions">
-              <button
-                type="button"
-                onClick={handleCopy}
-                title="Copy today's summary as Markdown"
-                aria-label="Copy today's summary as Markdown"
-              >
-                {copied ? '✓' : '⧉'}
-              </button>
+      {stops.length === 0 ? (
+        <p className="sb-recent__empty">Nothing recent yet.</p>
+      ) : (
+        <div className="sb-recent">
+          {stops.map(stop => (
+            <div
+              key={`${stop.surfaceType}:${stop.surfaceId}`}
+              role="button"
+              tabIndex={0}
+              className="sb-recent__row"
+              onClick={() => onResume?.(stop)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onResume?.(stop);
+                }
+              }}
+              title={stop.context ?? stop.surfaceId}
+            >
+              <span className="sb-recent__icon" aria-hidden="true">
+                <RecentSurfaceIcon kind={stop.surfaceType} />
+              </span>
+              <span className="sb-recent__meta">
+                <span className="sb-recent__title">{rowTitle(stop)}</span>
+              </span>
             </div>
-          </div>
-          <div className="sb-recent">
-            <TodayGroupRows label="Working on" prs={buckets.workingOn} onOpen={openPr} />
-            <TodayGroupRows label="Reviewed" prs={buckets.reviewed} onOpen={openPr} />
-            <TodayGroupRows label="Merged" prs={buckets.merged} onOpen={openPr} />
-          </div>
+          ))}
         </div>
       )}
-    </>
+    </div>
+  );
+}
+
+function RecentSurfaceIcon({ kind }: { kind: SurfaceType }) {
+  const common = {
+    width: 13,
+    height: 13,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  if (kind === 'TASK') {
+    return (
+      <svg {...common}>
+        <circle cx="18" cy="18" r="2.6" />
+        <circle cx="6" cy="6" r="2.6" />
+        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+        <path d="M6 9v12" />
+      </svg>
+    );
+  }
+  if (kind === 'THREAD') {
+    return (
+      <svg {...common}>
+        <circle cx="6" cy="6" r="2.4" />
+        <circle cx="6" cy="18" r="2.4" />
+        <circle cx="18" cy="12" r="2.4" />
+        <path d="M8.3 7.2 15.7 11M8.3 16.8 15.7 13" />
+      </svg>
+    );
+  }
+  if (kind === 'PR') {
+    return <svg {...common}><circle cx="12" cy="12" r="8.5" /></svg>;
+  }
+  return (
+    <svg {...common}>
+      <rect x="3" y="3" width="7" height="7" rx="1.6" />
+      <rect x="14" y="3" width="7" height="7" rx="1.6" />
+      <rect x="3" y="14" width="7" height="7" rx="1.6" />
+      <rect x="14" y="14" width="7" height="7" rx="1.6" />
+    </svg>
   );
 }

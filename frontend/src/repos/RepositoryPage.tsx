@@ -143,7 +143,7 @@ function RepositoryPage(props: Props) {
           owner={owner}
           repo={repo}
           onClose={() => setMapCloneOpen(false)}
-          onMapped={(mapped) => { setStatus(mapped); setMapCloneOpen(false); }}
+          onStarted={() => { setMapCloneOpen(false); }}
         />
       )}
     </div>

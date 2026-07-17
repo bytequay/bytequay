@@ -20,6 +20,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 interface NotificationJpaRepository
         extends JpaRepository<NotificationEntity, String>
@@ -76,8 +77,22 @@ interface NotificationJpaRepository
              where n.id = :id
                and (n.status = 'UNREAD'
                     or (n.status = 'READ' and n.readAtMs is null))
+               and n.kind not in ('AWAITING_REVIEW', 'NEEDS_ATTENTION')
             """)
     int markRead(@Param("id") String id, @Param("readAtMs") long readAtMs);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update NotificationEntity n
+               set n.status = 'READ',
+                   n.readAtMs = :readAtMs
+             where n.workspaceId = :workspaceId
+               and n.status = 'UNREAD'
+               and n.kind not in ('AWAITING_REVIEW', 'NEEDS_ATTENTION')
+            """)
+    int markAllReadForWorkspace(
+            @Param("workspaceId") String workspaceId,
+            @Param("readAtMs") long readAtMs);
 
     /**
      * Atomically set a row to DISMISSED, preserving any existing
@@ -103,4 +118,10 @@ interface NotificationJpaRepository
 
     /** Per-thread feed for the auto* row in the thread list. */
     List<NotificationEntity> findByThreadIdOrderByCreatedAtMsDesc(String threadId, Pageable pageable);
+
+    List<NotificationEntity> findByWorkspaceIdOrderByCreatedAtMsDesc(
+            String workspaceId,
+            Pageable pageable);
+
+    Optional<NotificationEntity> findByDedupKey(String dedupKey);
 }

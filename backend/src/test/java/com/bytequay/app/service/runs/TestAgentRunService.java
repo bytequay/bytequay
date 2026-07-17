@@ -106,6 +106,28 @@ class TestAgentRunService
     }
 
     @Test
+    void attachOwnershipPromotesTheSameArtifactRun()
+    {
+        AgentRun detached = new AgentRun(
+                "run-review", null, AgentRun.KIND_PANEL_REVIEW, null,
+                null, "round-1", null, AgentRun.STATUS_RUNNING,
+                0, 50, null, null, NOW, null);
+        when(store.findById(detached.id())).thenReturn(Optional.of(detached));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun owned = service.attachOwnership(
+                detached.id(), "ws-1", "trunk-1",
+                "anthropic", "claude-sonnet", "Review octocat/app#42");
+
+        assertThat(owned.id()).isEqualTo(detached.id());
+        assertThat(owned.workspaceId()).isEqualTo("ws-1");
+        assertThat(owned.threadId()).isEqualTo("trunk-1");
+        assertThat(owned.provider()).isEqualTo("anthropic");
+        assertThat(owned.model()).isEqualTo("claude-sonnet");
+        assertThat(owned.launchInput()).isEqualTo("Review octocat/app#42");
+    }
+
+    @Test
     void openIsIdempotentWhenALiveRunOfTheSameKindExists()
     {
         AgentRun existing = new AgentRun(

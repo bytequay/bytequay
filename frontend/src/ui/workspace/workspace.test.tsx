@@ -18,7 +18,11 @@ import {
   ThreadList, WorkspaceNavSidebar, WorkspaceSwitcher, WorkspaceTopBar,
 } from './index';
 
-afterEach(() => { cleanup(); Reflect.deleteProperty(window, 'bridge'); });
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, 'bridge');
+  localStorage.clear();
+});
 
 describe('Logo', () => {
   it('applies the size + colour modifiers', () => {
@@ -47,7 +51,7 @@ describe('WorkspaceNavSidebar', () => {
     expect(items.some(t => t?.includes('Automations'))).toBe(false);
     expect(items.some(t => t?.includes('Email'))).toBe(false);
     expect(items.some(t => t?.includes('Search'))).toBe(false);
-    expect(container.querySelector('.sb-footer')).toBeNull();
+    expect(container.querySelector('.ws-user-footer')).toBeNull();
     expect(container.querySelector('.sb-nav-item.active')?.textContent).toContain('Workspaces');
     fireEvent.click(screen.getByText('Home'));
     expect(onNavigate).toHaveBeenCalledWith('home');
@@ -84,6 +88,27 @@ describe('WorkspaceNavSidebar', () => {
     );
     expect(container.querySelector('.shell-rail.is-fullscreen')).toBeNull();
     expect(container.querySelector('.shell-rail')).toBeTruthy();
+  });
+
+  it('resizes the workspace rail and restores its persisted width', () => {
+    const { container, unmount } = render(
+      <WorkspaceNavSidebar workspaceMode><div /></WorkspaceNavSidebar>,
+    );
+    const handle = screen.getByRole('separator', { name: 'Resize sidebar' });
+    Object.defineProperty(handle, 'setPointerCapture', { value: vi.fn() });
+    fireEvent.pointerDown(handle, { clientX: 250, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 330, pointerId: 1 });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+
+    expect((container.querySelector('.shell-rail') as HTMLElement).style.width).toBe('330px');
+    expect(localStorage.getItem('bq.rail-width')).toBe('330');
+
+    unmount();
+    const restored = render(
+      <WorkspaceNavSidebar workspaceMode><div /></WorkspaceNavSidebar>,
+    );
+    expect((restored.container.querySelector('.shell-rail') as HTMLElement).style.width)
+      .toBe('330px');
   });
 
   it('folds to the chrome row when collapsed and the toggle fires onToggleCollapse', () => {

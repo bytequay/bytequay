@@ -38,26 +38,29 @@ function mockBridge(notifications: NotificationDto[]) {
 }
 
 describe('InboxSection', () => {
-  it('marks a plain AWAITING_REVIEW notification read on expand (no other resolve path)', async () => {
+  it('opens and marks a plain AWAITING_REVIEW notification read', async () => {
     const bridge = mockBridge([
       notif({ payload: { repoFullName: 'chenjian2664/ByteQuay', prNumber: 29 } }),
     ]);
+    const onOpenPr = vi.fn();
     render(
-      <InboxSection prs={[]} onOpenPr={() => {}} onSeeAll={() => {}} onPrsChanged={() => {}} />,
+      <InboxSection prs={[]} onOpenPr={onOpenPr} onSeeAll={() => {}} onPrsChanged={() => {}} />,
     );
     fireEvent.click(await screen.findByText('Awaiting your review'));
     await waitFor(() => expect(bridge.markNotificationRead).toHaveBeenCalledWith('n1'));
+    expect(onOpenPr).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
   });
 
-  it('leaves a publish-gate AWAITING_REVIEW unread on expand — only its own action resolves it', async () => {
+  it('opens a publish gate without clearing its approval state', async () => {
     const bridge = mockBridge([
       notif({ payload: { action: 'merge_pr', pr: { owner: 'chenjian2664', repo: 'ByteQuay', number: 29 } } }),
     ]);
+    const onOpenPr = vi.fn();
     render(
-      <InboxSection prs={[]} onOpenPr={() => {}} onSeeAll={() => {}} onPrsChanged={() => {}} />,
+      <InboxSection prs={[]} onOpenPr={onOpenPr} onSeeAll={() => {}} onPrsChanged={() => {}} />,
     );
     fireEvent.click(await screen.findByText('Awaiting your review'));
-    expect(await screen.findByRole('button', { name: 'View PR' })).toBeTruthy();
+    expect(onOpenPr).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
     expect(bridge.markNotificationRead).not.toHaveBeenCalled();
   });
 });

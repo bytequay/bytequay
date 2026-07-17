@@ -12,15 +12,18 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { NotificationDto } from '../types';
+import type { NotificationDto, WorkspaceRepoDto } from '../types';
 import type { DashboardPR } from '../types/dashboardPr';
 import { buildInboxItems, type InboxItem } from './inboxItems';
 import { fetchDeployNotices, type DeployNoticeDto } from './homeData';
 import { isPublishGateNotification } from '../notificationDisplay';
-import InboxCard, { type InboxHandlers } from './InboxCard';
+import InboxCard, {
+  type InboxHandlers,
+  type WorkspaceInboxTarget,
+} from './InboxCard';
 
 /** Rows shown before "See all" takes over. */
-const MAX_ROWS = 5;
+const MAX_ROWS = 6;
 
 /** Persisted "Unread only" filter — survives navigating away and back. */
 const UNREAD_ONLY_KEY = 'home:inbox:unreadOnly';
@@ -30,6 +33,8 @@ type Props = {
    *  attention-flagged PRs derive inbox rows from it. */
   prs: DashboardPR[] | null;
   onOpenPr: (owner: string, repo: string, prNumber: number) => void;
+  onOpenWorkspacePr?: (workspaceId: string, prNumber: number) => void;
+  onOpenRemoteReview?: (owner: string, repo: string, prNumber: number) => void;
   onOpenTask?: (threadId: string, taskId: string) => void;
   /** "See all" → the notification center. */
   onSeeAll: () => void;
@@ -39,10 +44,19 @@ type Props = {
 
 /** Home Inbox — app notifications merged with PR rows that need the
  *  user (review requests, failing CI, conflicts, mentions). */
-function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Props) {
+function InboxSection({
+  prs,
+  onOpenPr,
+  onOpenWorkspacePr,
+  onOpenRemoteReview,
+  onOpenTask,
+  onSeeAll,
+  onPrsChanged,
+}: Props) {
   const [notifications, setNotifications] = useState<NotificationDto[]>([]);
   const [deploys, setDeploys] = useState<DeployNoticeDto[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [workspaceRepos, setWorkspaceRepos] = useState<Map<string, WorkspaceInboxTarget>>(new Map());
   const [unreadOnly, setUnreadOnly] = useState(() => localStorage.getItem(UNREAD_ONLY_KEY) === '1');
   /** Transient hint when the backend refuses a dismiss. */
   const [note, setNote] = useState<string | null>(null);
@@ -65,6 +79,31 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
     fetchDeployNotices().then(setDeploys).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (typeof window.bridge.listWorkspaces !== 'function'
+        || typeof window.bridge.listWorkspaceRepos !== 'function') return;
+    let cancelled = false;
+    void window.bridge.listWorkspaces()
+      .then(async workspaces => {
+        const rows = await Promise.all(workspaces.map(async workspace => ({
+          workspace,
+          repos: await window.bridge.listWorkspaceRepos(workspace.id)
+            .catch((): WorkspaceRepoDto[] => []),
+        })));
+        if (cancelled) return;
+        const mapped = new Map<string, WorkspaceInboxTarget>();
+        rows.forEach(({ workspace, repos }) => repos.forEach(repo => {
+          mapped.set(repo.repoFullName.toLowerCase(), {
+            workspaceId: workspace.id,
+            name: workspace.name,
+          });
+        }));
+        setWorkspaceRepos(mapped);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const items = useMemo(
     () => buildInboxItems(notifications, prs ?? [], deploys),
     [notifications, prs, deploys],
@@ -76,6 +115,10 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
 
   const handlers: InboxHandlers = {
     openPr: onOpenPr,
+    openWorkspacePr: onOpenWorkspacePr,
+    openRemoteReview: onOpenRemoteReview,
+    workspaceForRepo: (owner, repo) =>
+      workspaceRepos.get(`${owner}/${repo}`.toLowerCase()) ?? null,
     openTask: onOpenTask,
     dismiss: (item: InboxItem) => {
       if (item.source.kind === 'notification') {
@@ -147,20 +190,37 @@ function InboxSection({ prs, onOpenPr, onOpenTask, onSeeAll, onPrsChanged }: Pro
           {unreadCount > 0 && <span className="home-inbox__badge">{unreadCount}</span>}
         </div>
         <div className="home-inbox__controls">
-          <button
-            type="button"
+          <div
             className={`home-inbox__filter${unreadOnly ? ' home-inbox__filter--on' : ''}`}
+            role="button"
+            tabIndex={0}
             onClick={() => setUnreadOnly(v => {
               localStorage.setItem(UNREAD_ONLY_KEY, v ? '0' : '1');
               return !v;
             })}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setUnreadOnly(v => {
+                  localStorage.setItem(UNREAD_ONLY_KEY, v ? '0' : '1');
+                  return !v;
+                });
+              }
+            }}
           >
             <span className="home-inbox__filter-dot" aria-hidden="true" />
             Unread only
-          </button>
-          <button type="button" className="home-inbox__seeall" onClick={onSeeAll}>
+          </div>
+          <a role="button" tabIndex={0} className="home-inbox__seeall"
+            onClick={onSeeAll}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onSeeAll();
+              }
+            }}>
             See all
-          </button>
+          </a>
         </div>
       </div>
       {visible.length === 0 ? (

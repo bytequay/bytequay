@@ -11,786 +11,433 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import type {
-  WatchedRepoDto,
-  WorkModelDto,
-  WorkspaceBehaviorDto,
-  WorkspaceCardDto,
-} from '../types';
-import { WorkModelPicker } from './WorkModelPicker';
-import { ConfirmDialog } from './ConfirmDialog';
+import { useEffect, useState, type ReactNode } from 'react';
+import type { WorkspaceCardDto } from '../types';
+import {
+  workspaceApi,
+  type WorkspaceCreationDto,
+  type WorkspaceRepositoryDto,
+  type WorkspaceSettingsDto,
+} from './workspaceApi';
 
-const ARCHIVE_OPTIONS: { value: string; label: string }[] = [
-  { value: '1h', label: 'After 1h' },
-  { value: '1d', label: 'After 1d' },
-  { value: '1w', label: 'After 1 week' },
-  { value: 'never', label: 'Never' },
-];
+export type WorkspaceSettingsSection =
+  | 'general' | 'agents' | 'notifications' | 'sync' | 'memory' | 'danger';
 
-const DEFAULT_BEHAVIOR: WorkspaceBehaviorDto = {
-  archiveIdleAfter: '1w',
-  autoProposeTask: true,
-  autoPromoteDecisions: false,
-  newTopicNudge: true,
+type StoredSettings = {
+  planModel: string;
+  devModel: string;
+  reviewModel: string;
+  ciFixModel: string;
+  perSessionCap: number;
+  dailyCap: number;
+  pauseAtCap: boolean;
+  syncSeconds: number;
+  brainBudget: number;
+  distillMinutes: number;
+  notifyQuestions: boolean;
+  notifyReviews: boolean;
+  notifyCi: boolean;
+  notifyCompletions: boolean;
 };
 
-/** Workspace-scoped Settings — Repositories / AI defaults / Behavior /
- *  Danger zone. The layout matches the mockup; data wiring is partial
- *  in this commit: Repositories is live (read-only — add/remove still
- *  goes through the app-level WatchedReposPage); AI defaults is a
- *  hint pointing at the existing AI settings; Behavior toggles
- *  persist their selections through {@code /api/settings/workspace-
- *  behavior} but enforcement is a follow-up (the auto-archive
- *  sweeper / propose-task hook / decision promoter read these keys
- *  when those features land); Danger zone is disabled because
- *  there's exactly one workspace and the schema doesn't support
- *  archive/delete cleanly yet. */
-function WorkspaceSettingsPage() {
-  const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
-  const [behavior, setBehavior] = useState<WorkspaceBehaviorDto>(DEFAULT_BEHAVIOR);
-  const [workspace, setWorkspace] = useState<WorkspaceCardDto | null>(null);
-  const [nameDraft, setNameDraft] = useState<string>('');
-  const [renamingState, setRenamingState] = useState<'idle' | 'saving'>('idle');
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [renameNotice, setRenameNotice] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [workModel, setWorkModel] = useState<WorkModelDto | null>(null);
-  const [workModelError, setWorkModelError] = useState<string | null>(null);
+const defaults: StoredSettings = {
+  planModel: 'claude-sonnet-4.5',
+  devModel: 'claude-sonnet-4.5',
+  reviewModel: 'claude-sonnet-4.5',
+  ciFixModel: 'gpt-5.2-codex',
+  perSessionCap: 1,
+  dailyCap: 10,
+  pauseAtCap: true,
+  syncSeconds: 60,
+  brainBudget: 8000,
+  distillMinutes: 30,
+  notifyQuestions: true,
+  notifyReviews: true,
+  notifyCi: true,
+  notifyCompletions: false,
+};
 
-  const runDelete = async () => {
-    if (workspace === null || deleting) return;
-    setDeleting(true);
-    setDeleteError(null);
+export default function WorkspaceSettingsPage({
+  workspace, workspaceId, section = 'general', onSelectSection,
+}: {
+  workspace: WorkspaceCardDto;
+  workspaceId: string;
+  section?: WorkspaceSettingsSection;
+  onSelectSection?: (section: WorkspaceSettingsSection) => void;
+}) {
+  const [settings, setSettings] = useState<StoredSettings>(defaults);
+  const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [reclone, setReclone] = useState<WorkspaceCreationDto | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([workspaceApi.repository(workspaceId), workspaceApi.settings(workspaceId)])
+      .then(([repository, persisted]) => {
+        if (cancelled) return;
+        setRepo(repository);
+        setSettings(fromDto(persisted));
+      })
+      .catch(reason => {
+        if (!cancelled) setActionMessage(reason instanceof Error ? reason.message : String(reason));
+      });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (reclone === null || reclone.state === 'ready' || reclone.state === 'failed') return;
+    const timer = window.setTimeout(() => {
+      void workspaceApi.creation(reclone.id)
+        .then(operation => {
+          setReclone(operation);
+          if (operation.state === 'ready') {
+            setActionMessage('Re-clone complete. The previous checkout was retained as a backup.');
+            void workspaceApi.repository(workspaceId).then(setRepo);
+          }
+          else if (operation.state === 'failed') {
+            setActionMessage(operation.errorMessage ?? 'Re-clone failed.');
+          }
+        })
+        .catch(reason => setActionMessage(reason instanceof Error ? reason.message : String(reason)));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [reclone, workspaceId]);
+
+  const update = <K extends keyof StoredSettings>(key: K, value: StoredSettings[K]) => {
+    setSettings(current => ({ ...current, [key]: value }));
+    setSaved(false);
+  };
+  const save = async () => {
+    setActionMessage(null);
     try {
-      await window.bridge.deleteWorkspace(workspace.id);
-      // Route the user up to the workspaces landing once the row is
-      // gone; the user chooses the next active workspace explicitly.
-      window.location.reload();
+      const persisted = await workspaceApi.saveSettings(workspaceId, toDto(settings));
+      setSettings(fromDto(persisted));
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1400);
     }
-    catch (err) {
-      setDeleteError(err instanceof Error ? err.message : String(err));
-      setDeleting(false);
-      setConfirmOpen(false);
+    catch (reason) {
+      setActionMessage(reason instanceof Error ? reason.message : String(reason));
     }
   };
-
-  const refresh = useCallback(async () => {
-    try {
-      const [repoList, behaviorRecord, workspaces] = await Promise.all([
-        window.bridge.getWatchedRepos(),
-        window.bridge.getWorkspaceBehavior(),
-        window.bridge.listWorkspaces(),
-      ]);
-      setRepos(repoList);
-      setBehavior(behaviorRecord);
-      const current = workspaces[0] ?? null;
-      setWorkspace(current);
-      setNameDraft(current?.name ?? '');
-      if (current !== null) {
-        // Pull the full Workspace record so we know the persisted
-        // work-model override. The landing card DTO doesn't carry it
-        // because most surfaces don't need to know.
-        const full = await window.bridge.getWorkspace(current.id);
-        setWorkModel(full?.workModel ?? null);
-      }
-      else {
-        setWorkModel(null);
-      }
-      setError(null);
-    }
-    catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-    finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const onRename = async (e?: React.FormEvent) => {
-    if (e !== undefined) e.preventDefault();
-    if (workspace === null) return;
-    const trimmed = nameDraft.trim();
-    if (trimmed.length === 0) {
-      setRenameError('Name is required');
-      return;
-    }
-    if (trimmed === workspace.name) {
-      setRenameError(null);
-      setRenameNotice(null);
-      return;
-    }
-    setRenamingState('saving');
-    setRenameError(null);
-    setRenameNotice(null);
-    try {
-      await window.bridge.renameWorkspace(workspace.id, trimmed);
-      setWorkspace({ ...workspace, name: trimmed });
-      setNameDraft(trimmed);
-      setRenameNotice('Saved');
-    }
-    catch (err) {
-      setRenameError(err instanceof Error ? err.message : String(err));
-    }
-    finally {
-      setRenamingState('idle');
-    }
-  };
-
-  const persistWorkModel = async (next: WorkModelDto | null) => {
-    if (workspace === null) return;
-    const prev = workModel;
-    // Optimistic update so the picker reflects the new pick
-    // immediately. On failure we snap back + surface the error.
-    setWorkModel(next);
-    setWorkModelError(null);
-    try {
-      const saved = await window.bridge.setWorkspaceWorkModel(workspace.id, next);
-      setWorkModel(saved.workModel);
-    }
-    catch (e) {
-      setWorkModel(prev);
-      setWorkModelError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const persistBehavior = async (next: WorkspaceBehaviorDto) => {
-    // Optimistic local update — the optimistic value persists if the
-    // PUT succeeds; on failure the surfaced error explains why the
-    // checkbox snapped back.
-    const prev = behavior;
-    setBehavior(next);
-    try {
-      const saved = await window.bridge.setWorkspaceBehavior(next);
-      setBehavior(saved);
-      setError(null);
-    }
-    catch (e) {
-      setBehavior(prev);
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  useEffect(() => { void refresh(); }, [refresh]);
+  const repoName = repo?.fullName ?? workspace.name;
+  const visualFrame = typeof document === 'undefined'
+    ? undefined
+    : document.documentElement.dataset.workspaceVisualFrame;
 
   return (
-    <>
-      <header className="workspace-pageheader">
-        <div>
-          <h1 className="workspace-pageheader__title">Settings</h1>
-          <div className="workspace-pageheader__meta">
-            workspace-scoped configuration · single-workspace mode
-          </div>
-        </div>
+    <section className="wu-page wu-settings">
+      <header className="wu-page-header">
+        <div className="wu-page-heading"><h1>Settings</h1><span>{workspace.name}</span></div>
       </header>
-
-      {error !== null && <div style={errorStyle} role="alert">{error}</div>}
-
-      <section className="workspace-card" style={sectionStyle} aria-label="Workspace identity">
-        <div className="workspace-card__head">
-          <div className="workspace-card__title">Identity</div>
-          <span style={mutedHintStyle}>display name · used on the rail and landing cards</span>
-        </div>
-        <p style={sectionDescStyle}>
-          The workspace id is stable; only the display name changes.
-        </p>
-        {workspace === null ? (
-          <div style={mutedHintStyle}>{loading ? 'Loading…' : 'No workspace.'}</div>
-        ) : (
-          <form onSubmit={onRename} style={identityFormStyle}>
-            <label style={identityLabelStyle}>
-              <span style={identityLabelTextStyle}>Workspace name</span>
-              <input
-                type="text"
-                value={nameDraft}
-                onChange={e => { setNameDraft(e.target.value); setRenameNotice(null); }}
-                disabled={renamingState === 'saving'}
-                maxLength={80}
-                style={identityInputStyle}
-                placeholder={workspace.name}
-              />
-            </label>
-            {/* Immutable workspace id — read-only line right under the
-                editable name so the rename/id-stability story is
-                visible in the surface that does the renaming. */}
-            <div style={identityIdRowStyle}>
-              <span style={identityLabelTextStyle}>Workspace id</span>
-              <code style={identityIdValueStyle} title={workspace.id}>
-                {workspace.id}
-              </code>
-              <span style={identityIdHintStyle}>
-                immutable · referenced from thread / task ids, urls, logs
-              </span>
-            </div>
-            <div style={identityActionsStyle}>
-              <button
-                type="submit"
-                disabled={renamingState === 'saving' || nameDraft.trim().length === 0 || nameDraft.trim() === workspace.name}
-                style={renamingState === 'saving' || nameDraft.trim() === workspace.name
-                  ? identitySaveDisabledStyle
-                  : identitySaveStyle}
-              >
-                {renamingState === 'saving' ? 'Saving…' : 'Save'}
+      <div className="wu-settings__layout">
+        <nav className="wu-settings__nav">
+          {([
+            ['general', 'General'],
+            ['agents', 'Agents'],
+            ['notifications', 'Notifications'],
+            ['sync', 'Sync'],
+            ['memory', 'Memory'],
+            ['danger', 'Danger zone'],
+          ] as const).map(([key, label]) => (
+            <div key={key} className={section === key ? 'active' : ''}
+              role="button" tabIndex={0}
+              onClick={() => onSelectSection?.(key)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onSelectSection?.(key);
+                }
+              }}>{label}</div>
+          ))}
+        </nav>
+        <main className="wu-settings__content">
+          {section === 'general' && (
+            <>
+              <SettingsCard title="Repository">
+                <SettingRow label="GitHub repository" detail="The sole repository owned by this workspace.">
+                  <code>{repoName}</code>
+                </SettingRow>
+                <SettingRow label="Default branch" detail="Used for comparisons, new tasks, and cherry-picks.">
+                  <code>{repo?.defaultBaseBranch ?? 'auto'}</code>
+                </SettingRow>
+              </SettingsCard>
+              <SettingsCard title="Workspace">
+                <SettingRow label="Workspace ID" detail="Stable internal identifier.">
+                  <code>{workspaceId}</code>
+                </SettingRow>
+              </SettingsCard>
+            </>
+          )}
+          {section === 'agents' && (
+            <>
+              <SettingsCard title="Defaults per session kind" subtitle="threads can override per run">
+                <ModelRow label="Deep reasoning for specs & plans" tone="plan" value={settings.planModel}
+                  onChange={value => update('planModel', value)} />
+                <ModelRow label="Code writing & tests" tone="dev" value={settings.devModel}
+                  onChange={value => update('devModel', value)} />
+                <ModelRow label="PR review rounds" tone="review" value={settings.reviewModel}
+                  onChange={value => update('reviewModel', value)} />
+                <ModelRow label="Cheap loops on red builds" tone="ci-fix" value={settings.ciFixModel}
+                  onChange={value => update('ciFixModel', value)} />
+              </SettingsCard>
+              <SettingsCard title="Budget caps">
+                <NumberRow label="Per session" prefix="$" value={settings.perSessionCap}
+                  onChange={value => update('perSessionCap', value)} />
+                <NumberRow label="Per day, this workspace" prefix="$" value={settings.dailyCap}
+                  onChange={value => update('dailyCap', value)} />
+                <ToggleRow label="Pause at cap" detail="Sessions pause and ask instead of stopping dead"
+                  checked={settings.pauseAtCap} onChange={value => update('pauseAtCap', value)} />
+              </SettingsCard>
+            </>
+          )}
+          {section === 'notifications' && (
+            <SettingsCard title="Notify me about">
+              <ToggleRow label="Agent questions" detail="Questions always remain actionable."
+                checked={settings.notifyQuestions} disabled onChange={() => {}} />
+              <ToggleRow label="Review and publish gates" detail="Approval is always explicit."
+                checked={settings.notifyReviews} disabled onChange={() => {}} />
+              <ToggleRow label="CI failures" detail="Only failures tied to this workspace."
+                checked={settings.notifyCi} onChange={value => update('notifyCi', value)} />
+              <ToggleRow label="Successful completions" detail="Quiet by default."
+                checked={settings.notifyCompletions} onChange={value => update('notifyCompletions', value)} />
+            </SettingsCard>
+          )}
+          {section === 'sync' && (
+            <SettingsCard title="Repository sync">
+              <NumberRow label="Refresh cadence" suffix="seconds" value={settings.syncSeconds}
+                onChange={value => update('syncSeconds', value)} />
+              <SettingRow label="Fetch now" detail="Fetches and prunes. It never pulls or pushes.">
+                <button type="button" className="wu-icon-button" disabled={syncing}
+                  onClick={() => {
+                    setSyncing(true);
+                    void window.bridge.workspaceApi({
+                      path: `/api/workspaces/${encodeURIComponent(workspaceId)}/refresh`,
+                      method: 'POST',
+                    }).finally(() => setSyncing(false));
+                  }}>{syncing ? 'Refreshing…' : 'Refresh'}</button>
+              </SettingRow>
+            </SettingsCard>
+          )}
+          {section === 'memory' && (
+            <SettingsCard title="Brain and distillation">
+              <NumberRow label="Brain character budget" suffix="characters" value={settings.brainBudget}
+                onChange={value => update('brainBudget', value)} />
+              <NumberRow label="Distill cadence" suffix="minutes" value={settings.distillMinutes}
+                onChange={value => update('distillMinutes', value)} />
+              <SettingRow label="Context audience" detail="Matching KB entries may be read by all session kinds.">
+                <span className="wu-audience-chips"><i>plan</i><i>dev</i><i>review</i><i>ci-fix</i></span>
+              </SettingRow>
+            </SettingsCard>
+          )}
+          {section === 'danger' && (
+            <SettingsCard title="Danger zone" danger>
+              <DangerRow title="Pause all sessions"
+                detail="Asks every running session in this workspace to pause at its next safe boundary."
+                action="Pause all" onClick={() => {
+                  void workspaceApi.pauseAll(workspaceId)
+                    .then(result => setActionMessage(`${result.paused} session${result.paused === 1 ? '' : 's'} paused.`))
+                    .catch(reason => setActionMessage(reason instanceof Error ? reason.message : String(reason)));
+                }} />
+              <DangerRow title="Re-clone workspace"
+                detail="Clones into a new directory, verifies it, then swaps atomically and retains the old clone."
+                action={reclone !== null && reclone.state !== 'ready' && reclone.state !== 'failed'
+                  ? `${reclone.stageMessage ?? 'Re-cloning'} · ${reclone.progressCurrent}/${reclone.progressTotal}`
+                  : reclone?.state === 'failed' ? 'Retry re-clone' : 'Re-clone…'}
+                disabled={reclone !== null && reclone.state !== 'ready' && reclone.state !== 'failed'}
+                onClick={() => {
+                  setActionMessage(null);
+                  const request = reclone?.state === 'failed'
+                    ? workspaceApi.retryCreation(reclone.id)
+                    : workspaceApi.reclone(workspaceId);
+                  void request
+                    .then(setReclone)
+                    .catch(reason => setActionMessage(reason instanceof Error ? reason.message : String(reason)));
+                }} />
+              <DangerRow title="Detach workspace"
+                detail="Stops watching without deleting the clone, trunks, tasks, or history."
+                action="Detach…" destructive onClick={() => {
+                  void workspaceApi.detach(workspaceId)
+                    .then(() => setActionMessage('Workspace detached. Its clone and history were kept.'))
+                    .catch(reason => setActionMessage(reason instanceof Error ? reason.message : String(reason)));
+                }} />
+            </SettingsCard>
+          )}
+          {visualFrame === '6c' ? (
+            <span className="wu-settings__source-note">
+              Notifications section carries the mute rules from <a>3j</a> · Sync = cadence,
+              watched branches, PR/issue scope · Memory = char budget, distill interval,
+              KB permissions · Danger zone = pause all agents, re-clone, detach.
+            </span>
+          ) : (
+            <footer className="wu-settings__save">
+              <span>{actionMessage ?? (saved ? 'Saved' : 'Changes stay local to this workspace.')}</span>
+              <button type="button" className="wu-primary-button" onClick={() => { void save(); }}>
+                {saved ? 'Saved ✓' : 'Save changes'}
               </button>
-              {renameError !== null && (
-                <span style={renameErrorStyle}>{renameError}</span>
-              )}
-              {renameError === null && renameNotice !== null && (
-                <span style={renameNoticeStyle}>{renameNotice}</span>
-              )}
-            </div>
-          </form>
-        )}
-      </section>
-
-      <section className="workspace-card" style={sectionStyle} aria-label="Work model">
-        <div className="workspace-card__head">
-          <div className="workspace-card__title">Work model</div>
-          <span style={mutedHintStyle}>
-            agent + model the workspace runs by default
-          </span>
-        </div>
-        <p style={sectionDescStyle}>
-          The agent that runs work in this workspace — threads, tasks,
-          and review seats inherit it. Pick an <strong>agent</strong>,
-          then its <strong>model</strong>. CLI agents and API providers
-          are equal peers; a thread or task override (later phase) lands
-          most-specific-wins.
-        </p>
-        {workspace === null ? (
-          <div style={mutedHintStyle}>{loading ? 'Loading…' : 'No workspace.'}</div>
-        ) : (
-          <>
-            <WorkModelPicker
-              value={workModel}
-              onChange={(next) => { void persistWorkModel(next); }}
-            />
-            {workModelError !== null && (
-              <div style={renameErrorStyle}>{workModelError}</div>
-            )}
-          </>
-        )}
-      </section>
-
-      <section className="workspace-card" style={sectionStyle} aria-label="Repositories">
-        <div className="workspace-card__head">
-          <div className="workspace-card__title">Repositories</div>
-          <span style={mutedHintStyle}>
-            edits on the global Settings → Repositories page
-          </span>
-        </div>
-        <p style={sectionDescStyle}>
-          The repos this workspace spans. Threads here can spawn Tasks
-          (branches + worktrees) in any of them.
-        </p>
-        {loading ? (
-          <div style={mutedHintStyle}>Loading…</div>
-        ) : repos.length === 0 ? (
-          <div style={mutedHintStyle}>
-            No watched repos yet — add one from Settings → Repositories.
-          </div>
-        ) : (
-          <ul style={repoListStyle}>
-            {repos.map((r, i) => (
-              <li key={r.id} style={repoRowStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={repoAvatarStyle}>{r.owner.slice(0, 1).toUpperCase()}</span>
-                  <span style={repoNameStyle}>{r.owner}/{r.repo}</span>
-                </div>
-                {i === 0 && <span style={defaultPillStyle}>default</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="workspace-card" style={sectionStyle} aria-label="AI defaults">
-        <div className="workspace-card__head">
-          <div className="workspace-card__title">AI defaults</div>
-          <span style={mutedHintStyle}>
-            credential picks happen on Settings → AI review
-          </span>
-        </div>
-        <p style={sectionDescStyle}>
-          Which credential and skills threads here use unless overridden.
-          Configured globally on the AI review settings page; the
-          workspace inherits whatever's active there.
-        </p>
-        <ul style={defaultsListStyle}>
-          <li style={defaultRowStyle}>
-            <span style={defaultLabelStyle}>Default credential</span>
-            <span style={defaultValueStyle}>follows Settings → AI review</span>
-          </li>
-          <li style={defaultRowStyle}>
-            <span style={defaultLabelStyle}>Review credential</span>
-            <span style={defaultValueStyle}>follows Settings → AI review</span>
-          </li>
-          <li style={defaultRowStyle}>
-            <span style={defaultLabelStyle}>Workspace skills</span>
-            <span style={defaultValueStyle}>edit on Settings → AI review → Review skills</span>
-          </li>
-        </ul>
-      </section>
-
-      <section className="workspace-card" style={sectionStyle} aria-label="Behavior">
-        <div className="workspace-card__head">
-          <div className="workspace-card__title">Behavior</div>
-          <span style={mutedHintStyle}>persists now — enforcement follows feature-by-feature</span>
-        </div>
-        <ul style={behaviorListStyle}>
-          <li style={behaviorRowStyle}>
-            <div>
-              <div style={behaviorLabelStyle}>Archive idle threads</div>
-              <div style={mutedHintStyle}>
-                idle threads compact + drop from the list
-              </div>
-            </div>
-            <div role="tablist" style={pillGroupStyle}>
-              {ARCHIVE_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={behavior.archiveIdleAfter === opt.value}
-                  style={pillStyle(behavior.archiveIdleAfter === opt.value)}
-                  onClick={() => persistBehavior({ ...behavior, archiveIdleAfter: opt.value })}
-                  disabled={loading}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </li>
-          <li style={behaviorRowStyle}>
-            <div>
-              <div style={behaviorLabelStyle}>Auto-propose Task on code work</div>
-              <div style={mutedHintStyle}>
-                offer a branch when a Discussion thread is about to edit files
-              </div>
-            </div>
-            <Toggle
-              checked={behavior.autoProposeTask}
-              onToggle={() => persistBehavior({
-                ...behavior, autoProposeTask: !behavior.autoProposeTask,
-              })}
-              disabled={loading}
-            />
-          </li>
-          <li style={behaviorRowStyle}>
-            <div>
-              <div style={behaviorLabelStyle}>Auto-promote decisions to memory</div>
-              <div style={mutedHintStyle}>
-                approves new entries automatically; edits and confirm
-              </div>
-            </div>
-            <Toggle
-              checked={behavior.autoPromoteDecisions}
-              onToggle={() => persistBehavior({
-                ...behavior, autoPromoteDecisions: !behavior.autoPromoteDecisions,
-              })}
-              disabled={loading}
-            />
-          </li>
-          <li style={behaviorRowStyle}>
-            <div>
-              <div style={behaviorLabelStyle}>New-topic nudge</div>
-              <div style={mutedHintStyle}>
-                suggest a new thread when a message looks unrelated
-              </div>
-            </div>
-            <Toggle
-              checked={behavior.newTopicNudge}
-              onToggle={() => persistBehavior({
-                ...behavior, newTopicNudge: !behavior.newTopicNudge,
-              })}
-              disabled={loading}
-            />
-          </li>
-        </ul>
-      </section>
-
-      <section className="workspace-card" style={dangerSectionStyle} aria-label="Danger zone">
-        <div className="workspace-card__head">
-          <div className="workspace-card__title" style={{ color: '#cf1322' }}>Danger zone</div>
-        </div>
-        <ul style={dangerListStyle}>
-          <li style={dangerRowStyle}>
-            <div>
-              <div style={dangerLabelStyle}>Archive workspace</div>
-              <div style={mutedHintStyle}>
-                hide this workspace and release its agents. Threads +
-                memory are kept and restorable. (not wired yet)
-              </div>
-            </div>
-            <button type="button" style={dangerButtonStyle} disabled>
-              Archive
-            </button>
-          </li>
-          <li style={dangerRowStyle}>
-            <div>
-              <div style={dangerLabelStyle}>Delete workspace</div>
-              <div style={mutedHintStyle}>
-                permanently remove the workspace and everything in it —
-                threads, tasks, history, worktrees, and repo pins — and
-                stop any running agents. PRs already on GitHub are untouched.
-              </div>
-              {deleteError !== null && (
-                <div style={{ ...errorStyle, marginTop: 8 }} role="alert">{deleteError}</div>
-              )}
-            </div>
-            <button
-              type="button"
-              style={deleting ? { ...dangerButtonStyle, opacity: 0.6, cursor: 'not-allowed' } : dangerButtonStyle}
-              onClick={() => setConfirmOpen(true)}
-              disabled={workspace === null || deleting}
-            >
-              {deleting ? 'Deleting…' : 'Delete…'}
-            </button>
-          </li>
-        </ul>
-      </section>
-      {confirmOpen && workspace !== null && (
-        <ConfirmDialog
-          title={`Delete workspace "${workspace.name}"?`}
-          body={'This removes the workspace and everything in it — every thread, '
-            + 'its tasks, messages, history, worktrees, and repo pins — and stops '
-            + 'any running agents.\n\nThis cannot be undone.'}
-          confirmLabel={deleting ? 'Deleting…' : 'Delete workspace'}
-          destructive
-          busy={deleting}
-          onConfirm={() => { void runDelete(); }}
-          onCancel={() => setConfirmOpen(false)}
-        />
-      )}
-    </>
+            </footer>
+          )}
+        </main>
+      </div>
+    </section>
   );
 }
 
-function Toggle({ checked, onToggle, disabled }: {
+function SettingsCard({ title, subtitle, children, danger = false }: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  danger?: boolean;
+}) {
+  return (
+    <section className={`wu-settings-card${danger ? ' danger' : ''}`}>
+      <h2 className={subtitle === undefined ? undefined : 'with-subtitle'}>
+        <span>{title}</span>
+        {subtitle !== undefined && <small>{subtitle}</small>}
+      </h2>
+      <div>{children}</div>
+    </section>
+  );
+}
+
+function SettingRow({ label, detail, children }: {
+  label: string;
+  detail?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="wu-setting-row">
+      <span><strong>{label}</strong>{detail && <small>{detail}</small>}</span>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+function ModelRow({ label, tone, value, onChange }: {
+  label: string;
+  tone: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const claude = value.startsWith('claude');
+  return (
+    <div className="wu-setting-row wu-model-row">
+      <span className={`wu-kind-chip ${tone}`}>{tone === 'ci-fix' ? 'ci fix' : tone}</span>
+      <span className="wu-model-row__description">{label}</span>
+      <label className="wu-model-picker">
+        <span className={claude ? 'claude' : 'gpt'}>{claude ? 'C' : 'G'}</span>
+        <select value={value} onChange={event => onChange(event.target.value)}>
+        <option value="claude-opus-4.8">claude-opus-4.8</option>
+        <option value="claude-sonnet-4.5">claude-sonnet-4.5</option>
+        <option value="gpt-5.2-codex">gpt-5.2-codex</option>
+        <option value="local">local</option>
+        </select>
+        <svg viewBox="0 0 24 24" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+      </label>
+    </div>
+  );
+}
+
+function NumberRow({ label, value, prefix, suffix, onChange }: {
+  label: string;
+  value: number;
+  prefix?: string;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(prefix === '$' ? value.toFixed(2) : String(value));
+  useEffect(() => {
+    setDraft(prefix === '$' ? value.toFixed(2) : String(value));
+  }, [prefix, value]);
+  return (
+    <SettingRow label={label}>
+      <label className="wu-number-input">
+        {prefix && <span>{prefix}</span>}
+        <input type="text" inputMode="decimal" value={draft}
+          onChange={event => {
+            setDraft(event.target.value);
+            const parsed = Number(event.target.value);
+            if (Number.isFinite(parsed) && parsed >= 0) onChange(parsed);
+          }}
+          onBlur={() => setDraft(prefix === '$' ? value.toFixed(2) : String(value))} />
+        {suffix && <span>{suffix}</span>}
+      </label>
+    </SettingRow>
+  );
+}
+
+function ToggleRow({ label, detail, checked, onChange, disabled = false }: {
+  label: string;
+  detail: string;
   checked: boolean;
-  onToggle: () => void;
+  onChange: (checked: boolean) => void;
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={onToggle}
-      style={toggleStyle(checked)}
-      disabled={disabled}
-    >
-      <span style={toggleThumbStyle(checked)} aria-hidden />
-    </button>
+    <SettingRow label={label} detail={detail}>
+      <button type="button" role="switch" aria-checked={checked}
+        disabled={disabled}
+        className={`wu-switch${checked ? ' on' : ''}`} onClick={() => onChange(!checked)}>
+        <i />
+      </button>
+    </SettingRow>
   );
 }
 
-/* ── styles ─────────────────────────────────────────────────── */
+function DangerRow({ title, detail, action, destructive = false, disabled = false, onClick }: {
+  title: string;
+  detail: string;
+  action: string;
+  destructive?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <SettingRow label={title} detail={detail}>
+      <button type="button" className={`wu-icon-button${destructive ? ' destructive' : ''}`}
+        disabled={disabled} onClick={onClick}>
+        {action}
+      </button>
+    </SettingRow>
+  );
+}
 
-const sectionStyle: React.CSSProperties = {
-  marginBottom: 14,
-};
-
-const dangerSectionStyle: React.CSSProperties = {
-  marginBottom: 14,
-  border: '1px solid rgba(207, 19, 34, 0.25)',
-  background: 'linear-gradient(180deg, rgba(254,242,242,0.75), rgba(255,255,255,0.8))',
-};
-
-const sectionDescStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: 'var(--ws-text-2)',
-  marginTop: 0,
-  marginBottom: 12,
-  lineHeight: 1.5,
-};
-
-const mutedHintStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--ws-text-3)',
-};
-
-const repoListStyle: React.CSSProperties = {
-  listStyle: 'none',
-  margin: 0,
-  padding: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-};
-
-const repoRowStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: '6px 0',
-  borderBottom: '1px solid rgba(124, 58, 237, 0.05)',
-};
-
-const repoAvatarStyle: React.CSSProperties = {
-  width: 20,
-  height: 20,
-  borderRadius: 5,
-  background: 'rgba(124, 58, 237, 0.15)',
-  color: 'var(--ws-accent-deep)',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: 10,
-  fontWeight: 700,
-};
-
-const repoNameStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: 'var(--ws-text-1)',
-};
-
-const defaultPillStyle: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.06em',
-  padding: '2px 7px',
-  borderRadius: 999,
-  color: 'var(--ws-accent-deep)',
-  background: 'var(--ws-accent-soft)',
-};
-
-const defaultsListStyle: React.CSSProperties = {
-  listStyle: 'none',
-  margin: 0,
-  padding: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-};
-
-const defaultRowStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'baseline',
-  fontSize: 12,
-};
-
-const defaultLabelStyle: React.CSSProperties = {
-  color: 'var(--ws-text-1)',
-  fontWeight: 500,
-};
-
-const defaultValueStyle: React.CSSProperties = {
-  color: 'var(--ws-text-3)',
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  fontSize: 11,
-};
-
-const behaviorListStyle: React.CSSProperties = {
-  listStyle: 'none',
-  margin: 0,
-  padding: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 14,
-};
-
-const behaviorRowStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 14,
-};
-
-const behaviorLabelStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: 'var(--ws-text-1)',
-  fontWeight: 500,
-  marginBottom: 2,
-};
-
-const pillGroupStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  background: 'rgba(255, 255, 255, 0.6)',
-  border: '1px solid var(--ws-card-border)',
-  borderRadius: 8,
-  padding: 2,
-};
-
-function pillStyle(active: boolean): React.CSSProperties {
+function fromDto(value: WorkspaceSettingsDto): StoredSettings {
   return {
-    padding: '4px 10px',
-    fontSize: 11,
-    fontWeight: 600,
-    border: 'none',
-    borderRadius: 6,
-    background: active ? '#fff' : 'transparent',
-    color: active ? 'var(--ws-text-1)' : 'var(--ws-text-3)',
-    cursor: 'pointer',
-    boxShadow: active ? '0 1px 3px rgba(67, 56, 202, 0.07)' : undefined,
+    planModel: value.providers.plan ?? defaults.planModel,
+    devModel: value.providers.dev ?? defaults.devModel,
+    reviewModel: value.providers.review ?? defaults.reviewModel,
+    ciFixModel: value.providers['ci-fix'] ?? defaults.ciFixModel,
+    perSessionCap: value.sessionCapUsd,
+    dailyCap: value.dailyCapUsd,
+    pauseAtCap: value.pauseAtCap,
+    syncSeconds: value.syncSeconds,
+    brainBudget: value.brainBudgetChars,
+    distillMinutes: value.distillMinutes,
+    notifyQuestions: true,
+    notifyReviews: true,
+    notifyCi: value.notifyCi,
+    notifyCompletions: value.notifyCompletions,
   };
 }
 
-function toggleStyle(checked: boolean): React.CSSProperties {
+function toDto(value: StoredSettings): WorkspaceSettingsDto {
   return {
-    width: 32,
-    height: 18,
-    padding: 2,
-    borderRadius: 999,
-    border: 'none',
-    background: checked ? 'var(--ws-accent)' : 'rgba(124, 58, 237, 0.18)',
-    cursor: 'pointer',
-    transition: 'background var(--ws-fast)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    flexShrink: 0,
+    sessionCapUsd: value.perSessionCap,
+    dailyCapUsd: value.dailyCap,
+    pauseAtCap: value.pauseAtCap,
+    syncSeconds: value.syncSeconds,
+    brainBudgetChars: value.brainBudget,
+    distillMinutes: value.distillMinutes,
+    kbAudiences: ['plan', 'dev', 'review', 'ci-fix'],
+    providers: {
+      plan: value.planModel,
+      dev: value.devModel,
+      review: value.reviewModel,
+      'ci-fix': value.ciFixModel,
+    },
+    notifyCi: value.notifyCi,
+    notifyCompletions: value.notifyCompletions,
   };
 }
-
-function toggleThumbStyle(checked: boolean): React.CSSProperties {
-  return {
-    width: 14,
-    height: 14,
-    borderRadius: '50%',
-    background: '#fff',
-    transform: `translateX(${checked ? 14 : 0}px)`,
-    transition: 'transform var(--ws-fast)',
-  };
-}
-
-const dangerListStyle: React.CSSProperties = {
-  listStyle: 'none',
-  margin: 0,
-  padding: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 14,
-};
-
-const dangerRowStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 14,
-};
-
-const dangerLabelStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: '#991b1b',
-  fontWeight: 600,
-  marginBottom: 2,
-};
-
-const dangerButtonStyle: React.CSSProperties = {
-  padding: '6px 14px',
-  fontSize: 12,
-  fontWeight: 600,
-  border: '1px solid rgba(207, 19, 34, 0.35)',
-  borderRadius: 8,
-  background: '#fff',
-  color: '#cf1322',
-  cursor: 'pointer',
-};
-
-const errorStyle: React.CSSProperties = {
-  marginBottom: 12,
-  padding: 10,
-  background: 'rgba(207, 19, 34, 0.06)',
-  border: '1px solid rgba(207, 19, 34, 0.4)',
-  borderRadius: 8,
-  color: '#cf1322',
-  fontSize: 12,
-};
-
-const identityFormStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-  marginTop: 4,
-};
-
-const identityLabelStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-};
-
-const identityLabelTextStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-  color: 'var(--text-3)',
-};
-
-const identityInputStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  fontSize: 13,
-  border: '1px solid rgba(0,0,0,0.10)',
-  borderRadius: 8,
-  background: '#fff',
-  outline: 'none',
-  color: 'var(--text-1)',
-  maxWidth: 380,
-};
-
-const identityIdRowStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-};
-
-const identityIdValueStyle: React.CSSProperties = {
-  padding: '6px 10px',
-  fontSize: 12,
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  background: 'rgba(124, 58, 237, 0.06)',
-  border: '1px solid rgba(124, 58, 237, 0.12)',
-  borderRadius: 6,
-  color: 'var(--text-1)',
-  maxWidth: 380,
-  width: 'fit-content',
-};
-
-const identityIdHintStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text-3)',
-};
-
-const identityActionsStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-};
-
-const identitySaveStyle: React.CSSProperties = {
-  padding: '6px 14px',
-  fontSize: 12,
-  fontWeight: 600,
-  border: 'none',
-  borderRadius: 8,
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
-  color: '#fff',
-  cursor: 'pointer',
-};
-
-const identitySaveDisabledStyle: React.CSSProperties = {
-  ...identitySaveStyle,
-  background: 'rgba(124, 58, 237, 0.22)',
-  color: 'rgba(255,255,255,0.85)',
-  cursor: 'not-allowed',
-  opacity: 0.7,
-};
-
-const renameErrorStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: '#cf1322',
-};
-
-const renameNoticeStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: '#15803d',
-};
-
-export default WorkspaceSettingsPage;

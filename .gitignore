@@ -90,6 +90,7 @@ typings/
 
 # Electron-Forge
 out/
+frontend/.visual-workspace/
 
 # Maven
 target/

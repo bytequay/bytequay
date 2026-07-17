@@ -12,29 +12,30 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import WorkspaceMemoryPage from '../settings/pages/WorkspaceMemoryPage';
 import type {
   ProviderFilter as ThreadsProviderFilter,
   RepoFilter as ThreadsRepoFilter,
   StatusFilter as ThreadsStatusFilter,
 } from '../threads/ThreadsLeftRail';
-import { WorkspaceTopBar } from '../ui/workspace';
-import type { WsTab } from '../ui/workspace';
-import { logoColorFor, monogram, useWorkspaceNav } from '../pages/useWorkspaceNav';
+import { useWorkspaceNav } from '../pages/useWorkspaceNav';
 import WorkspaceBacklogPage from './WorkspaceBacklogPage';
 import NewThreadDialog from './NewThreadDialog';
 import WorkspaceInsightsPage from './WorkspaceInsightsPage';
+import WorkspaceRepoPage, { type WorkspaceRepoSection } from './WorkspaceRepoPage';
+import WorkspaceSessionsPage from './WorkspaceSessionsPage';
 import WorkspaceThreadsSurface from './WorkspaceThreadsSurface';
+import WorkspaceTodayPage from './WorkspaceTodayPage';
+import WorkspaceNotificationsPage from './WorkspaceNotificationsPage';
+import WorkspaceMemoryPage from './WorkspaceMemoryPage';
+import WorkspaceSettingsPage, { type WorkspaceSettingsSection } from './WorkspaceSettingsPage';
+import { workspaceApi } from './workspaceApi';
 
-export type WorkspaceSection = 'home' | 'threads' | 'backlog' | 'memory' | 'insights' | 'settings';
-
-/** The workspace's main surfaces are Threads / Backlog / Memory / Insights.
- *  The older home + settings sections fold into Threads (the landing) —
- *  Home is now a top-level nav destination and Settings lives in the
- *  global rail's bottom group. */
-function sectionToTab(section: WorkspaceSection): WsTab {
-  return section === 'backlog' || section === 'memory' || section === 'insights' ? section : 'threads';
-}
+export type WorkspaceSection =
+  | 'today' | 'trunks' | 'pull-requests' | 'issues' | 'sessions'
+  | 'backlog' | 'branches' | 'commits' | 'memory' | 'insights'
+  | 'notifications' | 'settings'
+  /** Temporary route aliases accepted while old callers migrate. */
+  | 'home' | 'threads';
 
 type Props = {
   section: WorkspaceSection;
@@ -74,12 +75,21 @@ type Props = {
   onThreadsProviderChange: (provider: ThreadsProviderFilter) => void;
   onThreadsGroupChange: (groupId: string | null) => void;
   onThreadsRepoChange: (repo: string | null) => void;
-  /** Open a PR in the repo view with the threads list as the back
-   *  target. */
-  onOpenPr: (owner: string, repo: string, prNumber: number) => void;
-  /** Open the repo's Issues tab with the threads list as the back
-   *  target. */
-  onOpenIssues: (owner: string, repo: string) => void;
+  /** Open a PR through the canonical workspace route. Repository
+   *  identity is resolved by the sidecar, never carried by the renderer. */
+  onOpenPr: (prNumber: number) => void;
+  /** Canonical workspace issue-detail route. */
+  onOpenIssue?: (issueNumber: number) => void;
+  prNumber?: number;
+  issueNumber?: number;
+  branchName?: string;
+  onOpenBranch?: (branchName: string) => void;
+  sessionId?: string;
+  onOpenSession?: (sessionId: string) => void;
+  backlogKey?: string;
+  onOpenBacklog?: (key?: string) => void;
+  settingsSection?: string;
+  onSelectSettingsSection?: (section: WorkspaceSettingsSection) => void;
   /** Jump to Settings → Integrations (used by the threads-list "PAT
    *  missing" affordance). */
   onOpenSettings: () => void;
@@ -99,65 +109,133 @@ type Props = {
  *  Threads is the landing surface (a list of open thread cards); Memory
  *  and Insights are the other two tabs. */
 function WorkspaceShell({
-  section, onSelectSection, workspaceId, onOpenThread,
+  section, onSelectSection, workspaceId, onOpenThread, onOpenPr,
+  onOpenIssue, prNumber, issueNumber, branchName, onOpenBranch,
+  sessionId, onOpenSession,
+  backlogKey, onOpenBacklog,
+  settingsSection, onSelectSettingsSection,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const [pendingBacklogStartKey, setPendingBacklogStartKey] = useState<string | null>(null);
 
-  const { activeWorkspace, repos, rawThreads } = useWorkspaceNav(workspaceId);
+  const { activeWorkspace, rawThreads } = useWorkspaceNav(workspaceId);
   const loaded = activeWorkspace !== null;
   const name = activeWorkspace?.name ?? 'Workspace';
-  const activeTab = sectionToTab(section);
+  const activeSection = section === 'home' ? 'today' : section === 'threads' ? 'trunks' : section;
   // threadId → title, so the workspace backlog cards can show a "from <thread>"
   // chip without each card re-fetching the thread.
   const threadNames = new Map(rawThreads.map(t => [t.id, t.title]));
 
   return (
-    <div className="shell full-width">
+    <div className="shell full-width wu-workspace-shell">
       <div className="main">
-        <WorkspaceTopBar
-          workspace={{ initials: monogram(name).toUpperCase(), color: logoColorFor(name), name }}
-          repos={repos}
-          threadCount={activeWorkspace?.activeThreadCount}
-          activeTab={activeTab}
-          onSelectTab={tab => onSelectSection(tab)}
-          onNewThread={() => setNewThreadOpen(true)}
-        />
-        {activeTab === 'threads' && (
+        {activeSection === 'today' && activeWorkspace !== null && (
+          <WorkspaceTodayPage
+            workspace={activeWorkspace}
+            threads={rawThreads}
+            onOpenThread={onOpenThread}
+            onNewThread={() => setNewThreadOpen(true)}
+            onOpenInsights={() => onSelectSection('insights')}
+            onOpenMemory={() => onSelectSection('memory')}
+          />
+        )}
+        {activeSection === 'trunks' && (
           <WorkspaceThreadsSurface
             threads={rawThreads}
             loading={!loaded}
             onOpenThread={onOpenThread}
+            onNewThread={() => setNewThreadOpen(true)}
           />
         )}
-        {activeTab === 'backlog' && (
+        {isRepoSection(activeSection) && (
+          <WorkspaceRepoPage
+            workspaceId={workspaceId}
+            section={activeSection}
+            onOpenPr={onOpenPr}
+            onOpenIssue={number => onOpenIssue?.(number)}
+            onOpenBranch={onOpenBranch}
+            onOpenTrunk={onOpenThread}
+            selectedNumber={activeSection === 'pull-requests' ? prNumber : issueNumber}
+            selectedBranch={activeSection === 'branches' ? branchName : undefined}
+            onBackToList={() => onSelectSection(activeSection)}
+          />
+        )}
+        {activeSection === 'sessions' && (
+          <WorkspaceSessionsPage
+            workspaceId={workspaceId}
+            onOpenThread={onOpenThread}
+            selectedSessionId={sessionId}
+            onOpenSession={onOpenSession}
+            onBackToList={() => onSelectSection('sessions')}
+          />
+        )}
+        {activeSection === 'backlog' && (
           <WorkspaceBacklogPage
             workspaceId={workspaceId}
             threadNames={threadNames}
+            selectedKey={backlogKey}
+            onOpenItem={onOpenBacklog}
+            onOpenThread={onOpenThread}
+            onRequestNewTrunk={itemKey => {
+              setPendingBacklogStartKey(itemKey);
+              setNewThreadOpen(true);
+            }}
+          />
+        )}
+        {activeSection === 'memory' && (
+          <WorkspaceMemoryPage workspaceId={workspaceId} />
+        )}
+        {activeSection === 'insights' && (
+          <div className="surface"><WorkspaceInsightsPage workspaceId={workspaceId} /></div>
+        )}
+        {activeSection === 'notifications' && (
+          <WorkspaceNotificationsPage
+            workspaceId={workspaceId}
             onOpenThread={onOpenThread}
           />
         )}
-        {activeTab === 'memory' && (
-          <div className="surface">
-            <WorkspaceMemoryPage workspaceId={workspaceId} onOpenThread={onOpenThread} />
-          </div>
-        )}
-        {activeTab === 'insights' && (
-          <div className="surface"><WorkspaceInsightsPage workspaceId={workspaceId} /></div>
+        {activeSection === 'settings' && (
+          activeWorkspace !== null && (
+            <WorkspaceSettingsPage
+              workspace={activeWorkspace}
+              workspaceId={workspaceId}
+              section={isSettingsSection(settingsSection) ? settingsSection : 'general'}
+              onSelectSection={onSelectSettingsSection}
+            />
+          )
         )}
       </div>
       {newThreadOpen && (
         <NewThreadDialog
           workspaceId={workspaceId}
           workspaceName={name}
-          onClose={() => setNewThreadOpen(false)}
-          onCreated={(threadId) => {
+          onClose={() => {
             setNewThreadOpen(false);
+            setPendingBacklogStartKey(null);
+          }}
+          onCreated={async (threadId) => {
+            setNewThreadOpen(false);
+            if (pendingBacklogStartKey !== null) {
+              await workspaceApi.startBacklogItem(
+                workspaceId, pendingBacklogStartKey, threadId);
+              setPendingBacklogStartKey(null);
+            }
             onOpenThread?.(threadId);
           }}
         />
       )}
     </div>
   );
+}
+
+function isRepoSection(section: WorkspaceSection): section is WorkspaceRepoSection {
+  return section === 'pull-requests' || section === 'issues'
+    || section === 'branches' || section === 'commits';
+}
+
+function isSettingsSection(value: string | undefined): value is WorkspaceSettingsSection {
+  return value === 'general' || value === 'agents' || value === 'notifications'
+    || value === 'sync' || value === 'memory' || value === 'danger';
 }
 
 export default WorkspaceShell;

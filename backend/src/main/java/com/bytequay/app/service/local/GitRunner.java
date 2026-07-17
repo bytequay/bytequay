@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -475,6 +476,54 @@ public class GitRunner
                 mainRepoDir)
                 .requireSuccess();
     }
+
+    /**
+     * Applies commits in caller-supplied order and deliberately leaves a
+     * failed cherry-pick in progress so an attached recovery agent can resolve
+     * it in the isolated worktree.
+     */
+    public CherryPickOutcome cherryPick(
+            Path workingDir,
+            List<String> commits)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(commits, "commits is null");
+        int applied = 0;
+        for (String commit : commits) {
+            requireNonNull(commit, "commit is null");
+            GitResult result = run(
+                    List.of("git", "cherry-pick", commit),
+                    workingDir,
+                    300);
+            if (result.exitCode() != 0) {
+                GitResult unresolved = run(
+                        List.of("git", "diff", "--name-only",
+                                "--diff-filter=U", "-z"),
+                        workingDir,
+                        30);
+                List<String> paths = unresolved.exitCode() == 0
+                        ? Arrays.stream(unresolved.stdout().split(NUL_SEP, -1))
+                                .filter(path -> !path.isBlank())
+                                .toList()
+                        : List.of();
+                String detail = result.stderr().isBlank()
+                        ? result.stdout().strip()
+                        : result.stderr().strip();
+                return new CherryPickOutcome(
+                        false, applied, commit, paths, detail);
+            }
+            applied++;
+        }
+        return new CherryPickOutcome(
+                true, applied, null, List.of(), null);
+    }
+
+    public record CherryPickOutcome(
+            boolean complete,
+            int appliedCount,
+            String stoppedAt,
+            List<String> conflictPaths,
+            String message) {}
 
     /**
      * {@code git push <remote> --delete <branch>} — removes the branch

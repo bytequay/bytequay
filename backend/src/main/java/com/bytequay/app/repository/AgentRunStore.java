@@ -25,6 +25,18 @@ public interface AgentRunStore
 
     Optional<AgentRun> findById(String id);
 
+    /** Public Sessions feed for one workspace, newest first. */
+    default List<AgentRun> findByWorkspace(String workspaceId)
+    {
+        return List.of();
+    }
+
+    /** Every session owned by one trunk, newest first. */
+    default List<AgentRun> findByThread(String threadId)
+    {
+        return List.of();
+    }
+
     /** Every run owned by one review round, including its verifier. */
     List<AgentRun> findByReviewRound(String reviewRoundId);
 

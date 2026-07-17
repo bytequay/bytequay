@@ -11,8 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { TrunkIcon } from '../primitives';
-
 /**
  * The context chip shown once a workspace is open: the dark trunk-glyph
  * hero tile + name + "N repos · M threads" — the same identity mark as
@@ -26,12 +24,31 @@ export function WorkspaceSwitcher({ name, sub, onSwitch }: {
   onSwitch?: () => void;
 }) {
   return (
-    <button type="button" className="ws-switcher" title={`Open ${name}`} onClick={onSwitch}>
-      <span className="ws-hero-tile" aria-hidden><TrunkIcon size={16} /></span>
+    <div
+      className="ws-switcher"
+      role="button"
+      tabIndex={0}
+      title={`Open ${name}`}
+      onClick={onSwitch}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSwitch?.();
+        }
+      }}
+    >
+      <span className="ws-switcher-avatar" aria-hidden>
+        {(name.split('/').at(-1)?.[0] ?? name[0] ?? '?').toUpperCase()}
+      </span>
       <span className="ws-meta">
-        <span className="ws-name">{name}</span>
+        <span className="ws-name">{name.split('/').at(-1) ?? name}</span>
         <span className="ws-sub">{sub}</span>
       </span>
-    </button>
+      <svg className="ws-switcher-chevron" width="13" height="13" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+        strokeLinejoin="round" aria-hidden>
+        <path d="m7 9 5-5 5 5M7 15l5 5 5-5" />
+      </svg>
+    </div>
   );
 }

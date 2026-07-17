@@ -393,6 +393,31 @@
   font-size: var(--font-size-sm);
 }
 
+.home-heatmap--error {
+  gap: var(--space-2);
+}
+
+.home-heatmap__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  color: var(--text-3);
+  font-size: var(--font-size-xs);
+}
+
+.home-heatmap__retry {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--accent, #2563eb);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
 .home-heatmap__svg {
   display: block;
   width: 100%;

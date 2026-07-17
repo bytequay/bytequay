@@ -2751,15 +2751,15 @@ public class GitHubClient
                 // NOT_FOUND for renamed/deleted logins.
                 List<ContributionGqlError> errors = response == null ? null : response.errors();
                 if (errors != null && !errors.isEmpty()) {
-                    log.warn("contribution calendar for {} returned GraphQL errors: {}", login, errors);
+                    throw new IllegalStateException("GitHub contribution calendar returned errors: " + errors);
                 }
-                else {
-                    log.warn("contribution calendar for {} returned no data and no errors", login);
-                }
-                return new ContributionCalendar(0, ImmutableList.of());
+                throw new IllegalStateException("GitHub contribution calendar returned no data");
             }
             ContributionGqlCalendar cal = response.data().user().contributionsCollection().contributionCalendar();
             List<ContributionGqlWeek> rawWeeks = cal.weeks() != null ? cal.weeks() : ImmutableList.of();
+            if (rawWeeks.isEmpty()) {
+                throw new IllegalStateException("GitHub contribution calendar returned no weeks");
+            }
             List<ContributionCalendar.Week> weeks = rawWeeks.stream()
                     .map(w -> new ContributionCalendar.Week(
                             (w.contributionDays() == null ? ImmutableList.<ContributionGqlDay>of() : w.contributionDays())
@@ -2774,9 +2774,7 @@ public class GitHubClient
             return new ContributionCalendar(total, weeks);
         }
         catch (RestClientResponseException e) {
-            // Non-essential affordance — degrade silently rather than
-            // failing the whole home page on a flaky GraphQL hop.
-            return new ContributionCalendar(0, ImmutableList.of());
+            throw new IllegalStateException("GitHub contribution calendar request failed", e);
         }
     }
 

@@ -38,44 +38,43 @@ function makeHandlers(over: Partial<InboxHandlers> = {}): InboxHandlers {
 const MERGE_GATE = { action: 'merge_pr', pr: { owner: 'chenjian2664', repo: 'ByteQuay', number: 29 } };
 
 describe('InboxCard', () => {
-  it('offers View PR + the PR title on an Awaiting-your-review publish gate', () => {
-    const handlers = makeHandlers({ prTitle: () => 'Add the cost-meter card' });
+  it('opens a remote publish gate directly in global Reviews', () => {
+    const handlers = makeHandlers({ openRemoteReview: vi.fn() });
     const item = notificationToInboxItem(notif({ payload: MERGE_GATE }));
     render(<InboxCard item={item} handlers={handlers} />);
-    fireEvent.click(screen.getByText('Awaiting your review'));
-    expect(screen.getByText('Add the cost-meter card')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'View PR' }));
-    expect(handlers.openPr).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
+    expect(screen.getByText('Open in Reviews')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Awaiting your review/ }));
+    expect(handlers.openRemoteReview).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
   });
 
-  it('expands an audit row on click, surfacing View PR, and marks it read', () => {
+  it('opens an audit row in one click and reports engagement', () => {
     const handlers = makeHandlers();
-    // An "Approved" audit row carries the PR as a nested object, same as the gate.
     const item = notificationToInboxItem(notif({
       kind: 'AUTO_FIX_DONE',
       payload: { publishResolution: 'approved', action: 'merge_pr', message: 'Marked #29 ready', pr: MERGE_GATE.pr },
     }));
     render(<InboxCard item={item} handlers={handlers} />);
-    // Before the click the detail is collapsed.
-    expect(screen.queryByRole('button', { name: 'View PR' })).toBeNull();
-    fireEvent.click(screen.getByText('Approved'));
-    // It expands (View PR shows) AND engagement is reported so the row clears.
-    fireEvent.click(screen.getByRole('button', { name: 'View PR' }));
+    fireEvent.click(screen.getByRole('button', { name: /Approved/ }));
     expect(handlers.openPr).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
     expect(handlers.opened).toHaveBeenCalledOnce();
   });
 
-  it('leaves an audit row unread on expand alone — only a view action reports engagement', () => {
-    const handlers = makeHandlers();
-    const item = notificationToInboxItem(notif({
-      kind: 'AUTO_FIX_DONE',
-      payload: { publishResolution: 'approved', action: 'merge_pr', message: 'Marked #29 ready', pr: MERGE_GATE.pr },
-    }));
-    render(<InboxCard item={item} handlers={handlers} />);
-    fireEvent.click(screen.getByText('Approved'));
-    expect(handlers.opened).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    expect(handlers.dismiss).toHaveBeenCalledOnce();
-    expect(handlers.opened).not.toHaveBeenCalled();
+  it('prefers the owning workspace and renders its workspace chip', () => {
+    const handlers = makeHandlers({
+      openWorkspacePr: vi.fn(),
+      workspaceForRepo: () => ({ workspaceId: 'ws-1', name: 'ByteQuay' }),
+    });
+    const item = notificationToInboxItem(notif({ payload: MERGE_GATE }));
+    const { container } = render(<InboxCard item={item} handlers={handlers} />);
+    expect(screen.getByText('ByteQuay')).toBeTruthy();
+    const workspaceIcon = container.querySelector('.home-inbox-card__workspace-icon');
+    expect(workspaceIcon?.getAttribute('src'))
+      .toContain('github.com/chenjian2664.png');
+    fireEvent.error(workspaceIcon as HTMLImageElement);
+    expect(container.querySelector('.home-inbox-card__workspace-icon')?.tagName).toBe('svg');
+    expect(screen.getByText('Review →')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Awaiting your review/ }));
+    expect(handlers.openWorkspacePr).toHaveBeenCalledWith('ws-1', 29);
+    expect(handlers.openPr).not.toHaveBeenCalled();
   });
 });

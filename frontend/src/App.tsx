@@ -24,7 +24,6 @@ import { Ds4StatusWidget } from './components/Ds4StatusWidget';
 import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ReviewQueuePage from './review/ReviewQueuePage';
-import ThreadDetailPage from './threads/ThreadDetailPage';
 import { TrunkRoute } from './pages/TrunkRoute';
 import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
 import { useThreadTasks } from './pages/useThreadTasks';
@@ -36,6 +35,10 @@ import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShel
 import NewThreadDialog from './workspace/NewThreadDialog';
 import { useWorkspaceNav } from './pages/useWorkspaceNav';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
+import WorkspaceCreationToasts from './workspace/WorkspaceCreationToasts';
+import {
+  parseWorkspaceRoute, workspaceRouteHash, type WorkspaceRoute,
+} from './workspace/workspaceRoutes';
 import type {
   StatusFilter as ThreadsStatusFilter,
   ProviderFilter as ThreadsProviderFilter,
@@ -44,11 +47,7 @@ import type {
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './home/HomePage';
-import RepoDetailPage from './RepoDetailPage';
 import { PrDetailsView, type AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
-import ReposPage from './repos/ReposPage';
-import RepositoryPage from './repos/RepositoryPage';
-import LocalRepoPage from './repos/LocalRepoPage';
 import InAppBrowser from './InAppBrowser';
 import FindBar from './FindBar';
 import LogoLoading from './LogoLoading';
@@ -108,6 +107,12 @@ export type Nav =
    *  per the model doc. */
   | { view: 'workspace';
       section?: WorkspaceSection;
+      prNumber?: number;
+      issueNumber?: number;
+      sessionId?: string;
+      backlogKey?: string;
+      branchName?: string;
+      settingsSection?: string;
       threadsFilter?: ThreadsStatusFilter;
       threadsProvider?: ThreadsProviderFilter;
       threadsGroupId?: string;
@@ -192,9 +197,128 @@ function writeActiveWorkspaceId(id: string): void {
   catch { /* private browsing — skip silently */ }
 }
 
-function clearActiveWorkspaceId(): void {
-  try { window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY); }
-  catch { /* private browsing — skip silently */ }
+function workspaceSectionNav(section: WorkspaceSection): WsNavKey {
+  if (section === 'home' || section === 'today') return 'today';
+  if (section === 'threads' || section === 'trunks') return 'trunks';
+  return section;
+}
+
+type PublicNavigation = { nav: Nav; workspaceId: string | null };
+
+function publicNavigation(route: WorkspaceRoute): PublicNavigation {
+  switch (route.kind) {
+    case 'home': return { nav: { view: 'home' }, workspaceId: null };
+    case 'reviews': return { nav: { view: 'reviews' }, workspaceId: null };
+    case 'workspaces': return { nav: { view: 'workspaces-landing' }, workspaceId: null };
+    case 'workspace':
+      return { nav: { view: 'workspace', section: 'today' }, workspaceId: route.workspaceId };
+    case 'trunks':
+      return {
+        nav: route.trunkId === undefined
+          ? { view: 'workspace', section: 'trunks' }
+          : { view: 'thread-detail', threadId: route.trunkId },
+        workspaceId: route.workspaceId,
+      };
+    case 'pull-request':
+      return {
+        nav: { view: 'workspace', section: 'pull-requests', prNumber: route.number },
+        workspaceId: route.workspaceId,
+      };
+    case 'issue':
+      return {
+        nav: { view: 'workspace', section: 'issues', issueNumber: route.number },
+        workspaceId: route.workspaceId,
+      };
+    case 'session':
+      return {
+        nav: { view: 'workspace', section: 'sessions', sessionId: route.sessionId },
+        workspaceId: route.workspaceId,
+      };
+    case 'backlog':
+      return {
+        nav: { view: 'workspace', section: 'backlog', backlogKey: route.key },
+        workspaceId: route.workspaceId,
+      };
+    case 'branches':
+      return {
+        nav: { view: 'workspace', section: 'branches', branchName: route.name },
+        workspaceId: route.workspaceId,
+      };
+    case 'commits':
+    case 'memory':
+    case 'insights':
+    case 'notifications':
+      return {
+        nav: { view: 'workspace', section: route.kind },
+        workspaceId: route.workspaceId,
+      };
+    case 'settings':
+      return {
+        nav: { view: 'workspace', section: 'settings', settingsSection: route.section },
+        workspaceId: route.workspaceId,
+      };
+    case 'legacy-repo':
+      if (route.owner === undefined || route.repo === undefined) {
+        return { nav: { view: 'workspaces-landing' }, workspaceId: null };
+      }
+      return {
+        nav: route.page === 'branches'
+          ? { view: 'local-repo', owner: route.owner, repo: route.repo }
+          : {
+              view: 'repo',
+              owner: route.owner,
+              repo: route.repo,
+              initialTab: route.page === 'issues' ? 'issues' : 'pulls',
+            },
+        workspaceId: null,
+      };
+  }
+}
+
+function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | null {
+  switch (nav.view) {
+    case 'home': return { kind: 'home' };
+    case 'reviews': return { kind: 'reviews' };
+    case 'workspaces-landing': return { kind: 'workspaces' };
+    case 'thread-detail':
+    case 'task-brain':
+    case 'stage-detail':
+    case 'task-code':
+      return workspaceId === null ? null : {
+        kind: 'trunks', workspaceId, trunkId: nav.threadId,
+      };
+    case 'agent-review':
+      return { kind: 'pull-request', workspaceId: nav.workspaceId, number: nav.prNumber };
+    case 'workspace': {
+      if (workspaceId === null) return { kind: 'workspaces' };
+      const section = nav.section === 'home' ? 'today' : nav.section === 'threads' ? 'trunks'
+        : nav.section ?? 'today';
+      switch (section) {
+        case 'today': return { kind: 'workspace', workspaceId };
+        case 'trunks': return { kind: 'trunks', workspaceId };
+        case 'pull-requests':
+          return { kind: 'pull-request', workspaceId, number: nav.prNumber };
+        case 'issues':
+          return { kind: 'issue', workspaceId, number: nav.issueNumber };
+        case 'sessions':
+          return { kind: 'session', workspaceId, sessionId: nav.sessionId };
+        case 'backlog': return { kind: 'backlog', workspaceId, key: nav.backlogKey };
+        case 'branches': return { kind: 'branches', workspaceId, name: nav.branchName };
+        case 'commits': return { kind: 'commits', workspaceId };
+        case 'memory': return { kind: 'memory', workspaceId };
+        case 'insights': return { kind: 'insights', workspaceId };
+        case 'notifications': return { kind: 'notifications', workspaceId };
+        case 'settings': return { kind: 'settings', workspaceId, section: nav.settingsSection };
+      }
+      return null;
+    }
+    case 'repos': return { kind: 'legacy-repo' };
+    case 'repository':
+      return { kind: 'legacy-repo', owner: nav.owner, repo: nav.repo, page: 'pulls' };
+    case 'local-repo':
+      return { kind: 'legacy-repo', owner: nav.owner, repo: nav.repo, page: 'branches' };
+    default: return null;
+  }
 }
 
 /** Per-task memory of the last sub-surface the user viewed (brain, a specific
@@ -235,13 +359,16 @@ function lastTaskNav(threadId: string, taskId: string): Nav {
 }
 
 function App() {
+  const initialNavigation = useRef(
+    publicNavigation(parseWorkspaceRoute(typeof window === 'undefined' ? '' : window.location.hash)),
+  ).current;
   const [status, setStatus] = useState<Status>('checking');
-  const [nav, setNavRaw] = useState<Nav>({ view: 'home' });
+  const [nav, setNavRaw] = useState<Nav>(initialNavigation.nav);
   // Browser-style back/forward over the Nav state. Every setNav pushes
   // onto the stack (truncating any forward branch, like Chrome); the
   // sidebar arrows + ⌘[ / ⌘] walk it. The ref mutates only alongside a
   // setNavRaw call, so render-time reads of can-go flags stay fresh.
-  const navHistoryRef = useRef<NavHistory<Nav>>(createHistory<Nav>({ view: 'home' }));
+  const navHistoryRef = useRef<NavHistory<Nav>>(createHistory<Nav>(initialNavigation.nav));
   const setNav = useCallback((next: Nav | ((prev: Nav) => Nav)) => {
     const h = navHistoryRef.current;
     const resolved = typeof next === 'function' ? next(navCurrent(h)) : next;
@@ -400,7 +527,92 @@ function App() {
   /** Which workspace the user last entered. Drives the CURRENT chip
    *  on the landing grid. Set when the user picks a card. */
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
-    () => readActiveWorkspaceId());
+    () => initialNavigation.workspaceId ?? readActiveWorkspaceId());
+
+  // Repo/Repository/LocalRepo are compatibility inputs only. Resolve the
+  // repository's sole workspace, then immediately replace them with a
+  // canonical workspace route. An unconnected PR belongs to remote Reviews;
+  // no retired standalone-repository page is rendered.
+  useEffect(() => {
+    if (nav.view === 'repos') {
+      setNav({ view: 'workspaces-landing' });
+      return;
+    }
+    if (nav.view !== 'repo' && nav.view !== 'repository' && nav.view !== 'local-repo') {
+      return;
+    }
+    let cancelled = false;
+    const owner = nav.owner;
+    const repo = nav.repo;
+    const fullName = `${owner}/${repo}`.toLowerCase();
+    void window.bridge.listWorkspaces()
+      .then(cards => {
+        if (cancelled) return;
+        const workspace = cards.find(card =>
+          card.repository?.fullName.toLowerCase() === fullName);
+        if (workspace === undefined) {
+          setNav(nav.view === 'repo' && nav.prNumber !== undefined
+            ? { view: 'reviews' }
+            : { view: 'workspaces-landing' });
+          return;
+        }
+        setActiveWorkspaceId(workspace.id);
+        writeActiveWorkspaceId(workspace.id);
+        if (nav.view === 'local-repo') {
+          setNav({
+            view: 'workspace',
+            section: 'branches',
+            branchName: nav.initialBranch,
+          });
+          return;
+        }
+        if (nav.view === 'repo') {
+          setNav({
+            view: 'workspace',
+            section: nav.initialTab === 'issues' ? 'issues' : 'pull-requests',
+            prNumber: nav.prNumber,
+          });
+          return;
+        }
+        setNav({ view: 'workspace', section: 'today' });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNav(nav.view === 'repo' && nav.prNumber !== undefined
+            ? { view: 'reviews' }
+            : { view: 'workspaces-landing' });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [nav, setNav]);
+
+  // Keep the public hash in step with the internal Nav while compatibility
+  // routes still exist. pushState gives Electron real browser history; the
+  // existing rail arrows continue to walk the in-memory stack.
+  useEffect(() => {
+    const route = publicRoute(nav, activeWorkspaceId);
+    if (route === null) return;
+    const hash = workspaceRouteHash(route);
+    if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+  }, [activeWorkspaceId, nav]);
+
+  useEffect(() => {
+    const applyHash = () => {
+      const target = publicNavigation(parseWorkspaceRoute(window.location.hash));
+      if (target.workspaceId !== null) {
+        setActiveWorkspaceId(target.workspaceId);
+        writeActiveWorkspaceId(target.workspaceId);
+      }
+      navHistoryRef.current = navPush(navHistoryRef.current, target.nav);
+      setNavRaw(target.nav);
+    };
+    window.addEventListener('popstate', applyHash);
+    window.addEventListener('hashchange', applyHash);
+    return () => {
+      window.removeEventListener('popstate', applyHash);
+      window.removeEventListener('hashchange', applyHash);
+    };
+  }, []);
   /** The CURRENTLY-VIEWED thread's own workspace, once resolved by whatever
    *  page loaded it (e.g. TrunkRoute's own `getTask`). Distinct from
    *  {@code activeWorkspaceId}: opening a thread from outside the workspace
@@ -581,6 +793,15 @@ function App() {
   // back-target so the breadcrumb returns the user to their inbox.
   useEffect(() => {
     const unsub = window.bridge.onAppNavRequest(({ action, params }) => {
+      if (action === 'open' && params.path) {
+        const target = publicNavigation(parseWorkspaceRoute(params.path));
+        if (target.workspaceId !== null) {
+          setActiveWorkspaceId(target.workspaceId);
+          writeActiveWorkspaceId(target.workspaceId);
+        }
+        setNav(target.nav);
+        return;
+      }
       if (action !== 'pr-diff') return;
       const owner = params.owner;
       const repo = params.repo;
@@ -677,9 +898,10 @@ function App() {
   const sidebarActiveNav: WsNavKey | undefined = (() => {
     switch (nav.view) {
       case 'home': return 'home';
-      case 'workspaces-landing': case 'workspace': return 'workspaces';
-      case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'workspaces';
-      case 'agent-review': return 'workspaces';
+      case 'workspaces-landing': return 'workspaces';
+      case 'workspace': return workspaceSectionNav(nav.section ?? 'today');
+      case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'trunks';
+      case 'agent-review': return 'pull-requests';
       case 'my-prs': return 'my-work';
       case 'reviews': return 'reviews';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
@@ -723,8 +945,20 @@ function App() {
     });
   };
 
+  const usesWorkspaceRedesign = nav.view === 'workspaces-landing'
+    || nav.view === 'workspace'
+    || nav.view === 'thread-detail'
+    || nav.view === 'task-brain'
+    || nav.view === 'stage-detail'
+    || nav.view === 'task-code'
+    || nav.view === 'agent-review'
+    || nav.view === 'reviews';
+  const resolvingLegacyRepo = nav.view === 'repos' || nav.view === 'repo'
+    || nav.view === 'repository' || nav.view === 'local-repo';
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${usesWorkspaceRedesign ? ' workspace-redesign' : ''}`}>
+      <div className="app-window-drag-region" aria-hidden="true" />
       {!hideTopbar && !ownsTaskSidebar && (
         <WorkspaceNavShell
           activeWorkspaceId={sidebarWorkspaceId}
@@ -767,8 +1001,26 @@ function App() {
               case 'automations': break; // no Automations surface yet
               case 'repos': setNav({ view: 'repos' }); break;
               case 'email': setNav({ view: 'email' }); break;
-              case 'notifications': setNav({ view: 'notifications' }); break;
-              case 'settings': setNav({ view: 'settings' }); break;
+              case 'notifications':
+                setNav(sidebarWorkspaceId === null
+                  ? { view: 'notifications' }
+                  : { view: 'workspace', section: 'notifications' });
+                break;
+              case 'settings':
+                setNav(sidebarWorkspaceId === null
+                  ? { view: 'settings' }
+                  : { view: 'workspace', section: 'settings' });
+                break;
+              case 'today': setNav({ view: 'workspace', section: 'today' }); break;
+              case 'trunks': setNav({ view: 'workspace', section: 'trunks' }); break;
+              case 'pull-requests': setNav({ view: 'workspace', section: 'pull-requests' }); break;
+              case 'issues': setNav({ view: 'workspace', section: 'issues' }); break;
+              case 'backlog': setNav({ view: 'workspace', section: 'backlog' }); break;
+              case 'branches': setNav({ view: 'workspace', section: 'branches' }); break;
+              case 'commits': setNav({ view: 'workspace', section: 'commits' }); break;
+              case 'sessions': setNav({ view: 'workspace', section: 'sessions' }); break;
+              case 'memory': setNav({ view: 'workspace', section: 'memory' }); break;
+              case 'insights': setNav({ view: 'workspace', section: 'insights' }); break;
             }
           }}
           onOpenThread={openThread}
@@ -780,7 +1032,7 @@ function App() {
           // Clicking the workspace card stays in the workspace (from a
           // thread/task it returns to its surface; on it, a no-op).
           // Switching workspaces happens on the Workspaces landing page.
-          onSwitchWorkspace={() => setNav({ view: 'workspace', section: 'threads' })}
+          onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
           onNewThread={() => setNewThreadDialogOpen(true)}
         />
       )}
@@ -789,6 +1041,9 @@ function App() {
           resetKey={JSON.stringify(nav)}
           onReset={() => setNav({ view: 'home' })}
         >
+        {resolvingLegacyRepo && (
+          <div className="app-loading"><LogoLoading size={56} /></div>
+        )}
         {nav.view === 'home' && (
           <HomePage
             onSelectRepo={(owner, repo, prNumber) =>
@@ -798,6 +1053,12 @@ function App() {
               prNumber != null
                 ? setNav({ view: 'repo', owner, repo, prNumber, back: { view: 'home' } })
                 : setNav({ view: 'repository', owner, repo })}
+            onOpenWorkspacePr={(workspaceId, prNumber) => {
+              setActiveWorkspaceId(workspaceId);
+              writeActiveWorkspaceId(workspaceId);
+              setNav({ view: 'workspace', section: 'pull-requests', prNumber });
+            }}
+            onOpenRemoteReview={() => setNav({ view: 'reviews' })}
             onGoToMyPrs={() => setNav({ view: 'my-prs' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onGoToTeams={() => setNav({ view: 'teams' })}
@@ -825,28 +1086,6 @@ function App() {
               writeActiveWorkspaceId(workspaceId);
               setNav({ view: 'workspace' });
             }}
-          />
-        )}
-        {nav.view === 'repo' && (
-          <RepoDetailPage
-            owner={nav.owner}
-            repo={nav.repo}
-            initialPrNumber={nav.prNumber}
-            initialTab={nav.initialTab}
-            initialDiffCommitSha={nav.diffCommitSha}
-            initialOpenDiff={nav.openDiff}
-            onOpenLocalBranch={(owner, repo, branch) =>
-              setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
-            // PR → thread jump. The linked-thread chip in the PR header
-            // calls this; we preserve the current repo nav as the
-            // back target so closing the thread can return cleanly.
-            onOpenThread={openThread}
-            // The AI panel-review button on a PR row routes the user
-            // to the new review thread; we preserve the repo nav as
-            // the back target so the user can return.
-            onStartReview={openStartedReview}
-            onOpenAgentReview={openAgentReview}
-            workspaceId={activeWorkspaceId}
           />
         )}
         {nav.view === 'email' && (
@@ -989,21 +1228,36 @@ function App() {
             onEnterWorkspace={(id) => {
               setActiveWorkspaceId(id);
               writeActiveWorkspaceId(id);
-              setNav({ view: 'workspace', section: 'home' });
+              setNav({ view: 'workspace', section: 'today' });
             }}
           />
         )}
         {nav.view === 'workspace' && activeWorkspaceId && (
           <WorkspaceShell
-            section={nav.section ?? 'home'}
+            section={nav.section ?? 'today'}
             workspaceId={activeWorkspaceId}
+            prNumber={nav.prNumber}
+            issueNumber={nav.issueNumber}
+            branchName={nav.branchName}
+            sessionId={nav.sessionId}
+            backlogKey={nav.backlogKey}
+            settingsSection={nav.settingsSection}
+            onSelectSettingsSection={settingsSection => setNav({
+              view: 'workspace', section: 'settings', settingsSection,
+            })}
+            onOpenSession={sessionId => setNav({
+              view: 'workspace', section: 'sessions', sessionId,
+            })}
+            onOpenBacklog={backlogKey => setNav({
+              view: 'workspace', section: 'backlog', backlogKey,
+            })}
             onWorkspaceCreated={(newId) => {
               // A workspace created from the inline dialog becomes the
               // active one immediately so the user lands in its empty
               // home rather than the previous workspace's data.
               setActiveWorkspaceId(newId);
               writeActiveWorkspaceId(newId);
-              setNav({ view: 'workspace', section: 'home' });
+              setNav({ view: 'workspace', section: 'today' });
             }}
             onSelectSection={section => setNav({ view: 'workspace', section })}
             onOpenThread={openThread}
@@ -1042,60 +1296,19 @@ function App() {
               view: 'workspace', section: 'threads',
               threadsRepo: repo ?? undefined,
             })}
-            onOpenPr={(owner, repo, prNumber) => setNav({
-              view: 'repo', owner, repo, prNumber,
-              back: {
-                view: 'workspace', section: 'threads',
-                threadsGroupId: nav.threadsGroupId,
-                threadsFilter: nav.threadsFilter,
-                threadsProvider: nav.threadsProvider,
-                threadsRepo: nav.threadsRepo,
-              },
+            onOpenPr={prNumber => setNav({
+              view: 'workspace', section: 'pull-requests', prNumber,
             })}
-            onOpenIssues={(owner, repo) => setNav({
-              view: 'repo', owner, repo, initialTab: 'issues',
-              back: {
-                view: 'workspace', section: 'threads',
-                threadsGroupId: nav.threadsGroupId,
-                threadsFilter: nav.threadsFilter,
-                threadsProvider: nav.threadsProvider,
-                threadsRepo: nav.threadsRepo,
-              },
+            onOpenIssue={issueNumber => setNav({
+              view: 'workspace', section: 'issues', issueNumber,
+            })}
+            onOpenBranch={branchName => setNav({
+              view: 'workspace', section: 'branches', branchName,
             })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
             immersive={threadsImmersive}
             onChangeImmersive={setThreadsImmersive}
             hideRail
-          />
-        )}
-        {nav.view === 'repos' && (
-          <ReposPage
-            onSelectRepo={(owner, repo) => setNav({ view: 'repository', owner, repo })}
-          />
-        )}
-        {nav.view === 'repository' && (
-          <RepositoryPage
-            owner={nav.owner}
-            repo={nav.repo}
-            onBack={() => setNav({ view: 'repos' })}
-            onOpenPrs={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'pulls', back: nav })}
-            onOpenIssues={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'issues', back: nav })}
-            onOpenBranches={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
-            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
-          />
-        )}
-        {nav.view === 'local-repo' && (
-          <LocalRepoPage
-            owner={nav.owner}
-            repo={nav.repo}
-            // Back-target is the repository page (the repo's
-            // overview/PRs/issues hub) rather than the repos list —
-            // that's the natural parent now and keeps the
-            // breadcrumb chain short. Repos list is still one tab
-            // away on the topbar for users who want to jump out.
-            onBack={() => setNav({ view: 'repository', owner: nav.owner, repo: nav.repo })}
-            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
-            initialBranch={nav.initialBranch}
           />
         )}
         {nav.view === 'teams' && (
@@ -1163,6 +1376,13 @@ function App() {
       <Ds4StatusWidget
         hidden={fullScreen}
         onOpenManagement={() => setNav({ view: 'settings', section: 'local-ai' })}
+      />
+      <WorkspaceCreationToasts
+        onOpenWorkspace={workspaceId => {
+          setActiveWorkspaceId(workspaceId);
+          writeActiveWorkspaceId(workspaceId);
+          setNav({ view: 'workspace', section: 'today' });
+        }}
       />
     </div>
   );

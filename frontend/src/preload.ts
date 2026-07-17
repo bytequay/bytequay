@@ -94,6 +94,7 @@ import type {
   WorkspaceCardDto,
   WorkspaceDto,
   WorkspaceRepoDto,
+  WorkspaceApiRequest,
   CredentialTestResult,
   ReviewCommentDto,
   AgentQuestionDto,
@@ -103,6 +104,8 @@ import type {
 } from './types';
 
 const bridge: Bridge = {
+  workspaceApi: <T = unknown>(request: WorkspaceApiRequest): Promise<T> =>
+    ipcRenderer.invoke('workspace:api', request),
   savePat: (pat: string) => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
   clearPat: () => ipcRenderer.invoke('pat:clear'),

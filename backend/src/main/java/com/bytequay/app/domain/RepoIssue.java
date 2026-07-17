@@ -29,5 +29,6 @@ public record RepoIssue(
         String state,
         String htmlUrl,
         Instant updatedAt,
-        List<String> labels)
+        List<String> labels,
+        int commentCount)
 {}

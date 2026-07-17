@@ -56,6 +56,42 @@ public interface BacklogService
      *  defaults to {@code medium} when null/blank. */
     BacklogItem create(String threadId, String title, String body, List<String> tags, String priority);
 
+    /** Create a workspace item with the redesigned structured fields. */
+    default BacklogItem createForWorkspace(
+            String workspaceId,
+            String trunkId,
+            String title,
+            String summary,
+            String detail,
+            String impactRisk,
+            List<String> tags,
+            String priority,
+            List<BacklogItem.Link> links)
+    {
+        return create(trunkId, title, detail, tags, priority);
+    }
+
+    /** Resolve one public BQ-N key inside its owning workspace. */
+    default BacklogItem getForWorkspace(String workspaceId, String itemKey)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    /** Partial structured update addressed by workspace-local key. */
+    default BacklogItem updateForWorkspace(
+            String workspaceId,
+            String itemKey,
+            String title,
+            String summary,
+            String detail,
+            String impactRisk,
+            List<String> tags,
+            String priority,
+            List<BacklogItem.Link> links)
+    {
+        throw new UnsupportedOperationException();
+    }
+
     /** Partial update — null fields are left unchanged. 404 when unknown. */
     BacklogItem update(String id, String title, String body, List<String> tags, String priority);
 
@@ -77,6 +113,18 @@ public interface BacklogService
      *  the item isn't {@code created}. The returned {@code taskId} is always
      *  null in this model. */
     StartResult startDevelopment(String id);
+
+    /** Start under an explicitly selected trunk from the shared picker. */
+    default StartResult startDevelopment(String id, String trunkId)
+    {
+        return startDevelopment(id);
+    }
+
+    default StartResult startDevelopmentForWorkspace(
+            String workspaceId, String itemKey, String trunkId)
+    {
+        return startDevelopment(itemKey, trunkId);
+    }
 
     /** Abort an in-progress exploration, returning the item to
      *  {@code created}. 404 when unknown, 409 when not in exploration. */

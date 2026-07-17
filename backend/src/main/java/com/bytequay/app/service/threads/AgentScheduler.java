@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.AgentMetrics;
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadScope;
@@ -32,6 +35,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.SessionBudgetPolicy;
 import com.bytequay.app.service.skills.ManagedSkillPolicy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,6 +62,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -99,6 +105,11 @@ public class AgentScheduler
     private final StageStore stages;
     private final TaskStore tasks;
     private final ManagedSkillPolicy managedSkillPolicy;
+    private final AgentRunService agentRuns;
+    private final SessionBudgetPolicy sessionBudgets;
+    /** Agent metrics are cumulative; snapshot each turn's starting point so
+     *  only that turn's delta is added to its public Session. */
+    private final ConcurrentHashMap<String, AgentMetrics> usageBaselines = new ConcurrentHashMap<>();
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
     /** Per-agent-identity run gate: holds the agent key of every turn
      *  currently dispatched, so two turns for the SAME agent serialize
@@ -123,11 +134,14 @@ public class AgentScheduler
             StageStore stages,
             TaskStore tasks,
             ManagedSkillPolicy managedSkillPolicy,
+            AgentRunService agentRuns,
+            SessionBudgetPolicy sessionBudgets,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
-                managedSkillPolicy, maxCliRunning, maxApiRunning, true);
+                managedSkillPolicy, agentRuns, sessionBudgets,
+                maxCliRunning, maxApiRunning, true);
     }
 
     public AgentScheduler(
@@ -141,7 +155,7 @@ public class AgentScheduler
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
-                null, maxCliRunning, maxApiRunning, true);
+                null, null, null, maxCliRunning, maxApiRunning, true);
     }
 
     private AgentScheduler(
@@ -152,6 +166,8 @@ public class AgentScheduler
             StageStore stages,
             TaskStore tasks,
             ManagedSkillPolicy managedSkillPolicy,
+            AgentRunService agentRuns,
+            SessionBudgetPolicy sessionBudgets,
             int maxCliRunning,
             int maxApiRunning,
             @SuppressWarnings("unused") boolean ignored)
@@ -163,6 +179,8 @@ public class AgentScheduler
         this.stages = requireNonNull(stages, "stages is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.managedSkillPolicy = managedSkillPolicy == null ? new ManagedSkillPolicy() : managedSkillPolicy;
+        this.agentRuns = agentRuns;
+        this.sessionBudgets = sessionBudgets;
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
     }
@@ -209,6 +227,14 @@ public class AgentScheduler
         return enqueueTurnInternal(
                 thread, input, /* taskId */ null, /* stageId */ null,
                 TurnInitiator.user(), /* agentRunId */ null);
+    }
+
+    @Override
+    public String enqueueTrunkTurn(Thread thread, String input, String agentRunId)
+    {
+        return enqueueTurnInternal(
+                thread, input, /* taskId */ null, /* stageId */ null,
+                TurnInitiator.user(), agentRunId);
     }
 
     /**
@@ -268,6 +294,11 @@ public class AgentScheduler
         if (input.isBlank()) {
             throw new IllegalArgumentException("input is blank");
         }
+        String correlatedRunId = agentRunId;
+        if (correlatedRunId == null && agentRuns != null) {
+            correlatedRunId = agentRuns.openSchedulerSession(
+                    thread, taskId, stageId, sessionKind(thread, stageId), input).id();
+        }
         Instant now = Instant.now();
         ThreadTurn turn = new ThreadTurn(
                 UUID.randomUUID().toString(),
@@ -284,7 +315,7 @@ public class AgentScheduler
                 initiator,
                 stageId,
                 ThreadScope.of(taskId, stageId),
-                agentRunId);
+                correlatedRunId);
         turns.saveTurn(turn);
         appendEvent(turn, TURN_QUEUED, null);
         enqueuePersistedTurn(turn);
@@ -451,6 +482,38 @@ public class AgentScheduler
         return cancelled;
     }
 
+    @Override
+    public int cancelSessionTurns(String agentRunId)
+    {
+        requireNonNull(agentRunId, "agentRunId is null");
+        int cancelled = 0;
+        synchronized (lock) {
+            List<ThreadTurn> sessionTurns = turns.listTurnsByAgentRunId(
+                    agentRunId, TURN_CANCELLATION_PAGE_SIZE);
+            Set<String> queuedIds = sessionTurns.stream()
+                    .filter(turn -> turn.status() == QUEUED)
+                    .map(ThreadTurn::id)
+                    .collect(Collectors.toSet());
+            for (LaneState lane : lanes.values()) {
+                removeQueuedTurns(lane, queuedIds);
+            }
+            Instant now = Instant.now();
+            for (ThreadTurn turn : sessionTurns) {
+                if (turn.status() != QUEUED) {
+                    continue;
+                }
+                ThreadTurn stopped = updateTurn(
+                        turn, CANCELLED, turn.startedAt(), now,
+                        "cancelled by session control");
+                turns.saveTurn(stopped);
+                appendEvent(stopped, TURN_CANCELLED, "cancelled by session control");
+                cancelled++;
+            }
+            drainLocked();
+        }
+        return cancelled;
+    }
+
     /**
      * Replays durable queued turns after backend startup. Orphaned
      * RUNNING turns are downgraded to QUEUED because their local
@@ -577,6 +640,7 @@ public class AgentScheduler
                 /* errorMessage */ null);
         turns.saveTurn(runningTurn);
         appendEvent(runningTurn, TURN_STARTED, null);
+        transitionRun(runningTurn.agentRunId(), AgentRun.STATUS_RUNNING, "scheduler started");
 
         Thread thread = threads.findThreadById(runningTurn.threadId()).orElse(null);
         if (thread == null) {
@@ -616,6 +680,7 @@ public class AgentScheduler
             session.setActiveAgentRun(runningTurn.agentRunId());
             session.setActiveManagedSkillNames(managedSkillPolicy.skillNames(
                     thread.kind(), runningTurn, stageType(runningTurn.stageId())));
+            usageBaselines.put(runningTurn.id(), session.metrics());
             completion = requireNonNull(
                     session.send(runningTurn.input()),
                     "session send returned null");
@@ -648,6 +713,13 @@ public class AgentScheduler
                 errorMessage);
         turns.saveTurn(finished);
         appendEvent(finished, failed ? TURN_FAILED : TURN_FINISHED, finished.errorMessage());
+        boolean budgetPaused = accountRun(finished, session);
+        if (failed || !budgetPaused) {
+            transitionRun(
+                    finished.agentRunId(),
+                    failed ? AgentRun.STATUS_FAILED : AgentRun.STATUS_SUCCEEDED,
+                    failed ? finished.errorMessage() : "scheduler turn completed");
+        }
 
         synchronized (lock) {
             LaneState lane = lane(runningTurn.lane());
@@ -691,6 +763,55 @@ public class AgentScheduler
         }
         catch (IllegalArgumentException e) {
             return null;
+        }
+    }
+
+    private String sessionKind(Thread thread, String stageId)
+    {
+        if (thread.flow() == ThreadFlow.REVIEW) {
+            return AgentRun.KIND_REVIEW;
+        }
+        StageType type = stageType(stageId);
+        if (type == StageType.CI_FIXING_STAGE) {
+            return AgentRun.KIND_CI_FIX;
+        }
+        if (type == StageType.PLAN_STAGE || thread.kind() == ThreadKind.BRAIN_AGENT
+                || stageId == null) {
+            return AgentRun.KIND_PLAN;
+        }
+        if (type == StageType.REVIEW_STAGE || type == StageType.REVIEW_ROUND_STAGE) {
+            return AgentRun.KIND_REVIEW;
+        }
+        return AgentRun.KIND_DEV;
+    }
+
+    private void transitionRun(String runId, String status, String reason)
+    {
+        if (agentRuns == null || runId == null || runId.isBlank()) {
+            return;
+        }
+        try {
+            agentRuns.transition(runId, status, reason);
+        }
+        catch (RuntimeException e) {
+            // A session projection must never strand or fail the scheduler's
+            // authoritative turn state.
+        }
+    }
+
+    private boolean accountRun(ThreadTurn turn, ThreadAgent session)
+    {
+        AgentMetrics before = usageBaselines.remove(turn.id());
+        if (sessionBudgets == null || session == null || before == null) {
+            return false;
+        }
+        try {
+            return sessionBudgets.account(turn.agentRunId(), before, session.metrics());
+        }
+        catch (RuntimeException ignored) {
+            // Session accounting is a projection. A failure here must never
+            // strand the scheduler's authoritative turn state.
+            return false;
         }
     }
 

@@ -84,6 +84,21 @@ class BacklogItemEntity
     @Column(name = "related_backlog_ids_json", nullable = false)
     private List<String> relatedBacklogIds;
 
+    @Column(name = "item_key")
+    private String itemKey;
+
+    @Column(name = "summary", nullable = false)
+    private String summary;
+
+    @Column(name = "detail")
+    private String detail;
+
+    @Column(name = "impact_risk")
+    private String impactRisk;
+
+    @Column(name = "links_json", nullable = false)
+    private String linksJson;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -137,4 +152,19 @@ class BacklogItemEntity
 
     List<String> getRelatedBacklogIds() { return relatedBacklogIds; }
     void setRelatedBacklogIds(List<String> relatedBacklogIds) { this.relatedBacklogIds = relatedBacklogIds; }
+
+    String getItemKey() { return itemKey; }
+    void setItemKey(String itemKey) { this.itemKey = itemKey; }
+
+    String getSummary() { return summary; }
+    void setSummary(String summary) { this.summary = summary; }
+
+    String getDetail() { return detail; }
+    void setDetail(String detail) { this.detail = detail; }
+
+    String getImpactRisk() { return impactRisk; }
+    void setImpactRisk(String impactRisk) { this.impactRisk = impactRisk; }
+
+    String getLinksJson() { return linksJson; }
+    void setLinksJson(String linksJson) { this.linksJson = linksJson; }
 }

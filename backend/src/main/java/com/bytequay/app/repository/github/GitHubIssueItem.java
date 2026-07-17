@@ -30,6 +30,7 @@ record GitHubIssueItem(
         String title,
         String body,
         String state,
+        int comments,
         User user,
         @JsonProperty("html_url") String htmlUrl,
         @JsonProperty("created_at") Instant createdAt,

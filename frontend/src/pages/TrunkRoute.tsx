@@ -295,7 +295,11 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   return (
     <TrunkPage
       threadId={threadId}
-      thread={{ title: thread?.title ?? 'Thread' }}
+      thread={{
+        title: thread?.title ?? 'Thread',
+        status: thread?.status,
+        branch: tasks.find(task => !TERMINAL_TASK_STATUSES.has(task.status))?.branchName ?? null,
+      }}
       conversation={conversation}
       conversationIndex={(
         <ConvIndex

@@ -53,6 +53,17 @@ class SqliteAgentRunStore
         e.setMetricsJson(run.metricsJson());
         e.setStartedAtMs(run.startedAt().toEpochMilli());
         e.setFinishedAtMs(epochOrNull(run.finishedAt()));
+        e.setWorkspaceId(run.workspaceId());
+        e.setThreadId(run.threadId());
+        e.setProvider(run.provider());
+        e.setModel(run.model());
+        e.setCostUsdMilli(run.costUsdMilli());
+        e.setTokensIn(run.tokensIn());
+        e.setTokensOut(run.tokensOut());
+        e.setStepCursor(run.stepCursor());
+        e.setLaunchInput(run.launchInput());
+        e.setPauseReason(run.pauseReason());
+        e.setOutcome(run.outcome());
         return toDomain(runs.save(e));
     }
 
@@ -61,6 +72,24 @@ class SqliteAgentRunStore
     public Optional<AgentRun> findById(String id)
     {
         return runs.findById(id).map(SqliteAgentRunStore::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentRun> findByWorkspace(String workspaceId)
+    {
+        return runs.findByWorkspaceIdOrderByStartedAtMsDesc(workspaceId).stream()
+                .map(SqliteAgentRunStore::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentRun> findByThread(String threadId)
+    {
+        return runs.findByThreadIdOrderByStartedAtMsDesc(threadId).stream()
+                .map(SqliteAgentRunStore::toDomain)
+                .toList();
     }
 
     @Override
@@ -120,7 +149,18 @@ class SqliteAgentRunStore
                 e.getHeadline(),
                 e.getMetricsJson(),
                 Instant.ofEpochMilli(e.getStartedAtMs()),
-                instantOrNull(e.getFinishedAtMs()));
+                instantOrNull(e.getFinishedAtMs()),
+                e.getWorkspaceId(),
+                e.getThreadId(),
+                e.getProvider(),
+                e.getModel(),
+                e.getCostUsdMilli(),
+                e.getTokensIn(),
+                e.getTokensOut(),
+                e.getStepCursor(),
+                e.getLaunchInput(),
+                e.getPauseReason(),
+                e.getOutcome());
     }
 
     private static Long epochOrNull(Instant instant)

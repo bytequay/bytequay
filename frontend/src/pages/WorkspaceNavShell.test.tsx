@@ -100,4 +100,74 @@ describe('WorkspaceNavShell', () => {
     fireEvent.click(container.querySelector('.ws-switcher') as HTMLElement);
     expect(onSwitchWorkspace).toHaveBeenCalledOnce();
   });
+
+  it('renders live workspace counts with selected tasks and collapsed review trunks', async () => {
+    mockBridge({
+      listTasks: vi.fn().mockResolvedValue([
+        {
+          id: 't1', title: 'Workspace implementation', status: 'RUNNING',
+          workspaceId: 'bq', flow: 'build',
+        },
+        {
+          id: 't-review', title: 'Review PR #42', status: 'IDLE',
+          workspaceId: 'bq', flow: 'review',
+        },
+      ]),
+      workspaceApi: vi.fn().mockResolvedValue({
+        repository: { fullName: 'acme/widget' },
+        sidebarCounts: {
+          todayNeedsYou: 2,
+          trunks: 3,
+          pullRequests: 4,
+          issues: 5,
+          backlog: 6,
+          branches: 7,
+          sessions: 1,
+          notifications: 8,
+        },
+        pinnedTrunks: [],
+      }),
+    });
+
+    render(
+      <WorkspaceNavShell
+        activeWorkspaceId="bq"
+        selectedThreadId="t1"
+        tasks={[{ id: 'task-1', label: 'Implement parser', dot: 'active' }]}
+      />,
+    );
+
+    expect(await screen.findByText('Implement parser')).toBeTruthy();
+    expect(screen.getByText('Pull requests').closest('.ws-destination')?.textContent)
+      .toContain('4');
+    expect(screen.getByText('Issues').closest('.ws-destination')?.textContent)
+      .toContain('5');
+    expect(screen.getByText('Sessions').closest('.ws-destination')?.textContent)
+      .toContain('1');
+    expect(screen.getByText('Reviews')).toBeTruthy();
+    expect(screen.getByText('Review PR #42')).toBeTruthy();
+    expect(screen.getByText('auto-archives when the PR closes')).toBeTruthy();
+  });
+
+  it('reveals every hidden development trunk from the overflow button', async () => {
+    mockBridge({
+      listTasks: vi.fn().mockResolvedValue([
+        { id: 't1', title: 'First trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
+        { id: 't2', title: 'Second trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
+        { id: 't3', title: 'Third trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
+        { id: 't4', title: 'Fourth trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
+        { id: 't5', title: 'Fifth trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
+        { id: 'review', title: 'Review PR #42', status: 'IDLE', workspaceId: 'bq', flow: 'review' },
+      ]),
+    });
+
+    render(<WorkspaceNavShell activeWorkspaceId="bq" selectedThreadId="t1" />);
+
+    const more = await screen.findByRole('button', { name: '2 more…' });
+    expect(screen.queryByText('Fourth trunk')).toBeNull();
+    fireEvent.click(more);
+    expect(screen.getByText('Fourth trunk')).toBeTruthy();
+    expect(screen.getByText('Fifth trunk')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '2 more…' })).toBeNull();
+  });
 });

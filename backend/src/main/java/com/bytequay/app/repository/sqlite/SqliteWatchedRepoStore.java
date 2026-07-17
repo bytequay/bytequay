@@ -93,6 +93,23 @@ public class SqliteWatchedRepoStore
     }
 
     @Override
+    public void replaceClone(
+            String owner,
+            String repo,
+            String localClonePath,
+            String upstreamRemoteName)
+    {
+        if (localClonePath == null || localClonePath.isBlank()) {
+            throw new IllegalArgumentException("localClonePath is required");
+        }
+        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
+                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
+        entity.setLocalClonePath(localClonePath);
+        entity.setUpstreamRemoteName(upstreamRemoteName);
+        jpaRepository.save(entity);
+    }
+
+    @Override
     public void setViewFocus(String owner, String repo, String viewFocus)
     {
         WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)

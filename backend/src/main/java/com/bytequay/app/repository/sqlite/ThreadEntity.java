@@ -107,6 +107,9 @@ class ThreadEntity
     @Column(name = "planning_base_sha")
     private String planningBaseSha;
 
+    @Column(name = "pr_ref")
+    private String prRef;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -177,6 +180,9 @@ class ThreadEntity
 
     String getPlanningBaseSha() { return planningBaseSha; }
     void setPlanningBaseSha(String planningBaseSha) { this.planningBaseSha = planningBaseSha; }
+
+    String getPrRef() { return prRef; }
+    void setPrRef(String prRef) { this.prRef = prRef; }
 
     int getParallelSlots() { return parallelSlots; }
     void setParallelSlots(int parallelSlots) { this.parallelSlots = parallelSlots; }

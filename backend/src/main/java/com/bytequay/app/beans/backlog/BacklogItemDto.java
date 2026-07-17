@@ -39,7 +39,12 @@ public record BacklogItemDto(
         Long rejectedAt,
         String rejectionReason,
         String linkedTaskId,
-        List<String> relatedBacklogIds)
+        List<String> relatedBacklogIds,
+        String key,
+        String summary,
+        String detail,
+        String impactRisk,
+        List<BacklogItem.Link> links)
 {
     public static BacklogItemDto from(BacklogItem item)
     {
@@ -61,7 +66,12 @@ public record BacklogItemDto(
                 epochOrNull(item.rejectedAt()),
                 item.rejectionReason(),
                 item.linkedTaskId(),
-                item.relatedBacklogIds());
+                item.relatedBacklogIds(),
+                item.itemKey(),
+                item.summary(),
+                item.detail(),
+                item.impactRisk(),
+                item.links());
     }
 
     private static Long epochOrNull(Instant instant)

@@ -48,4 +48,8 @@ interface ThreadTurnJpaRepository
             Pageable pageable);
 
     List<ThreadTurnEntity> findByThreadIdOrderByCreatedAtMsDescIdDesc(String threadId, Pageable pageable);
+
+    List<ThreadTurnEntity> findByAgentRunIdOrderByCreatedAtMsDescIdDesc(
+            String agentRunId,
+            Pageable pageable);
 }

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { LogoColor, StatusDotVariant } from '../ui/primitives';
 import type { RepoChip, ThreadRow } from '../ui/workspace';
 import type { ThreadDto, WorkspaceCardDto } from '../types';
+import type { WorkspaceOverviewDto } from '../workspace/workspaceApi';
 
 const PALETTE: LogoColor[] = ['purple', 'teal', 'orange', 'blue', 'pink', 'slate'];
 
@@ -55,6 +56,8 @@ function toThreadRow(t: ThreadDto): ThreadRow {
     id: t.id,
     name: t.title,
     status: threadStatusDot(t.status),
+    flow: t.flow,
+    attentionCount: t.unread === true ? 1 : undefined,
   };
 }
 
@@ -67,6 +70,8 @@ export type WorkspaceNavData = {
    *  thread-card surface, which needs more than the sidebar row carries
    *  (branch, timestamp, task status). */
   rawThreads: ThreadDto[];
+  /** Live workspace counts and pinned/today projections for the rail. */
+  overview: WorkspaceOverviewDto | null;
   /** The active workspace's repo chips for the header. */
   repos: RepoChip[];
   refresh: () => void;
@@ -80,6 +85,7 @@ export type WorkspaceNavData = {
 export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavData {
   const [workspaces, setWorkspaces] = useState<WorkspaceCardDto[]>([]);
   const [threads, setThreads] = useState<ThreadDto[]>([]);
+  const [overview, setOverview] = useState<WorkspaceOverviewDto | null>(null);
 
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -88,10 +94,18 @@ export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavD
       const ws = await bridge.listWorkspaces();
       setWorkspaces(ws);
       if (activeWorkspaceId !== null && bridge.listTasks !== undefined) {
-        setThreads(await bridge.listTasks({ workspaceId: activeWorkspaceId }));
+        const [threadRows, workspaceOverview] = await Promise.all([
+          bridge.listTasks({ workspaceId: activeWorkspaceId }),
+          bridge.workspaceApi?.<WorkspaceOverviewDto>({
+            path: `/api/workspaces/${encodeURIComponent(activeWorkspaceId)}/overview`,
+          }) ?? Promise.resolve(null),
+        ]);
+        setThreads(threadRows);
+        setOverview(workspaceOverview);
       }
       else {
         setThreads([]);
+        setOverview(null);
       }
     }
     catch { /* leave the last loaded state */ }
@@ -115,6 +129,7 @@ export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavD
     activeWorkspace,
     threads: threads.map(toThreadRow),
     rawThreads: threads,
+    overview,
     repos,
     refresh: () => { void load(); },
   };

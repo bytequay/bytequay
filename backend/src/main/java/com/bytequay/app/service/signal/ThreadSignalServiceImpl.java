@@ -13,8 +13,13 @@
  */
 package com.bytequay.app.service.signal;
 
+import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSignal;
 import com.bytequay.app.repository.ThreadSignalStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.NotificationService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -37,10 +42,26 @@ public class ThreadSignalServiceImpl
     private static final Set<String> ICON_KINDS = Set.of("info", "success", "warn", "alert");
 
     private final ThreadSignalStore store;
+    private final NotificationService notifications;
+    private final ThreadStore threads;
 
+    @Autowired
+    public ThreadSignalServiceImpl(
+            ThreadSignalStore store,
+            NotificationService notifications,
+            ThreadStore threads)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
+        this.threads = requireNonNull(threads, "threads is null");
+    }
+
+    /** Compatibility constructor for store-only unit tests. */
     public ThreadSignalServiceImpl(ThreadSignalStore store)
     {
         this.store = requireNonNull(store, "store is null");
+        this.notifications = null;
+        this.threads = null;
     }
 
     @Override
@@ -73,7 +94,9 @@ public class ThreadSignalServiceImpl
                 emptyToNull(nullToEmpty(sourceUrl).strip()),
                 Instant.now(),
                 /* readAt */ null);
-        return store.save(signal);
+        ThreadSignal saved = store.save(signal);
+        mirrorCanonical(saved);
+        return saved;
     }
 
     @Override
@@ -93,6 +116,43 @@ public class ThreadSignalServiceImpl
         store.save(new ThreadSignal(
                 s.id(), s.threadId(), s.taskId(), s.sourceKind(), s.iconKind(),
                 s.title(), s.body(), s.sourceUrl(), s.createdAt(), Instant.now()));
+        if (notifications != null) {
+            try {
+                notifications.markRead("signal:" + s.id());
+            }
+            catch (RuntimeException ignored) {
+                // The legacy row remains authoritative for compatibility.
+            }
+        }
+    }
+
+    private void mirrorCanonical(ThreadSignal signal)
+    {
+        if (notifications == null || threads == null) {
+            return;
+        }
+        String workspaceId = threads.findThreadById(signal.threadId())
+                .map(Thread::workspaceId)
+                .orElse(null);
+        if (workspaceId == null) {
+            return;
+        }
+        String publicType = switch (signal.sourceKind()) {
+            case "github" -> "mention";
+            case "agent" -> "agent-update";
+            default -> "system";
+        };
+        notifications.createCanonical(
+                NotificationKind.PASSIVE,
+                workspaceId,
+                signal.threadId(),
+                signal.taskId(),
+                publicType,
+                signal.title(),
+                signal.body(),
+                "#/workspace/" + workspaceId + "/trunks/" + signal.threadId(),
+                "signal:" + signal.id(),
+                "{}");
     }
 
     private static ResponseStatusException status(int code, String message)

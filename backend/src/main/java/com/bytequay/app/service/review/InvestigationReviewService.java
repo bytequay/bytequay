@@ -390,6 +390,10 @@ public class InvestigationReviewService
     {
         if (review.ownerThreadId() != null && !review.ownerThreadId().isBlank()
                 && review.workspaceId() != null && !review.workspaceId().isBlank()) {
+            if (options != null
+                    && review.workspaceId().equals(blankToNull(options.workspaceId()))) {
+                reactivateReviewTrunk(review.ownerThreadId());
+            }
             return review;
         }
         // A remote review intentionally has no thread or workspace. Do not
@@ -430,6 +434,12 @@ public class InvestigationReviewService
         }
         Instant now = Instant.now();
         String ref = pr.repo() + "#" + pr.remotePrNumber();
+        Optional<com.bytequay.app.domain.Thread> existing =
+                threads.findReviewTrunk(workspaceId, ref);
+        if (existing.isPresent()) {
+            reactivateReviewTrunk(existing.get().id());
+            return new ReviewOwnership(workspaceId, existing.get().id(), null);
+        }
         String title = pr.title() == null || pr.title().isBlank()
                 ? "Review " + ref
                 : "Review " + ref + " — " + pr.title();
@@ -438,9 +448,43 @@ public class InvestigationReviewService
                 null, title,
                 ThreadStatus.RUNNING, provider,
                 0L, 0L, 0L, now, now, null, null,
-                ThreadFlow.REVIEW, workspaceId, null);
+                ThreadFlow.REVIEW, workspaceId, null, null, 1, null, ref);
         threads.saveThread(thread);
         return new ReviewOwnership(workspaceId, thread.id(), null);
+    }
+
+    private void reactivateReviewTrunk(String threadId)
+    {
+        threads.findThreadById(threadId).ifPresent(thread -> {
+            if (thread.status() == ThreadStatus.RUNNING
+                    && thread.endedAt() == null
+                    && thread.errorMessage() == null) {
+                return;
+            }
+            Instant now = Instant.now();
+            threads.saveThread(new com.bytequay.app.domain.Thread(
+                    thread.id(),
+                    thread.kind(),
+                    thread.provider(),
+                    thread.agentSessionId(),
+                    thread.title(),
+                    ThreadStatus.RUNNING,
+                    thread.model(),
+                    thread.costUsdMilli(),
+                    thread.tokensIn(),
+                    thread.tokensOut(),
+                    thread.createdAt(),
+                    now,
+                    null,
+                    null,
+                    thread.flow(),
+                    thread.workspaceId(),
+                    thread.workModel(),
+                    thread.parentReviewPassId(),
+                    thread.parallelSlots(),
+                    thread.parentTaskId(),
+                    thread.prRef()));
+        });
     }
 
     /** Attach all remote sessions for this workspace's sole repository. The
@@ -939,11 +983,28 @@ public class InvestigationReviewService
     /** AgentReview is a task-owned artifact track, not a development stage. */
     private AgentRun openReviewRun(AgentReviewRow review, String roundId, int budget)
     {
+        AgentRun run;
         if (review.ownerTaskId() != null) {
-            return runs.openTaskArtifact(review.ownerTaskId(), AgentRun.KIND_PANEL_REVIEW,
+            run = runs.openTaskArtifact(review.ownerTaskId(), AgentRun.KIND_PANEL_REVIEW,
                     null, roundId, budget);
         }
-        return runs.openDetached(AgentRun.KIND_PANEL_REVIEW, null, roundId, budget);
+        else {
+            run = runs.openDetached(
+                    AgentRun.KIND_PANEL_REVIEW, null, roundId, budget);
+        }
+        if (review.workspaceId() == null || review.ownerThreadId() == null) {
+            return run;
+        }
+        com.bytequay.app.domain.Thread owner = threads
+                .findThreadById(review.ownerThreadId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "review has no owning trunk " + review.ownerThreadId()));
+        String launchInput = owner.prRef() == null || owner.prRef().isBlank()
+                ? "Review pull request"
+                : "Review " + owner.prRef();
+        return runs.attachOwnership(
+                run.id(), review.workspaceId(), owner.id(),
+                owner.provider(), owner.model(), launchInput);
     }
 
     private RoundWork prepareRound(

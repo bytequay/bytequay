@@ -455,6 +455,57 @@ pre {
   min-height: 0;
 }
 
+.app-window-drag-region {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 10px;
+  app-region: drag;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* Frameless-window title bar: the empty parts of every page's top header
+   move the window, while controls inside the header keep normal pointer
+   behaviour. The sidebar's matching drag region lives on .sb-traffic. */
+.app-content :is(
+  .workspace-landing__appbar,
+  .wu-page-header,
+  .workspace-pageheader,
+  .wu-backlog__header,
+  .wu-memory__header,
+  .wu-insights__header,
+  .wu-pr-detail__header,
+  .wu-branch-detail__header,
+  .wu-session-live-header,
+  .trunk-topbar,
+  .pr-list-header,
+  .repo-detail-page__topbar,
+  .calm-page-header
+) {
+  -webkit-app-region: drag;
+}
+
+.app-content :is(
+  .workspace-landing__appbar,
+  .wu-page-header,
+  .workspace-pageheader,
+  .wu-backlog__header,
+  .wu-memory__header,
+  .wu-insights__header,
+  .wu-pr-detail__header,
+  .wu-branch-detail__header,
+  .wu-session-live-header,
+  .trunk-topbar,
+  .pr-list-header,
+  .repo-detail-page__topbar,
+  .calm-page-header
+) :is(button, a, input, select, textarea, label, [role='button'], [role='tab'], [role='tablist']) {
+  -webkit-app-region: no-drag;
+}
+
 .global-topbar {
   display: flex;
   flex-direction: column;

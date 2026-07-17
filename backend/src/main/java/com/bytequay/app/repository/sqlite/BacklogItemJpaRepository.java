@@ -16,6 +16,7 @@ package com.bytequay.app.repository.sqlite;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 interface BacklogItemJpaRepository
         extends JpaRepository<BacklogItemEntity, String>
@@ -26,4 +27,6 @@ interface BacklogItemJpaRepository
      *  workspace. The service applies the status / thread / tag / search
      *  filters over the result. */
     List<BacklogItemEntity> findByWorkspaceIdOrderByCreatedAtMsDesc(String workspaceId);
+
+    Optional<BacklogItemEntity> findByWorkspaceIdAndItemKey(String workspaceId, String itemKey);
 }

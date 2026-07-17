@@ -15,6 +15,10 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.repository.BacklogStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,10 +31,17 @@ class SqliteBacklogStore
         implements BacklogStore
 {
     private final BacklogItemJpaRepository repository;
+    private final JdbcTemplate jdbc;
+    private final ObjectMapper mapper;
 
-    SqliteBacklogStore(BacklogItemJpaRepository repository)
+    SqliteBacklogStore(
+            BacklogItemJpaRepository repository,
+            JdbcTemplate jdbc,
+            ObjectMapper mapper)
     {
         this.repository = repository;
+        this.jdbc = jdbc;
+        this.mapper = mapper;
     }
 
     @Override
@@ -56,6 +67,11 @@ class SqliteBacklogStore
         entity.setRejectedAtMs(epochOrNull(item.rejectedAt()));
         entity.setRejectionReason(item.rejectionReason());
         entity.setRelatedBacklogIds(item.relatedBacklogIds());
+        entity.setItemKey(item.itemKey());
+        entity.setSummary(item.summary());
+        entity.setDetail(item.detail());
+        entity.setImpactRisk(item.impactRisk());
+        entity.setLinksJson(writeLinks(item.links()));
         return toDomain(repository.save(entity));
     }
 
@@ -64,7 +80,7 @@ class SqliteBacklogStore
     public List<BacklogItem> findByThread(String threadId)
     {
         return repository.findByThreadIdOrderByCreatedAtMsAsc(threadId).stream()
-                .map(SqliteBacklogStore::toDomain)
+                .map(this::toDomain)
                 .toList();
     }
 
@@ -73,7 +89,7 @@ class SqliteBacklogStore
     public List<BacklogItem> findByWorkspace(String workspaceId)
     {
         return repository.findByWorkspaceIdOrderByCreatedAtMsDesc(workspaceId).stream()
-                .map(SqliteBacklogStore::toDomain)
+                .map(this::toDomain)
                 .toList();
     }
 
@@ -81,7 +97,36 @@ class SqliteBacklogStore
     @Transactional(readOnly = true)
     public Optional<BacklogItem> findById(String id)
     {
-        return repository.findById(id).map(SqliteBacklogStore::toDomain);
+        return repository.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<BacklogItem> findByWorkspaceAndItemKey(String workspaceId, String itemKey)
+    {
+        return repository.findByWorkspaceIdAndItemKey(workspaceId, itemKey).map(this::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public String nextItemKey(String workspaceId)
+    {
+        jdbc.update("""
+                INSERT INTO workspace_backlog_seq (workspace_id, next_value)
+                VALUES (?, 1)
+                ON CONFLICT(workspace_id) DO NOTHING
+                """, workspaceId);
+        Integer value = jdbc.queryForObject("""
+                UPDATE workspace_backlog_seq
+                SET next_value = next_value + 1
+                WHERE workspace_id = ?
+                RETURNING next_value - 1
+                """, Integer.class, workspaceId);
+        if (value == null) {
+            throw new IllegalStateException(
+                    "no backlog sequence for workspace " + workspaceId);
+        }
+        return "BQ-" + value;
     }
 
     @Override
@@ -91,7 +136,7 @@ class SqliteBacklogStore
         repository.deleteById(id);
     }
 
-    private static BacklogItem toDomain(BacklogItemEntity e)
+    private BacklogItem toDomain(BacklogItemEntity e)
     {
         return new BacklogItem(
                 e.getId(),
@@ -111,7 +156,36 @@ class SqliteBacklogStore
                 instantOrNull(e.getRejectedAtMs()),
                 e.getRejectionReason(),
                 e.getLinkedTaskId(),
-                e.getRelatedBacklogIds());
+                e.getRelatedBacklogIds(),
+                e.getItemKey(),
+                e.getSummary(),
+                e.getDetail(),
+                e.getImpactRisk(),
+                readLinks(e.getLinksJson()));
+    }
+
+    private String writeLinks(List<BacklogItem.Link> links)
+    {
+        try {
+            return mapper.writeValueAsString(links);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("could not encode backlog links", e);
+        }
+    }
+
+    private List<BacklogItem.Link> readLinks(String json)
+    {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return mapper.readValue(
+                    json, new TypeReference<List<BacklogItem.Link>>() {});
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("invalid backlog links", e);
+        }
     }
 
     private static Long epochOrNull(Instant instant)

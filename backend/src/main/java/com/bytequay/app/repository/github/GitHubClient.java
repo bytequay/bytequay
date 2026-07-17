@@ -2634,7 +2634,8 @@ public class GitHubClient
                 item.state(),
                 item.htmlUrl(),
                 item.updatedAt(),
-                labels);
+                labels,
+                item.comments());
     }
 
     @Override

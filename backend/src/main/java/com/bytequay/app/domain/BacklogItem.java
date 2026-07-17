@@ -46,15 +46,23 @@ public record BacklogItem(
         Instant rejectedAt,
         String rejectionReason,
         String linkedTaskId,
-        List<String> relatedBacklogIds)
+        List<String> relatedBacklogIds,
+        String itemKey,
+        String summary,
+        String detail,
+        String impactRisk,
+        List<Link> links)
 {
     public static final String PRIORITY_MEDIUM = "medium";
     public static final String SOURCE_MANUAL = "manual";
-    public static final String SOURCE_TRUNK_SPLIT = "trunk-split";
-    public static final String STATUS_CREATED = "created";
+    public static final String SOURCE_AGENT = "agent";
+    public static final String SOURCE_TRUNK_SPLIT = SOURCE_AGENT;
+    public static final String STATUS_OPEN = "open";
+    public static final String STATUS_CREATED = STATUS_OPEN;
     public static final String STATUS_IN_PROGRESS = "in-progress";
     public static final String STATUS_RESOLVED = "resolved";
-    public static final String STATUS_NOT_TO_PROCEED = "not-to-proceed";
+    public static final String STATUS_DISCARDED = "discarded";
+    public static final String STATUS_NOT_TO_PROCEED = STATUS_DISCARDED;
     public static final String CREATED_BY_USER = "user";
     public static final String CREATED_BY_TRUNK_AGENT = "trunk-agent";
 
@@ -62,6 +70,37 @@ public record BacklogItem(
     {
         tags = tags == null ? List.of() : ImmutableList.copyOf(tags);
         relatedBacklogIds = relatedBacklogIds == null ? List.of() : ImmutableList.copyOf(relatedBacklogIds);
+        links = links == null ? List.of() : ImmutableList.copyOf(links);
+        summary = summary == null || summary.isBlank() ? title : summary;
+        detail = detail == null ? body : detail;
+    }
+
+    /** Compatibility shape predating workspace-local keys and structured
+     *  content. */
+    public BacklogItem(
+            String id,
+            String threadId,
+            String workspaceId,
+            String title,
+            String body,
+            List<String> tags,
+            String priority,
+            String source,
+            String status,
+            String createdBy,
+            Instant createdAt,
+            Instant inProgressAt,
+            Instant startedAt,
+            Instant resolvedAt,
+            Instant rejectedAt,
+            String rejectionReason,
+            String linkedTaskId,
+            List<String> relatedBacklogIds)
+    {
+        this(id, threadId, workspaceId, title, body, tags, priority, source,
+                status, createdBy, createdAt, inProgressAt, startedAt,
+                resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
+                relatedBacklogIds, null, title, body, null, List.of());
     }
 
     /** A freshly-created item: status {@code created}, no lifecycle stamps. */
@@ -83,7 +122,7 @@ public record BacklogItem(
                 priority, source, STATUS_CREATED, createdBy, createdAt,
                 /* inProgressAt */ null, /* startedAt */ null, /* resolvedAt */ null,
                 /* rejectedAt */ null, /* rejectionReason */ null, /* linkedTaskId */ null,
-                relatedBacklogIds);
+                relatedBacklogIds, null, title, body, null, List.of());
     }
 
     /** Copy with edited user-facing fields (title / body / tags / priority). */
@@ -93,7 +132,40 @@ public record BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
                 priority, source, status, createdBy, createdAt,
                 inProgressAt, startedAt, resolvedAt, rejectedAt, rejectionReason,
-                linkedTaskId, relatedBacklogIds);
+                linkedTaskId, relatedBacklogIds, itemKey, title, body,
+                impactRisk, links);
+    }
+
+    public BacklogItem withPublicFields(
+            String newItemKey,
+            String newSummary,
+            String newDetail,
+            String newImpactRisk,
+            List<Link> newLinks)
+    {
+        String nextSummary = newSummary == null ? summary : newSummary.strip();
+        if (nextSummary.isEmpty()) {
+            throw new IllegalArgumentException("summary is required");
+        }
+        String nextDetail = newDetail == null ? detail : newDetail.strip();
+        return new BacklogItem(
+                id, threadId, workspaceId, title,
+                nextDetail == null ? "" : nextDetail, tags, priority, source,
+                status, createdBy, createdAt, inProgressAt, startedAt,
+                resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
+                relatedBacklogIds,
+                newItemKey == null ? itemKey : newItemKey,
+                nextSummary, nextDetail, newImpactRisk == null ? impactRisk : newImpactRisk,
+                newLinks == null ? links : newLinks);
+    }
+
+    public BacklogItem withThread(String newThreadId)
+    {
+        return new BacklogItem(
+                id, newThreadId, workspaceId, title, body, tags, priority,
+                source, status, createdBy, createdAt, inProgressAt, startedAt,
+                resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
+                relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
 
     /** Move into {@code in-progress} (trunk exploration started), stamping
@@ -103,7 +175,8 @@ public record BacklogItem(
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
                 priority, source, STATUS_IN_PROGRESS, createdBy, createdAt,
-                when, when, resolvedAt, rejectedAt, rejectionReason, linkedTaskId, relatedBacklogIds);
+                when, when, resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
+                relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
 
     /** Move into {@code resolved} once a task is cut, linking the task. */
@@ -113,7 +186,8 @@ public record BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
                 priority, source, STATUS_RESOLVED, createdBy, createdAt,
                 inProgressAt == null ? when : inProgressAt, startedAt == null ? when : startedAt,
-                when, rejectedAt, rejectionReason, taskId, relatedBacklogIds);
+                when, rejectedAt, rejectionReason, taskId, relatedBacklogIds,
+                itemKey, summary, detail, impactRisk, links);
     }
 
     /** Move into {@code not-to-proceed} with an optional reason. */
@@ -122,7 +196,8 @@ public record BacklogItem(
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
                 priority, source, STATUS_NOT_TO_PROCEED, createdBy, createdAt,
-                inProgressAt, startedAt, resolvedAt, when, reason, linkedTaskId, relatedBacklogIds);
+                inProgressAt, startedAt, resolvedAt, when, reason, linkedTaskId,
+                relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
 
     /** Restore a rejected (or in-flight) item back to {@code created},
@@ -133,7 +208,8 @@ public record BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
                 priority, source, STATUS_CREATED, createdBy, createdAt,
                 /* inProgressAt */ null, startedAt, resolvedAt,
-                /* rejectedAt */ null, /* rejectionReason */ null, linkedTaskId, relatedBacklogIds);
+                /* rejectedAt */ null, /* rejectionReason */ null, linkedTaskId,
+                relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
 
     /** True once "Start development" has begun work (exploration or a cut). */
@@ -141,4 +217,6 @@ public record BacklogItem(
     {
         return startedAt != null;
     }
+
+    public record Link(String type, String id) {}
 }

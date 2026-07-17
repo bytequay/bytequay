@@ -40,7 +40,10 @@ public class GlobalExceptionHandler
     public ResponseEntity<ErrorResponse> handleResponseStatusException(ResponseStatusException exception, HttpServletRequest request)
     {
         HttpStatusCode statusCode = exception.getStatusCode();
-        if (statusCode.is5xxServerError()) {
+        if (statusCode.value() == HttpStatus.SERVICE_UNAVAILABLE.value()) {
+            log.warn("Request temporarily unavailable: {} ({})", request.getRequestURI(), exception.getReason());
+        }
+        else if (statusCode.is5xxServerError()) {
             log.warn("Request failed: {}", request.getRequestURI(), exception);
         }
         String message = exception.getReason() != null ? exception.getReason() : statusCode.toString();

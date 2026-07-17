@@ -363,7 +363,10 @@ const createWindow = async () => {
   mainWindow.on('enter-full-screen', () => sendFullScreenState(true));
   mainWindow.on('leave-full-screen', () => sendFullScreenState(false));
   mainWindow.webContents.on('did-finish-load', () => {
-    if (mainWindow) sendFullScreenState(mainWindow.isFullScreen());
+    if (mainWindow) {
+      mainWindow.webContents.setZoomFactor(1);
+      sendFullScreenState(mainWindow.isFullScreen());
+    }
   });
   // The `window:get-fullscreen` IPC handler that pairs with the
   // did-finish-load push above (renderer pulls the truth on mount to
@@ -1059,7 +1062,7 @@ function registerIpc(): void {
     if (!res.ok) throw new Error(`backend agent review returned ${res.status}: ${await res.text()}`);
     return res.json();
   });
-  ipcMain.handle('agentReview:queue', async (_event, scope: string = 'all') => {
+  ipcMain.handle('agentReview:queue', async (_event, scope = 'all') => {
     const res = await fetch(`${BACKEND_BASE}/api/reviews/queue?scope=${encodeURIComponent(scope)}`);
     if (!res.ok) throw new Error(`backend review queue returned ${res.status}: ${await res.text()}`);
     return res.json();
@@ -3895,6 +3898,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error(`backend GET /api/workspaces returned ${res.status}: ${text}`);
     }
     return res.json();
+  });
+
+  ipcMain.handle('workspace:api', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('workspace request must be an object');
+    }
+    const request = args as { path?: unknown; method?: unknown; body?: unknown };
+    if (typeof request.path !== 'string'
+        || !/^\/api\/(?:workspaces(?:\/|$)|workspace-creations(?:\/|$)|sessions(?:\/|$)|notifications\/workspace(?:\/|$))/.test(request.path)
+        || request.path.includes('..')) {
+      throw new Error('workspace request path is not allowed');
+    }
+    const method = typeof request.method === 'string'
+      ? request.method.toUpperCase()
+      : 'GET';
+    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      throw new Error('workspace request method is not allowed');
+    }
+    const response = await fetch(`${BACKEND_BASE}${request.path}`, {
+      method,
+      headers: request.body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: request.body === undefined ? undefined : JSON.stringify(request.body),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`workspace request returned ${response.status}: ${detail}`);
+    }
+    if (response.status === 204) return null;
+    return response.json();
   });
 
   ipcMain.handle('workspaces:get', async (_event, workspaceId: unknown) => {

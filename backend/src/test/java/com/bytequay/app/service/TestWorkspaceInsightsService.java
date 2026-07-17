@@ -13,13 +13,19 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.service.runs.AgentRunService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -27,8 +33,10 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -36,20 +44,27 @@ class TestWorkspaceInsightsService
 {
     private static final Instant NOW = Instant.now();
 
+    private ThreadStore threadStore;
     private TaskStore taskStore;
     private InvestigationReviewStore reviewStore;
+    private AgentRunService runs;
     private WorkspaceInsightsService service;
 
     @BeforeEach
     void setUp()
     {
-        ThreadStore threadStore = mock(ThreadStore.class);
+        threadStore = mock(ThreadStore.class);
         taskStore = mock(TaskStore.class);
         reviewStore = mock(InvestigationReviewStore.class);
+        runs = mock(AgentRunService.class);
         when(threadStore.listThreadsUpdatedSince(any())).thenReturn(List.of());
         when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of());
         service = new WorkspaceInsightsService(
-                threadStore, taskStore, reviewStore, new GitHubRateLimitMonitor());
+                threadStore,
+                taskStore,
+                reviewStore,
+                new GitHubRateLimitMonitor(),
+                runs);
     }
 
     @Test
@@ -86,11 +101,131 @@ class TestWorkspaceInsightsService
                 .contains(1_160L);
     }
 
+    @Test
+    void workspaceInsightsExcludeOtherWorkspacesAndGlobalReviewSpend()
+    {
+        Thread own = thread("thread-own", 120L);
+        when(threadStore.listThreadsByWorkspaceUpdatedSince(
+                eq("ws-1"), any()))
+                .thenReturn(List.of(own));
+        when(threadStore.listThreadsByWorkspace("ws-1"))
+                .thenReturn(List.of(own));
+        when(taskStore.hasActiveTask(own.id())).thenReturn(true);
+        when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(
+                task(
+                        "acme/widget#1",
+                        TaskPhase.COMPLETED,
+                        TaskStatus.COMPLETED,
+                        NOW.minusSeconds(60),
+                        own.id()),
+                task(
+                        "other/repo#9",
+                        TaskPhase.COMPLETED,
+                        TaskStatus.COMPLETED,
+                        NOW.minusSeconds(60),
+                        "thread-other")));
+        when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of(
+                new InvestigationReviewStore.TaskReviewSpend(
+                        9_999L, NOW.minusSeconds(30))));
+        when(runs.findByWorkspace("ws-1")).thenReturn(List.of(
+                run("run-own", AgentRun.KIND_DEV, "claude-code", 240L)));
+
+        WorkspaceInsightsService.Insights insights =
+                service.get("ws-1", "7d");
+
+        assertThat(insights.spendInWindowMilli()).isEqualTo(120L);
+        assertThat(insights.tasksShippedInWindow()).isEqualTo(1);
+        assertThat(insights.tasksByRepo())
+                .extracting(
+                        WorkspaceInsightsService.RepoTaskBreakdown
+                                ::repoFullName)
+                .containsExactly("acme/widget");
+        assertThat(insights.usageByProvider())
+                .extracting(
+                        WorkspaceInsightsService.UsageBreakdown::key,
+                        WorkspaceInsightsService.UsageBreakdown::costUsdMilli)
+                .containsExactly(
+                        tuple("claude-code", 240L));
+        assertThat(insights.usageByKind())
+                .extracting(
+                        WorkspaceInsightsService.UsageBreakdown::key,
+                        WorkspaceInsightsService.UsageBreakdown::tokensIn,
+                        WorkspaceInsightsService.UsageBreakdown::tokensOut)
+                .containsExactly(
+                        tuple("dev", 1_200L, 300L));
+    }
+
     private static Task task(String linkedPrRef, TaskPhase phase, TaskStatus status, Instant createdAt)
     {
+        return task(linkedPrRef, phase, status, createdAt, "thread-1");
+    }
+
+    private static Task task(
+            String linkedPrRef,
+            TaskPhase phase,
+            TaskStatus status,
+            Instant createdAt,
+            String threadId)
+    {
         return new Task(
-                "task-" + System.identityHashCode(linkedPrRef + phase), "thread-1", 1L, status,
+                "task-" + System.identityHashCode(linkedPrRef + phase), threadId, 1L, status,
                 "feature", null, "main", "/tmp", null, null, 1, null, null, "DEVELOP", 1, null,
                 0L, 0L, 0L, null, createdAt, null, null, null, null, null, null, phase, null, 0, linkedPrRef);
+    }
+
+    private static Thread thread(String id, long costUsdMilli)
+    {
+        return new Thread(
+                id,
+                ThreadKind.CLI_AGENT,
+                "claude-code",
+                null,
+                "Workspace trunk",
+                ThreadStatus.IDLE,
+                "sonnet",
+                costUsdMilli,
+                0,
+                0,
+                NOW.minusSeconds(120),
+                NOW.minusSeconds(30),
+                null,
+                null,
+                ThreadFlow.BUILD,
+                "ws-1",
+                null);
+    }
+
+    private static AgentRun run(
+            String id,
+            String kind,
+            String provider,
+            long costUsdMilli)
+    {
+        return new AgentRun(
+                id,
+                null,
+                kind,
+                AgentRun.SOURCE_SCHEDULED,
+                null,
+                null,
+                null,
+                AgentRun.STATUS_SUCCEEDED,
+                0,
+                null,
+                null,
+                null,
+                NOW.minusSeconds(60),
+                NOW.minusSeconds(30),
+                "ws-1",
+                "thread-own",
+                provider,
+                "sonnet",
+                costUsdMilli,
+                1_200L,
+                300L,
+                1,
+                "Implement",
+                null,
+                "completed");
     }
 }

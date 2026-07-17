@@ -210,6 +210,71 @@ class TestNotificationService
         verify(store, never()).save(any(Notification.class));
     }
 
+    @Test
+    void canonicalNotificationReusesItsStableDedupKey()
+    {
+        Notification existing = new Notification(
+                "existing",
+                NotificationKind.NEEDS_ATTENTION,
+                "trunk-1",
+                null,
+                NotificationStatus.UNREAD,
+                "{}",
+                Instant.parse("2026-07-17T00:00:00Z"),
+                null,
+                "ws-1",
+                "budget",
+                "Session paused",
+                "Budget reached",
+                "#/workspace/ws-1/sessions/run-1",
+                "session-budget:run-1");
+        when(store.findByDedupKey("session-budget:run-1"))
+                .thenReturn(Optional.of(existing));
+
+        Notification result = service.createCanonical(
+                NotificationKind.NEEDS_ATTENTION,
+                "ws-1",
+                "trunk-1",
+                null,
+                "budget",
+                "Session paused",
+                "Budget reached",
+                "#/workspace/ws-1/sessions/run-1",
+                "session-budget:run-1",
+                "{}");
+
+        assertThat(result).isSameAs(existing);
+        verify(store, never()).save(any(Notification.class));
+    }
+
+    @Test
+    void canonicalNotificationPersistsWorkspaceFieldsAndDeepLink()
+    {
+        when(store.findByDedupKey("event-42"))
+                .thenReturn(Optional.empty());
+
+        service.createCanonical(
+                NotificationKind.AUTO_FIX_DONE,
+                "ws-1",
+                "trunk-1",
+                "task-1",
+                "ci",
+                "CI recovered",
+                "All checks pass",
+                "#/workspace/ws-1/trunks/trunk-1",
+                "event-42",
+                "{}");
+
+        ArgumentCaptor<Notification> saved =
+                ArgumentCaptor.forClass(Notification.class);
+        verify(store).save(saved.capture());
+        assertThat(saved.getValue().workspaceId()).isEqualTo("ws-1");
+        assertThat(saved.getValue().publicType()).isEqualTo("ci");
+        assertThat(saved.getValue().itemPath())
+                .isEqualTo("#/workspace/ws-1/trunks/trunk-1");
+        assertThat(saved.getValue().dedupKey()).isEqualTo("event-42");
+    }
+
     private static Notification notification(
             String id, NotificationStatus status, String createdAt)
     {

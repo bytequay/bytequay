@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -22,6 +23,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.service.runs.AgentRunService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -36,6 +39,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -70,15 +75,33 @@ public class WorkspaceInsightsService
     private final TaskStore taskStore;
     private final InvestigationReviewStore reviewStore;
     private final GitHubRateLimitMonitor rateLimitMonitor;
+    private final AgentRunService runs;
 
+    @Autowired
     public WorkspaceInsightsService(
             ThreadStore threadStore, TaskStore taskStore,
-            InvestigationReviewStore reviewStore, GitHubRateLimitMonitor rateLimitMonitor)
+            InvestigationReviewStore reviewStore,
+            GitHubRateLimitMonitor rateLimitMonitor,
+            AgentRunService runs)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.rateLimitMonitor = requireNonNull(rateLimitMonitor, "rateLimitMonitor is null");
+        this.runs = requireNonNull(runs, "runs is null");
+    }
+
+    /** Compatibility constructor for focused unit tests. */
+    public WorkspaceInsightsService(
+            ThreadStore threadStore, TaskStore taskStore,
+            InvestigationReviewStore reviewStore,
+            GitHubRateLimitMonitor rateLimitMonitor)
+    {
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
+        this.rateLimitMonitor = requireNonNull(rateLimitMonitor, "rateLimitMonitor is null");
+        this.runs = null;
     }
 
     /** Page size when scanning shipped tasks. Single-user local app,
@@ -88,6 +111,11 @@ public class WorkspaceInsightsService
 
     public Insights get(String window)
     {
+        return get(null, window);
+    }
+
+    public Insights get(String workspaceId, String window)
+    {
         Duration windowDuration = parseWindow(window);
         Instant now = Instant.now();
         Instant windowStart = now.minus(windowDuration);
@@ -95,7 +123,16 @@ public class WorkspaceInsightsService
                 .atStartOfDay(ZoneId.systemDefault())
                 .toInstant();
 
-        List<Thread> recent = threadStore.listThreadsUpdatedSince(windowStart);
+        List<Thread> recent = workspaceId == null
+                ? threadStore.listThreadsUpdatedSince(windowStart)
+                : threadStore.listThreadsByWorkspaceUpdatedSince(
+                        workspaceId, windowStart);
+        List<Thread> workspaceThreads = workspaceId == null
+                ? recent
+                : threadStore.listThreadsByWorkspace(workspaceId);
+        Set<String> workspaceThreadIds = workspaceThreads.stream()
+                .map(Thread::id)
+                .collect(Collectors.toSet());
 
         // Bucket by local-day for the spend chart. Days with no
         // recorded spend still surface as 0 so the chart's x-axis
@@ -126,13 +163,15 @@ public class WorkspaceInsightsService
                 }
             }
         }
-        for (InvestigationReviewStore.TaskReviewSpend spend
-                : reviewStore.taskReviewSpendSince(windowStart)) {
-            spendInWindowMilli += spend.costMilli();
-            LocalDate day = LocalDate.ofInstant(spend.occurredAt(), zone);
-            spendByDay.merge(day, spend.costMilli(), Long::sum);
-            if (!spend.occurredAt().isBefore(today)) {
-                spendTodayMilli += spend.costMilli();
+        if (workspaceId == null) {
+            for (InvestigationReviewStore.TaskReviewSpend spend
+                    : reviewStore.taskReviewSpendSince(windowStart)) {
+                spendInWindowMilli += spend.costMilli();
+                LocalDate day = LocalDate.ofInstant(spend.occurredAt(), zone);
+                spendByDay.merge(day, spend.costMilli(), Long::sum);
+                if (!spend.occurredAt().isBefore(today)) {
+                    spendTodayMilli += spend.costMilli();
+                }
             }
         }
 
@@ -148,18 +187,26 @@ public class WorkspaceInsightsService
                     e.getValue()));
         }
 
-        int tasksShipped = countTasksShippedSince(windowStart);
+        int tasksShipped = countTasksShippedSince(
+                windowStart, workspaceThreadIds, workspaceId == null);
+        List<AgentRun> workspaceRuns = runs == null || workspaceId == null
+                ? List.of()
+                : runs.findByWorkspace(workspaceId).stream()
+                        .filter(run -> !run.startedAt().isBefore(windowStart))
+                        .toList();
 
         return new Insights(
                 window,
                 activeThreads,
                 tasksInFlight,
-                /* reposInWorkspace */ 0,
+                /* reposInWorkspace */ workspaceId == null ? 0 : 1,
                 spendTodayMilli,
                 spendInWindowMilli,
                 tasksShipped,
                 series,
-                tasksByRepo(windowStart),
+                tasksByRepo(windowStart, workspaceThreadIds, workspaceId == null),
+                usageByProvider(workspaceRuns),
+                usageByKind(workspaceRuns),
                 rateLimitMonitor.latest()
                         .map(s -> new GitHubRateLimit(s.remaining(), s.limit(), s.resetAt().toString()))
                         .orElse(null));
@@ -170,10 +217,16 @@ public class WorkspaceInsightsService
      *  by the {@code owner/repo#n} link ref — the only repo signal a Task
      *  carries today. Tasks with no linked PR (no repo signal) are omitted.
      *  Sorted by shipped count, then open. */
-    private List<RepoTaskBreakdown> tasksByRepo(Instant windowStart)
+    private List<RepoTaskBreakdown> tasksByRepo(
+            Instant windowStart,
+            Set<String> workspaceThreadIds,
+            boolean global)
     {
         Map<String, int[]> byRepo = new LinkedHashMap<>(); // repo -> [shipped, open]
         for (Task t : taskStore.listWithLinkedPr(SHIPPED_TASKS_PAGE)) {
+            if (!global && !workspaceThreadIds.contains(t.threadId())) {
+                continue;
+            }
             String repo = repoFromLinkedPrRef(t.linkedPrRef());
             if (repo == null) {
                 continue;
@@ -221,7 +274,10 @@ public class WorkspaceInsightsService
      *  per-repo breakdown wants an owner/repo column on Task that
      *  doesn't exist today; this rolled-up count is the honest
      *  number until that column lands. */
-    private int countTasksShippedSince(Instant since)
+    private int countTasksShippedSince(
+            Instant since,
+            Set<String> workspaceThreadIds,
+            boolean global)
     {
         // Task has no updatedAt today, so we filter on createdAt
         // (when the task was cut) — close enough for "shipped this
@@ -232,11 +288,56 @@ public class WorkspaceInsightsService
         List<Task> withPr = taskStore.listWithLinkedPr(SHIPPED_TASKS_PAGE);
         int count = 0;
         for (Task t : withPr) {
-            if (!t.createdAt().isBefore(since)) {
+            if ((global || workspaceThreadIds.contains(t.threadId()))
+                    && !t.createdAt().isBefore(since)) {
                 count++;
             }
         }
         return count;
+    }
+
+    private static List<UsageBreakdown> usageByProvider(List<AgentRun> runs)
+    {
+        return usageBreakdown(runs, run -> {
+            String provider = run.provider();
+            return provider == null || provider.isBlank() ? "unknown" : provider;
+        });
+    }
+
+    private static List<UsageBreakdown> usageByKind(List<AgentRun> runs)
+    {
+        return usageBreakdown(runs, run -> switch (run.kind()) {
+            case AgentRun.KIND_CI_FIX -> "ci-fix";
+            case AgentRun.KIND_REVIEW, AgentRun.KIND_REVIEW_ROUND,
+                    AgentRun.KIND_PANEL_REVIEW -> "review";
+            case AgentRun.KIND_DEV -> "dev";
+            default -> "plan";
+        });
+    }
+
+    private static List<UsageBreakdown> usageBreakdown(
+            List<AgentRun> runs,
+            Function<AgentRun, String> key)
+    {
+        Map<String, long[]> grouped = new LinkedHashMap<>();
+        for (AgentRun run : runs) {
+            long[] values = grouped.computeIfAbsent(
+                    key.apply(run), ignored -> new long[4]);
+            values[0] += run.costUsdMilli();
+            values[1] += run.tokensIn();
+            values[2] += run.tokensOut();
+            values[3]++;
+        }
+        return grouped.entrySet().stream()
+                .map(entry -> new UsageBreakdown(
+                        entry.getKey(),
+                        entry.getValue()[0],
+                        entry.getValue()[1],
+                        entry.getValue()[2],
+                        entry.getValue()[3]))
+                .sorted(Comparator.comparingLong(
+                        UsageBreakdown::costUsdMilli).reversed())
+                .toList();
     }
 
     private static Duration parseWindow(String window)
@@ -271,11 +372,20 @@ public class WorkspaceInsightsService
             int tasksShippedInWindow,
             List<DayPoint> spendByDay,
             List<RepoTaskBreakdown> tasksByRepo,
+            List<UsageBreakdown> usageByProvider,
+            List<UsageBreakdown> usageByKind,
             GitHubRateLimit githubRateLimit) {}
 
     public record DayPoint(String date, String label, long costUsdMilli) {}
 
     public record RepoTaskBreakdown(String repoFullName, int tasksShipped, int tasksOpen) {}
+
+    public record UsageBreakdown(
+            String key,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            long sessions) {}
 
     /** Latest GitHub REST quota, or null if no call has landed since boot. */
     public record GitHubRateLimit(int remaining, int limit, String resetAt) {}

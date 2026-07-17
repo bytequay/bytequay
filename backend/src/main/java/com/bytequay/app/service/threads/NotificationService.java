@@ -17,6 +17,8 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.repository.NotificationStore;
+import com.bytequay.app.repository.ThreadStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -50,11 +52,25 @@ public class NotificationService
 
     private final NotificationStore store;
     private final ApplicationEventPublisher events;
+    private final ThreadStore threads;
 
+    @Autowired
+    public NotificationService(
+            NotificationStore store,
+            ApplicationEventPublisher events,
+            ThreadStore threads)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.events = requireNonNull(events, "events is null");
+        this.threads = requireNonNull(threads, "threads is null");
+    }
+
+    /** Test/compatibility constructor. */
     public NotificationService(NotificationStore store, ApplicationEventPublisher events)
     {
         this.store = requireNonNull(store, "store is null");
         this.events = requireNonNull(events, "events is null");
+        this.threads = null;
     }
 
     /** Headless run parked with a proposed diff + reply at the
@@ -86,7 +102,9 @@ public class NotificationService
                     && n.status() == NotificationStatus.UNREAD) {
                 store.save(new Notification(
                         n.id(), n.kind(), n.threadId(), n.taskId(),
-                        NotificationStatus.RESOLVED, n.payloadJson(), n.createdAt(), n.readAt()));
+                        NotificationStatus.RESOLVED, n.payloadJson(), n.createdAt(), n.readAt(),
+                        n.workspaceId(), n.publicType(), n.title(), n.summary(),
+                        n.itemPath(), n.dedupKey()));
             }
         }
     }
@@ -116,6 +134,13 @@ public class NotificationService
     public Notification create(NotificationKind kind, String threadId, String taskId, String payloadJson)
     {
         requireNonNull(kind, "kind is null");
+        String workspaceId = threads == null || threadId == null
+                ? null
+                : threads.findThreadById(threadId).map(com.bytequay.app.domain.Thread::workspaceId)
+                        .orElse(null);
+        String itemPath = workspaceId == null || threadId == null
+                ? null
+                : "#/workspace/" + workspaceId + "/trunks/" + threadId;
         Notification notification = new Notification(
                 UUID.randomUUID().toString(),
                 kind,
@@ -124,7 +149,42 @@ public class NotificationService
                 NotificationStatus.UNREAD,
                 payloadJson == null ? "{}" : payloadJson,
                 Instant.now(),
-                /* readAt */ null);
+                /* readAt */ null,
+                workspaceId,
+                publicType(kind),
+                defaultTitle(kind),
+                null,
+                itemPath,
+                null);
+        store.save(notification);
+        return notification;
+    }
+
+    /** Creates or returns one canonical notification for a stable event. */
+    public Notification createCanonical(
+            NotificationKind kind,
+            String workspaceId,
+            String threadId,
+            String taskId,
+            String publicType,
+            String title,
+            String summary,
+            String itemPath,
+            String dedupKey,
+            String payloadJson)
+    {
+        requireNonNull(kind, "kind is null");
+        if (dedupKey != null && !dedupKey.isBlank()) {
+            Optional<Notification> existing = store.findByDedupKey(dedupKey);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+        }
+        Notification notification = new Notification(
+                UUID.randomUUID().toString(), kind, threadId, taskId,
+                NotificationStatus.UNREAD, payloadJson == null ? "{}" : payloadJson,
+                Instant.now(), null, workspaceId, publicType, title, summary,
+                itemPath, dedupKey);
         store.save(notification);
         return notification;
     }
@@ -158,6 +218,17 @@ public class NotificationService
     public List<Notification> listForThread(String threadId)
     {
         return store.listForThread(threadId, DEFAULT_LIMIT);
+    }
+
+    public List<Notification> listForWorkspace(String workspaceId)
+    {
+        return store.listForWorkspace(workspaceId, DEFAULT_LIMIT);
+    }
+
+    public int markAllReadForWorkspace(String workspaceId)
+    {
+        return store.markAllReadForWorkspace(
+                workspaceId, Instant.now().toEpochMilli());
     }
 
     /** Patch UNREAD to READ and stamp readAt. Legacy READ rows without
@@ -261,9 +332,37 @@ public class NotificationService
                 existing.status(),
                 payloadJson == null ? "{}" : payloadJson,
                 existing.createdAt(),
-                existing.readAt());
+                existing.readAt(),
+                existing.workspaceId(),
+                existing.publicType(),
+                existing.title(),
+                existing.summary(),
+                existing.itemPath(),
+                existing.dedupKey());
         store.save(updated);
         return updated;
+    }
+
+    private static String publicType(NotificationKind kind)
+    {
+        return switch (kind) {
+            case AWAITING_REVIEW -> "approval-gate";
+            case NEEDS_ATTENTION -> "agent-question";
+            case AUTO_FIX_DONE -> "ci";
+            case READY_TO_MERGE -> "review-request";
+            case PASSIVE -> "system";
+        };
+    }
+
+    private static String defaultTitle(NotificationKind kind)
+    {
+        return switch (kind) {
+            case AWAITING_REVIEW -> "Approval needed";
+            case NEEDS_ATTENTION -> "Agent needs your input";
+            case AUTO_FIX_DONE -> "Automation completed";
+            case READY_TO_MERGE -> "Pull request ready to merge";
+            case PASSIVE -> "Workspace activity";
+        };
     }
 
     private Notification require(String id)

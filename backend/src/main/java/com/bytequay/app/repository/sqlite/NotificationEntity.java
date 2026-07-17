@@ -47,6 +47,24 @@ class NotificationEntity
     @Column(name = "read_at_ms")
     private Long readAtMs;
 
+    @Column(name = "workspace_id")
+    private String workspaceId;
+
+    @Column(name = "public_type")
+    private String publicType;
+
+    @Column(name = "title")
+    private String title;
+
+    @Column(name = "summary")
+    private String summary;
+
+    @Column(name = "item_path")
+    private String itemPath;
+
+    @Column(name = "dedup_key")
+    private String dedupKey;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -70,4 +88,22 @@ class NotificationEntity
 
     Long getReadAtMs() { return readAtMs; }
     void setReadAtMs(Long readAtMs) { this.readAtMs = readAtMs; }
+
+    String getWorkspaceId() { return workspaceId; }
+    void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
+
+    String getPublicType() { return publicType; }
+    void setPublicType(String publicType) { this.publicType = publicType; }
+
+    String getTitle() { return title; }
+    void setTitle(String title) { this.title = title; }
+
+    String getSummary() { return summary; }
+    void setSummary(String summary) { this.summary = summary; }
+
+    String getItemPath() { return itemPath; }
+    void setItemPath(String itemPath) { this.itemPath = itemPath; }
+
+    String getDedupKey() { return dedupKey; }
+    void setDedupKey(String dedupKey) { this.dedupKey = dedupKey; }
 }

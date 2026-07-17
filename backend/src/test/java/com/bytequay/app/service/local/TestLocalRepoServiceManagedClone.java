@@ -114,6 +114,71 @@ class TestLocalRepoServiceManagedClone
                 .containsExactly(new FetchedRemote(destination, "upstream"));
     }
 
+    @Test
+    void adoptsCompletedDirectCloneAfterInterruptedCreation()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        Path destination = managedPath(home, "trinodb", "trino");
+        Files.createDirectories(destination);
+        f.gitHub.viewerCanWrite = true;
+        f.gitRunner.remotes = List.of(new GitRunner.Remote(
+                "origin", "https://github.com/trinodb/trino.git"));
+
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.DIRECT));
+
+        WatchedRepo watched = f.store.find("trinodb", "trino").orElseThrow();
+        assertThat(watched.localClonePath()).isEqualTo(destination.toString());
+        assertThat(f.gitRunner.clonedDestination).isNull();
+    }
+
+    @Test
+    void preservesIncompleteCloneAndRecoversIntoFreshSibling()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        Path destination = managedPath(home, "trinodb", "trino");
+        Files.createDirectories(destination);
+        Files.writeString(destination.resolve("partial.pack"), "partial");
+        f.gitHub.viewerCanWrite = true;
+        f.gitRunner.remotes = List.of();
+
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.DIRECT));
+
+        WatchedRepo watched = f.store.find("trinodb", "trino").orElseThrow();
+        assertThat(Path.of(watched.localClonePath()).getFileName().toString())
+                .startsWith("trino.recovery-");
+        assertThat(Files.readString(destination.resolve("partial.pack")))
+                .isEqualTo("partial");
+    }
+
+    @Test
+    void completesMissingUpstreamWhenRecoveringForkClone()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        Path destination = managedPath(home, "trinodb", "trino");
+        Files.createDirectories(destination);
+        f.gitHub.profile = profile("jack");
+        f.gitRunner.remotes = List.of(new GitRunner.Remote(
+                "origin", "https://github.com/jack/trino.git"));
+
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.FORK));
+
+        WatchedRepo watched = f.store.find("trinodb", "trino").orElseThrow();
+        assertThat(watched.localClonePath()).isEqualTo(destination.toString());
+        assertThat(watched.upstreamRemoteName()).isEqualTo("upstream");
+        assertThat(f.gitRunner.clonedDestination).isNull();
+        assertThat(f.gitRunner.addedRemotes).containsExactly(new AddedRemote(
+                destination, "upstream",
+                "https://github.com/trinodb/trino.git"));
+        assertThat(f.gitRunner.fetchedRemotes)
+                .containsExactly(new FetchedRemote(destination, "upstream"));
+    }
+
     private static UserProfile profile(String login)
     {
         return new UserProfile(login, login, null, "https://github.com/" + login,
@@ -195,6 +260,7 @@ class TestLocalRepoServiceManagedClone
     {
         String clonedUrl;
         Path clonedDestination;
+        List<GitRunner.Remote> remotes = List.of();
         final List<AddedRemote> addedRemotes = new ArrayList<>();
         final List<FetchedRemote> fetchedRemotes = new ArrayList<>();
 
@@ -221,6 +287,12 @@ class TestLocalRepoServiceManagedClone
 
         @Override
         public void setRemoteHead(Path workingDir, String remote) {}
+
+        @Override
+        public List<Remote> listRemotes(Path workingDir)
+        {
+            return remotes;
+        }
 
         @Override
         public boolean isGitWorkingTree(Path workingDir)
@@ -514,6 +586,18 @@ class TestLocalRepoServiceManagedClone
             WatchedRepo row = find(owner, repo).orElseThrow();
             rows.put(key(owner, repo), new WatchedRepo(row.id(), owner, repo, row.displayOrder(),
                     row.localClonePath(), upstreamRemoteName, row.viewFocus()));
+        }
+
+        @Override
+        public void replaceClone(
+                String owner,
+                String repo,
+                String localClonePath,
+                String upstreamRemoteName)
+        {
+            WatchedRepo row = find(owner, repo).orElseThrow();
+            rows.put(key(owner, repo), new WatchedRepo(row.id(), owner, repo, row.displayOrder(),
+                    localClonePath, upstreamRemoteName, row.viewFocus()));
         }
 
         @Override

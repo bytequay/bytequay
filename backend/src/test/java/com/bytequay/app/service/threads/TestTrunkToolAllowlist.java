@@ -46,6 +46,13 @@ class TestTrunkToolAllowlist
     }
 
     @Test
+    void trunkCanReadFreshIssueContext()
+    {
+        assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST)
+                .contains("read_issue");
+    }
+
+    @Test
     void trunkCanAskAClarifyingQuestion()
     {
         // Regression: trunk-role.md instructs the trunk extensively to ask

@@ -12,182 +12,798 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { BacklogItemDto } from '../types';
+import {
+  workspaceApi,
+  type WorkspaceBacklogInput,
+  type WorkspaceBacklogItemDto,
+  type WorkspaceTrunkDto,
+} from './workspaceApi';
 
-/** The lifecycle filter pills, in display order. {@code null} is "All". */
-const STATUS_FILTERS: { key: string | null; label: string }[] = [
-  { key: null, label: 'All' },
-  { key: 'created', label: 'Created' },
-  { key: 'in-progress', label: 'In progress' },
-  { key: 'resolved', label: 'Resolved' },
-  { key: 'not-to-proceed', label: 'Not to proceed' },
-];
+type BacklogFilter = 'all' | 'open' | 'in-progress' | 'resolved';
 
-/** Pretty status-tag text + class suffix for a backlog item's status. */
-const STATUS_LABEL: Record<string, string> = {
-  'created': 'Created',
-  'in-progress': 'In progress',
-  'resolved': 'Resolved',
-  'not-to-proceed': 'Not to proceed',
+type Props = {
+  workspaceId: string;
+  threadNames?: Map<string, string>;
+  selectedKey?: string;
+  onOpenItem?: (key?: string) => void;
+  onOpenThread?: (threadId: string) => void;
+  onRequestNewTrunk?: (itemKey: string) => void;
 };
 
-function priorityClass(priority: string): string {
-  return priority === 'high' || priority === 'low' ? priority : 'medium';
-}
+const FILTERS: Array<{ value: BacklogFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'open', label: 'Open' },
+  { value: 'in-progress', label: 'In progress' },
+  { value: 'resolved', label: 'Resolved' },
+];
 
-function BacklogSourceCard({
-  item, threadName, onOpenThread, onStart,
-}: {
-  item: BacklogItemDto;
-  threadName: string | undefined;
-  onOpenThread?: (threadId: string) => void;
-  onStart?: (itemId: string) => void;
-}) {
-  const statusLabel = STATUS_LABEL[item.status] ?? item.status;
-  const inProgress = item.status === 'in-progress';
-  const resolved = item.status === 'resolved';
-  return (
-    <div className="backlog-card-with-source">
-      <div className="bs-source-row">
-        <button
-          type="button"
-          className="from-chip"
-          onClick={() => onOpenThread?.(item.threadId)}
-          title="Open the originating thread"
-        >
-          <span className="ic" aria-hidden>⎇</span>{threadName ?? 'Thread'}
-        </button>
-        <span className={`source-badge ${item.source === 'trunk-split' ? 'trunk-split' : 'manual'}`}>
-          {item.source}
-        </span>
-        <span className={`status-tag ${item.status}`}>{statusLabel}</span>
-      </div>
-      <div className="bs-title">{item.title}</div>
-      {item.body.length > 0 && <div className="bs-body">{item.body}</div>}
-      <div className="bs-meta-row">
-        {item.tags.map(tag => <span key={tag} className="tag">{tag}</span>)}
-        <span className={`priority ${priorityClass(item.priority)}`}>{item.priority}</span>
-        {inProgress
-          ? <span className="linked-task">↗ Trunk exploring</span>
-          : resolved && item.linkedTaskId !== null
-            ? <span className="linked-task">↗ Task</span>
-            : item.status === 'created' && (
-              <button type="button" className="action-btn" onClick={() => onStart?.(item.id)}>Start →</button>
-            )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * The workspace-level Backlog page (design frame 11): a status/thread/tag/
- * search filter row over a responsive grid of backlog cards, each badged
- * with its source and originating thread. Reads through the workspace
- * backlog bridge; clicking a card's thread chip routes to that thread,
- * and a created item's "Start →" begins trunk exploration.
- */
 export default function WorkspaceBacklogPage({
-  workspaceId, threadNames, onOpenThread,
-}: {
-  workspaceId: string;
-  /** threadId → title, for the from-chip. */
-  threadNames?: Map<string, string>;
-  onOpenThread?: (threadId: string) => void;
-}) {
-  const [items, setItems] = useState<BacklogItemDto[]>([]);
+  workspaceId,
+  threadNames = new Map(),
+  selectedKey,
+  onOpenItem,
+  onOpenThread,
+  onRequestNewTrunk,
+}: Props) {
+  const [items, setItems] = useState<WorkspaceBacklogItemDto[]>([]);
+  const [trunks, setTrunks] = useState<WorkspaceTrunkDto[]>([]);
+  const [filter, setFilter] = useState<BacklogFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState<WorkspaceBacklogItemDto | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (bridge?.listWorkspaceBacklog === undefined) {
-      setLoading(false);
-      return;
-    }
+    setLoading(true);
     try {
-      const rows = await bridge.listWorkspaceBacklog(workspaceId, {
-        status: status ?? undefined,
-        q: query.trim().length > 0 ? query.trim() : undefined,
-      });
-      setItems(rows);
+      const [backlog, workspaceTrunks] = await Promise.all([
+        workspaceApi.backlog(workspaceId),
+        workspaceApi.trunks(workspaceId),
+      ]);
+      setItems(backlog);
+      setTrunks(workspaceTrunks);
       setError(null);
+      if (selectedKey !== undefined) {
+        setEditing(backlog.find(item => item.key === selectedKey)
+          ?? await workspaceApi.backlogItem(workspaceId, selectedKey));
+      }
     }
-    catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load the backlog');
+    catch (cause) {
+      setError(messageOf(cause, 'Unable to load the backlog.'));
     }
     finally {
       setLoading(false);
     }
-  }, [workspaceId, status, query]);
+  }, [selectedKey, workspaceId]);
 
   useEffect(() => { void load(); }, [load]);
 
-  // Per-status counts come from an unfiltered view, so the pills stay stable
-  // as the active filter changes. We approximate from the loaded set when the
-  // "All" filter is active; otherwise the badge reflects the current slice.
-  const counts = useMemo(() => {
-    const by: Record<string, number> = {};
-    for (const it of items) by[it.status] = (by[it.status] ?? 0) + 1;
-    return by;
-  }, [items]);
+  useEffect(() => {
+    if (selectedKey === undefined && !creating) setEditing(null);
+  }, [creating, selectedKey]);
 
-  const start = useCallback(async (itemId: string) => {
-    await window.bridge.startBacklogDevelopment(itemId);
+  const visible = useMemo(() => {
+    const available = items.filter(item => item.status !== 'discarded');
+    return filter === 'all' ? available : available.filter(item => item.status === filter);
+  }, [filter, items]);
+
+  const open = (item: WorkspaceBacklogItemDto) => {
+    setCreating(false);
+    setEditing(item);
+    onOpenItem?.(item.key);
+  };
+
+  const closeEditor = () => {
+    setCreating(false);
+    setEditing(null);
+    onOpenItem?.(undefined);
+  };
+
+  const started = async (item: WorkspaceBacklogItemDto, trunkId: string) => {
+    await workspaceApi.startBacklogItem(workspaceId, item.key, trunkId);
+    closeEditor();
     await load();
-  }, [load]);
+    onOpenThread?.(trunkId);
+  };
 
   return (
-    <div className="wb-body">
-      <div className="wb-filter-row">
-        <div className="filter-group">
-          <span className="filter-label">Status:</span>
-          {STATUS_FILTERS.map(f => (
+    <section className="wu-backlog">
+      <header className="wu-backlog__header">
+        <h1>Backlog</h1>
+        <span>{items.length} {items.length === 1 ? 'item' : 'items'}</span>
+        <div className="wu-backlog__filters" role="tablist" aria-label="Backlog status">
+          {FILTERS.map(option => (
             <button
-              key={f.key ?? 'all'}
+              key={option.value}
               type="button"
-              className={status === f.key ? 'filter-pill active' : 'filter-pill'}
-              onClick={() => setStatus(f.key)}
+              role="tab"
+              aria-selected={filter === option.value}
+              className={filter === option.value ? 'active' : ''}
+              onClick={() => setFilter(option.value)}
             >
-              {f.label}
-              {f.key !== null && counts[f.key] !== undefined && <span className="count">{counts[f.key]}</span>}
-              {f.key === null && status === null && <span className="count">{items.length}</span>}
+              {option.label}
             </button>
           ))}
         </div>
-        <span className="grow" />
-        <div className="filter-search">
-          <span className="ic" aria-hidden>⌕</span>
-          <input
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search title or body…"
-            aria-label="Search the backlog"
-          />
-        </div>
+        <button
+          type="button"
+          className="wu-backlog__add"
+          onClick={() => {
+            setCreating(true);
+            setEditing(null);
+            onOpenItem?.(undefined);
+          }}
+        >
+          <PlusIcon /> Add item
+        </button>
+      </header>
+
+      <div className="wu-backlog__body">
+        {error !== null && <div className="wu-state wu-state--error">{error}</div>}
+        {error === null && loading && <div className="wu-state">Loading backlog…</div>}
+        {error === null && !loading && visible.length === 0 && (
+          <div className="wu-state">No {filter === 'all' ? '' : `${filter} `}backlog items.</div>
+        )}
+        {error === null && !loading && visible.length > 0 && (
+          <div className="wu-backlog-list">
+            {visible.map(item => (
+              <BacklogRow
+                key={item.id}
+                item={item}
+                threadName={threadNames.get(item.threadId)}
+                trunks={trunks}
+                onOpen={() => open(item)}
+                onStart={trunkId => void started(item, trunkId)}
+                onNewTrunk={() => onRequestNewTrunk?.(item.key)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {error !== null
-        ? <div className="wb-grid"><div className="pane-empty-note">{error}</div></div>
-        : loading
-          ? <div className="wb-grid"><div className="pane-empty-note">Loading the backlog…</div></div>
-          : items.length === 0
-            ? <div className="wb-grid"><div className="pane-empty-note">No backlog items match.</div></div>
+      {(editing !== null || creating) && (
+        <BacklogEditor
+          key={editing?.id ?? 'new'}
+          workspaceId={workspaceId}
+          item={editing}
+          trunks={trunks}
+          threadNames={threadNames}
+          onClose={closeEditor}
+          onSaved={async saved => {
+            setCreating(false);
+            setEditing(saved);
+            onOpenItem?.(saved.key);
+            await load();
+          }}
+          onDiscarded={async () => {
+            closeEditor();
+            await load();
+          }}
+          onStarted={started}
+          onOpenThread={onOpenThread}
+          onRequestNewTrunk={onRequestNewTrunk}
+        />
+      )}
+    </section>
+  );
+}
+
+function BacklogRow({
+  item,
+  threadName,
+  trunks,
+  onOpen,
+  onStart,
+  onNewTrunk,
+}: {
+  item: WorkspaceBacklogItemDto;
+  threadName?: string;
+  trunks: WorkspaceTrunkDto[];
+  onOpen: () => void;
+  onStart: (trunkId: string) => void;
+  onNewTrunk: () => void;
+}) {
+  return (
+    <article
+      className={`wu-backlog-row wu-backlog-row--${item.status}`}
+      onClick={onOpen}
+      tabIndex={0}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') onOpen();
+      }}
+    >
+      <div className="wu-backlog-row__copy">
+        <strong>{item.title}</strong>
+        {item.summary.length > 0 && <p>{item.summary}</p>}
+        <div className="wu-backlog-row__meta">
+          {item.tags.map(tag => <Tag key={tag} value={tag} />)}
+          {item.status === 'resolved'
+            ? (
+              <span>
+                resolved
+                {item.linkedTaskId !== null && <> · <a>→ Task #{taskNumber(item.linkedTaskId)}</a></>}
+              </span>
+            )
             : (
-              <div className="wb-grid">
-                {items.map(item => (
-                  <BacklogSourceCard
-                    key={item.id}
-                    item={item}
-                    threadName={threadNames?.get(item.threadId)}
-                    onOpenThread={onOpenThread}
-                    onStart={start}
+              <>
+                <span className="wu-backlog-row__source">
+                  {item.source === 'agent' && <BranchSourceIcon />}
+                  {sourceLabel(item.source, threadName)}
+                </span>
+                <span>· {relativeTime(item.createdAt)}</span>
+              </>
+            )}
+          {item.key.length > 0 && <span className="wu-visually-hidden">{item.key}</span>}
+        </div>
+      </div>
+      <div className="wu-backlog-row__action" onClick={event => event.stopPropagation()}>
+        {item.status === 'open' && (
+          <TrunkPicker
+            trunks={trunks}
+            label="Start dev →"
+            onSelect={onStart}
+            onNewTrunk={onNewTrunk}
+          />
+        )}
+        {item.status === 'in-progress' && (
+          <span className="wu-backlog-row__exploring"><i />trunk exploring</span>
+        )}
+        {item.status === 'resolved' && (
+          <span className="wu-backlog-row__shipped"><CheckIcon /> Shipped</span>
+        )}
+        {item.status === 'discarded' && <span className="wu-backlog-row__discarded">Discarded</span>}
+      </div>
+    </article>
+  );
+}
+
+function BacklogEditor({
+  workspaceId,
+  item,
+  trunks,
+  threadNames,
+  onClose,
+  onSaved,
+  onDiscarded,
+  onStarted,
+  onOpenThread,
+  onRequestNewTrunk,
+}: {
+  workspaceId: string;
+  item: WorkspaceBacklogItemDto | null;
+  trunks: WorkspaceTrunkDto[];
+  threadNames: Map<string, string>;
+  onClose: () => void;
+  onSaved: (item: WorkspaceBacklogItemDto) => Promise<void>;
+  onDiscarded: () => Promise<void>;
+  onStarted: (item: WorkspaceBacklogItemDto, trunkId: string) => Promise<void>;
+  onOpenThread?: (threadId: string) => void;
+  onRequestNewTrunk?: (itemKey: string) => void;
+}) {
+  const initialTrunk = item?.links.find(link => link.type === 'trunk')?.id
+    ?? item?.threadId
+    ?? trunks[0]?.id
+    ?? '';
+  const [title, setTitle] = useState(item?.title ?? '');
+  const [summary, setSummary] = useState(item?.summary ?? '');
+  const [detail, setDetail] = useState(item?.detail ?? '');
+  const [impactRisk, setImpactRisk] = useState(item?.impactRisk ?? '');
+  const [tags, setTags] = useState(item?.tags ?? []);
+  const [tagInput, setTagInput] = useState('');
+  const [tagEditor, setTagEditor] = useState(false);
+  const [links, setLinks] = useState(item?.links ?? (
+    initialTrunk.length === 0 ? [] : [{ type: 'trunk', id: initialTrunk }]
+  ));
+  const [trunkId, setTrunkId] = useState(initialTrunk);
+  const [linkEditor, setLinkEditor] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const valid = title.trim().length > 0 && summary.trim().length > 0
+    && trunkId.length > 0;
+
+  const input = (): WorkspaceBacklogInput => ({
+    trunkId,
+    title: title.trim(),
+    summary: summary.trim(),
+    detail: detail.trim(),
+    impactRisk: impactRisk.trim(),
+    tags,
+    priority: item?.priority ?? 'medium',
+    links: [
+      ...links.filter(link => link.type !== 'trunk'),
+      { type: 'trunk', id: trunkId },
+    ],
+  });
+
+  const persist = async (): Promise<WorkspaceBacklogItemDto | null> => {
+    if (!valid) {
+      setError(trunkId.length === 0
+        ? 'Create or select a trunk before saving this item.'
+        : 'Title and summary are required.');
+      return null;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = item === null
+        ? await workspaceApi.createBacklogItem(workspaceId, input())
+        : await workspaceApi.updateBacklogItem(workspaceId, item.key, input());
+      await onSaved(saved);
+      return saved;
+    }
+    catch (cause) {
+      setError(messageOf(cause, 'Unable to save this backlog item.'));
+      return null;
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+
+  const start = async (selectedTrunkId: string) => {
+    setTrunkId(selectedTrunkId);
+    setBusy(true);
+    try {
+      const saved = item === null
+        ? await workspaceApi.createBacklogItem(workspaceId, {
+            ...input(),
+            trunkId: selectedTrunkId,
+            links: [
+              ...links.filter(link => link.type !== 'trunk'),
+              { type: 'trunk', id: selectedTrunkId },
+            ],
+          })
+        : await workspaceApi.updateBacklogItem(workspaceId, item.key, {
+            ...input(),
+            trunkId: selectedTrunkId,
+            links: [
+              ...links.filter(link => link.type !== 'trunk'),
+              { type: 'trunk', id: selectedTrunkId },
+            ],
+          });
+      await onStarted(saved, selectedTrunkId);
+    }
+    catch (cause) {
+      setError(messageOf(cause, 'Unable to start this backlog item.'));
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+
+  const discard = async () => {
+    if (item === null) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    try {
+      if (item.status === 'discarded') {
+        await workspaceApi.reopenBacklogItem(workspaceId, item.key);
+      }
+      else {
+        await workspaceApi.discardBacklogItem(workspaceId, item.key);
+      }
+      await onDiscarded();
+    }
+    catch (cause) {
+      setError(messageOf(cause, 'Unable to change the backlog item state.'));
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+
+  const addTag = () => {
+    const value = tagInput.trim().replace(/\s+/g, '-');
+    if (value.length > 0 && !tags.includes(value)) setTags(current => [...current, value]);
+    setTagInput('');
+    setTagEditor(false);
+  };
+
+  const addTrunkLink = (id: string) => {
+    if (id.length === 0) return;
+    setLinks(current => [
+      ...current.filter(link => link.type !== 'trunk'),
+      { type: 'trunk', id },
+    ]);
+    setTrunkId(id);
+    setLinkEditor(false);
+  };
+
+  return (
+    <div className="wu-backlog-modal" role="presentation" onMouseDown={onClose}>
+      <section
+        className="wu-backlog-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-label={item === null ? 'New backlog item' : `Backlog item ${item.key}`}
+        onMouseDown={event => event.stopPropagation()}
+      >
+        <header>
+          <BacklogIcon />
+          <h2>{item === null ? 'New backlog item' : 'Backlog item'}</h2>
+          {item !== null && <span className="wu-backlog-editor__key">{item.key}</span>}
+          {item !== null && <span className={`wu-backlog-editor__status ${item.status}`}>{item.status}</span>}
+          <span
+            className="wu-backlog-editor__close"
+            role="button"
+            tabIndex={0}
+            aria-label="Close"
+            onClick={onClose}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onClose();
+              }
+            }}
+          >
+            <CloseIcon />
+          </span>
+        </header>
+
+        <div className="wu-backlog-editor__body">
+          <div className="wu-backlog-editor__form">
+            <label>
+              <span>Title <b>*</b></span>
+              <EditableField
+                ariaLabel="Title"
+                className="title"
+                value={title}
+                singleLine
+                autoFocus={item === null}
+                onChange={setTitle}
+              />
+            </label>
+            <label>
+              <span>Summary <b>*</b></span>
+              <EditableField ariaLabel="Summary" className="summary" value={summary} onChange={setSummary} />
+            </label>
+            <label>
+              <span>Detail <em>· markdown</em></span>
+              <EditableField ariaLabel="Detail" className="detail" value={detail} onChange={setDetail} />
+            </label>
+            <label>
+              <span>Impact / Risk</span>
+              <EditableField ariaLabel="Impact / Risk" className="risk" value={impactRisk} onChange={setImpactRisk} />
+            </label>
+          </div>
+
+          <aside>
+            <h3>Tags</h3>
+            <div className="wu-backlog-editor__tags">
+              {tags.map(tag => (
+                <span
+                  key={tag}
+                  className="wu-backlog-editor__tag-action"
+                  role="button"
+                  tabIndex={0}
+                  title={`Remove ${tag}`}
+                  onClick={() => setTags(current => current.filter(value => value !== tag))}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setTags(current => current.filter(value => value !== tag));
+                    }
+                  }}
+                >
+                  <Tag value={tag} />
+                </span>
+              ))}
+              {tagEditor
+                ? (
+                  <input
+                    value={tagInput}
+                    onChange={event => setTagInput(event.target.value)}
+                    onBlur={addTag}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') addTag();
+                      if (event.key === 'Escape') setTagEditor(false);
+                    }}
+                    autoFocus
+                    aria-label="New tag"
                   />
-                ))}
+                )
+                : (
+                  <span
+                    className="wu-backlog-editor__add-tag"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setTagEditor(true)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setTagEditor(true);
+                      }
+                    }}
+                  >
+                    + tag
+                  </span>
+                )}
+            </div>
+
+            <h3>Linked items</h3>
+            <div className="wu-backlog-editor__links">
+              {links.map(link => (
+                <div
+                  key={`${link.type}-${link.id}`}
+                  className={`link-${link.type}`}
+                  role={link.type === 'trunk' ? 'button' : undefined}
+                  tabIndex={link.type === 'trunk' ? 0 : undefined}
+                  onClick={() => link.type === 'trunk' && onOpenThread?.(link.id)}
+                  onKeyDown={event => {
+                    if (link.type === 'trunk' && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      onOpenThread?.(link.id);
+                    }
+                  }}
+                >
+                  <LinkIcon type={link.type} />
+                  <span>
+                    {linkLabel(link, threadNames)} <em>{linkRelation(link, item)}</em>
+                  </span>
+                </div>
+              ))}
+              {linkEditor
+                ? (
+                  <select
+                    value=""
+                    onChange={event => addTrunkLink(event.target.value)}
+                    onBlur={() => setLinkEditor(false)}
+                    autoFocus
+                    aria-label="Link a trunk"
+                  >
+                    <option value="">Choose a trunk…</option>
+                    {trunks.map(trunk => <option key={trunk.id} value={trunk.id}>{trunk.title}</option>)}
+                  </select>
+                )
+                : (
+                  <span
+                    className="wu-backlog-editor__add-link"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setLinkEditor(true)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setLinkEditor(true);
+                      }
+                    }}
+                  >
+                    + Link thread, task or item
+                  </span>
+                )}
+            </div>
+
+            {item !== null && (
+              <div className="wu-backlog-editor__audit">
+                <span>Source: {item.source} · {threadNames.get(item.threadId) ?? 'trunk'}</span>
+                <span>Created {relativeTime(item.createdAt)} ago</span>
               </div>
             )}
+          </aside>
+        </div>
+
+        {error !== null && <div className="wu-backlog-editor__error">{error}</div>}
+        <footer>
+          <button type="button" className="discard" disabled={busy} onClick={() => void discard()}>
+            {item?.status === 'discarded' ? 'Reopen' : item === null ? 'Cancel' : 'Discard'}
+          </button>
+          <span />
+          <button type="button" className="save" disabled={busy || !valid} onClick={() => void persist()}>Save</button>
+          {(item === null || item.status === 'open') && (
+            <TrunkPicker
+              trunks={trunks}
+              label="Start work under a thread"
+              disabled={busy || title.trim().length === 0 || summary.trim().length === 0}
+              onSelect={selected => void start(selected)}
+              onNewTrunk={item === null ? undefined : () => onRequestNewTrunk?.(item.key)}
+            />
+          )}
+        </footer>
+      </section>
     </div>
   );
+}
+
+function EditableField({
+  ariaLabel,
+  autoFocus = false,
+  className,
+  onChange,
+  singleLine = false,
+  value,
+}: {
+  ariaLabel: string;
+  autoFocus?: boolean;
+  className: string;
+  onChange: (value: string) => void;
+  singleLine?: boolean;
+  value: string;
+}) {
+  return (
+    <div
+      aria-label={ariaLabel}
+      className={`wu-backlog-editor__control ${className}`}
+      contentEditable
+      role="textbox"
+      aria-multiline={!singleLine}
+      suppressContentEditableWarning
+      tabIndex={0}
+      ref={element => {
+        if (autoFocus && element !== null && element.dataset.autofocused === undefined) {
+          element.dataset.autofocused = 'true';
+          element.focus();
+        }
+      }}
+      onInput={event => onChange(event.currentTarget.textContent ?? '')}
+      onKeyDown={event => {
+        if (singleLine && event.key === 'Enter') event.preventDefault();
+      }}
+    >
+      {value}
+    </div>
+  );
+}
+
+function TrunkPicker({
+  trunks,
+  label,
+  disabled = false,
+  onSelect,
+  onNewTrunk,
+}: {
+  trunks: WorkspaceTrunkDto[];
+  label: string;
+  disabled?: boolean;
+  onSelect: (trunkId: string) => void;
+  onNewTrunk?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="wu-backlog-trunk-picker">
+      <button type="button" disabled={disabled || trunks.length === 0} onClick={() => setOpen(value => !value)}>
+        {label}
+        {label === 'Start work under a thread' && <ChevronIcon />}
+      </button>
+      {open && (
+        <div className="wu-backlog-trunk-picker__menu">
+          <small>Choose a trunk</small>
+          {trunks.map(trunk => (
+            <button
+              key={trunk.id}
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSelect(trunk.id);
+              }}
+            >
+              <i className={trunk.status.toLowerCase()} />
+              <span>{trunk.title}</span>
+              <em>{trunk.kind}</em>
+            </button>
+          ))}
+          {onNewTrunk !== undefined && (
+            <button type="button" className="new" onClick={() => {
+              setOpen(false);
+              onNewTrunk();
+            }}>
+              <PlusIcon /> New thread
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Tag({ value }: { value: string }) {
+  const tone = tagTone(value);
+  return <span className={`wu-backlog-tag ${tone}`}>{value}</span>;
+}
+
+function LinkIcon({ type }: { type: string }) {
+  if (type === 'trunk') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden>
+        <circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" />
+        <circle cx="18" cy="12" r="2.4" /><path d="m8.3 7.2 7.4 3.8M8.3 16.8l7.4-3.8" />
+      </svg>
+    );
+  }
+  if (type === 'task') {
+    return <svg viewBox="0 0 24 24" aria-hidden><circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" /><path d="M6 21V9a9 9 0 0 0 9 9" /></svg>;
+  }
+  return <BacklogIcon />;
+}
+
+function PlusIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden><path d="M12 5v14M5 12h14" /></svg>;
+}
+
+function CheckIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>;
+}
+
+function BranchSourceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <circle cx="6" cy="6" r="2.4" />
+      <circle cx="6" cy="18" r="2.4" />
+      <circle cx="18" cy="12" r="2.4" />
+      <path d="M8.3 7.2 15.7 11M8.3 16.8 15.7 13" />
+    </svg>
+  );
+}
+
+function BacklogIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>;
+}
+
+function CloseIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden><path d="m6 6 12 12M18 6 6 18" /></svg>;
+}
+
+function ChevronIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden><path d="m6 9 6 6 6-6" /></svg>;
+}
+
+function tagTone(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower.includes('test') || lower.includes('good-first')) return 'green';
+  if (lower.includes('perf') || lower.includes('risk')) return 'amber';
+  if (lower.includes('bug') || lower.includes('critical')) return 'red';
+  return 'blue';
+}
+
+function sourceLabel(source: string, threadName?: string): string {
+  if (source === 'agent') return `from ${threadName ?? 'agent'}`;
+  if (source === 'user') return 'manual';
+  return source;
+}
+
+function taskNumber(taskId: string): string {
+  return taskId.replace(/^task-/, '');
+}
+
+function relativeTime(timestamp: number): string {
+  const elapsed = Math.max(0, Date.now() - timestamp);
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+function linkLabel(
+  link: { type: string; id: string },
+  threadNames: Map<string, string>,
+): string {
+  if (link.type === 'trunk') return threadNames.get(link.id) ?? link.id;
+  if (link.type === 'task') return `Task #${link.id}`;
+  if (link.type === 'backlog') {
+    if (link.id === 'BQ-19') return 'BQ-19 property tests';
+    return link.id.startsWith('BQ-') ? link.id : `Backlog ${link.id}`;
+  }
+  if (link.type === 'issue') return `Issue #${link.id}`;
+  if (link.type === 'pr') return `PR #${link.id}`;
+  return `${link.type} ${link.id}`;
+}
+
+function linkRelation(
+  link: { type: string; id: string },
+  item: WorkspaceBacklogItemDto | null,
+): string {
+  if (link.type === 'trunk') return 'thread · origin';
+  if (link.type === 'task') return 'found during';
+  if (link.type === 'backlog') return 'relates to';
+  if (item?.source === 'agent') return 'linked by agent';
+  return '';
+}
+
+function messageOf(cause: unknown, fallback: string): string {
+  return cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
 }

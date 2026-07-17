@@ -20,6 +20,8 @@ export type ThreadRow = {
   id: string;
   name: string;
   status: StatusDotVariant;
+  flow?: 'build' | 'review';
+  attentionCount?: number;
 };
 
 /** A single sidebar thread row. {@code onOpen} is also the fold/unfold
@@ -36,16 +38,26 @@ export function ThreadListItem({ thread, active = false, showsFoldChevron = fals
   onOpen?: (id: string) => void;
 }) {
   return (
-    <button
-      type="button"
+    <div
       className={active ? 'thread-item active' : 'thread-item'}
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen?.(thread.id)}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen?.(thread.id);
+        }
+      }}
     >
       <span className="trunk-tile" aria-hidden><TrunkIcon size={12} /></span>
       <span className="nm">{thread.name}</span>
+      {!active && thread.attentionCount !== undefined && thread.attentionCount > 0 && (
+        <span className="thread-attention-count">{thread.attentionCount}</span>
+      )}
       <StatusDot variant={thread.status} />
       {showsFoldChevron && <Chev open={foldedOpen} />}
-    </button>
+    </div>
   );
 }
 
@@ -78,7 +90,7 @@ export type TaskNavRow = {
  */
 export function ThreadList({
   threads, selectedId, tasks = [], selectedTaskId,
-  onOpen, onOpenTask, onNewThread,
+  onOpen, onOpenTask, onNewThread, heading = 'Trunks', showActions = true,
 }: {
   threads: ThreadRow[];
   selectedId?: string;
@@ -88,17 +100,21 @@ export function ThreadList({
   onOpen?: (id: string) => void;
   onOpenTask?: (id: string) => void;
   onNewThread?: () => void;
+  heading?: string;
+  showActions?: boolean;
 }) {
   const [foldedId, setFoldedId] = useState<string | null>(null);
 
   return (
-    <div className="sb-section" style={{ paddingTop: 8 }}>
+    <div className="sb-section">
       <div className="sb-section-h">
-        <span className="nm">Trunks</span>
-        <span className="actions">
-          <span role="button" tabIndex={0} aria-label="Filter">⛚</span>
-          <span role="button" tabIndex={0} aria-label="New thread" onClick={onNewThread}>+</span>
-        </span>
+        <span className="nm">{heading}</span>
+        {showActions && (
+          <span className="actions">
+            <span role="button" tabIndex={0} aria-label="Filter">⛚</span>
+            <span role="button" tabIndex={0} aria-label="New thread" onClick={onNewThread}>+</span>
+          </span>
+        )}
       </div>
       <div className="thread-list">
         {threads.map(t => {
@@ -121,11 +137,18 @@ export function ThreadList({
                 }}
               />
               {isActive && !isFolded && tasks.map(task => (
-                <button
+                <div
                   key={task.id}
-                  type="button"
                   className={task.id === selectedTaskId ? 'task-subhead active' : 'task-subhead'}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onOpenTask?.(task.id)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onOpenTask?.(task.id);
+                    }
+                  }}
                 >
                   {/* One leading lifecycle mark before the name: the GitHub
                       PR glyph once a PR exists (open / merged), else the
@@ -134,7 +157,7 @@ export function ThreadList({
                     ? <PrStateIcon state={task.pr} />
                     : task.dot !== undefined && <StatusDot variant={task.dot} />}
                   <span className="nm">{task.label}</span>
-                </button>
+                </div>
               ))}
             </Fragment>
           );

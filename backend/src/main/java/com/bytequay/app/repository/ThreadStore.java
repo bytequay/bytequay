@@ -112,6 +112,17 @@ public interface ThreadStore
         return List.of();
     }
 
+    /** The single public review trunk for one workspace PR. The database
+     *  partial unique index enforces this relationship; this lookup lets
+     *  review entry points reactivate the existing history instead of
+     *  attempting a parallel trunk. */
+    default Optional<Thread> findReviewTrunk(String workspaceId, String prRef)
+    {
+        return listThreadsByWorkspace(workspaceId).stream()
+                .filter(thread -> prRef.equals(thread.prRef()))
+                .findFirst();
+    }
+
     /**
      * Fetch a batch of threads by id, newest-{@code updated_at_ms}
      * first. Used by the group membership read path
@@ -127,6 +138,14 @@ public interface ThreadStore
      * whole table.
      */
     List<Thread> listThreadsUpdatedSince(Instant since);
+
+    default List<Thread> listThreadsByWorkspaceUpdatedSince(
+            String workspaceId, Instant since)
+    {
+        return listThreadsUpdatedSince(since).stream()
+                .filter(thread -> workspaceId.equals(thread.workspaceId()))
+                .toList();
+    }
 
     /** One aggregation bucket of AI spend, grouped by the owning thread's
      *  provider / flow / kind — backs the AI usage ledger. */

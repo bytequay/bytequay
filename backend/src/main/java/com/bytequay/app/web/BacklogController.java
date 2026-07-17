@@ -20,6 +20,8 @@ import com.bytequay.app.beans.backlog.CreateBacklogItemRequest;
 import com.bytequay.app.beans.backlog.SkipBacklogItemRequest;
 import com.bytequay.app.beans.backlog.StartDevelopmentResponse;
 import com.bytequay.app.beans.backlog.UpdateBacklogItemRequest;
+import com.bytequay.app.domain.BacklogItem;
+import com.bytequay.app.domain.BacklogItem.Link;
 import com.bytequay.app.service.backlog.BacklogService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -80,6 +82,56 @@ public class BacklogController
                 backlog.create(threadId, body.title(), body.body(), body.tags(), body.priority()));
     }
 
+    @PostMapping("/api/workspaces/{workspaceId}/backlog")
+    public BacklogItemDto createForWorkspace(
+            @PathVariable String workspaceId,
+            @RequestBody WorkspaceBacklogBody body)
+    {
+        if (body == null || body.trunkId() == null || body.trunkId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "trunkId is required");
+        }
+        return BacklogItemDto.from(backlog.createForWorkspace(
+                workspaceId,
+                body.trunkId(),
+                body.title(),
+                body.summary(),
+                body.detail(),
+                body.impactRisk(),
+                body.tags(),
+                body.priority(),
+                body.links()));
+    }
+
+    @GetMapping("/api/workspaces/{workspaceId}/backlog/{itemKey}")
+    public BacklogItemDto getForWorkspace(
+            @PathVariable String workspaceId, @PathVariable String itemKey)
+    {
+        return BacklogItemDto.from(backlog.getForWorkspace(workspaceId, itemKey));
+    }
+
+    @PatchMapping("/api/workspaces/{workspaceId}/backlog/{itemKey}")
+    public BacklogItemDto updateForWorkspace(
+            @PathVariable String workspaceId,
+            @PathVariable String itemKey,
+            @RequestBody WorkspaceBacklogBody body)
+    {
+        if (body == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "request body is required");
+        }
+        return BacklogItemDto.from(backlog.updateForWorkspace(
+                workspaceId,
+                itemKey,
+                body.title(),
+                body.summary(),
+                body.detail(),
+                body.impactRisk(),
+                body.tags(),
+                body.priority(),
+                body.links()));
+    }
+
     @PostMapping("/api/threads/{threadId}/backlog/batch")
     public BatchCreateBacklogResponse createBatch(
             @PathVariable String threadId, @RequestBody BatchCreateBacklogRequest body)
@@ -129,9 +181,53 @@ public class BacklogController
         return new StartDevelopmentResponse(BacklogItemDto.from(result.item()), result.taskId());
     }
 
+    @PostMapping("/api/workspaces/{workspaceId}/backlog/{itemKey}/start")
+    public StartDevelopmentResponse startFromWorkspace(
+            @PathVariable String workspaceId,
+            @PathVariable String itemKey,
+            @RequestBody(required = false) StartBacklogBody body)
+    {
+        BacklogService.StartResult result = backlog.startDevelopmentForWorkspace(
+                workspaceId, itemKey, body == null ? null : body.trunkId());
+        return new StartDevelopmentResponse(
+                BacklogItemDto.from(result.item()), result.taskId());
+    }
+
+    @PostMapping("/api/workspaces/{workspaceId}/backlog/{itemKey}/discard")
+    public BacklogItemDto discardFromWorkspace(
+            @PathVariable String workspaceId,
+            @PathVariable String itemKey,
+            @RequestBody(required = false) SkipBacklogItemRequest body)
+    {
+        BacklogItem item = backlog.getForWorkspace(workspaceId, itemKey);
+        return BacklogItemDto.from(backlog.skip(
+                item.id(), body == null ? null : body.reason()));
+    }
+
+    @PostMapping("/api/workspaces/{workspaceId}/backlog/{itemKey}/reopen")
+    public BacklogItemDto reopenFromWorkspace(
+            @PathVariable String workspaceId,
+            @PathVariable String itemKey)
+    {
+        BacklogItem item = backlog.getForWorkspace(workspaceId, itemKey);
+        return BacklogItemDto.from(backlog.revive(item.id()));
+    }
+
     @PostMapping("/api/backlog/{itemId}/cancel-exploration")
     public BacklogItemDto cancelExploration(@PathVariable String itemId)
     {
         return BacklogItemDto.from(backlog.cancelExploration(itemId));
     }
+
+    public record WorkspaceBacklogBody(
+            String trunkId,
+            String title,
+            String summary,
+            String detail,
+            String impactRisk,
+            List<String> tags,
+            String priority,
+            List<Link> links) {}
+
+    public record StartBacklogBody(String trunkId) {}
 }

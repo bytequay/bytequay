@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo, useState } from 'react';
-import NewWorkspaceDialog from './NewWorkspaceDialog';
+import { useEffect, useMemo, useState } from 'react';
+import AddRepoModal from '../AddRepoModal';
 import WorkspaceCard from './WorkspaceCard';
 import { ConfirmDialog } from './ConfirmDialog';
 import useWorkspaces from './useWorkspaces';
 import { WORKSPACES_ICON } from '../ui/workspace/WorkspaceNavSidebar';
+import type { WatchedRepoDto } from '../types';
 
 type Props = {
   /** Workspace the user most recently entered, persisted in
@@ -40,7 +41,8 @@ function WorkspacesLandingPage({
   const { cards, loading, error, reload } = useWorkspaces();
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<SortKey>('recent');
-  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [watchedRepos, setWatchedRepos] = useState<WatchedRepoDto[]>([]);
   // Id of the workspace the delete-confirm dialog is asking about, or
   // null when closed; `deleting` disables the button while the request
   // is in flight so a double-click can't fire two deletes.
@@ -51,6 +53,9 @@ function WorkspacesLandingPage({
   // ships. While we're single-workspace the landing always renders so
   // the user can see + verify the card grid; revisit when the grid is
   // visually settled.
+  useEffect(() => {
+    void window.bridge.getWatchedRepos().then(setWatchedRepos).catch(() => {});
+  }, []);
 
   const filtered = useMemo(() => {
     if (!cards) {
@@ -109,49 +114,71 @@ function WorkspacesLandingPage({
         <span className="workspace-landing__title-group">
           <span className="workspace-landing__title-icon" aria-hidden>{WORKSPACES_ICON}</span>
           Workspaces
-          <span className="workspace-landing__title-count">· {activeCount} active</span>
         </span>
+        <span className="workspace-landing__title-count">· {activeCount} active</span>
         <span className="workspace-landing__appbar-spacer" />
         <div className="workspace-landing__search-box">
-          <span className="workspace-landing__search-icon" aria-hidden>⌕</span>
-          <input
-            type="search"
-            className="workspace-landing__search"
-            placeholder="Search workspaces or jump to…"
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            aria-label="Filter workspaces"
-          />
+          <svg className="workspace-landing__search-icon" width="13" height="13"
+            viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <span className="workspace-landing__search-field">
+            {filter.length === 0 && (
+              <span className="workspace-landing__search-placeholder" aria-hidden>
+                Search workspaces or jump to…
+              </span>
+            )}
+            <input
+              type="search"
+              className="workspace-landing__search"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              aria-label="Filter workspaces"
+            />
+          </span>
           <span className="workspace-landing__search-kbd" aria-hidden>⌘K</span>
         </div>
         <button
           type="button"
           className="workspace-landing__new-btn"
-          onClick={() => setNewWorkspaceOpen(true)}
+          onClick={() => setConnectOpen(true)}
         >
-          + New workspace
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New workspace
         </button>
       </header>
 
       <div className="workspace-landing__hero">
         <h1 className="workspace-landing__title">Workspaces</h1>
         <p className="workspace-landing__subtitle">
-          Each workspace is a long-lived project brain — its own repos, memory,
-          and threads. Pick one to drop into.
+          A workspace is a repo plus everything around it — threads, reviews,
+          memory, agents.
         </p>
         <div className="workspace-landing__sort">
           <span className="workspace-landing__sort-label">Sort</span>
           <div className="workspace-landing__sort-track">
             {(['recent', 'active', 'name'] as const).map(key => (
-              <button
+              <div
                 key={key}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className={`workspace-landing__sort-btn${
                   sort === key ? ' workspace-landing__sort-btn--active' : ''}`}
                 onClick={() => setSort(key)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setSort(key);
+                  }
+                }}
               >
                 {key === 'recent' ? 'Recent' : key === 'active' ? 'Active' : 'Name'}
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -179,19 +206,31 @@ function WorkspacesLandingPage({
           />
         ))}
         {!loading && !error && (
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             className="workspace-landing-card workspace-landing-card--new"
-            onClick={() => setNewWorkspaceOpen(true)}
-            aria-label="Add repository"
+            onClick={() => setConnectOpen(true)}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setConnectOpen(true);
+              }
+            }}
+            aria-label="Connect a repository"
           >
-            <span className="workspace-landing-card__new-plus" aria-hidden>+</span>
-            <span className="workspace-landing-card__new-label">Add repository</span>
-            <span className="workspace-landing-card__new-blurb">
-              Connect one verified local clone. It becomes that repository's
-              shared workspace.
+            <span className="workspace-landing-card__new-plus" aria-hidden>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
             </span>
-          </button>
+            <span className="workspace-landing-card__new-label">Connect a repository</span>
+            <span className="workspace-landing-card__new-blurb">
+              A workspace is a repo clone plus its threads, reviews, memory
+              and agents. One repo, one workspace.
+            </span>
+          </div>
         )}
         {!loading && !error && cards && cards.length > 0 && filtered.length === 0 && (
           <p className="workspace-landing__placeholder">
@@ -200,13 +239,13 @@ function WorkspacesLandingPage({
         )}
       </div>
 
-      {newWorkspaceOpen && (
-        <NewWorkspaceDialog
-          onClose={() => {
-            setNewWorkspaceOpen(false);
-            // Refresh the grid so a newly-created workspace appears
-            // without a full reload — the dialog wires its own Create
-            // path; we just trust the close hook fired post-success.
+      {connectOpen && (
+        <AddRepoModal
+          watchedRepos={watchedRepos}
+          onClose={() => setConnectOpen(false)}
+          onAdded={() => {
+            setConnectOpen(false);
+            void window.bridge.getWatchedRepos().then(setWatchedRepos).catch(() => {});
             void reload();
           }}
         />

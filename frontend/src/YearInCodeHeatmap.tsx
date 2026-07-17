@@ -51,6 +51,33 @@ function cacheKey(login: string) {
   return `home:contribution-graph:${login}`;
 }
 
+type StoredContributionCalendar = {
+  value: ContributionCalendarDto;
+  storedAt: number;
+};
+
+function getStoredCalendar(key: string): StoredContributionCalendar | undefined {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<StoredContributionCalendar>;
+    if (!parsed.value || typeof parsed.storedAt !== 'number') return undefined;
+    return parsed as StoredContributionCalendar;
+  }
+  catch {
+    return undefined;
+  }
+}
+
+function setStoredCalendar(key: string, value: ContributionCalendarDto): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify({ value, storedAt: Date.now() }));
+  }
+  catch {
+    // In-memory cache still covers the current app session.
+  }
+}
+
 /** Pretty-prints an ISO yyyy-MM-dd as "Mon, Jan 1, 2026" for the
  *  hover tooltip — shorter than spelling out the weekday in full but
  *  still unambiguous when you're glancing at a specific cell. */
@@ -76,7 +103,7 @@ function formatTipDate(iso: string): string {
  */
 export default function YearInCodeHeatmap({ login }: { login: string }) {
   const [data, setData] = useState<ContributionCalendarDto | null>(
-    () => getCached<ContributionCalendarDto>(cacheKey(login)) ?? null,
+    () => getCached<ContributionCalendarDto>(cacheKey(login)) ?? getStoredCalendar(cacheKey(login))?.value ?? null,
   );
   const [loadError, setLoadError] = useState(false);
   const [refreshCount, setRefreshCount] = useState(0);
@@ -136,7 +163,9 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
     let cancelled = false;
     setLoadError(false);
     const key = cacheKey(login);
-    if (refreshCount === 0 && getCachedFresh<ContributionCalendarDto>(key, CONTRIBUTION_CACHE_TTL_MS)) return;
+    const stored = getStoredCalendar(key);
+    const storedFresh = stored && Date.now() - stored.storedAt <= CONTRIBUTION_CACHE_TTL_MS;
+    if (refreshCount === 0 && (getCachedFresh<ContributionCalendarDto>(key, CONTRIBUTION_CACHE_TTL_MS) || storedFresh)) return;
     void window.bridge.getContributionCalendar(login)
       .then((c) => {
         if (cancelled) return;
@@ -146,6 +175,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
         }
         setData(c);
         setCached(key, c);
+        setStoredCalendar(key, c);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);

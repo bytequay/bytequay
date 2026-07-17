@@ -158,6 +158,9 @@ class SqliteThreadStore
         }
         entity.setWorkModelJson(WorkModelJson.serialise(objectMapper, thread.workModel()));
         entity.setParentReviewPassId(thread.parentReviewPassId());
+        if (thread.prRef() != null && !thread.prRef().isBlank()) {
+            entity.setPrRef(thread.prRef());
+        }
         threads.save(entity);
 
         // Mirror Thread-level lifecycle state (status, endedAt,
@@ -259,6 +262,13 @@ class SqliteThreadStore
     }
 
     @Override
+    public Optional<Thread> findReviewTrunk(String workspaceId, String prRef)
+    {
+        return threads.findFirstByWorkspaceIdAndPrRef(workspaceId, prRef)
+                .map(this::merge);
+    }
+
+    @Override
     @Transactional
     public void deleteThread(String id)
     {
@@ -314,6 +324,18 @@ class SqliteThreadStore
     public List<Thread> listThreadsUpdatedSince(Instant since)
     {
         return threads.findByUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(since.toEpochMilli())
+                .stream()
+                .map(this::merge)
+                .toList();
+    }
+
+    @Override
+    public List<Thread> listThreadsByWorkspaceUpdatedSince(
+            String workspaceId, Instant since)
+    {
+        return threads
+                .findByWorkspaceIdAndUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(
+                        workspaceId, since.toEpochMilli())
                 .stream()
                 .map(this::merge)
                 .toList();
@@ -495,7 +517,8 @@ class SqliteThreadStore
                 WorkModelJson.deserialise(objectMapper, e.getWorkModelJson()),
                 e.getParentReviewPassId(),
                 e.getParallelSlots(),
-                e.getParentTaskId());
+                e.getParentTaskId(),
+                e.getPrRef());
     }
 
     private static ThreadMessage toMessage(ThreadMessageEntity e)

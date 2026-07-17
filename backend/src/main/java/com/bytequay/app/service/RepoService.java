@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 
@@ -74,6 +75,7 @@ public class RepoService
      *  one hour because description / license / topics / language bytes
      *  change on the order of days; reading hour-old data is fine. */
     private static final Duration REPO_META_TTL = Duration.ofHours(1);
+    private static final Duration CONTRIBUTION_CALENDAR_TTL = Duration.ofHours(8);
 
     /** Same allowlist {@code PullRequestService} validates against —
      *  GitHub's reactions API takes exactly these eight content
@@ -92,6 +94,7 @@ public class RepoService
     private final AppSettingsStore settingsStore;
     private final PatResolver patResolver;
     private final Executor ioExecutor;
+    private final Map<String, CachedContributionCalendar> contributionCalendarCache = new ConcurrentHashMap<>();
 
     public RepoService(
             WatchedRepoStore watchedRepoStore,
@@ -138,9 +141,24 @@ public class RepoService
      */
     public ContributionCalendar getContributionCalendar(String login)
     {
-        String pat = patResolver.resolve();
         requireNotBlank(login, "login must not be blank");
-        return gitHub.fetchContributionCalendar(pat, login);
+        CachedContributionCalendar cached = contributionCalendarCache.get(login);
+        if (cached != null && cached.fetchedAt().plus(CONTRIBUTION_CALENDAR_TTL).isAfter(Instant.now())) {
+            return cached.value();
+        }
+
+        String pat = patResolver.resolve();
+        try {
+            ContributionCalendar fresh = gitHub.fetchContributionCalendar(pat, login);
+            contributionCalendarCache.put(login, new CachedContributionCalendar(fresh, Instant.now()));
+            return fresh;
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Contribution graph temporarily unavailable",
+                    e);
+        }
     }
 
     /**
@@ -161,6 +179,8 @@ public class RepoService
     }
 
     private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
+
+    private record CachedContributionCalendar(ContributionCalendar value, Instant fetchedAt) {}
 
     /**
      * Reads the cached profile from the local DB. Pure-DB read — no GitHub

@@ -117,9 +117,9 @@ describe('Kbd', () => {
 describe('Chev', () => {
   it('adds the open modifier only when open', () => {
     const { container, rerender } = render(<Chev />);
-    expect(container.querySelector('.v3-chev')?.className).toBe('v3-chev');
+    expect(container.querySelector('.v3-chev')?.getAttribute('class')).toBe('v3-chev');
     rerender(<Chev open />);
-    expect(container.querySelector('.v3-chev')?.className).toBe('v3-chev v3-chev--open');
+    expect(container.querySelector('.v3-chev')?.getAttribute('class')).toBe('v3-chev v3-chev--open');
   });
 });
 

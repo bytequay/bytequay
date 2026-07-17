@@ -18,8 +18,8 @@ import type { ReactNode } from 'react';
  * buttons inside <TopBar>. No per-page top-bar component. */
 
 /** The top header bar container. Children are the assembled parts. */
-export function TopBar({ children }: { children: ReactNode }) {
-  return <div className="topbar">{children}</div>;
+export function TopBar({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={className === undefined ? 'topbar' : `topbar ${className}`}>{children}</div>;
 }
 
 /** Back / forward nav arrows shown at the left of the bar. */

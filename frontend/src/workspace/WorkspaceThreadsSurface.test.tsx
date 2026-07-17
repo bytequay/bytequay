@@ -35,14 +35,11 @@ describe('WorkspaceThreadsSurface', () => {
     const { container } = render(
       <WorkspaceThreadsSurface threads={[thread()]} loading={false} />,
     );
-    expect(screen.getByText('Open threads')).toBeTruthy();
-    expect(screen.getByText('1 active')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Trunks' })).toBeTruthy();
+    expect(screen.getByText('1 open · 1 active')).toBeTruthy();
     expect(screen.getByText('Backend cleanup review')).toBeTruthy();
-    // The thread DTO no longer projects a task, so the card shows the
-    // discussion meta chips + the orange no-task hint.
-    expect(screen.getByText('repo')).toBeTruthy();
-    expect(screen.getByText('discussion')).toBeTruthy();
-    expect(screen.getByText('no task yet')).toBeTruthy();
+    expect(screen.getByText('agent running')).toBeTruthy();
+    expect(screen.getByText('Agent is working in this trunk')).toBeTruthy();
     expect(container.querySelector('.thread-card .tile svg')).toBeTruthy();
   });
 
@@ -54,12 +51,12 @@ describe('WorkspaceThreadsSurface', () => {
       />,
     );
     expect(screen.queryByText('Backend cleanup review')).toBeNull();
-    expect(screen.getByText(/workspace is at rest/)).toBeTruthy();
+    expect(screen.getByText(/No trunks match this view/)).toBeTruthy();
   });
 
   it('shows the loading hint before data arrives', () => {
     render(<WorkspaceThreadsSurface threads={[]} loading />);
-    expect(screen.getByText('Loading…')).toBeTruthy();
+    expect(screen.getByText('Loading trunks…')).toBeTruthy();
   });
 
   it('routes a card click to onOpenThread', () => {
@@ -69,7 +66,7 @@ describe('WorkspaceThreadsSurface', () => {
     expect(onOpenThread).toHaveBeenCalledWith('t1');
   });
 
-  it('labels a 0-task discussion thread without a pill', async () => {
+  it('renders a zero-task trunk without a task-count chip', async () => {
     (window as unknown as { bridge: unknown }).bridge = {
       listTasksForThread: vi.fn().mockResolvedValue([]),
     };
@@ -79,8 +76,8 @@ describe('WorkspaceThreadsSurface', () => {
         loading={false}
       />,
     );
-    expect(await screen.findByText('discussion')).toBeTruthy();
-    expect(screen.getByText('no task yet')).toBeTruthy();
+    expect(await screen.findByText('Agent is working in this trunk')).toBeTruthy();
+    expect(document.querySelector('.wu-trunk-count')).toBeNull();
   });
 
   it('shows a task-count pill with the headline status on task-bearing threads', async () => {
@@ -92,10 +89,9 @@ describe('WorkspaceThreadsSurface', () => {
     const { container } = render(
       <WorkspaceThreadsSurface threads={[thread()]} loading={false} />,
     );
-    // RUNNING outranks COMPLETED as the headline status.
-    expect(await screen.findByText('2 tasks · Running')).toBeTruthy();
-    expect(container.querySelector('.tasks-pill--running')).toBeTruthy();
-    expect(screen.queryByText('no task yet')).toBeNull();
+    expect(await screen.findByText('2 tasks')).toBeTruthy();
+    expect(container.querySelector('.wu-trunk-count')).toBeTruthy();
+    expect(screen.getByText('agent running')).toBeTruthy();
     expect(listTasksForThread).toHaveBeenCalledWith('t1');
   });
 });

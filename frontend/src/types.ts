@@ -100,6 +100,15 @@ export type PullRequestDto = {
    *  "MERGE_CONFLICT"). Cleared once the user acknowledges the
    *  green "PR woke up" banner. */
   snoozeWakeReason: string | null;
+  /** GitHub head branch name. Present on workspace PR façades and null on
+   *  rows captured before branch metadata was added. */
+  headRef?: string | null;
+  /** Workspace review round currently attached to this pull request. */
+  reviewRound?: number | null;
+  /** Workspace task linked to the pull request, when one exists. */
+  linkedTaskKey?: string | null;
+  /** Replacement PR recorded when this pull request was superseded. */
+  supersededBy?: number | null;
 };
 
 /** One page of historic (closed/merged) PRs returned by /prs/history.
@@ -428,6 +437,40 @@ export type PullRequestDetailDto = {
    *  `pullRequest.mergeQueue`. Drives the "Add to merge queue" button
    *  mode, replacing the old client-side heuristic. */
   mergeQueueEnabled: boolean;
+  /** Workspace-owned links shown ahead of GitHub metadata in the redesigned
+   *  detail rail. Older sidecars omit this field and the renderer falls back
+   *  to linkedIssues. */
+  workspaceLinks?: Array<{
+    kind: 'trunk' | 'task' | 'agent-review';
+    title: string;
+    detail: string;
+    trunkId?: string | null;
+  }>;
+  /** Reviewer rows with their latest public state. When absent the renderer
+   *  derives a compatible projection from reviewerVerdicts and
+   *  requestedReviewers. */
+  reviewers?: Array<{
+    login: string;
+    state: 'commented' | 'approved' | 'requested';
+  }>;
+  assignees?: string[];
+  milestone?: {
+    title: string;
+    progressPercent: number;
+  } | null;
+  developmentLinks?: Array<{
+    number: number;
+    title?: string;
+    closes: boolean;
+  }>;
+  participants?: string[];
+  /** Source counts can exceed the cached timeline/check payloads. */
+  conversationCount?: number;
+  checkCount?: number;
+  /** Human-readable last-sync age supplied by the workspace overview
+   *  projection. */
+  syncedLabel?: string;
+  subscriptionReason?: string | null;
 };
 
 /** Lightweight CI-only slice served by /prs/ci. Polled while the detail
@@ -632,6 +675,10 @@ export type IssueDto = {
   htmlUrl: string;
   updatedAt: string;
   labels: string[];
+  commentCount?: number;
+  /** Workspace linkage supplied by the workspace-scoped issue facade. */
+  linkedTrunkId?: string | null;
+  linkedTrunkTitle?: string | null;
 };
 
 export type IssueLabelDto = { name: string; color: string };
@@ -672,6 +719,16 @@ export type IssueDetailDto = {
   /** True iff the viewer has explicitly subscribed to the issue. Drives
    *  the Subscribe / Unsubscribe button in the header. */
   subscribed: boolean;
+  /** Compact workspace-only relationships rendered beside the GitHub issue. */
+  linkedWork?: Array<{
+    kind: 'trunk' | 'pull-request';
+    id: string;
+    title: string;
+    status: string;
+    itemPath?: string | null;
+  }>;
+  /** GitHub participants shown as an overlapping avatar group. */
+  participants?: string[];
 };
 
 /** One row of the issue timeline. Most fields are populated only for
@@ -1499,6 +1556,12 @@ export type LocalCommitDto = {
    *  parse it. Author (not committer) so rebases/amends preserve
    *  the time the user thinks of as "when I wrote this." */
   authoredAt: string | null;
+  /** Workspace façade enrichment. Legacy local-repo responses omit these. */
+  ciStatus?: 'passed' | 'failed' | 'unknown';
+  agentOwned?: boolean;
+  onBehalfOf?: string | null;
+  displayTime?: string;
+  groupLabel?: string;
 };
 
 /** One file touched by a commit — middle pane of the Commits tab.
@@ -1616,6 +1679,11 @@ export type ThreadDto = {
   workModel: WorkModelDto | null;
   /** Concurrent compute slots the thread's tasks may occupy. 1 in v1. */
   parallelSlots: number;
+  /** Optional list projection fields used by the unified Trunks surface. */
+  activitySummary?: string;
+  taskCount?: number;
+  pullRequestCount?: number;
+  unread?: boolean;
 };
 
 export type ThreadGroupDto = {
@@ -1830,6 +1898,25 @@ export type WorkspaceCardDto = {
    *  null for an empty workspace. Drives the relative "edited Nm ago"
    *  text. */
   lastActivityMs: number | null;
+  /** Sole repository identity and verified clone behind this workspace. */
+  repository?: {
+    owner: string;
+    repo: string;
+    fullName: string;
+    defaultBaseBranch: string | null;
+    clonePath: string | null;
+    verified: boolean;
+  } | null;
+  /** Two newest trunk events, already scoped and deep-linked server-side. */
+  recentActivity?: Array<{
+    id: string;
+    title: string;
+    status: string;
+    itemPath: string;
+    occurredAt: number;
+  }>;
+  ready?: boolean;
+  syncState?: string;
 };
 
 /** One repo attached to a workspace. Carries workspace-level settings
@@ -2089,6 +2176,13 @@ export type BacklogItemDto = {
   rejectionReason: string | null;
   linkedTaskId: string | null;
   relatedBacklogIds: string[];
+  /** Workspace-local public key (BQ-N); absent on pre-migration fixtures. */
+  key?: string | null;
+  /** Structured workspace fields. Legacy thread callers may omit these. */
+  summary?: string;
+  detail?: string | null;
+  impactRisk?: string | null;
+  links?: Array<{ type: string; id: string }>;
 };
 
 /** Result of starting development on a backlog item: the updated item
@@ -2424,8 +2518,19 @@ export type WorkspaceInsightsDto = {
   /** Per-repo split of PR-linked tasks (attributed via the link ref):
    *  shipped (reached COMPLETED in window) vs still-open. */
   tasksByRepo: { repoFullName: string; tasksShipped: number; tasksOpen: number }[];
+  /** Workspace-scoped session usage projected from the canonical AgentRun rows. */
+  usageByProvider?: WorkspaceUsageBreakdownDto[];
+  usageByKind?: WorkspaceUsageBreakdownDto[];
   /** Latest GitHub REST quota, or null if no call has landed since boot. */
   githubRateLimit: { remaining: number; limit: number; resetAt: string } | null;
+};
+
+export type WorkspaceUsageBreakdownDto = {
+  key: string;
+  costUsdMilli: number;
+  tokensIn: number;
+  tokensOut: number;
+  sessions: number;
 };
 
 export type WorkspaceMemoryProposalDto = {
@@ -2716,7 +2821,15 @@ export type SavedViewBodyDto = {
   criteriaJson?: string | null;
 };
 
+/** Narrow renderer-to-sidecar request used by redesigned workspace pages. */
+export type WorkspaceApiRequest = {
+  path: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  body?: unknown;
+};
+
 export type Bridge = {
+  workspaceApi: <T = unknown>(request: WorkspaceApiRequest) => Promise<T>;
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   clearPat: () => Promise<boolean>;

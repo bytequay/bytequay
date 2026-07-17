@@ -18,6 +18,7 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.threads.NotificationMuteService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.PublishService;
 import com.bytequay.app.service.threads.PublishService.PublishResult;
@@ -57,15 +58,18 @@ public class NotificationController
     private final NotificationService notifications;
     private final PublishService publishes;
     private final TaskStore tasks;
+    private final NotificationMuteService mutes;
 
     public NotificationController(
             NotificationService notifications,
             PublishService publishes,
-            TaskStore tasks)
+            TaskStore tasks,
+            NotificationMuteService mutes)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.publishes = requireNonNull(publishes, "publishes is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.mutes = requireNonNull(mutes, "mutes is null");
     }
 
     @GetMapping
@@ -82,6 +86,37 @@ public class NotificationController
                     : notifications.listRecent();
         }
         return notifications.listRecent();
+    }
+
+    @GetMapping("/workspace/{workspaceId}")
+    public List<Notification> listWorkspace(@PathVariable String workspaceId)
+    {
+        return notifications.listForWorkspace(workspaceId).stream()
+                .filter(notification -> !mutes.muted(
+                        workspaceId, notification.publicType()))
+                .toList();
+    }
+
+    @PostMapping("/workspace/{workspaceId}/mark-all-read")
+    public int markAllRead(@PathVariable String workspaceId)
+    {
+        return notifications.markAllReadForWorkspace(workspaceId);
+    }
+
+    @GetMapping("/workspace/{workspaceId}/mutes")
+    public List<NotificationMuteService.MuteRule> listMutes(
+            @PathVariable String workspaceId)
+    {
+        return mutes.list(workspaceId);
+    }
+
+    @PostMapping("/workspace/{workspaceId}/mutes/{publicType}")
+    public NotificationMuteService.MuteRule setMute(
+            @PathVariable String workspaceId,
+            @PathVariable String publicType,
+            @RequestBody MuteRequest request)
+    {
+        return mutes.set(workspaceId, publicType, request.muted());
     }
 
     @PostMapping("/{id}/read")
@@ -221,4 +256,6 @@ public class NotificationController
                 .map(task -> task.status() == TaskStatus.NEEDS_ATTENTION)
                 .orElse(false);
     }
+
+    public record MuteRequest(boolean muted) {}
 }

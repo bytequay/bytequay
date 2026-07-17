@@ -138,6 +138,17 @@ class SqliteThreadTurnStore
                 .toList();
     }
 
+    @Override
+    public List<ThreadTurn> listTurnsByAgentRunId(String agentRunId, int limit)
+    {
+        requireNonNull(agentRunId, "agentRunId is null");
+        return turns.findByAgentRunIdOrderByCreatedAtMsDescIdDesc(
+                        agentRunId, firstPage(limit))
+                .stream()
+                .map(SqliteThreadTurnStore::toTurn)
+                .toList();
+    }
+
     private static ThreadTurn toTurn(ThreadTurnEntity e)
     {
         return new ThreadTurn(

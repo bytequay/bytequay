@@ -63,6 +63,24 @@ public interface NotificationStore
     /** Newest-first feed for a single thread (the auto* per-thread row). */
     List<Notification> listForThread(String threadId, int limit);
 
+    /** Canonical workspace stream, newest-first. */
+    default List<Notification> listForWorkspace(String workspaceId, int limit)
+    {
+        return List.of();
+    }
+
+    /** Marks ordinary workspace notifications read. Actionable gates and
+     *  questions remain unread. */
+    default int markAllReadForWorkspace(String workspaceId, long readAtMs)
+    {
+        return 0;
+    }
+
+    default Optional<Notification> findByDedupKey(String dedupKey)
+    {
+        return Optional.empty();
+    }
+
     /** Permanent removal. Notifications cascade on thread/task delete
      *  via FK, but explicit dismiss can also delete. */
     void delete(String id);

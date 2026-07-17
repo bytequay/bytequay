@@ -80,11 +80,47 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Mockito 5 uses Byte Buddy's inline mock maker. Supplying the
+             agent at JVM startup keeps the suite working on JDK 25+, where
+             dynamic self-attachment is no longer reliable. -->
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <finalName>bytequay-backend</finalName>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-test-agent</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeArtifactIds>byte-buddy-agent</includeArtifactIds>
+                            <outputDirectory>${project.build.directory}/test-agents</outputDirectory>
+                            <stripVersion>true</stripVersion>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${project.build.directory}/test-agents/byte-buddy-agent.jar</argLine>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

@@ -49,4 +49,10 @@ public interface ThreadTurnStore
 
     /** Turns for one thread, newest-first by creation time. */
     List<ThreadTurn> listTurnsByTaskId(String threadId, int limit);
+
+    /** Turns correlated to one public Session, newest-first. */
+    default List<ThreadTurn> listTurnsByAgentRunId(String agentRunId, int limit)
+    {
+        return List.of();
+    }
 }

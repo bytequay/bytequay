@@ -90,11 +90,9 @@ public class BacklogServiceImpl
         if (titleValue.isEmpty()) {
             throw status(400, "title is required");
         }
-        // The workspace pointer comes from the owning thread — the
-        // workspace-wide backlog view groups items by it.
-        String workspaceId = threadStore.findThreadById(threadIdValue)
-                .map(Thread::workspaceId)
-                .orElse(null);
+        Thread trunk = threadStore.findThreadById(threadIdValue)
+                .orElseThrow(() -> status(404, "trunk not found: " + threadIdValue));
+        String workspaceId = trunk.workspaceId();
         BacklogItem item = BacklogItem.create(
                 UUID.randomUUID().toString(),
                 threadIdValue,
@@ -106,8 +104,108 @@ public class BacklogServiceImpl
                 BacklogItem.SOURCE_MANUAL,
                 BacklogItem.CREATED_BY_USER,
                 Instant.now(),
-                /* relatedBacklogIds */ List.of());
+                /* relatedBacklogIds */ List.of())
+                .withPublicFields(
+                        allocateKey(workspaceId), titleValue,
+                        nullToEmpty(body).strip(), null,
+                        List.of(new BacklogItem.Link("trunk", threadIdValue)));
         return store.save(item);
+    }
+
+    @Override
+    public BacklogItem createForWorkspace(
+            String workspaceId,
+            String trunkId,
+            String title,
+            String summary,
+            String detail,
+            String impactRisk,
+            List<String> tags,
+            String priority,
+            List<BacklogItem.Link> links)
+    {
+        String workspace = nullToEmpty(workspaceId).strip();
+        String trunk = nullToEmpty(trunkId).strip();
+        String titleValue = nullToEmpty(title).strip();
+        String summaryValue = nullToEmpty(summary).strip();
+        if (workspace.isEmpty()) {
+            throw status(400, "workspaceId is required");
+        }
+        if (trunk.isEmpty()) {
+            throw status(400, "trunkId is required");
+        }
+        if (titleValue.isEmpty()) {
+            throw status(400, "title is required");
+        }
+        if (summaryValue.isEmpty()) {
+            throw status(400, "summary is required");
+        }
+        requireTrunkInWorkspace(workspace, trunk);
+        List<BacklogItem.Link> nextLinks = withTrunkLink(trunk, links);
+        BacklogItem item = BacklogItem.create(
+                        UUID.randomUUID().toString(),
+                        trunk,
+                        workspace,
+                        titleValue,
+                        nullToEmpty(detail).strip(),
+                        tags == null ? List.of() : tags,
+                        normalisePriority(priority),
+                        BacklogItem.SOURCE_MANUAL,
+                        BacklogItem.CREATED_BY_USER,
+                        Instant.now(),
+                        List.of())
+                .withPublicFields(
+                        allocateKey(workspace),
+                        summaryValue,
+                        nullToEmpty(detail).strip(),
+                        blankToNull(impactRisk),
+                        nextLinks);
+        return store.save(item);
+    }
+
+    @Override
+    public BacklogItem getForWorkspace(String workspaceId, String itemKey)
+    {
+        return requireForWorkspace(workspaceId, itemKey);
+    }
+
+    @Override
+    public BacklogItem updateForWorkspace(
+            String workspaceId,
+            String itemKey,
+            String title,
+            String summary,
+            String detail,
+            String impactRisk,
+            List<String> tags,
+            String priority,
+            List<BacklogItem.Link> links)
+    {
+        BacklogItem existing = requireForWorkspace(workspaceId, itemKey);
+        String nextTitle = title == null ? existing.title() : title.strip();
+        String nextSummary = summary == null ? existing.summary() : summary.strip();
+        if (nextTitle.isEmpty()) {
+            throw status(400, "title is required");
+        }
+        if (nextSummary.isEmpty()) {
+            throw status(400, "summary is required");
+        }
+        List<BacklogItem.Link> nextLinks = links == null
+                ? existing.links()
+                : withTrunkLink(existing.threadId(), links);
+        BacklogItem updated = existing
+                .withDetails(
+                        nextTitle,
+                        detail == null ? existing.detail() : detail.strip(),
+                        tags == null ? existing.tags() : tags,
+                        priority == null ? existing.priority() : normalisePriority(priority))
+                .withPublicFields(
+                        existing.itemKey(),
+                        nextSummary,
+                        detail == null ? existing.detail() : detail.strip(),
+                        impactRisk == null ? existing.impactRisk() : blankToNull(impactRisk),
+                        nextLinks);
+        return store.save(updated);
     }
 
     @Override
@@ -147,7 +245,11 @@ public class BacklogServiceImpl
                     BacklogItem.SOURCE_TRUNK_SPLIT,
                     BacklogItem.CREATED_BY_TRUNK_AGENT,
                     now,
-                    siblings));
+                    siblings)
+                    .withPublicFields(
+                            allocateKey(workspaceId), title,
+                            nullToEmpty(in.body()).strip(), null,
+                            siblingLinks(threadIdValue, siblings)));
         }
         return new BatchResult(ids, groupId);
     }
@@ -207,19 +309,43 @@ public class BacklogServiceImpl
     @Override
     public StartResult startDevelopment(String id)
     {
+        return startDevelopment(id, null);
+    }
+
+    @Override
+    public StartResult startDevelopment(String id, String trunkId)
+    {
         BacklogItem item = require(id);
+        return startItem(item, trunkId);
+    }
+
+    @Override
+    public StartResult startDevelopmentForWorkspace(
+            String workspaceId, String itemKey, String trunkId)
+    {
+        return startItem(requireForWorkspace(workspaceId, itemKey), trunkId);
+    }
+
+    private StartResult startItem(BacklogItem item, String trunkId)
+    {
         if (!BacklogItem.STATUS_CREATED.equals(item.status())) {
-            throw status(409, "backlog item is not in created (can't start exploration)");
+            throw status(409, "backlog item is not open (can't start exploration)");
         }
         // Hand the item to the trunk as a fresh planning prompt. The trunk
         // either cuts the task when its understanding is solid or asks the
         // user to confirm the direction first; none of that happens here. The
         // id prefix is the only way the trunk can later tell create_task which
         // item to resolve — nothing else carries it into that conversation.
-        String content = item.body().isBlank()
-                ? item.title()
-                : item.title() + "\n\n" + item.body();
-        String prompt = "(backlog item " + item.id() + " — pass this as backlog_item_id if you cut a "
+        if (trunkId != null && !trunkId.isBlank()) {
+            String workspaceId = item.workspaceId();
+            Thread selected = requireTrunkInWorkspace(workspaceId, trunkId);
+            item = store.save(item.withThread(selected.id()));
+        }
+        String content = item.detail() == null || item.detail().isBlank()
+                ? item.summary()
+                : item.summary() + "\n\n" + item.detail();
+        String key = item.itemKey() == null ? item.id() : item.itemKey();
+        String prompt = "(backlog item " + key + " — pass this as backlog_item_id if you cut a "
                 + "task from it)\n\n"
                 + "Before cutting a task from this backlog item, read enough code/context to state "
                 + "the goal, intended direction, and effort/risk.\n\n"
@@ -269,8 +395,69 @@ public class BacklogServiceImpl
 
     private BacklogItem require(String id)
     {
-        return store.findById(nullToEmpty(id).strip())
+        String itemId = nullToEmpty(id).strip();
+        return store.findById(itemId)
                 .orElseThrow(() -> status(404, "backlog item not found: " + id));
+    }
+
+    private BacklogItem requireForWorkspace(String workspaceId, String itemKey)
+    {
+        String workspace = nullToEmpty(workspaceId).strip();
+        String key = nullToEmpty(itemKey).strip().toUpperCase(Locale.ROOT);
+        if (workspace.isEmpty() || key.isEmpty()) {
+            throw status(400, "workspaceId and itemKey are required");
+        }
+        return store.findByWorkspaceAndItemKey(workspace, key)
+                .orElseThrow(() -> status(404,
+                        "backlog item not found in workspace: " + itemKey));
+    }
+
+    private Thread requireTrunkInWorkspace(String workspaceId, String trunkId)
+    {
+        return threadStore.findThreadById(nullToEmpty(trunkId).strip())
+                .filter(thread -> workspaceId.equals(thread.workspaceId()))
+                .orElseThrow(() -> status(404,
+                        "trunk is not in this workspace: " + trunkId));
+    }
+
+    private String allocateKey(String workspaceId)
+    {
+        String allocated = workspaceId == null ? null : store.nextItemKey(workspaceId);
+        return allocated == null
+                ? "BQ-" + UUID.randomUUID().toString().substring(0, 8)
+                : allocated;
+    }
+
+    private static List<BacklogItem.Link> siblingLinks(
+            String threadId, List<String> siblings)
+    {
+        List<BacklogItem.Link> links = new ArrayList<>();
+        links.add(new BacklogItem.Link("trunk", threadId));
+        siblings.forEach(id -> links.add(new BacklogItem.Link("backlog", id)));
+        return links;
+    }
+
+    private static List<BacklogItem.Link> withTrunkLink(
+            String trunkId, List<BacklogItem.Link> links)
+    {
+        List<BacklogItem.Link> value = new ArrayList<>();
+        value.add(new BacklogItem.Link("trunk", trunkId));
+        if (links != null) {
+            links.stream()
+                    .filter(link -> link != null
+                            && link.type() != null
+                            && link.id() != null
+                            && !link.type().isBlank()
+                            && !link.id().isBlank())
+                    .filter(link -> !("trunk".equals(link.type()) && trunkId.equals(link.id())))
+                    .forEach(value::add);
+        }
+        return List.copyOf(value);
+    }
+
+    private static String blankToNull(String value)
+    {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     /** Clamp a priority to the allowed set, defaulting to {@code medium}. */

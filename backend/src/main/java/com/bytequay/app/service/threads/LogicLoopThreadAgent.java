@@ -256,6 +256,7 @@ public class LogicLoopThreadAgent
             "list_tools",
             "list_prs",
             "read_pr",
+            "read_issue",
             "read_task",
             "read_current_repository",
             // The trunk reads files so it can plan against real source — and

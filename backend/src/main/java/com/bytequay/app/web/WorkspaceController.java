@@ -13,11 +13,12 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.beans.workspace.WorkspaceOverviewDto;
+import com.bytequay.app.beans.workspace.WorkspaceSummaryDto;
 import com.bytequay.app.domain.MemoryItem;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.service.WorkspaceInsightsService;
@@ -25,6 +26,7 @@ import com.bytequay.app.service.WorkspaceInsightsService.Insights;
 import com.bytequay.app.service.workspaces.MemoryItemService;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryDistiller;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryProposalService;
+import com.bytequay.app.service.workspaces.WorkspaceOverviewService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -59,19 +61,22 @@ public class WorkspaceController
     private final WorkspaceMemoryProposalService proposals;
     private final WorkspaceInsightsService insights;
     private final MemoryItemService memoryItems;
+    private final WorkspaceOverviewService overview;
 
     public WorkspaceController(
             WorkspaceService workspaces,
             WorkspaceMemoryDistiller distiller,
             WorkspaceMemoryProposalService proposals,
             WorkspaceInsightsService insights,
-            MemoryItemService memoryItems)
+            MemoryItemService memoryItems,
+            WorkspaceOverviewService overview)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.distiller = requireNonNull(distiller, "distiller is null");
         this.proposals = requireNonNull(proposals, "proposals is null");
         this.insights = requireNonNull(insights, "insights is null");
         this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
+        this.overview = requireNonNull(overview, "overview is null");
     }
 
     /** GET /api/workspaces/{id}/insights?window=7d */
@@ -80,10 +85,7 @@ public class WorkspaceController
             @PathVariable String id,
             @RequestParam(name = "window", required = false, defaultValue = "7d") String window)
     {
-        // Single-workspace mode: id is informational. When multi-
-        // workspace lands the service will filter by workspaceId.
-        requireNonNull(id, "id is null");
-        return insights.get(window);
+        return insights.get(id, window);
     }
 
     /**
@@ -92,9 +94,15 @@ public class WorkspaceController
      * top-level Workspaces page renders in one round-trip. Read-only.
      */
     @GetMapping
-    public List<WorkspaceCardDto> list()
+    public List<WorkspaceSummaryDto> list()
     {
-        return workspaces.listWithStats();
+        return overview.listReady();
+    }
+
+    @GetMapping("/{id}/overview")
+    public WorkspaceOverviewDto overview(@PathVariable String id)
+    {
+        return overview.overview(id);
     }
 
     @GetMapping("/{id}")

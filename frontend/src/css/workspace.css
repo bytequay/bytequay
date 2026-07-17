@@ -944,8 +944,28 @@
   width: 26px;
   height: 26px;
   border-radius: 7px;
+  background: rgba(148, 163, 184, 0.12);
   object-fit: cover;
   flex-shrink: 0;
+}
+
+.workspace-landing-card__repo-fallback {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-sizing: border-box;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-3);
+}
+
+.workspace-landing-card__repo-fallback svg {
+  width: 14px;
+  height: 14px;
 }
 
 .workspace-landing-card__avatar--scratch {

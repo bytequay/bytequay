@@ -36,6 +36,34 @@ function card(over: Partial<WorkspaceCardDto> = {}): WorkspaceCardDto {
 }
 
 describe('WorkspaceCard delete affordance', () => {
+  it('renders the GitHub avatar immediately without a coloured abbreviation fallback', () => {
+    const { container } = render(
+      <WorkspaceCard
+        card={card({
+          repository: {
+            owner: 'octocat',
+            repo: 'hello-world',
+            fullName: 'octocat/hello-world',
+            defaultBaseBranch: 'main',
+            clonePath: '/repos/hello-world',
+            verified: true,
+          },
+        })}
+        isCurrent={false}
+        onEnter={() => {}}
+      />,
+    );
+
+    const avatar = container.querySelector('.workspace-landing-card__repo-avatar');
+    expect(avatar?.getAttribute('src')).toBe('https://github.com/octocat.png?size=72');
+    expect(container.querySelector('.workspace-landing-card__repo-fallback')).toBeNull();
+
+    fireEvent.error(avatar as HTMLElement);
+    const fallback = container.querySelector('.workspace-landing-card__repo-fallback');
+    expect(fallback?.querySelector('svg')).toBeTruthy();
+    expect(fallback?.textContent).toBe('');
+  });
+
   it('renders a delete button that fires onDelete with the workspace id', () => {
     const onDelete = vi.fn();
     render(

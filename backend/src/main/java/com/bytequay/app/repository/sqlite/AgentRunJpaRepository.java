@@ -20,6 +20,10 @@ import java.util.List;
 interface AgentRunJpaRepository
         extends JpaRepository<AgentRunEntity, String>
 {
+    List<AgentRunEntity> findByWorkspaceIdOrderByStartedAtMsDesc(String workspaceId);
+
+    List<AgentRunEntity> findByThreadIdOrderByStartedAtMsDesc(String threadId);
+
     /** Every run for a task, newest-first. {@code kind} / {@code
      *  parentStageId} / {@code status} narrowing happens in the store —
      *  the row count per task is small enough that filtering client-side

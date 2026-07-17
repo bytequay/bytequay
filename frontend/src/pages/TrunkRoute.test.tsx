@@ -60,7 +60,6 @@ describe('TrunkRoute', () => {
   it('mounts the V3 trunk on live thread data', async () => {
     mockBridge();
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    expect(screen.getByText('THREAD')).toBeTruthy();
     // The thread title shows in both the top bar and the sidebar's
     // current-thread row.
     expect((await screen.findAllByText('Backend cleanup')).length).toBeGreaterThanOrEqual(1);
@@ -69,11 +68,10 @@ describe('TrunkRoute', () => {
     await screen.findAllByText('Add meter'); // wait for the mount-time load to settle
     container.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
     expect(screen.getByText('plan the cleanup')).toBeTruthy();
-    // Active task card shows in the (now-open) conversation fold AND the
-    // Tasks tab; its own fold bar label is a third occurrence.
+    // Active task card shows in the now-open conversation fold and the
+    // unified activity rail.
     expect(screen.getAllByText('Add meter').length).toBeGreaterThanOrEqual(2);
-    // "Closed" shows as both the sub-tab label and the folder header.
-    expect(screen.getAllByText('Closed').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Activity').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders task cuts as milestone nodes carrying the task card', async () => {

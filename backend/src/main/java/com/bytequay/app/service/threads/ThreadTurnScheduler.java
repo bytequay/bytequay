@@ -34,6 +34,13 @@ public interface ThreadTurnScheduler
      *  of any foreground Task on the thread. */
     String enqueueTrunkTurn(Thread thread, String input);
 
+    /** Replay a persisted trunk launch while correlating the new turn to a
+     *  caller-created Session. */
+    default String enqueueTrunkTurn(Thread thread, String input, String agentRunId)
+    {
+        return enqueueTrunkTurn(thread, input);
+    }
+
     /** Queue a task-scope (attended) turn bound to an explicit {@code
      *  taskId}, bypassing the active-task projection the no-id overloads
      *  derive. The task-altitude composer uses this so a turn lands on
@@ -89,4 +96,10 @@ public interface ThreadTurnScheduler
 
     /** Cancel queued turns for one thread and return the number cancelled. */
     int cancelQueuedTurns(String threadId);
+
+    /** Cancel only queued turns belonging to one Session. */
+    default int cancelSessionTurns(String agentRunId)
+    {
+        return 0;
+    }
 }

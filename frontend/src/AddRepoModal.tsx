@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { LocalRepoStatusDto, UserRepoDto, WatchedRepoDto } from './types';
+import type { UserRepoDto, WatchedRepoDto } from './types';
+import type { WorkspaceCreationDto } from './workspace/workspaceApi';
 import Avatar from './Avatar';
 import MapRepoModal from './repos/AddRepoModal';
 
@@ -20,7 +21,7 @@ type Props = {
   watchedRepos: WatchedRepoDto[];
   // Called after the repo has been watched and cloned into ByteQuay's
   // managed repo folder.
-  onAdded: (status: LocalRepoStatusDto) => void;
+  onAdded: (operation: WorkspaceCreationDto) => void;
   onClose: () => void;
 };
 
@@ -158,7 +159,7 @@ function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
         owner={mapTarget.owner}
         repo={mapTarget.repo}
         onClose={() => setMapTarget(null)}
-        onMapped={(status) => { setMapTarget(null); onAdded(status); }}
+        onStarted={(operation) => { setMapTarget(null); onAdded(operation); }}
       />
     )}
     </>

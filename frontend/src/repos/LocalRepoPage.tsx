@@ -637,12 +637,8 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
             owner={owner}
             repo={repo}
             onClose={() => setMapCloneOpen(false)}
-            onMapped={(mapped) => {
-              setStatus(mapped);
-              setUnmapped(false);
+            onStarted={() => {
               setMapCloneOpen(false);
-              const signal = { cancelled: false };
-              void reload(signal).catch(e => setError(e instanceof Error ? e.message : String(e)));
             }}
           />
         )}

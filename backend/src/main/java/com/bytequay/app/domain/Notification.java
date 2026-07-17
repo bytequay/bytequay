@@ -37,6 +37,48 @@ public record Notification(
         NotificationStatus status,
         String payloadJson,
         Instant createdAt,
-        Instant readAt)
+        Instant readAt,
+        String workspaceId,
+        String publicType,
+        String title,
+        String summary,
+        String itemPath,
+        String dedupKey)
 {
+    /** Compatibility constructor for the gate-era notification shape. */
+    public Notification(
+            String id,
+            NotificationKind kind,
+            String threadId,
+            String taskId,
+            NotificationStatus status,
+            String payloadJson,
+            Instant createdAt,
+            Instant readAt)
+    {
+        this(id, kind, threadId, taskId, status, payloadJson, createdAt, readAt,
+                null, publicType(kind), defaultTitle(kind), null, null, null);
+    }
+
+    private static String publicType(NotificationKind kind)
+    {
+        return switch (kind) {
+            case AWAITING_REVIEW -> "approval-gate";
+            case NEEDS_ATTENTION -> "agent-question";
+            case AUTO_FIX_DONE -> "ci";
+            case READY_TO_MERGE -> "review-request";
+            case PASSIVE -> "system";
+        };
+    }
+
+    private static String defaultTitle(NotificationKind kind)
+    {
+        return switch (kind) {
+            case AWAITING_REVIEW -> "Approval needed";
+            case NEEDS_ATTENTION -> "Agent needs your input";
+            case AUTO_FIX_DONE -> "Automation completed";
+            case READY_TO_MERGE -> "Pull request ready to merge";
+            case PASSIVE -> "Workspace activity";
+        };
+    }
 }

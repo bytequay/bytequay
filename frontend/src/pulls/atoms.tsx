@@ -174,9 +174,9 @@ export function shortCount(n: number): string {
 
 /* ── Inline SVG icons, exact paths from the prototypes ── */
 
-export function PrOpenIcon({ size = 16 }: { size?: number }) {
+export function PrOpenIcon({ size = 16, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="6" cy="5.5" r="2.4" />
       <circle cx="6" cy="18.5" r="2.4" />
       <circle cx="18" cy="18.5" r="2.4" />
@@ -186,9 +186,9 @@ export function PrOpenIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-export function PrMergedIcon({ size = 16 }: { size?: number }) {
+export function PrMergedIcon({ size = 16, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="6" cy="5.5" r="2.4" />
       <circle cx="6" cy="18.5" r="2.4" />
       <circle cx="18" cy="12" r="2.4" />

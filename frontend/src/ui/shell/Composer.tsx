@@ -16,6 +16,7 @@ import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 import { CloseIcon, PlusIcon, SendUpIcon } from '../TaskBrainDesignIcons';
 import { useSlashCommands, type SlashCommand } from '../../useSlashCommands';
 import { OPEN_WORK_MODEL_EVENT } from '../../workspace/WorkModelPill';
+import { pasteClipboardImages } from './pasteClipboardImages';
 
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
 const MAX_INPUT_HEIGHT = 160;
@@ -100,20 +101,7 @@ export function Composer({
   // paste) when the host didn't wire onImagesChange.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     if (onImagesChange === undefined) return;
-    const imageItems = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/'));
-    if (imageItems.length === 0) return;
-    e.preventDefault();
-    for (const item of imageItems) {
-      const file = item.getAsFile();
-      if (file === null) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          onImagesChange([...images, reader.result]);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
+    pasteClipboardImages(e, images, onImagesChange);
   };
 
   if (closedNote !== undefined) {

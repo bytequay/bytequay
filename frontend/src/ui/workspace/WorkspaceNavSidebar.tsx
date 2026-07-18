@@ -36,7 +36,7 @@ function readStoredWidth(): number {
  *  are the primary (top) group; the rest sit in the bottom group. */
 export type WsNavKey =
   | 'home' | 'workspaces' | 'pulls' | 'automations'
-  | 'repos' | 'email' | 'notifications' | 'settings'
+  | 'repos' | 'email' | 'bug-report' | 'notifications' | 'settings'
   | 'today' | 'trunks' | 'pull-requests' | 'issues' | 'backlog'
   | 'branches' | 'commits' | 'sessions' | 'memory' | 'insights';
 
@@ -74,6 +74,7 @@ const TOP_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
 ];
 
 const BOTTOM_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
+  { key: 'bug-report', ic: <SidebarIcon kind="bug-report" />, label: 'Report a bug' },
   { key: 'notifications', ic: <SidebarIcon kind="notifications" />, label: 'Notifications' },
   { key: 'settings', ic: <SidebarIcon kind="settings" />, label: 'Settings' },
 ];
@@ -243,11 +244,13 @@ export function WorkspaceNavSidebar({
 }
 
 function SidebarIcon({ kind }: {
-  kind: 'home' | 'notifications' | 'settings';
+  kind: 'home' | 'bug-report' | 'notifications' | 'settings';
 }) {
-  const size = kind === 'notifications' || kind === 'settings' ? 15 : 16;
+  const size = kind === 'home' ? 16 : 15;
   const paths = {
     home: <><path d="M3 9.8 12 3l9 6.8" /><path d="M5.5 8.8V20a1 1 0 0 0 1 1H17.5a1 1 0 0 0 1-1V8.8" /></>,
+    'bug-report': <><path d="M8 5h8a2 2 0 0 1 2 2v8a6 6 0 0 1-12 0V7a2 2 0 0 1 2-2Z" />
+      <path d="M9 2v3m6-3v3M3 10h3m12 0h3M3 15h3m12 0h3M9 10h6" /></>,
     notifications: <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
       <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.6 15H3.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 5 8.6l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 5.6h.09A1.65 1.65 0 0 0 10 3.6V3.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.4 9h.1a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,

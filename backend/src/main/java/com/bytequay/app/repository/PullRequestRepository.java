@@ -718,6 +718,15 @@ public interface PullRequestRepository
     }
 
     /**
+     * Creates an issue and returns its normalised list-row payload.
+     * Maps to: POST /repos/{owner}/{repo}/issues
+     */
+    default RepoIssue createIssue(String pat, RepoRef repo, String title, String body)
+    {
+        throw new UnsupportedOperationException("createIssue not implemented");
+    }
+
+    /**
      * Fetches a single issue's full payload for the in-app detail page.
      * Comments are loaded separately by {@link #fetchIssueDetailComments}
      * so each method maps cleanly to one upstream HTTP call.

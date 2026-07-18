@@ -35,6 +35,7 @@ describe('filterCatalog', () => {
     expect(result[0].id).toBe('nav.workspace.memory');
     // "new thread" matches the create.thread label directly.
     expect(filterCatalog('new thread')[0].id).toBe('create.thread');
+    expect(filterCatalog('report bug')[0].id).toBe('create.issue-report');
   });
 
   it('returns no rows when no catalog entry matches every token', () => {

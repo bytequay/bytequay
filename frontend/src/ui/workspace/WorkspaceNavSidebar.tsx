@@ -35,7 +35,7 @@ function readStoredWidth(): number {
 /** Nav destinations. No Search (removed in this model). The first four
  *  are the primary (top) group; the rest sit in the bottom group. */
 export type WsNavKey =
-  | 'home' | 'workspaces' | 'pulls' | 'reviews' | 'my-work' | 'automations'
+  | 'home' | 'workspaces' | 'pulls' | 'automations'
   | 'repos' | 'email' | 'notifications' | 'settings'
   | 'today' | 'trunks' | 'pull-requests' | 'issues' | 'backlog'
   | 'branches' | 'commits' | 'sessions' | 'memory' | 'insights';
@@ -70,11 +70,7 @@ export const PULLS_ICON = (
 const TOP_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
   { key: 'home', ic: <SidebarIcon kind="home" />, label: 'Home' },
   { key: 'workspaces', ic: WORKSPACES_ICON, label: 'Workspaces' },
-  // Temporary during the PR-redesign rollout: the new unified surface sits
-  // alongside Reviews + My work; those two retire when the swap lands.
   { key: 'pulls', ic: PULLS_ICON, label: 'Pull requests' },
-  { key: 'reviews', ic: <SidebarIcon kind="reviews" />, label: 'Reviews' },
-  { key: 'my-work', ic: <SidebarIcon kind="work" />, label: 'My work' },
 ];
 
 const BOTTOM_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
@@ -84,7 +80,7 @@ const BOTTOM_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
 
 /**
  * The workspace-model sidebar shell: traffic lights, the fixed top nav
- * (Home / Workspaces / My work), a body that swaps between the workspace
+ * (Home / Workspaces / Pull requests), a body that swaps between the workspace
  * list and a workspace's threads, and a compact secondary nav.
  * Identical across every frame — built once. When a workspace is open the
  * Workspaces item shows a "← back" hint (it's the way back to the
@@ -246,24 +242,18 @@ export function WorkspaceNavSidebar({
 }
 
 function SidebarIcon({ kind }: {
-  kind: 'home' | 'reviews' | 'work' | 'notifications' | 'settings';
+  kind: 'home' | 'notifications' | 'settings';
 }) {
   const size = kind === 'notifications' || kind === 'settings' ? 15 : 16;
   const paths = {
     home: <><path d="M3 9.8 12 3l9 6.8" /><path d="M5.5 8.8V20a1 1 0 0 0 1 1H17.5a1 1 0 0 0 1-1V8.8" /></>,
-    reviews: <><path d="M12 3v18" /><path d="M7 21h10" /><path d="M3 7h3.5L12 5l5.5 2H21" />
-      <path d="m6.5 7-2.8 6a3 3 0 0 0 5.6 0L6.5 7z" />
-      <path d="m17.5 7-2.8 6a3 3 0 0 0 5.6 0L17.5 7z" /></>,
-    work: <><rect x="3" y="4" width="6.5" height="6.5" rx="1.4" />
-      <path d="m3.6 7.1 1.4 1.4 2.6-2.8" />
-      <path d="M12.5 6.2h8.5M12.5 12h8.5M12.5 17.8h8.5" /></>,
     notifications: <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
       <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.6 15H3.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 5 8.6l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 5.6h.09A1.65 1.65 0 0 0 10 3.6V3.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.4 9h.1a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
   } satisfies Record<typeof kind, ReactNode>;
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={kind === 'reviews' ? 1.6 : 1.7}
+      strokeWidth={1.7}
       strokeLinecap="round" strokeLinejoin="round">
       {paths[kind]}
     </svg>

@@ -31,8 +31,6 @@ import type { SurfaceVisitInput } from '../types';
  */
 export function navToSurfaceVisit(nav: Nav): SurfaceVisitInput | null {
   switch (nav.view) {
-    case 'my-prs':
-      return null;
     case 'repo':
       // Only an individual PR is a tracked surface; bare repo browsing
       // (pulls/issues lists) is not.

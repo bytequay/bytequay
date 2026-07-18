@@ -123,6 +123,22 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   const paneShown = selDto !== null && paneOpen;
   const wide = !paneShown;
 
+  // Record a footprint for the opened PR (selection is local state plus a
+  // workspace nav the footprint layer doesn't track) so it shows up in the
+  // rail's Recent list. Same "owner/repo#num" surfaceId as the nav layer.
+  useEffect(() => {
+    if (selDto === null || repo === null) return;
+    const fullName = `${repo.owner}/${repo.repo}`;
+    void window.bridge.recordSurfaceVisit({
+      surfaceType: 'PR',
+      surfaceId: `${fullName}#${selDto.number}`,
+      title: `${selDto.title} #${selDto.number}`,
+      context: fullName,
+    })
+      .then(() => window.dispatchEvent(new Event('footprint-recorded')))
+      .catch(() => { /* fire-and-forget */ });
+  }, [selDto?.number, repo]);
+
   // Resolve the unified pr-table id for the selection, then build the pane's
   // PullRow off the workspace dto with that id swapped in (PullDetailPane's
   // usePR call needs it).

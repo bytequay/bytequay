@@ -17,7 +17,7 @@ import { navToSurfaceVisit, visitKey } from './surfaceVisit';
 
 describe('navToSurfaceVisit', () => {
   it('does not track the PR board itself', () => {
-    expect(navToSurfaceVisit({ view: 'my-prs' })).toBeNull();
+    expect(navToSurfaceVisit({ view: 'pulls' })).toBeNull();
   });
 
   it('maps an individual PR with owner/repo/number in the surfaceId', () => {

@@ -660,7 +660,7 @@ function IssueDetailPage({
         <button
           type="button"
           className="wu-icon-button"
-          onClick={() => { void window.bridge.openExternal(detail.htmlUrl); }}
+          onClick={() => { void window.bridge.openInAppBrowser(detail.htmlUrl); }}
         >
           Open on GitHub <ExternalIcon />
         </button>
@@ -1421,7 +1421,7 @@ function CommitsPage({
                           </button>
                           <button type="button" onClick={() => setCherryOpen(true)}>Cherry-pick…</button>
                           <button type="button" onClick={() => {
-                            void window.bridge.openExternal(`https://github.com/${repo.fullName}/commit/${commit.sha}`);
+                            void window.bridge.openInAppBrowser(`https://github.com/${repo.fullName}/commit/${commit.sha}`);
                           }}>GitHub<ExternalIcon /></button>
                         </div>
                       </div>

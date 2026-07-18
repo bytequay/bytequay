@@ -50,7 +50,7 @@ describe('MarkReadyPanel', () => {
 
   it('marks ready with no reviewers when the field is empty', async () => {
     const approveNotification = vi.fn().mockResolvedValue({ ok: true, resolution: 'approved', message: '', action: 'mark_ready' });
-    (window as unknown as { bridge: unknown }).bridge = { approveNotification, openExternal: vi.fn() };
+    (window as unknown as { bridge: unknown }).bridge = { approveNotification, openInAppBrowser: vi.fn() };
     const onMarked = vi.fn();
     render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={onMarked} />);
 
@@ -63,7 +63,7 @@ describe('MarkReadyPanel', () => {
   it('renders the fetched PR description as markdown', async () => {
     const fetchPullRequestDetail = vi.fn().mockResolvedValue({ number: 7, body: '## Summary\n\n- did a thing' });
     (window as unknown as { bridge: unknown }).bridge = {
-      approveNotification: vi.fn(), openExternal: vi.fn(), fetchPullRequestDetail,
+      approveNotification: vi.fn(), openInAppBrowser: vi.fn(), fetchPullRequestDetail,
     };
     render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={vi.fn()} />);
 
@@ -74,7 +74,7 @@ describe('MarkReadyPanel', () => {
 
   it('sends typed reviewers through approve and reflects the count', async () => {
     const approveNotification = vi.fn().mockResolvedValue({ ok: true, resolution: 'approved', message: '', action: 'mark_ready' });
-    (window as unknown as { bridge: unknown }).bridge = { approveNotification, openExternal: vi.fn() };
+    (window as unknown as { bridge: unknown }).bridge = { approveNotification, openInAppBrowser: vi.fn() };
     const onMarked = vi.fn();
     render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={onMarked} />);
 
@@ -90,7 +90,7 @@ describe('MarkReadyPanel', () => {
       { login: 'hubot', avatarUrl: null, name: null, isAuthor: false, isCommenter: false },
     ]);
     (window as unknown as { bridge: unknown }).bridge = {
-      approveNotification: vi.fn(), openExternal: vi.fn(), getSuggestedReviewers,
+      approveNotification: vi.fn(), openInAppBrowser: vi.fn(), getSuggestedReviewers,
     };
     render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={vi.fn()} />);
     await waitFor(() => expect(getSuggestedReviewers).toHaveBeenCalledWith('me/proj', 7));
@@ -105,7 +105,7 @@ describe('MarkReadyPanel', () => {
 
   it('surfaces a non-approved resolution instead of navigating away', async () => {
     const approveNotification = vi.fn().mockResolvedValue({ ok: false, resolution: 'failed', message: 'boom', action: 'mark_ready' });
-    (window as unknown as { bridge: unknown }).bridge = { approveNotification, openExternal: vi.fn() };
+    (window as unknown as { bridge: unknown }).bridge = { approveNotification, openInAppBrowser: vi.fn() };
     const onMarked = vi.fn();
     render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={onMarked} />);
 
@@ -115,10 +115,10 @@ describe('MarkReadyPanel', () => {
   });
 
   it('opens the live PR on GitHub', () => {
-    const openExternal = vi.fn();
-    (window as unknown as { bridge: unknown }).bridge = { approveNotification: vi.fn(), openExternal };
+    const openInAppBrowser = vi.fn();
+    (window as unknown as { bridge: unknown }).bridge = { approveNotification: vi.fn(), openInAppBrowser };
     render(<MarkReadyPanel notificationId="n1" pr={pr} onMarked={vi.fn()} />);
     fireEvent.click(screen.getByText('me/proj#7 ↗'));
-    expect(openExternal).toHaveBeenCalledWith('https://github.com/me/proj/pull/7');
+    expect(openInAppBrowser).toHaveBeenCalledWith('https://github.com/me/proj/pull/7');
   });
 });

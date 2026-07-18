@@ -351,6 +351,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('footprints:get', date),
   updateProfile: (name: string, bio: string, location: string): Promise<UserProfileDto> =>
     ipcRenderer.invoke('repos:updateProfile', name, bio, location),
+  openInAppBrowser: (url: string): Promise<void> => ipcRenderer.invoke('inapp:open', url),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   getUserStats: (login: string, force?: boolean): Promise<UserStatsDto> =>
     ipcRenderer.invoke('repos:getStats', login, force ?? false),

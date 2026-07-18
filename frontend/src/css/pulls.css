@@ -26,7 +26,12 @@
 .pl-hov-agent:hover { background: rgba(139, 92, 246, 0.15) !important; }
 .pl-hov-agent-dash:hover { background: rgba(139, 92, 246, 0.06) !important; }
 .pl-hov-load:hover { background: #f4f5f7; color: #17191c; }
+.pl-hov-green:hover:not(:disabled) { background: #1a7f37 !important; }
 
 @keyframes pl-pulse {
   50% { opacity: 0.35; }
+}
+
+@keyframes pl-spin {
+  to { transform: rotate(360deg); }
 }
